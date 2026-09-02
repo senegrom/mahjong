@@ -4,6 +4,8 @@ Riichi mahjong in the browser, played by the **EMA Riichi Competition Rules,
 2025 edition** (in force since 1 January 2026), against opponents that learn
 the game from self-play on the very same engine.
 
+**[Play it](https://senegrom.github.io/mahjong/)** against three heuristic opponents.
+
 The rules live once, in Rust. That crate is compiled to WebAssembly for the
 browser and, later, to a Python extension for training, so the game a person
 plays and the game the opponents were trained on cannot drift apart.
