@@ -19,8 +19,10 @@
 //! - [`agari`] every reading of a complete hand
 //! - [`yaku`] the scoring patterns
 //! - [`score`] han, minipoints and payments
+//! - [`wall`] the wall, dead wall and dora indicators
+//! - [`rng`] the seeded generator that makes games reproducible
 //!
-//! Still to come: the wall and dead wall, and the turn state machine.
+//! Still to come: the turn state machine.
 //!
 //! ```
 //! use riichi_core::hand::TileSet;
@@ -35,9 +37,11 @@
 
 pub mod agari;
 pub mod hand;
+pub mod rng;
 pub mod score;
 pub mod shanten;
 pub mod tile;
+pub mod wall;
 pub mod yaku;
 
 pub use hand::{ClaimedFrom, Meld, MeldKind, TileSet};
