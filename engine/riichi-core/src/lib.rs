@@ -22,8 +22,9 @@
 //! - [`wall`] the wall, dead wall and dora indicators
 //! - [`rng`] the seeded generator that makes games reproducible
 //! - [`game`] the turn state machine of a hand
+//! - [`table`] the full game: rounds, the deal moving on, and uma
 //!
-//! Still to come: the game around the hand, and the log format.
+//! Still to come: the log format, a command-line arena and the bots.
 //!
 //! ```
 //! use riichi_core::hand::TileSet;
@@ -42,6 +43,7 @@ pub mod hand;
 pub mod rng;
 pub mod score;
 pub mod shanten;
+pub mod table;
 pub mod tile;
 pub mod wall;
 pub mod yaku;

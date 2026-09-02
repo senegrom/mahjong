@@ -83,6 +83,11 @@ pub fn is_complete(hand: &TileSet, called: usize) -> bool {
 /// kind cannot wait on a fifth (EMA section 3.3.8).
 pub fn waits(hand: &TileSet, called: usize, visible: &TileSet) -> TileSet {
     let mut result = TileSet::new();
+    // A hand that is not waiting has no waits, and this one check saves the
+    // thirty-four it would otherwise take to find that out.
+    if shanten(hand, called) != TENPAI {
+        return result;
+    }
     let mut probe = *hand;
     for tile in Tile::all() {
         if visible.count(tile) >= COPIES {
