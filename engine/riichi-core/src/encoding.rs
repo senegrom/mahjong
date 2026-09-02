@@ -23,11 +23,14 @@ use crate::tile::{Tile, COPIES, KINDS};
 use crate::Wind;
 
 /// Planes in an observation.
-pub const PLANES: usize = 70;
+pub const PLANES: usize = 93;
 /// Positions in a plane: the 34 tile kinds.
 pub const POSITIONS: usize = KINDS;
 /// Numbers in one observation.
 pub const OBSERVATION: usize = PLANES * POSITIONS;
+/// Roughly how many discards a hand holds before the wall runs out, used to
+/// scale the timing planes into about zero to one.
+const DISCARD_SPAN: f32 = 70.0;
 
 /// Entries in the flat action space.
 pub const ACTIONS: usize = 78;
@@ -56,9 +59,14 @@ pub const CONCEALED_KAN: usize = 76;
 /// Add the fourth tile to a melded triplet.
 pub const EXTENDED_KAN: usize = 77;
 
-/// Writes the observation for the seat to move into `out`, which must hold
-/// [`OBSERVATION`] numbers. Everything is 0 or 1 except the broadcast
-/// scalars, which are scaled into roughly the same range.
+/// Writes the observation for one seat into `out`, which must hold
+/// [`OBSERVATION`] numbers.
+///
+/// The discards carry their history, because in riichi *when* a tile was let
+/// go says nearly as much as *that* it was: a tile discarded on the first
+/// turn reads very differently from the same tile on the twelfth, a tile
+/// taken straight from the draw says the hand had no use for it, and a tile
+/// that passed after a riichi declaration can never deal into that player.
 pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
     assert_eq!(
         out.len(),
@@ -69,24 +77,58 @@ pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
     let mut plane = 0;
     let me = &hand.players[seat.index()];
 
-    // The player's own concealed tiles, and their called sets.
+    // The player's own concealed tiles.
     unary(out, &mut plane, |tile| me.hand.count(tile));
-    unary(out, &mut plane, |tile| meld_count(hand, seat, tile));
 
-    // Every seat's discards and called sets, starting with this one.
+    // Called sets, every seat, starting with this one.
     for offset in 0..4 {
         let other = seat.plus(offset);
-        unary(out, &mut plane, |tile| {
-            hand.players[other.index()]
-                .discards
-                .iter()
-                .filter(|discard| discard.tile == tile)
-                .count() as u8
-        });
-    }
-    for offset in 1..4 {
-        let other = seat.plus(offset);
         unary(out, &mut plane, |tile| meld_count(hand, other, tile));
+    }
+
+    // Discards, every seat, with their history.
+    for offset in 0..4 {
+        let other = seat.plus(offset);
+        let player = &hand.players[other.index()];
+        let discards = &player.discards;
+
+        unary(out, &mut plane, |tile| {
+            discards.iter().filter(|entry| entry.tile == tile).count() as u8
+        });
+
+        // How late the most recent discard of each kind was.
+        value(out, &mut plane, |tile| {
+            discards
+                .iter()
+                .filter(|entry| entry.tile == tile)
+                .map(|entry| (entry.order + 1) as f32 / DISCARD_SPAN)
+                .fold(0.0, f32::max)
+        });
+        // Taken straight from the draw.
+        mark(out, &mut plane, |tile| {
+            discards
+                .iter()
+                .any(|entry| entry.tile == tile && entry.drawn)
+        });
+        // Let go after this player declared riichi, so it cannot deal in.
+        mark(out, &mut plane, |tile| match player.riichi_order {
+            Some(declared) => discards
+                .iter()
+                .any(|entry| entry.tile == tile && entry.order >= declared),
+            None => false,
+        });
+        // Somebody claimed it, so it never sat in the row.
+        mark(out, &mut plane, |tile| {
+            discards
+                .iter()
+                .any(|entry| entry.tile == tile && entry.claimed)
+        });
+        // The declaration tile itself, the loudest signal a player gives.
+        mark(out, &mut plane, |tile| {
+            discards
+                .iter()
+                .any(|entry| entry.tile == tile && entry.riichi)
+        });
     }
 
     // The dora indicators, and how many copies of each kind nobody can see.
@@ -100,12 +142,18 @@ pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
     let unseen = unseen_counts(hand, seat);
     unary(out, &mut plane, |tile| unseen.count(tile));
 
-    // Two per-tile flags that matter a great deal: what this hand is waiting
-    // on, and which tile is on the table awaiting a claim.
+    // What this hand is waiting on, and the tile awaiting a claim.
     let waits = me.waits();
     mark(out, &mut plane, |tile| waits.count(tile) > 0);
     let pending = hand.pending_discard.map(|(_, tile)| tile);
     mark(out, &mut plane, |tile| Some(tile) == pending);
+
+    // What is safe against each seat, worked out from the same history.
+    for offset in 0..4 {
+        let other = seat.plus(offset);
+        let safe = hand.safe_against(other);
+        mark(out, &mut plane, |tile| safe.count(tile) > 0);
+    }
 
     // Riichi, by relative seat.
     for offset in 0..4 {
@@ -135,7 +183,7 @@ pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
             },
         );
     }
-    broadcast(out, &mut plane, hand.wall.remaining() as f32 / 70.0);
+    broadcast(out, &mut plane, hand.wall.remaining() as f32 / DISCARD_SPAN);
     broadcast(out, &mut plane, hand.counters as f32 / 4.0);
     broadcast(out, &mut plane, hand.riichi_sticks as f32 / 4.0);
     for offset in 0..4 {
@@ -148,8 +196,9 @@ pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
     }
     let distance = shanten::shanten(&me.hand, me.melds.len());
     broadcast(out, &mut plane, distance as f32 / 8.0);
+    broadcast(out, &mut plane, hand.discards_made as f32 / DISCARD_SPAN);
 
-    debug_assert!(plane <= PLANES, "wrote {plane} planes, room for {PLANES}");
+    debug_assert_eq!(plane, PLANES, "the observation must fill every plane");
 }
 
 fn meld_count(hand: &Hand, seat: Wind, tile: Tile) -> u8 {
@@ -195,6 +244,14 @@ fn unary(out: &mut [f32], plane: &mut usize, count: impl Fn(Tile) -> u8) {
         }
         *plane += 1;
     }
+}
+
+fn value(out: &mut [f32], plane: &mut usize, amount: impl Fn(Tile) -> f32) {
+    let base = *plane * POSITIONS;
+    for tile in Tile::all() {
+        out[base + tile.idx()] = amount(tile);
+    }
+    *plane += 1;
 }
 
 fn mark(out: &mut [f32], plane: &mut usize, flag: impl Fn(Tile) -> bool) {
@@ -368,12 +425,94 @@ mod tests {
         observe(&hand, Wind::East, &mut east);
         observe(&hand, Wind::South, &mut south);
         assert_ne!(east, south, "different seats see different tables");
-        // The plane that says "this is my seat" is set for exactly one seat.
-        let seat_planes = PLANES - 15;
-        let mine: f32 = east[seat_planes * POSITIONS..(seat_planes + 1) * POSITIONS]
-            .iter()
-            .sum();
-        assert!(mine == 0.0 || mine == POSITIONS as f32);
+        // Every number stays in a range a network can work with.
+        for value in east.iter().chain(south.iter()) {
+            assert!((-2.0..=2.0).contains(value), "out of range: {value}");
+        }
+    }
+
+    /// Two tables holding the same tiles but reached in a different order
+    /// must not look the same: when a tile was let go is most of what a
+    /// discard row says.
+    #[test]
+    fn the_discards_carry_their_history() {
+        let mut early = fresh();
+        let mut late = fresh();
+        let tile: Tile = "1z".parse().unwrap();
+
+        // The same tile, discarded by South early in one hand and late in
+        // the other, with the rest of the row identical.
+        early.players[1].discards.push(crate::game::Discard {
+            tile,
+            order: 1,
+            drawn: true,
+            riichi: false,
+            claimed: false,
+        });
+        late.players[1].discards.push(crate::game::Discard {
+            tile,
+            order: 40,
+            drawn: true,
+            riichi: false,
+            claimed: false,
+        });
+
+        let mut first = vec![0.0; OBSERVATION];
+        let mut second = vec![0.0; OBSERVATION];
+        observe(&early, Wind::East, &mut first);
+        observe(&late, Wind::East, &mut second);
+        assert_ne!(first, second, "the timing of a discard must show");
+
+        // And a tile taken straight from the draw reads differently from one
+        // chosen out of the hand.
+        let mut chosen = fresh();
+        chosen.players[1].discards.push(crate::game::Discard {
+            tile,
+            order: 1,
+            drawn: false,
+            riichi: false,
+            claimed: false,
+        });
+        let mut third = vec![0.0; OBSERVATION];
+        observe(&chosen, Wind::East, &mut third);
+        assert_ne!(first, third, "a tile off the draw must show");
+    }
+
+    /// Everything discarded after a riichi declaration is safe against that
+    /// player, and the observation says so (EMA section 3.3.9).
+    #[test]
+    fn what_is_safe_after_a_riichi_is_encoded() {
+        let mut hand = fresh();
+        let declared: Tile = "5p".parse().unwrap();
+        let passed: Tile = "9m".parse().unwrap();
+        hand.players[1].riichi = crate::score::Riichi::Declared;
+        hand.players[1].riichi_order = Some(3);
+        hand.players[1].discards.push(crate::game::Discard {
+            tile: declared,
+            order: 3,
+            drawn: true,
+            riichi: true,
+            claimed: false,
+        });
+        hand.players[2].discards.push(crate::game::Discard {
+            tile: passed,
+            order: 4,
+            drawn: true,
+            riichi: false,
+            claimed: false,
+        });
+
+        let safe = hand.safe_against(Wind::South);
+        assert!(safe.count(declared) > 0, "their own discard is safe");
+        assert!(
+            safe.count(passed) > 0,
+            "a tile that passed after riichi is safe"
+        );
+        assert_eq!(
+            safe.count("3s".parse().unwrap()),
+            0,
+            "an unseen tile is not"
+        );
     }
 
     #[test]

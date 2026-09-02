@@ -25,6 +25,10 @@ use crate::Wind;
 pub struct Discard {
     /// The tile discarded.
     pub tile: Tile,
+    /// Where this discard falls in the hand, counting every player's
+    /// discards together. This is what makes "was it discarded after that
+    /// riichi" answerable.
+    pub order: u32,
     /// Whether it was the tile just drawn, discarded unchanged.
     pub drawn: bool,
     /// Whether it was turned sideways to declare riichi.
@@ -55,6 +59,8 @@ pub struct Player {
     pub furiten: bool,
     /// Furiten until the next draw or claim, after passing a winning tile.
     pub temporary_furiten: bool,
+    /// Where the riichi declaration falls in the hand's order of discards.
+    pub riichi_order: Option<u32>,
 }
 
 impl Player {
@@ -69,6 +75,7 @@ impl Player {
             score,
             furiten: false,
             temporary_furiten: false,
+            riichi_order: None,
         }
     }
 
@@ -232,6 +239,8 @@ pub struct Hand {
     pub after_quad: bool,
     /// Whether the most recent quad was an extended one that may be robbed.
     pub robbable_quad: Option<Tile>,
+    /// How many discards the hand has seen, which numbers each one.
+    pub discards_made: u32,
     /// The outcome, once there is one.
     pub outcome: Option<Outcome>,
 }
@@ -275,6 +284,7 @@ impl Hand {
             first_turns_unbroken: true,
             after_quad: false,
             robbable_quad: None,
+            discards_made: 0,
             outcome: None,
         }
     }
@@ -569,11 +579,17 @@ impl Hand {
     fn discard(&mut self, tile: Tile, riichi: bool) {
         let seat = self.turn;
         let drawn = self.drawn;
+        let order = self.discards_made;
+        self.discards_made += 1;
         {
             let player = self.player_mut(seat);
             player.hand.remove(tile);
+            if riichi {
+                player.riichi_order = Some(order);
+            }
             player.discards.push(Discard {
                 tile,
+                order,
                 drawn: drawn == Some(tile),
                 riichi,
                 claimed: false,
@@ -844,6 +860,30 @@ impl Hand {
         }
     }
 
+    /// Tiles that cannot deal into `seat`.
+    ///
+    /// A player is furiten on their own discards, so those are always safe
+    /// against them (EMA section 3.3.9). Once they have declared riichi they
+    /// can no longer change their hand, so everything discarded from that
+    /// point on and not claimed for a win is safe as well.
+    pub fn safe_against(&self, seat: Wind) -> TileSet {
+        let mut safe = TileSet::new();
+        let player = &self.players[seat.index()];
+        for discard in &player.discards {
+            safe.add(discard.tile);
+        }
+        if let Some(declared) = player.riichi_order {
+            for other in &self.players {
+                for discard in &other.discards {
+                    if discard.order >= declared {
+                        safe.add(discard.tile);
+                    }
+                }
+            }
+        }
+        safe
+    }
+
     /// Tiles the player may not discard after a call, because swap-calling is
     /// forbidden (EMA section 3.3.2).
     pub fn forbidden_discards(&self) -> Vec<Tile> {
@@ -1041,6 +1081,7 @@ mod tests {
         hand.players[1].hand = "123m456m789m11s34p".parse().unwrap();
         hand.players[1].discards.push(Discard {
             tile: "2p".parse().unwrap(),
+            order: 0,
             drawn: true,
             riichi: false,
             claimed: false,

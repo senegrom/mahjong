@@ -332,34 +332,16 @@ fn acceptance_width(hand: &TileSet, player: &Player, unseen: &TileSet) -> u32 {
 
 /// A rough safety score against one player who has declared riichi.
 ///
-/// A tile that player has already discarded can never deal in, because they
-/// would be furiten on it (EMA section 3.3.9); everything else is ranked by
-/// the shapes it can complete, which is why honours and terminals are safer
-/// than the middle of a suit.
+/// Anything the engine calls safe against them cannot deal in at all: their
+/// own discards, and everything that passed after they declared (EMA section
+/// 3.3.9). The rest is ranked by the shapes it can complete, which is why
+/// honours and terminals are safer than the middle of a suit, and why a tile
+/// whose suji partner has been discarded is safer than one that has not.
 fn safety_of(hand: &Hand, threat: Wind, tile: Tile) -> u8 {
-    let player = &hand.players[threat.index()];
-    if player.discards.iter().any(|discard| discard.tile == tile) {
+    if hand.safe_against(threat).count(tile) > 0 {
         return 100;
     }
-    // A tile discarded by anyone after the declaration is equally safe: the
-    // riichi player passed it up.
-    if let Some(index) = player.discards.iter().position(|discard| discard.riichi) {
-        let after: Vec<Tile> = hand
-            .players
-            .iter()
-            .flat_map(|other| {
-                other.discards.iter().skip(if core::ptr::eq(other, player) {
-                    index
-                } else {
-                    0
-                })
-            })
-            .map(|discard| discard.tile)
-            .collect();
-        if after.contains(&tile) {
-            return 100;
-        }
-    }
+    let player = &hand.players[threat.index()];
     if tile.is_honour() {
         // Honours cannot sit in a sequence, so only a pair or triplet wait
         // catches them, and every copy already gone makes that less likely.
@@ -479,6 +461,7 @@ mod tests {
         hand.players[1].riichi = crate::score::Riichi::Declared;
         hand.players[1].discards.push(crate::game::Discard {
             tile,
+            order: 0,
             drawn: true,
             riichi: true,
             claimed: false,
@@ -501,6 +484,7 @@ mod tests {
         hand.players[1].riichi = crate::score::Riichi::Declared;
         hand.players[1].discards.push(crate::game::Discard {
             tile: safe,
+            order: 0,
             drawn: true,
             riichi: true,
             claimed: false,
