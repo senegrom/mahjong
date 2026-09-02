@@ -17,9 +17,10 @@
 //! - [`hand`] counted tiles and called sets
 //! - [`shanten`] distance to a complete hand, waits and acceptance
 //! - [`agari`] every reading of a complete hand
+//! - [`yaku`] the scoring patterns
+//! - [`score`] han, minipoints and payments
 //!
-//! Still to come: scoring, the wall and dead wall, and the turn state
-//! machine.
+//! Still to come: the wall and dead wall, and the turn state machine.
 //!
 //! ```
 //! use riichi_core::hand::TileSet;
@@ -34,8 +35,10 @@
 
 pub mod agari;
 pub mod hand;
+pub mod score;
 pub mod shanten;
 pub mod tile;
+pub mod yaku;
 
 pub use hand::{ClaimedFrom, Meld, MeldKind, TileSet};
 pub use tile::{ParseError, Suit, Tile};
