@@ -227,3 +227,7 @@ dist/
 
 # Generated WebAssembly package (built by `npm run wasm`)
 web/src/wasm/
+
+# The Python template's `lib/` rule above is meant for virtualenvs, not
+# for the app's own components.
+!web/src/lib/
