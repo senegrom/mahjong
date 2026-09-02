@@ -42,7 +42,7 @@ pub struct MeldView {
     pub from: String,
 }
 
-/// One opponent, as the player at the table can see them.
+/// One player, as the person at the table can see them.
 #[derive(Serialize)]
 pub struct SeatView {
     /// The seat wind: `"east"`, `"south"`, `"west"` or `"north"`.
@@ -50,7 +50,10 @@ pub struct SeatView {
     /// How many tiles are in hand.
     pub hand_size: usize,
     /// The concealed tiles, but only for the seat the view belongs to.
+    /// The tile just drawn is not among them; it is kept apart below.
     pub hand: Vec<String>,
+    /// The tile just drawn, held apart as it would be at the table.
+    pub drawn: Option<String>,
     /// Called sets, which everyone can see.
     pub melds: Vec<MeldView>,
     /// The discard row.
@@ -111,19 +114,25 @@ pub struct Game {
     hand: Hand,
     rng: Rng,
     bots: Vec<Bot>,
+    /// Which of the four people at the table is the person playing. The
+    /// seats move between hands; this does not.
+    player: usize,
     seat: Wind,
     log: Vec<String>,
 }
 
 #[wasm_bindgen]
 impl Game {
-    /// Starts a game. The player takes the seat that begins as East.
+    /// Starts a game. Which seat the player begins in is drawn by lot, as
+    /// the players would draw wind tiles for it (EMA 2025 section 2.3).
     #[wasm_bindgen(constructor)]
     pub fn new(seed: f64) -> Game {
         let seed = seed as u64;
         let table = Table::new();
         let mut rng = Rng::from_seed(seed);
+        let player = rng.below(4);
         let hand = table.deal(&mut rng);
+        let seat = table.seat_of(player);
         Game {
             table,
             hand,
@@ -131,7 +140,8 @@ impl Game {
             bots: (0..4)
                 .map(|index| Bot::new(seed.wrapping_add(index)))
                 .collect(),
-            seat: Wind::East,
+            player,
+            seat,
             log: Vec::new(),
         }
     }
@@ -160,9 +170,18 @@ impl Game {
                         seat: wind_name(seat).to_string(),
                         hand_size: player.hand.len(),
                         hand: if seat == self.seat {
-                            player.hand.tiles().map(|tile| tile.to_string()).collect()
+                            let mut tiles = player.hand;
+                            if let Some(drawn) = self.drawn_tile(seat) {
+                                tiles.remove(drawn);
+                            }
+                            tiles.tiles().map(|tile| tile.to_string()).collect()
                         } else {
                             Vec::new()
+                        },
+                        drawn: if seat == self.seat {
+                            self.drawn_tile(seat).map(|tile| tile.to_string())
+                        } else {
+                            None
                         },
                         melds: player
                             .melds
@@ -256,7 +275,8 @@ impl Game {
                         break;
                     }
                     let seat = self.hand.turn;
-                    let action = self.bots[seat.index()].act(&self.hand);
+                    let who = self.table.player_at(seat);
+                    let action = self.bots[who].act(&self.hand);
                     self.note(seat, &describe_action(action).label);
                     self.hand.act(action).map_err(refused)?;
                 }
@@ -268,10 +288,8 @@ impl Game {
                     let answers: Vec<(Wind, Call)> = offered
                         .iter()
                         .map(|(seat, calls)| {
-                            (
-                                *seat,
-                                self.bots[seat.index()].call(&self.hand, *seat, calls),
-                            )
+                            let who = self.table.player_at(*seat);
+                            (*seat, self.bots[who].call(&self.hand, *seat, calls))
                         })
                         .collect();
                     for (seat, call) in &answers {
@@ -324,10 +342,8 @@ impl Game {
                     if *seat == self.seat {
                         continue;
                     }
-                    answers.push((
-                        *seat,
-                        self.bots[seat.index()].call(&self.hand, *seat, calls),
-                    ));
+                    let who = self.table.player_at(*seat);
+                    answers.push((*seat, self.bots[who].call(&self.hand, *seat, calls)));
                 }
                 if !matches!(call, Call::Pass) {
                     self.note(self.seat, &describe_call(call).label);
@@ -355,7 +371,7 @@ impl Game {
         }
         self.table.finish(&self.hand);
         // The player keeps their place at the table while the seats move.
-        self.seat = self.table.seat_of(0);
+        self.seat = self.table.seat_of(self.player);
         if !self.table.finished {
             self.hand = self.table.deal(&mut self.rng);
         }
@@ -365,6 +381,20 @@ impl Game {
     /// The final scores, once the game is over.
     pub fn final_scores(&self) -> Vec<i32> {
         self.table.final_scores().to_vec()
+    }
+
+    /// The tile the seat has just drawn and not yet used, if any.
+    fn drawn_tile(&self, seat: Wind) -> Option<Tile> {
+        if self.hand.turn != seat {
+            return None;
+        }
+        self.hand.drawn
+    }
+
+    /// Which of the four people at the table the player is, so the final
+    /// scores can be read.
+    pub fn player_index(&self) -> usize {
+        self.player
     }
 
     fn note(&mut self, seat: Wind, what: &str) {

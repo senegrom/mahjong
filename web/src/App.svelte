@@ -145,20 +145,25 @@
 
       <section class="mine" aria-label="your seat">
         <header>
-          <span class="wind">{NAMES[me.seat]}</span>
+          <span class="wind">You are {NAMES[me.seat]}</span>
           <span class="score">{me.score.toLocaleString()}</span>
           {#if me.riichi}<span class="riichi">riichi</span>{/if}
           {#if hints}
-            <span class="hint">
+            <span
+              class="hint"
+              title="How many tiles the hand still has to exchange before it is one tile from a win. Riichi players call this the shanten count."
+            >
               {#if view.shanten < 0}
-                complete
+                a winning hand
               {:else if view.shanten === 0}
                 waiting on
                 {#each view.waits as wait (wait)}
                   <Tile tile={wait} size="tiny" />
                 {/each}
+              {:else if view.shanten === 1}
+                one tile away from a wait
               {:else}
-                {view.shanten} from waiting
+                {view.shanten} tiles away from a wait
               {/if}
             </span>
             {#if view.furiten}
@@ -178,6 +183,17 @@
               title={myTurn ? `discard ${tile}` : tile}
             />
           {/each}
+          {#if me.drawn}
+            <span class="drawn-gap"></span>
+            <span class="drawn">
+              <Tile
+                tile={me.drawn}
+                onclick={discard}
+                disabled={!canDiscard(me.drawn)}
+                title="just drawn: {me.drawn}"
+              />
+            </span>
+          {/if}
           {#if me.melds.length}
             <span class="spacer"></span>
             <Melds melds={me.melds} size="normal" />
@@ -346,6 +362,18 @@
 
   .spacer {
     width: 18px;
+  }
+
+  /* The tile just drawn is held apart, as it would be at the table. */
+  .drawn-gap {
+    width: 12px;
+  }
+
+  .drawn {
+    position: relative;
+    display: inline-flex;
+    border-radius: 6px;
+    box-shadow: 0 0 0 2px var(--gold);
   }
 
   .controls {
