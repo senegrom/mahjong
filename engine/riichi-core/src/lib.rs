@@ -24,6 +24,7 @@
 //! - [`game`] the turn state machine of a hand
 //! - [`table`] the full game: rounds, the deal moving on, and uma
 //! - [`bot`] the heuristic opponent and benchmark
+//! - [`encoding`] how a position is shown to a network
 //!
 //! Still to come: the log format, a command-line arena and the bots.
 //!
@@ -40,6 +41,7 @@
 
 pub mod agari;
 pub mod bot;
+pub mod encoding;
 pub mod game;
 pub mod hand;
 pub mod rng;
