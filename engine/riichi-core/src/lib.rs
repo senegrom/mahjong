@@ -21,8 +21,9 @@
 //! - [`score`] han, minipoints and payments
 //! - [`wall`] the wall, dead wall and dora indicators
 //! - [`rng`] the seeded generator that makes games reproducible
+//! - [`game`] the turn state machine of a hand
 //!
-//! Still to come: the turn state machine.
+//! Still to come: the game around the hand, and the log format.
 //!
 //! ```
 //! use riichi_core::hand::TileSet;
@@ -36,6 +37,7 @@
 #![forbid(unsafe_code)]
 
 pub mod agari;
+pub mod game;
 pub mod hand;
 pub mod rng;
 pub mod score;
