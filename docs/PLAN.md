@@ -324,9 +324,14 @@ Milestones are sequential in their acceptance but overlap in work: the app
   logs is available, a supervised warm start (not planned by default).
 - Browser inference cost for the Expert tier; the Strong tier is the
   guaranteed fallback.
-- Choices to confirm: Svelte for the UI (the connect4 app is plain
-  JavaScript, but a mahjong table has far more state), the app's name and
-  visual theme, and whether online multiplayer is wanted at all.
+- Choices to confirm: the app's name and visual theme, and whether online
+  multiplayer is wanted at all.
+
+Decided: **Svelte for the interface** (2026-09-02). A mahjong table keeps far
+more state than a Connect Four grid, and Svelte compiles components away, so
+the shipped page stays small next to the tile art, the WebAssembly engine and
+the network. The cost is a build step, which the connect4 project deliberately
+avoided.
 
 ## 8. Immediate next steps
 

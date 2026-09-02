@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["engine/riichi-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/senegrom/mahjong"
+rust-version = "1.80"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
