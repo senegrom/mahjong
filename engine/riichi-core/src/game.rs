@@ -416,6 +416,19 @@ impl Hand {
         situation.robbing_quad = self.robbable_quad.is_some() && matches!(win_by, WinBy::Discard);
         situation.under_the_sea = self.wall.is_empty() && matches!(win_by, WinBy::SelfDraw);
         situation.under_the_river = self.wall.is_empty() && matches!(win_by, WinBy::Discard);
+        // The blessings, all of which need the first set of turns unbroken
+        // (EMA section 4.2.6, and Blessing of Man in section 4.2.4).
+        let untouched = self.first_turns_unbroken && player.discards.is_empty();
+        let nobody_has_discarded = self.players.iter().all(|other| other.discards.is_empty());
+        situation.blessing_of_heaven = matches!(seat, Wind::East)
+            && matches!(win_by, WinBy::SelfDraw)
+            && nobody_has_discarded
+            && player.melds.is_empty();
+        situation.blessing_of_earth = !matches!(seat, Wind::East)
+            && matches!(win_by, WinBy::SelfDraw)
+            && untouched
+            && player.melds.is_empty();
+        situation.blessing_of_man = matches!(win_by, WinBy::Discard) && untouched;
         score::score(&concealed, &player.melds, &situation)
     }
 
@@ -462,11 +475,13 @@ impl Hand {
             Action::Discard(tile) => self.discard(tile, false),
             Action::Riichi(tile) => {
                 let seat = self.turn;
+                // Double riichi is a declaration in the player's very first
+                // turn, with the first set of turns unbroken (EMA 4.2.2).
+                let double = self.first_turns_unbroken
+                    && self.players[seat.index()].discards.is_empty();
                 let player = self.player_mut(seat);
-                player.riichi = Riichi::None; // set below, once we know which
                 player.ippatsu = true;
                 self.discard(tile, true);
-                let double = self.first_turns_unbroken;
                 let player = self.player_mut(seat);
                 player.riichi = if double { Riichi::Double } else { Riichi::Declared };
                 player.score -= 1000;
@@ -544,7 +559,16 @@ impl Hand {
                 riichi,
                 claimed: false,
             });
+            // The one-shot chance runs to the declarer's own next discard
+            // (EMA section 4.2.1).
+            if !riichi {
+                player.ippatsu = false;
+            }
             player.refresh_furiten();
+        }
+        // The first set of turns is over once everyone has discarded once.
+        if self.players.iter().all(|player| !player.discards.is_empty()) {
+            self.first_turns_unbroken = false;
         }
         self.drawn = None;
         self.pending_discard = Some((seat, tile));
@@ -678,7 +702,11 @@ impl Hand {
                     scored.push((seat, score));
                 }
             }
-            self.mark_claimed(from);
+            // A robbed quad is not a discard, so there is no discard to
+            // mark as claimed (EMA section 3.3.13).
+            if self.robbable_quad.is_none() {
+                self.mark_claimed(from);
+            }
             self.apply_win(scored, Some(from));
             return Ok(());
         }
