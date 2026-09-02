@@ -291,8 +291,12 @@ impl Hand {
         let mut actions = Vec::new();
 
         // A win on the drawn tile, if the hand is complete and has a yaku.
+        // The shape is checked first because it is memoised and cheap, and
+        // scoring the hand is neither.
         if let Some(drawn) = self.drawn {
-            if self.would_win(self.turn, drawn, WinBy::SelfDraw).is_ok() {
+            if shanten::shanten(&player.hand, player.melds.len()) == shanten::COMPLETE
+                && self.would_win(self.turn, drawn, WinBy::SelfDraw).is_ok()
+            {
                 actions.push(Action::Tsumo);
             }
         }
@@ -570,8 +574,17 @@ impl Hand {
             let player = &self.players[seat.index()];
             let mut calls = Vec::new();
 
-            // A win, unless furiten (EMA section 3.3.9).
-            if !player.is_furiten() && self.would_win(seat, tile, WinBy::Discard).is_ok() {
+            // A win, unless furiten (EMA section 3.3.9). The cheap shape
+            // check comes first: scoring every discard for every player
+            // would otherwise dominate the cost of a hand.
+            let mut completed = player.hand;
+            completed.add(tile);
+            let complete_shape =
+                shanten::shanten(&completed, player.melds.len()) == shanten::COMPLETE;
+            if complete_shape
+                && !player.is_furiten()
+                && self.would_win(seat, tile, WinBy::Discard).is_ok()
+            {
                 calls.push(Call::Ron);
             }
 

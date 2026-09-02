@@ -9,6 +9,9 @@
 //! check against the rulebook; a table-driven version can replace it later
 //! if self-play throughput needs one.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use crate::hand::TileSet;
 use crate::tile::{Tile, COPIES, KINDS};
 
@@ -22,10 +25,29 @@ pub const TENPAI: i32 = 0;
 /// `called` is the number of sets already called, each of which counts as a
 /// complete set and whose tiles are not in `hand`.
 pub fn standard(hand: &TileSet, called: usize) -> i32 {
-    let mut counts = *hand.counts();
-    let mut search = Search { best: i32::MAX, called: called as i32 };
-    search.walk(&mut counts, 0, 0, 0, false);
-    search.best
+    let key = (*hand.counts(), called);
+    if let Some(cached) = CACHE.with(|cache| cache.borrow().get(&key).copied()) {
+        return cached;
+    }
+    let value = standard_uncached(&key.0, called);
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        // The same shapes come round again and again while a bot weighs its
+        // discards, so they are worth remembering; the cap keeps a long
+        // self-play run from growing without bound.
+        if cache.len() >= CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(key, value);
+    });
+    value
+}
+
+/// How many decompositions to remember before starting over.
+const CACHE_LIMIT: usize = 1 << 20;
+
+thread_local! {
+    static CACHE: RefCell<HashMap<([u8; KINDS], usize), i32>> = RefCell::new(HashMap::new());
 }
 
 /// Shanten of Seven Pairs (EMA section 4.2.2), which must be concealed and
@@ -133,112 +155,295 @@ pub fn acceptance(hand: &TileSet, called: usize, visible: &TileSet) -> Vec<(Tile
     result
 }
 
-struct Search {
-    best: i32,
-    called: i32,
+/// What one suit block can contribute: complete sets, partial blocks (the
+/// pair among them), and whether one of those partials is a pair.
+type Profile = (u8, u8, bool);
+
+/// The shanten of the ordinary shape, computed a suit at a time.
+///
+/// Each of the three suits and the honours is decomposed on its own into
+/// every worthwhile combination of sets and partial blocks, which is cached
+/// because the same nine-tile patterns recur constantly. The four results
+/// are then combined by a small dynamic program over at most fifty states,
+/// which is far cheaper than searching the whole hand at once.
+fn standard_uncached(counts: &[u8; KINDS], called: usize) -> i32 {
+    let mut states = [[[false; 2]; 6]; 5];
+    states[0][0][0] = true;
+
+    for block in 0..4 {
+        let (offset, size) = if block < 3 { (block * 9, 9) } else { (27, 7) };
+        let mut pattern = [0u8; 9];
+        pattern[..size].copy_from_slice(&counts[offset..offset + size]);
+        let profiles = profiles_for(&pattern, size, block == 3);
+
+        let mut next = [[[false; 2]; 6]; 5];
+        for sets in 0..5 {
+            for partials in 0..6 {
+                for pair in 0..2 {
+                    if !states[sets][partials][pair] {
+                        continue;
+                    }
+                    for (add_sets, add_partials, add_pair) in &profiles {
+                        let sets = (sets + *add_sets as usize).min(4);
+                        let partials = partials + *add_partials as usize;
+                        if partials > 5 || called + sets + partials > 5 {
+                            continue;
+                        }
+                        let pair = pair | usize::from(*add_pair);
+                        next[sets][partials][pair] = true;
+                    }
+                }
+            }
+        }
+        states = next;
+    }
+
+    let mut best = 8 - 2 * called as i32;
+    for sets in 0..5 {
+        for partials in 0..6 {
+            for pair in 0..2 {
+                if !states[sets][partials][pair] {
+                    continue;
+                }
+                let sets = sets + called;
+                let blocks = sets + partials;
+                let mut value = 8 - 2 * sets as i32 - partials as i32;
+                if blocks == 5 && pair == 0 {
+                    value += 1;
+                }
+                if value < best {
+                    best = value;
+                }
+            }
+        }
+    }
+    best
 }
 
-impl Search {
-    /// Records the shanten of one complete decomposition.
-    ///
-    /// The formula is the standard one: eight exchanges, minus two for every
-    /// complete set and one for every partial block, with at most five blocks
-    /// in all and an extra exchange needed when five blocks contain no pair.
-    fn record(&mut self, sets: i32, partials: i32, pair: bool) {
-        let sets = sets + self.called;
-        let blocks = sets + partials;
-        let mut value = 8 - 2 * sets - partials;
-        if blocks == 5 && !pair {
-            value += 1;
+/// Every worthwhile way one block of tiles can be read.
+fn profiles_for(pattern: &[u8; 9], size: usize, honours: bool) -> Vec<Profile> {
+    let key = pattern
+        .iter()
+        .enumerate()
+        .fold(0u32, |key, (index, count)| key | ((*count as u32) << (index * 3)))
+        | ((honours as u32) << 30);
+    if let Some(cached) = PROFILES.with(|cache| cache.borrow().get(&key).cloned()) {
+        return cached;
+    }
+    let mut found: Vec<Profile> = Vec::new();
+    let mut working = *pattern;
+    collect(&mut working, 0, size, honours, 0, 0, false, &mut found);
+    // Every distinct reading is kept. Dropping the ones another reading
+    // beats would be wrong: a reading with more blocks can be refused later
+    // by the five-block cap, and then the smaller one is the answer.
+    found.sort_unstable();
+    found.dedup();
+    let pruned = if found.is_empty() { vec![(0, 0, false)] } else { found };
+    PROFILES.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= CACHE_LIMIT {
+            cache.clear();
         }
-        if value < self.best {
-            self.best = value;
-        }
+        cache.insert(key, pruned.clone());
+    });
+    pruned
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect(
+    counts: &mut [u8; 9],
+    start: usize,
+    size: usize,
+    honours: bool,
+    sets: u8,
+    partials: u8,
+    pair: bool,
+    found: &mut Vec<Profile>,
+) {
+    let mut index = start;
+    while index < size && counts[index] == 0 {
+        index += 1;
+    }
+    if index == size {
+        found.push((sets, partials, pair));
+        return;
+    }
+    if sets + partials > 5 {
+        found.push((sets, partials, pair));
+        return;
     }
 
-    fn walk(
-        &mut self,
-        counts: &mut [u8; KINDS],
-        start: usize,
-        sets: i32,
-        partials: i32,
-        pair: bool,
-    ) {
-        let mut index = start;
-        while index < KINDS && counts[index] == 0 {
-            index += 1;
-        }
-        if index == KINDS {
-            self.record(sets, partials, pair);
-            return;
-        }
+    // A triplet.
+    if counts[index] >= 3 {
+        counts[index] -= 3;
+        collect(counts, index, size, honours, sets + 1, partials, pair, found);
+        counts[index] += 3;
+    }
 
-        let tile = Tile::new(index as u8);
-        let numbered = !tile.is_honour();
-        let rank = tile.rank();
-        let blocks = sets + self.called + partials;
+    // A sequence, which honours cannot form and which never wraps (EMA 3.2).
+    if !honours && index + 2 < size && counts[index + 1] > 0 && counts[index + 2] > 0 {
+        counts[index] -= 1;
+        counts[index + 1] -= 1;
+        counts[index + 2] -= 1;
+        collect(counts, index, size, honours, sets + 1, partials, pair, found);
+        counts[index] += 1;
+        counts[index + 1] += 1;
+        counts[index + 2] += 1;
+    }
 
-        // A triplet.
-        if counts[index] >= 3 {
-            counts[index] -= 3;
-            self.walk(counts, index, sets + 1, partials, pair);
-            counts[index] += 3;
+    // A pair, which may be the hand's pair or just a partial triplet.
+    if counts[index] >= 2 {
+        counts[index] -= 2;
+        if !pair {
+            collect(counts, index, size, honours, sets, partials + 1, true, found);
         }
+        collect(counts, index, size, honours, sets, partials + 1, pair, found);
+        counts[index] += 2;
+    }
 
-        // A sequence, which never wraps past 9 (EMA section 3.2).
-        if numbered && rank <= 7 && counts[index + 1] > 0 && counts[index + 2] > 0 {
+    if !honours {
+        // Two tiles a third would join.
+        if index + 1 < size && counts[index + 1] > 0 {
             counts[index] -= 1;
             counts[index + 1] -= 1;
-            counts[index + 2] -= 1;
-            self.walk(counts, index, sets + 1, partials, pair);
+            collect(counts, index, size, honours, sets, partials + 1, pair, found);
             counts[index] += 1;
             counts[index + 1] += 1;
+        }
+        // A shape waiting on the tile between.
+        if index + 2 < size && counts[index + 2] > 0 {
+            counts[index] -= 1;
+            counts[index + 2] -= 1;
+            collect(counts, index, size, honours, sets, partials + 1, pair, found);
+            counts[index] += 1;
             counts[index + 2] += 1;
         }
-
-        if blocks < 5 {
-            // A pair, either as the hand's pair or as a partial triplet.
-            if counts[index] >= 2 {
-                counts[index] -= 2;
-                if !pair {
-                    self.walk(counts, index, sets, partials + 1, true);
-                }
-                self.walk(counts, index, sets, partials + 1, pair);
-                counts[index] += 2;
-            }
-
-            // Two tiles that a third would join: an open or edge shape.
-            if numbered && rank <= 8 && counts[index + 1] > 0 {
-                counts[index] -= 1;
-                counts[index + 1] -= 1;
-                self.walk(counts, index, sets, partials + 1, pair);
-                counts[index] += 1;
-                counts[index + 1] += 1;
-            }
-
-            // A closed shape, waiting on the middle tile.
-            if numbered && rank <= 7 && counts[index + 2] > 0 {
-                counts[index] -= 1;
-                counts[index + 2] -= 1;
-                self.walk(counts, index, sets, partials + 1, pair);
-                counts[index] += 1;
-                counts[index + 2] += 1;
-            }
-        }
-
-        // Or the tile belongs to no block at all.
-        counts[index] -= 1;
-        self.walk(counts, index, sets, partials, pair);
-        counts[index] += 1;
     }
+
+    // Or the tile is spare.
+    counts[index] -= 1;
+    collect(counts, index, size, honours, sets, partials, pair, found);
+    counts[index] += 1;
+}
+
+thread_local! {
+    static PROFILES: RefCell<HashMap<u32, Vec<Profile>>> = RefCell::new(HashMap::new());
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rng::Rng;
+    use crate::tile::COPIES;
 
     fn hand(text: &str) -> TileSet {
         text.parse().expect("test hand parses")
+    }
+
+    /// The straightforward search over the whole hand at once, kept only to
+    /// check the fast implementation against.
+    fn reference(counts: &[u8; KINDS], called: usize) -> i32 {
+        fn walk(
+            counts: &mut [u8; KINDS],
+            start: usize,
+            called: i32,
+            sets: i32,
+            partials: i32,
+            pair: bool,
+            best: &mut i32,
+        ) {
+            let mut index = start;
+            while index < KINDS && counts[index] == 0 {
+                index += 1;
+            }
+            if index == KINDS {
+                let sets = sets + called;
+                let blocks = sets + partials;
+                let mut value = 8 - 2 * sets - partials;
+                if blocks == 5 && !pair {
+                    value += 1;
+                }
+                *best = (*best).min(value);
+                return;
+            }
+            let tile = Tile::new(index as u8);
+            let numbered = !tile.is_honour();
+            let rank = tile.rank();
+            let blocks = sets + called + partials;
+
+            if counts[index] >= 3 {
+                counts[index] -= 3;
+                walk(counts, index, called, sets + 1, partials, pair, best);
+                counts[index] += 3;
+            }
+            if numbered && rank <= 7 && counts[index + 1] > 0 && counts[index + 2] > 0 {
+                counts[index] -= 1;
+                counts[index + 1] -= 1;
+                counts[index + 2] -= 1;
+                walk(counts, index, called, sets + 1, partials, pair, best);
+                counts[index] += 1;
+                counts[index + 1] += 1;
+                counts[index + 2] += 1;
+            }
+            if blocks < 5 {
+                if counts[index] >= 2 {
+                    counts[index] -= 2;
+                    if !pair {
+                        walk(counts, index, called, sets, partials + 1, true, best);
+                    }
+                    walk(counts, index, called, sets, partials + 1, pair, best);
+                    counts[index] += 2;
+                }
+                if numbered && rank <= 8 && counts[index + 1] > 0 {
+                    counts[index] -= 1;
+                    counts[index + 1] -= 1;
+                    walk(counts, index, called, sets, partials + 1, pair, best);
+                    counts[index] += 1;
+                    counts[index + 1] += 1;
+                }
+                if numbered && rank <= 7 && counts[index + 2] > 0 {
+                    counts[index] -= 1;
+                    counts[index + 2] -= 1;
+                    walk(counts, index, called, sets, partials + 1, pair, best);
+                    counts[index] += 1;
+                    counts[index + 2] += 1;
+                }
+            }
+            counts[index] -= 1;
+            walk(counts, index, called, sets, partials, pair, best);
+            counts[index] += 1;
+        }
+
+        let mut working = *counts;
+        let mut best = i32::MAX;
+        walk(&mut working, 0, called as i32, 0, 0, false, &mut best);
+        best
+    }
+
+    /// The fast decomposition must agree with the straightforward one on
+    /// every hand, whatever the shape and however many sets were called.
+    #[test]
+    fn the_fast_search_matches_the_reference() {
+        let mut rng = Rng::from_seed(20260902);
+        for round in 0..4000 {
+            let called = round % 5;
+            let size = 13 - 3 * called;
+            let mut counts = [0u8; KINDS];
+            let mut drawn = 0;
+            while drawn < size {
+                let kind = rng.below(KINDS);
+                if counts[kind] < COPIES {
+                    counts[kind] += 1;
+                    drawn += 1;
+                }
+            }
+            let set = TileSet::from_counts(counts);
+            assert_eq!(
+                standard(&set, called),
+                reference(&counts, called),
+                "disagreed on {set} with {called} called sets"
+            );
+        }
     }
 
     #[test]
