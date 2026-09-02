@@ -1,0 +1,16 @@
+[package]
+name = "riichi-py"
+description = "Python bindings for the riichi rules engine: a batched self-play environment"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "riichi_py"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+riichi-core = { path = "../riichi-core" }
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py311"] }
