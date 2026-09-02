@@ -252,9 +252,9 @@ impl FromStr for Tile {
             (Some(rank), Some(letter), None) => (rank, letter),
             _ => return Err(ParseError(format!("not a tile: {text:?}"))),
         };
-        let rank = rank
-            .to_digit(10)
-            .ok_or_else(|| ParseError(format!("not a tile rank: {rank:?}")))? as u8;
+        let rank =
+            rank.to_digit(10)
+                .ok_or_else(|| ParseError(format!("not a tile rank: {rank:?}")))? as u8;
         let suit = match letter {
             'm' => Suit::Characters,
             'p' => Suit::Circles,
@@ -336,7 +336,14 @@ mod tests {
     /// EMA 2025 section 3.2: 8-9-1 is not a sequence.
     #[test]
     fn sequences_do_not_wrap() {
-        assert_eq!("8m".parse::<Tile>().unwrap().next_in_suit().unwrap().to_string(), "9m");
+        assert_eq!(
+            "8m".parse::<Tile>()
+                .unwrap()
+                .next_in_suit()
+                .unwrap()
+                .to_string(),
+            "9m"
+        );
         assert!("9m".parse::<Tile>().unwrap().next_in_suit().is_none());
         assert!(EAST.next_in_suit().is_none());
     }

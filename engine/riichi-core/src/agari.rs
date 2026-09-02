@@ -107,7 +107,10 @@ pub fn readings(hand: &TileSet, called: usize) -> Vec<Reading> {
             for mut blocks in found {
                 blocks.push(Block::Pair(pair));
                 blocks.sort_unstable();
-                result.push(Reading { shape: Shape::Standard, blocks });
+                result.push(Reading {
+                    shape: Shape::Standard,
+                    blocks,
+                });
             }
         }
         result.sort();
@@ -146,7 +149,10 @@ fn seven_pairs(hand: &TileSet) -> Option<Reading> {
     }
     if blocks.len() == 7 {
         blocks.sort_unstable();
-        Some(Reading { shape: Shape::SevenPairs, blocks })
+        Some(Reading {
+            shape: Shape::SevenPairs,
+            blocks,
+        })
     } else {
         None
     }
@@ -177,7 +183,10 @@ fn thirteen_orphans(hand: &TileSet) -> Option<Reading> {
     }
     if blocks.len() == 13 && pairs == 1 {
         blocks.sort_unstable();
-        Some(Reading { shape: Shape::ThirteenOrphans, blocks })
+        Some(Reading {
+            shape: Shape::ThirteenOrphans,
+            blocks,
+        })
     } else {
         None
     }
@@ -213,11 +222,7 @@ fn split_sets(
         counts[index] += 3;
     }
 
-    if !tile.is_honour()
-        && tile.rank() <= 7
-        && counts[index + 1] > 0
-        && counts[index + 2] > 0
-    {
+    if !tile.is_honour() && tile.rank() <= 7 && counts[index + 1] > 0 && counts[index + 2] > 0 {
         counts[index] -= 1;
         counts[index + 1] -= 1;
         counts[index + 2] -= 1;
@@ -256,10 +261,20 @@ mod tests {
         let all = readings(&hand("111222333m99p"), 1);
         assert!(all.len() >= 2, "expected several readings, got {all:?}");
         let has_triplets = all.iter().any(|reading| {
-            reading.blocks.iter().filter(|b| matches!(b, Block::Triplet(_))).count() >= 3
+            reading
+                .blocks
+                .iter()
+                .filter(|b| matches!(b, Block::Triplet(_)))
+                .count()
+                >= 3
         });
         let has_sequences = all.iter().any(|reading| {
-            reading.blocks.iter().filter(|b| matches!(b, Block::Sequence(_))).count() >= 3
+            reading
+                .blocks
+                .iter()
+                .filter(|b| matches!(b, Block::Sequence(_)))
+                .count()
+                >= 3
         });
         assert!(has_triplets && has_sequences);
     }

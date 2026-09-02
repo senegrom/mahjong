@@ -315,7 +315,11 @@ pub fn structural(analysis: &Analysis) -> Vec<Yaku> {
     let open = !analysis.concealed;
 
     let sequences: Vec<Group> = groups.iter().copied().filter(|g| g.is_sequence).collect();
-    let triplets: Vec<Group> = groups.iter().copied().filter(|g| g.is_triplet_like()).collect();
+    let triplets: Vec<Group> = groups
+        .iter()
+        .copied()
+        .filter(|g| g.is_triplet_like())
+        .collect();
 
     // Value triplets, one yaku each (EMA section 4.2.1).
     for group in &triplets {
@@ -353,7 +357,10 @@ pub fn structural(analysis: &Analysis) -> Vec<Yaku> {
     }
 
     // Terminals and honours everywhere.
-    let all_th = analysis.all_tiles.iter().all(|tile| tile.is_terminal_or_honour());
+    let all_th = analysis
+        .all_tiles
+        .iter()
+        .all(|tile| tile.is_terminal_or_honour());
     if all_th {
         found.push(Yaku::Honroutou);
     }
@@ -519,11 +526,21 @@ mod tests {
     }
 
     fn sequence(text: &str) -> Group {
-        Group { tile: tile(text), is_sequence: true, is_quad: false, concealed: true }
+        Group {
+            tile: tile(text),
+            is_sequence: true,
+            is_quad: false,
+            concealed: true,
+        }
     }
 
     fn triplet(text: &str) -> Group {
-        Group { tile: tile(text), is_sequence: false, is_quad: false, concealed: true }
+        Group {
+            tile: tile(text),
+            is_sequence: false,
+            is_quad: false,
+            concealed: true,
+        }
     }
 
     /// EMA 2025 section 4.2: open hands lose a han on the underlined yaku.
@@ -545,9 +562,19 @@ mod tests {
 
     #[test]
     fn pure_straight_and_mixed_triple_sequence() {
-        let straight = [sequence("1s"), sequence("4s"), sequence("7s"), sequence("2m")];
+        let straight = [
+            sequence("1s"),
+            sequence("4s"),
+            sequence("7s"),
+            sequence("2m"),
+        ];
         assert!(has_pure_straight(&straight));
-        let mixed = [sequence("1s"), sequence("1m"), sequence("1p"), sequence("5s")];
+        let mixed = [
+            sequence("1s"),
+            sequence("1m"),
+            sequence("1p"),
+            sequence("5s"),
+        ];
         assert!(!has_pure_straight(&mixed));
         assert!(has_all_three_suits(&mixed));
         assert!(!has_all_three_suits(&straight));

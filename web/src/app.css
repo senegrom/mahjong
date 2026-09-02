@@ -1,0 +1,76 @@
+/* The table's colours. Felt green carries the surface, ivory the tiles, and
+   a warm red is kept for the things that demand attention: a riichi stick, a
+   winning hand, a furiten warning. */
+:root {
+  --felt: #2f6f50;
+  --felt-dark: #24583f;
+  --felt-deep: #1b4230;
+  --rail: #6b4a2f;
+  --rail-dark: #4d341f;
+  --ivory: #f7f2e4;
+  --ink: #1c2a27;
+  --ink-soft: #5c6b66;
+  --paper: #f2ede0;
+  --line: #d5cdb8;
+  --accent: #b8361f;
+  --accent-soft: #f0d8d1;
+  --gold: #d8a12a;
+  --radius: 6px;
+  --tile-width: clamp(30px, 5.2vw, 46px);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --felt: #235240;
+    --felt-dark: #1a3f31;
+    --felt-deep: #122c22;
+    --rail: #4a3320;
+    --rail-dark: #33220f;
+    --ivory: #ece5d4;
+    --ink: #16211f;
+    --ink-soft: #a9b6b0;
+    --paper: #17241f;
+    --line: #2c4238;
+    --accent: #e2735a;
+    --accent-soft: #3a221c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: radial-gradient(circle at 50% 30%, var(--felt) 0%, var(--felt-deep) 78%);
+  color: var(--ivory);
+  font-family: 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

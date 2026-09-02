@@ -200,8 +200,8 @@ fn fuzz(games: usize, seed: u64) -> Result<(), String> {
             }
             let points: i32 = hand.players.iter().map(|player| player.score).sum::<i32>()
                 + (hand.riichi_sticks * 1000) as i32;
-            let expected: i32 = table.scores.iter().sum::<i32>()
-                + (table.riichi_sticks * 1000) as i32;
+            let expected: i32 =
+                table.scores.iter().sum::<i32>() + (table.riichi_sticks * 1000) as i32;
             if points != expected {
                 return Err(format!(
                     "game {game}: points went from {expected} to {points} over one hand"
@@ -241,7 +241,10 @@ fn check_invariants(hand: &Hand, opening: &TileSet, game: usize) -> Result<(), S
     // No hand may hold a fifth copy of anything.
     for player in &hand.players {
         if !player.hand.is_legal() {
-            return Err(format!("game {game}: a hand holds five of a kind: {}", player.hand));
+            return Err(format!(
+                "game {game}: a hand holds five of a kind: {}",
+                player.hand
+            ));
         }
     }
     // Tiles in play never appear from nowhere: what the players hold, have
@@ -249,7 +252,10 @@ fn check_invariants(hand: &Hand, opening: &TileSet, game: usize) -> Result<(), S
     let now = census(hand);
     for tile in Tile::all() {
         if now.count(tile) > COPIES {
-            return Err(format!("game {game}: {} copies of {tile} in play", now.count(tile)));
+            return Err(format!(
+                "game {game}: {} copies of {tile} in play",
+                now.count(tile)
+            ));
         }
     }
     let _ = opening;
@@ -257,7 +263,9 @@ fn check_invariants(hand: &Hand, opening: &TileSet, game: usize) -> Result<(), S
     let total: i32 = hand.players.iter().map(|player| player.score).sum::<i32>()
         + (hand.riichi_sticks * 1000) as i32;
     if total % 100 != 0 {
-        return Err(format!("game {game}: points are not whole hundreds: {total}"));
+        return Err(format!(
+            "game {game}: points are not whole hundreds: {total}"
+        ));
     }
     let _ = KINDS;
     Ok(())
@@ -285,7 +293,8 @@ fn play_hand(hand: &mut Hand, table: &Table, bots: &mut [Bot]) {
                         (*seat, bots[table.player_at(*seat)].call(hand, *seat, calls))
                     })
                     .collect();
-                hand.resolve_calls(&answers).expect("the bots chose legal calls");
+                hand.resolve_calls(&answers)
+                    .expect("the bots chose legal calls");
             }
             Phase::Over => break,
         }
@@ -339,7 +348,8 @@ fn show_hand(seed: u64) {
                         println!("  {seat:?} calls {call:?}");
                     }
                 }
-                hand.resolve_calls(&answers).expect("the bots chose legal calls");
+                hand.resolve_calls(&answers)
+                    .expect("the bots chose legal calls");
             }
             Phase::Over => break,
         }

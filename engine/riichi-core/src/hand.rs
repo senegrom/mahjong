@@ -92,9 +92,7 @@ impl TileSet {
         self.counts
             .iter()
             .enumerate()
-            .flat_map(|(index, &count)| {
-                (0..count).map(move |_| Tile::new(index as u8))
-            })
+            .flat_map(|(index, &count)| (0..count).map(move |_| Tile::new(index as u8)))
     }
 
     /// Whether no kind appears more than the four copies a set contains.
@@ -245,17 +243,29 @@ pub struct Meld {
 impl Meld {
     /// A claimed sequence, named by its lowest tile.
     pub fn chii(lowest: Tile, from: ClaimedFrom) -> Meld {
-        Meld { kind: MeldKind::Chii, tile: lowest, from }
+        Meld {
+            kind: MeldKind::Chii,
+            tile: lowest,
+            from,
+        }
     }
 
     /// A claimed triplet.
     pub fn pon(tile: Tile, from: ClaimedFrom) -> Meld {
-        Meld { kind: MeldKind::Pon, tile, from }
+        Meld {
+            kind: MeldKind::Pon,
+            tile,
+            from,
+        }
     }
 
     /// A quad declared from the hand.
     pub fn concealed_kan(tile: Tile) -> Meld {
-        Meld { kind: MeldKind::ConcealedKan, tile, from: ClaimedFrom::SelfDrawn }
+        Meld {
+            kind: MeldKind::ConcealedKan,
+            tile,
+            from: ClaimedFrom::SelfDrawn,
+        }
     }
 
     /// The tiles this set occupies, four for a quad.
@@ -310,7 +320,10 @@ mod tests {
     #[test]
     fn parsing_rejects_malformed_hands() {
         for text in ["123", "m123", "0m", "8z", "123x"] {
-            assert!(text.parse::<TileSet>().is_err(), "{text:?} should not parse");
+            assert!(
+                text.parse::<TileSet>().is_err(),
+                "{text:?} should not parse"
+            );
         }
     }
 
@@ -349,7 +362,12 @@ mod tests {
         let chii = Meld::chii("3p".parse().unwrap(), ClaimedFrom::Left);
         let tiles: Vec<String> = chii.tiles().iter().map(|t| t.to_string()).collect();
         assert_eq!(tiles, ["3p", "4p", "5p"]);
-        assert_eq!(Meld::pon("5z".parse().unwrap(), ClaimedFrom::Across).tiles().len(), 3);
+        assert_eq!(
+            Meld::pon("5z".parse().unwrap(), ClaimedFrom::Across)
+                .tiles()
+                .len(),
+            3
+        );
         assert_eq!(Meld::concealed_kan("1m".parse().unwrap()).tiles().len(), 4);
     }
 }

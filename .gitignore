@@ -224,3 +224,6 @@ __marimo__/
 # Node
 node_modules/
 dist/
+
+# Generated WebAssembly package (built by `npm run wasm`)
+web/src/wasm/

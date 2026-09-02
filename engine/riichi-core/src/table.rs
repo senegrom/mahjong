@@ -72,7 +72,13 @@ impl Table {
         for seat in Wind::ALL {
             seat_scores[seat.index()] = self.scores[self.player_at(seat)];
         }
-        Hand::deal(rng, self.round, self.counters, self.riichi_sticks, seat_scores)
+        Hand::deal(
+            rng,
+            self.round,
+            self.counters,
+            self.riichi_sticks,
+            seat_scores,
+        )
     }
 
     /// Takes a finished hand: moves the points home, decides whether the
@@ -222,13 +228,17 @@ mod tests {
         let mut table = Table::new();
         let mut rng = Rng::from_seed(1);
         let mut hand = table.deal(&mut rng);
-        hand.outcome = Some(Outcome::ExhaustiveDraw { tenpai: vec![Wind::East] });
+        hand.outcome = Some(Outcome::ExhaustiveDraw {
+            tenpai: vec![Wind::East],
+        });
         table.finish(&hand);
         assert_eq!(table.dealer, 0);
         assert_eq!(table.counters, 1);
 
         let mut hand = table.deal(&mut rng);
-        hand.outcome = Some(Outcome::ExhaustiveDraw { tenpai: vec![Wind::South] });
+        hand.outcome = Some(Outcome::ExhaustiveDraw {
+            tenpai: vec![Wind::South],
+        });
         table.finish(&hand);
         assert_eq!(table.dealer, 1, "a noten dealer passes the deal on");
         assert_eq!(table.counters, 2, "a draw always adds a counter");
@@ -242,9 +252,14 @@ mod tests {
         table.counters = 3;
         let mut rng = Rng::from_seed(2);
         let mut hand = table.deal(&mut rng);
-        hand.outcome = Some(Outcome::ExhaustiveDraw { tenpai: vec![Wind::South] });
+        hand.outcome = Some(Outcome::ExhaustiveDraw {
+            tenpai: vec![Wind::South],
+        });
         // Stand in a win by South rather than a draw.
-        hand.outcome = Some(Outcome::Win { winners: Vec::new(), discarder: None });
+        hand.outcome = Some(Outcome::Win {
+            winners: Vec::new(),
+            discarder: None,
+        });
         table.finish(&hand);
         assert_eq!(table.counters, 0);
         assert_eq!(table.dealer, 1);
@@ -258,14 +273,20 @@ mod tests {
         let mut rng = Rng::from_seed(3);
         for _ in 0..4 {
             let mut hand = table.deal(&mut rng);
-            hand.outcome = Some(Outcome::Win { winners: Vec::new(), discarder: None });
+            hand.outcome = Some(Outcome::Win {
+                winners: Vec::new(),
+                discarder: None,
+            });
             table.finish(&hand);
         }
         assert_eq!(table.round, Wind::South);
         assert!(!table.finished);
         for _ in 0..4 {
             let mut hand = table.deal(&mut rng);
-            hand.outcome = Some(Outcome::Win { winners: Vec::new(), discarder: None });
+            hand.outcome = Some(Outcome::Win {
+                winners: Vec::new(),
+                discarder: None,
+            });
             table.finish(&hand);
         }
         assert!(table.finished);
@@ -280,7 +301,10 @@ mod tests {
         table.scores = [40_000, 30_000, 25_000, 25_000];
         let final_scores = table.final_scores();
         assert_eq!(final_scores[0], 40_000 - 30_000 + 15_000);
-        assert_eq!(final_scores[1], 30_000 - 30_000 + 5_000);
+        assert_eq!(
+            final_scores[1], 5_000,
+            "exactly the return score, so only uma"
+        );
         // Two players tied for third share the third and fourth bonuses.
         assert_eq!(final_scores[2], 25_000 - 30_000 - 10_000);
         assert_eq!(final_scores[3], 25_000 - 30_000 - 10_000);

@@ -270,7 +270,14 @@ fn score_reading(
         return results;
     }
     for index in completed {
-        results.push(score_one(reading, index, concealed, melds, hand_is_concealed, situation));
+        results.push(score_one(
+            reading,
+            index,
+            concealed,
+            melds,
+            hand_is_concealed,
+            situation,
+        ));
     }
     results
 }
@@ -361,7 +368,11 @@ fn score_one(
             list.retain(|entry| {
                 matches!(
                     entry,
-                    Yaku::Tanyao | Yaku::Honitsu | Yaku::Chinitsu | Yaku::Honroutou | Yaku::Tsuuiisou
+                    Yaku::Tanyao
+                        | Yaku::Honitsu
+                        | Yaku::Chinitsu
+                        | Yaku::Honroutou
+                        | Yaku::Tsuuiisou
                 )
             });
             list.push(Yaku::Chiitoitsu);
@@ -438,7 +449,11 @@ fn score_one(
     }
 
     let open = !hand_is_concealed;
-    let yakuman: Vec<Yaku> = found.iter().copied().filter(|entry| entry.is_yakuman()).collect();
+    let yakuman: Vec<Yaku> = found
+        .iter()
+        .copied()
+        .filter(|entry| entry.is_yakuman())
+        .collect();
 
     let (yaku_list, han, dora, limit) = if !yakuman.is_empty() {
         // Yakuman are not cumulative (EMA section 4.2): one yakuman is paid.
@@ -477,7 +492,16 @@ fn score_one(
     let (base, limit) = base_value(han, fu, limit);
     let payments = payments(base, situation);
 
-    Ok(Score { yaku: yaku_list, han, dora, fu, fu_detail, limit, base, payments })
+    Ok(Score {
+        yaku: yaku_list,
+        han,
+        dora,
+        fu,
+        fu_detail,
+        limit,
+        base,
+        payments,
+    })
 }
 
 /// The minipoints for a wait that finishes a sequence.
@@ -668,8 +692,7 @@ mod tests {
     #[test]
     fn example_1_riichi_pinfu_pure_straight_tsumo() {
         let tiles = hand("22p234p123s456s789s");
-        let mut situation =
-            Situation::new(Wind::South, Wind::East, WinBy::SelfDraw, tile("9s"));
+        let mut situation = Situation::new(Wind::South, Wind::East, WinBy::SelfDraw, tile("9s"));
         situation.riichi = Riichi::Declared;
         let score = score_hand(&tiles, &[], &situation).unwrap();
         assert_eq!(score.han, 5);
@@ -688,8 +711,7 @@ mod tests {
     #[test]
     fn example_2_four_han_thirty_fu_is_a_mangan() {
         let tiles = hand("22p234p123s456s789s");
-        let mut situation =
-            Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("9s"));
+        let mut situation = Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("9s"));
         situation.riichi = Riichi::Declared;
         let score = score_hand(&tiles, &[], &situation).unwrap();
         assert_eq!(score.han, 4);
@@ -710,8 +732,7 @@ mod tests {
     fn example_3_open_pinfu_and_a_dora() {
         let tiles = hand("22p234p123s789s");
         let melds = [Meld::chii(tile("4s"), ClaimedFrom::Left)];
-        let mut situation =
-            Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("9s"));
+        let mut situation = Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("9s"));
         // 6 bamboo indicates 7 bamboo, which the hand holds once.
         situation.dora_indicators = vec![tile("6s")];
         let score = score_hand(&tiles, &melds, &situation).unwrap();
@@ -732,8 +753,7 @@ mod tests {
     #[test]
     fn example_4_four_concealed_triplets() {
         let tiles = hand("333m444m555m33p888s");
-        let situation =
-            Situation::new(Wind::South, Wind::East, WinBy::SelfDraw, tile("8s"));
+        let situation = Situation::new(Wind::South, Wind::East, WinBy::SelfDraw, tile("8s"));
         let score = score_hand(&tiles, &[], &situation).unwrap();
         assert_eq!(score.limit, Some(Limit::Yakuman));
         assert_eq!(names(&score), ["Four Concealed Triplets"]);
@@ -749,8 +769,7 @@ mod tests {
     #[test]
     fn example_5_a_claimed_triplet_is_not_concealed() {
         let tiles = hand("333m444m555m33p888s");
-        let mut situation =
-            Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("8s"));
+        let mut situation = Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("8s"));
         // 3 characters indicates 4 characters, which the hand holds three times.
         situation.dora_indicators = vec![tile("3m")];
         let score = score_hand(&tiles, &melds_none(), &situation).unwrap();
@@ -770,8 +789,7 @@ mod tests {
     #[test]
     fn example_7_seven_pairs_scores_exactly_25_fu() {
         let tiles = hand("22336677p1155s77z");
-        let situation =
-            Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("7z"));
+        let situation = Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("7z"));
         let score = score_hand(&tiles, &[], &situation).unwrap();
         assert_eq!(score.fu, 25);
         assert_eq!(score.han, 2);
@@ -781,7 +799,10 @@ mod tests {
         let mut dealer = situation.clone();
         dealer.seat = Wind::East;
         assert_eq!(
-            score_hand(&tiles, &[], &dealer).unwrap().payments.from_discarder,
+            score_hand(&tiles, &[], &dealer)
+                .unwrap()
+                .payments
+                .from_discarder,
             2400
         );
     }
@@ -793,8 +814,7 @@ mod tests {
     fn example_10_half_flush_edge_wait() {
         // West is neither the seat wind (South) nor the round wind (East).
         let tiles = hand("333z11p234567p789p");
-        let situation =
-            Situation::new(Wind::South, Wind::East, WinBy::SelfDraw, tile("7p"));
+        let situation = Situation::new(Wind::South, Wind::East, WinBy::SelfDraw, tile("7p"));
         let score = score_hand(&tiles, &[], &situation).unwrap();
         assert!(names(&score).contains(&"Half Flush"));
         assert!(names(&score).contains(&"Fully Concealed Hand"));
@@ -811,9 +831,11 @@ mod tests {
         // hand, no straight, no triple sequence, so nothing to declare on.
         let melds = [Meld::chii(tile("1m"), ClaimedFrom::Left)];
         let concealed = hand("456m789p22s345s");
-        let situation =
-            Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("5s"));
-        assert_eq!(score_hand(&concealed, &melds, &situation), Err(ScoreError::NoYaku));
+        let situation = Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("5s"));
+        assert_eq!(
+            score_hand(&concealed, &melds, &situation),
+            Err(ScoreError::NoYaku)
+        );
     }
 
     /// EMA 2025 section 3.4.3: where a hand can be read in more than one way,
@@ -823,8 +845,7 @@ mod tests {
         // Read as seven pairs it is 2 han 25 fu; read as two double
         // sequences it is worth more, so the scorer must choose the latter.
         let tiles = hand("223344m556677p11z");
-        let situation =
-            Situation::new(Wind::South, Wind::East, WinBy::SelfDraw, tile("4m"));
+        let situation = Situation::new(Wind::South, Wind::East, WinBy::SelfDraw, tile("4m"));
         let score = score_hand(&tiles, &[], &situation).unwrap();
         assert!(names(&score).contains(&"Twice Pure Double Sequence"));
         assert!(!names(&score).contains(&"Seven Pairs"));
@@ -835,8 +856,7 @@ mod tests {
     #[test]
     fn a_double_wind_pair_is_worth_two() {
         let tiles = hand("11z234m567m234p567p");
-        let mut situation =
-            Situation::new(Wind::East, Wind::East, WinBy::Discard, tile("7p"));
+        let mut situation = Situation::new(Wind::East, Wind::East, WinBy::Discard, tile("7p"));
         // The hand needs a yaku before it can be scored at all.
         situation.riichi = Riichi::Declared;
         let score = score_hand(&tiles, &[], &situation).unwrap();

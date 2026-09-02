@@ -166,6 +166,7 @@ type Profile = (u8, u8, bool);
 /// because the same nine-tile patterns recur constantly. The four results
 /// are then combined by a small dynamic program over at most fifty states,
 /// which is far cheaper than searching the whole hand at once.
+#[allow(clippy::needless_range_loop)]
 fn standard_uncached(counts: &[u8; KINDS], called: usize) -> i32 {
     let mut states = [[[false; 2]; 6]; 5];
     states[0][0][0] = true;
@@ -225,7 +226,9 @@ fn profiles_for(pattern: &[u8; 9], size: usize, honours: bool) -> Vec<Profile> {
     let key = pattern
         .iter()
         .enumerate()
-        .fold(0u32, |key, (index, count)| key | ((*count as u32) << (index * 3)))
+        .fold(0u32, |key, (index, count)| {
+            key | ((*count as u32) << (index * 3))
+        })
         | ((honours as u32) << 30);
     if let Some(cached) = PROFILES.with(|cache| cache.borrow().get(&key).cloned()) {
         return cached;
@@ -238,7 +241,11 @@ fn profiles_for(pattern: &[u8; 9], size: usize, honours: bool) -> Vec<Profile> {
     // by the five-block cap, and then the smaller one is the answer.
     found.sort_unstable();
     found.dedup();
-    let pruned = if found.is_empty() { vec![(0, 0, false)] } else { found };
+    let pruned = if found.is_empty() {
+        vec![(0, 0, false)]
+    } else {
+        found
+    };
     PROFILES.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.len() >= CACHE_LIMIT {
@@ -276,7 +283,16 @@ fn collect(
     // A triplet.
     if counts[index] >= 3 {
         counts[index] -= 3;
-        collect(counts, index, size, honours, sets + 1, partials, pair, found);
+        collect(
+            counts,
+            index,
+            size,
+            honours,
+            sets + 1,
+            partials,
+            pair,
+            found,
+        );
         counts[index] += 3;
     }
 
@@ -285,7 +301,16 @@ fn collect(
         counts[index] -= 1;
         counts[index + 1] -= 1;
         counts[index + 2] -= 1;
-        collect(counts, index, size, honours, sets + 1, partials, pair, found);
+        collect(
+            counts,
+            index,
+            size,
+            honours,
+            sets + 1,
+            partials,
+            pair,
+            found,
+        );
         counts[index] += 1;
         counts[index + 1] += 1;
         counts[index + 2] += 1;
@@ -295,9 +320,27 @@ fn collect(
     if counts[index] >= 2 {
         counts[index] -= 2;
         if !pair {
-            collect(counts, index, size, honours, sets, partials + 1, true, found);
+            collect(
+                counts,
+                index,
+                size,
+                honours,
+                sets,
+                partials + 1,
+                true,
+                found,
+            );
         }
-        collect(counts, index, size, honours, sets, partials + 1, pair, found);
+        collect(
+            counts,
+            index,
+            size,
+            honours,
+            sets,
+            partials + 1,
+            pair,
+            found,
+        );
         counts[index] += 2;
     }
 
@@ -306,7 +349,16 @@ fn collect(
         if index + 1 < size && counts[index + 1] > 0 {
             counts[index] -= 1;
             counts[index + 1] -= 1;
-            collect(counts, index, size, honours, sets, partials + 1, pair, found);
+            collect(
+                counts,
+                index,
+                size,
+                honours,
+                sets,
+                partials + 1,
+                pair,
+                found,
+            );
             counts[index] += 1;
             counts[index + 1] += 1;
         }
@@ -314,7 +366,16 @@ fn collect(
         if index + 2 < size && counts[index + 2] > 0 {
             counts[index] -= 1;
             counts[index + 2] -= 1;
-            collect(counts, index, size, honours, sets, partials + 1, pair, found);
+            collect(
+                counts,
+                index,
+                size,
+                honours,
+                sets,
+                partials + 1,
+                pair,
+                found,
+            );
             counts[index] += 1;
             counts[index + 2] += 1;
         }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["engine/riichi-core", "engine/riichi-cli"]
+members = ["engine/riichi-core", "engine/riichi-cli", "engine/riichi-wasm"]
 
 [workspace.package]
 version = "0.1.0"

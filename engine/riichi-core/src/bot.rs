@@ -33,7 +33,10 @@ pub struct Style {
 
 impl Default for Style {
     fn default() -> Style {
-        Style { fold_beyond_shanten: 1, always_riichi: true }
+        Style {
+            fold_beyond_shanten: 1,
+            always_riichi: true,
+        }
     }
 }
 
@@ -48,12 +51,18 @@ pub struct Bot {
 impl Bot {
     /// A bot with the default style.
     pub fn new(seed: u64) -> Bot {
-        Bot { style: Style::default(), rng: Rng::from_seed(seed) }
+        Bot {
+            style: Style::default(),
+            rng: Rng::from_seed(seed),
+        }
     }
 
     /// A bot with a chosen style.
     pub fn with_style(seed: u64, style: Style) -> Bot {
-        Bot { style, rng: Rng::from_seed(seed) }
+        Bot {
+            style,
+            rng: Rng::from_seed(seed),
+        }
     }
 
     /// Chooses among the actions the engine offers the turn player.
@@ -62,7 +71,10 @@ impl Bot {
         assert!(!actions.is_empty(), "a player always has something to do");
 
         // Take a win whenever it is there.
-        if let Some(action) = actions.iter().find(|action| matches!(action, Action::Tsumo)) {
+        if let Some(action) = actions
+            .iter()
+            .find(|action| matches!(action, Action::Tsumo))
+        {
             return *action;
         }
 
@@ -164,9 +176,7 @@ impl Bot {
     fn open_hand_has_a_future(&self, hand: &Hand, seat: Wind, tile: Tile, call: &Call) -> bool {
         let player = &hand.players[seat.index()];
         if matches!(call, Call::Pon | Call::Kan) {
-            let scores = tile.is_dragon()
-                || tile == seat.tile()
-                || tile == hand.round.tile();
+            let scores = tile.is_dragon() || tile == seat.tile() || tile == hand.round.tile();
             if scores {
                 return true;
             }
@@ -177,7 +187,10 @@ impl Bot {
         for meld in &player.melds {
             tiles.extend(meld.tiles());
         }
-        let terminals = tiles.iter().filter(|tile| tile.is_terminal_or_honour()).count();
+        let terminals = tiles
+            .iter()
+            .filter(|tile| tile.is_terminal_or_honour())
+            .count();
         terminals <= 1
     }
 
@@ -198,7 +211,10 @@ impl Bot {
         candidates: Vec<Tile>,
         threats: &[Wind],
     ) -> Tile {
-        assert!(!candidates.is_empty(), "there is always something to discard");
+        assert!(
+            !candidates.is_empty(),
+            "there is always something to discard"
+        );
         let unseen = unseen_counts(hand, player);
         let current = shanten::shanten(&player.hand, player.melds.len());
         let folding = !threats.is_empty() && current > self.style.fold_beyond_shanten;
@@ -213,11 +229,19 @@ impl Bot {
                 scored.push((*tile, shanten::shanten(&probe, player.melds.len())));
             }
         }
-        let closest = scored.iter().map(|(_, value)| *value).min().unwrap_or(current);
+        let closest = scored
+            .iter()
+            .map(|(_, value)| *value)
+            .min()
+            .unwrap_or(current);
         let shortlist: Vec<(Tile, i32)> = if folding {
             scored.clone()
         } else {
-            scored.iter().copied().filter(|(_, value)| *value == closest).collect()
+            scored
+                .iter()
+                .copied()
+                .filter(|(_, value)| *value == closest)
+                .collect()
         };
 
         let mut best = candidates[0];
@@ -229,7 +253,11 @@ impl Bot {
             }
             // While folding, only safety matters, and the acceptance count
             // is the expensive part of this loop.
-            let width = if folding { 0 } else { acceptance_width(&probe, player, &unseen) };
+            let width = if folding {
+                0
+            } else {
+                acceptance_width(&probe, player, &unseen)
+            };
             let safety = threats
                 .iter()
                 .map(|threat| safety_of(hand, *threat, tile))
@@ -319,7 +347,13 @@ fn safety_of(hand: &Hand, threat: Wind, tile: Tile) -> u8 {
         let after: Vec<Tile> = hand
             .players
             .iter()
-            .flat_map(|other| other.discards.iter().skip(if core::ptr::eq(other, player) { index } else { 0 }))
+            .flat_map(|other| {
+                other.discards.iter().skip(if core::ptr::eq(other, player) {
+                    index
+                } else {
+                    0
+                })
+            })
             .map(|discard| discard.tile)
             .collect();
         if after.contains(&tile) {
@@ -340,14 +374,17 @@ fn safety_of(hand: &Hand, threat: Wind, tile: Tile) -> u8 {
     // Suji: if the tile three away has been discarded by the waiting player,
     // a two-sided wait on this one is ruled out.
     let rank = tile.rank();
-    let suji = [rank.checked_sub(3), Some(rank + 3).filter(|value| *value <= 9)]
-        .into_iter()
-        .flatten()
-        .filter(|value| (1..=9).contains(value))
-        .any(|value| {
-            let other = Tile::numbered(tile.suit(), value);
-            player.discards.iter().any(|discard| discard.tile == other)
-        });
+    let suji = [
+        rank.checked_sub(3),
+        Some(rank + 3).filter(|value| *value <= 9),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|value| (1..=9).contains(value))
+    .any(|value| {
+        let other = Tile::numbered(tile.suit(), value);
+        player.discards.iter().any(|discard| discard.tile == other)
+    });
     let base = match rank {
         1 | 9 => 40,
         2 | 8 => 30,
@@ -400,7 +437,8 @@ mod tests {
                                 (*seat, bots[player].call(&hand, *seat, calls))
                             })
                             .collect();
-                        hand.resolve_calls(&answers).expect("the bots chose legal calls");
+                        hand.resolve_calls(&answers)
+                            .expect("the bots chose legal calls");
                     }
                     Phase::Over => break,
                 }
@@ -449,7 +487,10 @@ mod tests {
         let unknown: Tile = "4p".parse().unwrap();
         assert!(safety_of(&hand, Wind::South, unknown) < 100);
         // Honours are safer than the middle of a suit.
-        assert!(safety_of(&hand, Wind::South, "1z".parse().unwrap()) > safety_of(&hand, Wind::South, unknown));
+        assert!(
+            safety_of(&hand, Wind::South, "1z".parse().unwrap())
+                > safety_of(&hand, Wind::South, unknown)
+        );
     }
 
     #[test]

@@ -238,7 +238,13 @@ pub struct Hand {
 
 impl Hand {
     /// Deals a new hand. `scores` are the players' points, by seat.
-    pub fn deal(rng: &mut Rng, round: Wind, counters: u32, riichi_sticks: u32, scores: [i32; 4]) -> Hand {
+    pub fn deal(
+        rng: &mut Rng,
+        round: Wind,
+        counters: u32,
+        riichi_sticks: u32,
+        scores: [i32; 4],
+    ) -> Hand {
         let mut wall = Wall::shuffled(rng);
         let mut players = [
             Player::new(Wind::East, scores[0]),
@@ -397,7 +403,12 @@ impl Hand {
     }
 
     /// Scores the hand as if `seat` won on `tile`, without changing anything.
-    pub fn would_win(&self, seat: Wind, tile: Tile, win_by: WinBy) -> Result<Score, score::ScoreError> {
+    pub fn would_win(
+        &self,
+        seat: Wind,
+        tile: Tile,
+        win_by: WinBy,
+    ) -> Result<Score, score::ScoreError> {
         let player = &self.players[seat.index()];
         let mut concealed = player.hand;
         if matches!(win_by, WinBy::Discard) {
@@ -477,13 +488,17 @@ impl Hand {
                 let seat = self.turn;
                 // Double riichi is a declaration in the player's very first
                 // turn, with the first set of turns unbroken (EMA 4.2.2).
-                let double = self.first_turns_unbroken
-                    && self.players[seat.index()].discards.is_empty();
+                let double =
+                    self.first_turns_unbroken && self.players[seat.index()].discards.is_empty();
                 let player = self.player_mut(seat);
                 player.ippatsu = true;
                 self.discard(tile, true);
                 let player = self.player_mut(seat);
-                player.riichi = if double { Riichi::Double } else { Riichi::Declared };
+                player.riichi = if double {
+                    Riichi::Double
+                } else {
+                    Riichi::Declared
+                };
                 player.score -= 1000;
                 self.riichi_sticks += 1;
             }
@@ -497,7 +512,11 @@ impl Hand {
         let seat = self.turn;
         {
             let player = self.player_mut(seat);
-            let take = if matches!(kind, MeldKind::ConcealedKan) { 4 } else { 1 };
+            let take = if matches!(kind, MeldKind::ConcealedKan) {
+                4
+            } else {
+                1
+            };
             for _ in 0..take {
                 player.hand.remove(tile);
             }
@@ -567,7 +586,11 @@ impl Hand {
             player.refresh_furiten();
         }
         // The first set of turns is over once everyone has discarded once.
-        if self.players.iter().all(|player| !player.discards.is_empty()) {
+        if self
+            .players
+            .iter()
+            .all(|player| !player.discards.is_empty())
+        {
             self.first_turns_unbroken = false;
         }
         self.drawn = None;
@@ -780,13 +803,21 @@ impl Hand {
                 Call::Pon => {
                     player.hand.remove(tile);
                     player.hand.remove(tile);
-                    player.melds.push(Meld { kind: MeldKind::Pon, tile, from: source });
+                    player.melds.push(Meld {
+                        kind: MeldKind::Pon,
+                        tile,
+                        from: source,
+                    });
                 }
                 Call::Kan => {
                     for _ in 0..3 {
                         player.hand.remove(tile);
                     }
-                    player.melds.push(Meld { kind: MeldKind::ClaimedKan, tile, from: source });
+                    player.melds.push(Meld {
+                        kind: MeldKind::ClaimedKan,
+                        tile,
+                        from: source,
+                    });
                 }
                 Call::Chii(low) => {
                     let second = low.next_in_suit().expect("a sequence starts below 8");
@@ -796,7 +827,11 @@ impl Hand {
                             player.hand.remove(member);
                         }
                     }
-                    player.melds.push(Meld { kind: MeldKind::Chii, tile: low, from: source });
+                    player.melds.push(Meld {
+                        kind: MeldKind::Chii,
+                        tile: low,
+                        from: source,
+                    });
                 }
                 Call::Ron | Call::Pass => unreachable!("handled before"),
             }
@@ -908,7 +943,7 @@ fn sequence_starts(tile: Tile) -> Vec<Tile> {
             continue;
         }
         let low = rank - offset;
-        if low >= 1 && low <= 7 {
+        if (1..=7).contains(&low) {
             starts.push(Tile::numbered(suit, low));
         }
     }
@@ -940,10 +975,13 @@ mod tests {
     #[test]
     fn a_discard_passes_the_turn() {
         let mut hand = fresh();
-        let tile = match hand.legal_actions().into_iter().find_map(|action| match action {
-            Action::Discard(tile) => Some(tile),
-            _ => None,
-        }) {
+        let tile = match hand
+            .legal_actions()
+            .into_iter()
+            .find_map(|action| match action {
+                Action::Discard(tile) => Some(tile),
+                _ => None,
+            }) {
             Some(tile) => tile,
             None => panic!("the dealer must be able to discard"),
         };
@@ -982,10 +1020,17 @@ mod tests {
         let calls = hand.legal_calls();
         let south = calls.iter().find(|(seat, _)| *seat == Wind::South);
         let west = calls.iter().find(|(seat, _)| *seat == Wind::West);
-        assert!(south.is_some_and(|(_, calls)| calls
-            .iter()
-            .any(|call| matches!(call, Call::Chii(_)))));
-        assert!(west.is_none() || !west.unwrap().1.iter().any(|call| matches!(call, Call::Chii(_))));
+        assert!(
+            south.is_some_and(|(_, calls)| calls.iter().any(|call| matches!(call, Call::Chii(_))))
+        );
+        assert!(
+            west.is_none()
+                || !west
+                    .unwrap()
+                    .1
+                    .iter()
+                    .any(|call| matches!(call, Call::Chii(_)))
+        );
     }
 
     /// EMA 2025 section 3.3.9: a player whose wait sits among their own
@@ -1031,7 +1076,9 @@ mod tests {
         }
         assert_eq!(hand.wall.remaining(), 1);
         let actions = hand.legal_actions();
-        assert!(actions.iter().any(|action| matches!(action, Action::Riichi(_))));
+        assert!(actions
+            .iter()
+            .any(|action| matches!(action, Action::Riichi(_))));
         // With the wall empty there is no declaration to make.
         hand.wall.draw();
         assert!(!hand
@@ -1090,7 +1137,9 @@ mod tests {
         hand.turn = Wind::South;
         hand.phase = Phase::Act;
         hand.drawn = None;
-        hand.players[1].melds.push(Meld::chii("3m".parse().unwrap(), ClaimedFrom::Left));
+        hand.players[1]
+            .melds
+            .push(Meld::chii("3m".parse().unwrap(), ClaimedFrom::Left));
         let forbidden = hand.forbidden_discards();
         assert!(forbidden.contains(&"3m".parse().unwrap()));
         assert!(forbidden.contains(&"5m".parse().unwrap()));
