@@ -281,6 +281,57 @@
     <button class="restart" onclick={startFresh} disabled={!ready}>New game</button>
   </header>
 
+  <details class="guide">
+    <summary>What the table is telling you</summary>
+    <div class="guide-body">
+      <dl>
+        <dt>3 tiles away from a wait</dt>
+        <dd>
+          How many tiles you must still exchange before one more tile would
+          win. At a wait you are one tile from a complete hand; players call
+          this the shanten count.
+        </dd>
+
+        <dt>Waiting on</dt>
+        <dd>
+          The tiles that would complete your hand, each with how many of the
+          four nobody has seen yet. A wait with none left is marked in red.
+        </dd>
+
+        <dt><span class="swatch dot"></span> a gold dot</dt>
+        <dd>The tile is dora and adds a han to whatever your hand scores.</dd>
+
+        <dt><span class="swatch safe"></span> a green line</dt>
+        <dd>
+          The tile cannot deal into anybody who has declared riichi, because
+          they threw it themselves or it has already passed them.
+        </dd>
+
+      </dl>
+
+      <dl>
+        <dt>furiten</dt>
+        <dd>
+          One of the tiles you are waiting for sits in your own discards, so
+          you may not win on a discard. You may still win on your own draw.
+        </dd>
+
+        <dt>Keys</dt>
+        <dd>
+          Arrow keys move along your hand and Enter throws the marked tile.
+          The numbers 1 to 9 throw a tile directly and 0 throws the one you
+          just drew. Press r to declare riichi and t to win on your own draw.
+        </dd>
+
+        <dt>Rules</dt>
+        <dd>
+          The European Mahjong Association's Riichi Competition Rules, 2025
+          edition, in force since 1 January 2026.
+        </dd>
+      </dl>
+    </div>
+  </details>
+
   {#if failure}
     <p class="failure" role="alert">{failure}</p>
   {/if}
@@ -838,6 +889,67 @@
 
   .log p {
     margin: 0;
+  }
+
+  /* Shut by default: a player who knows what a wait is should not have to
+     scroll past an explanation of one every game. */
+  .guide {
+    margin: 0 0 10px;
+    font-size: 0.85rem;
+  }
+
+  .guide summary {
+    cursor: pointer;
+    padding: 4px 0;
+    opacity: 0.7;
+    letter-spacing: 0.02em;
+  }
+
+  .guide summary:hover {
+    opacity: 1;
+  }
+
+  .guide-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 8px 28px;
+    padding: 10px 14px 12px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .guide dl {
+    margin: 0;
+  }
+
+  .guide dt {
+    font-weight: 600;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .guide dd {
+    margin: 2px 0 0;
+    opacity: 0.8;
+    max-width: 62ch;
+  }
+
+  /* The marks themselves, drawn the way they are drawn on a tile. */
+  .swatch.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  }
+
+  .swatch.safe {
+    width: 18px;
+    height: 3px;
+    border-radius: 2px;
+    background: #7fd1a0;
   }
 
   .failure {
