@@ -4,6 +4,8 @@
   import Seat from './lib/Seat.svelte';
   import Discards from './lib/Discards.svelte';
   import Melds from './lib/Melds.svelte';
+  import { chooseAction, modelIsAvailable, reportProgress } from './lib/policy.js';
+  import { tileWords } from './lib/tiles.js';
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
@@ -15,7 +17,26 @@
   let log = $state([]);
   let hints = $state(true);
   let busy = $state(false);
-  let difficulty = $state('club');
+  // The opponents can be named in the address, which makes a particular
+  // table shareable and testable.
+  const requested = new URLSearchParams(location.search).get('opponents');
+  let difficulty = $state(
+    ['beginner', 'club', 'neural'].includes(requested) ? requested : 'club',
+  );
+  let trainedAvailable = $state(false);
+  let thinking = $state(false);
+
+  modelIsAvailable().then((available) => {
+    trainedAvailable = available;
+  });
+  // The first load of the runtime and the network takes a moment; every
+  // move after that is instant, so it is said once and not again.
+  let announced = false;
+  reportProgress((note) => {
+    if (announced) return;
+    announced = true;
+    log = [`(${note})`, ...log].slice(0, 60);
+  });
 
   let me = $derived(view ? view.seats[0] : null);
   // Turn order runs to the right: the next player to act sits there, the
@@ -54,22 +75,63 @@
     start();
   }
 
-  function refresh(advance = false) {
+  async function refresh(advance = false) {
     if (!game) return;
     if (advance) {
       const lines = game.advance();
       if (lines.length) log = [...lines, ...log].slice(0, 60);
     }
+    // Show the table before waiting on anybody: a trained opponent takes a
+    // moment to answer, and an empty screen while it does is not a table.
     view = game.view();
     choices = game.choices();
+    if (advance) {
+      await playTrainedOpponents();
+      view = game.view();
+      choices = game.choices();
+    }
   }
 
-  function choose(choice) {
+  /**
+   * With the trained opponents chosen, their moves come from the network in
+   * the worker rather than from the engine. Each answer is one the rules
+   * allow, because the mask that comes with the position decides what may
+   * be picked.
+   */
+  async function playTrainedOpponents() {
+    if (!game || difficulty !== 'neural') return;
+    let guard = 0;
+    while (game.needs_opponent_move() && guard < 400) {
+      guard += 1;
+      thinking = true;
+      try {
+        const planes = game.opponent_observation();
+        const mask = game.opponent_mask();
+        // A little temperature early keeps three opponents from playing the
+        // same game as one another.
+        const action = await chooseAction(planes, mask, 0.4);
+        game.play_opponent(action);
+      } catch (error) {
+        failure = `The trained opponent could not answer: ${error.message}`;
+        difficulty = 'club';
+        break;
+      } finally {
+        thinking = false;
+      }
+      const lines = game.advance();
+      if (lines.length) log = [...lines, ...log].slice(0, 60);
+      // Redraw between opponents, so their moves are watched rather than
+      // arriving all at once.
+      view = game.view();
+    }
+  }
+
+  async function choose(choice) {
     if (busy || !game) return;
     busy = true;
     try {
       game.choose(choice.kind, choice.tile ?? undefined);
-      refresh(true);
+      await refresh(true);
     } catch (error) {
       failure = String(error);
     } finally {
@@ -82,7 +144,7 @@
     if (choice) choose(choice);
   }
 
-  function nextHand() {
+  async function nextHand() {
     if (!game) return;
     try {
       game.next_hand();
@@ -90,7 +152,7 @@
         view = game.view();
         choices = [];
       } else {
-        refresh(true);
+        await refresh(true);
       }
     } catch (error) {
       failure = String(error);
@@ -129,6 +191,9 @@
       <select bind:value={difficulty} onchange={startFresh} aria-label="opponent strength">
         <option value="beginner">Beginner</option>
         <option value="club">Club</option>
+        {#if trainedAvailable}
+          <option value="neural">Trained</option>
+        {/if}
       </select>
     </label>
     <label class="toggle plain">
@@ -259,19 +324,21 @@
             class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'}
             onclick={() => choose(choice)}
           >
-            {#if choice.kind === 'chii'}Sequence from {choice.tile}
+            {#if choice.kind === 'chii'}Sequence from the {tileWords(choice.tile)}
             {:else if choice.kind === 'pon'}Triplet
             {:else if choice.kind === 'kan'}Quad
             {:else if choice.kind === 'ron'}Win
             {:else if choice.kind === 'tsumo'}Win
-            {:else if choice.kind === 'riichi'}Riichi on {choice.tile}
-            {:else if choice.kind === 'concealed-kan'}Quad of {choice.tile}
-            {:else if choice.kind === 'extended-kan'}Extend {choice.tile}
+            {:else if choice.kind === 'riichi'}Riichi on the {tileWords(choice.tile)}
+            {:else if choice.kind === 'concealed-kan'}Quad of the {tileWords(choice.tile)}
+            {:else if choice.kind === 'extended-kan'}Extend the {tileWords(choice.tile)}
             {:else}Pass{/if}
           </button>
         {/each}
       {:else if myTurn}
         <p class="prompt">Your turn. Click a tile to discard it, or press 1 to 9.</p>
+      {:else if thinking}
+        <p class="prompt">Thinking…</p>
       {:else}
         <p class="prompt">Waiting for the others…</p>
       {/if}

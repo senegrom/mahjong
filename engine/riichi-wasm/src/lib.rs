@@ -8,6 +8,7 @@
 //! game the opponents were trained on cannot drift apart.
 
 use riichi_core::bot::{Bot, Style};
+use riichi_core::encoding::{self, ACTIONS, OBSERVATION};
 use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
 use riichi_core::rng::Rng;
 use riichi_core::score::Riichi;
@@ -119,6 +120,13 @@ pub struct Game {
     player: usize,
     seat: Wind,
     log: Vec<String>,
+    /// Whether the opponents are answered from outside, which is what a
+    /// trained network needs: it runs in the page, not in the engine.
+    external: bool,
+    /// Seats that still owe an answer to the claim on the table.
+    asking: Vec<Wind>,
+    /// Answers gathered so far in this claim window.
+    gathered: Vec<(Wind, Call)>,
 }
 
 #[wasm_bindgen]
@@ -132,6 +140,7 @@ impl Game {
     #[wasm_bindgen(constructor)]
     pub fn new(seed: f64, difficulty: Option<String>) -> Game {
         let seed = seed as u64;
+        let external = matches!(difficulty.as_deref(), Some("neural"));
         let style = match difficulty.as_deref() {
             Some("beginner") => Style::beginner(),
             _ => Style::club(),
@@ -151,6 +160,65 @@ impl Game {
             player,
             seat,
             log: Vec::new(),
+            external,
+            asking: Vec::new(),
+            gathered: Vec::new(),
+        }
+    }
+
+    /// Whether an opponent owes a decision that the page must answer.
+    pub fn needs_opponent_move(&self) -> bool {
+        self.external && self.opponent_owing().is_some()
+    }
+
+    /// The observation for the opponent who owes a decision, as the network
+    /// expects it: planes over the tile kinds, that seat's own view.
+    pub fn opponent_observation(&self) -> Vec<f32> {
+        let mut out = vec![0.0; OBSERVATION];
+        if let Some(seat) = self.opponent_owing() {
+            encoding::observe(&self.hand, seat, &mut out);
+        }
+        out
+    }
+
+    /// Which entries of the action space that seat may choose.
+    pub fn opponent_mask(&self) -> Vec<u8> {
+        let mut mask = vec![false; ACTIONS];
+        if let Some(seat) = self.opponent_owing() {
+            encoding::legal_mask(&self.hand, seat, &mut mask);
+        }
+        mask.iter().map(|flag| u8::from(*flag)).collect()
+    }
+
+    /// Takes the page's answer for that opponent.
+    pub fn play_opponent(&mut self, index: usize) -> Result<(), JsValue> {
+        let seat = match self.opponent_owing() {
+            Some(seat) => seat,
+            None => return Err(JsValue::from_str("no opponent owes a decision")),
+        };
+        if !self.asking.is_empty() {
+            let call = encoding::decode_call(&self.hand, seat, index)
+                .or_else(|| encoding::decode_call(&self.hand, seat, encoding::PASS))
+                .unwrap_or(Call::Pass);
+            self.asking.retain(|other| *other != seat);
+            self.gathered.push((seat, call));
+            if !matches!(call, Call::Pass) {
+                self.note(seat, &describe_call(call).label);
+            }
+            if self.asking.is_empty() {
+                let answers = std::mem::take(&mut self.gathered);
+                self.hand.resolve_calls(&answers).map_err(refused)?;
+            }
+            return Ok(());
+        }
+        let action = encoding::decode_action(&self.hand, index)
+            .or_else(|| self.hand.legal_actions().into_iter().next());
+        match action {
+            Some(action) => {
+                self.note(seat, &describe_action(action).label);
+                self.hand.act(action).map_err(refused)
+            }
+            None => Err(JsValue::from_str("that seat has nothing it may do")),
         }
     }
 
@@ -260,7 +328,9 @@ impl Game {
     /// Plays the opponents and the draws until the player has something to
     /// decide, or the hand ends. Returns the lines describing what happened.
     pub fn advance(&mut self) -> Result<JsValue, JsValue> {
-        self.log.clear();
+        // The log is drained rather than cleared: moves the page answered
+        // for the opponents were noted before this call and would otherwise
+        // be thrown away unread.
         let mut guard = 0;
         loop {
             guard += 1;
@@ -276,6 +346,9 @@ impl Game {
                     if self.hand.turn == self.seat {
                         break;
                     }
+                    if self.external {
+                        break;
+                    }
                     let seat = self.hand.turn;
                     let who = self.table.player_at(seat);
                     let action = self.bots[who].act(&self.hand);
@@ -285,6 +358,14 @@ impl Game {
                 Phase::CallWindow => {
                     let offered = self.hand.legal_calls();
                     if offered.iter().any(|(seat, _)| *seat == self.seat) {
+                        break;
+                    }
+                    if self.external && !offered.is_empty() {
+                        // The page answers for the opponents, one at a time.
+                        if self.asking.is_empty() {
+                            self.asking = offered.iter().map(|(seat, _)| *seat).collect();
+                            self.gathered.clear();
+                        }
                         break;
                     }
                     let answers: Vec<(Wind, Call)> = offered
@@ -303,8 +384,8 @@ impl Game {
                 }
             }
         }
-        serde_wasm_bindgen::to_value(&self.log)
-            .map_err(|error| JsValue::from_str(&error.to_string()))
+        let lines = std::mem::take(&mut self.log);
+        serde_wasm_bindgen::to_value(&lines).map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
     /// Takes the player's choice, named as `choices` returned it.
@@ -344,9 +425,24 @@ impl Game {
                     if *seat == self.seat {
                         continue;
                     }
+                    // With the page answering for the opponents, a claim it
+                    // has already gathered stands; anything not yet asked
+                    // passes, since the player's own answer settles the
+                    // window either way.
+                    if self.external {
+                        let already = self
+                            .gathered
+                            .iter()
+                            .find(|(other, _)| other == seat)
+                            .map(|(_, call)| *call);
+                        answers.push((*seat, already.unwrap_or(Call::Pass)));
+                        continue;
+                    }
                     let who = self.table.player_at(*seat);
                     answers.push((*seat, self.bots[who].call(&self.hand, *seat, calls)));
                 }
+                self.asking.clear();
+                self.gathered.clear();
                 if !matches!(call, Call::Pass) {
                     self.note(self.seat, &describe_call(call).label);
                 }
@@ -397,6 +493,20 @@ impl Game {
     /// scores can be read.
     pub fn player_index(&self) -> usize {
         self.player
+    }
+
+    /// The opponent seat owing a decision, when the page answers for them.
+    fn opponent_owing(&self) -> Option<Wind> {
+        if !self.external {
+            return None;
+        }
+        if let Some(seat) = self.asking.first() {
+            return Some(*seat);
+        }
+        match self.hand.phase {
+            Phase::Act if self.hand.turn != self.seat => Some(self.hand.turn),
+            _ => None,
+        }
     }
 
     fn note(&mut self, seat: Wind, what: &str) {

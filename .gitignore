@@ -231,3 +231,10 @@ web/src/wasm/
 # The Python template's `lib/` rule above is meant for virtualenvs, not
 # for the app's own components.
 !web/src/lib/
+
+# Copied from the package at build time, not source.
+web/public/ort/
+
+# The trained opponent, produced by training rather than written. The game
+# offers that tier only when this file is present.
+web/public/model.onnx

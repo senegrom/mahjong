@@ -1,4 +1,6 @@
 <script>
+  import { tileWords } from './tiles.js';
+
   /**
    * One tile. Faces are the public-domain drawings in /tiles; a face-down
    * tile shows the back. Every tile carries its name for screen readers, so
@@ -18,17 +20,6 @@
 
   const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
   const HONOURS = ['Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun'];
-  const SUIT_WORDS = { m: 'characters', p: 'circles', s: 'bamboo' };
-  const HONOUR_WORDS = [
-    'east wind',
-    'south wind',
-    'west wind',
-    'north wind',
-    'white dragon',
-    'green dragon',
-    'red dragon',
-  ];
-
   function fileFor(name) {
     if (!name) return 'Back';
     const rank = Number(name[0]);
@@ -37,16 +28,8 @@
     return `${SUIT_FILES[suit] ?? 'Man'}${rank}`;
   }
 
-  function wordsFor(name) {
-    if (!name) return 'face-down tile';
-    const rank = Number(name[0]);
-    const suit = name[1];
-    if (suit === 'z') return HONOUR_WORDS[rank - 1] ?? 'honour tile';
-    return `${rank} ${SUIT_WORDS[suit]}`;
-  }
-
   let file = $derived(facedown ? 'Back' : fileFor(tile));
-  let words = $derived(facedown ? 'face-down tile' : wordsFor(tile));
+  let words = $derived(facedown ? 'face-down tile' : tileWords(tile));
   // The white dragon's face is blank, which reads as a missing picture.
   // Sets that do not leave it plain frame it in blue; so does this one.
   let blank = $derived(!facedown && tile === '5z');
