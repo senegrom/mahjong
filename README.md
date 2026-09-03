@@ -42,24 +42,33 @@ plays and the game the opponents were trained on cannot drift apart.
 
 ## Where the trained opponent stands
 
-Level with the heuristic bot, and not yet ahead of it.
+Ahead of the heuristic bot by about 0.04 placement, which is not yet enough
+games to be sure of.
 
 Average placement over a few hundred games carries a standard error of
-about 0.05, which is the size of the improvement being looked for, so the
-arena plays the same deals four times with the network in each seat and
-reports the spread across the four seatings as the error:
+about 0.05, which is the size of the improvement being looked for. So the
+arena plays the same deals four times with the network in each seat, and
+takes its error bar from the deals rather than from the four seatings: the
+seatings share their deals, and a network indistinguishable from the bots
+would play the same four games and place summing to exactly ten every time.
+Run against itself the arena therefore reports plus or minus nothing, which
+is both correct and a check that the estimator understands the design.
 
-| network | placement | error |
-|---|---|---|
-| warm start, imitating the heuristic bot | 2.527 | 0.032 |
-| after sixty generations of self-play | 2.500 | 0.025 |
+The latest network, over 2,400 games:
+
+| | |
+|---|---|
+| placement | 2.460 |
+| error | 0.023 |
+| difference from level | +0.040, or 1.8 standard errors |
 
 Against three of those bots, a network no better than they are averages
 2.5. Reproduce it with `python -m neural.arena <checkpoint> --games 500`.
 
-The site therefore offers the two heuristic tiers only: the trained tier
+The site therefore offers the two heuristic tiers only. The trained tier
 appears when a model file is present, and one is published when the arena
-says it deserves to be.
+says it deserves to be, which means two standard errors clear rather than
+one and eight tenths.
 
 Still to come: replays in the browser and a measured game against Mortal.
 The plan is in [docs/PLAN.md](docs/PLAN.md).
