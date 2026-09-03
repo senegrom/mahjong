@@ -1631,6 +1631,60 @@ mod tests {
         );
     }
 
+    /// EMA 2025 sections 3.3.11 and 3.3.12, which differ on exactly one
+    /// word: a player may win by self-draw "with the tile just drawn... A
+    /// furiten player may still call tsumo", but may win by discard only
+    /// "unless they are furiten". The same hand, the same tile, and the
+    /// answer turns on where the tile came from.
+    #[test]
+    fn furiten_bars_the_discard_but_not_the_self_draw() {
+        let waiting = "123m456m789m11s34p";
+        let tile: Tile = "2p".parse().unwrap();
+
+        // The same furiten hand is set up twice, so the only thing that
+        // differs between the two halves is how the tile arrives.
+        let furiten_south = |hand: &mut Hand| {
+            hand.players[1].hand = waiting.parse().unwrap();
+            hand.players[1].discards.push(Discard {
+                tile,
+                order: 0,
+                drawn: true,
+                riichi: false,
+                claimed: false,
+            });
+            hand.players[1].refresh_furiten();
+            assert!(hand.players[1].is_furiten(), "the wait is in their pond");
+        };
+
+        // By discard: refused.
+        let mut hand = fresh();
+        furiten_south(&mut hand);
+        hand.players[0].hand = "2p".parse().unwrap();
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+        hand.drawn = None;
+        hand.discard(tile, false);
+        let offered = hand.legal_calls();
+        let south = offered.iter().find(|(seat, _)| *seat == Wind::South);
+        assert!(
+            south.is_none() || !south.unwrap().1.contains(&Call::Ron),
+            "furiten bars the win by discard"
+        );
+
+        // By self-draw: allowed, on the very same hand and tile.
+        let mut hand = fresh();
+        furiten_south(&mut hand);
+        hand.players[1].hand.add(tile);
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+        hand.drawn = Some(tile);
+        assert!(
+            hand.legal_actions().contains(&Action::Tsumo),
+            "furiten does not bar the win by self-draw: {:?}",
+            hand.legal_actions()
+        );
+    }
+
     /// EMA 2025 section 3.3.10, changed in 2025: riichi needs only one tile
     /// left in the wall, where the 2016 edition asked for four.
     #[test]

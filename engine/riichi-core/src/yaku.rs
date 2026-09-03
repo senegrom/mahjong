@@ -546,6 +546,9 @@ mod tests {
     /// EMA 2025 section 4.2: open hands lose a han on the underlined yaku.
     #[test]
     fn open_hands_lose_a_han_where_marked() {
+        // EMA 2025 sections 4.2.2 to 4.2.5, where each yaku that is worth
+        // less open says so: "Worth only two han if the hand is open", and
+        // Full Flush "Worth only five han if the hand is open".
         assert_eq!(Yaku::Chinitsu.han(false), 6);
         assert_eq!(Yaku::Chinitsu.han(true), 5);
         assert_eq!(Yaku::Honitsu.han(false), 3);
@@ -578,6 +581,61 @@ mod tests {
         assert!(!has_pure_straight(&mixed));
         assert!(has_all_three_suits(&mixed));
         assert!(!has_all_three_suits(&straight));
+    }
+
+    /// EMA 2025 section 4.2.3: Twice Pure Double Sequence is four sequences
+    /// forming two Pure Double Sequences, and "No additional han for Pure
+    /// Double Sequence IIPEIKO are counted." Counting both would turn a
+    /// three han hand into four.
+    #[test]
+    fn twice_pure_double_sequence_swallows_the_single_one() {
+        let tiles: Vec<Tile> = ["2m", "3m", "4m", "6p", "7p", "8p", "9s"]
+            .iter()
+            .map(|text| tile(text))
+            .collect();
+
+        // Two sequences twice over: 234m 234m 678p 678p.
+        let twice = [
+            sequence("2m"),
+            sequence("2m"),
+            sequence("6p"),
+            sequence("6p"),
+        ];
+        let analysis = Analysis {
+            groups: &twice,
+            pair: tile("9s"),
+            all_tiles: &tiles,
+            concealed: true,
+            seat: Wind::East,
+            round: Wind::East,
+            meld_kinds: &[],
+        };
+        let found = structural(&analysis);
+        assert!(
+            found.contains(&Yaku::Ryanpeikou),
+            "four sequences in two pairs: {found:?}"
+        );
+        assert!(
+            !found.contains(&Yaku::Iipeiko),
+            "and the single one is not counted on top: {found:?}"
+        );
+
+        // One pair of matching sequences is the single yaku, not the double.
+        let once = [
+            sequence("2m"),
+            sequence("2m"),
+            sequence("6p"),
+            sequence("3s"),
+        ];
+        let analysis = Analysis {
+            groups: &once,
+            ..analysis
+        };
+        let found = structural(&analysis);
+        assert!(found.contains(&Yaku::Iipeiko), "{found:?}");
+        assert!(!found.contains(&Yaku::Ryanpeikou), "{found:?}");
+        assert_eq!(Yaku::Ryanpeikou.han(false), 3);
+        assert_eq!(Yaku::Iipeiko.han(false), 1);
     }
 
     #[test]
