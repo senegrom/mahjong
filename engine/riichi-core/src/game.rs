@@ -118,12 +118,22 @@ impl Player {
     }
 
     /// Recomputes permanent furiten from the discard row.
+    ///
+    /// A player who has not declared riichi may change their wait to leave
+    /// furiten, so the flag is recomputed. A player who has declared cannot
+    /// change anything, and furiten they have incurred lasts to the end of
+    /// the hand, so theirs is never cleared here (EMA section 3.3.9).
     fn refresh_furiten(&mut self) {
         let waits = self.waits();
-        self.furiten = self
+        let from_discards = self
             .discards
             .iter()
             .any(|discard| waits.count(discard.tile) > 0);
+        self.furiten = if self.has_riichi() {
+            self.furiten || from_discards
+        } else {
+            from_discards
+        };
     }
 }
 
@@ -224,6 +234,9 @@ pub struct Hand {
     pub counters: u32,
     /// Riichi bets carried on the table.
     pub riichi_sticks: u32,
+    /// Bets placed during this hand, by seat, so they can go back to their
+    /// owners when the rules say they should (EMA section 3.3.10).
+    pub bets_this_hand: [u32; 4],
     /// Whose turn it is.
     pub turn: Wind,
     /// Where the hand is in its cycle.
@@ -237,8 +250,11 @@ pub struct Hand {
     pub first_turns_unbroken: bool,
     /// Whether the last tile drawn came from the dead wall after a quad.
     pub after_quad: bool,
-    /// Whether the most recent quad was an extended one that may be robbed.
+    /// Whether the most recent quad may be robbed, and its tile.
     pub robbable_quad: Option<Tile>,
+    /// Whether that quad was a concealed one, which may only be robbed to
+    /// win with Thirteen Orphans (EMA section 3.3.13).
+    pub robbing_concealed: bool,
     /// How many discards the hand has seen, which numbers each one.
     pub discards_made: u32,
     /// The tile just claimed for a set, which the claimer may not turn
@@ -287,8 +303,10 @@ impl Hand {
             first_turns_unbroken: true,
             after_quad: false,
             robbable_quad: None,
+            robbing_concealed: false,
             discards_made: 0,
             just_claimed: None,
+            bets_this_hand: [0; 4],
             outcome: None,
         }
     }
@@ -371,8 +389,9 @@ impl Hand {
             }
         }
 
-        // Quads.
-        if self.wall.can_declare_quad() {
+        // Quads, but only in a turn where a tile was drawn: a turn that
+        // began with a claim does not allow one (EMA section 3.3.4).
+        if self.wall.can_declare_quad() && self.drawn.is_some() {
             for tile in Tile::all() {
                 if player.hand.count(tile) == 4 {
                     actions.push(Action::ConcealedKan(tile));
@@ -390,33 +409,49 @@ impl Hand {
         actions
     }
 
-    /// Whether a concealed quad is allowed after riichi: it must not change
-    /// the waits, and the three tiles must only read as a triplet
+    /// Whether the concealed quad a riichi player wants is allowed.
+    ///
+    /// It must be the fourth copy of a triplet the hand already held, it
+    /// must leave the waits exactly as they were, and the three tiles must
+    /// read only as a triplet in every hand a waiting tile would complete
     /// (EMA sections 3.3.10 and 6.7.1).
     fn riichi_kan_is_valid(&self, tile: Tile) -> bool {
         let player = self.current();
-        if player.hand.count(tile) != 4 {
+        let drawn = match self.drawn {
+            Some(drawn) if drawn == tile => drawn,
+            _ => return false,
+        };
+        // The hand as it was frozen at the declaration, without the draw.
+        let mut frozen = player.hand;
+        if !frozen.remove(drawn) {
             return false;
         }
-        let before = player.waits();
-        // With the quad set aside, the rest of the hand must wait the same.
-        let mut probe = player.clone();
-        probe.hand.counts_mut()[tile.idx()] = 0;
-        probe.melds.push(Meld::concealed_kan(tile));
-        let after = probe.waits();
+        if frozen.count(tile) != 3 {
+            return false;
+        }
+        let visible = player.visible_to_self();
+        let before = shanten::waits(&frozen, player.melds.len(), &visible);
+        if before.is_empty() {
+            return false;
+        }
+
+        // The same hand with the three tiles set aside as a quad.
+        let mut without = frozen;
+        without.counts_mut()[tile.idx()] = 0;
+        let after = shanten::waits(&without, player.melds.len() + 1, &visible);
         if before != after {
             return false;
         }
-        // The three tiles must not be readable as part of a sequence in any
-        // completed hand, which is what the rulebook's examples turn on.
+
+        // In no completed hand may those tiles be read as part of a sequence.
         for wait in before.tiles() {
-            let mut complete = player.hand;
+            let mut complete = frozen;
             complete.add(wait);
             for reading in crate::agari::readings(&complete, player.melds.len()) {
-                let uses_in_sequence = reading.blocks.iter().any(|block| {
+                let in_a_sequence = reading.blocks.iter().any(|block| {
                     matches!(block, crate::agari::Block::Sequence(_)) && block.contains(tile)
                 });
-                if uses_in_sequence {
+                if in_a_sequence {
                     return false;
                 }
             }
@@ -523,6 +558,7 @@ impl Hand {
                 };
                 player.score -= 1000;
                 self.riichi_sticks += 1;
+                self.bets_this_hand[seat.index()] += 1;
             }
             Action::ConcealedKan(tile) => self.declare_quad(tile, MeldKind::ConcealedKan),
             Action::ExtendedKan(tile) => self.declare_quad(tile, MeldKind::ExtendedKan),
@@ -553,28 +589,30 @@ impl Hand {
                 player.melds.push(Meld::concealed_kan(tile));
             }
         }
-        // A quad breaks the first set of turns and every one-shot chance
-        // (EMA sections 4.2.1 and 4.2.2).
+        // A quad breaks the first set of turns. It also ends every one-shot
+        // chance, but only once it has actually succeeded: Robbing a Quad
+        // may combine with Ippatsu (EMA sections 4.2.1 and 4.2.2), so that
+        // is left to finish_quad_draw.
         self.first_turns_unbroken = false;
-        for player in self.players.iter_mut() {
-            player.ippatsu = false;
+        // An extended quad may be robbed for a win, and a concealed one only
+        // by a hand of Thirteen Orphans (EMA section 3.3.13).
+        self.robbable_quad = Some(tile);
+        self.robbing_concealed = matches!(kind, MeldKind::ConcealedKan);
+        self.pending_discard = Some((seat, tile));
+        self.phase = Phase::CallWindow;
+        if self.legal_calls().is_empty() {
+            self.finish_quad_draw();
         }
-        // An extended quad may be robbed for a win (EMA section 3.3.13).
-        if matches!(kind, MeldKind::ExtendedKan) {
-            self.robbable_quad = Some(tile);
-            self.pending_discard = Some((seat, tile));
-            self.phase = Phase::CallWindow;
-            if self.legal_calls().is_empty() {
-                self.finish_quad_draw();
-            }
-            return;
-        }
-        self.finish_quad_draw();
     }
 
     fn finish_quad_draw(&mut self) {
         self.robbable_quad = None;
+        self.robbing_concealed = false;
         self.pending_discard = None;
+        // The quad stands, so every one-shot chance is gone.
+        for player in self.players.iter_mut() {
+            player.ippatsu = false;
+        }
         let replacement = self.wall.take_replacement();
         match replacement {
             Some(tile) => {
@@ -630,6 +668,26 @@ impl Hand {
         }
     }
 
+    /// The seats whose hand this discard would complete, whether or not
+    /// they could declare a win on it. Passing one of these makes a player
+    /// temporarily furiten even when the hand has no yaku (EMA 3.3.9).
+    fn seats_completed_by(&self, tile: Tile) -> Vec<Wind> {
+        let from = match self.pending_discard {
+            Some((from, _)) => from,
+            None => return Vec::new(),
+        };
+        Wind::ALL
+            .into_iter()
+            .filter(|seat| *seat != from)
+            .filter(|seat| {
+                let player = &self.players[seat.index()];
+                let mut completed = player.hand;
+                completed.add(tile);
+                shanten::shanten(&completed, player.melds.len()) == shanten::COMPLETE
+            })
+            .collect()
+    }
+
     /// What each other player may do with the discard on the table.
     pub fn legal_calls(&self) -> Vec<(Wind, Vec<Call>)> {
         if !matches!(self.phase, Phase::CallWindow) {
@@ -657,7 +715,13 @@ impl Hand {
             completed.add(tile);
             let complete_shape =
                 shanten::shanten(&completed, player.melds.len()) == shanten::COMPLETE;
+            let shape_allows = !self.robbing_concealed || {
+                crate::agari::readings(&completed, player.melds.len())
+                    .iter()
+                    .any(|reading| matches!(reading.shape, crate::agari::Shape::ThirteenOrphans))
+            };
             if complete_shape
+                && shape_allows
                 && !player.is_furiten()
                 && self.would_win(seat, tile, WinBy::Discard).is_ok()
             {
@@ -793,6 +857,25 @@ impl Hand {
             .map(|(seat, _)| *seat)
             .collect();
         if !winners.is_empty() {
+            // A declaration that is won on never happened: the bet goes
+            // back and the hand was never a riichi (EMA section 3.3.10).
+            let declaring = self.players[from.index()]
+                .discards
+                .last()
+                .map(|discard| discard.riichi)
+                .unwrap_or(false);
+            if declaring && self.robbable_quad.is_none() {
+                let declarer = self.player_mut(from);
+                declarer.score += 1000;
+                declarer.riichi = Riichi::None;
+                declarer.ippatsu = false;
+                self.riichi_sticks = self.riichi_sticks.saturating_sub(1);
+                self.bets_this_hand[from.index()] =
+                    self.bets_this_hand[from.index()].saturating_sub(1);
+                if let Some(discard) = self.player_mut(from).discards.last_mut() {
+                    discard.riichi = false;
+                }
+            }
             let mut scored = Vec::new();
             // In turn order from the discarder, which is how riichi bets and
             // counters are settled.
@@ -814,15 +897,14 @@ impl Hand {
             return Ok(());
         }
 
-        // Anyone who could have won and did not is furiten until their next
-        // draw (EMA section 3.3.9).
-        for (seat, calls) in &offered {
-            if calls.contains(&Call::Ron) {
-                let player = self.player_mut(*seat);
-                player.temporary_furiten = true;
-                if player.has_riichi() {
-                    player.furiten = true;
-                }
+        // Anyone whose hand this tile completed and who did not take it is
+        // furiten until their next draw, even if the hand had no yaku to
+        // declare (EMA section 3.3.9).
+        for seat in self.seats_completed_by(tile) {
+            let player = self.player_mut(seat);
+            player.temporary_furiten = true;
+            if player.has_riichi() {
+                player.furiten = true;
             }
         }
 
@@ -1007,12 +1089,23 @@ impl Hand {
                 }
             }
         }
-        // Riichi bets go to the first winner in turn order from the discarder,
-        // and every winner who declared riichi keeps their own (section 3.3.10).
-        if let Some((seat, _)) = winners.first() {
-            self.players[seat.index()].score += (self.riichi_sticks * 1000) as i32;
-            self.riichi_sticks = 0;
+        // Every winner who declared riichi this hand gets their own bet
+        // back; whatever is left, including bets from earlier hands, goes to
+        // the winner first in turn order from the discarder (EMA 3.3.10).
+        let mut pool = self.riichi_sticks;
+        for (seat, _) in &winners {
+            let own = self.bets_this_hand[seat.index()].min(pool);
+            if own > 0 {
+                self.players[seat.index()].score += (own * 1000) as i32;
+                pool -= own;
+            }
         }
+        if let Some((seat, _)) = winners.first() {
+            self.players[seat.index()].score += (pool * 1000) as i32;
+            pool = 0;
+        }
+        self.riichi_sticks = pool;
+        self.bets_this_hand = [0; 4];
         self.outcome = Some(Outcome::Win { winners, discarder });
         self.phase = Phase::Over;
     }
@@ -1315,6 +1408,151 @@ mod tests {
                 .any(|action| matches!(action, Action::Discard(_))),
             "the hand holds only 9 circles, which the sequence 7-8-9 must not bar"
         );
+    }
+
+    /// EMA 2025 section 3.3.9: a player who declared riichi and passed a
+    /// winning discard is furiten "until the end of the hand", so their own
+    /// next discard must not clear it.
+    #[test]
+    fn riichi_furiten_lasts_the_whole_hand() {
+        let mut hand = fresh();
+        hand.players[1].hand = "123m456m789m11s34p".parse().unwrap();
+        hand.players[1].riichi = crate::score::Riichi::Declared;
+        hand.players[1].furiten = true;
+        hand.players[1].temporary_furiten = true;
+
+        // The declarer takes another turn and discards.
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+        hand.drawn = Some("9p".parse().unwrap());
+        hand.players[1].hand.add("9p".parse().unwrap());
+        hand.discard("9p".parse().unwrap(), false);
+        assert!(
+            hand.players[1].furiten,
+            "riichi furiten must survive the declarer's own discard"
+        );
+
+        // A player who has not declared may leave furiten by changing wait.
+        let mut hand = fresh();
+        hand.players[2].hand = "123m456m789m11s34p".parse().unwrap();
+        hand.players[2].furiten = true;
+        hand.players[2].refresh_furiten();
+        assert!(!hand.players[2].furiten, "an open hand may leave furiten");
+    }
+
+    /// EMA 2025 section 3.3.9: passing a tile that completes the hand makes
+    /// a player temporarily furiten even when the hand has no yaku.
+    #[test]
+    fn passing_a_yakuless_completion_is_still_furiten() {
+        let mut hand = fresh();
+        // West: an open hand with a terminal sequence, so no yaku at all.
+        hand.players[2]
+            .melds
+            .push(Meld::chii("1m".parse().unwrap(), ClaimedFrom::Left));
+        hand.players[2].hand = "456m789p22s34s".parse().unwrap();
+        hand.players[0].hand = "5s".parse().unwrap();
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+        hand.drawn = None;
+        hand.discard("5s".parse().unwrap(), false);
+
+        // Nobody is offered the win, because there is no yaku to declare.
+        // Nobody could declare, so the window closed on its own.
+        assert!(hand.legal_calls().is_empty());
+        assert!(
+            hand.players[2].temporary_furiten,
+            "the hand was completed and passed, so the player is furiten"
+        );
+    }
+
+    /// EMA 2025 section 3.3.4: a quad may only be declared in a turn where a
+    /// tile was drawn, not in one that began with a claim.
+    #[test]
+    fn no_quad_in_a_turn_that_began_with_a_claim() {
+        let mut hand = fresh();
+        hand.players[1].hand = "1111m234p567p9s".parse().unwrap();
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+
+        // Straight after a claim there is no drawn tile, and no quad.
+        hand.drawn = None;
+        hand.just_claimed = Some("5z".parse().unwrap());
+        hand.players[1]
+            .melds
+            .push(Meld::pon("5z".parse().unwrap(), ClaimedFrom::Left));
+        assert!(!hand
+            .legal_actions()
+            .iter()
+            .any(|action| matches!(action, Action::ConcealedKan(_))));
+
+        // After an ordinary draw it is offered again.
+        hand.just_claimed = None;
+        hand.drawn = Some("9s".parse().unwrap());
+        assert!(hand
+            .legal_actions()
+            .iter()
+            .any(|action| matches!(action, Action::ConcealedKan(_))));
+    }
+
+    /// EMA 2025 section 3.3.13: a concealed quad may be robbed, but only to
+    /// win with Thirteen Orphans.
+    #[test]
+    fn a_concealed_quad_is_robbable_only_for_thirteen_orphans() {
+        let mut hand = fresh();
+        // South is waiting on the red dragon for Thirteen Orphans.
+        hand.players[1].hand = "119m19p19s123456z".parse().unwrap();
+        // West is waiting on it for an ordinary hand, on the pair.
+        hand.players[2].hand = "123m456m789m123p7z".parse().unwrap();
+        hand.players[0].hand = "7777z".parse().unwrap();
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+        hand.drawn = Some("7z".parse().unwrap());
+        hand.declare_quad("7z".parse().unwrap(), MeldKind::ConcealedKan);
+
+        let offered = hand.legal_calls();
+        let south = offered.iter().find(|(seat, _)| *seat == Wind::South);
+        let west = offered.iter().find(|(seat, _)| *seat == Wind::West);
+        assert!(
+            south.is_some_and(|(_, calls)| calls.contains(&Call::Ron)),
+            "Thirteen Orphans may rob a concealed quad"
+        );
+        assert!(
+            west.is_none() || !west.unwrap().1.contains(&Call::Ron),
+            "an ordinary hand may not"
+        );
+    }
+
+    /// EMA 2025 section 3.3.10: if the riichi declaration itself is won on,
+    /// the declaration is void and the bet goes back.
+    #[test]
+    fn a_declaration_that_is_won_on_is_void() {
+        let mut hand = fresh();
+        hand.players[0].hand = "123m456m789m11s34p".parse().unwrap();
+        hand.players[0].hand.add("2p".parse().unwrap());
+        hand.players[1].hand = "123m456m789m11s34p".parse().unwrap();
+        hand.players[1].riichi = crate::score::Riichi::Declared;
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+        hand.drawn = Some("2p".parse().unwrap());
+
+        let before = hand.players[0].score;
+        hand.act(Action::Riichi("2p".parse().unwrap())).unwrap();
+        assert_eq!(hand.players[0].score, before - 1000, "the bet is placed");
+
+        let offered = hand.legal_calls();
+        let south = offered.iter().find(|(seat, _)| *seat == Wind::South);
+        assert!(south.is_some_and(|(_, calls)| calls.contains(&Call::Ron)));
+        hand.resolve_calls(&[(Wind::South, Call::Ron)]).unwrap();
+        assert!(!hand.players[0].has_riichi(), "the declaration never stood");
+        assert_eq!(hand.riichi_sticks, 0, "no bet was left on the table");
+
+        // The declarer is out exactly the value of the hand they fed, and
+        // not a further thousand for a declaration that never stood.
+        let paid = match &hand.outcome {
+            Some(Outcome::Win { winners, .. }) => winners[0].1.payments.from_discarder as i32,
+            other => panic!("expected a win, got {other:?}"),
+        };
+        assert_eq!(hand.players[0].score, before - paid);
     }
 
     #[test]

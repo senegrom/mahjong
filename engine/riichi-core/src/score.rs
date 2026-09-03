@@ -277,11 +277,27 @@ fn score_reading(
             melds,
             hand_is_concealed,
             situation,
+            false,
         ));
+        // Blessing of Man is worth five han and combines with nothing, so a
+        // hand that qualifies is scored both ways and the better stands
+        // (EMA sections 4.2.4 and 4.1).
+        if situation.blessing_of_man && hand_is_concealed {
+            results.push(score_one(
+                reading,
+                index,
+                concealed,
+                melds,
+                hand_is_concealed,
+                situation,
+                true,
+            ));
+        }
     }
     results
 }
 
+#[allow(clippy::too_many_arguments)]
 fn score_one(
     reading: &Reading,
     completed: usize,
@@ -289,6 +305,7 @@ fn score_one(
     melds: &[Meld],
     hand_is_concealed: bool,
     situation: &Situation,
+    as_blessing_of_man: bool,
 ) -> Result<Score, ScoreError> {
     let won_by_discard = matches!(situation.win_by, WinBy::Discard);
 
@@ -440,7 +457,10 @@ fn score_one(
     found.dedup();
 
     // Blessing of Man stands alone: no other yaku and no dora.
-    if situation.blessing_of_man && hand_is_concealed && won_by_discard {
+    if as_blessing_of_man {
+        if !(situation.blessing_of_man && hand_is_concealed && won_by_discard) {
+            return Err(ScoreError::NoYaku);
+        }
         found = vec![Yaku::Renhou];
     }
 
@@ -466,7 +486,7 @@ fn score_one(
             .collect();
         let mut han: u8 = list.iter().map(|(_, han)| *han).sum();
         let mut dora = 0u8;
-        if !situation.blessing_of_man || !found.contains(&Yaku::Renhou) {
+        if !found.contains(&Yaku::Renhou) {
             dora = count_dora(&all_tiles, situation);
             han = han.saturating_add(dora);
         }
