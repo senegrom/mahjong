@@ -10,7 +10,13 @@
     "build": "node scripts/copy-runtime.mjs && vite build",
     "preview": "vite preview",
     "runtime": "node scripts/copy-runtime.mjs",
-    "check": "node scripts/play-check.mjs"
+    "check": "node scripts/play-check.mjs",
+    "check:keyboard": "node scripts/keyboard-check.mjs",
+    "check:aids": "node scripts/aids-check.mjs",
+    "check:review": "node scripts/review-check.mjs",
+    "check:log": "node scripts/log-check.mjs",
+    "check:game": "node scripts/game-check.mjs",
+    "check:all": "npm run check && npm run check:keyboard && npm run check:aids && npm run check:review && npm run check:log && npm run check:game"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",

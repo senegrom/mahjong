@@ -109,7 +109,14 @@ cd web
 npm install
 npm run wasm                    # build the engine for the browser
 npm run dev                     # play at the address printed
+npm run check:all               # play it in a real browser and check what it did
 ```
+
+`check:all` runs six checks against a running copy: a hand played to its
+end, the keyboard and the tile names a screen reader reads, the learning
+aids, the post-game review, the saved log, and a whole hanchan through to
+the final standings. Each takes a real browser at real speed, because a
+headless run on a virtual clock reports a loading network as a hang.
 
 `npm run wasm` needs the WebAssembly target and `wasm-pack`:
 
