@@ -442,6 +442,31 @@ pub fn best(
     Some(best.clone())
 }
 
+/// How a search spent itself, for reading rather than for playing.
+///
+/// A search that never overrides is a no-op dressed up as a calculation,
+/// and one that overrides constantly has a margin that is not doing its
+/// job. Neither shows in a placement figure until many games have gone by,
+/// so both are counted.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct Tally {
+    /// Decisions the search was asked about.
+    pub asked: usize,
+    /// Decisions where it took a move other than the first on the list.
+    pub overrode: usize,
+}
+
+impl Tally {
+    /// The share of decisions it changed.
+    pub fn share(&self) -> f64 {
+        if self.asked == 0 {
+            0.0
+        } else {
+            self.overrode as f64 / self.asked as f64
+        }
+    }
+}
+
 /// A player that thinks before it moves.
 ///
 /// It takes the heuristic player's shortlist and plays each of those moves
@@ -451,6 +476,8 @@ pub fn best(
 pub struct Searcher {
     /// How hard it thinks.
     pub effort: Effort,
+    /// How often thinking changed its mind.
+    pub tally: Tally,
     /// What it takes the opponents to be holding. Even weights until a
     /// network says otherwise.
     pub belief: Belief,
@@ -463,6 +490,7 @@ impl Searcher {
     pub fn new(seed: u64, effort: Effort) -> Searcher {
         Searcher {
             effort,
+            tally: Tally::default(),
             belief: Belief::even(),
             bot: Bot::with_style(seed, Style::club()),
             rng: Rng::from_seed(seed ^ 0x5ea5_c400),
@@ -487,6 +515,7 @@ impl Searcher {
 
         let seat = hand.turn;
         let shortlist = self.shortlist(hand, &actions);
+        self.tally.asked += 1;
         match best(
             hand,
             seat,
@@ -495,7 +524,12 @@ impl Searcher {
             &self.belief,
             &mut self.rng,
         ) {
-            Some(judged) => judged.action,
+            Some(judged) => {
+                if Some(judged.action) != shortlist.first().copied() {
+                    self.tally.overrode += 1;
+                }
+                judged.action
+            }
             None => self.bot.act(hand),
         }
     }

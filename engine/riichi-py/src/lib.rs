@@ -286,6 +286,8 @@ pub struct Arena {
     mask: Vec<bool>,
     /// What the opponents are holding, filled in only when asked for.
     hands: Vec<f32>,
+    /// How the search has spent itself, across every game.
+    searched: search::Tally,
 }
 
 #[pymethods]
@@ -306,6 +308,7 @@ impl Arena {
             observations: vec![0.0; games * OBSERVATION],
             mask: vec![false; games * ACTIONS],
             hands: vec![0.0; games * HANDS],
+            searched: search::Tally::default(),
         }
     }
 
@@ -396,7 +399,9 @@ impl Arena {
         assert_eq!(ranked.len(), games, "one ranking per game");
         assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
 
-        (0..games)
+        let mut overrode = 0usize;
+        let mut asked = 0usize;
+        let chosen: Vec<usize> = (0..games)
             .map(|game| {
                 let seat = &mut self.seats[game];
                 let Some(wind) = seat.pending() else {
@@ -418,12 +423,30 @@ impl Arena {
                 if shortlist.is_empty() {
                     return ranked[game].first().copied().unwrap_or(PASS);
                 }
+                asked += 1;
                 match search::best(&seat.hand, wind, &shortlist, effort, &belief, &mut seat.rng) {
-                    Some(judged) => action_to_index(judged.action),
+                    Some(judged) => {
+                        let picked = action_to_index(judged.action);
+                        if Some(picked) != ranked[game].first().copied() {
+                            overrode += 1;
+                        }
+                        picked
+                    }
                     None => ranked[game].first().copied().unwrap_or(PASS),
                 }
             })
-            .collect()
+            .collect();
+        self.searched.asked += asked;
+        self.searched.overrode += overrode;
+        chosen
+    }
+
+    /// How many decisions the search was asked about, and how many of them
+    /// it changed. A search that never changes anything is a no-op dressed
+    /// up as a calculation; one that changes everything has a margin that
+    /// is not doing its job.
+    fn search_tally(&self) -> (usize, usize) {
+        (self.searched.asked, self.searched.overrode)
     }
 
     /// One legality mask per game, as bytes of 0 and 1.

@@ -46,6 +46,8 @@ impl Player {
 
 /// What one seating came to.
 struct Seating {
+    /// How often the search changed the player's mind, when there was one.
+    tally: riichi_core::search::Tally,
     placement: f64,
     score: f64,
     wins: f64,
@@ -72,6 +74,7 @@ fn play_seating(
     let mut scores = 0.0;
     let mut firsts = 0.0;
     let mut per_game = Vec::with_capacity(games);
+    let mut tally = riichi_core::search::Tally::default();
 
     for game in 0..games {
         // The same seed gives the same deals whichever seat is challenged,
@@ -125,6 +128,10 @@ fn play_seating(
             }
             table.finish(&hand);
         }
+        if let Player::Thinking(searcher) = &bots[chair] {
+            tally.asked += searcher.tally.asked;
+            tally.overrode += searcher.tally.overrode;
+        }
 
         let final_scores = table.final_scores();
         let mine = final_scores[chair];
@@ -144,6 +151,7 @@ fn play_seating(
     }
 
     Seating {
+        tally,
         placement: placements / games as f64,
         score: scores / games as f64,
         wins: firsts / games as f64,
@@ -211,6 +219,14 @@ pub fn duel(games: usize, seed: u64, challenger: Style, defender: Style, thinkin
         "placement {overall:.4} +/- {error:.4} over {} games",
         games * 4
     );
+    let asked: usize = seatings.iter().map(|row| row.tally.asked).sum();
+    let overrode: usize = seatings.iter().map(|row| row.tally.overrode).sum();
+    if asked > 0 {
+        println!(
+            "the search was asked {asked} times and changed its mind {overrode}, {:.1}%",
+            overrode as f64 / asked as f64 * 100.0
+        );
+    }
     println!(
         "score {:+.0}, wins {:.3}",
         mean(&seatings.iter().map(|row| row.score).collect::<Vec<f64>>()),
