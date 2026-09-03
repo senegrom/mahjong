@@ -61,6 +61,11 @@ pub struct Player {
     pub temporary_furiten: bool,
     /// Where the riichi declaration falls in the hand's order of discards.
     pub riichi_order: Option<u32>,
+    /// Who fed this player their third called dragon set, and so answers for
+    /// a Big Three Dragons (EMA section 3.3.7).
+    pub liable_for_dragons: Option<Wind>,
+    /// Who fed this player their fourth called wind set.
+    pub liable_for_winds: Option<Wind>,
 }
 
 impl Player {
@@ -76,6 +81,8 @@ impl Player {
             furiten: false,
             temporary_furiten: false,
             riichi_order: None,
+            liable_for_dragons: None,
+            liable_for_winds: None,
         }
     }
 
@@ -946,6 +953,7 @@ impl Hand {
     }
 
     fn take_call(&mut self, seat: Wind, from: Wind, tile: Tile, call: Call) {
+        let _ = &from;
         let source = match (from.index() + 4 - seat.index()) % 4 {
             3 => ClaimedFrom::Left,
             2 => ClaimedFrom::Across,
@@ -998,6 +1006,7 @@ impl Hand {
                 Call::Ron | Call::Pass => unreachable!("handled before"),
             }
         }
+        self.note_liability(seat, from);
         if matches!(call, Call::Kan) {
             self.finish_quad_draw();
         } else {
@@ -1005,6 +1014,60 @@ impl Hand {
             self.just_claimed = Some(tile);
             self.phase = Phase::Act;
         }
+    }
+
+    /// Notices when a call hands a player the last of the three dragon sets
+    /// or four wind sets, which makes the feeder answer for the yakuman
+    /// (EMA section 3.3.7).
+    fn note_liability(&mut self, seat: Wind, from: Wind) {
+        let player = &self.players[seat.index()];
+        let called = |pick: fn(&Tile) -> bool| {
+            player
+                .melds
+                .iter()
+                .filter(|meld| meld.kind.opens_hand() && meld.is_triplet_or_quad())
+                .filter(|meld| pick(&meld.tile))
+                .count()
+        };
+        let dragons = called(|tile| tile.is_dragon());
+        let winds = called(|tile| tile.is_wind());
+        let player = self.player_mut(seat);
+        if dragons == 3 {
+            player.liable_for_dragons = Some(from);
+        }
+        if winds == 4 {
+            player.liable_for_winds = Some(from);
+        }
+    }
+
+    /// Who, if anyone, answers for this player's winning hand.
+    fn liable_for(&self, seat: Wind) -> Option<Wind> {
+        let player = &self.players[seat.index()];
+        let sets = |pick: fn(&Tile) -> bool| {
+            let mut count = player
+                .melds
+                .iter()
+                .filter(|meld| meld.is_triplet_or_quad())
+                .filter(|meld| pick(&meld.tile))
+                .count();
+            for tile in Tile::all() {
+                if pick(&tile) && player.hand.count(tile) >= 3 {
+                    count += 1;
+                }
+            }
+            count
+        };
+        if sets(|tile| tile.is_dragon()) == 3 {
+            if let Some(feeder) = player.liable_for_dragons {
+                return Some(feeder);
+            }
+        }
+        if sets(|tile| tile.is_wind()) == 4 {
+            if let Some(feeder) = player.liable_for_winds {
+                return Some(feeder);
+            }
+        }
+        None
     }
 
     /// Tiles that cannot deal into `seat`.
@@ -1068,12 +1131,37 @@ impl Hand {
     fn apply_win(&mut self, winners: Vec<(Wind, Score)>, discarder: Option<Wind>) {
         for (seat, score) in &winners {
             let payments = score.payments;
-            match discarder {
-                Some(from) => {
+            let liable = self.liable_for(*seat);
+            match (discarder, liable) {
+                // Somebody answers for the hand they fed. On a self-draw
+                // they pay all of it; on another player's discard the two
+                // split it, and only the discarder pays for the counters
+                // (EMA section 3.3.7).
+                (None, Some(feeder)) => {
+                    let whole = if matches!(seat, Wind::East) {
+                        payments.from_each_other * 3
+                    } else {
+                        payments.from_dealer + payments.from_each_other * 2
+                    } as i32;
+                    self.players[feeder.index()].score -= whole;
+                    self.players[seat.index()].score += whole;
+                }
+                (Some(from), Some(feeder)) if feeder != from => {
+                    let counters = (self.counters * 300) as i32;
+                    let hand_value = payments.from_discarder as i32 - counters;
+                    // Half each, with the odd hundred falling to the
+                    // discarder, who also covers the counters.
+                    let share = (hand_value / 200) * 100;
+                    let discarder_share = hand_value - share + counters;
+                    self.players[feeder.index()].score -= share;
+                    self.players[from.index()].score -= discarder_share;
+                    self.players[seat.index()].score += share + discarder_share;
+                }
+                (Some(from), _) => {
                     self.players[from.index()].score -= payments.from_discarder as i32;
                     self.players[seat.index()].score += payments.from_discarder as i32;
                 }
-                None => {
+                (None, None) => {
                     for other in Wind::ALL {
                         if other == *seat {
                             continue;
@@ -1553,6 +1641,65 @@ mod tests {
             other => panic!("expected a win, got {other:?}"),
         };
         assert_eq!(hand.players[0].score, before - paid);
+    }
+
+    /// EMA 2025 section 3.3.7: whoever feeds the last of three called
+    /// dragon sets answers for the Big Three Dragons. On a self-draw they
+    /// pay the whole yakuman alone; on another player's discard the two
+    /// share it, and only the discarder pays for the counters.
+    #[test]
+    fn feeding_the_third_dragon_set_carries_the_hand() {
+        // South holds two called dragon sets and takes a third from West.
+        let mut hand = fresh();
+        hand.players[1].melds = vec![
+            Meld::pon("5z".parse().unwrap(), ClaimedFrom::Left),
+            Meld::pon("6z".parse().unwrap(), ClaimedFrom::Left),
+        ];
+        hand.players[1].hand = "77z123m456m99p".parse().unwrap();
+        assert_eq!(hand.players[1].hand.len(), 10);
+        hand.players[2].hand = "7z".parse().unwrap();
+        hand.turn = Wind::West;
+        hand.phase = Phase::Act;
+        hand.drawn = None;
+        hand.discard("7z".parse().unwrap(), false);
+        hand.resolve_calls(&[(Wind::South, Call::Pon)]).unwrap();
+        assert_eq!(
+            hand.players[1].liable_for_dragons,
+            Some(Wind::West),
+            "West fed the third dragon set"
+        );
+
+        // South completes the hand by self-draw. West pays all of it.
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+        // Three called sets leave one set and a pair to hold.
+        hand.players[1].hand = "123m9p".parse().unwrap();
+        hand.players[1].hand.add("9p".parse().unwrap());
+        hand.drawn = Some("9p".parse().unwrap());
+        let before: Vec<i32> = hand.players.iter().map(|player| player.score).collect();
+        let score = hand
+            .would_win(
+                Wind::South,
+                "9p".parse().unwrap(),
+                crate::score::WinBy::SelfDraw,
+            )
+            .expect("a big three dragons hand");
+        assert_eq!(score.limit, Some(crate::score::Limit::Yakuman));
+        hand.act(Action::Tsumo).unwrap();
+
+        let gained = hand.players[1].score - before[1];
+        assert_eq!(
+            hand.players[2].score,
+            before[2] - gained,
+            "the player who fed the third dragon set pays the whole hand"
+        );
+        assert_eq!(hand.players[0].score, before[0], "the others pay nothing");
+        assert_eq!(hand.players[3].score, before[3], "the others pay nothing");
+        assert_eq!(
+            hand.players.iter().map(|player| player.score).sum::<i32>(),
+            before.iter().sum::<i32>(),
+            "points are only moved"
+        );
     }
 
     #[test]

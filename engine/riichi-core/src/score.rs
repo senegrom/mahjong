@@ -476,9 +476,11 @@ fn score_one(
         .collect();
 
     let (yaku_list, han, dora, limit) = if !yakuman.is_empty() {
-        // Yakuman are not cumulative (EMA section 4.2): one yakuman is paid.
-        let chosen = yakuman[0];
-        (vec![(chosen, 13)], 13u8, 0u8, Some(Limit::Yakuman))
+        // Yakuman are not cumulative (EMA section 4.2), so one is paid, but
+        // every one the hand holds is named: which it is decides who
+        // answers for it under section 3.3.7.
+        let named: Vec<(Yaku, u8)> = yakuman.iter().map(|entry| (*entry, 13)).collect();
+        (named, 13u8, 0u8, Some(Limit::Yakuman))
     } else {
         let mut list: Vec<(Yaku, u8)> = found
             .iter()
