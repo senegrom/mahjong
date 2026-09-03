@@ -1440,6 +1440,128 @@ mod tests {
         assert_eq!(hand.players[0].discards.len(), 1);
     }
 
+    /// EMA 2025 section 3.3.4: "After declaring a quad, the player in front
+    /// of the dead wall reveals a new kan dora indicator... The player who
+    /// declared the quad then draws the replacement tile." So the indicator
+    /// is up before the replacement is in hand, and a hand won on that
+    /// replacement counts it.
+    #[test]
+    fn a_quad_turns_its_indicator_before_the_replacement_is_drawn() {
+        let mut hand = fresh();
+        let tile: Tile = "5s".parse().unwrap();
+        hand.players[0].hand = "123m456m789m99p".parse().unwrap();
+        hand.players[0].hand.counts_mut()[tile.idx()] = 4;
+        // Thirteen tiles plus the four of the quad is more than a hand, so
+        // trim the pair back to what a quad-holding hand really has.
+        hand.players[0].hand = "123m456m789m9p".parse().unwrap();
+        for _ in 0..4 {
+            hand.players[0].hand.add(tile);
+        }
+        hand.drawn = Some(tile);
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+
+        let before = hand.wall.dora_indicators().len();
+        assert_eq!(before, 1, "a hand starts with one indicator");
+
+        hand.act(Action::ConcealedKan(tile))
+            .expect("four in hand make a quad");
+
+        assert_eq!(
+            hand.wall.dora_indicators().len(),
+            before + 1,
+            "the quad turned its indicator"
+        );
+        assert!(
+            hand.drawn.is_some(),
+            "and the replacement is drawn after it"
+        );
+        // The log says the same, in the same order.
+        let kinds: Vec<&str> = hand
+            .log
+            .iter()
+            .rev()
+            .take(3)
+            .map(|event| match event {
+                mjai::Event::Ankan { .. } => "ankan",
+                mjai::Event::Dora { .. } => "dora",
+                mjai::Event::Tsumo { .. } => "tsumo",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(kinds, ["tsumo", "dora", "ankan"], "in that order");
+    }
+
+    /// EMA 2025 section 3.3.13: "Since the quad was not declared
+    /// successfully, no kan dora indicator is revealed." A player who robs a
+    /// quad does not get an extra dora out of the quad they stopped.
+    #[test]
+    fn a_robbed_quad_turns_no_indicator() {
+        let mut hand = fresh();
+        let tile: Tile = "1p".parse().unwrap();
+
+        // East has a melded triplet of 1 circles and the fourth in hand, so
+        // they may extend it to a quad.
+        hand.players[0].melds.clear();
+        hand.players[0].melds.push(Meld {
+            kind: MeldKind::Pon,
+            tile,
+            from: ClaimedFrom::Left,
+        });
+        hand.players[0].hand = "234m567m789s".parse().unwrap();
+        hand.players[0].hand.add(tile);
+        let drawn: Tile = "5s".parse().unwrap();
+        hand.players[0].hand.add(drawn);
+        hand.drawn = Some(drawn);
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+        hand.just_claimed = None;
+
+        // South is waiting on that very tile, with riichi declared for the
+        // yaku a win by robbing needs.
+        let south = &mut hand.players[1];
+        south.hand = "23p456p789p111z22z".parse().unwrap();
+        south.discards.clear();
+        south.riichi = Riichi::Declared;
+        south.riichi_order = Some(0);
+        south.furiten = false;
+        south.temporary_furiten = false;
+
+        let before = hand.wall.dora_indicators().len();
+        hand.act(Action::ExtendedKan(tile))
+            .expect("the fourth tile extends the triplet");
+
+        assert_eq!(
+            hand.wall.dora_indicators().len(),
+            before,
+            "the indicator waits while the quad can still be robbed"
+        );
+
+        let offered = hand.legal_calls();
+        assert!(
+            offered
+                .iter()
+                .any(|(seat, calls)| *seat == Wind::South && calls.contains(&Call::Ron)),
+            "South is waiting on the tile that was added: {offered:?}"
+        );
+
+        hand.resolve_calls(&[(Wind::South, Call::Ron)])
+            .expect("the win was offered");
+
+        assert_eq!(
+            hand.wall.dora_indicators().len(),
+            before,
+            "a quad that was robbed never turned its indicator"
+        );
+        assert!(
+            !hand
+                .log
+                .iter()
+                .any(|event| matches!(event, mjai::Event::Dora { .. })),
+            "and the log does not claim one was turned"
+        );
+    }
+
     /// EMA 2025 section 3.3.1: a win beats a set call, and a triplet beats a
     /// sequence.
     #[test]
