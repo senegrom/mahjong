@@ -157,6 +157,29 @@
   // without anyone wanting to look back at them.
   let notes = $state(null);
 
+  // The hand as an mjai log, saved to a file. The name carries the round and
+  // the seat so a folder of them stays readable.
+  function saveLog() {
+    if (!game) return;
+    try {
+      const text = game.log();
+      if (!text) return;
+      const blob = new Blob([text + '\n'], { type: 'application/jsonl' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const round = (view?.round ?? 'hand').toLowerCase();
+      link.href = url;
+      link.download = `riichi-${round}-${Date.now()}.mjai.jsonl`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Freed on the next turn of the event loop, once the click is through.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      console.error('the log could not be saved', error);
+    }
+  }
+
   function showReview() {
     try {
       notes = game?.review() ?? [];
@@ -374,6 +397,7 @@
           ongame={start}
           onreview={showReview}
           reviewed={notes !== null}
+          onlog={saveLog}
         />
         {#if notes !== null}
           <Review {notes} />

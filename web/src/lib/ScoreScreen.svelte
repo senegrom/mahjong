@@ -14,6 +14,7 @@
     ongame,
     onreview,
     reviewed = false,
+    onlog,
     gameOver = false,
   } = $props();
 
@@ -97,6 +98,15 @@
     {/if}
     {#if onreview && !reviewed}
       <button class="quiet" onclick={onreview}>Look at my hand again</button>
+    {/if}
+    {#if onlog}
+      <button
+        class="quiet"
+        onclick={onlog}
+        title="The hand as an mjai event log, which replayers and other riichi programs read"
+      >
+        Save this hand
+      </button>
     {/if}
   </div>
 </section>

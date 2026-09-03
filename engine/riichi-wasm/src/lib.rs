@@ -641,6 +641,22 @@ impl Game {
         serde_wasm_bindgen::to_value(&notes).map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
+    /// The hand as an mjai event log, one JSON object per line.
+    ///
+    /// This is the format other riichi programs read, so a player can take
+    /// a hand to a replayer or a reviewer that has never heard of this one.
+    /// Players are numbered rather than seated, and number 0 is whoever
+    /// dealt first, which is what those programs expect.
+    pub fn log(&self) -> String {
+        let seating = self.table.seating();
+        self.hand
+            .log
+            .iter()
+            .map(|event| event.to_json(seating))
+            .collect::<Vec<String>>()
+            .join("\n")
+    }
+
     /// Whether the hand has finished.
     pub fn hand_is_over(&self) -> bool {
         matches!(self.hand.phase, Phase::Over)
