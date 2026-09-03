@@ -345,7 +345,14 @@
           {/if}
         </header>
 
-        <Discards discards={me.discards} compact={false} />
+        <div class="pond" aria-label="what you have discarded">
+          <span class="caption">
+            {me.discards.length === 0
+              ? 'you have discarded nothing yet'
+              : `you have discarded ${me.discards.length}`}
+          </span>
+          <Discards discards={me.discards} compact={false} />
+        </div>
 
         <div class="hand" role="group" aria-label="your tiles">
           {#each me.hand as tile, index (tile + index)}
@@ -540,9 +547,14 @@
     grid-row: 1;
   }
 
+  /* A pond is always six tiles to a row, so a seat's panel never needs more
+     width than that. Letting the side seats hug their contents puts them at
+     the edges of the table where the players sit, instead of stretching two
+     mostly empty panels across the whole board. */
   .left {
     grid-column: 1;
     grid-row: 2;
+    justify-self: start;
   }
 
   .centre {
@@ -562,6 +574,7 @@
   .right {
     grid-column: 3;
     grid-row: 2;
+    justify-self: end;
   }
 
   .mine {
@@ -699,6 +712,26 @@
     letter-spacing: 0.06em;
   }
 
+  /* What has been thrown lies on the table, not in the hand. It is set
+     back into the felt and captioned, so the two rows cannot be read as one
+     long hand: they were the same size and eight pixels apart before. */
+  .pond {
+    display: grid;
+    gap: 4px;
+    justify-self: start;
+    padding: 6px 8px 8px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.22);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+
+  .caption {
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.55;
+  }
+
   .hand {
     display: flex;
     align-items: flex-end;
@@ -800,6 +833,8 @@
     .mine {
       grid-column: 1;
       grid-row: auto;
+      /* Stacked one above another, they read better filling the width. */
+      justify-self: stretch;
     }
 
     .centre {
