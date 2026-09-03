@@ -4,7 +4,24 @@ A browser riichi mahjong game with a beautiful, usable table, faithful to the
 European Mahjong Association rules, and AI opponents trained AlphaZero-style
 from self-play on the same rules engine the humans play against.
 
-Status: plan, September 2026. Nothing is built yet.
+Status: 3 September 2026. The engine, the browser game and the training
+loop are built and published at <https://senegrom.github.io/mahjong/>; what
+is left is the strength of the trained opponent.
+
+| milestone | where it stands |
+|---|---|
+| M0, the rules engine | done. Every rules-card item has a citing test, and one million random winning hands were scored here and by an independent library with no unexplained disagreement. Logs are written in the mjai format and a test rebuilds every hand from its own events. |
+| M1, the browser game | done but for replays. A whole game is playable, by mouse or keyboard, with the learning aids, a post-game review, and the hand saveable as an mjai log. Published from Actions. |
+| M2, the training loop | built: the Python extension, the network, self-play with a clipped actor-critic objective, and a duplicate-deal arena. Not yet accepted: the network is level with the heuristic bot rather than ahead of it. |
+| M3, neural tiers in the browser | the machinery is there, in a worker beside the rules. No model is published while the arena says it deserves none. |
+| M4, search and Mortal | not started. |
+
+The honest summary of the AI: a warm start on the heuristic player reaches
+its level, and self-play has not yet passed it. The reward is the shape of
+the problem, not a bug: a whole game's result reaches every one of the
+hundreds of thousands of decisions in it, so the signal per decision is
+thin. The arena exists so that any claim to have fixed that has to be shown
+rather than asserted.
 
 ## 1. Authoritative rules
 
