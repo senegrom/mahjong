@@ -79,19 +79,24 @@ def duplicate(net, games: int, seed: int, device: str = "cuda") -> dict:
 
 
 def verdict(result: dict) -> str:
-    """What the numbers permit saying out loud."""
+    """What the numbers permit saying out loud.
+
+    A network no stronger than the bots averages 2.5, so that is the line.
+    Saying how many standard errors the difference comes to is more use than
+    a yes or no: a result at one and a half is worth more games rather than
+    a decision either way.
+    """
     edge = 2.5 - result["placement"]
     error = result["standard_error"]
     if error == 0:
         return "not enough seatings to say"
-    if edge > 2 * error:
-        return f"stronger than the heuristic bot by {edge:.3f} placement"
-    if edge < -2 * error:
-        return f"weaker than the heuristic bot by {-edge:.3f} placement"
-    return (
-        f"level with the heuristic bot: the {edge:+.3f} difference is inside "
-        f"the {error:.3f} error"
-    )
+    sigmas = edge / error
+    size = f"{edge:+.4f} placement, {sigmas:+.1f} standard errors"
+    if sigmas > 2:
+        return f"stronger than the heuristic bot: {size}"
+    if sigmas < -2:
+        return f"weaker than the heuristic bot: {size}"
+    return f"not settled either way, which needs more games: {size}"
 
 
 def main() -> None:
