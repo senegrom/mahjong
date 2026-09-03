@@ -400,7 +400,14 @@ mod tests {
     use crate::rng::Rng;
 
     fn fresh() -> Hand {
-        Hand::deal(&mut Rng::from_seed(20260902), Wind::East, 1, 0, 0, [25000; 4])
+        Hand::deal(
+            &mut Rng::from_seed(20260902),
+            Wind::East,
+            1,
+            0,
+            0,
+            [25000; 4],
+        )
     }
 
     #[test]

@@ -180,7 +180,9 @@ fn build_seven_pairs(rng: &mut Rng) -> Option<(TileSet, Vec<Meld>, Tile)> {
 /// One of each terminal and honour, and a second of one of them.
 fn build_thirteen_orphans(rng: &mut Rng) -> Option<(TileSet, Vec<Meld>, Tile)> {
     let mut hand = TileSet::new();
-    let kinds: Vec<Tile> = Tile::all().filter(|tile| tile.is_terminal_or_honour()).collect();
+    let kinds: Vec<Tile> = Tile::all()
+        .filter(|tile| tile.is_terminal_or_honour())
+        .collect();
     for tile in &kinds {
         hand.add(*tile);
     }
@@ -212,7 +214,11 @@ fn claimed_from(rng: &mut Rng) -> ClaimedFrom {
 fn pick_situation(rng: &mut Rng, winning: Tile, concealed: bool, seen: &TileSet) -> Situation {
     let mut situation = Situation::new(
         Wind::ALL[rng.below(4)],
-        if rng.below(4) == 0 { Wind::South } else { Wind::East },
+        if rng.below(4) == 0 {
+            Wind::South
+        } else {
+            Wind::East
+        },
         if rng.below(2) == 0 {
             WinBy::SelfDraw
         } else {
@@ -284,7 +290,10 @@ fn meld_kind(kind: MeldKind) -> &'static str {
 
 /// Writes tiles as a JSON array of the plain notation.
 fn tiles_json(tiles: impl IntoIterator<Item = Tile>) -> String {
-    let names: Vec<String> = tiles.into_iter().map(|tile| format!("\"{tile}\"")).collect();
+    let names: Vec<String> = tiles
+        .into_iter()
+        .map(|tile| format!("\"{tile}\""))
+        .collect();
     format!("[{}]", names.join(","))
 }
 

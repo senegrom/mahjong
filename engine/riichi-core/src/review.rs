@@ -102,7 +102,8 @@ impl Note {
         if self.shanten_played > self.shanten_advised {
             return self.acceptance_advised;
         }
-        self.acceptance_advised.saturating_sub(self.acceptance_played)
+        self.acceptance_advised
+            .saturating_sub(self.acceptance_played)
     }
 }
 
@@ -252,7 +253,7 @@ mod tests {
     /// must say so for the right reason.
     #[test]
     fn the_adviser_agrees_with_itself() {
-        let mut table = Table::new();
+        let table = Table::new();
         let mut rng = Rng::from_seed(5);
         let mut bots: Vec<Bot> = (0..4).map(Bot::new).collect();
         let mut hand = table.deal(&mut rng);
@@ -281,10 +282,14 @@ mod tests {
                         .legal_calls()
                         .iter()
                         .map(|(seat, calls)| {
-                            (*seat, bots[table.player_at(*seat)].call(&hand, *seat, calls))
+                            (
+                                *seat,
+                                bots[table.player_at(*seat)].call(&hand, *seat, calls),
+                            )
                         })
                         .collect();
-                    hand.resolve_calls(&answers).expect("the calls were offered");
+                    hand.resolve_calls(&answers)
+                        .expect("the calls were offered");
                 }
                 Phase::Over => break,
             }
@@ -323,9 +328,16 @@ mod tests {
         // and declares riichi on it.
         let note = judge(&hand, Action::Discard("1p".parse().unwrap()), &mut adviser);
         assert_eq!(discarded(note.advised), Some("9s".parse().unwrap()));
-        assert!(matches!(note.advised, Action::Riichi(_)), "{:?}", note.advised);
+        assert!(
+            matches!(note.advised, Action::Riichi(_)),
+            "{:?}",
+            note.advised
+        );
         assert!(!note.agreed());
-        assert_eq!(note.shanten_played, note.shanten_advised, "both are waiting");
+        assert_eq!(
+            note.shanten_played, note.shanten_advised,
+            "both are waiting"
+        );
         assert_eq!(note.acceptance_played, 3, "three nines are left");
         assert_eq!(note.acceptance_advised, 6, "two 1p and four 4p");
         assert_eq!(note.cost(), 3, "the narrower wait gave up three tiles");
@@ -336,14 +348,8 @@ mod tests {
     /// touched still has all four out there.
     #[test]
     fn a_wait_says_how_many_are_left() {
-        let mut hand = crate::game::Hand::deal(
-            &mut Rng::from_seed(4242),
-            Wind::East,
-            1,
-            0,
-            0,
-            [30000; 4],
-        );
+        let mut hand =
+            crate::game::Hand::deal(&mut Rng::from_seed(4242), Wind::East, 1, 0, 0, [30000; 4]);
         let all_four: Tile = "3p".parse().unwrap();
         let untouched: Tile = "6s".parse().unwrap();
 

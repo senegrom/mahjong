@@ -428,9 +428,7 @@ impl Game {
             waits: waits.tiles().map(|tile| tile.to_string()).collect(),
             waits_left: waits
                 .tiles()
-                .map(|tile| {
-                    riichi_core::tile::COPIES.saturating_sub(seen.count(tile))
-                })
+                .map(|tile| riichi_core::tile::COPIES.saturating_sub(seen.count(tile)))
                 .collect(),
             dora: {
                 let mut marked: Vec<String> = Vec::new();

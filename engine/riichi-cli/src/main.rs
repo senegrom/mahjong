@@ -111,10 +111,14 @@ fn write_log(games: usize, seed: u64) {
                             .legal_calls()
                             .iter()
                             .map(|(seat, calls)| {
-                                (*seat, bots[table.player_at(*seat)].call(&hand, *seat, calls))
+                                (
+                                    *seat,
+                                    bots[table.player_at(*seat)].call(&hand, *seat, calls),
+                                )
                             })
                             .collect();
-                        hand.resolve_calls(&answers).expect("the calls were offered");
+                        hand.resolve_calls(&answers)
+                            .expect("the calls were offered");
                     }
                     Phase::Over => break,
                 }

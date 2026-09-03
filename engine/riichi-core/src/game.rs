@@ -1394,7 +1394,14 @@ mod tests {
     use super::*;
 
     fn fresh() -> Hand {
-        Hand::deal(&mut Rng::from_seed(20260902), Wind::East, 1, 0, 0, [25000; 4])
+        Hand::deal(
+            &mut Rng::from_seed(20260902),
+            Wind::East,
+            1,
+            0,
+            0,
+            [25000; 4],
+        )
     }
 
     /// EMA 2025 section 2.8: the dealer starts with fourteen tiles and the

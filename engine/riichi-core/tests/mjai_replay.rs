@@ -175,10 +175,14 @@ fn replay_games(seeds: impl Iterator<Item = u64>) -> usize {
                             .legal_calls()
                             .iter()
                             .map(|(seat, calls)| {
-                                (*seat, bots[table.player_at(*seat)].call(&hand, *seat, calls))
+                                (
+                                    *seat,
+                                    bots[table.player_at(*seat)].call(&hand, *seat, calls),
+                                )
                             })
                             .collect();
-                        hand.resolve_calls(&answers).expect("the calls were offered");
+                        hand.resolve_calls(&answers)
+                            .expect("the calls were offered");
                     }
                     Phase::Over => break,
                 }
@@ -299,10 +303,14 @@ fn every_event_is_one_json_object() {
                         .legal_calls()
                         .iter()
                         .map(|(seat, calls)| {
-                            (*seat, bots[table.player_at(*seat)].call(&hand, *seat, calls))
+                            (
+                                *seat,
+                                bots[table.player_at(*seat)].call(&hand, *seat, calls),
+                            )
                         })
                         .collect();
-                    hand.resolve_calls(&answers).expect("the calls were offered");
+                    hand.resolve_calls(&answers)
+                        .expect("the calls were offered");
                 }
                 Phase::Over => break,
             }
@@ -329,7 +337,11 @@ fn every_event_is_one_json_object() {
 #[test]
 fn numbering_survives_the_deal_moving_on() {
     let mut table = Table::new();
-    assert_eq!(table.seating(), [0, 1, 2, 3], "the first deal is the identity");
+    assert_eq!(
+        table.seating(),
+        [0, 1, 2, 3],
+        "the first deal is the identity"
+    );
     let mut rng = Rng::from_seed(11);
     let mut bots: Vec<Bot> = (0..4).map(Bot::new).collect();
 
@@ -356,10 +368,14 @@ fn numbering_survives_the_deal_moving_on() {
                         .legal_calls()
                         .iter()
                         .map(|(seat, calls)| {
-                            (*seat, bots[table.player_at(*seat)].call(&hand, *seat, calls))
+                            (
+                                *seat,
+                                bots[table.player_at(*seat)].call(&hand, *seat, calls),
+                            )
                         })
                         .collect();
-                    hand.resolve_calls(&answers).expect("the calls were offered");
+                    hand.resolve_calls(&answers)
+                        .expect("the calls were offered");
                 }
                 Phase::Over => break,
             }

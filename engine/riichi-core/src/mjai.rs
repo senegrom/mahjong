@@ -479,7 +479,13 @@ mod tests {
         };
         let line = event.to_json(seats);
         // East sits as player 1, so the gain is the second entry.
-        assert!(line.contains("\"deltas\":[-1000,3000,-1000,-1000]"), "{line}");
-        assert!(line.contains("\"tenpais\":[false,true,false,false]"), "{line}");
+        assert!(
+            line.contains("\"deltas\":[-1000,3000,-1000,-1000]"),
+            "{line}"
+        );
+        assert!(
+            line.contains("\"tenpais\":[false,true,false,false]"),
+            "{line}"
+        );
     }
 }
