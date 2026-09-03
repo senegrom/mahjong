@@ -7,7 +7,7 @@
 //! the rules lives on the JavaScript side, so the game a person plays and the
 //! game the opponents were trained on cannot drift apart.
 
-use riichi_core::bot::Bot;
+use riichi_core::bot::{Bot, Style};
 use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
 use riichi_core::rng::Rng;
 use riichi_core::score::Riichi;
@@ -123,11 +123,19 @@ pub struct Game {
 
 #[wasm_bindgen]
 impl Game {
-    /// Starts a game. Which seat the player begins in is drawn by lot, as
-    /// the players would draw wind tiles for it (EMA 2025 section 2.3).
+    /// Starts a game against opponents of the named strength: `"beginner"`
+    /// presses on regardless and is loose about which tile goes, `"club"`
+    /// counts its tiles and folds against a declared riichi.
+    ///
+    /// Which seat the player begins in is drawn by lot, as the players would
+    /// draw wind tiles for it (EMA 2025 section 2.3).
     #[wasm_bindgen(constructor)]
-    pub fn new(seed: f64) -> Game {
+    pub fn new(seed: f64, difficulty: Option<String>) -> Game {
         let seed = seed as u64;
+        let style = match difficulty.as_deref() {
+            Some("beginner") => Style::beginner(),
+            _ => Style::club(),
+        };
         let table = Table::new();
         let mut rng = Rng::from_seed(seed);
         let player = rng.below(4);
@@ -138,7 +146,7 @@ impl Game {
             hand,
             rng,
             bots: (0..4)
-                .map(|index| Bot::new(seed.wrapping_add(index)))
+                .map(|index| Bot::with_style(seed.wrapping_add(index), style))
                 .collect(),
             player,
             seat,
@@ -392,7 +400,14 @@ impl Game {
     }
 
     fn note(&mut self, seat: Wind, what: &str) {
-        self.log.push(format!("{}: {what}", wind_name(seat)));
+        // Seats read as names in the commentary, not as identifiers.
+        let name = match seat {
+            Wind::East => "East",
+            Wind::South => "South",
+            Wind::West => "West",
+            Wind::North => "North",
+        };
+        self.log.push(format!("{name} {what}"));
     }
 }
 

@@ -22,20 +22,42 @@ use crate::tile::{Tile, COPIES};
 use crate::Wind;
 
 /// How the bot weighs speed against safety.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Style {
     /// How far from a win the hand may be before the bot folds against a
-    /// declared riichi. Zero means fold unless already waiting.
+    /// declared riichi. Zero means fold unless already waiting; a large
+    /// number means never fold at all.
     pub fold_beyond_shanten: i32,
     /// Whether to declare riichi whenever it is available.
     pub always_riichi: bool,
+    /// How often to take a plausible discard rather than the best one, as a
+    /// share between zero and one. A little of this is what separates a
+    /// beginner from a player who counts.
+    pub looseness: f64,
 }
 
 impl Default for Style {
     fn default() -> Style {
+        Style::club()
+    }
+}
+
+impl Style {
+    /// Plays for speed, never folds, and is loose about which tile goes.
+    pub fn beginner() -> Style {
+        Style {
+            fold_beyond_shanten: 99,
+            always_riichi: true,
+            looseness: 0.35,
+        }
+    }
+
+    /// The benchmark: counts its tiles and folds against a riichi.
+    pub fn club() -> Style {
         Style {
             fold_beyond_shanten: 1,
             always_riichi: true,
+            looseness: 0.0,
         }
     }
 }
@@ -243,6 +265,15 @@ impl Bot {
                 .filter(|(_, value)| *value == closest)
                 .collect()
         };
+
+        // A loose player sometimes keeps the wrong tile. It still has to be
+        // a tile they hold, so the hand stays legal, just not the best.
+        if self.style.looseness > 0.0
+            && (self.rng.next_u64() as f64 / u64::MAX as f64) < self.style.looseness
+        {
+            let pick = self.rng.below(candidates.len());
+            return candidates[pick];
+        }
 
         let mut best = candidates[0];
         let mut best_key = (i64::MIN, i64::MIN, i64::MIN, 0u64);

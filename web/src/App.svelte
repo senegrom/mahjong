@@ -15,6 +15,7 @@
   let log = $state([]);
   let hints = $state(true);
   let busy = $state(false);
+  let difficulty = $state('club');
 
   let me = $derived(view ? view.seats[0] : null);
   // Turn order runs to the right: the next player to act sits there, the
@@ -38,7 +39,7 @@
     });
 
   function start() {
-    game = new Game(Date.now() % 2 ** 31);
+    game = new Game(Date.now() % 2 ** 31, difficulty);
     log = [];
     failure = '';
     refresh(true);
@@ -124,6 +125,13 @@
   <header class="bar">
     <h1>Riichi</h1>
     <label class="toggle">
+      opponents
+      <select bind:value={difficulty} onchange={startFresh} aria-label="opponent strength">
+        <option value="beginner">Beginner</option>
+        <option value="club">Club</option>
+      </select>
+    </label>
+    <label class="toggle plain">
       <input type="checkbox" bind:checked={hints} />
       hints
     </label>
@@ -324,6 +332,23 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .toggle.plain {
+    margin-left: 0;
+  }
+
+  .toggle select {
+    font: inherit;
+    color: inherit;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 6px;
+    padding: 3px 6px;
+  }
+
+  .toggle option {
+    color: #1c2a27;
   }
 
   .restart {
