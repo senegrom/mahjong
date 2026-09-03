@@ -131,7 +131,7 @@ impl Player {
     /// furiten, so the flag is recomputed. A player who has declared cannot
     /// change anything, and furiten they have incurred lasts to the end of
     /// the hand, so theirs is never cleared here (EMA section 3.3.9).
-    fn refresh_furiten(&mut self) {
+    pub fn refresh_furiten(&mut self) {
         let waits = self.waits();
         let from_discards = self
             .discards

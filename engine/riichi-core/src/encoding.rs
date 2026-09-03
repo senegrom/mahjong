@@ -28,6 +28,11 @@ pub const PLANES: usize = 93;
 pub const POSITIONS: usize = KINDS;
 /// Numbers in one observation.
 pub const OBSERVATION: usize = PLANES * POSITIONS;
+
+/// Opponents whose hands a network may be asked to guess at.
+pub const OPPONENTS: usize = 3;
+/// Numbers in one answer about what the opponents are holding.
+pub const HANDS: usize = OPPONENTS * POSITIONS;
 /// Roughly how many discards a hand holds before the wall runs out, used to
 /// scale the timing planes into about zero to one.
 const DISCARD_SPAN: f32 = 70.0;
@@ -58,6 +63,41 @@ pub const CLAIMED_KAN: usize = 75;
 pub const CONCEALED_KAN: usize = 76;
 /// Add the fourth tile to a melded triplet.
 pub const EXTENDED_KAN: usize = 77;
+
+/// What the three opponents were actually holding, as a distribution over
+/// the 34 kinds for each, in the same relative seat order as the
+/// observation: index 0 is the player to `seat`'s right in turn order.
+///
+/// This is the label for teaching a network to read a table. During
+/// self-play the true hands are known, so it costs nothing to collect, and
+/// unlike the result of a game it says something about this position in
+/// particular.
+///
+/// It matters because the tiles an opponent still holds are not a random
+/// draw from what nobody has seen. They chose what to throw, so what is
+/// left is what they wanted to keep, and a player who has been discarding
+/// circles is not equally likely to be holding them. That selection is
+/// exactly what a network can learn from the discards and what no amount of
+/// counting the unseen tiles will tell you.
+///
+/// Each opponent's row sums to one when they hold anything, and to zero
+/// when they hold nothing, which happens only in states nobody acts from.
+pub fn opponent_hands(hand: &Hand, seat: Wind, out: &mut [f32]) {
+    assert_eq!(out.len(), HANDS, "the answer is three rows of thirty-four");
+    out.fill(0.0);
+    for offset in 1..=OPPONENTS {
+        let other = seat.plus(offset);
+        let held = &hand.players[other.index()].hand;
+        let total = held.len() as f32;
+        if total == 0.0 {
+            continue;
+        }
+        let base = (offset - 1) * POSITIONS;
+        for tile in Tile::all() {
+            out[base + tile.idx()] = held.count(tile) as f32 / total;
+        }
+    }
+}
 
 /// Writes the observation for one seat into `out`, which must hold
 /// [`OBSERVATION`] numbers.

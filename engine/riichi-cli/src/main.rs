@@ -26,6 +26,7 @@ use riichi_core::bot::{Bot, Style};
 use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
 use riichi_core::mjai;
 use riichi_core::rng::Rng;
+use riichi_core::search::Effort;
 use riichi_core::table::Table;
 use riichi_core::tile::{Tile, COPIES, KINDS};
 use riichi_core::{TileSet, Wind};
@@ -70,13 +71,24 @@ fn main() -> ExitCode {
                 challenger.dora_worth = worth as i64;
             }
             let mut defender = Style::club();
-            defender.dora_worth = 0;
-            duel::duel(games, seed, challenger, defender);
+            if let Some(worth) = value(&args, "--defender-dora") {
+                defender.dora_worth = worth as i64;
+            } else {
+                defender.dora_worth = challenger.dora_worth;
+            }
+            // With --worlds the challenger plays its candidates out first.
+            let thinking = value(&args, "--worlds").map(|worlds| Effort {
+                worlds,
+                candidates: value(&args, "--candidates").unwrap_or(5),
+                turns: value(&args, "--turns"),
+            });
+            duel::duel(games, seed, challenger, defender, thinking);
             ExitCode::SUCCESS
         }
         _ => {
+            println!("usage: riichi-cli <arena|fuzz|hand|log|dump|duel> [--games N] [--seed N]");
             println!(
-                "usage: riichi-cli <arena|fuzz|hand|log|dump|duel> [--games N] [--seed N] [--dora-worth N]"
+                "  duel also takes [--dora-worth N] [--defender-dora N] [--worlds N] [--candidates N] [--turns N]"
             );
             ExitCode::SUCCESS
         }

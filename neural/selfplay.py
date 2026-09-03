@@ -19,6 +19,7 @@ import riichi_py
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
+OPPONENTS = riichi_py.OPPONENTS
 
 # What a hand moved, brought to about the size of the placement term below
 # so neither drowns the other. A big hand is worth a few tenths.
@@ -42,6 +43,11 @@ class Batch:
     observations: torch.Tensor
     legal: torch.Tensor
     actions: torch.Tensor
+    #: What the three opponents were holding at each decision, as a
+    #: distribution over the 34 kinds for each. The label for the head that
+    #: reads a table, and never shown to the network when it chooses.
+    #: Named apart from `hands`, which counts how many were played.
+    held: torch.Tensor
     returns: torch.Tensor
     log_probs: torch.Tensor
     games: int
@@ -67,6 +73,7 @@ def play(
 
     observations: list[np.ndarray] = []
     legal_masks: list[np.ndarray] = []
+    held: list[np.ndarray] = []
     actions: list[int] = []
     log_probs: list[float] = []
     rewards: list[float] = []
@@ -87,6 +94,8 @@ def play(
         planes = planes.reshape(games, PLANES, POSITIONS)
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
         mask = mask.reshape(games, ACTIONS).astype(bool)
+        truth = np.frombuffer(arena.opponent_hands(), dtype=np.float32)
+        truth = truth.reshape(games, OPPONENTS, POSITIONS)
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
 
         index = np.nonzero(live)[0]
@@ -108,6 +117,7 @@ def play(
             step_index = len(actions)
             observations.append(planes[game])
             legal_masks.append(mask[game])
+            held.append(truth[game])
             actions.append(int(chosen_cpu[slot]))
             log_probs.append(float(log_prob_cpu[slot]))
             rewards.append(0.0)
@@ -145,6 +155,7 @@ def play(
         observations=torch.from_numpy(np.stack(observations)),
         legal=torch.from_numpy(np.stack(legal_masks)),
         actions=torch.tensor(actions, dtype=torch.int64),
+        held=torch.from_numpy(np.stack(held)),
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,

@@ -24,6 +24,8 @@ import riichi_py
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
+# The three players a network may be asked to read, in relative seat order.
+OPPONENTS = riichi_py.OPPONENTS
 
 
 # Group normalisation rather than batch normalisation: the network acts
@@ -52,7 +54,7 @@ class Residual(nn.Module):
 class PolicyValueNet(nn.Module):
     """The policy and value network."""
 
-    def __init__(self, channels: int = 192, blocks: int = 10) -> None:
+    def __init__(self, channels: int = 256, blocks: int = 20) -> None:
         super().__init__()
         self.channels = channels
         self.blocks = blocks
@@ -79,6 +81,12 @@ class PolicyValueNet(nn.Module):
             nn.Linear(256, 1),
         )
 
+        # What the three opponents are holding, a distribution over the 34
+        # kinds for each. Read from the per-tile features rather than the
+        # pooled position, because the answer is per tile: this asks, of
+        # each kind, how much of that opponent's hand it makes up.
+        self.hands = nn.Conv1d(channels, OPPONENTS, 1)
+
     def forward(
         self, planes: torch.Tensor, legal: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -95,10 +103,36 @@ class PolicyValueNet(nn.Module):
         logits = logits.masked_fill(~legal, float("-inf"))
         return logits, self.value(pooled).squeeze(1)
 
+    def read_hands(self, planes: torch.Tensor) -> torch.Tensor:
+        """What each opponent is holding, as logits over the 34 kinds.
+
+        Shape (batch, 3, 34), in the same relative seat order the
+        observation uses: row 0 is the player to the mover's right. Softmax
+        over the last axis gives the distribution the label is written in.
+        """
+        features = self.tail(self.tower(self.stem(planes)))
+        return self.hands(features)
+
+    def everything(
+        self, planes: torch.Tensor, legal: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Policy, value and opponents' hands from one pass of the tower.
+
+        Training wants all three and the tower is the expensive part, so it
+        is run once rather than three times.
+        """
+        features = self.tail(self.tower(self.stem(planes)))
+        pooled = features.mean(dim=2)
+        tiles = self.policy_tiles(features)
+        tiles = tiles.reshape(tiles.shape[0], -1)
+        logits = torch.cat([tiles, self.policy_pooled(pooled)], dim=1)
+        logits = logits.masked_fill(~legal, float("-inf"))
+        return logits, self.value(pooled).squeeze(1), self.hands(features)
+
     def parameter_count(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
 
-def build(channels: int = 192, blocks: int = 10, device: str = "cuda") -> PolicyValueNet:
+def build(channels: int = 256, blocks: int = 20, device: str = "cuda") -> PolicyValueNet:
     net = PolicyValueNet(channels, blocks).to(device)
     return net

@@ -27,6 +27,7 @@
 //! - [`encoding`] how a position is shown to a network
 //! - [`mjai`] the event log other riichi programs read
 //! - [`review`] judging a decision after the hand is over
+//! - [`search`] looking ahead by imagining the hands you cannot see
 //!
 //! Still to come: the log format, a command-line arena and the bots.
 //!
@@ -50,6 +51,7 @@ pub mod mjai;
 pub mod review;
 pub mod rng;
 pub mod score;
+pub mod search;
 pub mod shanten;
 pub mod table;
 pub mod tile;

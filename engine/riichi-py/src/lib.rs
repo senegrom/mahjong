@@ -30,7 +30,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 use riichi_core::bot::Bot;
-use riichi_core::encoding::{self, ACTIONS, OBSERVATION, PASS, PLANES, POSITIONS};
+use riichi_core::encoding::{
+    self, ACTIONS, HANDS, OBSERVATION, OPPONENTS, PASS, PLANES, POSITIONS,
+};
 use riichi_core::game::{Call, Hand, Outcome, Phase};
 use riichi_core::rng::Rng;
 use riichi_core::table::Table;
@@ -280,6 +282,8 @@ pub struct Arena {
     seats: Vec<Seat>,
     observations: Vec<f32>,
     mask: Vec<bool>,
+    /// What the opponents are holding, filled in only when asked for.
+    hands: Vec<f32>,
 }
 
 #[pymethods]
@@ -299,6 +303,7 @@ impl Arena {
                 .collect(),
             observations: vec![0.0; games * OBSERVATION],
             mask: vec![false; games * ACTIONS],
+            hands: vec![0.0; games * HANDS],
         }
     }
 
@@ -331,6 +336,26 @@ impl Arena {
             }
         }
         PyBytes::new(py, bytemuck_cast(&self.observations))
+    }
+
+    /// What the opponents are actually holding, one answer per game, as
+    /// float32: three rows of thirty-four, each a distribution over the
+    /// kinds, in the same relative seat order as the observation.
+    ///
+    /// This is the label for the head that reads a table. It is only ever
+    /// used to teach: the network is never shown it when choosing a move.
+    fn opponent_hands<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        if self.hands.len() != self.seats.len() * HANDS {
+            self.hands = vec![0.0; self.seats.len() * HANDS];
+        }
+        for (index, seat) in self.seats.iter().enumerate() {
+            let slice = &mut self.hands[index * HANDS..(index + 1) * HANDS];
+            match seat.pending() {
+                Some(wind) => encoding::opponent_hands(&seat.hand, wind, slice),
+                None => slice.fill(0.0),
+            }
+        }
+        PyBytes::new(py, bytemuck_cast(&self.hands))
     }
 
     /// One legality mask per game, as bytes of 0 and 1.
@@ -502,6 +527,8 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("POSITIONS", POSITIONS)?;
     module.add("OBSERVATION", OBSERVATION)?;
     module.add("ACTIONS", ACTIONS)?;
+    module.add("OPPONENTS", OPPONENTS)?;
+    module.add("HANDS", HANDS)?;
     module.add("PASS", PASS)?;
     Ok(())
 }

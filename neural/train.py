@@ -40,14 +40,28 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generations", type=int, default=200)
     parser.add_argument("--games", type=int, default=128, help="tables per round")
-    parser.add_argument("--channels", type=int, default=192)
-    parser.add_argument("--blocks", type=int, default=10)
+# AlphaZero used twenty residual blocks of 256 filters for chess, shogi and
+# Go, and that is the shape here. It comes to 8.1M parameters rather than the
+# roughly 23M it was there, because a line of thirty-four tiles takes a
+# kernel of three where a Go board takes three by three; matching the count
+# rather than the shape would mean about 400 channels. This is 8.3 MB
+# quantised, too much to want on a phone, which is a thing to distil away
+# later rather than a reason to train something smaller now.
+    parser.add_argument("--channels", type=int, default=256)
+    parser.add_argument("--blocks", type=int, default=20)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--clip", type=float, default=0.2, help="PPO ratio clip")
     parser.add_argument("--batch", type=int, default=4096, help="decisions per step")
     parser.add_argument("--epochs", type=int, default=3, help="passes over a round")
     parser.add_argument("--entropy", type=float, default=0.03)
     parser.add_argument("--value-weight", type=float, default=0.5)
+    parser.add_argument(
+        "--hands-weight",
+        type=float,
+        default=1.0,
+        help="how much to weigh reading the opponents' hands, which is a "
+        "free and dense label where the game's result is neither",
+    )
     parser.add_argument("--measure-every", type=int, default=10)
     # Placement over sixty-four games wanders by about as much as the
     # improvements worth noticing, so the benchmark is wider.
@@ -99,6 +113,7 @@ def main() -> None:
         observations = batch.observations.to(device)
         legal = batch.legal.to(device)
         actions = batch.actions.to(device)
+        held = batch.held.to(device)
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
 
@@ -109,6 +124,7 @@ def main() -> None:
         net.train()
         total_policy = total_value = total_entropy = 0.0
         total_clipped = 0.0
+        total_hands = total_covered = 0.0
         steps = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(batch.decisions, device=device)
@@ -116,7 +132,7 @@ def main() -> None:
                 picks = order[start_index : start_index + args.batch]
                 if picks.numel() < 2:
                     continue
-                logits, value = net(observations[picks], legal[picks])
+                logits, value, guessed = net.everything(observations[picks], legal[picks])
                 distribution = torch.distributions.Categorical(logits=logits)
                 log_prob = distribution.log_prob(actions[picks])
                 advantage = (normalised[picks] - value).detach()
@@ -130,9 +146,28 @@ def main() -> None:
                 total_clipped += float((ratio != clipped).float().mean())
                 value_loss = nn.functional.mse_loss(value, normalised[picks])
                 entropy = distribution.entropy().mean()
+
+                # What the opponents are holding. Cross-entropy against the
+                # distribution their hand actually was, over the 34 kinds,
+                # for each of the three of them. Positions where nobody was
+                # holding anything carry a row of zeros and are skipped.
+                wanted = held[picks]
+                # Named apart from `held`, which is the whole round's labels:
+                # reusing that name rebound it to this mask, and the next
+                # pass then indexed the mask instead of the labels.
+                holding = wanted.sum(dim=2) > 0
+                log_guess = torch.log_softmax(guessed, dim=2)
+                hands_loss = -(wanted * log_guess).sum(dim=2)
+                hands_loss = (hands_loss * holding).sum() / holding.sum().clamp(min=1)
+                # How much of the hand the guess covers, which is readable
+                # where a cross-entropy is not.
+                with torch.no_grad():
+                    overlap = torch.minimum(log_guess.exp(), wanted).sum(dim=2)
+                    covered = (overlap * holding).sum() / holding.sum().clamp(min=1)
                 loss = (
                     policy_loss
                     + args.value_weight * value_loss
+                    + args.hands_weight * hands_loss
                     - args.entropy * entropy
                 )
 
@@ -144,6 +179,8 @@ def main() -> None:
                 total_policy += policy_loss.item()
                 total_value += value_loss.item()
                 total_entropy += entropy.item()
+                total_hands += hands_loss.item()
+                total_covered += covered.item()
                 steps += 1
 
         record = {
@@ -155,6 +192,8 @@ def main() -> None:
             "policy_loss": round(total_policy / max(steps, 1), 4),
             "value_loss": round(total_value / max(steps, 1), 4),
             "entropy": round(total_entropy / max(steps, 1), 4),
+            "hands_loss": round(total_hands / max(steps, 1), 4),
+            "hands_read": round(total_covered / max(steps, 1), 4),
             "clipped": round(total_clipped / max(steps, 1), 3),
             "mean_return": round(float(returns.mean()), 4),
         }

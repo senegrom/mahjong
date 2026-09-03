@@ -131,25 +131,11 @@ fn discarded(action: Action) -> Option<Tile> {
 /// answers both "how many of these could still come" for the acceptance
 /// count and "how thin is this wait" for the player.
 pub fn visible_to(hand: &Hand, seat: Wind) -> TileSet {
-    let mut seen = hand.players[seat.index()].visible_to_self();
-    for other in Wind::ALL {
-        if other == seat {
-            continue;
-        }
-        let player = &hand.players[other.index()];
-        for discard in &player.discards {
-            seen.add(discard.tile);
-        }
-        for meld in &player.melds {
-            for tile in meld.tiles() {
-                seen.add(tile);
-            }
-        }
-    }
-    for indicator in hand.wall.dora_indicators() {
-        seen.add(indicator);
-    }
-    seen
+    // One answer, shared with the search, which asks the same question
+    // before imagining the rest. A tile claimed for a set stays in the pond
+    // it came from and is counted with the set, so counting both made a
+    // wait look a tile thinner than it is.
+    crate::search::seen_by(hand, seat)
 }
 
 /// How many times over a tile is dora, which is none for most tiles and

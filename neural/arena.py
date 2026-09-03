@@ -127,8 +127,8 @@ def main() -> None:
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("--games", type=int, default=500, help="deals per seating")
     parser.add_argument("--seed", type=int, default=555_000)
-    parser.add_argument("--channels", type=int, default=192)
-    parser.add_argument("--blocks", type=int, default=10)
+    parser.add_argument("--channels", type=int, default=256)
+    parser.add_argument("--blocks", type=int, default=20)
     args = parser.parse_args()
 
     state = torch.load(args.checkpoint, map_location="cuda", weights_only=True)

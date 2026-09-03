@@ -112,6 +112,47 @@ impl Wall {
         Some(tile)
     }
 
+    /// The positions in the wall that a player cannot see.
+    ///
+    /// Everything except the indicators already turned face up, and except
+    /// the tiles already drawn, whose slots are never read again. This is
+    /// what a search has to fill in when it imagines a hand it cannot see.
+    pub fn hidden_positions(&self) -> Vec<usize> {
+        // Face up: the indicators that have been turned. Already gone: the
+        // live tiles drawn, which is what next_draw counts, and the
+        // replacement tiles taken after quads, which it does not, since
+        // those come off the dead wall. Forgetting the replacements leaves
+        // one hidden place too many for every quad declared.
+        let mut gone: Vec<usize> = (0..self.indicators_revealed)
+            .map(|index| SET_SIZE - DEAD_WALL + REPLACEMENTS + index * 2)
+            .collect();
+        gone.extend((0..self.replacements_taken).map(|index| SET_SIZE - DEAD_WALL + index));
+        (self.next_draw..SET_SIZE)
+            .filter(|slot| !gone.contains(slot))
+            .collect()
+    }
+
+    /// The same wall with everything hidden replaced by the tiles given, in
+    /// order. Used to imagine one of the ways the rest of the wall and the
+    /// other players' hands might actually be.
+    ///
+    /// # Panics
+    ///
+    /// If `hidden` is not exactly as long as [`Wall::hidden_positions`].
+    pub fn with_hidden(&self, hidden: &[Tile]) -> Wall {
+        let positions = self.hidden_positions();
+        assert_eq!(
+            positions.len(),
+            hidden.len(),
+            "a wall has exactly as many hidden places as there are tiles to put in them"
+        );
+        let mut wall = self.clone();
+        for (slot, tile) in positions.into_iter().zip(hidden) {
+            wall.tiles[slot] = *tile;
+        }
+        wall
+    }
+
     /// The dora indicators face up on the table.
     pub fn dora_indicators(&self) -> Vec<Tile> {
         (0..self.indicators_revealed)

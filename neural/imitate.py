@@ -35,14 +35,15 @@ from .model import PolicyValueNet
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
+OPPONENTS = riichi_py.OPPONENTS
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=200)
     parser.add_argument("--games", type=int, default=64, help="tables per round")
-    parser.add_argument("--channels", type=int, default=192)
-    parser.add_argument("--blocks", type=int, default=10)
+    parser.add_argument("--channels", type=int, default=256)
+    parser.add_argument("--blocks", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=2048)
     parser.add_argument("--epochs", type=int, default=1)
@@ -53,13 +54,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def collect(games: int, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def collect(games: int, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Plays a round with the heuristic player at every place, keeping every
-    position it saw and the move it made there."""
+    position it saw, the move it made there, and what the other three were
+    actually holding."""
     arena = riichi_py.Arena(games=games, seed=seed)
     observations: list[np.ndarray] = []
     masks: list[np.ndarray] = []
     labels: list[int] = []
+    held: list[np.ndarray] = []
 
     for _step in range(4000):
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
@@ -71,6 +74,8 @@ def collect(games: int, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         planes = planes.reshape(games, PLANES, POSITIONS)
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
         mask = mask.reshape(games, ACTIONS).astype(bool)
+        truth = np.frombuffer(arena.opponent_hands(), dtype=np.float32)
+        truth = truth.reshape(games, OPPONENTS, POSITIONS)
 
         choice = np.zeros(games, dtype=np.int64)
         for index in np.nonzero(live)[0]:
@@ -82,10 +87,16 @@ def collect(games: int, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             observations.append(planes[index])
             masks.append(mask[index])
             labels.append(wanted)
+            held.append(truth[index])
             choice[index] = wanted
         arena.step(choice.tolist())
 
-    return np.stack(observations), np.stack(masks), np.array(labels, dtype=np.int64)
+    return (
+        np.stack(observations),
+        np.stack(masks),
+        np.array(labels, dtype=np.int64),
+        np.stack(held),
+    )
 
 
 def main() -> None:
@@ -105,13 +116,15 @@ def main() -> None:
 
     for round_index in range(args.rounds):
         began = time.time()
-        planes, masks, labels = collect(args.games, args.seed + round_index * 977)
+        planes, masks, labels, truth = collect(args.games, args.seed + round_index * 977)
         observations = torch.from_numpy(planes).to(device)
         legal = torch.from_numpy(masks).to(device)
         targets = torch.from_numpy(labels).to(device)
+        held = torch.from_numpy(truth).to(device)
 
         net.train()
         total_loss = 0.0
+        total_covered = 0.0
         agreed = 0
         seen = 0
         for _epoch in range(args.epochs):
@@ -120,8 +133,21 @@ def main() -> None:
                 picks = order[start : start + args.batch]
                 if picks.numel() < 2:
                     continue
-                logits, _value = net(observations[picks], legal[picks])
+                logits, _value, guessed = net.everything(observations[picks], legal[picks])
                 loss = nn.functional.cross_entropy(logits, targets[picks])
+
+                # And what the other three were holding, which is exact and
+                # costs nothing to know here.
+                wanted = held[picks]
+                holding = wanted.sum(dim=2) > 0
+                log_guess = torch.log_softmax(guessed, dim=2)
+                reading = -(wanted * log_guess).sum(dim=2)
+                loss = loss + (reading * holding).sum() / holding.sum().clamp(min=1)
+                with torch.no_grad():
+                    overlap = torch.minimum(log_guess.exp(), wanted).sum(dim=2)
+                    total_covered += float(
+                        ((overlap * holding).sum() / holding.sum().clamp(min=1)) * picks.numel()
+                    )
                 optimiser.zero_grad(set_to_none=True)
                 loss.backward()
                 nn.utils.clip_grad_norm_(net.parameters(), 1.0)
@@ -135,6 +161,7 @@ def main() -> None:
             "positions": int(len(targets)),
             "loss": round(total_loss / max(seen, 1), 4),
             "agreement": round(agreed / max(seen, 1), 4),
+            "hands_read": round(total_covered / max(seen, 1), 4),
             "seconds": round(time.time() - began, 1),
         }
         if (round_index + 1) % args.measure_every == 0 or round_index == 0:
