@@ -288,8 +288,17 @@
                 a winning hand
               {:else if view.shanten === 0}
                 waiting on
-                {#each view.waits as wait (wait)}
-                  <Tile tile={wait} size="tiny" />
+                {#each view.waits as wait, index (wait)}
+                  <span class="wait">
+                    <Tile tile={wait} size="tiny" />
+                    <span
+                      class="left"
+                      class:none={view.waits_left?.[index] === 0}
+                      title="{view.waits_left?.[index] ?? 0} of the four are still unseen"
+                    >
+                      {view.waits_left?.[index] ?? 0}
+                    </span>
+                  </span>
                 {/each}
               {:else if view.shanten === 1}
                 one tile away from a wait
@@ -300,6 +309,11 @@
             {#if view.safe.length}
               <span class="safe-note" title="These tiles cannot deal into a declared riichi">
                 {view.safe.length} safe
+              </span>
+            {/if}
+            {#if view.dora?.length}
+              <span class="dora-note" title="Each of these is worth a han">
+                {view.dora.length} dora
               </span>
             {/if}
             {#if view.furiten}
@@ -317,11 +331,14 @@
               onclick={discard}
               disabled={!canDiscard(tile)}
               safe={hints && view.safe.includes(tile)}
+              dora={hints && view.dora?.includes(tile)}
               title={hints && view.safe.includes(tile)
                 ? `${tileWords(tile)}: cannot deal in`
-                : myTurn
-                  ? `discard the ${tileWords(tile)}`
-                  : tileWords(tile)}
+                : hints && view.dora?.includes(tile)
+                  ? `${tileWords(tile)}: dora, worth a han`
+                  : myTurn
+                    ? `discard the ${tileWords(tile)}`
+                    : tileWords(tile)}
             />
           {/each}
           {#if me.drawn}
@@ -332,6 +349,7 @@
                 onclick={discard}
                 disabled={!canDiscard(me.drawn)}
                 safe={hints && view.safe.includes(me.drawn)}
+                dora={hints && view.dora?.includes(me.drawn)}
                 title="just drawn: the {tileWords(me.drawn)}"
               />
             </span>
@@ -602,6 +620,36 @@
     font-size: 0.78rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
+  }
+
+  /* How many of a wait are left, sat on the tile it belongs to. */
+  .wait {
+    position: relative;
+    display: inline-flex;
+    margin-right: 3px;
+  }
+
+  .left {
+    position: absolute;
+    right: -3px;
+    bottom: -2px;
+    min-width: 12px;
+    padding: 0 2px;
+    border-radius: 6px;
+    background: var(--rail-dark, #2b2b2b);
+    color: var(--ivory, #f2ece0);
+    font-size: 0.6rem;
+    line-height: 1.2;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .left.none {
+    background: var(--accent);
+  }
+
+  .dora-note {
+    color: var(--gold);
   }
 
   .furiten {

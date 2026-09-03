@@ -13,6 +13,7 @@
     dimmed = false,
     selected = false,
     safe = false,
+    dora = false,
     size = 'normal',
     onclick = null,
     disabled = false,
@@ -30,7 +31,9 @@
   }
 
   let file = $derived(facedown ? 'Back' : fileFor(tile));
-  let words = $derived(facedown ? 'face-down tile' : tileWords(tile));
+  let words = $derived(
+    facedown ? 'face-down tile' : dora ? `${tileWords(tile)}, dora` : tileWords(tile),
+  );
   // The white dragon's face is blank, which reads as a missing picture.
   // Sets that do not leave it plain frame it in blue; so does this one.
   let blank = $derived(!facedown && tile === '5z');
@@ -43,6 +46,7 @@
     class:dimmed
     class:selected
     class:safe
+    class:dora
     {disabled}
     title={title || words}
     aria-label={words}
@@ -57,7 +61,23 @@
 {/if}
 
 <style>
+  /* A dora is worth a han, so it is marked where the eye goes when
+     choosing what to throw: a gold corner on the tile itself. */
+  .dora::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--gold, #d8a12a);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  }
+
   .tile {
+    /* The dora mark sits in the corner, so every tile is its own frame. */
+    position: relative;
     display: inline-flex;
     align-items: flex-end;
     justify-content: center;

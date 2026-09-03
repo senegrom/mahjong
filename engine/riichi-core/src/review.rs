@@ -115,9 +115,12 @@ fn discarded(action: Action) -> Option<Tile> {
 }
 
 /// Everything a seat can see: their own tiles, every discard on the table,
-/// the called sets and the dora indicators. Used to discount tiles that
-/// cannot be drawn because they are already somewhere visible.
-fn visible_to(hand: &Hand, seat: Wind) -> TileSet {
+/// the called sets and the dora indicators.
+///
+/// This is what is left of a tile somebody might be waiting for, so it
+/// answers both "how many of these could still come" for the acceptance
+/// count and "how thin is this wait" for the player.
+pub fn visible_to(hand: &Hand, seat: Wind) -> TileSet {
     let mut seen = hand.players[seat.index()].visible_to_self();
     for other in Wind::ALL {
         if other == seat {
@@ -186,6 +189,15 @@ fn after(hand: &Hand, seat: Wind, action: Action) -> (i32, u32) {
         .map(|(tile, _)| (crate::tile::COPIES as i32 - seen.count(tile) as i32).max(0) as u32)
         .sum();
     (distance, acceptance)
+}
+
+/// How many of `tile` nobody has seen yet, from `seat`'s side of the table.
+///
+/// A wait on a tile of which three are already down is a much thinner hand
+/// than the number of waits alone suggests, which is why this is worth
+/// showing next to the wait rather than leaving the player to count.
+pub fn how_many_left(hand: &Hand, seat: Wind, tile: Tile) -> u8 {
+    crate::tile::COPIES.saturating_sub(visible_to(hand, seat).count(tile))
 }
 
 /// Judges one decision. `hand` is the position as it stood before the move,
@@ -318,6 +330,57 @@ mod tests {
         assert_eq!(note.acceptance_advised, 6, "two 1p and four 4p");
         assert_eq!(note.cost(), 3, "the narrower wait gave up three tiles");
         assert_eq!(note.reason, Reason::Acceptance);
+    }
+
+    /// A tile the player holds four of is not coming, and one nobody has
+    /// touched still has all four out there.
+    #[test]
+    fn a_wait_says_how_many_are_left() {
+        let mut hand = crate::game::Hand::deal(
+            &mut Rng::from_seed(4242),
+            Wind::East,
+            1,
+            0,
+            0,
+            [30000; 4],
+        );
+        let all_four: Tile = "3p".parse().unwrap();
+        let untouched: Tile = "6s".parse().unwrap();
+
+        // Clear the table so the arithmetic is about what is set here.
+        for seat in Wind::ALL {
+            hand.players[seat.index()].hand = TileSet::new();
+            hand.players[seat.index()].discards.clear();
+            hand.players[seat.index()].melds.clear();
+        }
+        for _ in 0..4 {
+            hand.players[0].hand.add(all_four);
+        }
+
+        assert_eq!(
+            how_many_left(&hand, Wind::East, all_four),
+            0,
+            "holding all four leaves none"
+        );
+
+        let indicators = hand.wall.dora_indicators();
+        let expected = 4 - indicators.iter().filter(|tile| **tile == untouched).count() as u8;
+        assert_eq!(
+            how_many_left(&hand, Wind::East, untouched),
+            expected,
+            "an untouched tile keeps every copy the indicators have not shown"
+        );
+
+        // A tile another player has thrown is one fewer, from every seat.
+        hand.players[1].discards.push(crate::game::Discard {
+            tile: untouched,
+            order: 0,
+            drawn: false,
+            riichi: false,
+            claimed: false,
+        });
+        assert_eq!(how_many_left(&hand, Wind::East, untouched), expected - 1);
+        assert_eq!(how_many_left(&hand, Wind::West, untouched), expected - 1);
     }
 
     /// Every reason has a line, and none of them is empty.

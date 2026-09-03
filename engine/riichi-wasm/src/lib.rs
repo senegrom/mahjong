@@ -91,6 +91,12 @@ pub struct TableView {
     pub outcome: Option<OutcomeView>,
     /// The viewer's waits, when the hand is waiting.
     pub waits: Vec<String>,
+    /// How many of each wait nobody can see yet, in the same order. A wait
+    /// on a tile three of which are already on the table is a much thinner
+    /// hand than the number of waits alone suggests.
+    pub waits_left: Vec<u8>,
+    /// The viewer's tiles that are dora, each worth a han.
+    pub dora: Vec<String>,
     /// How many changes the viewer's hand is from complete.
     pub shanten: i32,
     /// Whether the viewer may not win by discard.
@@ -351,6 +357,7 @@ impl Game {
     pub fn view(&self) -> Result<JsValue, JsValue> {
         let player = &self.hand.players[self.seat.index()];
         let waits = player.waits();
+        let seen = review::visible_to(&self.hand, self.seat);
         let view = TableView {
             round: wind_name(self.hand.round).to_string(),
             counters: self.hand.counters,
@@ -419,6 +426,30 @@ impl Game {
             pending_discard: self.hand.pending_discard.map(|(_, tile)| tile.to_string()),
             outcome: self.describe_outcome(),
             waits: waits.tiles().map(|tile| tile.to_string()).collect(),
+            waits_left: waits
+                .tiles()
+                .map(|tile| {
+                    riichi_core::tile::COPIES.saturating_sub(seen.count(tile))
+                })
+                .collect(),
+            dora: {
+                let mut marked: Vec<String> = Vec::new();
+                for indicator in self.hand.wall.dora_indicators() {
+                    let tile = indicator.dora();
+                    for _ in 0..player.hand.count(tile) {
+                        marked.push(tile.to_string());
+                    }
+                    for meld in &player.melds {
+                        for member in meld.tiles() {
+                            if member == tile {
+                                marked.push(tile.to_string());
+                            }
+                        }
+                    }
+                }
+                marked.sort();
+                marked
+            },
             shanten: riichi_core::shanten::shanten(&player.hand, player.melds.len()),
             furiten: player.is_furiten(),
             safe: self.safe_tiles(),

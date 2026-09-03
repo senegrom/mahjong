@@ -149,8 +149,15 @@ def rescore(record: dict) -> dict | None:
 # EMA 2025 section 4.2: "Yakuman are not cumulative." The library adds them,
 # so a hand that is two yakuman under Japanese rules comes back at 26 han
 # where this engine stops at 13.
+# EMA 2025 section 3.4.3: a winning hand is scored to its highest-scoring
+# possibility. A hand of four concealed triplets in one suit can also be
+# read as three identical sequences, which carries more han; but EMA has no
+# counted yakuman, so any number of han stops at sanbaiman, 24,000 points,
+# while the yakuman pays 32,000. The reading with fewer han is worth more,
+# and this engine takes it. The library maximises han instead.
 DOUBLE_WIND = "EMA 4.1.1: a pair of both seat and round wind is 2 minipoints, not 4"
 YAKUMAN_SUM = "EMA 4.2: yakuman are not cumulative"
+YAKUMAN_PAYS = "EMA 3.4.3: the yakuman reading pays more than the one with more han"
 
 
 def has_double_wind_pair(record: dict) -> bool:
@@ -220,6 +227,9 @@ def compare(path: Path, limit: int | None) -> int:
                 and theirs["han"] % 13 == 0
             ):
                 expected[YAKUMAN_SUM] += 1
+                continue
+            if reached == "yakuman" and ours_han == 13 and theirs["han"] % 13 != 0:
+                expected[YAKUMAN_PAYS] += 1
                 continue
 
             if ours_han != theirs["han"]:
