@@ -3,7 +3,11 @@ name = "riichi-wasm"
 description = "WebAssembly bindings for the riichi rules engine"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+# Written out rather than inherited from the workspace: some versions of
+# wasm-pack refuse to parse an inherited license and fail the deploy with
+# "invalid type: map, expected a string", which turned up once as a flaky
+# build. The value is the workspace's.
+license = "AGPL-3.0-or-later"
 repository.workspace = true
 rust-version.workspace = true
 
