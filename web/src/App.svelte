@@ -274,6 +274,11 @@
                 {view.shanten} tiles away from a wait
               {/if}
             </span>
+            {#if view.safe.length}
+              <span class="safe-note" title="These tiles cannot deal into a declared riichi">
+                {view.safe.length} safe
+              </span>
+            {/if}
             {#if view.furiten}
               <span class="furiten" title="A wait sits among your own discards, so you may not win on a discard">furiten</span>
             {/if}
@@ -288,7 +293,12 @@
               {tile}
               onclick={discard}
               disabled={!canDiscard(tile)}
-              title={myTurn ? `discard ${tile}` : tile}
+              safe={hints && view.safe.includes(tile)}
+              title={hints && view.safe.includes(tile)
+                ? `${tileWords(tile)}: cannot deal in`
+                : myTurn
+                  ? `discard the ${tileWords(tile)}`
+                  : tileWords(tile)}
             />
           {/each}
           {#if me.drawn}
@@ -298,7 +308,8 @@
                 tile={me.drawn}
                 onclick={discard}
                 disabled={!canDiscard(me.drawn)}
-                title="just drawn: {me.drawn}"
+                safe={hints && view.safe.includes(me.drawn)}
+                title="just drawn: the {tileWords(me.drawn)}"
               />
             </span>
           {/if}
@@ -377,15 +388,6 @@
     letter-spacing: 0.16em;
     text-transform: uppercase;
     font-weight: 600;
-  }
-
-  .facts {
-    display: flex;
-    gap: 14px;
-    align-items: center;
-    flex-wrap: wrap;
-    font-size: 0.85rem;
-    opacity: 0.92;
   }
 
   .dora {
@@ -561,6 +563,13 @@
     font-size: 0.85rem;
   }
 
+  .safe-note {
+    color: #7fd1a0;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
   .furiten {
     color: var(--accent);
     font-size: 0.78rem;
@@ -600,9 +609,9 @@
     min-height: 44px;
   }
 
-  /* The score screen wants the width, not a row of controls. */
-  .controls:has(> section) {
-    display: block;
+  /* The score screen takes the width; the controls sit in a row. */
+  .controls > :global(section) {
+    width: 100%;
   }
 
   .controls button {
@@ -624,16 +633,10 @@
     font-weight: 600;
   }
 
-  .prompt,
-  .outcome {
+  .prompt {
     margin: 0;
     font-size: 0.9rem;
     opacity: 0.9;
-  }
-
-  .outcome {
-    font-weight: 600;
-    opacity: 1;
   }
 
   .log {

@@ -56,6 +56,8 @@ try {
       calls: document.querySelectorAll('.controls button').length > 0,
       ended: document.querySelector('.screen h2')?.textContent?.trim() ?? null,
       yaku: [...document.querySelectorAll('.yaku li')].map((li) => li.textContent.trim()),
+      safe: document.querySelector('.safe-note')?.textContent?.trim() ?? null,
+      safeMarks: document.querySelectorAll('.hand .safe').length,
     }));
 
   const toEnd = args.includes('--to-end');
@@ -87,6 +89,7 @@ try {
   }
   state = await read();
   console.log('discards played:', played);
+  if (state.safe) console.log('safe hint:', state.safe, `(${state.safeMarks} marked)`);
   if (state.ended) console.log('hand ended:', state.ended);
 
   if (shot) {

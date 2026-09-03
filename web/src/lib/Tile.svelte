@@ -12,6 +12,7 @@
     rotated = false,
     dimmed = false,
     selected = false,
+    safe = false,
     size = 'normal',
     onclick = null,
     disabled = false,
@@ -41,6 +42,7 @@
     class:rotated
     class:dimmed
     class:selected
+    class:safe
     {disabled}
     title={title || words}
     aria-label={words}
@@ -129,6 +131,24 @@
 
   button.tile:disabled img {
     filter: grayscale(0.7) brightness(0.75);
+  }
+
+  /* A tile that cannot deal into a declared riichi. */
+  .safe::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    width: 60%;
+    height: 3px;
+    border-radius: 2px;
+    background: #7fd1a0;
+    transform: translateX(-50%);
+  }
+
+  button.tile,
+  span.tile {
+    position: relative;
   }
 
   .selected img {

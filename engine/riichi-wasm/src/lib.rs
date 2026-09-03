@@ -94,6 +94,10 @@ pub struct TableView {
     pub shanten: i32,
     /// Whether the viewer may not win by discard.
     pub furiten: bool,
+    /// Tiles that cannot deal into anybody who has declared riichi: their
+    /// own discards, and whatever passed after they declared. Empty while
+    /// nobody has declared (EMA 2025 section 3.3.9).
+    pub safe: Vec<String>,
 }
 
 /// A hand that won, with the working shown.
@@ -359,6 +363,7 @@ impl Game {
             waits: waits.tiles().map(|tile| tile.to_string()).collect(),
             shanten: riichi_core::shanten::shanten(&player.hand, player.melds.len()),
             furiten: player.is_furiten(),
+            safe: self.safe_tiles(),
         };
         serde_wasm_bindgen::to_value(&view).map_err(|error| JsValue::from_str(&error.to_string()))
     }
@@ -571,6 +576,27 @@ impl Game {
             Phase::Act if self.hand.turn != self.seat => Some(self.hand.turn),
             _ => None,
         }
+    }
+
+    /// The tiles that cannot deal into anybody currently waiting on a
+    /// declared riichi. A tile has to be safe against every one of them.
+    fn safe_tiles(&self) -> Vec<String> {
+        let declared: Vec<Wind> = Wind::ALL
+            .into_iter()
+            .filter(|seat| *seat != self.seat)
+            .filter(|seat| self.hand.players[seat.index()].has_riichi())
+            .collect();
+        if declared.is_empty() {
+            return Vec::new();
+        }
+        let sets: Vec<riichi_core::TileSet> = declared
+            .iter()
+            .map(|seat| self.hand.safe_against(*seat))
+            .collect();
+        riichi_core::tile::Tile::all()
+            .filter(|tile| sets.iter().all(|safe| safe.count(*tile) > 0))
+            .map(|tile| tile.to_string())
+            .collect()
     }
 
     /// How the hand ended, with enough to show a score screen.
