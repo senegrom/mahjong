@@ -36,7 +36,17 @@
   function start() {
     game = new Game(Date.now() % 2 ** 31);
     log = [];
+    failure = '';
     refresh(true);
+  }
+
+  // Abandoning a game part-way is worth one question; at the end of a game,
+  // or before the first discard, there is nothing to lose.
+  function startFresh() {
+    const underway = game && !game.game_is_over() && view && view.phase !== 'over';
+    const played = view?.seats?.some((seat) => seat.discards.length > 0);
+    if (underway && played && !confirm('Leave this game and deal a new one?')) return;
+    start();
   }
 
   function refresh(advance = false) {
@@ -127,6 +137,7 @@
       <input type="checkbox" bind:checked={hints} />
       hints
     </label>
+    <button class="restart" onclick={startFresh} disabled={!ready}>New game</button>
   </header>
 
   {#if failure}
@@ -207,7 +218,7 @@
         <p class="outcome">{view.outcome}</p>
         {#if game?.game_is_over()}
           <p class="outcome">The game is over.</p>
-          <button class="primary" onclick={start}>New game</button>
+          <button class="primary" onclick={start}>Play again</button>
         {:else}
           <button class="primary" onclick={nextHand}>Next hand</button>
         {/if}
@@ -290,6 +301,24 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .restart {
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: rgba(0, 0, 0, 0.25);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .restart:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  .restart:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .table {
