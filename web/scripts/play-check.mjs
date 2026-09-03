@@ -63,17 +63,34 @@ try {
       yaku: [...document.querySelectorAll('.yaku li')].map((li) => li.textContent.trim()),
       safe: document.querySelector('.safe-note')?.textContent?.trim() ?? null,
       safeMarks: document.querySelectorAll('.hand .safe').length,
+      standings: [...document.querySelectorAll('.standings tbody tr')].map((row) =>
+        [...row.children].map((cell) => cell.textContent.trim()).join(' '),
+      ),
+      finished: document.querySelector('.standings h2')?.textContent?.trim() ?? null,
     }));
 
-  const toEnd = args.includes('--to-end');
-  const limit = toEnd ? 400 : 6;
+  const wholeGame = args.includes('--whole-game');
+  const toEnd = args.includes('--to-end') || wholeGame;
+  const limit = wholeGame ? 6000 : toEnd ? 400 : 6;
   const deadline = Date.now() + seconds * 1000;
   let state = await read();
   let played = 0;
   while (Date.now() < deadline && played < limit) {
     state = await read();
     if (state.failure) break;
-    if (state.ended) break;
+    if (state.finished) break;
+    if (state.ended) {
+      if (!wholeGame) break;
+      // On to the next hand, so a whole game can be played out.
+      await page.evaluate(() => {
+        const next = [...document.querySelectorAll('button')].find((button) =>
+          ['Next hand', 'Play again'].includes(button.textContent.trim()),
+        );
+        if (next && next.textContent.trim() === 'Next hand') next.click();
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      continue;
+    }
     if (state.myTurn) {
       const clicked = await page.evaluate(() => {
         const tile = document.querySelector('.hand button.tile:not([disabled])');
@@ -96,6 +113,10 @@ try {
   console.log('discards played:', played);
   if (state.safe) console.log('safe hint:', state.safe, `(${state.safeMarks} marked)`);
   if (state.ended) console.log('hand ended:', state.ended);
+  if (state.finished) {
+    console.log('game over:', state.finished);
+    for (const row of state.standings) console.log('  ' + row);
+  }
 
   if (shot) {
     await mkdir(dirname(shot), { recursive: true });

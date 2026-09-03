@@ -157,6 +157,24 @@ pub struct OutcomeView {
     pub changes: Vec<i32>,
 }
 
+/// Where one player finished.
+#[derive(Serialize)]
+pub struct StandingView {
+    /// First to fourth.
+    pub place: usize,
+    /// The seat they hold in the last hand, which is what the table shows.
+    pub seat: String,
+    /// Points at the table when the game ended.
+    pub score: i32,
+    /// The winner bonus their place earned, or the penalty it cost.
+    pub uma: i32,
+    /// What the game was worth to them: points less the return score, plus
+    /// the bonus.
+    pub total: i32,
+    /// Whether this is the person playing.
+    pub you: bool,
+}
+
 /// One thing the player may do.
 #[derive(Serialize)]
 pub struct ActionView {
@@ -548,6 +566,31 @@ impl Game {
     /// The final scores, once the game is over.
     pub fn final_scores(&self) -> Vec<i32> {
         self.table.final_scores().to_vec()
+    }
+
+    /// Where everybody finished, best first, once the game is over.
+    pub fn standings(&self) -> Result<JsValue, JsValue> {
+        let totals = self.table.final_scores();
+        let mut order: Vec<usize> = (0..4).collect();
+        order.sort_by_key(|player| core::cmp::Reverse(self.table.scores[*player]));
+
+        let standings: Vec<StandingView> = order
+            .iter()
+            .enumerate()
+            .map(|(place, player)| StandingView {
+                place: place + 1,
+                seat: wind_name(self.table.seat_of(*player)).to_string(),
+                score: self.table.scores[*player],
+                // What the bonus was worth is the difference between the
+                // final total and the points over the return score.
+                uma: totals[*player]
+                    - (self.table.scores[*player] - riichi_core::table::RETURN_SCORE),
+                total: totals[*player],
+                you: *player == self.player,
+            })
+            .collect();
+        serde_wasm_bindgen::to_value(&standings)
+            .map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
     /// The tile the seat has just drawn and not yet used, if any.

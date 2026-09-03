@@ -5,6 +5,7 @@
   import Discards from './lib/Discards.svelte';
   import Melds from './lib/Melds.svelte';
   import ScoreScreen from './lib/ScoreScreen.svelte';
+  import Standings from './lib/Standings.svelte';
   import { chooseAction, modelIsAvailable, reportProgress } from './lib/policy.js';
   import { tileWords } from './lib/tiles.js';
 
@@ -28,6 +29,7 @@
   );
   let trainedAvailable = $state(false);
   let thinking = $state(false);
+  let standings = $state(null);
 
   modelIsAvailable().then((available) => {
     trainedAvailable = available;
@@ -66,6 +68,7 @@
     game = new Game(Date.now() % 2 ** 31, difficulty);
     log = [];
     failure = '';
+    standings = null;
     refresh(true);
   }
 
@@ -154,6 +157,7 @@
       if (game.game_is_over()) {
         view = game.view();
         choices = [];
+        standings = game.standings();
       } else {
         await refresh(true);
       }
@@ -324,7 +328,9 @@
     </div>
 
     <section class="controls" aria-label="your choices">
-      {#if view.phase === 'over' && view.outcome}
+      {#if standings}
+        <Standings {standings} onagain={start} />
+      {:else if view.phase === 'over' && view.outcome}
         <ScoreScreen
           outcome={view.outcome}
           seats={view.seats}
