@@ -31,10 +31,30 @@ plays and the game the opponents were trained on cannot drift apart.
 - **A command-line arena and fuzzer** for checking the engine at scale.
 
 - **Training from self-play**, with a warm start that imitates the heuristic
-  player and an actor-critic loop that improves on it, measured against
-  three of those opponents at a time.
+  player and a clipped actor-critic loop that continues from it.
 - **The trained opponent in the browser**, as ONNX in a worker beside the
   rules in WebAssembly, so a whole game runs offline.
+
+## Where the trained opponent stands
+
+Level with the heuristic bot, and not yet ahead of it.
+
+Average placement over a few hundred games carries a standard error of
+about 0.05, which is the size of the improvement being looked for, so the
+arena plays the same deals four times with the network in each seat and
+reports the spread across the four seatings as the error:
+
+| network | placement | error |
+|---|---|---|
+| warm start, imitating the heuristic bot | 2.527 | 0.032 |
+| after sixty generations of self-play | 2.500 | 0.025 |
+
+Against three of those bots, a network no better than they are averages
+2.5. Reproduce it with `python -m neural.arena <checkpoint> --games 500`.
+
+The site therefore offers the two heuristic tiers only: the trained tier
+appears when a model file is present, and one is published when the arena
+says it deserves to be.
 
 Still to come: replays in the browser and a measured game against Mortal.
 The plan is in [docs/PLAN.md](docs/PLAN.md).
