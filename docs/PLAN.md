@@ -12,16 +12,19 @@ is left is the strength of the trained opponent.
 |---|---|
 | M0, the rules engine | done. Every rules-card item has a citing test, and one million random winning hands were scored here and by an independent library with no unexplained disagreement. Logs are written in the mjai format and a test rebuilds every hand from its own events. |
 | M1, the browser game | done but for replays. A whole game is playable, by mouse or keyboard, with the learning aids, a post-game review, and the hand saveable as an mjai log. Published from Actions. |
-| M2, the training loop | built: the Python extension, the network, self-play with a clipped actor-critic objective, and a duplicate-deal arena. Not yet accepted: the network is level with the heuristic bot rather than ahead of it. |
+| M2, the training loop | built: the Python extension, the network, self-play with a clipped actor-critic objective, and a duplicate-deal arena. Not yet accepted: the network is 0.040 placement ahead of the heuristic bot, which is one and eight tenths of a standard error and so not settled. |
 | M3, neural tiers in the browser | the machinery is there, in a worker beside the rules. No model is published while the arena says it deserves none. |
 | M4, search and Mortal | not started. |
 
 The honest summary of the AI: a warm start on the heuristic player reaches
-its level, and self-play has not yet passed it. The reward is the shape of
-the problem, not a bug: a whole game's result reaches every one of the
-hundreds of thousands of decisions in it, so the signal per decision is
-thin. The arena exists so that any claim to have fixed that has to be shown
-rather than asserted.
+its level, and self-play has moved a little past it without yet proving it.
+The reward is the shape of the problem, not a bug: a whole game's result
+reaches every one of the hundreds of thousands of decisions in it, so the
+signal per decision is thin. The arena exists so that any claim to have
+fixed that has to be shown rather than asserted, which has already cost one
+claim of mine: its error bars were taken from the four seatings, which
+share their deals and so are not independent, and correcting that turned
+four standard errors into one and eight tenths.
 
 ## 1. Authoritative rules
 
