@@ -9,8 +9,14 @@ choice is the one number guaranteed to be optimistic.
 This measures the same deals four times, once with the network in each
 seat, so the luck of the deal falls on both sides equally. Against three
 copies of the heuristic bot, a network no better than they are averages
-2.5; anything below that is a real edge, and the spread across the four
-seatings says how much of it to believe.
+2.5, and anything below that is a real edge.
+
+How much of it to believe comes from the deals rather than from the four
+seatings. The seatings share their deals and so are far from independent:
+a network indistinguishable from the bots would play the same four games
+and its placements would sum to exactly ten every time. Each deal therefore
+contributes one figure, the four placements it produced averaged, and the
+spread of those figures across deals is the error on the mean.
 
     python -m neural.arena E:/tmp-claude/mahjong/run4/best.pt --games 1000
 """
@@ -59,19 +65,36 @@ def duplicate(net, games: int, seed: int, device: str = "cuda") -> dict:
                 "score": float(batch.final_scores[:, seat].mean()),
                 "wins": float((got == 1).mean()),
                 "hands": batch.hands,
+                # Kept for the error bar below, then dropped from the report.
+                "placements": got.astype(float),
             }
         )
 
     means = [row["placement"] for row in per_seat]
     overall = float(statistics.fmean(means))
-    # Each seating is an independent estimate of the same quantity, so the
-    # spread between them is the honest error bar on their average.
-    spread = statistics.stdev(means) / (SEATS**0.5) if SEATS > 1 else 0.0
+
+    # The error bar has to come from the deals, not from the four seatings.
+    #
+    # The seatings share their deals, so their placements are far from
+    # independent: were the network no different from the bots, the four
+    # would play the same games and sum to exactly ten for every deal, and
+    # the average would be exactly 2.5 with no error at all. That is the
+    # whole point of the design, and it means the spread between seatings
+    # measures only the part that does not cancel, which is not the error on
+    # their average. Using it claimed four standard errors where the honest
+    # number was nearer one.
+    #
+    # So each deal gives one figure: the four placements it produced,
+    # averaged. Those figures are independent across deals, and their spread
+    # is the error on the mean.
+    per_deal = np.stack([row.pop("placements") for row in per_seat]).mean(axis=0)
+    error = float(per_deal.std(ddof=1) / (len(per_deal) ** 0.5)) if len(per_deal) > 1 else 0.0
+
     return {
         "games_per_seat": games,
         "games_total": games * SEATS,
         "placement": overall,
-        "standard_error": spread,
+        "standard_error": error,
         "score": float(statistics.fmean(row["score"] for row in per_seat)),
         "wins": float(statistics.fmean(row["wins"] for row in per_seat)),
         "by_seat": per_seat,

@@ -17,6 +17,9 @@ struct Seating {
     placement: f64,
     score: f64,
     wins: f64,
+    /// Where the challenger finished each game, in order, so the four
+    /// seatings can be paired deal by deal.
+    per_game: Vec<f64>,
 }
 
 /// Plays `games` whole games with `challenger` as player `chair` and
@@ -35,6 +38,7 @@ fn play_seating(
     let mut placements = 0.0;
     let mut scores = 0.0;
     let mut firsts = 0.0;
+    let mut per_game = Vec::with_capacity(games);
 
     for game in 0..games {
         // The same seed gives the same deals whichever seat is challenged,
@@ -94,6 +98,7 @@ fn play_seating(
             .filter(|(index, score)| **score > mine || (**score == mine && *index < chair))
             .count();
         placements += place as f64;
+        per_game.push(place as f64);
         scores += table.scores[chair] as f64;
         if place == 1 {
             firsts += 1.0;
@@ -104,6 +109,7 @@ fn play_seating(
         placement: placements / games as f64,
         score: scores / games as f64,
         wins: firsts / games as f64,
+        per_game,
     }
 }
 
@@ -117,12 +123,27 @@ pub fn duel(games: usize, seed: u64, challenger: Style, defender: Style) {
     let mean = |values: &[f64]| values.iter().sum::<f64>() / values.len() as f64;
     let placements: Vec<f64> = seatings.iter().map(|row| row.placement).collect();
     let overall = mean(&placements);
-    let variance = placements
+
+    // One figure per deal: the four placements that deal produced, averaged.
+    // Those are independent from deal to deal, where the four seatings are
+    // not, since they are the same deals played from different chairs.
+    let per_deal: Vec<f64> = (0..games)
+        .map(|game| {
+            mean(
+                &seatings
+                    .iter()
+                    .map(|row| row.per_game[game])
+                    .collect::<Vec<f64>>(),
+            )
+        })
+        .collect();
+    let spread = mean(&per_deal);
+    let variance = per_deal
         .iter()
-        .map(|value| (value - overall).powi(2))
+        .map(|value| (value - spread).powi(2))
         .sum::<f64>()
-        / (placements.len() - 1) as f64;
-    let error = (variance / placements.len() as f64).sqrt();
+        / (per_deal.len() - 1).max(1) as f64;
+    let error = (variance / per_deal.len() as f64).sqrt();
 
     println!("challenger: {challenger:?}");
     println!("defender:   {defender:?}");
