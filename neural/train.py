@@ -61,6 +61,7 @@ def main() -> None:
 
     net = PolicyValueNet(args.channels, args.blocks).to(device)
     start = 0
+    best_placement = float("inf")
     if args.resume and args.resume.exists():
         payload = torch.load(args.resume, map_location=device, weights_only=True)
         net.load_state_dict(payload["model"])
@@ -160,11 +161,20 @@ def main() -> None:
                     "win_rate": round(against["wins"], 3),
                 }
             )
-            torch.save(
-                {"model": net.state_dict(), "generation": generation + 1,
-                 "channels": net.channels, "blocks": net.blocks},
-                args.out / "latest.pt",
-            )
+            payload = {
+                "model": net.state_dict(),
+                "generation": generation + 1,
+                "channels": net.channels,
+                "blocks": net.blocks,
+                "placement": against["placement"],
+            }
+            torch.save(payload, args.out / "latest.pt")
+            # The high-water mark is kept apart, so a run that wanders can
+            # always be brought back to the best network it has produced.
+            if against["placement"] < best_placement:
+                best_placement = against["placement"]
+                torch.save(payload, args.out / "best.pt")
+                record["best"] = True
 
         print(json.dumps(record), flush=True)
         with log_path.open("a", encoding="utf-8") as handle:
