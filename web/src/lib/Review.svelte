@@ -107,6 +107,19 @@
                     </td>
                   </tr>
                 {/if}
+                {#if note.dora_played || note.dora_advised}
+                  <tr>
+                    <th scope="row">Worth as dora</th>
+                    <td class:worse={note.dora_played > note.dora_advised}>
+                      {note.dora_played === 0
+                        ? 'nothing'
+                        : `${note.dora_played} han`}
+                    </td>
+                    <td>
+                      {note.dora_advised === 0 ? 'nothing' : `${note.dora_advised} han`}
+                    </td>
+                  </tr>
+                {/if}
               </tbody>
             </table>
           {:else}

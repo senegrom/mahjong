@@ -209,6 +209,10 @@ pub struct NoteView {
     pub danger_played: String,
     /// The same for the advised tile.
     pub danger_advised: String,
+    /// How many han the tile played was worth as dora.
+    pub dora_played: u8,
+    /// The same for the advised tile.
+    pub dora_advised: u8,
     /// Why they differ, in words.
     pub reason: String,
     /// A short tag for the reason, for styling.
@@ -632,6 +636,8 @@ impl Game {
                     acceptance_advised: note.acceptance_advised,
                     danger_played: danger_name(note.danger_played).to_string(),
                     danger_advised: danger_name(note.danger_advised).to_string(),
+                    dora_played: note.dora_played,
+                    dora_advised: note.dora_advised,
                     reason: note.reason.line().to_string(),
                     kind: reason_name(note.reason).to_string(),
                     cost: note.cost(),
@@ -1052,6 +1058,7 @@ fn reason_name(reason: review::Reason) -> &'static str {
         review::Reason::Shape => "shape",
         review::Reason::Acceptance => "acceptance",
         review::Reason::Defence => "defence",
+        review::Reason::Value => "value",
         review::Reason::Judgement => "judgement",
     }
 }

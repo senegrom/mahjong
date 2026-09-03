@@ -43,6 +43,9 @@ pub enum Reason {
     Acceptance,
     /// The advised tile is safe where the one played was not.
     Defence,
+    /// The tile played was dora, so throwing it gave up a han the advised
+    /// tile would have kept.
+    Value,
     /// The advice differs for a reason these numbers do not capture, which
     /// is usually the value of the hand rather than its speed.
     Judgement,
@@ -56,6 +59,7 @@ impl Reason {
             Reason::Shape => "the advised tile leaves the hand closer to complete",
             Reason::Acceptance => "the advised tile leaves more tiles that improve the hand",
             Reason::Defence => "the advised tile could not deal in, the one played could",
+            Reason::Value => "the tile played was dora, which is a han thrown away",
             Reason::Judgement => "a trade of speed against value or safety",
         }
     }
@@ -86,6 +90,11 @@ pub struct Note {
     pub danger_played: Danger,
     /// How exposed the advised tile was.
     pub danger_advised: Danger,
+    /// How many han the tile played was worth as dora, which is usually
+    /// none and can be more than one when several indicators point at it.
+    pub dora_played: u8,
+    /// The same for the advised tile.
+    pub dora_advised: u8,
     /// Why the two differ.
     pub reason: Reason,
 }
@@ -141,6 +150,16 @@ pub fn visible_to(hand: &Hand, seat: Wind) -> TileSet {
         seen.add(indicator);
     }
     seen
+}
+
+/// How many times over a tile is dora, which is none for most tiles and
+/// more than one when several indicators point at the same kind.
+fn dora_worth(hand: &Hand, tile: Tile) -> u8 {
+    hand.wall
+        .dora_indicators()
+        .into_iter()
+        .filter(|indicator| indicator.dora() == tile)
+        .count() as u8
 }
 
 /// How exposed a tile is against everyone who has declared riichi.
@@ -214,6 +233,8 @@ pub fn judge(hand: &Hand, played: Action, adviser: &mut Bot) -> Note {
     let danger_advised = discarded(advised)
         .map(|tile| danger_of(hand, seat, tile))
         .unwrap_or(Danger::Quiet);
+    let dora_played = discarded(played).map_or(0, |tile| dora_worth(hand, tile));
+    let dora_advised = discarded(advised).map_or(0, |tile| dora_worth(hand, tile));
 
     let reason = if played == advised {
         Reason::Agreed
@@ -223,6 +244,9 @@ pub fn judge(hand: &Hand, played: Action, adviser: &mut Bot) -> Note {
         Reason::Defence
     } else if shanten_advised == shanten_played && acceptance_advised > acceptance_played {
         Reason::Acceptance
+    } else if dora_played > dora_advised {
+        // Neither closer nor wider, and the tile thrown was worth a han.
+        Reason::Value
     } else {
         Reason::Judgement
     };
@@ -238,6 +262,8 @@ pub fn judge(hand: &Hand, played: Action, adviser: &mut Bot) -> Note {
         acceptance_advised,
         danger_played,
         danger_advised,
+        dora_played,
+        dora_advised,
         reason,
     }
 }
@@ -464,6 +490,7 @@ mod tests {
             Reason::Shape,
             Reason::Acceptance,
             Reason::Defence,
+            Reason::Value,
             Reason::Judgement,
         ] {
             assert!(reason.line().len() > 10, "{reason:?} has no line");

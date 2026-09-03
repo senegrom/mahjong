@@ -63,11 +63,11 @@ impl Style {
             fold_beyond_shanten: 1,
             always_riichi: true,
             looseness: 0.0,
-            // A dora is worth about twelve tiles of acceptance. Measured:
-            // over sixteen thousand games in the duel, against three club
-            // players with no dora sense, this comes to 0.024 placement,
-            // and on the second of the two seeds alone it was 0.031 at
-            // nearly five standard errors.
+            // A dora is worth about twelve tiles of acceptance. Measured
+            // in the duel against three club players with no dora sense,
+            // over two seeds of eight thousand games each: 0.018 placement
+            // on one and 0.031 on the other, which is 0.024 together at
+            // three standard errors.
             dora_worth: 12,
         }
     }
