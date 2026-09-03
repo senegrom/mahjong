@@ -92,6 +92,7 @@ forgets to write shows up as a hand that has drifted.
 ## Running it
 
 ```bash
+./check.sh                      # everything the workflow checks, before pushing
 cargo test --workspace          # the rules, with their tests
 cargo run -p riichi-cli -- hand --seed 1        # one hand, move by move
 cargo run -p riichi-cli --release -- arena --games 200   # bots, with statistics
