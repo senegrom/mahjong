@@ -22,7 +22,7 @@ try {
       over: !!document.querySelector('[aria-label="how the hand ended"]'),
       waits: [...document.querySelectorAll('.wait')].map((node) => ({
         tile: node.querySelector('.tile')?.getAttribute('aria-label') ?? '',
-        left: Number(node.querySelector('.left')?.textContent.trim() ?? -1),
+        left: Number(node.querySelector('.remaining')?.textContent.trim() ?? -1),
       })),
       doraNote: document.querySelector('.dora-note')?.textContent.trim() ?? '',
       doraTiles: document.querySelectorAll('.hand .tile.dora').length,

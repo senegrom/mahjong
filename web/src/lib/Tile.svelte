@@ -120,10 +120,21 @@
     transform-origin: center;
   }
 
+  /* A tile turned on its side, which is how a riichi declaration is shown.
+     It is the same tile, so it keeps its size and the box is given the room
+     the turn needs: the faces are 300 by 400, so a tile lying down is four
+     thirds as wide as one standing up and just as long the other way.
+     Sizing the box as a square instead made the picture hang over both
+     edges and its neighbours. */
   .rotated {
-    width: calc(var(--tile-width) * 0.62);
-    align-items: center;
+    width: calc(var(--tile-width) * 0.62 * 4 / 3);
     height: calc(var(--tile-width) * 0.62);
+    align-items: center;
+    justify-content: center;
+  }
+
+  .rotated img {
+    width: calc(var(--tile-width) * 0.62);
   }
 
   .dimmed img {

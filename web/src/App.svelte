@@ -292,7 +292,7 @@
                   <span class="wait">
                     <Tile tile={wait} size="tiny" />
                     <span
-                      class="left"
+                      class="remaining"
                       class:none={view.waits_left?.[index] === 0}
                       title="{view.waits_left?.[index] ?? 0} of the four are still unseen"
                     >
@@ -629,7 +629,11 @@
     margin-right: 3px;
   }
 
-  .left {
+  /* Named for what it is rather than where it sits: `.left` is already the
+     seat to the player's left, and giving this the same name put that whole
+     seat under `position: absolute` and three pixels off the side of the
+     page. */
+  .remaining {
     position: absolute;
     right: -3px;
     bottom: -2px;
@@ -644,7 +648,7 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .left.none {
+  .remaining.none {
     background: var(--accent);
   }
 

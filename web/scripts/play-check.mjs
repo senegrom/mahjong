@@ -137,7 +137,12 @@ try {
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
-  if (overflow > 0) console.log('horizontal overflow:', overflow + 'px');
+  // Reporting it and carrying on is how it went unnoticed for a day. A page
+  // that scrolls sideways is a fault, so it is one here too.
+  if (overflow > 0) {
+    console.log('horizontal overflow:', overflow + 'px');
+    problems.push(`the page scrolls sideways by ${overflow}px`);
+  }
 
   console.log('opponents:', state?.opponents);
   console.log('tiles in hand:', state?.hand);
