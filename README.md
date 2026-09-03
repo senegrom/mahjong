@@ -19,10 +19,15 @@ plays and the game the opponents were trained on cannot drift apart.
 - **A heuristic opponent** that plays for speed, only opens a hand that can
   still be declared, and folds against a declared riichi.
 - **A browser game** against three of them, with the tile art, discard rows,
-  called sets, keyboard play and optional hints.
+  called sets and optional hints, on a desktop or a phone.
+- **Played by keyboard or mouse.** Arrow keys move along the hand and Enter
+  throws the marked tile, the numbers throw one directly, and every tile
+  carries its name for a screen reader.
 - **Learning aids**: how far the hand is from a wait, what it is waiting on
   and how many of each are still unseen, the dora in hand, which tiles
-  cannot deal into a declared riichi, and a furiten warning.
+  cannot deal into a declared riichi, and a furiten warning. A panel under
+  the header explains each of those to somebody meeting them for the first
+  time.
 - **A post-game review** that takes each of your decisions again and shows
   what it traded: how far the move left the hand from complete, how many
   tiles would still have improved it, and whether it could have dealt in.
