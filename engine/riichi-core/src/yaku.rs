@@ -99,6 +99,56 @@ pub enum Yaku {
 }
 
 impl Yaku {
+    /// Every yaku the rules list, so a test can walk the whole set.
+    ///
+    /// The dragon yaku carries the tile it was made of, and one of each is
+    /// listed here; nothing depends on which, since they share a name and a
+    /// value. Adding a yaku without adding it here fails the test that
+    /// checks this list against the rulebook, which is the point of it.
+    pub const ALL: [Yaku; 41] = [
+        Yaku::Riichi,
+        Yaku::Ippatsu,
+        Yaku::MenzenTsumo,
+        Yaku::Pinfu,
+        Yaku::Iipeiko,
+        Yaku::Tanyao,
+        Yaku::YakuhaiDragon(crate::tile::WHITE),
+        Yaku::YakuhaiSeatWind,
+        Yaku::YakuhaiRoundWind,
+        Yaku::Rinshan,
+        Yaku::Chankan,
+        Yaku::Haitei,
+        Yaku::Houtei,
+        Yaku::DoubleRiichi,
+        Yaku::Chiitoitsu,
+        Yaku::Sanshoku,
+        Yaku::Ittsuu,
+        Yaku::Chanta,
+        Yaku::SanshokuDoukou,
+        Yaku::SanAnkou,
+        Yaku::SanKantsu,
+        Yaku::Toitoi,
+        Yaku::Shousangen,
+        Yaku::Honroutou,
+        Yaku::Ryanpeikou,
+        Yaku::Honitsu,
+        Yaku::Junchan,
+        Yaku::Renhou,
+        Yaku::Chinitsu,
+        Yaku::KokushiMusou,
+        Yaku::ChuurenPoutou,
+        Yaku::Tenhou,
+        Yaku::Chiihou,
+        Yaku::SuuAnkou,
+        Yaku::SuuKantsu,
+        Yaku::Ryuuiisou,
+        Yaku::Chinroutou,
+        Yaku::Tsuuiisou,
+        Yaku::Daisangen,
+        Yaku::ShouSuushii,
+        Yaku::DaiSuushii,
+    ];
+
     /// Whether this yaku is a yakuman.
     pub const fn is_yakuman(self) -> bool {
         matches!(
