@@ -26,14 +26,21 @@ POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 
 
+# Group normalisation rather than batch normalisation: the network acts
+# and learns in the same loop, and a layer whose behaviour depends on which
+# other positions happen to share the batch makes the policy that produced
+# the data differ from the one being updated.
+GROUPS = 8
+
+
 class Residual(nn.Module):
     """A pre-activation residual block along the tile axis."""
 
     def __init__(self, channels: int) -> None:
         super().__init__()
-        self.norm1 = nn.BatchNorm1d(channels)
+        self.norm1 = nn.GroupNorm(GROUPS, channels)
         self.conv1 = nn.Conv1d(channels, channels, 3, padding=1, bias=False)
-        self.norm2 = nn.BatchNorm1d(channels)
+        self.norm2 = nn.GroupNorm(GROUPS, channels)
         self.conv2 = nn.Conv1d(channels, channels, 3, padding=1, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -51,11 +58,11 @@ class PolicyValueNet(nn.Module):
         self.blocks = blocks
         self.stem = nn.Sequential(
             nn.Conv1d(PLANES, channels, 3, padding=1, bias=False),
-            nn.BatchNorm1d(channels),
+            nn.GroupNorm(GROUPS, channels),
             nn.ReLU(),
         )
         self.tower = nn.Sequential(*[Residual(channels) for _ in range(blocks)])
-        self.tail = nn.Sequential(nn.BatchNorm1d(channels), nn.ReLU())
+        self.tail = nn.Sequential(nn.GroupNorm(GROUPS, channels), nn.ReLU())
 
         # The policy reads both the per-tile features, which is where the
         # thirty-four discards live, and the pooled position, which is where

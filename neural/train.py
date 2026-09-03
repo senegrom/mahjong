@@ -36,10 +36,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--games", type=int, default=128, help="tables per round")
     parser.add_argument("--channels", type=int, default=192)
     parser.add_argument("--blocks", type=int, default=10)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--clip", type=float, default=0.2, help="PPO ratio clip")
     parser.add_argument("--batch", type=int, default=4096, help="decisions per step")
-    parser.add_argument("--epochs", type=int, default=2, help="passes over a round")
-    parser.add_argument("--entropy", type=float, default=0.01)
+    parser.add_argument("--epochs", type=int, default=3, help="passes over a round")
+    parser.add_argument("--entropy", type=float, default=0.03)
     parser.add_argument("--value-weight", type=float, default=0.5)
     parser.add_argument("--measure-every", type=int, default=10)
     parser.add_argument("--measure-games", type=int, default=64)
@@ -87,6 +88,7 @@ def main() -> None:
         legal = batch.legal.to(device)
         actions = batch.actions.to(device)
         returns = batch.returns.to(device)
+        old_log_probs = batch.log_probs.to(device)
 
         # A return that is mostly noise teaches nothing; standardising it
         # keeps the gradient the same size from one round to the next.
@@ -94,6 +96,7 @@ def main() -> None:
 
         net.train()
         total_policy = total_value = total_entropy = 0.0
+        total_clipped = 0.0
         steps = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(batch.decisions, device=device)
@@ -106,7 +109,13 @@ def main() -> None:
                 log_prob = distribution.log_prob(actions[picks])
                 advantage = (normalised[picks] - value).detach()
 
-                policy_loss = -(log_prob * advantage).mean()
+                # The clipped objective: an update may improve an action's
+                # odds, but only so far in one round, which is what keeps a
+                # policy from narrowing onto a single action.
+                ratio = torch.exp(log_prob - old_log_probs[picks])
+                clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
+                policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
+                total_clipped += float((ratio != clipped).float().mean())
                 value_loss = nn.functional.mse_loss(value, normalised[picks])
                 entropy = distribution.entropy().mean()
                 loss = (
@@ -134,6 +143,7 @@ def main() -> None:
             "policy_loss": round(total_policy / max(steps, 1), 4),
             "value_loss": round(total_value / max(steps, 1), 4),
             "entropy": round(total_entropy / max(steps, 1), 4),
+            "clipped": round(total_clipped / max(steps, 1), 3),
             "mean_return": round(float(returns.mean()), 4),
         }
 
