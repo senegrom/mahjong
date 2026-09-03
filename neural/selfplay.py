@@ -151,6 +151,11 @@ def measure(net, games: int, seed: int, device: str = "cuda") -> dict[str, float
     The network takes place 0 at every table; the other three places are the
     benchmark. What comes back is the average placement, where 1.0 would be
     winning every game and 4.0 losing every one, and the average final score.
+
+    It plays its best move rather than sampling, because that is what the
+    web app does. Measuring sampled play would mix how well the network has
+    learned with how much exploration noise is on top of it, and then the
+    checkpoint kept as best would be chosen partly on that noise.
     """
     batch = play(
         net,
@@ -158,7 +163,7 @@ def measure(net, games: int, seed: int, device: str = "cuda") -> dict[str, float
         seed=seed,
         device=device,
         bot_places=[1, 2, 3],
-        greedy=False,
+        greedy=True,
     )
     scores = batch.final_scores
     order = (-scores).argsort(axis=1).argsort(axis=1) + 1
