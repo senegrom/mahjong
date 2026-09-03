@@ -47,6 +47,9 @@
 
   let file = $derived(facedown ? 'Back' : fileFor(tile));
   let words = $derived(facedown ? 'face-down tile' : wordsFor(tile));
+  // The white dragon's face is blank, which reads as a missing picture.
+  // Sets that do not leave it plain frame it in blue; so does this one.
+  let blank = $derived(!facedown && tile === '5z');
 </script>
 
 {#if onclick}
@@ -60,11 +63,11 @@
     aria-label={words}
     onclick={() => onclick(tile)}
   >
-    <img src="tiles/{file}.svg" alt="" draggable="false" />
+    <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
   </button>
 {:else}
   <span class="tile {size}" class:rotated class:dimmed role="img" aria-label={words} title={title || words}>
-    <img src="tiles/{file}.svg" alt="" draggable="false" />
+    <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
   </span>
 {/if}
 
@@ -90,6 +93,13 @@
       0 1px 0 rgba(255, 255, 255, 0.55) inset,
       0 2px 3px rgba(0, 0, 0, 0.35);
     background: var(--ivory);
+  }
+
+  .tile img.blank {
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.55) inset,
+      0 0 0 2px #4a7fb5 inset,
+      0 2px 3px rgba(0, 0, 0, 0.35);
   }
 
   .small {

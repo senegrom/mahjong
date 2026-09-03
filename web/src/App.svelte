@@ -17,7 +17,11 @@
   let busy = $state(false);
 
   let me = $derived(view ? view.seats[0] : null);
-  let others = $derived(view ? view.seats.slice(1) : []);
+  // Turn order runs to the right: the next player to act sits there, the
+  // one after that across the table (EMA 2025 section 2.1).
+  let right = $derived(view ? view.seats[1] : null);
+  let across = $derived(view ? view.seats[2] : null);
+  let left = $derived(view ? view.seats[3] : null);
   let discardChoices = $derived(choices.filter((choice) => choice.kind === 'discard'));
   let callChoices = $derived(
     choices.filter((choice) => choice.kind !== 'discard'),
@@ -119,20 +123,6 @@
 <main>
   <header class="bar">
     <h1>Riichi</h1>
-    {#if view}
-      <div class="facts">
-        <span><b>{NAMES[view.round]}</b> round</span>
-        <span>{view.wall} left</span>
-        {#if view.counters}<span>{view.counters} counter{view.counters > 1 ? 's' : ''}</span>{/if}
-        {#if view.riichi_sticks}<span>{view.riichi_sticks} bet{view.riichi_sticks > 1 ? 's' : ''}</span>{/if}
-        <span class="dora">
-          dora
-          {#each view.dora_indicators as indicator (indicator)}
-            <Tile tile={indicator} size="tiny" />
-          {/each}
-        </span>
-      </div>
-    {/if}
     <label class="toggle">
       <input type="checkbox" bind:checked={hints} />
       hints
@@ -147,11 +137,44 @@
   {#if !ready}
     <p class="loading">Shuffling the wall…</p>
   {:else if view}
-    <div class="table">
-      <div class="opponents">
-        {#each others as seat (seat.seat)}
-          <Seat {seat} dealer={seat.seat === 'east'} />
-        {/each}
+    <div class="board">
+      <div class="place across">
+        <Seat seat={across} side="across" dealer={across.seat === 'east'} />
+      </div>
+      <div class="place left">
+        <Seat seat={left} side="left" dealer={left.seat === 'east'} />
+      </div>
+
+      <div class="centre" aria-label="the table">
+        <div class="round">
+          <span class="wind-mark">{NAMES[view.round]}</span>
+          <span class="label">round</span>
+        </div>
+        <div class="wall">
+          <span class="count">{view.wall}</span>
+          <span class="label">tiles left</span>
+        </div>
+        <div class="dora" aria-label="dora indicators">
+          {#each view.dora_indicators as indicator (indicator)}
+            <Tile tile={indicator} size="small" />
+          {/each}
+        </div>
+        {#if view.counters || view.riichi_sticks}
+          <div class="table-extras">
+            {#if view.counters}
+              <span title="counters on the table">{view.counters}× 300</span>
+            {/if}
+            {#if view.riichi_sticks}
+              <span class="bets" title="riichi bets on the table">
+                {view.riichi_sticks} bet{view.riichi_sticks > 1 ? 's' : ''}
+              </span>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
+      <div class="place right">
+        <Seat seat={right} side="right" dealer={right.seat === 'east'} />
       </div>
 
       <section class="mine" aria-label="your seat">
@@ -321,24 +344,95 @@
     cursor: default;
   }
 
-  .table {
+  .board {
     display: grid;
-    gap: 12px;
+    grid-template-columns: minmax(0, 1fr) minmax(190px, auto) minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    gap: 10px;
+    align-items: start;
   }
 
-  .opponents {
+  .across {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .left {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .centre {
+    grid-column: 2;
+    grid-row: 2;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 10px;
+    justify-items: center;
+    align-content: center;
+    gap: 8px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    min-height: 150px;
+  }
+
+  .right {
+    grid-column: 3;
+    grid-row: 2;
   }
 
   .mine {
+    grid-column: 1 / -1;
+    grid-row: 3;
     display: grid;
     gap: 10px;
     padding: 10px 12px 14px;
     border-radius: 12px;
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid rgba(216, 161, 42, 0.25);
+  }
+
+  .round,
+  .wall {
+    display: grid;
+    justify-items: center;
+    line-height: 1.1;
+  }
+
+  .wind-mark {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .count {
+    font-size: 1.5rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .centre .label {
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.7;
+  }
+
+  .centre .dora {
+    display: flex;
+    gap: 3px;
+    padding-top: 2px;
+  }
+
+  .table-extras {
+    display: flex;
+    gap: 10px;
+    font-size: 0.78rem;
+    opacity: 0.85;
+  }
+
+  .bets {
+    color: var(--accent);
   }
 
   .mine header {
@@ -469,9 +563,28 @@
     opacity: 0.8;
   }
 
-  @media (max-width: 640px) {
-    .opponents {
+  /* On a narrow screen the ring becomes a column, which is the only
+     arrangement that keeps the tiles readable. */
+  @media (max-width: 760px) {
+    .board {
       grid-template-columns: 1fr;
+    }
+
+    .across,
+    .left,
+    .centre,
+    .right,
+    .mine {
+      grid-column: 1;
+      grid-row: auto;
+    }
+
+    .centre {
+      grid-auto-flow: column;
+      justify-items: start;
+      align-items: center;
+      min-height: 0;
+      gap: 16px;
     }
   }
 </style>

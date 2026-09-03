@@ -400,6 +400,30 @@ fn refused(error: riichi_core::game::Error) -> JsValue {
     JsValue::from_str(&format!("the engine refused that: {error:?}"))
 }
 
+/// A tile named the way a person would say it, for the commentary.
+fn tile_words(tile: Tile) -> String {
+    use riichi_core::Suit;
+    if tile.is_honour() {
+        return match tile.rank() {
+            1 => "east wind",
+            2 => "south wind",
+            3 => "west wind",
+            4 => "north wind",
+            5 => "white dragon",
+            6 => "green dragon",
+            _ => "red dragon",
+        }
+        .to_string();
+    }
+    let suit = match tile.suit() {
+        Suit::Characters => "characters",
+        Suit::Circles => "circles",
+        Suit::Bamboo => "bamboo",
+        Suit::Honours => "honours",
+    };
+    format!("{} {suit}", tile.rank())
+}
+
 fn wind_name(wind: Wind) -> &'static str {
     match wind {
         Wind::East => "east",
@@ -435,12 +459,12 @@ fn describe_action(action: Action) -> ActionView {
         Action::Discard(tile) => ActionView {
             kind: "discard".into(),
             tile: Some(tile.to_string()),
-            label: format!("discards {tile}"),
+            label: format!("discards the {}", tile_words(tile)),
         },
         Action::Riichi(tile) => ActionView {
             kind: "riichi".into(),
             tile: Some(tile.to_string()),
-            label: format!("declares riichi on {tile}"),
+            label: format!("declares riichi on the {}", tile_words(tile)),
         },
         Action::Tsumo => ActionView {
             kind: "tsumo".into(),
@@ -450,12 +474,12 @@ fn describe_action(action: Action) -> ActionView {
         Action::ConcealedKan(tile) => ActionView {
             kind: "concealed-kan".into(),
             tile: Some(tile.to_string()),
-            label: format!("declares a quad of {tile}"),
+            label: format!("declares a quad of {}", tile_words(tile)),
         },
         Action::ExtendedKan(tile) => ActionView {
             kind: "extended-kan".into(),
             tile: Some(tile.to_string()),
-            label: format!("extends a triplet of {tile}"),
+            label: format!("extends a triplet of {}", tile_words(tile)),
         },
     }
 }
@@ -480,7 +504,7 @@ fn describe_call(call: Call) -> ActionView {
         Call::Chii(low) => ActionView {
             kind: "chii".into(),
             tile: Some(low.to_string()),
-            label: format!("calls a sequence from {low}"),
+            label: format!("calls a sequence from the {}", tile_words(low)),
         },
         Call::Pass => ActionView {
             kind: "pass".into(),

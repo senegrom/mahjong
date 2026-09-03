@@ -23,14 +23,17 @@
 <style>
   .pool {
     display: grid;
-    grid-template-columns: repeat(6, auto);
+    grid-template-columns: repeat(6, calc(var(--tile-width) * 0.62));
     gap: 2px;
     justify-content: start;
     align-content: start;
-    min-height: 1px;
+    /* The player's own row sits directly above their hand, so it grows
+       rather than reserving space that would push the hand down. */
+    min-height: calc(var(--tile-width) * 0.62 * 1.35);
   }
 
   .compact {
-    grid-template-columns: repeat(6, auto);
+    grid-template-columns: repeat(6, calc(var(--tile-width) * 0.5));
+    min-height: calc(var(--tile-width) * 0.5 * 1.35 * 3);
   }
 </style>
