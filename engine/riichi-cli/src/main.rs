@@ -5,6 +5,7 @@
 //! riichi-cli arena --games 200 --seed 1     four heuristic bots, with stats
 //! riichi-cli fuzz  --games 200 --seed 1     random legal play, checking rules
 //! riichi-cli hand  --seed 1                 one hand, move by move
+//! riichi-cli log   --seed 1 --games 1       a game as an mjai event log
 //! ```
 //!
 //! The fuzzer is the point of this crate: it plays only actions the engine
@@ -18,6 +19,7 @@ use std::process::ExitCode;
 
 use riichi_core::bot::Bot;
 use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
+use riichi_core::mjai;
 use riichi_core::rng::Rng;
 use riichi_core::table::Table;
 use riichi_core::tile::{Tile, COPIES, KINDS};
@@ -48,8 +50,12 @@ fn main() -> ExitCode {
             show_hand(seed);
             ExitCode::SUCCESS
         }
+        "log" => {
+            write_log(games, seed);
+            ExitCode::SUCCESS
+        }
         _ => {
-            println!("usage: riichi-cli <arena|fuzz|hand> [--games N] [--seed N]");
+            println!("usage: riichi-cli <arena|fuzz|hand|log> [--games N] [--seed N]");
             ExitCode::SUCCESS
         }
     }
@@ -58,6 +64,62 @@ fn main() -> ExitCode {
 fn value(args: &[String], name: &str) -> Option<usize> {
     let index = args.iter().position(|arg| arg == name)?;
     args.get(index + 1)?.parse().ok()
+}
+
+/// Writes games as mjai event logs, one JSON object per line, which is
+/// what replayers and other people's bots read. Games run one after another
+/// on standard output, each opening with `start_game` and closing with
+/// `end_game`.
+fn write_log(games: usize, seed: u64) {
+    for game in 0..games {
+        let mut rng = Rng::from_seed(seed.wrapping_add(game as u64));
+        let mut table = Table::new();
+        let mut bots: Vec<Bot> = (0..4)
+            .map(|index| Bot::new(seed.wrapping_add(game as u64 * 4 + index)))
+            .collect();
+
+        let names = [
+            "riichi-bot 0".to_string(),
+            "riichi-bot 1".to_string(),
+            "riichi-bot 2".to_string(),
+            "riichi-bot 3".to_string(),
+        ];
+        println!("{}", mjai::Event::StartGame { names }.to_json([0, 1, 2, 3]));
+
+        while !table.finished {
+            let seating = table.seating();
+            let mut hand = table.deal(&mut rng);
+            while !matches!(hand.phase, Phase::Over) {
+                match hand.phase {
+                    Phase::Draw => {
+                        let _ = hand.draw();
+                    }
+                    Phase::Act => {
+                        let seat = hand.turn;
+                        let action = bots[table.player_at(seat)].act(&hand);
+                        hand.act(action).expect("the bot chose a legal action");
+                    }
+                    Phase::CallWindow => {
+                        let answers: Vec<(Wind, Call)> = hand
+                            .legal_calls()
+                            .iter()
+                            .map(|(seat, calls)| {
+                                (*seat, bots[table.player_at(*seat)].call(&hand, *seat, calls))
+                            })
+                            .collect();
+                        hand.resolve_calls(&answers).expect("the calls were offered");
+                    }
+                    Phase::Over => break,
+                }
+            }
+            for event in &hand.log {
+                println!("{}", event.to_json(seating));
+            }
+            table.finish(&hand);
+        }
+
+        println!("{}", mjai::Event::EndGame.to_json([0, 1, 2, 3]));
+    }
 }
 
 /// Plays whole games with four heuristic bots and reports how they went.

@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn discarded_tiles_are_safe_against_that_player() {
         let mut rng = Rng::from_seed(1);
-        let mut hand = Hand::deal(&mut rng, Wind::East, 0, 0, [25000; 4]);
+        let mut hand = Hand::deal(&mut rng, Wind::East, 1, 0, 0, [25000; 4]);
         let tile: Tile = "5p".parse().unwrap();
         hand.players[1].riichi = crate::score::Riichi::Declared;
         hand.players[1].discards.push(crate::game::Discard {
@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn the_bot_folds_against_a_riichi_when_far_from_a_win() {
         let mut rng = Rng::from_seed(2);
-        let mut hand = Hand::deal(&mut rng, Wind::East, 0, 0, [25000; 4]);
+        let mut hand = Hand::deal(&mut rng, Wind::East, 1, 0, 0, [25000; 4]);
         let safe: Tile = "1z".parse().unwrap();
         hand.players[1].riichi = crate::score::Riichi::Declared;
         hand.players[1].discards.push(crate::game::Discard {

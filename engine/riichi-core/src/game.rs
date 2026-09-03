@@ -13,6 +13,7 @@
 //! calls are simultaneous.
 
 use crate::hand::{ClaimedFrom, Meld, MeldKind, TileSet};
+use crate::mjai;
 use crate::rng::Rng;
 use crate::score::{self, Riichi, Score, Situation, WinBy};
 use crate::shanten;
@@ -267,15 +268,23 @@ pub struct Hand {
     /// The tile just claimed for a set, which the claimer may not turn
     /// straight back out (EMA section 3.3.2).
     pub just_claimed: Option<Tile>,
+    /// Points held when the hand was dealt, by seat, so a log can say what
+    /// the hand moved.
+    pub opening: [i32; 4],
+    /// What happened, in the interchange format other riichi programs read.
+    pub log: Vec<mjai::Event>,
     /// The outcome, once there is one.
     pub outcome: Option<Outcome>,
 }
 
 impl Hand {
-    /// Deals a new hand. `scores` are the players' points, by seat.
+    /// Deals a new hand. `scores` are the players' points, by seat, and
+    /// `kyoku` is which hand of the round this is, counting from one, which
+    /// the log records and nothing else uses.
     pub fn deal(
         rng: &mut Rng,
         round: Wind,
+        kyoku: u8,
         counters: u32,
         riichi_sticks: u32,
         scores: [i32; 4],
@@ -294,8 +303,31 @@ impl Hand {
                 player.hand.add(tile);
             }
         }
+        // The log wants the thirteen dealt tiles, before the dealer's
+        // fourteenth, because that is where every other program starts.
+        let dealt = [
+            players[0].hand.tiles().collect::<Vec<Tile>>(),
+            players[1].hand.tiles().collect::<Vec<Tile>>(),
+            players[2].hand.tiles().collect::<Vec<Tile>>(),
+            players[3].hand.tiles().collect::<Vec<Tile>>(),
+        ];
         let extra = wall.draw().expect("a fresh wall has tiles");
         players[0].hand.add(extra);
+        let log = vec![
+            mjai::Event::StartKyoku {
+                round,
+                kyoku,
+                honba: counters,
+                kyotaku: riichi_sticks,
+                indicator: wall.dora_indicators()[0],
+                scores,
+                hands: dealt,
+            },
+            mjai::Event::Tsumo {
+                actor: Wind::East,
+                tile: extra,
+            },
+        ];
 
         Hand {
             wall,
@@ -314,6 +346,8 @@ impl Hand {
             discards_made: 0,
             just_claimed: None,
             bets_this_hand: [0; 4],
+            opening: scores,
+            log,
             outcome: None,
         }
     }
@@ -519,6 +553,10 @@ impl Hand {
                 self.drawn = Some(tile);
                 self.after_quad = false;
                 self.phase = Phase::Act;
+                self.log.push(mjai::Event::Tsumo {
+                    actor: self.turn,
+                    tile,
+                });
                 Ok(tile)
             }
             None => {
@@ -556,6 +594,7 @@ impl Hand {
                     self.first_turns_unbroken && self.players[seat.index()].discards.is_empty();
                 let player = self.player_mut(seat);
                 player.ippatsu = true;
+                self.log.push(mjai::Event::Reach { actor: seat });
                 self.discard(tile, true);
                 let player = self.player_mut(seat);
                 player.riichi = if double {
@@ -601,6 +640,18 @@ impl Hand {
         // may combine with Ippatsu (EMA sections 4.2.1 and 4.2.2), so that
         // is left to finish_quad_draw.
         self.first_turns_unbroken = false;
+        self.log.push(if matches!(kind, MeldKind::ConcealedKan) {
+            mjai::Event::Ankan {
+                actor: seat,
+                consumed: vec![tile; 4],
+            }
+        } else {
+            mjai::Event::Kakan {
+                actor: seat,
+                tile,
+                consumed: vec![tile; 3],
+            }
+        });
         // An extended quad may be robbed for a win, and a concealed one only
         // by a hand of Thirteen Orphans (EMA section 3.3.13).
         self.robbable_quad = Some(tile);
@@ -628,6 +679,12 @@ impl Hand {
                 self.drawn = Some(tile);
                 self.after_quad = true;
                 self.phase = Phase::Act;
+                if let Some(indicator) = self.wall.dora_indicators().last() {
+                    self.log.push(mjai::Event::Dora {
+                        indicator: *indicator,
+                    });
+                }
+                self.log.push(mjai::Event::Tsumo { actor: seat, tile });
             }
             None => self.finish_exhaustive(),
         }
@@ -666,6 +723,11 @@ impl Hand {
         {
             self.first_turns_unbroken = false;
         }
+        self.log.push(mjai::Event::Dahai {
+            actor: seat,
+            tile,
+            drawn: drawn == Some(tile),
+        });
         self.drawn = None;
         self.just_claimed = None;
         self.pending_discard = Some((seat, tile));
@@ -904,6 +966,16 @@ impl Hand {
             return Ok(());
         }
 
+        // Nobody won on the tile, so a declaration made on it stands.
+        if self.robbable_quad.is_none()
+            && self.players[from.index()]
+                .discards
+                .last()
+                .is_some_and(|discard| discard.riichi)
+        {
+            self.log.push(mjai::Event::ReachAccepted { actor: from });
+        }
+
         // Anyone whose hand this tile completed and who did not take it is
         // furiten until their next draw, even if the hand had no yaku to
         // declare (EMA section 3.3.9).
@@ -1006,6 +1078,32 @@ impl Hand {
                 Call::Ron | Call::Pass => unreachable!("handled before"),
             }
         }
+        let meld = self.players[seat.index()]
+            .melds
+            .last()
+            .expect("a claim just made a set");
+        let consumed = mjai::consumed_by(meld, tile);
+        self.log.push(match call {
+            Call::Pon => mjai::Event::Pon {
+                actor: seat,
+                target: from,
+                tile,
+                consumed,
+            },
+            Call::Kan => mjai::Event::Daiminkan {
+                actor: seat,
+                target: from,
+                tile,
+                consumed,
+            },
+            Call::Chii(_) => mjai::Event::Chi {
+                actor: seat,
+                target: from,
+                tile,
+                consumed,
+            },
+            Call::Ron | Call::Pass => unreachable!("handled before"),
+        });
         self.note_liability(seat, from);
         if matches!(call, Call::Kan) {
             self.finish_quad_draw();
@@ -1194,6 +1292,25 @@ impl Hand {
         }
         self.riichi_sticks = pool;
         self.bets_this_hand = [0; 4];
+        for (seat, score) in &winners {
+            let riichi = self.players[seat.index()].has_riichi();
+            self.log.push(mjai::Event::Hora {
+                actor: *seat,
+                target: discarder.unwrap_or(*seat),
+                tile: score.winning_tile,
+                ura: if riichi {
+                    self.wall.ura_indicators()
+                } else {
+                    Vec::new()
+                },
+                fu: score.fu,
+                han: score.han,
+                points: mjai::hora_points(score, discarder.is_some()),
+                deltas: self.deltas(),
+                scores: self.scores(),
+            });
+        }
+        self.log.push(mjai::Event::EndKyoku);
         self.outcome = Some(Outcome::Win { winners, discarder });
         self.phase = Phase::Over;
     }
@@ -1217,8 +1334,38 @@ impl Hand {
                 }
             }
         }
+        let mut waiting = [false; 4];
+        for seat in &tenpai {
+            waiting[seat.index()] = true;
+        }
+        self.log.push(mjai::Event::Ryukyoku {
+            reason: "howanpai",
+            tenpai: waiting,
+            deltas: self.deltas(),
+            scores: self.scores(),
+        });
+        self.log.push(mjai::Event::EndKyoku);
         self.outcome = Some(Outcome::ExhaustiveDraw { tenpai });
         self.phase = Phase::Over;
+    }
+
+    /// Points held now, by seat.
+    pub fn scores(&self) -> [i32; 4] {
+        let mut scores = [0; 4];
+        for seat in Wind::ALL {
+            scores[seat.index()] = self.players[seat.index()].score;
+        }
+        scores
+    }
+
+    /// What each seat has gained or lost over the hand so far.
+    pub fn deltas(&self) -> [i32; 4] {
+        let now = self.scores();
+        let mut deltas = [0; 4];
+        for seat in Wind::ALL {
+            deltas[seat.index()] = now[seat.index()] - self.opening[seat.index()];
+        }
+        deltas
     }
 }
 
@@ -1247,7 +1394,7 @@ mod tests {
     use super::*;
 
     fn fresh() -> Hand {
-        Hand::deal(&mut Rng::from_seed(20260902), Wind::East, 0, 0, [25000; 4])
+        Hand::deal(&mut Rng::from_seed(20260902), Wind::East, 1, 0, 0, [25000; 4])
     }
 
     /// EMA 2025 section 2.8: the dealer starts with fourteen tiles and the

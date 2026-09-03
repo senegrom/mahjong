@@ -66,6 +66,22 @@ impl Table {
         (self.dealer + seat.index()) % 4
     }
 
+    /// Which hand of the round this is, counting from one. Counters do not
+    /// advance it: a repeated East 1 is still East 1.
+    pub fn kyoku(&self) -> u8 {
+        ((self.dealer + 4 - self.first_dealer) % 4) as u8 + 1
+    }
+
+    /// Which player number sits in each seat, indexed by seat, which is what
+    /// an mjai log needs to name people rather than chairs.
+    pub fn seating(&self) -> [usize; 4] {
+        let mut seats = [0; 4];
+        for seat in Wind::ALL {
+            seats[seat.index()] = self.player_at(seat);
+        }
+        seats
+    }
+
     /// Deals the next hand, with the seats mapped onto the players.
     pub fn deal(&self, rng: &mut Rng) -> Hand {
         let mut seat_scores = [0; 4];
@@ -75,6 +91,7 @@ impl Table {
         Hand::deal(
             rng,
             self.round,
+            self.kyoku(),
             self.counters,
             self.riichi_sticks,
             seat_scores,

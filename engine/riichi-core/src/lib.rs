@@ -25,6 +25,7 @@
 //! - [`table`] the full game: rounds, the deal moving on, and uma
 //! - [`bot`] the heuristic opponent and benchmark
 //! - [`encoding`] how a position is shown to a network
+//! - [`mjai`] the event log other riichi programs read
 //!
 //! Still to come: the log format, a command-line arena and the bots.
 //!
@@ -44,6 +45,7 @@ pub mod bot;
 pub mod encoding;
 pub mod game;
 pub mod hand;
+pub mod mjai;
 pub mod rng;
 pub mod score;
 pub mod shanten;
