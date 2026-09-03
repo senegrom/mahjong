@@ -6,12 +6,15 @@
 //! riichi-cli fuzz  --games 200 --seed 1     random legal play, checking rules
 //! riichi-cli hand  --seed 1                 one hand, move by move
 //! riichi-cli log   --seed 1 --games 1       a game as an mjai event log
+//! riichi-cli dump  --seed 1 --games 1000    random scored hands, as JSON
 //! ```
 //!
 //! The fuzzer is the point of this crate: it plays only actions the engine
 //! offered, and checks after every one that the table's points add up, that
 //! no tile has appeared or vanished, and that no hand holds a fifth copy of
 //! anything.
+
+mod dump;
 
 use std::collections::BTreeMap;
 use std::env;
@@ -54,8 +57,12 @@ fn main() -> ExitCode {
             write_log(games, seed);
             ExitCode::SUCCESS
         }
+        "dump" => {
+            dump::dump(games, seed);
+            ExitCode::SUCCESS
+        }
         _ => {
-            println!("usage: riichi-cli <arena|fuzz|hand|log> [--games N] [--seed N]");
+            println!("usage: riichi-cli <arena|fuzz|hand|log|dump> [--games N] [--seed N]");
             ExitCode::SUCCESS
         }
     }
