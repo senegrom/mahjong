@@ -10,6 +10,7 @@
 use riichi_core::bot::{Bot, Style};
 use riichi_core::encoding::{self, ACTIONS, OBSERVATION};
 use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
+use riichi_core::review;
 use riichi_core::rng::Rng;
 use riichi_core::score::Riichi;
 use riichi_core::table::Table;
@@ -175,6 +176,41 @@ pub struct StandingView {
     pub you: bool,
 }
 
+/// One decision of the player's, looked at again after the hand.
+#[derive(Serialize)]
+pub struct NoteView {
+    /// Which discard of the hand this was, counting from one.
+    pub turn: u32,
+    /// What the player did, in words.
+    pub played: String,
+    /// The tile it discarded, if it discarded one.
+    pub played_tile: Option<String>,
+    /// What the adviser would have done.
+    pub advised: String,
+    /// The tile that would have discarded.
+    pub advised_tile: Option<String>,
+    /// Whether the two are the same.
+    pub agreed: bool,
+    /// Distance to a complete hand after the move played.
+    pub shanten_played: i32,
+    /// The same after the advised move.
+    pub shanten_advised: i32,
+    /// Tiles still out there that would improve the hand, after each move.
+    pub acceptance_played: u32,
+    /// The same after the advised move.
+    pub acceptance_advised: u32,
+    /// How exposed each tile was: `quiet`, `safe` or `live`.
+    pub danger_played: String,
+    /// The same for the advised tile.
+    pub danger_advised: String,
+    /// Why they differ, in words.
+    pub reason: String,
+    /// A short tag for the reason, for styling.
+    pub kind: String,
+    /// How many improving tiles the move gave up.
+    pub cost: u32,
+}
+
 /// One thing the player may do.
 #[derive(Serialize)]
 pub struct ActionView {
@@ -202,6 +238,9 @@ pub struct Game {
     /// Points each seat held when the hand was dealt, so the score screen
     /// can say what the hand cost or paid.
     opening: [i32; 4],
+    /// The position before each of the player's own decisions, with what
+    /// they did from it, which is all a review needs.
+    decisions: Vec<(Hand, Action)>,
     /// Whether the opponents are answered from outside, which is what a
     /// trained network needs: it runs in the page, not in the engine.
     external: bool,
@@ -243,6 +282,7 @@ impl Game {
             seat,
             log: Vec::new(),
             opening: [0; 4],
+            decisions: Vec::new(),
             external,
             asking: Vec::new(),
             gathered: Vec::new(),
@@ -494,6 +534,7 @@ impl Game {
                     _ => return Err(JsValue::from_str("that is not an action")),
                 };
                 self.note(self.seat, &describe_action(action).label);
+                self.decisions.push((self.hand.clone(), action));
                 self.hand.act(action).map_err(refused)
             }
             Phase::CallWindow => {
@@ -538,6 +579,39 @@ impl Game {
         }
     }
 
+    /// Every decision the player made this hand, judged against what the
+    /// adviser would have done. Meant to be read once the hand is over.
+    pub fn review(&self) -> Result<JsValue, JsValue> {
+        // A fresh adviser, so the review does not depend on what the bots
+        // happened to roll while they were playing.
+        let mut adviser = Bot::with_style(0x5eed_5eed, Style::club());
+        let notes: Vec<NoteView> = self
+            .decisions
+            .iter()
+            .map(|(position, played)| {
+                let note = review::judge(position, *played, &mut adviser);
+                NoteView {
+                    turn: note.turn + 1,
+                    played: describe_action(note.played).label,
+                    played_tile: action_tile(note.played).map(|tile| tile.to_string()),
+                    advised: describe_action(note.advised).label,
+                    advised_tile: action_tile(note.advised).map(|tile| tile.to_string()),
+                    agreed: note.agreed(),
+                    shanten_played: note.shanten_played,
+                    shanten_advised: note.shanten_advised,
+                    acceptance_played: note.acceptance_played,
+                    acceptance_advised: note.acceptance_advised,
+                    danger_played: danger_name(note.danger_played).to_string(),
+                    danger_advised: danger_name(note.danger_advised).to_string(),
+                    reason: note.reason.line().to_string(),
+                    kind: reason_name(note.reason).to_string(),
+                    cost: note.cost(),
+                }
+            })
+            .collect();
+        serde_wasm_bindgen::to_value(&notes).map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
     /// Whether the hand has finished.
     pub fn hand_is_over(&self) -> bool {
         matches!(self.hand.phase, Phase::Over)
@@ -559,6 +633,7 @@ impl Game {
         if !self.table.finished {
             self.hand = self.table.deal(&mut self.rng);
             self.opening = scores_of(&self.hand);
+            self.decisions.clear();
         }
         Ok(())
     }
@@ -913,6 +988,35 @@ fn describe_payment(score: &riichi_core::score::Score, dealer: bool, by_discard:
             "{} from the dealer and {} from the others",
             payments.from_dealer, payments.from_each_other
         )
+    }
+}
+
+/// How exposed a tile was, in a word.
+fn danger_name(danger: review::Danger) -> &'static str {
+    match danger {
+        review::Danger::Quiet => "quiet",
+        review::Danger::Safe => "safe",
+        review::Danger::Live => "live",
+    }
+}
+
+/// A short tag for why the adviser differs.
+fn reason_name(reason: review::Reason) -> &'static str {
+    match reason {
+        review::Reason::Agreed => "agreed",
+        review::Reason::Shape => "shape",
+        review::Reason::Acceptance => "acceptance",
+        review::Reason::Defence => "defence",
+        review::Reason::Judgement => "judgement",
+    }
+}
+
+/// The tile an action puts down, if it puts one down.
+fn action_tile(action: Action) -> Option<Tile> {
+    match action {
+        Action::Discard(tile) | Action::Riichi(tile) => Some(tile),
+        Action::ConcealedKan(tile) | Action::ExtendedKan(tile) => Some(tile),
+        Action::Tsumo => None,
     }
 }
 

@@ -6,6 +6,7 @@
   import Melds from './lib/Melds.svelte';
   import ScoreScreen from './lib/ScoreScreen.svelte';
   import Standings from './lib/Standings.svelte';
+  import Review from './lib/Review.svelte';
   import { chooseAction, modelIsAvailable, reportProgress } from './lib/policy.js';
   import { tileWords } from './lib/tiles.js';
 
@@ -69,6 +70,7 @@
     log = [];
     failure = '';
     standings = null;
+    notes = null;
     refresh(true);
   }
 
@@ -150,7 +152,22 @@
     if (choice) choose(choice);
   }
 
+  // The review is built on request rather than after every hand: it asks
+  // the adviser to think about each decision again, and most hands go by
+  // without anyone wanting to look back at them.
+  let notes = $state(null);
+
+  function showReview() {
+    try {
+      notes = game?.review() ?? [];
+    } catch (error) {
+      console.error('the review could not be built', error);
+      notes = [];
+    }
+  }
+
   async function nextHand() {
+    notes = null;
     if (!game) return;
     try {
       game.next_hand();
@@ -337,7 +354,12 @@
           gameOver={game?.game_is_over() ?? false}
           onnext={nextHand}
           ongame={start}
+          onreview={showReview}
+          reviewed={notes !== null}
         />
+        {#if notes !== null}
+          <Review {notes} />
+        {/if}
       {:else if callChoices.length}
         {#each callChoices as choice (choice.kind + (choice.tile ?? ''))}
           <button

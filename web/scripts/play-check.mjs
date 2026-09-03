@@ -40,9 +40,15 @@ try {
     if (message.type() === 'error') problems.push(message.text());
   });
   page.on('pageerror', (error) => problems.push(String(error)));
-  page.on('requestfailed', (request) =>
-    problems.push(`request failed: ${request.url()}`),
-  );
+  // A request the browser cuts short as the page closes is not a fault. The
+  // trained model is fetched lazily in a worker, so it is usually the one
+  // still in flight at the end, and reporting it teaches you to ignore this
+  // list. A real answer of 400 or worse is caught below.
+  page.on('requestfailed', (request) => {
+    const reason = request.failure()?.errorText ?? '';
+    if (reason.includes('ERR_ABORTED')) return;
+    problems.push(`request failed: ${request.url()} (${reason})`);
+  });
   page.on('response', (response) => {
     if (response.status() >= 400) problems.push(`${response.status()} ${response.url()}`);
   });

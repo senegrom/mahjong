@@ -7,7 +7,15 @@
    * what it moved. At a table this is the moment everyone looks at, so it
    * shows the working rather than a number.
    */
-  let { outcome, seats = [], onnext, ongame, gameOver = false } = $props();
+  let {
+    outcome,
+    seats = [],
+    onnext,
+    ongame,
+    onreview,
+    reviewed = false,
+    gameOver = false,
+  } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
@@ -86,6 +94,9 @@
       <button class="primary" onclick={ongame}>Play again</button>
     {:else}
       <button class="primary" onclick={onnext}>Next hand</button>
+    {/if}
+    {#if onreview && !reviewed}
+      <button class="quiet" onclick={onreview}>Look at my hand again</button>
     {/if}
   </div>
 </section>
@@ -211,6 +222,12 @@
     opacity: 0.7;
   }
 
+  .buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
   .buttons button {
     padding: 8px 18px;
     border-radius: 999px;
@@ -218,5 +235,12 @@
     background: var(--accent);
     font-weight: 600;
     cursor: pointer;
+  }
+
+  .buttons button.quiet {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.25);
+    color: inherit;
+    font-weight: 500;
   }
 </style>
