@@ -37,6 +37,16 @@ plays and the game the opponents were trained on cannot drift apart.
 
 - **Training from self-play**, with a warm start that imitates the heuristic
   player and a clipped actor-critic loop that continues from it.
+- **A search that imagines the hands it cannot see.** A policy head answers
+  from the position in front of it and never plays anything out; this deals
+  the unseen tiles into the other three hands and the wall, plays that world
+  to the end, and does it again. A move has to beat the player's own choice
+  by two standard errors of the paired difference before it is taken.
+- **A network that reads the table.** The worlds are not dealt evenly, which
+  would assume opponents discard at random. They chose what to throw, so
+  what is left is what they wanted to keep, and the network has a head that
+  learns that from the discards. Self-play knows the true hands, so the
+  label is free and exact.
 - **The trained opponent in the browser**, as ONNX in a worker beside the
   rules in WebAssembly, so a whole game runs offline.
 

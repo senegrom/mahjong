@@ -14,7 +14,7 @@ is left is the strength of the trained opponent.
 | M1, the browser game | done but for replays. A whole game is playable, by mouse or keyboard, with the learning aids, a post-game review, and the hand saveable as an mjai log. Published from Actions. |
 | M2, the training loop | done. The network is 0.057 placement ahead of the heuristic bot over ten thousand duplicate deals, which is 5.2 standard errors. |
 | M3, neural tiers in the browser | done. The trained tier is published: 2.4 MB of int8 weights in a worker beside the rules, answering in 38 milliseconds at the median where the plan asks for under 200. The review and the learning aids are there; a replay is not. |
-| M4, search and Mortal | not started. |
+| M4, search and Mortal | search is built: worlds imagined from what a seat can see, played out, and taken only when they beat the player's own choice by two standard errors. Whether it is worth its cost is being measured. Mortal not started. |
 
 The honest summary of the AI: a warm start on the heuristic player reaches
 its level, and self-play has passed it. The gain is real but not large, and
