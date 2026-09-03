@@ -30,6 +30,12 @@ from . import selfplay
 from .model import PolicyValueNet
 
 
+# How much of a new measurement goes into the smoothed figure the best
+# checkpoint is chosen on. A third means roughly the last three count, which
+# cuts the noise about in half without lagging far behind a real gain.
+SMOOTHING = 1 / 3
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generations", type=int, default=200)
@@ -64,6 +70,7 @@ def main() -> None:
     net = PolicyValueNet(args.channels, args.blocks).to(device)
     start = 0
     best_placement = float("inf")
+    smoothed = None
     if args.resume and args.resume.exists():
         payload = torch.load(args.resume, map_location=device, weights_only=True)
         net.load_state_dict(payload["model"])
@@ -171,10 +178,23 @@ def main() -> None:
                 "placement": against["placement"],
             }
             torch.save(payload, args.out / "latest.pt")
+
             # The high-water mark is kept apart, so a run that wanders can
             # always be brought back to the best network it has produced.
-            if against["placement"] < best_placement:
-                best_placement = against["placement"]
+            # It is chosen on a smoothed figure rather than on the single
+            # measurement, because one measurement of a few hundred games
+            # carries a standard error about as large as the improvement
+            # being looked for: keeping the best of forty such numbers keeps
+            # the luckiest network, not the best one, and the number that
+            # made the choice is then the one number guaranteed to flatter.
+            smoothed = (
+                against["placement"]
+                if smoothed is None
+                else SMOOTHING * against["placement"] + (1 - SMOOTHING) * smoothed
+            )
+            record["smoothed"] = round(smoothed, 3)
+            if smoothed < best_placement:
+                best_placement = smoothed
                 torch.save(payload, args.out / "best.pt")
                 record["best"] = True
 
