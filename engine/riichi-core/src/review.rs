@@ -389,6 +389,73 @@ mod tests {
         assert_eq!(how_many_left(&hand, Wind::West, untouched), expected - 1);
     }
 
+    /// With somebody waiting on a declared riichi, a tile that is already
+    /// through cannot deal in and a fresh one can. The review has to say so
+    /// when the two are otherwise the same choice.
+    #[test]
+    fn throwing_into_a_riichi_is_named_as_the_reason() {
+        let mut hand =
+            crate::game::Hand::deal(&mut Rng::from_seed(31337), Wind::East, 1, 0, 0, [30000; 4]);
+
+        // South declares, and their own discards are safe against them.
+        let through: Tile = "9m".parse().unwrap();
+        let fresh: Tile = "5p".parse().unwrap();
+        {
+            let south = &mut hand.players[Wind::South.index()];
+            south.riichi = crate::score::Riichi::Declared;
+            south.riichi_order = Some(0);
+            south.discards.push(crate::game::Discard {
+                tile: through,
+                order: 0,
+                drawn: false,
+                riichi: true,
+                claimed: false,
+            });
+        }
+
+        // East holds two tiles that are equally useless to the hand, so the
+        // only thing separating them is whether they can deal in.
+        {
+            let east = &mut hand.players[Wind::East.index()];
+            east.hand = TileSet::new();
+            for tile in [
+                "1s", "2s", "3s", "4s", "5s", "6s", "7s", "8s", "9s", "1p", "1p", "2p",
+            ] {
+                east.hand.add(tile.parse().unwrap());
+            }
+            east.hand.add(through);
+            east.hand.add(fresh);
+        }
+        hand.drawn = Some(fresh);
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+
+        assert_eq!(
+            danger_of(&hand, Wind::East, through),
+            Danger::Safe,
+            "a tile South has already thrown cannot deal into South"
+        );
+        assert_eq!(
+            danger_of(&hand, Wind::East, fresh),
+            Danger::Live,
+            "a tile nobody has seen might"
+        );
+
+        // Playing the live tile when the safe one was there is a defence
+        // note, whichever of them the adviser happens to prefer.
+        let mut adviser = Bot::new(9);
+        let note = judge(&hand, Action::Discard(fresh), &mut adviser);
+        if discarded(note.advised) == Some(through) {
+            assert_eq!(note.reason, Reason::Defence, "{note:?}");
+            assert_eq!(note.danger_played, Danger::Live);
+            assert_eq!(note.danger_advised, Danger::Safe);
+        }
+
+        // And with nobody waiting, neither tile is dangerous at all.
+        hand.players[Wind::South.index()].riichi = crate::score::Riichi::None;
+        assert_eq!(danger_of(&hand, Wind::East, fresh), Danger::Quiet);
+    }
+
     /// Every reason has a line, and none of them is empty.
     #[test]
     fn every_reason_reads_as_a_sentence() {
