@@ -21,6 +21,8 @@
   // The opponents can be named in the address, which makes a particular
   // table shareable and testable.
   const requested = new URLSearchParams(location.search).get('opponents');
+  // A phone has no number keys to offer.
+  const touch = matchMedia('(pointer: coarse)').matches;
   let difficulty = $state(
     ['beginner', 'club', 'neural'].includes(requested) ? requested : 'club',
   );
@@ -348,7 +350,11 @@
           </button>
         {/each}
       {:else if myTurn}
-        <p class="prompt">Your turn. Click a tile to discard it, or press 1 to 9.</p>
+        <p class="prompt">
+          {touch
+            ? 'Your turn. Tap a tile to discard it.'
+            : 'Your turn. Click a tile to discard it, or press 1 to 9.'}
+        </p>
       {:else if thinking}
         <p class="prompt">Thinking…</p>
       {:else}

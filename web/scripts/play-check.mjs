@@ -19,6 +19,7 @@ const args = process.argv.slice(2);
 const url = args.find((arg) => !arg.startsWith('--')) ?? 'http://127.0.0.1:8732/';
 const shot = args.includes('--shot') ? args[args.indexOf('--shot') + 1] : null;
 const seconds = args.includes('--seconds') ? Number(args[args.indexOf('--seconds') + 1]) : 45;
+const phone = args.includes('--phone');
 
 const browser = await puppeteer.launch({
   executablePath: CHROME,
@@ -28,7 +29,11 @@ const browser = await puppeteer.launch({
 
 try {
   const page = await browser.newPage();
-  await page.setViewport({ width: 1100, height: 800 });
+  await page.setViewport(
+    phone
+      ? { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
+      : { width: 1100, height: 800 },
+  );
 
   const problems = [];
   page.on('console', (message) => {
@@ -94,8 +99,14 @@ try {
 
   if (shot) {
     await mkdir(dirname(shot), { recursive: true });
-    await page.screenshot({ path: shot });
+    await page.screenshot({ path: shot, fullPage: phone });
   }
+
+  // A page that scrolls sideways on a phone is a page nobody can play.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  if (overflow > 0) console.log('horizontal overflow:', overflow + 'px');
 
   console.log('opponents:', state?.opponents);
   console.log('tiles in hand:', state?.hand);
