@@ -167,7 +167,10 @@ pub struct Payments {
     pub from_dealer: u32,
     /// On a self-draw, what each non-dealer pays.
     pub from_each_other: u32,
-    /// Everything the winner receives, counters and riichi bets included.
+    /// What this winner receives from the other players, counters
+    /// included. Riichi bets are not part of it: with several winners they
+    /// are shared out by rule rather than paid per hand, so the hand settles
+    /// them (EMA section 3.3.10).
     pub total: u32,
 }
 
@@ -656,7 +659,6 @@ fn round_up_100(value: u32) -> u32 {
 fn payments(base: u32, situation: &Situation) -> Payments {
     let dealer = situation.is_dealer();
     let counters = situation.counters;
-    let sticks = situation.riichi_sticks * 1000;
     match situation.win_by {
         WinBy::Discard => {
             let multiplier = if dealer { 6 } else { 4 };
@@ -665,7 +667,7 @@ fn payments(base: u32, situation: &Situation) -> Payments {
                 from_discarder,
                 from_dealer: 0,
                 from_each_other: 0,
-                total: from_discarder + sticks,
+                total: from_discarder,
             }
         }
         WinBy::SelfDraw => {
@@ -675,7 +677,7 @@ fn payments(base: u32, situation: &Situation) -> Payments {
                     from_discarder: 0,
                     from_dealer: 0,
                     from_each_other: each,
-                    total: each * 3 + sticks,
+                    total: each * 3,
                 }
             } else {
                 let from_dealer = round_up_100(base * 2) + counters * 100;
@@ -684,7 +686,7 @@ fn payments(base: u32, situation: &Situation) -> Payments {
                     from_discarder: 0,
                     from_dealer,
                     from_each_other,
-                    total: from_dealer + from_each_other * 2 + sticks,
+                    total: from_dealer + from_each_other * 2,
                 }
             }
         }

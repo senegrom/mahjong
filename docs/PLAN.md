@@ -112,7 +112,43 @@ Scoring
   with ties splitting the pooled places; leftover riichi bets go to the
   winner, split on a tie with decimals rounded down.
 
-### 1.2 Rules kept parameterised
+### 1.2 What the engine deliberately leaves out
+
+Audited against chapters 1 to 4 of the rulebook in September 2026. Every
+rule software can decide is implemented and tested, with these exceptions,
+each of which is a referee's judgement rather than a decidable rule:
+
+- **Dead hands (3.3.14) and chombo (3.4.6).** Both are penalties for
+  mistakes the software does not let a player make: it never deals the wrong
+  number of tiles, never offers an illegal call, and never lets a hand be
+  declared that is not a win. There is therefore nothing to declare dead and
+  nothing to re-deal.
+- **Declaring noten while waiting (3.4.2).** A player at a table may keep a
+  waiting hand to themselves at an exhaustive draw; the engine always shows
+  it. Worth offering in the interface later, since it is a real decision.
+- **Call timing (3.3.1).** A physical table resolves claims by who spoke
+  first; software cannot reproduce that and does not try. Every player gets
+  the same window on a discard and claims are settled by the rulebook's
+  priority, which is what "if it's unclear whether calls are simultaneous or
+  not, consider they are" amounts to.
+- **Riichi needs 1,000 points in hand.** The rules let a player borrow
+  sticks and keep playing below zero (4.1.4, 5.6). The engine requires the
+  bet up front, which is the common house reading and simpler to show.
+- **The deal and the wall are abstracted.** Tiles are dealt thirteen at a
+  time rather than in blocks of four, and the wall is a shuffled sequence
+  rather than a broken square. The dice are still rolled and logged so a
+  replay can show the table, and under a shuffled wall the two are
+  equivalent.
+
+Everything else in those chapters is implemented, including the parts most
+easily got wrong: the dead wall's composition, all three quads and the
+replacement draw, liability for feeding a yakuman, furiten in each of its
+three forms, the concealed quad a riichi player may declare, robbing a quad,
+the noten penalty split, multiple winners, counters, dealer rotation, every
+row of the minipoint table, the base-value cap that makes four han thirty a
+mangan, and every yaku's han with its open-hand penalty.
+
+### 1.3 Rules kept parameterised
 
 The engine takes a `RuleSet` value so that WRC or Tenhou variants (red fives,
 abortive draws, kazoe yakuman, different uma) can be added later without
