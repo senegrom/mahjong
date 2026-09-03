@@ -20,10 +20,19 @@ PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 
-# Points are large numbers; these bring both signals to about the same size
-# so neither drowns the other.
+# What a hand moved, brought to about the size of the placement term below
+# so neither drowns the other. A big hand is worth a few tenths.
 HAND_SCALE = 1.0 / 4000.0
-PLACEMENT_SCALE = 1.0 / 20000.0
+
+# What the game itself was worth, by the place it ended in. This is the
+# winner bonus of the rules, and using it rather than the final score matters
+# for a reason that is easy to miss: the game term is added to every one of a
+# player's decisions, so whatever it is, it carries no information about any
+# single decision and only adds spread. A raw score of about 30,000 points
+# adds a large offset and a spread of thousands; the place adds a bounded
+# number that is zero on average across the table, which is the smallest
+# honest way to say what the game is for.
+PLACEMENT_VALUE = (1.5, 0.5, -0.5, -1.5)
 
 
 @dataclass
@@ -121,9 +130,10 @@ def play(
     # The placement, which is what the game is actually for, reaches every
     # decision that player made.
     final_scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4)
+    places = (-final_scores).argsort(axis=1).argsort(axis=1)
     for game in range(games):
         for person in range(4):
-            value = float(final_scores[game][person]) * PLACEMENT_SCALE
+            value = PLACEMENT_VALUE[int(places[game][person])]
             for step_index in everything[game][person]:
                 rewards[step_index] += value
 
