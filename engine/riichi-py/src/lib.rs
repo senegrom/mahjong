@@ -29,6 +29,7 @@ use std::collections::VecDeque;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
+use riichi_core::bot::Bot;
 use riichi_core::encoding::{self, ACTIONS, OBSERVATION, PASS, PLANES, POSITIONS};
 use riichi_core::game::{Call, Hand, Outcome, Phase};
 use riichi_core::rng::Rng;
@@ -47,19 +48,26 @@ struct Seat {
     /// Points each seat held when the current hand began, so a hand's
     /// result can be reported as a change.
     opening_scores: [i32; 4],
-    /// The change in points over the hand that just ended, by seat.
+    /// The change in points over the hand that just ended, by person.
     last_result: [i32; 4],
     /// Whether a hand ended on the most recent step.
     hand_just_ended: bool,
     finished: bool,
+    /// The heuristic player for each of the four places, where one sits.
+    bots: [Option<Bot>; 4],
 }
 
 impl Seat {
-    fn new(seed: u64) -> Seat {
+    fn new(seed: u64, bot_places: &[usize]) -> Seat {
         let table = Table::new();
         let mut rng = Rng::from_seed(seed);
         let hand = table.deal(&mut rng);
         let opening_scores = scores_of(&hand);
+        let bots = std::array::from_fn(|place| {
+            bot_places
+                .contains(&place)
+                .then(|| Bot::new(seed.wrapping_mul(4).wrapping_add(place as u64)))
+        });
         let mut seat = Seat {
             table,
             hand,
@@ -70,9 +78,15 @@ impl Seat {
             last_result: [0; 4],
             hand_just_ended: false,
             finished: false,
+            bots,
         };
         seat.settle();
         seat
+    }
+
+    /// Whether the place a seat currently holds is played by a bot.
+    fn is_bot(&self, seat: Wind) -> bool {
+        self.bots[self.table.player_at(seat)].is_some()
     }
 
     /// The seat that owes a decision, if any.
@@ -92,12 +106,41 @@ impl Seat {
         let mut guard = 0;
         loop {
             guard += 1;
-            assert!(guard < 10_000, "a game should settle long before this");
+            assert!(guard < 100_000, "a game should settle long before this");
             if self.finished {
                 return;
             }
-            if !self.asking.is_empty() {
-                return;
+            if let Some(seat) = self.asking.front().copied() {
+                if !self.is_bot(seat) {
+                    return;
+                }
+                let place = self.table.player_at(seat);
+                let offered = self
+                    .hand
+                    .legal_calls()
+                    .into_iter()
+                    .find(|(other, _)| *other == seat)
+                    .map(|(_, calls)| calls)
+                    .unwrap_or_default();
+                let bot = self.bots[place].as_mut().expect("checked above");
+                let call = bot.call(&self.hand, seat, &offered);
+                self.asking.pop_front();
+                self.answers.push((seat, call));
+                if self.asking.is_empty() {
+                    let answers = std::mem::take(&mut self.answers);
+                    self.hand
+                        .resolve_calls(&answers)
+                        .expect("every answer came from the offered set");
+                }
+                continue;
+            }
+            if matches!(self.hand.phase, Phase::Act) && self.is_bot(self.hand.turn) {
+                let seat = self.hand.turn;
+                let place = self.table.player_at(seat);
+                let bot = self.bots[place].as_mut().expect("checked above");
+                let action = bot.act(&self.hand);
+                self.hand.act(action).expect("the bot chose a legal action");
+                continue;
             }
             match self.hand.phase {
                 Phase::Act => return,
@@ -122,13 +165,13 @@ impl Seat {
     }
 
     fn next_hand(&mut self) {
+        // Report the hand's result by person rather than by seat: the
+        // seats move between hands, and a trajectory belongs to whoever was
+        // sitting there. This has to happen before the deal rotates.
         let closing = scores_of(&self.hand);
-        for (result, (after, before)) in self
-            .last_result
-            .iter_mut()
-            .zip(closing.iter().zip(self.opening_scores.iter()))
-        {
-            *result = after - before;
+        for seat in Wind::ALL {
+            let place = self.table.player_at(seat);
+            self.last_result[place] = closing[seat.index()] - self.opening_scores[seat.index()];
         }
         self.hand_just_ended = true;
         self.table.finish(&self.hand);
@@ -195,12 +238,17 @@ pub struct Arena {
 #[pymethods]
 impl Arena {
     /// Starts `games` games, each seeded from `seed`.
+    ///
+    /// `bot_places` names the places at every table that the built-in
+    /// heuristic player takes; their decisions never reach Python. Leave it
+    /// empty for self-play, or pass three places to measure one policy
+    /// against the benchmark.
     #[new]
-    #[pyo3(signature = (games, seed = 0))]
-    fn new(games: usize, seed: u64) -> Arena {
+    #[pyo3(signature = (games, seed = 0, bot_places = vec![]))]
+    fn new(games: usize, seed: u64, bot_places: Vec<usize>) -> Arena {
         Arena {
             seats: (0..games)
-                .map(|index| Seat::new(seed.wrapping_add(index as u64)))
+                .map(|index| Seat::new(seed.wrapping_add(index as u64), &bot_places))
                 .collect(),
             observations: vec![0.0; games * OBSERVATION],
             mask: vec![false; games * ACTIONS],
@@ -282,7 +330,7 @@ impl Arena {
     }
 
     /// The change in points over the hand that just ended, four per game,
-    /// as int32 by seat.
+    /// as int32 by person, not by seat.
     fn hand_result<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         let mut values: Vec<i32> = Vec::with_capacity(self.seats.len() * 4);
         for seat in &self.seats {
