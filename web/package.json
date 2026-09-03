@@ -16,7 +16,8 @@
     "check:review": "node scripts/review-check.mjs",
     "check:log": "node scripts/log-check.mjs",
     "check:game": "node scripts/game-check.mjs",
-    "check:all": "npm run check && npm run check:keyboard && npm run check:aids && npm run check:review && npm run check:log && npm run check:game"
+    "check:speed": "node scripts/speed-check.mjs",
+    "check:all": "npm run check && npm run check:keyboard && npm run check:aids && npm run check:review && npm run check:log && npm run check:game && npm run check:speed"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",

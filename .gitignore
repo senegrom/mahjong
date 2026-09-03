@@ -235,6 +235,7 @@ web/src/wasm/
 # Copied from the package at build time, not source.
 web/public/ort/
 
-# The trained opponent, produced by training rather than written. The game
-# offers that tier only when this file is present.
-web/public/model.onnx
+# The trained opponent is committed rather than ignored, now that the arena
+# says it is stronger than the heuristic players: it is 2.4 MB of quantised
+# weights and the game offers that tier only when it is present, so leaving
+# it out means the published site has no trained opponent at all.

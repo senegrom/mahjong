@@ -42,8 +42,7 @@ plays and the game the opponents were trained on cannot drift apart.
 
 ## Where the trained opponent stands
 
-Ahead of the heuristic bot by about 0.04 placement, which is not yet enough
-games to be sure of.
+Stronger than the heuristic bot, and published.
 
 Average placement over a few hundred games carries a standard error of
 about 0.05, which is the size of the improvement being looked for. So the
@@ -54,21 +53,22 @@ would play the same four games and place summing to exactly ten every time.
 Run against itself the arena therefore reports plus or minus nothing, which
 is both correct and a check that the estimator understands the design.
 
-The latest network, over 2,400 games:
+The published network, over 10,000 games against three heuristic players:
 
 | | |
 |---|---|
-| placement | 2.460 |
-| error | 0.023 |
-| difference from level | +0.040, or 1.8 standard errors |
+| placement | 2.443 |
+| error | 0.011 |
+| difference from level | +0.057, or 5.2 standard errors |
 
-Against three of those bots, a network no better than they are averages
-2.5. Reproduce it with `python -m neural.arena <checkpoint> --games 500`.
+A network no better than those bots averages 2.5. Reproduce it with
+`python -m neural.arena <checkpoint> --games 2500`.
 
-The site therefore offers the two heuristic tiers only. The trained tier
-appears when a model file is present, and one is published when the arena
-says it deserves to be, which means two standard errors clear rather than
-one and eight tenths.
+It reaches the browser as 2.4 MB of int8 weights in a worker beside the
+rules in WebAssembly, so a whole game runs offline. Quantising left the
+best move unchanged on every position tested. It answers in 38 milliseconds
+at the median and 41 at the ninetieth percentile, where the plan asks for
+under 200.
 
 Still to come: replays in the browser and a measured game against Mortal.
 The plan is in [docs/PLAN.md](docs/PLAN.md).
