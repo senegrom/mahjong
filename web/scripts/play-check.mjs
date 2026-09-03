@@ -53,14 +53,20 @@ try {
       log: [...document.querySelectorAll('.log p')].map((p) => p.textContent.trim()),
       opponents: document.querySelector('select')?.value ?? null,
       myTurn: (document.querySelector('.prompt')?.textContent ?? '').includes('Your turn'),
+      calls: document.querySelectorAll('.controls button').length > 0,
+      ended: document.querySelector('.screen h2')?.textContent?.trim() ?? null,
+      yaku: [...document.querySelectorAll('.yaku li')].map((li) => li.textContent.trim()),
     }));
 
+  const toEnd = args.includes('--to-end');
+  const limit = toEnd ? 400 : 6;
   const deadline = Date.now() + seconds * 1000;
   let state = await read();
   let played = 0;
-  while (Date.now() < deadline && played < 6) {
+  while (Date.now() < deadline && played < limit) {
     state = await read();
     if (state.failure) break;
+    if (state.ended) break;
     if (state.myTurn) {
       const clicked = await page.evaluate(() => {
         const tile = document.querySelector('.hand button.tile:not([disabled])');
@@ -69,11 +75,19 @@ try {
         return true;
       });
       if (clicked) played += 1;
+    } else if (state.calls) {
+      // Decline every claim, so the hand runs on rather than stalling.
+      await page.evaluate(() => {
+        const buttons = [...document.querySelectorAll('.controls button')];
+        const pass = buttons.find((button) => button.textContent.trim() === 'Pass');
+        if (pass) pass.click();
+      });
     }
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await new Promise((resolve) => setTimeout(resolve, toEnd ? 120 : 700));
   }
   state = await read();
   console.log('discards played:', played);
+  if (state.ended) console.log('hand ended:', state.ended);
 
   if (shot) {
     await mkdir(dirname(shot), { recursive: true });
@@ -84,6 +98,10 @@ try {
   console.log('tiles in hand:', state?.hand);
   console.log('prompt:', state?.prompt);
   console.log('failure:', state?.failure ?? 'none');
+  if (state?.yaku?.length) {
+    console.log('yaku:');
+    for (const line of state.yaku) console.log('  ' + line);
+  }
   console.log('log:');
   for (const line of (state?.log ?? []).slice(0, 6)) console.log('  ' + line);
   if (problems.length) {

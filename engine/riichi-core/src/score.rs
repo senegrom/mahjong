@@ -177,6 +177,9 @@ pub struct Payments {
 /// A fully scored hand.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Score {
+    /// The tile that completed the hand, which a score screen has to show
+    /// and which a hand won by discard does not otherwise hold.
+    pub winning_tile: Tile,
     /// The yaku found, with the han each is worth in this hand.
     pub yaku: Vec<(Yaku, u8)>,
     /// Han from yaku plus dora.
@@ -518,6 +521,7 @@ fn score_one(
     let payments = payments(base, situation);
 
     Ok(Score {
+        winning_tile: situation.winning_tile,
         yaku: yaku_list,
         han,
         dora,

@@ -4,6 +4,7 @@
   import Seat from './lib/Seat.svelte';
   import Discards from './lib/Discards.svelte';
   import Melds from './lib/Melds.svelte';
+  import ScoreScreen from './lib/ScoreScreen.svelte';
   import { chooseAction, modelIsAvailable, reportProgress } from './lib/policy.js';
   import { tileWords } from './lib/tiles.js';
 
@@ -310,14 +311,14 @@
     </div>
 
     <section class="controls" aria-label="your choices">
-      {#if view.phase === 'over'}
-        <p class="outcome">{view.outcome}</p>
-        {#if game?.game_is_over()}
-          <p class="outcome">The game is over.</p>
-          <button class="primary" onclick={start}>Play again</button>
-        {:else}
-          <button class="primary" onclick={nextHand}>Next hand</button>
-        {/if}
+      {#if view.phase === 'over' && view.outcome}
+        <ScoreScreen
+          outcome={view.outcome}
+          seats={view.seats}
+          gameOver={game?.game_is_over() ?? false}
+          onnext={nextHand}
+          ongame={start}
+        />
       {:else if callChoices.length}
         {#each callChoices as choice (choice.kind + (choice.tile ?? ''))}
           <button
@@ -597,6 +598,11 @@
     align-items: center;
     flex-wrap: wrap;
     min-height: 44px;
+  }
+
+  /* The score screen wants the width, not a row of controls. */
+  .controls:has(> section) {
+    display: block;
   }
 
   .controls button {

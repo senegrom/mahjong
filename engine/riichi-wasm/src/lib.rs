@@ -86,14 +86,71 @@ pub struct TableView {
     pub phase: String,
     /// The tile awaiting claims, if any.
     pub pending_discard: Option<String>,
-    /// A line describing how the hand ended, once it has.
-    pub outcome: Option<String>,
+    /// How the hand ended, once it has.
+    pub outcome: Option<OutcomeView>,
     /// The viewer's waits, when the hand is waiting.
     pub waits: Vec<String>,
     /// How many changes the viewer's hand is from complete.
     pub shanten: i32,
     /// Whether the viewer may not win by discard.
     pub furiten: bool,
+}
+
+/// A hand that won, with the working shown.
+#[derive(Serialize)]
+pub struct WinView {
+    /// The winner's seat.
+    pub seat: String,
+    /// Whether it was won by discard or by self-draw.
+    pub by: String,
+    /// Who let the tile go, when it was not self-drawn.
+    pub from: Option<String>,
+    /// The winner's concealed tiles, without the winning tile.
+    pub hand: Vec<String>,
+    /// Their called sets.
+    pub melds: Vec<MeldView>,
+    /// The tile that completed the hand, shown apart from it.
+    pub winning_tile: String,
+    /// The yaku, each with the han it was worth here.
+    pub yaku: Vec<YakuView>,
+    /// Han in total, dora included.
+    pub han: u8,
+    /// How many of those han came from dora.
+    pub dora: u8,
+    /// Minipoints.
+    pub fu: u32,
+    /// The limit reached, if any.
+    pub limit: Option<String>,
+    /// What the hand is worth, said the way a table would say it.
+    pub payment: String,
+    /// Riichi bets the winner also collected, which is why the points moved
+    /// by more than the hand was worth.
+    pub bets: i32,
+}
+
+/// One yaku and its han.
+#[derive(Serialize)]
+pub struct YakuView {
+    /// Its name.
+    pub name: String,
+    /// The han it was worth in this hand.
+    pub han: u8,
+}
+
+/// How a hand ended.
+#[derive(Serialize)]
+pub struct OutcomeView {
+    /// `"win"` or `"draw"`.
+    pub kind: String,
+    /// A one-line summary.
+    pub line: String,
+    /// The winning hands, of which there may be more than one.
+    pub wins: Vec<WinView>,
+    /// At an exhaustive draw, the seats that were waiting.
+    pub tenpai: Vec<String>,
+    /// What each seat gained or lost over the hand, in the view's own seat
+    /// order, so the first entry is always the player's.
+    pub changes: Vec<i32>,
 }
 
 /// One thing the player may do.
@@ -120,6 +177,9 @@ pub struct Game {
     player: usize,
     seat: Wind,
     log: Vec<String>,
+    /// Points each seat held when the hand was dealt, so the score screen
+    /// can say what the hand cost or paid.
+    opening: [i32; 4],
     /// Whether the opponents are answered from outside, which is what a
     /// trained network needs: it runs in the page, not in the engine.
     external: bool,
@@ -150,7 +210,7 @@ impl Game {
         let player = rng.below(4);
         let hand = table.deal(&mut rng);
         let seat = table.seat_of(player);
-        Game {
+        let mut game = Game {
             table,
             hand,
             rng,
@@ -160,10 +220,13 @@ impl Game {
             player,
             seat,
             log: Vec::new(),
+            opening: [0; 4],
             external,
             asking: Vec::new(),
             gathered: Vec::new(),
-        }
+        };
+        game.opening = scores_of(&game.hand);
+        game
     }
 
     /// Whether an opponent owes a decision that the page must answer.
@@ -292,7 +355,7 @@ impl Game {
             }
             .to_string(),
             pending_discard: self.hand.pending_discard.map(|(_, tile)| tile.to_string()),
-            outcome: self.hand.outcome.as_ref().map(describe_outcome),
+            outcome: self.describe_outcome(),
             waits: waits.tiles().map(|tile| tile.to_string()).collect(),
             shanten: riichi_core::shanten::shanten(&player.hand, player.melds.len()),
             furiten: player.is_furiten(),
@@ -472,6 +535,7 @@ impl Game {
         self.seat = self.table.seat_of(self.player);
         if !self.table.finished {
             self.hand = self.table.deal(&mut self.rng);
+            self.opening = scores_of(&self.hand);
         }
         Ok(())
     }
@@ -509,14 +573,124 @@ impl Game {
         }
     }
 
+    /// How the hand ended, with enough to show a score screen.
+    fn describe_outcome(&self) -> Option<OutcomeView> {
+        let outcome = self.hand.outcome.as_ref()?;
+        let now = scores_of(&self.hand);
+        let changes = (0..4)
+            .map(|offset| {
+                let seat = self.seat.plus(offset);
+                now[seat.index()] - self.opening[seat.index()]
+            })
+            .collect();
+
+        Some(match outcome {
+            Outcome::Win { winners, discarder } => {
+                let wins: Vec<WinView> = winners
+                    .iter()
+                    .map(|(seat, score)| {
+                        let player = &self.hand.players[seat.index()];
+                        let mut hand = player.hand;
+                        // A hand won by discard does not hold the tile it
+                        // won on; one won by self-draw does.
+                        if discarder.is_none() {
+                            hand.remove(score.winning_tile);
+                        }
+                        WinView {
+                            seat: wind_name(*seat).to_string(),
+                            by: if discarder.is_some() {
+                                "discard"
+                            } else {
+                                "self-draw"
+                            }
+                            .to_string(),
+                            from: discarder.map(|from| wind_name(from).to_string()),
+                            hand: hand.tiles().map(|tile| tile.to_string()).collect(),
+                            melds: player
+                                .melds
+                                .iter()
+                                .map(|meld| MeldView {
+                                    kind: meld_kind_name(meld.kind).to_string(),
+                                    tiles: meld.tiles().iter().map(ToString::to_string).collect(),
+                                    from: claimed_from_name(meld.from).to_string(),
+                                })
+                                .collect(),
+                            winning_tile: score.winning_tile.to_string(),
+                            yaku: score
+                                .yaku
+                                .iter()
+                                .map(|(yaku, han)| YakuView {
+                                    name: yaku.name().to_string(),
+                                    han: *han,
+                                })
+                                .collect(),
+                            han: score.han,
+                            dora: score.dora,
+                            fu: score.fu,
+                            limit: score.limit.map(|limit| limit.name().to_string()),
+                            payment: describe_payment(
+                                score,
+                                matches!(seat, Wind::East),
+                                discarder.is_some(),
+                            ),
+                            bets: (now[seat.index()] - self.opening[seat.index()])
+                                - score.payments.total as i32,
+                        }
+                    })
+                    .collect();
+                let line = wins
+                    .iter()
+                    .map(|win| {
+                        let how = match &win.from {
+                            Some(from) => {
+                                let name = match from.as_str() {
+                                    "east" => "East",
+                                    "south" => "South",
+                                    "west" => "West",
+                                    _ => "North",
+                                };
+                                format!("on {name}'s discard")
+                            }
+                            None => "by self-draw".to_string(),
+                        };
+                        let seat = match win.seat.as_str() {
+                            "east" => "East",
+                            "south" => "South",
+                            "west" => "West",
+                            _ => "North",
+                        };
+                        format!("{seat} wins {how}")
+                    })
+                    .collect::<Vec<String>>()
+                    .join("; ");
+                OutcomeView {
+                    kind: "win".to_string(),
+                    line,
+                    wins,
+                    tenpai: Vec::new(),
+                    changes,
+                }
+            }
+            Outcome::ExhaustiveDraw { tenpai } => OutcomeView {
+                kind: "draw".to_string(),
+                line: if tenpai.is_empty() {
+                    "Exhaustive draw, nobody waiting".to_string()
+                } else {
+                    "Exhaustive draw".to_string()
+                },
+                wins: Vec::new(),
+                tenpai: tenpai
+                    .iter()
+                    .map(|seat| wind_name(*seat).to_string())
+                    .collect(),
+                changes,
+            },
+        })
+    }
+
     fn note(&mut self, seat: Wind, what: &str) {
         // Seats read as names in the commentary, not as identifiers.
-        let name = match seat {
-            Wind::East => "East",
-            Wind::South => "South",
-            Wind::West => "West",
-            Wind::North => "North",
-        };
+        let name = seat_title(seat);
         self.log.push(format!("{name} {what}"));
     }
 }
@@ -555,6 +729,16 @@ fn wind_name(wind: Wind) -> &'static str {
         Wind::South => "south",
         Wind::West => "west",
         Wind::North => "north",
+    }
+}
+
+/// The same seat, written as a name rather than an identifier.
+fn seat_title(wind: Wind) -> &'static str {
+    match wind {
+        Wind::East => "East",
+        Wind::South => "South",
+        Wind::West => "West",
+        Wind::North => "North",
     }
 }
 
@@ -639,42 +823,27 @@ fn describe_call(call: Call) -> ActionView {
     }
 }
 
-fn describe_outcome(outcome: &Outcome) -> String {
-    match outcome {
-        Outcome::Win { winners, discarder } => {
-            let mut parts: Vec<String> = Vec::new();
-            for (seat, score) in winners {
-                let how = match discarder {
-                    Some(from) => format!("on {}'s discard", wind_name(*from)),
-                    None => "by self-draw".to_string(),
-                };
-                let limit = score
-                    .limit
-                    .map(|limit| format!(" ({})", limit.name()))
-                    .unwrap_or_default();
-                let yaku: Vec<String> = score
-                    .yaku
-                    .iter()
-                    .map(|(yaku, han)| format!("{} {han}", yaku.name()))
-                    .collect();
-                parts.push(format!(
-                    "{} wins {how}: {} han, {} fu{limit} [{}]",
-                    wind_name(*seat),
-                    score.han,
-                    score.fu,
-                    yaku.join(", ")
-                ));
-            }
-            parts.join("; ")
-        }
-        Outcome::ExhaustiveDraw { tenpai } => {
-            let waiting: Vec<&str> = tenpai.iter().map(|seat| wind_name(*seat)).collect();
-            if waiting.is_empty() {
-                "exhaustive draw, nobody waiting".to_string()
-            } else {
-                format!("exhaustive draw, waiting: {}", waiting.join(", "))
-            }
-        }
+fn scores_of(hand: &Hand) -> [i32; 4] {
+    let mut scores = [0; 4];
+    for seat in Wind::ALL {
+        scores[seat.index()] = hand.players[seat.index()].score;
+    }
+    scores
+}
+
+/// What a hand is worth, said the way a table would say it.
+fn describe_payment(score: &riichi_core::score::Score, dealer: bool, by_discard: bool) -> String {
+    let payments = score.payments;
+    if by_discard {
+        return format!("{} from the discarder", payments.from_discarder);
+    }
+    if dealer {
+        format!("{} from each", payments.from_each_other)
+    } else {
+        format!(
+            "{} from the dealer and {} from the others",
+            payments.from_dealer, payments.from_each_other
+        )
     }
 }
 
