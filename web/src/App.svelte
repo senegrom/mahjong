@@ -208,11 +208,34 @@
 
   function onKey(event) {
     if (!myTurn || !me) return;
+
+    // Left and right walk the hand, Enter throws what is under the marker.
+    // The numbers are a shortcut on top of that, not the only way in: they
+    // stop at nine, and a hand is fourteen tiles.
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      const step = event.key === 'ArrowLeft' ? -1 : 1;
+      picked = Math.min(Math.max(picked + step, 0), Math.max(handTiles.length - 1, 0));
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      const tile = handTiles[Math.min(picked, handTiles.length - 1)];
+      if (tile && canDiscard(tile)) {
+        event.preventDefault();
+        discard(tile);
+      }
+      return;
+    }
+
     const index = Number(event.key);
     if (Number.isInteger(index) && index >= 1 && index <= 9) {
       const tile = me.hand[index - 1];
       if (tile) discard(tile);
     }
+    // Zero is the tile just drawn, which sits apart at the end of the hand
+    // and is the one most often thrown straight back out.
+    if (event.key === '0' && me.drawn) discard(me.drawn);
+
     if (event.key === 'r') {
       const riichi = choices.find((choice) => choice.kind === 'riichi');
       if (riichi) choose(riichi);
@@ -226,6 +249,14 @@
   function canDiscard(tile) {
     return discardChoices.some((choice) => choice.tile === tile);
   }
+
+  // The hand as it is laid out: the concealed tiles, then the one just
+  // drawn, which the table keeps apart and so does the page.
+  let handTiles = $derived(me ? [...me.hand, ...(me.drawn ? [me.drawn] : [])] : []);
+  let picked = $state(0);
+  // A discard shortens the hand, so the marker is clamped rather than left
+  // pointing past the end.
+  let marker = $derived(Math.min(picked, Math.max(handTiles.length - 1, 0)));
 </script>
 
 <svelte:window on:keydown={onKey} />
@@ -360,6 +391,7 @@
               {tile}
               onclick={discard}
               disabled={!canDiscard(tile)}
+              selected={myTurn && index === marker}
               safe={hints && view.safe.includes(tile)}
               dora={hints && view.dora?.includes(tile)}
               title={hints && view.safe.includes(tile)
@@ -378,6 +410,7 @@
                 tile={me.drawn}
                 onclick={discard}
                 disabled={!canDiscard(me.drawn)}
+                selected={myTurn && marker === me.hand.length}
                 safe={hints && view.safe.includes(me.drawn)}
                 dora={hints && view.dora?.includes(me.drawn)}
                 title="just drawn: the {tileWords(me.drawn)}"
@@ -419,7 +452,7 @@
           <p class="prompt">
             {touch
               ? 'Your turn. Tap a tile to discard it, or choose below.'
-              : 'Your turn. Click a tile to discard it, press 1 to 9, or choose below.'}
+              : 'Your turn. Click a tile, or move with the arrow keys and press Enter, or choose below.'}
           </p>
         {/if}
         {#each callChoices as choice (choice.kind + (choice.tile ?? ''))}
@@ -442,7 +475,7 @@
         <p class="prompt">
           {touch
             ? 'Your turn. Tap a tile to discard it.'
-            : 'Your turn. Click a tile to discard it, or press 1 to 9.'}
+            : 'Your turn. Click a tile, or move with the arrow keys and press Enter.'}
         </p>
       {:else if thinking}
         <p class="prompt">Thinking…</p>

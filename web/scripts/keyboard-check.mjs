@@ -24,18 +24,38 @@ try {
       discards: document.querySelectorAll('.mine .pool .tile').length,
     }));
 
+  // Three ways in, all of which a person might use: the number keys, the
+  // arrow keys with Enter, and zero for the tile just drawn. The numbers
+  // stop at nine and a hand is fourteen tiles, so the arrows are the only
+  // way to reach the rest.
+  const ways = ['1', 'arrows', '0'];
   let played = 0;
-  for (let attempt = 0; attempt < 60 && played < 4; attempt += 1) {
+  let marked = 0;
+  for (let attempt = 0; attempt < 90 && played < ways.length; attempt += 1) {
     const before = await read();
-    if (before.myTurn) {
-      await page.keyboard.press('1');
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      const after = await read();
-      if (after.discards > before.discards) played += 1;
-      else throw new Error('pressing 1 did not discard the first tile');
-    } else {
+    if (!before.myTurn) {
       await new Promise((resolve) => setTimeout(resolve, 400));
+      continue;
     }
+    const way = ways[played % ways.length];
+    if (way === 'arrows') {
+      // Walk to the far end of the hand, which is past where the number
+      // keys reach, and throw what is under the marker.
+      for (let step = 0; step < 13; step += 1) await page.keyboard.press('ArrowRight');
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const lit = await page.evaluate(
+        () => document.querySelectorAll('.hand .tile.selected').length,
+      );
+      if (lit !== 1) throw new Error(`the arrow keys marked ${lit} tiles, not one`);
+      marked += 1;
+      await page.keyboard.press('Enter');
+    } else {
+      await page.keyboard.press(way);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const after = await read();
+    if (after.discards > before.discards) played += 1;
+    else throw new Error(`${way} did not discard anything`);
   }
 
   // Everything a screen reader needs: tiles named, regions labelled.
@@ -48,11 +68,12 @@ try {
     focusable: document.querySelectorAll('button:not([disabled]), select, input').length,
   }));
 
-  console.log(`discarded by keyboard: ${played}`);
+  console.log(`discarded by keyboard: ${played} (${ways.join(', ')})`);
+  console.log(`turns where the arrow keys marked exactly one tile: ${marked}`);
   console.log(`every tile named: ${labels.tiles}`);
   console.log(`labelled regions: ${labels.regions}, live regions: ${labels.liveRegions}`);
   console.log(`reachable controls: ${labels.focusable}`);
-  if (played < 4) throw new Error('keyboard play did not work');
+  if (played < ways.length) throw new Error('keyboard play did not work');
   if (!labels.tiles) throw new Error('a tile has no name for a screen reader');
   console.log('keyboard and labelling check passed');
 } finally {
