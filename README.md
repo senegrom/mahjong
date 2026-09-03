@@ -22,8 +22,14 @@ plays and the game the opponents were trained on cannot drift apart.
   called sets, keyboard play and optional hints.
 - **A command-line arena and fuzzer** for checking the engine at scale.
 
-Still to come: the log format, the neural opponents, the review tool. The
-plan is in [docs/PLAN.md](docs/PLAN.md).
+- **Training from self-play**, with a warm start that imitates the heuristic
+  player and an actor-critic loop that improves on it, measured against
+  three of those opponents at a time.
+- **The trained opponent in the browser**, as ONNX in a worker beside the
+  rules in WebAssembly, so a whole game runs offline.
+
+Still to come: the log format and the review tool. The plan is in
+[docs/PLAN.md](docs/PLAN.md).
 
 ## Running it
 
@@ -45,6 +51,30 @@ npm run dev                     # play at the address printed
 rustup target add wasm32-unknown-unknown
 npm install -g wasm-pack
 ```
+
+## Training
+
+Build the engine for Python once, with `maturin develop --release` inside
+`engine/riichi-py`, then:
+
+```bash
+python -m neural.imitate --rounds 400 --out runs/clone
+python -m neural.train --generations 4000 --resume runs/clone/latest.pt --out runs/play
+python -m neural.export runs/play/best.pt web/public/model.onnx
+```
+
+The warm start teaches the network the heuristic player's moves, which saves
+it rediscovering that tiles which go together should be kept; self-play then
+improves on them. Progress is reported as average placement against three
+heuristic opponents, where 2.5 is even and lower is better.
+
+The game offers the **Trained** tier only when `web/public/model.onnx` is
+present, so a checkout without one simply shows the two heuristic tiers.
+
+`node scripts/play-check.mjs <url>` plays the game in a real browser and
+reports the console, the moves and any failure. It is the only way to test
+the parts that load a runtime, since a headless screenshot with a virtual
+clock races ahead of the work and reports a hang that is not there.
 
 ## Layout
 

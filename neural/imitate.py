@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch", type=int, default=2048)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--measure-every", type=int, default=20)
-    parser.add_argument("--measure-games", type=int, default=64)
+    parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260903)
     parser.add_argument("--out", type=Path, default=Path("E:/tmp-claude/mahjong/clone"))
     return parser.parse_args()

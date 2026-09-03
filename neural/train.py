@@ -43,7 +43,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--entropy", type=float, default=0.03)
     parser.add_argument("--value-weight", type=float, default=0.5)
     parser.add_argument("--measure-every", type=int, default=10)
-    parser.add_argument("--measure-games", type=int, default=64)
+    # Placement over sixty-four games wanders by about as much as the
+    # improvements worth noticing, so the benchmark is wider.
+    parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260903)
     parser.add_argument("--out", type=Path, default=Path("E:/tmp-claude/mahjong/run1"))
     parser.add_argument("--resume", type=Path, default=None)
