@@ -55,6 +55,9 @@ struct Seat {
     finished: bool,
     /// The heuristic player for each of the four places, where one sits.
     bots: [Option<Bot>; 4],
+    /// A heuristic player kept aside to answer "what would you do here",
+    /// which is how a network is taught to imitate it.
+    teacher: Bot,
 }
 
 impl Seat {
@@ -79,6 +82,7 @@ impl Seat {
             hand_just_ended: false,
             finished: false,
             bots,
+            teacher: Bot::new(seed ^ 0x7EAC_4E12),
         };
         seat.settle();
         seat
@@ -227,6 +231,49 @@ fn scores_of(hand: &Hand) -> [i32; 4] {
     scores
 }
 
+impl Seat {
+    /// The action the heuristic player would take in this position, as an
+    /// index into the flat action space, or `None` where nothing is owed.
+    fn teacher_choice(&mut self) -> Option<usize> {
+        let seat = self.pending()?;
+        if !self.asking.is_empty() {
+            let offered = self
+                .hand
+                .legal_calls()
+                .into_iter()
+                .find(|(other, _)| *other == seat)
+                .map(|(_, calls)| calls)
+                .unwrap_or_default();
+            let call = self.teacher.call(&self.hand, seat, &offered);
+            let claimed = self.hand.pending_discard.map(|(_, tile)| tile)?;
+            return Some(call_to_index(call, claimed));
+        }
+        let action = self.teacher.act(&self.hand);
+        Some(action_to_index(action))
+    }
+}
+
+fn action_to_index(action: riichi_core::game::Action) -> usize {
+    use riichi_core::game::Action;
+    match action {
+        Action::Discard(tile) => tile.idx(),
+        Action::Riichi(tile) => 34 + tile.idx(),
+        Action::Tsumo => 68,
+        Action::ConcealedKan(_) => 76,
+        Action::ExtendedKan(_) => 77,
+    }
+}
+
+fn call_to_index(call: Call, claimed: riichi_core::tile::Tile) -> usize {
+    match call {
+        Call::Ron => 69,
+        Call::Pass => 70,
+        Call::Pon => 74,
+        Call::Kan => 75,
+        Call::Chii(low) => 73 - (claimed.rank().saturating_sub(low.rank())) as usize,
+    }
+}
+
 /// Many games of riichi, advancing together.
 #[pyclass]
 pub struct Arena {
@@ -296,6 +343,22 @@ impl Arena {
             }
         }
         let bytes: Vec<u8> = self.mask.iter().map(|flag| u8::from(*flag)).collect();
+        PyBytes::new(py, &bytes)
+    }
+
+    /// What the heuristic player would do in each game, as bytes of the
+    /// action index, or 0xFF where no decision is owed. This is the label a
+    /// network is taught from before it is left to play on its own.
+    fn teacher<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        let bytes: Vec<u8> = self
+            .seats
+            .iter_mut()
+            .map(|seat| {
+                seat.teacher_choice()
+                    .map(|index| index as u8)
+                    .unwrap_or(0xFF)
+            })
+            .collect();
         PyBytes::new(py, &bytes)
     }
 

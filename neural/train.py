@@ -65,6 +65,8 @@ def main() -> None:
         payload = torch.load(args.resume, map_location=device, weights_only=True)
         net.load_state_dict(payload["model"])
         start = int(payload.get("generation", 0))
+        if payload.get("channels") not in (None, net.channels):
+            raise SystemExit("the checkpoint was trained at a different width")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
 
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
