@@ -50,7 +50,19 @@ pub struct Effort {
     pub candidates: usize,
     /// How far to play each world: the whole hand, or a fixed number of
     /// turns after which the hand is judged by how close it stands.
+    ///
+    /// Stopping early is a false economy. The heuristic player already
+    /// counts, exactly, how many tiles would improve the hand; a truncated
+    /// rollout judged on the same thing is a noisy version of a calculation
+    /// it can do properly. What a rollout knows that counting does not is
+    /// what happens at the end: who deals in, what the hand was worth, who
+    /// else was waiting. That is only visible if it is played out.
     pub turns: Option<usize>,
+    /// How many standard errors better a move must look before the search
+    /// overrides the first one on the list. Two is the usual bar, and the
+    /// reason it is here at all is that taking the best of several noisy
+    /// numbers keeps the luckiest rather than the best.
+    pub margin: f64,
 }
 
 impl Effort {
@@ -60,6 +72,7 @@ impl Effort {
             worlds: 12,
             candidates: 5,
             turns: None,
+            margin: 2.0,
         }
     }
 
@@ -69,6 +82,7 @@ impl Effort {
             worlds: 60,
             candidates: 8,
             turns: None,
+            margin: 2.0,
         }
     }
 }
@@ -119,15 +133,44 @@ impl Belief {
 }
 
 /// What one candidate move came to.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Judged {
     /// The move.
     pub action: Action,
     /// The average points the hand moved for the searching player, over
     /// every world it was tried in.
     pub value: f64,
+    /// What it came to in each world, in the order the worlds were made, so
+    /// two candidates can be compared world by world. A world the move was
+    /// not legal in holds `None`.
+    pub per_world: Vec<Option<f64>>,
     /// How many worlds it was tried in.
     pub worlds: usize,
+}
+
+/// How much better one move looks than another, and how sure that is.
+///
+/// Both were played out in the same worlds, so the comparison is made world
+/// by world: the spread of those differences is far smaller than the spread
+/// of either move's own result, because the luck of the deal is the same on
+/// both sides of it and cancels.
+fn compare(candidate: &Judged, against: &Judged) -> Option<(f64, f64)> {
+    let paired: Vec<f64> = candidate
+        .per_world
+        .iter()
+        .zip(&against.per_world)
+        .filter_map(|(mine, theirs)| Some(mine.as_ref()? - theirs.as_ref()?))
+        .collect();
+    if paired.len() < 3 {
+        return None;
+    }
+    let mean = paired.iter().sum::<f64>() / paired.len() as f64;
+    let variance = paired
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<f64>()
+        / (paired.len() - 1) as f64;
+    Some((mean, (variance / paired.len() as f64).sqrt()))
 }
 
 /// Everything a seat can see of the tiles.
@@ -313,15 +356,19 @@ pub fn judge(
         .map(|action| {
             let mut total = 0.0;
             let mut counted = 0;
+            let mut per_world = Vec::with_capacity(worlds.len());
             for (index, world) in worlds.iter().enumerate() {
                 let mut trial = world.clone();
                 // A move the engine will not take in this world is not a
                 // fault: an imagined hand can make a quad illegal that was
                 // legal in the real one. It is simply not counted.
                 if trial.act(*action).is_err() {
+                    per_world.push(None);
                     continue;
                 }
-                total += play_out(trial, seat, style, effort.turns, index as u64 * 977 + 13);
+                let value = play_out(trial, seat, style, effort.turns, index as u64 * 977 + 13);
+                per_world.push(Some(value));
+                total += value;
                 counted += 1;
             }
             Judged {
@@ -331,6 +378,7 @@ pub fn judge(
                 } else {
                     total / counted as f64
                 },
+                per_world,
                 worlds: counted,
             }
         })
@@ -339,10 +387,17 @@ pub fn judge(
 
 /// The move that came out best, having played each of them out.
 ///
-/// `shortlist` is the moves worth considering, best first; a caller with a
-/// policy network passes what it ranked highest, and a caller without one
-/// passes whatever the engine offers. Only the first
+/// `shortlist` is the moves worth considering, **best first**: a caller with
+/// a policy network passes what it ranked highest, and a caller without one
+/// passes what the heuristic player would do. Only the first
 /// [`Effort::candidates`] of them are searched.
+///
+/// The first is the one to beat. It is an opinion worth something, so it is
+/// kept unless another move is better by more than the noise in the
+/// comparison, which is [`Effort::margin`] standard errors of the paired
+/// difference. Without that rule the search keeps whichever candidate the
+/// rollouts happened to smile on, which measured more than a placement
+/// worse than not searching at all.
 pub fn best(
     hand: &Hand,
     seat: Wind,
@@ -356,10 +411,22 @@ pub fn best(
     }
     let taken = shortlist.len().min(effort.candidates.max(1));
     let judged = judge(hand, seat, &shortlist[..taken], effort, belief, rng);
-    judged
-        .into_iter()
-        .filter(|entry| entry.worlds > 0)
-        .max_by(|a, b| a.value.partial_cmp(&b.value).expect("values are numbers"))
+    let incumbent = judged.iter().find(|entry| entry.worlds > 0)?;
+
+    let mut best = incumbent;
+    let mut best_edge = 0.0;
+    for entry in judged.iter() {
+        if entry.worlds == 0 || std::ptr::eq(entry, incumbent) {
+            continue;
+        }
+        if let Some((edge, error)) = compare(entry, incumbent) {
+            if edge > effort.margin * error && edge > best_edge {
+                best = entry;
+                best_edge = edge;
+            }
+        }
+    }
+    Some(best.clone())
 }
 
 /// A player that thinks before it moves.
@@ -607,6 +674,7 @@ mod tests {
             worlds: 4,
             candidates: 3,
             turns: Some(20),
+            margin: 2.0,
         };
         let picked = best(
             &hand,
@@ -636,6 +704,7 @@ mod tests {
                 worlds: 3,
                 candidates: 3,
                 turns: Some(12),
+                margin: 2.0,
             },
         );
         let mut second = Searcher::new(
@@ -644,6 +713,7 @@ mod tests {
                 worlds: 3,
                 candidates: 3,
                 turns: Some(12),
+                margin: 2.0,
             },
         );
         assert_eq!(first.act(&hand), second.act(&hand));
