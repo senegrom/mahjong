@@ -20,6 +20,14 @@ plays and the game the opponents were trained on cannot drift apart.
   still be declared, and folds against a declared riichi.
 - **A browser game** against three of them, with the tile art, discard rows,
   called sets, keyboard play and optional hints.
+- **Learning aids**: how far the hand is from a wait, what it is waiting on
+  and how many of each are still unseen, the dora in hand, which tiles
+  cannot deal into a declared riichi, and a furiten warning.
+- **A post-game review** that takes each of your decisions again and shows
+  what it traded: how far the move left the hand from complete, how many
+  tiles would still have improved it, and whether it could have dealt in.
+- **Logs in the mjai format**, one JSON object per line, which replayers,
+  reviewers and other people's bots read.
 - **A command-line arena and fuzzer** for checking the engine at scale.
 
 - **Training from self-play**, with a warm start that imitates the heuristic
@@ -28,8 +36,38 @@ plays and the game the opponents were trained on cannot drift apart.
 - **The trained opponent in the browser**, as ONNX in a worker beside the
   rules in WebAssembly, so a whole game runs offline.
 
-Still to come: the log format and the review tool. The plan is in
-[docs/PLAN.md](docs/PLAN.md).
+Still to come: replays in the browser and a measured game against Mortal.
+The plan is in [docs/PLAN.md](docs/PLAN.md).
+
+## How the rules are checked
+
+The scorer has more places to be quietly wrong than any other part of these
+rules, and a test suite only checks what its author thought of. So every
+hand is scored twice: once here, and once by the MIT-licensed `mahjong`
+library, which was itself validated against millions of hands from Tenhou.
+
+Over **one million random winning hands**, the two agree on han and
+minipoints except in three places, and all three are the rules rather than
+faults:
+
+| hands | difference | why |
+|---|---|---|
+| 1,015 | a pair of both the seat and round wind | EMA 4.1.1, new in 2025: worth 2 minipoints, not the 4 the older convention gives |
+| 26 | two yakuman in one hand | EMA 4.2: yakuman are not cumulative |
+| 2 | a yakuman read as three identical sequences | EMA 3.4.3: score to the highest possibility, and with no counted yakuman the sequences cap at sanbaiman while the yakuman pays more |
+
+**Unexplained disagreements: none.** Reproduce it with:
+
+```bash
+cargo run -p riichi-cli --release -- dump --games 1000000 --seed 20260903 > hands.jsonl
+pip install mahjong
+python engine/riichi-cli/differential.py hands.jsonl
+```
+
+The log is checked the same way. A test plays fifty whole games and rebuilds
+every hand from its events alone, then compares the rebuilt hands, called
+sets, scores and riichi against what the engine holds, so an event the log
+forgets to write shows up as a hand that has drifted.
 
 ## Running it
 
@@ -38,6 +76,8 @@ cargo test --workspace          # the rules, with their tests
 cargo run -p riichi-cli -- hand --seed 1        # one hand, move by move
 cargo run -p riichi-cli --release -- arena --games 200   # bots, with statistics
 cargo run -p riichi-cli --release -- fuzz --games 500    # random legal play
+cargo run -p riichi-cli --release -- log --games 1     # a game as an mjai log
+cargo run -p riichi-cli --release -- dump --games 1000 # scored hands, for the check above
 
 cd web
 npm install
