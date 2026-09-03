@@ -34,6 +34,10 @@ pub struct Style {
     /// share between zero and one. A little of this is what separates a
     /// beginner from a player who counts.
     pub looseness: f64,
+    /// What a dora is worth, counted in tiles of acceptance given up to keep
+    /// it. Zero ignores dora entirely, which is how a beginner plays: fast
+    /// hands worth nothing. The hand is only worth playing if it scores.
+    pub dora_worth: i64,
 }
 
 impl Default for Style {
@@ -49,6 +53,7 @@ impl Style {
             fold_beyond_shanten: 99,
             always_riichi: true,
             looseness: 0.35,
+            dora_worth: 0,
         }
     }
 
@@ -58,6 +63,11 @@ impl Style {
             fold_beyond_shanten: 1,
             always_riichi: true,
             looseness: 0.0,
+            // Left at nothing until the duel says a dora is worth keeping.
+            // Sixteen thousand games put it at about 0.018 placement, which
+            // is short of two standard errors, so the knob is here and the
+            // default is unchanged.
+            dora_worth: 0,
         }
     }
 }
@@ -238,6 +248,12 @@ impl Bot {
             "there is always something to discard"
         );
         let unseen = unseen_counts(hand, player);
+        let dora: Vec<Tile> = hand
+            .wall
+            .dora_indicators()
+            .into_iter()
+            .map(|indicator| indicator.dora())
+            .collect();
         let current = shanten::shanten(&player.hand, player.melds.len());
         let folding = !threats.is_empty() && current > self.style.fold_beyond_shanten;
 
@@ -289,6 +305,12 @@ impl Bot {
             } else {
                 acceptance_width(&probe, player, &unseen)
             };
+            // Throwing a dora costs a han. Counted here in tiles of
+            // acceptance, so a hand only gives one up when what it gets back
+            // is worth more than the value it loses. A tile that several
+            // indicators point at is worth that much more.
+            let value = self.style.dora_worth
+                * dora.iter().filter(|marked| **marked == tile).count() as i64;
             let safety = threats
                 .iter()
                 .map(|threat| safety_of(hand, *threat, tile))
@@ -300,7 +322,12 @@ impl Bot {
             let key = if folding {
                 (safety, -(after as i64), width as i64, self.rng.next_u64())
             } else {
-                (-(after as i64), width as i64, safety, self.rng.next_u64())
+                (
+                    -(after as i64),
+                    width as i64 - value,
+                    safety,
+                    self.rng.next_u64(),
+                )
             };
             if key > best_key {
                 best_key = key;

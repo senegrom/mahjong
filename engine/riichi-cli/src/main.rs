@@ -7,6 +7,7 @@
 //! riichi-cli hand  --seed 1                 one hand, move by move
 //! riichi-cli log   --seed 1 --games 1       a game as an mjai event log
 //! riichi-cli dump  --seed 1 --games 1000    random scored hands, as JSON
+//! riichi-cli duel  --games 200              one style against three others
 //! ```
 //!
 //! The fuzzer is the point of this crate: it plays only actions the engine
@@ -14,13 +15,14 @@
 //! no tile has appeared or vanished, and that no hand holds a fifth copy of
 //! anything.
 
+mod duel;
 mod dump;
 
 use std::collections::BTreeMap;
 use std::env;
 use std::process::ExitCode;
 
-use riichi_core::bot::Bot;
+use riichi_core::bot::{Bot, Style};
 use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
 use riichi_core::mjai;
 use riichi_core::rng::Rng;
@@ -61,8 +63,21 @@ fn main() -> ExitCode {
             dump::dump(games, seed);
             ExitCode::SUCCESS
         }
+        "duel" => {
+            // What is being tried, against the club player as it stands.
+            let mut challenger = Style::club();
+            if let Some(worth) = value(&args, "--dora-worth") {
+                challenger.dora_worth = worth as i64;
+            }
+            let mut defender = Style::club();
+            defender.dora_worth = 0;
+            duel::duel(games, seed, challenger, defender);
+            ExitCode::SUCCESS
+        }
         _ => {
-            println!("usage: riichi-cli <arena|fuzz|hand|log|dump> [--games N] [--seed N]");
+            println!(
+                "usage: riichi-cli <arena|fuzz|hand|log|dump|duel> [--games N] [--seed N] [--dora-worth N]"
+            );
             ExitCode::SUCCESS
         }
     }
