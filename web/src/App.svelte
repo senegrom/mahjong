@@ -403,6 +403,18 @@
           <Review {notes} />
         {/if}
       {:else if callChoices.length}
+        <!-- On the player's own turn these buttons are extras: riichi, a
+             quad, a win. Discarding is still there and is usually what
+             happens, so the line saying so has to stay. Without it the
+             player is shown two riichi buttons and nothing else, at the one
+             moment they most need to know they can simply throw a tile. -->
+        {#if myTurn}
+          <p class="prompt">
+            {touch
+              ? 'Your turn. Tap a tile to discard it, or choose below.'
+              : 'Your turn. Click a tile to discard it, press 1 to 9, or choose below.'}
+          </p>
+        {/if}
         {#each callChoices as choice (choice.kind + (choice.tile ?? ''))}
           <button
             class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'}
