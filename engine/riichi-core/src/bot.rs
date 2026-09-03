@@ -38,6 +38,15 @@ pub struct Style {
     /// it. Zero ignores dora entirely, which is how a beginner plays: fast
     /// hands worth nothing. The hand is only worth playing if it scores.
     pub dora_worth: i64,
+    /// Whether to skip counting how many tiles would improve the hand after
+    /// each candidate discard, and rank on distance and safety alone.
+    ///
+    /// That count is thirty-four shanten calculations per candidate and is
+    /// most of what a player costs to run. Inside a search's rollouts it is
+    /// not worth it: what is being compared is the move at the root, and
+    /// the play after it only has to be reasonable and the same on both
+    /// sides. At the root it is worth it, so this is off by default.
+    pub hurried: bool,
 }
 
 impl Default for Style {
@@ -54,6 +63,7 @@ impl Style {
             always_riichi: true,
             looseness: 0.35,
             dora_worth: 0,
+            hurried: false,
         }
     }
 
@@ -69,6 +79,17 @@ impl Style {
             // on one and 0.031 on the other, which is 0.024 together at
             // three standard errors.
             dora_worth: 12,
+            hurried: false,
+        }
+    }
+
+    /// The club player, hurried: the same judgement without the acceptance
+    /// count, for playing out a search's imagined worlds where the cost of
+    /// that count is paid forty times over for every decision made.
+    pub fn rollout() -> Style {
+        Style {
+            hurried: true,
+            ..Style::club()
         }
     }
 }
@@ -301,7 +322,7 @@ impl Bot {
             }
             // While folding, only safety matters, and the acceptance count
             // is the expensive part of this loop.
-            let width = if folding {
+            let width = if folding || self.style.hurried {
                 0
             } else {
                 acceptance_width(&probe, player, &unseen)

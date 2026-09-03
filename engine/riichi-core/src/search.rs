@@ -63,6 +63,13 @@ pub struct Effort {
     /// reason it is here at all is that taking the best of several noisy
     /// numbers keeps the luckiest rather than the best.
     pub margin: f64,
+    /// Whether to play the imagined worlds out with the hurried player,
+    /// which skips counting how many tiles would improve a hand after each
+    /// discard. That count is most of what a rollout costs and buys less
+    /// inside one than at the root, but whether it can be dropped without
+    /// losing anything is a question for the duel, so this is off until
+    /// that has been measured.
+    pub hurried: bool,
 }
 
 impl Effort {
@@ -73,6 +80,7 @@ impl Effort {
             candidates: 5,
             turns: None,
             margin: 2.0,
+            hurried: false,
         }
     }
 
@@ -83,6 +91,7 @@ impl Effort {
             candidates: 8,
             turns: None,
             margin: 2.0,
+            hurried: false,
         }
     }
 }
@@ -344,7 +353,11 @@ pub fn judge(
     rng: &mut Rng,
 ) -> Vec<Judged> {
     assert!(!candidates.is_empty(), "there is always something to do");
-    let style = Style::club();
+    let style = if effort.hurried {
+        Style::rollout()
+    } else {
+        Style::club()
+    };
 
     // One set of worlds, shared by all the candidates.
     let worlds: Vec<Hand> = (0..effort.worlds)
@@ -675,6 +688,7 @@ mod tests {
             candidates: 3,
             turns: Some(20),
             margin: 2.0,
+            hurried: false,
         };
         let picked = best(
             &hand,
@@ -705,6 +719,7 @@ mod tests {
                 candidates: 3,
                 turns: Some(12),
                 margin: 2.0,
+                hurried: false,
             },
         );
         let mut second = Searcher::new(
@@ -714,6 +729,7 @@ mod tests {
                 candidates: 3,
                 turns: Some(12),
                 margin: 2.0,
+                hurried: false,
             },
         );
         assert_eq!(first.act(&hand), second.act(&hand));

@@ -375,7 +375,7 @@ impl Arena {
     /// worse than not searching at all.
     ///
     /// Games where nobody owes a decision come back as [`PASS`].
-    #[pyo3(signature = (ranked, beliefs, worlds=10, candidates=4, margin=2.0))]
+    #[pyo3(signature = (ranked, beliefs, worlds=10, candidates=4, margin=2.0, hurried=false))]
     fn search(
         &mut self,
         ranked: Vec<Vec<usize>>,
@@ -383,12 +383,14 @@ impl Arena {
         worlds: usize,
         candidates: usize,
         margin: f64,
+        hurried: bool,
     ) -> Vec<usize> {
         let effort = search::Effort {
             worlds,
             candidates,
             turns: None,
             margin,
+            hurried,
         };
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
