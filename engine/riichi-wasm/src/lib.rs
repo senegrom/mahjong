@@ -230,13 +230,7 @@ impl Game {
         let mut list: Vec<ActionView> = Vec::new();
         match self.hand.phase {
             Phase::Act if self.hand.turn == self.seat => {
-                let forbidden = self.hand.forbidden_discards();
                 for action in self.hand.legal_actions() {
-                    if let Action::Discard(tile) = action {
-                        if forbidden.contains(&tile) {
-                            continue;
-                        }
-                    }
                     list.push(describe_action(action));
                 }
             }

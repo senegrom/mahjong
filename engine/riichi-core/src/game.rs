@@ -241,6 +241,9 @@ pub struct Hand {
     pub robbable_quad: Option<Tile>,
     /// How many discards the hand has seen, which numbers each one.
     pub discards_made: u32,
+    /// The tile just claimed for a set, which the claimer may not turn
+    /// straight back out (EMA section 3.3.2).
+    pub just_claimed: Option<Tile>,
     /// The outcome, once there is one.
     pub outcome: Option<Outcome>,
 }
@@ -285,6 +288,7 @@ impl Hand {
             after_quad: false,
             robbable_quad: None,
             discards_made: 0,
+            just_claimed: None,
             outcome: None,
         }
     }
@@ -330,11 +334,19 @@ impl Hand {
             return actions;
         }
 
+        let forbidden = self.forbidden_discards();
+        let barred_everything = Tile::all()
+            .filter(|tile| player.hand.count(*tile) > 0)
+            .all(|tile| forbidden.contains(&tile));
         for tile in Tile::all() {
-            if player.hand.count(tile) > 0 {
+            if player.hand.count(tile) > 0 && (barred_everything || !forbidden.contains(&tile)) {
                 actions.push(Action::Discard(tile));
             }
         }
+        debug_assert!(
+            !actions.is_empty(),
+            "a player always has a tile they may discard"
+        );
 
         // Riichi: concealed, waiting, and at least one tile left in the wall
         // (EMA 2025 section 3.3.10, changed from four in the 2016 edition).
@@ -610,6 +622,7 @@ impl Hand {
             self.first_turns_unbroken = false;
         }
         self.drawn = None;
+        self.just_claimed = None;
         self.pending_discard = Some((seat, tile));
         self.phase = Phase::CallWindow;
         if self.legal_calls().is_empty() {
@@ -654,7 +667,7 @@ impl Hand {
             // A quad being robbed offers nothing but the win, and neither
             // does the last discard (EMA sections 3.3.13 and 3.4.1).
             if !robbing && !last_discard && !player.has_riichi() {
-                if player.hand.count(tile) >= 2 {
+                if player.hand.count(tile) >= 2 && self.leaves_a_discard(seat, tile, None) {
                     calls.push(Call::Pon);
                     if player.hand.count(tile) >= 3 && self.wall.can_declare_quad() {
                         calls.push(Call::Kan);
@@ -663,7 +676,9 @@ impl Hand {
                 // A sequence, only from the player on the left.
                 if seat == from.next() && !tile.is_honour() {
                     for low in sequence_starts(tile) {
-                        if self.can_form_sequence(seat, low, tile) {
+                        if self.can_form_sequence(seat, low, tile)
+                            && self.leaves_a_discard(seat, tile, Some(low))
+                        {
                             calls.push(Call::Chii(low));
                         }
                     }
@@ -676,6 +691,55 @@ impl Hand {
             }
         }
         result
+    }
+
+    /// Whether a player who made this call would still have a tile they
+    /// are allowed to discard.
+    ///
+    /// Claiming a tile bars handing it straight back, and for a sequence it
+    /// bars the tile from the other side too (EMA section 3.3.2). A player
+    /// holding nothing else would be stuck, so that call is not offered.
+    fn leaves_a_discard(&self, seat: Wind, claimed: Tile, sequence: Option<Tile>) -> bool {
+        let player = &self.players[seat.index()];
+        let mut rest = player.hand;
+        match sequence {
+            None => {
+                rest.remove(claimed);
+                rest.remove(claimed);
+            }
+            Some(low) => {
+                let second = match low.next_in_suit() {
+                    Some(tile) => tile,
+                    None => return false,
+                };
+                let third = match second.next_in_suit() {
+                    Some(tile) => tile,
+                    None => return false,
+                };
+                for member in [low, second, third] {
+                    if member != claimed {
+                        rest.remove(member);
+                    }
+                }
+            }
+        }
+        let mut barred = vec![claimed];
+        if let Some(low) = sequence {
+            let rank = claimed.rank();
+            let other = if rank == low.rank() {
+                Some(rank + 3).filter(|value| *value <= 9)
+            } else if rank == low.rank() + 2 {
+                rank.checked_sub(3).filter(|value| *value >= 1)
+            } else {
+                None
+            };
+            if let Some(rank) = other {
+                barred.push(Tile::numbered(claimed.suit(), rank));
+            }
+        }
+        Tile::all()
+            .filter(|tile| rest.count(*tile) > 0)
+            .any(|tile| !barred.contains(&tile))
     }
 
     fn can_form_sequence(&self, seat: Wind, low: Tile, claimed: Tile) -> bool {
@@ -856,6 +920,7 @@ impl Hand {
             self.finish_quad_draw();
         } else {
             self.drawn = None;
+            self.just_claimed = Some(tile);
             self.phase = Phase::Act;
         }
     }
@@ -888,26 +953,32 @@ impl Hand {
     /// forbidden (EMA section 3.3.2).
     pub fn forbidden_discards(&self) -> Vec<Tile> {
         let mut forbidden = Vec::new();
-        if !matches!(self.phase, Phase::Act) || self.drawn.is_some() {
-            return forbidden;
-        }
-        let player = self.current();
-        let last = match player.melds.last() {
-            Some(meld) => meld,
-            None => return forbidden,
+        let claimed = match self.just_claimed {
+            Some(tile) if matches!(self.phase, Phase::Act) => tile,
+            _ => return forbidden,
         };
-        match last.kind {
-            MeldKind::Pon => forbidden.push(last.tile),
-            MeldKind::Chii => {
-                let low = last.tile;
-                let second = low.next_in_suit().expect("a sequence starts below 8");
-                let third = second.next_in_suit().expect("a sequence starts below 8");
-                // The claimed tile itself, and the tile at the other end.
-                forbidden.push(low);
-                forbidden.push(third);
-                let _ = second;
+        // The claimed tile can never go straight back out.
+        forbidden.push(claimed);
+
+        // For a sequence, nor can the tile at the other side of it: claim a
+        // 4 for 4-5-6 and the 7 is barred as well, because discarding it
+        // would leave the same shape the hand started with.
+        let player = self.current();
+        if let Some(meld) = player.melds.last() {
+            if meld.is_sequence() {
+                let low = meld.tile.rank();
+                let rank = claimed.rank();
+                let other = if rank == low {
+                    Some(rank + 3).filter(|value| *value <= 9)
+                } else if rank == low + 2 {
+                    rank.checked_sub(3).filter(|value| *value >= 1)
+                } else {
+                    None
+                };
+                if let Some(rank) = other {
+                    forbidden.push(Tile::numbered(claimed.suit(), rank));
+                }
             }
-            _ => {}
         }
         forbidden
     }
@@ -1050,8 +1121,9 @@ mod tests {
         let mut hand = fresh();
         // Give South a shape that could take 3 characters as a sequence, and
         // make East discard it.
-        hand.players[1].hand = "45m".parse().unwrap();
-        hand.players[2].hand = "45m".parse().unwrap();
+        // Real hands, so the claim leaves something legal to discard.
+        hand.players[1].hand = "45m123p99s".parse().unwrap();
+        hand.players[2].hand = "45m123p99s".parse().unwrap();
         hand.players[0].hand = "3m".parse().unwrap();
         hand.drawn = None;
         hand.turn = Wind::East;
@@ -1170,21 +1242,79 @@ mod tests {
         }
     }
 
-    /// EMA 2025 section 3.3.2: after a call the claimed tile may not be
-    /// discarded, nor the tile at the other end of a claimed sequence.
+    /// EMA 2025 section 3.3.2, with the rulebook's own examples: a claimed
+    /// tile may not be turned straight back out, and neither may the tile
+    /// from the other side of a claimed sequence. Claim a 4 for 4-5-6 and
+    /// the 7 is barred as well; claim the 6 and the 3 is.
     #[test]
     fn swap_calling_is_barred() {
         let mut hand = fresh();
         hand.turn = Wind::South;
         hand.phase = Phase::Act;
         hand.drawn = None;
+
+        // The 4 was claimed to make 4-5-6.
         hand.players[1]
             .melds
-            .push(Meld::chii("3m".parse().unwrap(), ClaimedFrom::Left));
+            .push(Meld::chii("4m".parse().unwrap(), ClaimedFrom::Left));
+        hand.just_claimed = Some("4m".parse().unwrap());
         let forbidden = hand.forbidden_discards();
-        assert!(forbidden.contains(&"3m".parse().unwrap()));
-        assert!(forbidden.contains(&"5m".parse().unwrap()));
-        assert!(!forbidden.contains(&"4m".parse().unwrap()));
+        assert!(
+            forbidden.contains(&"4m".parse().unwrap()),
+            "the claimed tile"
+        );
+        assert!(forbidden.contains(&"7m".parse().unwrap()), "the other side");
+        assert!(!forbidden.contains(&"5m".parse().unwrap()));
+        assert!(!forbidden.contains(&"1m".parse().unwrap()));
+
+        // The 6 was claimed for the same sequence.
+        hand.just_claimed = Some("6m".parse().unwrap());
+        let forbidden = hand.forbidden_discards();
+        assert!(
+            forbidden.contains(&"6m".parse().unwrap()),
+            "the claimed tile"
+        );
+        assert!(forbidden.contains(&"3m".parse().unwrap()), "the other side");
+
+        // The middle tile has no partner on either side.
+        hand.just_claimed = Some("5m".parse().unwrap());
+        assert_eq!(hand.forbidden_discards(), vec!["5m".parse().unwrap()]);
+
+        // A claimed triplet bars only the tile itself.
+        hand.players[1].melds.clear();
+        hand.players[1]
+            .melds
+            .push(Meld::pon("2p".parse().unwrap(), ClaimedFrom::Across));
+        hand.just_claimed = Some("2p".parse().unwrap());
+        assert_eq!(hand.forbidden_discards(), vec!["2p".parse().unwrap()]);
+    }
+
+    /// However the restriction falls, a player must always be left with
+    /// something they may discard. A hand of two tiles both barred by the
+    /// old reading of the rule used to leave a player with no move at all.
+    #[test]
+    fn a_player_always_has_a_tile_they_may_discard() {
+        let mut hand = fresh();
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+        hand.drawn = None;
+        hand.players[1].hand = "99p".parse().unwrap();
+        for low in ["1m", "4m", "7m"] {
+            hand.players[1]
+                .melds
+                .push(Meld::chii(low.parse().unwrap(), ClaimedFrom::Left));
+        }
+        hand.players[1]
+            .melds
+            .push(Meld::chii("7p".parse().unwrap(), ClaimedFrom::Left));
+        hand.just_claimed = Some("7p".parse().unwrap());
+        let actions = hand.legal_actions();
+        assert!(
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::Discard(_))),
+            "the hand holds only 9 circles, which the sequence 7-8-9 must not bar"
+        );
     }
 
     #[test]

@@ -278,13 +278,13 @@ pub fn legal_mask(hand: &Hand, seat: Wind, out: &mut [bool]) -> usize {
     let mut count = 0;
 
     if hand.turn == seat {
-        let forbidden = hand.forbidden_discards();
+        // The engine's own list already leaves out anything the swap-call
+        // rule bars, so nothing has to be filtered again here.
         for action in hand.legal_actions() {
-            if let Some(index) = action_index(action, &forbidden) {
-                if !out[index] {
-                    out[index] = true;
-                    count += 1;
-                }
+            let index = action_index(action);
+            if !out[index] {
+                out[index] = true;
+                count += 1;
             }
         }
     }
@@ -306,14 +306,13 @@ pub fn legal_mask(hand: &Hand, seat: Wind, out: &mut [bool]) -> usize {
     count
 }
 
-fn action_index(action: Action, forbidden: &[Tile]) -> Option<usize> {
+fn action_index(action: Action) -> usize {
     match action {
-        Action::Discard(tile) if forbidden.contains(&tile) => None,
-        Action::Discard(tile) => Some(DISCARD + tile.idx()),
-        Action::Riichi(tile) => Some(RIICHI_DISCARD + tile.idx()),
-        Action::Tsumo => Some(TSUMO),
-        Action::ConcealedKan(_) => Some(CONCEALED_KAN),
-        Action::ExtendedKan(_) => Some(EXTENDED_KAN),
+        Action::Discard(tile) => DISCARD + tile.idx(),
+        Action::Riichi(tile) => RIICHI_DISCARD + tile.idx(),
+        Action::Tsumo => TSUMO,
+        Action::ConcealedKan(_) => CONCEALED_KAN,
+        Action::ExtendedKan(_) => EXTENDED_KAN,
     }
 }
 
@@ -541,7 +540,7 @@ mod tests {
     #[test]
     fn calls_encode_and_decode() {
         let mut hand = fresh();
-        hand.players[1].hand = "45m".parse().unwrap();
+        hand.players[1].hand = "45m123p99s".parse().unwrap();
         hand.players[0].hand = "3m".parse().unwrap();
         hand.turn = Wind::East;
         hand.phase = Phase::Act;

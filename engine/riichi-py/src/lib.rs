@@ -361,6 +361,30 @@ impl Arena {
         PyBytes::new(py, &values)
     }
 
+    /// What one game is doing right now, for tracking down a stuck table.
+    fn debug(&self, game: usize) -> String {
+        let seat = match self.seats.get(game) {
+            Some(seat) => seat,
+            None => return String::new(),
+        };
+        let pending = seat
+            .pending()
+            .map(|wind| format!("{wind:?}"))
+            .unwrap_or_else(|| "none".to_string());
+        let turn_player = seat.table.player_at(seat.hand.turn);
+        format!(
+            "phase {:?} turn {:?} (place {turn_player}) pending {pending} asking {:?}              finished {} wall {} riichi {:?} drawn {:?} hand {}",
+            seat.hand.phase,
+            seat.hand.turn,
+            seat.asking,
+            seat.finished,
+            seat.hand.wall.remaining(),
+            seat.hand.players[seat.hand.turn.index()].riichi,
+            seat.hand.drawn,
+            seat.hand.players[seat.hand.turn.index()].hand,
+        )
+    }
+
     /// A line describing how the last hand of one game ended, for logs.
     fn describe(&self, game: usize) -> String {
         let seat = match self.seats.get(game) {
