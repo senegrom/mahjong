@@ -11,6 +11,31 @@
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
   let vertical = $derived(side === 'left' || side === 'right');
+
+  // A call or a declaration is the moment a player's game changes, and a
+  // line in the log is easy to miss. The seat says so for a moment.
+  let announcement = $state('');
+  let lastMelds = seat.melds.length;
+  let lastRiichi = seat.riichi;
+  let timer = null;
+
+  function announce(word) {
+    announcement = word;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      announcement = '';
+    }, 1800);
+  }
+
+  $effect(() => {
+    if (seat.riichi && !lastRiichi) announce('Riichi');
+    else if (seat.melds.length > lastMelds) {
+      const meld = seat.melds[seat.melds.length - 1];
+      announce(meld.kind.includes('kan') ? 'Kan' : meld.kind === 'pon' ? 'Pon' : 'Chii');
+    }
+    lastMelds = seat.melds.length;
+    lastRiichi = seat.riichi;
+  });
 </script>
 
 <section class="seat {side}" class:turn={seat.turn} aria-label="{NAMES[seat.seat]} seat">
@@ -18,6 +43,9 @@
     <span class="wind" class:dealer>{NAMES[seat.seat]}</span>
     <span class="score">{seat.score.toLocaleString()}</span>
     {#if seat.riichi}<span class="stick" title="declared riichi"></span>{/if}
+    {#if announcement}
+      <span class="called" aria-live="polite">{announcement}</span>
+    {/if}
   </header>
 
   <div class="held" class:vertical aria-label="{seat.hand_size} tiles in hand">
@@ -90,6 +118,40 @@
     inset: 1px 11px;
     background: var(--accent);
     border-radius: 50%;
+  }
+
+  /* What was just called, said where it happened. */
+  .called {
+    margin-left: auto;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gold);
+    animation: settle 1.8s ease-out forwards;
+  }
+
+  @keyframes settle {
+    0% {
+      opacity: 0;
+      transform: translateY(-3px) scale(1.15);
+    }
+    12% {
+      opacity: 1;
+      transform: none;
+    }
+    75% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .called {
+      animation: none;
+    }
   }
 
   /* Concealed tiles are shown as edges rather than faces: enough to count

@@ -67,9 +67,11 @@ try {
         [...row.children].map((cell) => cell.textContent.trim()).join(' '),
       ),
       finished: document.querySelector('.standings h2')?.textContent?.trim() ?? null,
+      called: [...document.querySelectorAll('.called')].map((n) => n.textContent.trim()),
     }));
 
   const wholeGame = args.includes('--whole-game');
+  const calls = [];
   const toEnd = args.includes('--to-end') || wholeGame;
   const limit = wholeGame ? 6000 : toEnd ? 400 : 6;
   const deadline = Date.now() + seconds * 1000;
@@ -91,6 +93,7 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 200));
       continue;
     }
+    if (state.called?.length) calls.push(...state.called);
     if (state.myTurn) {
       const clicked = await page.evaluate(() => {
         const tile = document.querySelector('.hand button.tile:not([disabled])');
@@ -111,6 +114,7 @@ try {
   }
   state = await read();
   console.log('discards played:', played);
+  if (calls.length) console.log('calls announced:', [...new Set(calls)].join(', '));
   if (state.safe) console.log('safe hint:', state.safe, `(${state.safeMarks} marked)`);
   if (state.ended) console.log('hand ended:', state.ended);
   if (state.finished) {
