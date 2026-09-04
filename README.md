@@ -37,13 +37,18 @@ plays and the game the opponents were trained on cannot drift apart.
 
 - **Training from self-play**, with a warm start that imitates the heuristic
   player and a clipped actor-critic loop that continues from it.
-- **A search that imagines the hands it cannot see.** A policy head answers
-  from the position in front of it and never plays anything out; this deals
-  the unseen tiles into the other three hands and the wall, plays that world
-  to the end, and does it again, across every core. A move has to beat the
-  player's own choice by two standard errors of the paired difference before
-  it is taken, because taking the best of several noisy rollouts otherwise
-  keeps the luckiest candidate rather than the best.
+- **A search that imagines the hands it cannot see and asks the network
+  what results.** A policy head answers from the position in front of it
+  and never looks ahead; this deals the unseen tiles into the other three
+  hands and the wall, makes each candidate move, runs the other players
+  round to the next decision, and has the network's value head judge the
+  position that results, across hundreds of worlds and every core. A move
+  has to beat the player's own choice by two standard errors of the
+  world-by-world difference before it is taken, because taking the best of
+  several noisy estimates otherwise keeps the luckiest candidate rather
+  than the best. An earlier version played the worlds out with a heuristic
+  instead, and measured worse than not searching once it was allowed to
+  override: a biased judge, sharpened.
 - **A network that reads the table.** The worlds are not dealt evenly, which
   would assume opponents discard at random. They chose what to throw, so
   what is left is what they wanted to keep, and the network has a head that
