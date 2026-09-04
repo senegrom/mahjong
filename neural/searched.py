@@ -114,6 +114,7 @@ def play(
     worlds: int,
     candidates: int,
     margin: float,
+    pool: int = 4,
     hurried: bool = True,
     device: str = "cuda",
 ) -> tuple[np.ndarray, tuple[int, int]]:
@@ -169,6 +170,7 @@ def play(
                 margin=margin,
                 hurried=hurried,
                 device=device,
+                pool=pool,
             )
         arena.step(list(choice))
 
@@ -188,6 +190,14 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=90_210)
     parser.add_argument("--worlds", type=int, default=200)
     parser.add_argument("--candidates", type=int, default=4)
+    parser.add_argument(
+        "--pool",
+        type=int,
+        default=4,
+        help="how many worlds are imagined for each one kept: the reader "
+        "weighs the pool and keeps the most plausible. A pool of one is "
+        "the sampled search, with no weighing at all",
+    )
     parser.add_argument("--margin", type=float, default=2.0)
     parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
@@ -210,6 +220,7 @@ def main() -> None:
             worlds=args.worlds,
             candidates=args.candidates,
             margin=args.margin,
+            pool=args.pool,
         )
         asked += tally[0]
         overrode += tally[1]
@@ -242,6 +253,7 @@ def main() -> None:
             {
                 "checkpoint": args.checkpoint,
                 "worlds": args.worlds,
+                "pool": args.pool,
                 "candidates": args.candidates,
                 "margin": args.margin,
                 "games_total": args.games * SEATS,
