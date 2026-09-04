@@ -32,8 +32,10 @@ HAND_SCALE = 1.0 / 4000.0
 # single decision and only adds spread. A raw score of about 30,000 points
 # adds a large offset and a spread of thousands; the place adds a bounded
 # number that is zero on average across the table, which is the smallest
-# honest way to say what the game is for.
-PLACEMENT_VALUE = (1.5, 0.5, -0.5, -1.5)
+# honest way to say what the game is for. The numbers live in the engine,
+# which needs them too when a search plays an imagined world to the end of
+# the game.
+PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 
 
 @dataclass

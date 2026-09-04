@@ -451,11 +451,12 @@ impl Arena {
     /// deciding seat's next turn, and returns the positions that result.
     ///
     /// Returns, in order: every observation concatenated, as float32; how
-    /// many slots each game contributed; what a slot's hand moved if it
-    /// ended on the way, as float32 with NaN where it did not; and whether
-    /// each slot's move was legal in its world, as bytes of 0 and 1. Slots
-    /// are numbered candidate-major within a game. A game that owes no
-    /// decision, or owes a call, contributes no slots.
+    /// many slots each game contributed; what each slot has already
+    /// settled, as float32, which is what the hands that ended on the way
+    /// moved and the placement if the game ended; and whether each slot's
+    /// observation wants the network's value added to that, as bytes of 0
+    /// and 1. Slots are numbered candidate-major within a game. A game
+    /// that owes no decision, or owes a call, contributes no slots.
     ///
     /// Python values every slot with one forward pass and hands the numbers
     /// to [`Arena::decide`].
@@ -482,8 +483,8 @@ impl Arena {
 
         let mut observations: Vec<f32> = Vec::new();
         let mut counts = Vec::with_capacity(games);
-        let mut finished: Vec<f32> = Vec::new();
-        let mut legal: Vec<u8> = Vec::new();
+        let mut settled: Vec<f32> = Vec::new();
+        let mut wanted: Vec<u8> = Vec::new();
         for (game, ranking) in ranked.iter().enumerate() {
             self.pending[game] = None;
             let seat = &mut self.seats[game];
@@ -506,20 +507,17 @@ impl Arena {
             }
             let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
             let got = search::leaves(&seat.hand, wind, &shortlist, effort, &belief, &mut seat.rng);
-            counts.push(got.legal.len());
+            counts.push(got.counted.len());
             observations.extend_from_slice(&got.observations);
-            finished.extend(got.finished.iter().map(|done| match done {
-                Some(moved) => *moved as f32,
-                None => f32::NAN,
-            }));
-            legal.extend(got.legal.iter().map(|ok| u8::from(*ok)));
+            settled.extend(got.settled.iter().map(|worth| *worth as f32));
+            wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
             self.pending[game] = Some((shortlist, got));
         }
         (
             PyBytes::new(py, bytemuck_cast(&observations)),
             counts,
-            finished,
-            legal,
+            settled,
+            wanted,
         )
     }
 
@@ -538,7 +536,7 @@ impl Arena {
                 chosen.push(fallback);
                 continue;
             };
-            let slots = leaves.legal.len();
+            let slots = leaves.counted.len();
             let values: Vec<f64> = valued[offset..offset + slots]
                 .iter()
                 .map(|value| *value as f64)
@@ -752,6 +750,10 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ACTIONS", ACTIONS)?;
     module.add("OPPONENTS", OPPONENTS)?;
     module.add("POINTS_PER_UNIT", riichi_core::encoding::POINTS_PER_UNIT)?;
+    module.add(
+        "PLACEMENT_VALUE",
+        riichi_core::encoding::PLACEMENT_VALUE.to_vec(),
+    )?;
     module.add("HANDS", HANDS)?;
     module.add("PASS", PASS)?;
     Ok(())

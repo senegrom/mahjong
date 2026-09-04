@@ -50,15 +50,16 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
     first move unless another beats it by `margin` standard errors of the
     world-by-world difference.
     """
-    planes_bytes, counts, finished, legal = arena.leaves(
+    planes_bytes, counts, _settled, _wanted = arena.leaves(
         ranked, belief_flat, worlds=worlds, candidates=candidates, hurried=hurried
     )
     total = sum(counts)
     if total == 0:
         return arena.decide([], margin, ranked)
     planes = np.frombuffer(planes_bytes, dtype=np.float32).reshape(total, PLANES, POSITIONS)
-    # Every slot is valued, including the few that finished or were illegal;
-    # the engine ignores those values and it is cheaper than gathering.
+    # Every slot is valued, including the few that want no value; the engine
+    # adds what it settled itself, ignores the rest, and that is cheaper
+    # than gathering.
     valued = np.empty(total, dtype=np.float32)
     step = 8192
     for start in range(0, total, step):

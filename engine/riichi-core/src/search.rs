@@ -68,10 +68,11 @@
 //! is something the arena decides, not the literature.
 
 use crate::bot::{Bot, Style};
-use crate::encoding::{self, OBSERVATION, OPPONENTS, POINTS_PER_UNIT, POSITIONS};
+use crate::encoding::{self, OBSERVATION, OPPONENTS, PLACEMENT_VALUE, POINTS_PER_UNIT, POSITIONS};
 use crate::game::{Action, Call, Hand, Phase};
 use crate::hand::TileSet;
 use crate::rng::Rng;
+use crate::table::Table;
 use crate::tile::{Tile, COPIES};
 use crate::Wind;
 
@@ -527,6 +528,17 @@ impl Tally {
 /// that was trained on real outcomes rather than a heuristic standing in
 /// for one.
 ///
+/// The value head was trained to predict what the current hand will move,
+/// in units of [`POINTS_PER_UNIT`], plus what the game will be worth by
+/// the place it ends in ([`PLACEMENT_VALUE`]). A slot whose hand ends on
+/// the way has to be brought onto the same scale, or the search compares
+/// a win of a quarter of a unit against positions that still carry a
+/// whole placement, and a leader would never take a cheap hand. So when a
+/// hand ends, what it moved is banked in `settled`, the world is played on
+/// into the next hand to the player's first decision there, and the
+/// network values that; when the game ends, the placement it ended in is
+/// banked instead and there is nothing left to value.
+///
 /// Slots are numbered `candidate * worlds + world`.
 #[derive(Clone, Debug)]
 pub struct Leaves {
@@ -535,29 +547,51 @@ pub struct Leaves {
     /// How many candidates were tried in each.
     pub candidates: usize,
     /// One observation per slot, [`OBSERVATION`] numbers each, from the
-    /// searching seat's viewpoint. Slots that need no valuing hold zeros.
+    /// searching player's viewpoint. Slots that want no valuing hold zeros.
     pub observations: Vec<f32>,
-    /// Slots whose hand ended before a position could be valued, with
-    /// what the hand moved for the searching seat in the value head's
-    /// units. Those need no network; a deal-in is worth what it cost.
-    pub finished: Vec<Option<f64>>,
-    /// Slots where the move could not be made in that world, which an
-    /// imagined hand can do to a quad. Not counted for that candidate.
-    pub legal: Vec<bool>,
+    /// What is already known of each slot's worth, in the value head's
+    /// units: what the hands that ended on the way moved for the searching
+    /// player, and the placement if the game ended.
+    pub settled: Vec<f64>,
+    /// Whether each slot's observation is a position the network should
+    /// value, to be added to `settled`.
+    pub wanted: Vec<bool>,
+    /// Whether each slot counts for its candidate at all. It does not when
+    /// the move could not be made in that world, which an imagined hand
+    /// can do to a quad, or when the world could not be played on.
+    pub counted: Vec<bool>,
 }
 
-impl Leaves {
-    /// The slots that still need the network: not finished, and legal.
-    pub fn wanted(&self) -> impl Iterator<Item = usize> + '_ {
-        (0..self.legal.len()).filter(|slot| self.legal[*slot] && self.finished[*slot].is_none())
-    }
+/// Where an imagined world got to after a candidate move.
+enum Leaf {
+    /// The searching player has a decision to make, seen from `seat`,
+    /// which is not the seat the search began in if a hand ended on the
+    /// way.
+    Position { seat: Wind, settled: f64 },
+    /// The game ended, and this is what the player's stake came to.
+    Settled(f64),
+    /// The world could not be played on. The engine refusing a move or a
+    /// hand that will not end would do it, and neither should happen.
+    Broken,
+}
+
+/// What running the other players did to one hand.
+enum Advance {
+    /// The searching seat has a decision to make.
+    Decision,
+    /// The hand ended, and this is what it moved for the searching seat
+    /// since it was dealt, in the value head's units. Counting from the
+    /// deal rather than from where the search began keeps it on the
+    /// value head's scale, whose hand term is measured the same way, even
+    /// when a riichi bet was paid on the way.
+    HandOver(f64),
+    /// The engine refused something, or the hand would not end.
+    Broken,
 }
 
 /// Runs the other players round to `seat`'s next decision, or to the end
-/// of the hand. Returns what the hand moved for `seat` if it ended, in the
-/// value head's units, and nothing if `seat` has a decision to make.
-fn advance_to_decision(world: &mut Hand, seat: Wind, style: Style, seed: u64) -> Option<f64> {
-    let opening = world.players[seat.index()].score;
+/// of the hand.
+fn advance_to_decision(world: &mut Hand, seat: Wind, style: Style, seed: u64) -> Advance {
     let mut bots: Vec<Bot> = (0..4)
         .map(|index| Bot::with_style(seed.wrapping_add(index), style))
         .collect();
@@ -565,21 +599,21 @@ fn advance_to_decision(world: &mut Hand, seat: Wind, style: Style, seed: u64) ->
     loop {
         guard += 1;
         if guard > 600 {
-            break;
+            return Advance::Broken;
         }
         match world.phase {
             Phase::Over => break,
-            Phase::Act if world.turn == seat => return None,
+            Phase::Act if world.turn == seat => return Advance::Decision,
             Phase::Draw => {
                 if world.draw().is_err() {
-                    break;
+                    return Advance::Broken;
                 }
             }
             Phase::Act => {
                 let turn = world.turn;
                 let action = bots[turn.index()].act(world);
                 if world.act(action).is_err() {
-                    break;
+                    return Advance::Broken;
                 }
             }
             Phase::CallWindow => {
@@ -592,12 +626,78 @@ fn advance_to_decision(world: &mut Hand, seat: Wind, style: Style, seed: u64) ->
                     .map(|(who, calls)| (*who, bots[who.index()].call(world, *who, calls)))
                     .collect();
                 if world.resolve_calls(&answers).is_err() {
-                    break;
+                    return Advance::Broken;
                 }
             }
         }
     }
-    Some((world.players[seat.index()].score - opening) as f64 / POINTS_PER_UNIT as f64)
+    let moved = world.players[seat.index()].score - world.opening[seat.index()];
+    Advance::HandOver(moved as f64 / POINTS_PER_UNIT as f64)
+}
+
+/// The table a hand is being played at, as far as the hand knows it. Who
+/// sits where does not matter to a search, so the seats stand in for the
+/// players, and the first dealer is placed so that the hand's number comes
+/// out right and the round ends when it should.
+fn table_of(hand: &Hand) -> Table {
+    let mut table = Table::new();
+    for seat in Wind::ALL {
+        table.scores[seat.index()] = hand.players[seat.index()].score;
+    }
+    let number = (hand.kyoku as usize).clamp(1, 4);
+    table.first_dealer = (5 - number) % 4;
+    table.round = hand.round;
+    table.counters = hand.counters;
+    table.riichi_sticks = hand.riichi_sticks;
+    debug_assert_eq!(table.kyoku() as usize, number);
+    table
+}
+
+/// What finishing the game is worth to `player`, by the place the final
+/// scores put them in. Ties go to the lower seat, as they do when the
+/// training target is worked out.
+fn placement_value(table: &Table, player: usize) -> f64 {
+    let finals = table.final_scores();
+    let mine = finals[player];
+    let place = finals
+        .iter()
+        .enumerate()
+        .filter(|(other, score)| **score > mine || (**score == mine && *other < player))
+        .count();
+    PLACEMENT_VALUE[place] as f64
+}
+
+/// Plays an imagined world on from just after a candidate move until the
+/// searching player has a decision to make, through the end of a hand and
+/// into the next if need be, or until the game ends.
+fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64) -> Leaf {
+    let mut settled = 0.0;
+    let mut seat = seat;
+    // A game rarely runs past a dozen hands, and the loop is here for the
+    // hand that ends before the player's first turn in it, which happens
+    // once in a very long while.
+    for extra in 0..16u64 {
+        let seed = seed.wrapping_add(extra * 4);
+        match advance_to_decision(world, seat, style, seed) {
+            Advance::Decision => return Leaf::Position { seat, settled },
+            Advance::Broken => return Leaf::Broken,
+            Advance::HandOver(moved) => {
+                settled += moved;
+                // The seats of the hand that just ended stand in for the
+                // players, so the player is this seat's number.
+                let player = seat.index();
+                let mut table = table_of(world);
+                table.finish(world);
+                if table.finished {
+                    return Leaf::Settled(settled + placement_value(&table, player));
+                }
+                let mut rng = Rng::from_seed(seed ^ 0x9e37_79b9);
+                *world = table.deal(&mut rng);
+                seat = table.seat_of(player);
+            }
+        }
+    }
+    Leaf::Broken
 }
 
 /// Imagines the worlds, makes each candidate move in each, and returns the
@@ -623,68 +723,77 @@ pub fn leaves(
     let jobs: Vec<(usize, usize)> = (0..candidates.len())
         .flat_map(|candidate| (0..worlds.len()).map(move |world| (candidate, world)))
         .collect();
-    // Each job hands back the slot's observation, whether it finished and
-    // for what, and whether the move was legal there at all.
-    let results: Vec<(Vec<f32>, Option<f64>, bool)> = run_all(&jobs, |&(candidate, world)| {
+    // Each job hands back the slot's observation if it has one to value,
+    // what is already settled about it, and whether it counts at all.
+    let results: Vec<(Vec<f32>, f64, bool)> = run_all(&jobs, |&(candidate, world)| {
         let mut trial = worlds[world].clone();
         if trial.act(candidates[candidate]).is_err() {
-            return (Vec::new(), None, false);
+            return (Vec::new(), 0.0, false);
         }
-        match advance_to_decision(&mut trial, seat, style, world as u64 * 977 + 13) {
-            Some(moved) => (Vec::new(), Some(moved), true),
-            None => {
+        match play_to_leaf(&mut trial, seat, style, world as u64 * 977 + 13) {
+            Leaf::Position {
+                seat: viewpoint,
+                settled,
+            } => {
                 let mut out = vec![0.0; OBSERVATION];
-                encoding::observe(&trial, seat, &mut out);
-                (out, None, true)
+                encoding::observe(&trial, viewpoint, &mut out);
+                (out, settled, true)
             }
+            Leaf::Settled(worth) => (Vec::new(), worth, true),
+            Leaf::Broken => (Vec::new(), 0.0, false),
         }
     });
 
     let slots = jobs.len();
     let mut observations = vec![0.0f32; slots * OBSERVATION];
-    let mut finished = vec![None; slots];
-    let mut legal = vec![false; slots];
-    for (slot, (out, done, ok)) in results.into_iter().enumerate() {
+    let mut settled = vec![0.0; slots];
+    let mut wanted = vec![false; slots];
+    let mut counted = vec![false; slots];
+    for (slot, (out, worth, counts)) in results.into_iter().enumerate() {
         if !out.is_empty() {
             observations[slot * OBSERVATION..(slot + 1) * OBSERVATION].copy_from_slice(&out);
+            wanted[slot] = true;
         }
-        finished[slot] = done;
-        legal[slot] = ok;
+        settled[slot] = worth;
+        counted[slot] = counts;
     }
     Leaves {
         worlds: worlds.len(),
         candidates: candidates.len(),
         observations,
-        finished,
-        legal,
+        settled,
+        wanted,
+        counted,
     }
 }
 
 /// Decides from the values the network gave the leaves.
 ///
-/// `valued` holds one number per slot in the value head's units; entries
-/// for finished or illegal slots are ignored, since those carry their own
-/// answer. The first candidate is the one to beat, and another is taken
-/// only when it wins by `margin` standard errors of the world-by-world
-/// difference, for the same reason as in [`best`].
+/// `valued` holds one number per slot in the value head's units. A slot is
+/// worth what was settled on the way plus, where it wants one, the
+/// network's value of the position it reached; slots that do not count
+/// are left out of their candidate's average. The first candidate is the
+/// one to beat, and another is taken only when it wins by `margin`
+/// standard errors of the world-by-world difference, for the same reason
+/// as in [`best`].
 pub fn decide(
     candidates: &[Action],
     leaves: &Leaves,
     valued: &[f64],
     margin: f64,
 ) -> Option<Judged> {
-    assert_eq!(valued.len(), leaves.legal.len(), "one value per slot");
+    assert_eq!(valued.len(), leaves.counted.len(), "one value per slot");
     let judged: Vec<Judged> = (0..leaves.candidates)
         .map(|candidate| {
             let per_world: Vec<Option<f64>> = (0..leaves.worlds)
                 .map(|world| {
                     let slot = candidate * leaves.worlds + world;
-                    if !leaves.legal[slot] {
+                    if !leaves.counted[slot] {
                         None
-                    } else if let Some(moved) = leaves.finished[slot] {
-                        Some(moved)
+                    } else if leaves.wanted[slot] {
+                        Some(leaves.settled[slot] + valued[slot])
                     } else {
-                        Some(valued[slot])
+                        Some(leaves.settled[slot])
                     }
                 })
                 .collect();
@@ -818,7 +927,6 @@ impl Searcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::table::Table;
 
     /// An imagined world has to be a world: every tile accounted for, none
     /// of them five times over, and everything the player can see left
@@ -967,11 +1075,11 @@ mod tests {
         let got = leaves(&hand, seat, &candidates, effort, &Belief::even(), &mut rng);
         assert_eq!(got.worlds, 6);
         assert_eq!(got.candidates, 3);
-        assert_eq!(got.legal.len(), 18);
+        assert_eq!(got.counted.len(), 18);
         assert_eq!(got.observations.len(), 18 * OBSERVATION);
-        // Every legal, unfinished slot carries a real observation: the
+        // Every slot that wants a value carries a real observation: the
         // player's own hand is in it, so the planes are not all zero.
-        for slot in got.wanted() {
+        for slot in (0..18).filter(|slot| got.wanted[*slot]) {
             let planes = &got.observations[slot * OBSERVATION..(slot + 1) * OBSERVATION];
             assert!(
                 planes.iter().any(|value| *value != 0.0),
@@ -986,7 +1094,7 @@ mod tests {
             valued[2 * 6 + world] = 5.0 + world as f64 * 0.01;
         }
         let chosen = decide(&candidates, &got, &valued, 2.0).expect("a decision");
-        if got.wanted().filter(|slot| *slot >= 12).count() >= 3 {
+        if (12..18).all(|slot| got.wanted[slot]) {
             assert_eq!(
                 chosen.action, candidates[2],
                 "the clearly better move is taken"
@@ -995,6 +1103,151 @@ mod tests {
         let flat = vec![1.0; 18];
         let kept = decide(&candidates, &got, &flat, 2.0).expect("a decision");
         assert_eq!(kept.action, candidates[0], "nothing beats the incumbent");
+    }
+
+    /// Plays a hand to its end with the hurried bots.
+    fn run_out(world: &mut Hand, seed: u64) {
+        let style = Style::rollout();
+        let mut bots: Vec<Bot> = (0..4)
+            .map(|index| Bot::with_style(seed + index, style))
+            .collect();
+        let mut guard = 0;
+        while !matches!(world.phase, Phase::Over) {
+            guard += 1;
+            assert!(guard < 600, "a hand ends");
+            match world.phase {
+                Phase::Draw => {
+                    world.draw().expect("a draw");
+                }
+                Phase::Act => {
+                    let turn = world.turn;
+                    let action = bots[turn.index()].act(world);
+                    world.act(action).expect("a legal move");
+                }
+                Phase::CallWindow => {
+                    let answers: Vec<(Wind, Call)> = world
+                        .legal_calls()
+                        .iter()
+                        .map(|(who, calls)| (*who, bots[who.index()].call(world, *who, calls)))
+                        .collect();
+                    world.resolve_calls(&answers).expect("calls resolve");
+                }
+                Phase::Over => {}
+            }
+        }
+    }
+
+    /// A hand that has ended is not a position the network can value. The
+    /// search banks what it moved and plays the world into the next hand,
+    /// to the same player's first decision there, so that every leaf
+    /// carries a placement.
+    #[test]
+    fn a_finished_hand_is_played_into_the_next_one() {
+        let mut rng = Rng::from_seed(11);
+        let mut world = Table::new().deal(&mut rng);
+        let seat = Wind::South;
+        let before = world.players[seat.index()].score;
+        run_out(&mut world, 5);
+        let after = world.players[seat.index()].score;
+        let moved = (after - before) as f64 / POINTS_PER_UNIT as f64;
+
+        // East 1 cannot be the last hand, so the world goes on.
+        match play_to_leaf(&mut world, seat, Style::rollout(), 77) {
+            Leaf::Position { seat: now, settled } => {
+                assert!(
+                    (settled - moved).abs() < 1e-9,
+                    "what the hand moved is banked"
+                );
+                assert!(
+                    matches!(world.phase, Phase::Act) && world.turn == now,
+                    "the player is on turn in the new hand"
+                );
+                assert!(world.discards_made <= 8, "the new hand has only just begun");
+                assert_eq!(
+                    world.players[now.index()].score,
+                    after,
+                    "the player's points came with them"
+                );
+            }
+            Leaf::Settled(_) => panic!("the game cannot end at East 1"),
+            Leaf::Broken => panic!("the world could be played on"),
+        }
+    }
+
+    /// When the hand that ended was the last of the game there is no next
+    /// position: the leaf is worth what the hand moved plus the place the
+    /// game finished in.
+    #[test]
+    fn the_last_hand_settles_with_the_placement() {
+        let mut settled_once = false;
+        let mut went_on_once = false;
+        for seed in 0..12u64 {
+            let mut table = Table::new();
+            table.round = Wind::South;
+            table.first_dealer = 1;
+            assert_eq!(table.kyoku(), 4, "player 0 is East at South 4");
+            let mut rng = Rng::from_seed(100 + seed);
+            let mut world = table.deal(&mut rng);
+            let seat = Wind::West;
+            let before = world.players[seat.index()].score;
+            run_out(&mut world, seed);
+            let moved =
+                (world.players[seat.index()].score - before) as f64 / POINTS_PER_UNIT as f64;
+            let mut after = table_of(&world);
+            after.finish(&world);
+
+            match play_to_leaf(&mut world.clone(), seat, Style::rollout(), seed) {
+                Leaf::Settled(worth) => {
+                    assert!(after.finished, "settled only when the game is over");
+                    let expected = moved + placement_value(&after, seat.index());
+                    assert!((worth - expected).abs() < 1e-9, "the placement is banked");
+                    settled_once = true;
+                }
+                Leaf::Position { .. } => {
+                    assert!(
+                        !after.finished,
+                        "the dealer kept the deal, so the game went on"
+                    );
+                    went_on_once = true;
+                }
+                Leaf::Broken => panic!("the world could be played on"),
+            }
+        }
+        assert!(settled_once, "some game ended at South 4");
+        assert!(went_on_once, "some dealer kept the deal at South 4");
+    }
+
+    /// The placement goes by the final scores, and a tie goes to the lower
+    /// seat, as it does when the training target is worked out.
+    #[test]
+    fn placement_goes_by_final_score_with_ties_to_the_lower_seat() {
+        let mut table = Table::new();
+        table.scores = [40_000, 30_000, 20_000, 30_000];
+        table.finished = true;
+        assert_eq!(placement_value(&table, 0), 1.5);
+        assert_eq!(placement_value(&table, 1), 0.5);
+        assert_eq!(placement_value(&table, 3), -0.5);
+        assert_eq!(placement_value(&table, 2), -1.5);
+    }
+
+    /// A hand knows enough about its table for the search to play on from
+    /// it: the round, the hand's number, the counters, the bets and the
+    /// scores all come back.
+    #[test]
+    fn a_hand_knows_which_table_it_is_at() {
+        let mut table = Table::new();
+        table.round = Wind::South;
+        table.first_dealer = 2;
+        table.counters = 2;
+        table.riichi_sticks = 1;
+        table.scores = [31_000, 29_000, 33_000, 27_000];
+        let hand = table.deal(&mut Rng::from_seed(3));
+        let seen = table_of(&hand);
+        assert_eq!(seen.kyoku(), table.kyoku());
+        assert_eq!(seen.round, Wind::South);
+        assert_eq!(seen.counters, 2);
+        assert_eq!(seen.riichi_sticks, 1);
+        assert_eq!(seen.scores, table.scores);
     }
 
     /// A world that was imagined can be played to the end, which is the
