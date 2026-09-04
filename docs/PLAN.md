@@ -14,7 +14,7 @@ is left is the strength of the trained opponent.
 | M1, the browser game | done but for replays. A whole game is playable, by mouse or keyboard, with the learning aids, a post-game review, and the hand saveable as an mjai log. Published from Actions. |
 | M2, the training loop | done. The network is 0.057 placement ahead of the heuristic bot over ten thousand duplicate deals, which is 5.2 standard errors. |
 | M3, neural tiers in the browser | done. The trained tier is published: 2.4 MB of int8 weights in a worker beside the rules, answering in 38 milliseconds at the median where the plan asks for under 200. The review and the learning aids are there; a replay is not. |
-| M4, search and Mortal | search is built the AlphaZero way: worlds imagined from what a seat can see and drawn from what the network believes the opponents hold, each candidate made in each, the position that results valued by the network's value head in one batched pass, and a move taken only when it beats the player's own choice by two standard errors of the world-by-world difference. The earlier rollout evaluator measured worse than not searching as the world count rose (2.503 at ten, 2.581 at two hundred, overrides climbing from 2.7% to 3.7%), which is what a biased judge does when sharpened. The value head is being trained by self-play; the measurement follows. Mortal not started. |
+| M4, search and Mortal | search is built the AlphaZero way: worlds imagined from what a seat can see and drawn from what the network believes the opponents hold, each candidate made in each, the position that results valued by the network's value head in one batched pass, and a move taken only when it beats the player's own choice by two standard errors of the world-by-world difference. The earlier rollout evaluator measured worse than not searching as the world count rose (2.503 at ten, 2.581 at two hundred, overrides climbing from 2.7% to 3.7%), which is what a biased judge does when sharpened. A leaf whose hand ends is played into the next hand for the network to value, or banks the placement when the game ends, so every leaf is on the value head's scale; before that a leader would never have taken a cheap win. The observation gained the hand's number, without which South 1 and South 4 looked the same; older checkpoints are widened with zero weights on loading. The value head is being trained by self-play; the measurement at 200 worlds is running. Mortal not started. |
 
 The honest summary of the AI: a warm start on the heuristic player reaches
 its level, and self-play has passed it. The gain is real but not large, and
@@ -291,8 +291,9 @@ choices:
   tiles (opponents' hands, the wall) as extra features that are annealed away,
   a proven variance reducer for mahjong; the policy never sees them.
 - Reward: final game result including uma, plus per-hand score changes as an
-  annealed shaping term. The value head sees round, scores, counters and
-  riichi sticks so it can trade a hand's value against placement.
+  annealed shaping term. The value head sees round, hand number, scores,
+  counters and riichi sticks so it can trade a hand's value against
+  placement.
 - Search-improved targets as the second stage: at the actor, sample hidden
   tiles consistent with public information, evaluate each legal action by
   short rollouts or one-ply expectation under the sampled worlds, and train

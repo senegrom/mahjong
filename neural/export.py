@@ -18,7 +18,7 @@ import torch
 
 import riichi_py
 
-from .model import PolicyValueNet
+from .model import PolicyValueNet, load_weights
 
 
 class PolicyOnly(torch.nn.Module):
@@ -51,7 +51,7 @@ def main() -> None:
 
     payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
     net = PolicyValueNet(payload.get("channels", 192), payload.get("blocks", 10))
-    net.load_state_dict(payload["model"])
+    load_weights(net, payload["model"])
     net.eval()
 
     wrapped = PolicyOnly(net).eval()

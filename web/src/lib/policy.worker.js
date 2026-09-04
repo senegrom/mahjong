@@ -16,7 +16,9 @@ ort.env.wasm.simd = true;
 ort.env.logLevel = 'error';
 let configured = false;
 
-const PLANES = 93;
+// Positions in a plane: the 34 tile kinds. How many planes there are is
+// whatever the engine sent, so neither the worker nor the model has to be
+// told when the observation grows.
 const POSITIONS = 34;
 
 let session = null;
@@ -82,7 +84,7 @@ self.onmessage = async (event) => {
     self.postMessage({ id, progress: 'loading the network' });
     const model = await load(url, runtimeBase);
     self.postMessage({ id, progress: 'network ready' });
-    const input = new ort.Tensor('float32', planes, [1, PLANES, POSITIONS]);
+    const input = new ort.Tensor('float32', planes, [1, planes.length / POSITIONS, POSITIONS]);
     const output = await model.run({ planes: input });
     const logits = output.policy.data;
     self.postMessage({ id, action: pick(logits, mask, temperature ?? 0) });

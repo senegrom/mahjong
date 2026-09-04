@@ -30,7 +30,7 @@ from torch import nn
 
 import riichi_py
 
-from .model import build
+from .model import build, load_weights
 from .selfplay import measure
 
 PLANES = riichi_py.PLANES
@@ -174,7 +174,7 @@ def main() -> None:
 
     net = build(channels=args.channels, blocks=args.blocks, device=device)
     payload = torch.load(args.resume, map_location=device, weights_only=True)
-    net.load_state_dict(payload["model"])
+    load_weights(net, payload["model"])
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
     print(
         f"device {device} | {net.channels}x{net.blocks} "

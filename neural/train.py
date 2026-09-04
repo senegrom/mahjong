@@ -27,7 +27,7 @@ import torch
 from torch import nn
 
 from . import selfplay
-from .model import PolicyValueNet
+from .model import PolicyValueNet, load_weights
 
 
 # How much of a new measurement goes into the smoothed figure the best
@@ -87,7 +87,7 @@ def main() -> None:
     smoothed = None
     if args.resume and args.resume.exists():
         payload = torch.load(args.resume, map_location=device, weights_only=True)
-        net.load_state_dict(payload["model"])
+        load_weights(net, payload["model"])
         start = int(payload.get("generation", 0))
         if payload.get("channels") not in (None, net.channels):
             raise SystemExit("the checkpoint was trained at a different width")
@@ -206,6 +206,12 @@ def main() -> None:
             "mean_return": round(float(returns.mean()), 4),
         }
 
+        payload = {
+            "model": net.state_dict(),
+            "generation": generation + 1,
+            "channels": net.channels,
+            "blocks": net.blocks,
+        }
         if (generation + 1) % args.measure_every == 0 or generation == 0:
             against = selfplay.measure(
                 net, games=args.measure_games, seed=7_000_000 + generation, device=device
@@ -217,14 +223,7 @@ def main() -> None:
                     "win_rate": round(against["wins"], 3),
                 }
             )
-            payload = {
-                "model": net.state_dict(),
-                "generation": generation + 1,
-                "channels": net.channels,
-                "blocks": net.blocks,
-                "placement": against["placement"],
-            }
-            torch.save(payload, args.out / "latest.pt")
+            payload["placement"] = against["placement"]
 
             # The high-water mark is kept apart, so a run that wanders can
             # always be brought back to the best network it has produced.
@@ -244,6 +243,11 @@ def main() -> None:
                 best_placement = smoothed
                 torch.save(payload, args.out / "best.pt")
                 record["best"] = True
+
+        # Saved every generation, not only when measured, so that a restart
+        # loses one generation at most rather than every one since the last
+        # measurement.
+        torch.save(payload, args.out / "latest.pt")
 
         print(json.dumps(record), flush=True)
         with log_path.open("a", encoding="utf-8") as handle:

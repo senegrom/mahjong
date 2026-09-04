@@ -22,8 +22,10 @@ use crate::shanten;
 use crate::tile::{Tile, COPIES, KINDS};
 use crate::Wind;
 
-/// Planes in an observation.
-pub const PLANES: usize = 93;
+/// Planes in an observation. Planes are only ever added at the end, so a
+/// network trained on fewer can be widened with zero weights for the rest
+/// and play exactly as it did.
+pub const PLANES: usize = 97;
 /// Positions in a plane: the 34 tile kinds.
 pub const POSITIONS: usize = KINDS;
 /// Numbers in one observation.
@@ -250,6 +252,18 @@ pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
     broadcast(out, &mut plane, distance as f32 / 8.0);
     broadcast(out, &mut plane, hand.discards_made as f32 / DISCARD_SPAN);
 
+    // Which hand of the round this is, one plane each. Without it South 1
+    // and South 4 look the same, and placement play turns on the
+    // difference: how many hands are left to overtake in, or to be
+    // overtaken in.
+    for number in 1..=4u8 {
+        broadcast(
+            out,
+            &mut plane,
+            if hand.kyoku == number { 1.0 } else { 0.0 },
+        );
+    }
+
     debug_assert_eq!(plane, PLANES, "the observation must fill every plane");
 }
 
@@ -473,6 +487,33 @@ mod tests {
         // as many distinct kinds as a hand can hold twice over.
         let first_plane: f32 = out[..POSITIONS].iter().sum();
         assert!((7.0..=14.0).contains(&first_plane));
+    }
+
+    /// The hand's number has a plane of its own, at the end, so a network
+    /// can tell the last hand of the game from the first.
+    #[test]
+    fn the_hand_number_lights_its_own_plane() {
+        for number in 1..=4u8 {
+            let hand = Hand::deal(
+                &mut Rng::from_seed(3),
+                Wind::South,
+                number,
+                0,
+                0,
+                [30_000; 4],
+            );
+            let mut out = vec![0.0; OBSERVATION];
+            observe(&hand, Wind::West, &mut out);
+            for candidate in 1..=4u8 {
+                let plane = PLANES - 4 + (candidate as usize - 1);
+                let row = &out[plane * POSITIONS..(plane + 1) * POSITIONS];
+                let expected = if candidate == number { 1.0 } else { 0.0 };
+                assert!(
+                    row.iter().all(|value| *value == expected),
+                    "hand {number}: the plane for hand {candidate} reads wrong"
+                );
+            }
+        }
     }
 
     #[test]

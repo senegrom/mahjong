@@ -28,7 +28,7 @@ import torch
 
 import riichi_py
 
-from .model import build
+from .model import build, load_weights
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -156,7 +156,7 @@ def main() -> None:
 
     state = torch.load(args.checkpoint, map_location="cuda", weights_only=True)
     net = build(channels=args.channels, blocks=args.blocks)
-    net.load_state_dict(state["model"])
+    load_weights(net, state["model"])
 
     per_chair = []
     per_deal = []

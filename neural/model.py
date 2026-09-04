@@ -143,3 +143,35 @@ class PolicyValueNet(nn.Module):
 def build(channels: int = 320, blocks: int = 20, device: str = "cuda") -> PolicyValueNet:
     net = PolicyValueNet(channels, blocks).to(device)
     return net
+
+
+def load_weights(net: PolicyValueNet, saved: dict[str, torch.Tensor]) -> None:
+    """Loads a checkpoint into `net`, widening its first layer if the
+    observation has grown planes since the checkpoint was saved.
+
+    The new planes get zero weights, so the network plays exactly as it did
+    until training teaches it what they mean. The engine only ever adds
+    planes at the end of the observation, which is what makes this a pad
+    rather than a shuffle.
+    """
+    key = "stem.0.weight"
+    weight = saved[key]
+    seen = weight.shape[1]
+    if seen < PLANES:
+        saved = dict(saved)
+        pad = weight.new_zeros(weight.shape[0], PLANES - seen, weight.shape[2])
+        saved[key] = torch.cat([weight, pad], dim=1)
+    elif seen > PLANES:
+        raise ValueError(
+            f"the checkpoint saw {seen} planes and the engine now makes {PLANES}"
+        )
+    # A checkpoint from before the network read the opponents' hands has
+    # no such head. It starts fresh, and everything else loads as saved;
+    # any other gap is still an error.
+    fresh = net.state_dict()
+    missing = [key for key in fresh if key not in saved]
+    if missing and all(key.startswith("hands.") for key in missing):
+        saved = dict(saved)
+        for key in missing:
+            saved[key] = fresh[key]
+    net.load_state_dict(saved)
