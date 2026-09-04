@@ -175,6 +175,34 @@ def main() -> None:
         # the value head itself.
         normalised = returns
 
+        # The baseline for the policy gradient is the oracle critic as it
+        # stands before this round's updates, computed once for the whole
+        # round. It used to be recomputed inside the epochs from the head
+        # being updated, and a critic that sees the hidden tiles fits a
+        # round's returns within an epoch or two: the advantages shrank
+        # towards nothing, the entropy bonus was all that was left, and the
+        # policy drifted towards uniform for twenty-five generations,
+        # entropy rising from 0.36 to 0.47 and placement worsening with it.
+        # The advantages are then standardised, because the clipped
+        # objective is not indifferent to a shift in them the way a plain
+        # policy gradient is.
+        net.eval()
+        baseline = torch.empty(batch.decisions, device=device)
+        with torch.no_grad():
+            for start_index in range(0, batch.decisions, 8192):
+                chunk = slice(start_index, start_index + 8192)
+                planes = observations[chunk].to(device).float()
+                seen = oracle[chunk].to(device).float()
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
+                    _logits, _value, _guessed, judged = net.with_oracle(planes, legal[chunk], seen)
+                baseline[chunk] = judged.float()
+        advantages = normalised - baseline
+        # The oracle's error on a round it has not yet seen, and the spread
+        # the policy gradient actually had to work with.
+        baseline_error = float((advantages**2).mean())
+        advantage_spread = float(advantages.std())
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+
         net.train()
         total_policy = total_value = total_entropy = 0.0
         total_oracle = total_distil = 0.0
@@ -221,10 +249,11 @@ def main() -> None:
                     reader_right = ((verdict > 0).float() == truth).float().mean()
                 distribution = torch.distributions.Categorical(logits=logits)
                 log_prob = distribution.log_prob(actions[picks])
-                # The oracle critic is the baseline. It depends on the hidden
-                # tiles but not on the action, so it takes nothing away from
-                # the gradient's expectation and a great deal from its noise.
-                advantage = (normalised[picks] - oracle_value).detach()
+                # The oracle critic is the baseline, as it stood before the
+                # round: see above. It depends on the hidden tiles but not
+                # on the action, so it takes nothing away from the
+                # gradient's expectation and a great deal from its noise.
+                advantage = advantages[picks]
 
                 # The clipped objective: an update may improve an action's
                 # odds, but only so far in one round, which is what keeps a
@@ -292,6 +321,8 @@ def main() -> None:
             "policy_loss": round(total_policy / max(steps, 1), 4),
             "value_loss": round(total_value / max(steps, 1), 4),
             "oracle_loss": round(total_oracle / max(steps, 1), 4),
+            "baseline_error": round(baseline_error, 4),
+            "advantage_spread": round(advantage_spread, 4),
             "distil": round(total_distil / max(steps, 1), 4),
             # The reader's loss and how often it tells a real set of hidden
             # hands from an imagined one; a half is guessing.
