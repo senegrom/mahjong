@@ -128,6 +128,7 @@ def main() -> None:
             games=args.games,
             seed=args.seed + generation * 1000,
             device=device,
+            amp=args.amp,
         )
         played = time.time() - began
 
@@ -270,7 +271,11 @@ def main() -> None:
         }
         if (generation + 1) % args.measure_every == 0 or generation == 0:
             against = selfplay.measure(
-                net, games=args.measure_games, seed=7_000_000 + generation, device=device
+                net,
+                games=args.measure_games,
+                seed=7_000_000 + generation,
+                device=device,
+                amp=args.amp,
             )
             record.update(
                 {

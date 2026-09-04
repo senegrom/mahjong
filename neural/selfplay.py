@@ -74,8 +74,13 @@ def play(
     bot_places: list[int] | None = None,
     greedy: bool = False,
     max_steps: int = 4000,
+    amp: bool = False,
 ) -> Batch:
-    """Plays `games` games to the end and returns every decision made."""
+    """Plays `games` games to the end and returns every decision made.
+
+    With `amp` the network's forward passes run in bfloat16, which is
+    plenty for choosing a move and about half the arithmetic.
+    """
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=bot_places or [])
 
@@ -112,7 +117,9 @@ def play(
         index = np.nonzero(live)[0]
         batch_planes = torch.from_numpy(planes[index]).to(device)
         batch_mask = torch.from_numpy(mask[index]).to(device)
-        logits, _value = net(batch_planes, batch_mask)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
+            logits, _value = net(batch_planes, batch_mask)
+        logits = logits.float()
         distribution = torch.distributions.Categorical(logits=logits)
         chosen = logits.argmax(dim=1) if greedy else distribution.sample()
         chosen_log_prob = distribution.log_prob(chosen)
@@ -179,7 +186,9 @@ def play(
 
 
 @torch.no_grad()
-def measure(net, games: int, seed: int, device: str = "cuda") -> dict[str, float]:
+def measure(
+    net, games: int, seed: int, device: str = "cuda", amp: bool = False
+) -> dict[str, float]:
     """Plays the network against three heuristic opponents.
 
     The network takes place 0 at every table; the other three places are the
@@ -198,6 +207,7 @@ def measure(net, games: int, seed: int, device: str = "cuda") -> dict[str, float
         device=device,
         bot_places=[1, 2, 3],
         greedy=True,
+        amp=amp,
     )
     scores = batch.final_scores
     order = (-scores).argsort(axis=1).argsort(axis=1) + 1
