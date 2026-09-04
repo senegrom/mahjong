@@ -214,11 +214,19 @@
     // stop at nine, and a hand is fourteen tiles.
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
+      // There is no marker until an arrow is pressed, so a mouse player
+      // never meets one. The first press puts it on the tile just drawn,
+      // which is the usual discard; the presses after that move it.
+      if (picked === null) {
+        picked = Math.max(handTiles.length - 1, 0);
+        return;
+      }
       const step = event.key === 'ArrowLeft' ? -1 : 1;
       picked = Math.min(Math.max(picked + step, 0), Math.max(handTiles.length - 1, 0));
       return;
     }
     if (event.key === 'Enter' || event.key === ' ') {
+      if (picked === null) return;
       const tile = handTiles[Math.min(picked, handTiles.length - 1)];
       if (tile && canDiscard(tile)) {
         event.preventDefault();
@@ -253,10 +261,19 @@
   // The hand as it is laid out: the concealed tiles, then the one just
   // drawn, which the table keeps apart and so does the page.
   let handTiles = $derived(me ? [...me.hand, ...(me.drawn ? [me.drawn] : [])] : []);
-  let picked = $state(0);
+  // Where the keyboard marker stands, or nowhere until an arrow is pressed.
+  let picked = $state(null);
   // A discard shortens the hand, so the marker is clamped rather than left
   // pointing past the end.
-  let marker = $derived(Math.min(picked, Math.max(handTiles.length - 1, 0)));
+  let marker = $derived(
+    picked === null ? -1 : Math.min(picked, Math.max(handTiles.length - 1, 0)),
+  );
+  // The marker lives for one turn: whatever it pointed at is gone once a
+  // tile is thrown, and the next turn starts without one.
+  $effect(() => {
+    myTurn;
+    picked = null;
+  });
 </script>
 
 <svelte:window on:keydown={onKey} />
@@ -298,14 +315,26 @@
           four nobody has seen yet. A wait with none left is marked in red.
         </dd>
 
-        <dt><span class="swatch dot"></span> a gold dot</dt>
+        <dt><span class="swatch dora"></span> a red ring, and a shine</dt>
         <dd>The tile is dora and adds a han to whatever your hand scores.</dd>
 
-        <dt><span class="swatch safe"></span> a green line</dt>
+        <dt><span class="swatch safe"></span> a green ring</dt>
         <dd>
           The tile cannot deal into anybody who has declared riichi, because
           they threw it themselves or it has already passed them.
         </dd>
+
+        <dt><span class="swatch drawn"></span> a gold ring</dt>
+        <dd>The tile you just drew, held apart from the rest as it is at the table.</dd>
+
+        <dt><span class="swatch marker"></span> a blue ring</dt>
+        <dd>
+          The tile under the keyboard marker. It appears when you press an
+          arrow key and goes when you throw.
+        </dd>
+
+        <dt><span class="swatch striped"></span> stripes</dt>
+        <dd>More than one of those at once: each colour takes its turn around the tile.</dd>
 
       </dl>
 
@@ -318,9 +347,10 @@
 
         <dt>Keys</dt>
         <dd>
-          Arrow keys move along your hand and Enter throws the marked tile.
-          The numbers 1 to 9 throw a tile directly and 0 throws the one you
-          just drew. Press r to declare riichi and t to win on your own draw.
+          An arrow key brings the marker up on the tile you drew, the arrows
+          move it along your hand, and Enter throws the marked tile. The
+          numbers 1 to 9 throw a tile directly and 0 throws the one you just
+          drew. Press r to declare riichi and t to win on your own draw.
         </dd>
 
         <dt>Rules</dt>
@@ -459,6 +489,7 @@
             <span class="drawn">
               <Tile
                 tile={me.drawn}
+                drawn
                 onclick={discard}
                 disabled={!canDiscard(me.drawn)}
                 selected={myTurn && marker === me.hand.length}
@@ -833,11 +864,10 @@
     width: 12px;
   }
 
+  /* The gold ring is the tile's own now, so it rises with the tile. */
   .drawn {
     position: relative;
     display: inline-flex;
-    border-radius: 6px;
-    box-shadow: 0 0 0 2px var(--gold);
   }
 
   .controls {
@@ -936,20 +966,40 @@
     max-width: 62ch;
   }
 
-  /* The marks themselves, drawn the way they are drawn on a tile. */
-  .swatch.dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--gold);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  /* The marks themselves, drawn the way they are drawn on a tile: a small
+     ivory face with the ring around it. */
+  .swatch {
+    display: inline-block;
+    vertical-align: -3px;
+    width: 12px;
+    height: 16px;
+    margin-right: 4px;
+    border-radius: 3px;
+    background: var(--ivory);
+  }
+
+  .swatch.dora {
+    box-shadow: 0 0 0 2px #e2453d;
   }
 
   .swatch.safe {
-    width: 18px;
-    height: 3px;
-    border-radius: 2px;
-    background: #7fd1a0;
+    box-shadow: 0 0 0 2px #7fd1a0;
+  }
+
+  .swatch.drawn {
+    box-shadow: 0 0 0 2px var(--gold);
+  }
+
+  .swatch.marker {
+    box-shadow: 0 0 0 2px #4ea3ff;
+  }
+
+  .swatch.striped {
+    border: 3px solid transparent;
+    background:
+      linear-gradient(var(--ivory), var(--ivory)) padding-box,
+      repeating-linear-gradient(45deg, #e2453d 0 4px, var(--gold) 4px 8px, #7fd1a0 8px 12px)
+        border-box;
   }
 
   .failure {

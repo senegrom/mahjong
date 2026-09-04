@@ -1,3 +1,28 @@
+<script module>
+  // Every face, fetched once when the page loads. A face is otherwise
+  // fetched the first time a tile of that kind is shown, and until it
+  // arrives the tile is blank, or still wears the face it had before,
+  // which on a slow connection or a busy machine was up to a second.
+  const FACES = [
+    'Back',
+    'Front',
+    ...['Man', 'Pin', 'Sou'].flatMap((suit) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((rank) => suit + rank)),
+    'Ton',
+    'Nan',
+    'Shaa',
+    'Pei',
+    'Haku',
+    'Hatsu',
+    'Chun',
+  ];
+  if (typeof Image !== 'undefined') {
+    for (const face of FACES) {
+      const image = new Image();
+      image.src = `tiles/${face}.svg`;
+    }
+  }
+</script>
+
 <script>
   import { tileWords } from './tiles.js';
 
@@ -5,6 +30,12 @@
    * One tile. Faces are the public-domain drawings in /tiles; a face-down
    * tile shows the back. Every tile carries its name for screen readers, so
    * a hand can be read out without relying on the picture.
+   *
+   * A tile in the hand can carry marks, each a colour of ring around the
+   * face: gold for the tile just drawn, red for a dora, green for a tile
+   * that cannot deal in, blue for the one under the keyboard marker. One
+   * mark is a solid ring; more than one is drawn as stripes of each colour
+   * in turn, so no mark hides another.
    */
   let {
     tile = null,
@@ -14,6 +45,7 @@
     selected = false,
     safe = false,
     dora = false,
+    drawn = false,
     size = 'normal',
     onclick = null,
     disabled = false,
@@ -30,6 +62,25 @@
     return `${SUIT_FILES[suit] ?? 'Man'}${rank}`;
   }
 
+  const COLOURS = {
+    drawn: 'var(--gold, #d8a12a)',
+    dora: '#e2453d',
+    safe: '#7fd1a0',
+    selected: '#4ea3ff',
+  };
+  let marks = $derived(
+    [drawn && 'drawn', dora && 'dora', safe && 'safe', selected && 'selected'].filter(Boolean),
+  );
+  let ring = $derived(
+    marks.length === 0
+      ? 'none'
+      : marks.length === 1
+        ? COLOURS[marks[0]]
+        : `repeating-linear-gradient(45deg, ${marks
+            .map((mark, index) => `${COLOURS[mark]} ${index * 6}px ${(index + 1) * 6}px`)
+            .join(', ')})`,
+  );
+
   let file = $derived(facedown ? 'Back' : fileFor(tile));
   let words = $derived(
     facedown ? 'face-down tile' : dora ? `${tileWords(tile)}, dora` : tileWords(tile),
@@ -45,14 +96,15 @@
     class:rotated
     class:dimmed
     class:selected
-    class:safe
-    class:dora
+    class:ringed={marks.length > 0}
+    style:--ring={ring}
     {disabled}
     title={title || words}
     aria-label={words}
     onclick={() => onclick(tile)}
   >
     <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
+    {#if dora}<span class="foil" aria-hidden="true"></span>{/if}
   </button>
 {:else}
   <span class="tile {size}" class:rotated class:dimmed role="img" aria-label={words} title={title || words}>
@@ -61,23 +113,12 @@
 {/if}
 
 <style>
-  /* A dora is worth a han, so it is marked where the eye goes when
-     choosing what to throw: a gold corner on the tile itself. */
-  .dora::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--gold, #d8a12a);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
-  }
-
   .tile {
-    /* The dora mark sits in the corner, so every tile is its own frame. */
+    /* The ring and the sheen are placed against the tile's own box, and
+       the box is its own stacking context so the ring, which sits behind
+       the face, still sits in front of the table. */
     position: relative;
+    isolation: isolate;
     display: inline-flex;
     align-items: flex-end;
     justify-content: center;
@@ -141,6 +182,11 @@
     filter: grayscale(0.55) brightness(0.82);
   }
 
+  /* Whatever a tile does, it does as a whole. The lift on hover, on focus
+     and under the keyboard marker moves the button, and the ring, the
+     sheen and the focus outline are all children of it, so nothing is
+     left behind. The ring used to sit on a wrapper around the button and
+     the lift moved only the picture, so the picture rose out of its ring. */
   button.tile {
     cursor: pointer;
     transition:
@@ -148,9 +194,15 @@
       filter 0.12s ease;
   }
 
-  button.tile:hover:not(:disabled) img,
-  button.tile:focus-visible img {
+  button.tile:hover:not(:disabled),
+  button.tile:focus-visible,
+  button.tile.selected {
     transform: translateY(-6px);
+  }
+
+  button.tile:hover:not(:disabled) img,
+  button.tile:focus-visible img,
+  button.tile.selected img {
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.6) inset,
       0 8px 10px rgba(0, 0, 0, 0.4);
@@ -164,28 +216,49 @@
     filter: grayscale(0.7) brightness(0.75);
   }
 
-  /* A tile that cannot deal into a declared riichi. */
-  .safe::after {
+  /* The ring: one colour, or stripes of several, behind the face. */
+  .ringed::before {
     content: '';
     position: absolute;
-    left: 50%;
-    bottom: -5px;
-    width: 60%;
-    height: 3px;
-    border-radius: 2px;
-    background: #7fd1a0;
-    transform: translateX(-50%);
+    inset: -3px;
+    border-radius: 6px;
+    background: var(--ring);
+    z-index: -1;
   }
 
-  button.tile,
-  span.tile {
-    position: relative;
+  /* A dora shines, as a foil card does: a sheen that crosses the face
+     slowly, over the picture and under the pointer. */
+  .foil {
+    position: absolute;
+    inset: 0;
+    border-radius: 4px;
+    pointer-events: none;
+    background: linear-gradient(
+      115deg,
+      rgba(255, 255, 255, 0) 30%,
+      rgba(255, 255, 255, 0.5) 44%,
+      rgba(255, 214, 130, 0.4) 50%,
+      rgba(160, 220, 255, 0.35) 56%,
+      rgba(255, 255, 255, 0) 70%
+    );
+    background-size: 250% 100%;
+    mix-blend-mode: screen;
+    animation: sheen 5s linear infinite;
   }
 
-  .selected img {
-    transform: translateY(-8px);
-    box-shadow:
-      0 0 0 2px var(--gold),
-      0 8px 10px rgba(0, 0, 0, 0.45);
+  @keyframes sheen {
+    from {
+      background-position: 120% 0;
+    }
+    to {
+      background-position: -20% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .foil {
+      animation: none;
+      background-position: 40% 0;
+    }
   }
 </style>

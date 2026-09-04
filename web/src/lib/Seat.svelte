@@ -13,28 +13,27 @@
   let vertical = $derived(side === 'left' || side === 'right');
 
   // A call or a declaration is the moment a player's game changes, and a
-  // line in the log is easy to miss. The seat says so for a moment.
+  // line in the log is easy to miss. The seat says so, and keeps saying so
+  // until the hand is over: it used to fade after two seconds, which is
+  // easy to miss while looking at your own tiles.
   let announcement = $state('');
   let lastMelds = seat.melds.length;
   let lastRiichi = seat.riichi;
-  let timer = null;
-
-  function announce(word) {
-    announcement = word;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      announcement = '';
-    }, 1800);
-  }
+  let lastDiscards = seat.discards.length;
 
   $effect(() => {
-    if (seat.riichi && !lastRiichi) announce('Riichi');
+    // A new hand: the discards start again, and so does the seat.
+    if (seat.discards.length < lastDiscards || (seat.melds.length < lastMelds)) {
+      announcement = '';
+    }
+    if (seat.riichi && !lastRiichi) announcement = 'Riichi';
     else if (seat.melds.length > lastMelds) {
       const meld = seat.melds[seat.melds.length - 1];
-      announce(meld.kind.includes('kan') ? 'Kan' : meld.kind === 'pon' ? 'Pon' : 'Chii');
+      announcement = meld.kind.includes('kan') ? 'Kan' : meld.kind === 'pon' ? 'Pon' : 'Chii';
     }
     lastMelds = seat.melds.length;
     lastRiichi = seat.riichi;
+    lastDiscards = seat.discards.length;
   });
 </script>
 
@@ -128,23 +127,18 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--gold);
-    animation: settle 1.8s ease-out forwards;
+    animation: settle 0.5s ease-out forwards;
   }
 
+  /* It arrives with a little emphasis and then stays. */
   @keyframes settle {
     0% {
       opacity: 0;
       transform: translateY(-3px) scale(1.15);
     }
-    12% {
+    100% {
       opacity: 1;
       transform: none;
-    }
-    75% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
     }
   }
 
