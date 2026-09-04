@@ -225,7 +225,11 @@ class PolicyValueNet(nn.Module):
         logits = logits.masked_fill(~legal, float("-inf"))
         together = torch.cat([planes, oracle], dim=1)
         hidden = self.oracle_tail(self.oracle_tower(self.oracle_stem(together))).mean(dim=2)
-        oracle_value = self.oracle_value(torch.cat([pooled, hidden], dim=1)).squeeze(1)
+        # The oracle reads the tower's pooled features but does not train
+        # them: its loss is as large as the value loss, and while it could
+        # reach the tower the policy's entropy climbed from 0.36 to 0.49
+        # over thirty generations. It learns on its own tower.
+        oracle_value = self.oracle_value(torch.cat([pooled.detach(), hidden], dim=1)).squeeze(1)
         return logits, self.value(pooled).squeeze(1), self.hands(features), oracle_value
 
     def parameter_count(self) -> int:
