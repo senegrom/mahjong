@@ -59,6 +59,11 @@ jobs:
       - name: Build the site
         working-directory: web
         run: npm run build
+      - name: Validate browser and Home Screen icons
+        working-directory: web
+        run: |
+          node scripts/check-icons.mjs
+          node scripts/check-icons.mjs --built
       - uses: actions/upload-pages-artifact@v3
         if: github.ref == 'refs/heads/main'
         with:

@@ -1,0 +1,32 @@
+{
+  "id": "/mahjong/",
+  "name": "Riichi Mahjong",
+  "short_name": "Riichi",
+  "description": "Riichi mahjong against three opponents, played by the European Mahjong Association rules.",
+  "lang": "en",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#1b4230",
+  "background_color": "#1b4230",
+  "icons": [
+    {
+      "src": "icons/mahjong-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/mahjong-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/mahjong-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
