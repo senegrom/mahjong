@@ -20,6 +20,8 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import sys
+import time
 
 import numpy as np
 import torch
@@ -159,6 +161,7 @@ def main() -> None:
     per_deal = []
     asked = overrode = 0
     for chair in range(SEATS):
+        began = time.perf_counter()
         scores, tally = play(
             net,
             games=args.games,
@@ -171,6 +174,13 @@ def main() -> None:
         asked += tally[0]
         overrode += tally[1]
         got = placements(scores, chair)
+        print(
+            f"chair {chair}: placement {got.mean():.3f} over {args.games} games, "
+            f"search changed {tally[1]} of {tally[0]} decisions, "
+            f"{time.perf_counter() - began:.0f}s",
+            file=sys.stderr,
+            flush=True,
+        )
         per_chair.append(
             {
                 "chair": chair,

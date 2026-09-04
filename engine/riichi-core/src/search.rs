@@ -30,6 +30,42 @@
 //! One thing it does not do at all: it assumes the other players know what
 //! they know in each imagined world, so it cannot find a move whose value
 //! is that it hides information. Nobody bluffs in these rollouts.
+//!
+//! # What the strong programs do
+//!
+//! Every mahjong program that searches at all, rather than answering from
+//! the position, does two things this module also does: it cuts the tree
+//! short and has a learned value stand in for the rest. Playing an
+//! imagined world out to the end with a heuristic was tried here first and
+//! measured worse than not searching, because the heuristic's idea of a
+//! finished hand is not the network's, and more worlds only made it surer
+//! of the wrong answer. What differs is how the hidden hands are handled.
+//!
+//! The nearest published design (Liu et al., "Efficient and Robust
+//! Imperfect-Information Games Modeling with Fixed-Size Hidden Information
+//! Trees", 2023, the search behind LuckyJ) does not sample worlds. It
+//! searches a tree of information sets, a few moves deep, with the
+//! network's policy guiding which moves to expand, and at each node it
+//! weights the possible hidden hands by a learned belief rather than
+//! dealing one out. A thousand simulations to a depth of about eight moves
+//! is its budget, and the search's verdict is then fed back to the network
+//! as an input rather than only used to pick. Tenhou allows about five
+//! seconds a decision, which is the budget any of this has to fit.
+//!
+//! This module samples instead. A world is dealt from the belief, the move
+//! is made, the other players take their turns, and the network values
+//! what results. Sampling is the simpler thing to build on a rules engine
+//! that already plays, and it lets the same code answer whether the belief
+//! is any good: worlds dealt from a belief that reads the discards should
+//! judge moves better than worlds dealt evenly, and that is a duel. The
+//! cost is variance. Each world is one draw from the belief, so the search
+//! needs many of them, and a sampled world can still be one the belief
+//! would have called unlikely. Weighting the hidden hands, as the
+//! information-set search does, spends the same network calls on the
+//! likely worlds and none on the rest, and is the natural next step if the
+//! variance turns out to be what limits this. Nothing published searches
+//! sampled worlds with a network at the leaves, so whether it works here
+//! is something the arena decides, not the literature.
 
 use crate::bot::{Bot, Style};
 use crate::encoding::{self, OBSERVATION, OPPONENTS, POINTS_PER_UNIT, POSITIONS};
