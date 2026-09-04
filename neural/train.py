@@ -117,14 +117,17 @@ def main() -> None:
         )
         played = time.time() - began
 
-        observations = batch.observations.to(device)
+        # The observations stay on the host, pinned, and each minibatch
+        # crosses to the card as it is drawn: a round of them is five
+        # gigabytes and sat on the card beside the step's own eight, which
+        # with the oracle critic left a gigabyte spare of sixteen. A
+        # minibatch is 27 MB and crosses in a couple of milliseconds.
+        observations = batch.observations.pin_memory()
         legal = batch.legal.to(device)
         actions = batch.actions.to(device)
         held = batch.held.to(device)
-        # The oracle's planes stay on the host in bytes and cross to the
-        # card a step at a time: a round of them is a quarter of a gigabyte
-        # and the card is already close to full at this batch size.
-        oracle = batch.oracle
+        # The oracle's planes likewise, in bytes.
+        oracle = batch.oracle.pin_memory()
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
 
@@ -152,9 +155,11 @@ def main() -> None:
                 picks = order[start_index : start_index + args.batch]
                 if picks.numel() < 2:
                     continue
-                seen = oracle[picks.cpu()].to(device, non_blocking=True).float()
+                drawn = picks.cpu()
+                planes = observations[drawn].to(device, non_blocking=True)
+                seen = oracle[drawn].to(device, non_blocking=True).float()
                 logits, value, guessed, oracle_value = net.with_oracle(
-                    observations[picks], legal[picks], seen
+                    planes, legal[picks], seen
                 )
                 distribution = torch.distributions.Categorical(logits=logits)
                 log_prob = distribution.log_prob(actions[picks])
