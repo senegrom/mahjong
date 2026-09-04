@@ -117,9 +117,17 @@ def main() -> None:
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
 
-        # A return that is mostly noise teaches nothing; standardising it
-        # keeps the gradient the same size from one round to the next.
-        normalised = (returns - returns.mean()) / (returns.std() + 1e-6)
+        # The value head predicts the return in the reward's own units: the
+        # points a hand moved over four thousand, plus the place bonus. It
+        # used to predict the return standardised by each round's mean and
+        # spread, which made a good training target and a useless number,
+        # since nothing outside the round could say what a value of 0.7
+        # meant. A search that evaluates positions with this head needs to
+        # compare it with hands that actually ended, in points, so the units
+        # have to be fixed. The rewards are already of order one, so nothing
+        # is lost by leaving them alone; the advantage below is centred by
+        # the value head itself.
+        normalised = returns
 
         net.train()
         total_policy = total_value = total_entropy = 0.0

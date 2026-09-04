@@ -1,9 +1,11 @@
 """Does the network play better when it thinks ahead?
 
-The network supplies the two things it is good for and the engine does the
-rest: an order over the moves worth trying, and what it takes the opponents
-to be holding. The rollouts stay in Rust and never call back, so a decision
-costs one forward pass rather than hundreds.
+The network supplies three things and the engine does the rest: an order
+over the moves worth trying, what it takes the opponents to be holding, and
+what a position is worth. The engine imagines the worlds and makes the
+moves; the network values every position that results in one pass; the
+engine picks. Nothing is played out to the end by a heuristic, which is
+what the first version did and what measured worse than not searching.
 
 The comparison is the same deals four times over with the searching player
 in each chair, and its error bar comes from the deals rather than the four
@@ -34,6 +36,33 @@ HANDS = riichi_py.HANDS
 SEATS = 4
 
 
+def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidates, margin, hurried, device="cuda"):
+    """One searched decision for every live game, valued by the network.
+
+    `ranked` is the network's move order per game, best first; `belief_flat`
+    is its belief about the opponents' hands, one row of HANDS per game.
+    The engine imagines the worlds and makes the moves; the network values
+    every resulting position in a single pass; the engine picks, keeping the
+    first move unless another beats it by `margin` standard errors of the
+    world-by-world difference.
+    """
+    planes_bytes, counts, finished, legal = arena.leaves(
+        ranked, belief_flat, worlds=worlds, candidates=candidates, hurried=hurried
+    )
+    total = sum(counts)
+    if total == 0:
+        return arena.decide([], margin, ranked)
+    planes = np.frombuffer(planes_bytes, dtype=np.float32).reshape(total, PLANES, POSITIONS)
+    # Every slot is valued, including the few that finished or were illegal;
+    # the engine ignores those values and it is cheaper than gathering.
+    valued = np.empty(total, dtype=np.float32)
+    step = 8192
+    for start in range(0, total, step):
+        chunk = torch.from_numpy(planes[start : start + step]).to(device)
+        valued[start : start + step] = net.value_only(chunk).float().cpu().numpy()
+    return arena.decide(valued.tolist(), margin, ranked)
+
+
 @torch.no_grad()
 def play(
     net,
@@ -43,8 +72,9 @@ def play(
     worlds: int,
     candidates: int,
     margin: float,
+    hurried: bool = True,
     device: str = "cuda",
-) -> np.ndarray:
+) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
     `searcher` is the place that thinks ahead, or None for nobody. Everyone
@@ -87,16 +117,21 @@ def play(
                 ranked.append(
                     [int(index) for index in order[game][: candidates if thinking else 1]]
                 )
-            choice = arena.search(
+            choice = search_with_value_head(
+                net,
+                arena,
                 ranked,
                 belief.reshape(-1).tolist(),
                 worlds=worlds,
                 candidates=candidates,
                 margin=margin,
+                hurried=hurried,
+                device=device,
             )
         arena.step(list(choice))
 
-    return np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
+    scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
+    return scores, arena.search_tally()
 
 
 def placements(scores: np.ndarray, place: int) -> np.ndarray:
@@ -109,7 +144,7 @@ def main() -> None:
     parser.add_argument("checkpoint")
     parser.add_argument("--games", type=int, default=200, help="deals per chair")
     parser.add_argument("--seed", type=int, default=90_210)
-    parser.add_argument("--worlds", type=int, default=10)
+    parser.add_argument("--worlds", type=int, default=200)
     parser.add_argument("--candidates", type=int, default=4)
     parser.add_argument("--margin", type=float, default=2.0)
     parser.add_argument("--channels", type=int, default=320)
@@ -122,8 +157,9 @@ def main() -> None:
 
     per_chair = []
     per_deal = []
+    asked = overrode = 0
     for chair in range(SEATS):
-        scores = play(
+        scores, tally = play(
             net,
             games=args.games,
             seed=args.seed,
@@ -132,6 +168,8 @@ def main() -> None:
             candidates=args.candidates,
             margin=args.margin,
         )
+        asked += tally[0]
+        overrode += tally[1]
         got = placements(scores, chair)
         per_chair.append(
             {
@@ -162,6 +200,7 @@ def main() -> None:
                 "difference_from_level": edge,
                 "standard_errors": sigmas,
                 "by_chair": per_chair,
+                "overrides": f"{overrode} of {asked}, {100.0 * overrode / max(asked, 1):.1f}%",
                 "verdict": (
                     "searching helps"
                     if sigmas > 2

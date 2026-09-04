@@ -32,7 +32,7 @@
 //! is that it hides information. Nobody bluffs in these rollouts.
 
 use crate::bot::{Bot, Style};
-use crate::encoding::{OPPONENTS, POSITIONS};
+use crate::encoding::{self, OBSERVATION, OPPONENTS, POINTS_PER_UNIT, POSITIONS};
 use crate::game::{Action, Call, Hand, Phase};
 use crate::hand::TileSet;
 use crate::rng::Rng;
@@ -452,22 +452,7 @@ pub fn best(
     }
     let taken = shortlist.len().min(effort.candidates.max(1));
     let judged = judge(hand, seat, &shortlist[..taken], effort, belief, rng);
-    let incumbent = judged.iter().find(|entry| entry.worlds > 0)?;
-
-    let mut best = incumbent;
-    let mut best_edge = 0.0;
-    for entry in judged.iter() {
-        if entry.worlds == 0 || std::ptr::eq(entry, incumbent) {
-            continue;
-        }
-        if let Some((edge, error)) = compare(entry, incumbent) {
-            if edge > effort.margin * error && edge > best_edge {
-                best = entry;
-                best_edge = edge;
-            }
-        }
-    }
-    Some(best.clone())
+    pick_by_margin(&judged, effort.margin)
 }
 
 /// How a search spent itself, for reading rather than for playing.
@@ -493,6 +478,214 @@ impl Tally {
             self.overrode as f64 / self.asked as f64
         }
     }
+}
+
+/// The positions a search wants valued: one for each candidate move in
+/// each imagined world, after the move is made and the other players have
+/// had their turns.
+///
+/// This is the AlphaZero shape of the search. The move is applied, the
+/// world advances to the searching seat's next decision, and the network's
+/// value head says what that position is worth from that seat's point of
+/// view. Nothing is played out to the end, so the evaluator is the thing
+/// that was trained on real outcomes rather than a heuristic standing in
+/// for one.
+///
+/// Slots are numbered `candidate * worlds + world`.
+#[derive(Clone, Debug)]
+pub struct Leaves {
+    /// How many worlds were imagined.
+    pub worlds: usize,
+    /// How many candidates were tried in each.
+    pub candidates: usize,
+    /// One observation per slot, [`OBSERVATION`] numbers each, from the
+    /// searching seat's viewpoint. Slots that need no valuing hold zeros.
+    pub observations: Vec<f32>,
+    /// Slots whose hand ended before a position could be valued, with
+    /// what the hand moved for the searching seat in the value head's
+    /// units. Those need no network; a deal-in is worth what it cost.
+    pub finished: Vec<Option<f64>>,
+    /// Slots where the move could not be made in that world, which an
+    /// imagined hand can do to a quad. Not counted for that candidate.
+    pub legal: Vec<bool>,
+}
+
+impl Leaves {
+    /// The slots that still need the network: not finished, and legal.
+    pub fn wanted(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.legal.len()).filter(|slot| self.legal[*slot] && self.finished[*slot].is_none())
+    }
+}
+
+/// Runs the other players round to `seat`'s next decision, or to the end
+/// of the hand. Returns what the hand moved for `seat` if it ended, in the
+/// value head's units, and nothing if `seat` has a decision to make.
+fn advance_to_decision(world: &mut Hand, seat: Wind, style: Style, seed: u64) -> Option<f64> {
+    let opening = world.players[seat.index()].score;
+    let mut bots: Vec<Bot> = (0..4)
+        .map(|index| Bot::with_style(seed.wrapping_add(index), style))
+        .collect();
+    let mut guard = 0;
+    loop {
+        guard += 1;
+        if guard > 600 {
+            break;
+        }
+        match world.phase {
+            Phase::Over => break,
+            Phase::Act if world.turn == seat => return None,
+            Phase::Draw => {
+                if world.draw().is_err() {
+                    break;
+                }
+            }
+            Phase::Act => {
+                let turn = world.turn;
+                let action = bots[turn.index()].act(world);
+                if world.act(action).is_err() {
+                    break;
+                }
+            }
+            Phase::CallWindow => {
+                // The searching seat's own calls are answered by its bot
+                // too: a claim is a small decision and the search is about
+                // the discard that was just made.
+                let answers: Vec<(Wind, Call)> = world
+                    .legal_calls()
+                    .iter()
+                    .map(|(who, calls)| (*who, bots[who.index()].call(world, *who, calls)))
+                    .collect();
+                if world.resolve_calls(&answers).is_err() {
+                    break;
+                }
+            }
+        }
+    }
+    Some((world.players[seat.index()].score - opening) as f64 / POINTS_PER_UNIT as f64)
+}
+
+/// Imagines the worlds, makes each candidate move in each, and returns the
+/// positions that result for the value head to judge.
+pub fn leaves(
+    hand: &Hand,
+    seat: Wind,
+    candidates: &[Action],
+    effort: Effort,
+    belief: &Belief,
+    rng: &mut Rng,
+) -> Leaves {
+    assert!(!candidates.is_empty(), "there is always something to do");
+    let style = if effort.hurried {
+        Style::rollout()
+    } else {
+        Style::club()
+    };
+    let worlds: Vec<Hand> = (0..effort.worlds)
+        .map(|_| imagine(hand, seat, belief, rng))
+        .collect();
+
+    let jobs: Vec<(usize, usize)> = (0..candidates.len())
+        .flat_map(|candidate| (0..worlds.len()).map(move |world| (candidate, world)))
+        .collect();
+    // Each job hands back the slot's observation, whether it finished and
+    // for what, and whether the move was legal there at all.
+    let results: Vec<(Vec<f32>, Option<f64>, bool)> = run_all(&jobs, |&(candidate, world)| {
+        let mut trial = worlds[world].clone();
+        if trial.act(candidates[candidate]).is_err() {
+            return (Vec::new(), None, false);
+        }
+        match advance_to_decision(&mut trial, seat, style, world as u64 * 977 + 13) {
+            Some(moved) => (Vec::new(), Some(moved), true),
+            None => {
+                let mut out = vec![0.0; OBSERVATION];
+                encoding::observe(&trial, seat, &mut out);
+                (out, None, true)
+            }
+        }
+    });
+
+    let slots = jobs.len();
+    let mut observations = vec![0.0f32; slots * OBSERVATION];
+    let mut finished = vec![None; slots];
+    let mut legal = vec![false; slots];
+    for (slot, (out, done, ok)) in results.into_iter().enumerate() {
+        if !out.is_empty() {
+            observations[slot * OBSERVATION..(slot + 1) * OBSERVATION].copy_from_slice(&out);
+        }
+        finished[slot] = done;
+        legal[slot] = ok;
+    }
+    Leaves {
+        worlds: worlds.len(),
+        candidates: candidates.len(),
+        observations,
+        finished,
+        legal,
+    }
+}
+
+/// Decides from the values the network gave the leaves.
+///
+/// `valued` holds one number per slot in the value head's units; entries
+/// for finished or illegal slots are ignored, since those carry their own
+/// answer. The first candidate is the one to beat, and another is taken
+/// only when it wins by `margin` standard errors of the world-by-world
+/// difference, for the same reason as in [`best`].
+pub fn decide(
+    candidates: &[Action],
+    leaves: &Leaves,
+    valued: &[f64],
+    margin: f64,
+) -> Option<Judged> {
+    assert_eq!(valued.len(), leaves.legal.len(), "one value per slot");
+    let judged: Vec<Judged> = (0..leaves.candidates)
+        .map(|candidate| {
+            let per_world: Vec<Option<f64>> = (0..leaves.worlds)
+                .map(|world| {
+                    let slot = candidate * leaves.worlds + world;
+                    if !leaves.legal[slot] {
+                        None
+                    } else if let Some(moved) = leaves.finished[slot] {
+                        Some(moved)
+                    } else {
+                        Some(valued[slot])
+                    }
+                })
+                .collect();
+            let counted = per_world.iter().flatten().count();
+            let total: f64 = per_world.iter().flatten().sum();
+            Judged {
+                action: candidates[candidate],
+                value: if counted == 0 {
+                    f64::NEG_INFINITY
+                } else {
+                    total / counted as f64
+                },
+                per_world,
+                worlds: counted,
+            }
+        })
+        .collect();
+    pick_by_margin(&judged, margin)
+}
+
+/// The first playable candidate, unless another beats it by the margin.
+fn pick_by_margin(judged: &[Judged], margin: f64) -> Option<Judged> {
+    let incumbent = judged.iter().find(|entry| entry.worlds > 0)?;
+    let mut best = incumbent;
+    let mut best_edge = 0.0;
+    for entry in judged {
+        if entry.worlds == 0 || std::ptr::eq(entry, incumbent) {
+            continue;
+        }
+        if let Some((edge, error)) = compare(entry, incumbent) {
+            if edge > margin * error && edge > best_edge {
+                best = entry;
+                best_edge = edge;
+            }
+        }
+    }
+    Some(best.clone())
 }
 
 /// A player that thinks before it moves.
@@ -714,6 +907,58 @@ mod tests {
             even_circles * 3 < even_held,
             "and dealt evenly they hold about a quarter circles, not {even_circles} of {even_held}"
         );
+    }
+
+    /// The leaves come back one per candidate per world, each either a
+    /// position for the network or a hand that ended with its own answer,
+    /// and deciding from made-up values picks what the values say.
+    #[test]
+    fn leaves_are_one_per_candidate_per_world_and_decide_follows_the_values() {
+        let table = Table::new();
+        let mut rng = Rng::from_seed(2026);
+        let hand = table.deal(&mut rng);
+        let seat = hand.turn;
+        let candidates: Vec<Action> = hand.legal_actions().into_iter().take(3).collect();
+        let effort = Effort {
+            worlds: 6,
+            candidates: 3,
+            turns: None,
+            margin: 2.0,
+            hurried: true,
+        };
+
+        let mut rng = Rng::from_seed(9);
+        let got = leaves(&hand, seat, &candidates, effort, &Belief::even(), &mut rng);
+        assert_eq!(got.worlds, 6);
+        assert_eq!(got.candidates, 3);
+        assert_eq!(got.legal.len(), 18);
+        assert_eq!(got.observations.len(), 18 * OBSERVATION);
+        // Every legal, unfinished slot carries a real observation: the
+        // player's own hand is in it, so the planes are not all zero.
+        for slot in got.wanted() {
+            let planes = &got.observations[slot * OBSERVATION..(slot + 1) * OBSERVATION];
+            assert!(
+                planes.iter().any(|value| *value != 0.0),
+                "slot {slot} was handed back empty"
+            );
+        }
+
+        // Value the third candidate far above the rest in every world, and
+        // it is taken; value them all the same, and the incumbent stands.
+        let mut valued = vec![0.0; 18];
+        for world in 0..6 {
+            valued[2 * 6 + world] = 5.0 + world as f64 * 0.01;
+        }
+        let chosen = decide(&candidates, &got, &valued, 2.0).expect("a decision");
+        if got.wanted().filter(|slot| *slot >= 12).count() >= 3 {
+            assert_eq!(
+                chosen.action, candidates[2],
+                "the clearly better move is taken"
+            );
+        }
+        let flat = vec![1.0; 18];
+        let kept = decide(&candidates, &got, &flat, 2.0).expect("a decision");
+        assert_eq!(kept.action, candidates[0], "nothing beats the incumbent");
     }
 
     /// A world that was imagined can be played to the end, which is the

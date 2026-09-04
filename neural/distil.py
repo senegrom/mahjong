@@ -1,11 +1,13 @@
 """Teaches the network the moves its own search came to.
 
 This is the policy improvement half of the AlphaZero idea, in the form this
-game allows. The network proposes an order over the moves; the search plays
-the top few out in worlds drawn from what the network believes the
-opponents hold; whichever survives that is a better move than the one
-proposed, or the search is worth nothing. Training the network towards it
-makes the next proposal better, and the search after that better again.
+game allows. The network proposes an order over the moves and a belief
+about the hidden hands; the search makes the top few moves in worlds drawn
+from that belief and has the network's own value head judge what results;
+whichever move survives that is a better move than the one proposed, or the
+search is worth nothing. Training the network towards it makes the next
+proposal better, and the value head, kept in training on real outcomes
+alongside, makes the next judgement better too.
 
 It also solves the practical problem with search, which is that half a
 second a decision is hopeless in a browser. A network taught the search's
@@ -38,18 +40,46 @@ OPPONENTS = riichi_py.OPPONENTS
 HANDS = riichi_py.HANDS
 
 
+def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidates, margin, hurried, device="cuda"):
+    """One searched decision for every live game, valued by the network.
+
+    `ranked` is the network's move order per game, best first; `belief_flat`
+    is its belief about the opponents' hands, one row of HANDS per game.
+    The engine imagines the worlds and makes the moves; the network values
+    every resulting position in a single pass; the engine picks, keeping the
+    first move unless another beats it by `margin` standard errors of the
+    world-by-world difference.
+    """
+    planes_bytes, counts, finished, legal = arena.leaves(
+        ranked, belief_flat, worlds=worlds, candidates=candidates, hurried=hurried
+    )
+    total = sum(counts)
+    if total == 0:
+        return arena.decide([], margin, ranked)
+    planes = np.frombuffer(planes_bytes, dtype=np.float32).reshape(total, PLANES, POSITIONS)
+    # Every slot is valued, including the few that finished or were illegal;
+    # the engine ignores those values and it is cheaper than gathering.
+    valued = np.empty(total, dtype=np.float32)
+    step = 8192
+    for start in range(0, total, step):
+        chunk = torch.from_numpy(planes[start : start + step]).to(device)
+        valued[start : start + step] = net.value_only(chunk).float().cpu().numpy()
+    return arena.decide(valued.tolist(), margin, ranked)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=200)
     parser.add_argument("--games", type=int, default=24, help="tables per round")
-    parser.add_argument("--worlds", type=int, default=10)
+    parser.add_argument("--worlds", type=int, default=200)
     parser.add_argument("--candidates", type=int, default=4)
     parser.add_argument("--margin", type=float, default=2.0)
     parser.add_argument(
         "--hurried",
         action="store_true",
-        help="play the imagined worlds out without counting acceptance, "
-        "which is most of what a rollout costs",
+        default=True,
+        help="run the other players round to the next decision without "
+        "counting acceptance, which is most of what they cost",
     )
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--batch", type=int, default=1024)
@@ -104,13 +134,16 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
             [int(index) for index in order[game][: args.candidates]]
             for game in range(args.games)
         ]
-        chosen = arena.search(
+        chosen = search_with_value_head(
+            net,
+            arena,
             ranked,
             belief.reshape(-1).tolist(),
             worlds=args.worlds,
             candidates=args.candidates,
             margin=args.margin,
             hurried=args.hurried,
+            device=device,
         )
 
         for game in np.nonzero(live)[0]:

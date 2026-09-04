@@ -288,6 +288,9 @@ pub struct Arena {
     hands: Vec<f32>,
     /// How the search has spent itself, across every game.
     searched: search::Tally,
+    /// For each game, the candidates and leaves of a search whose values
+    /// have been asked for and not yet given back.
+    pending: Vec<Option<(Vec<Action>, search::Leaves)>>,
 }
 
 #[pymethods]
@@ -309,6 +312,7 @@ impl Arena {
             mask: vec![false; games * ACTIONS],
             hands: vec![0.0; games * HANDS],
             searched: search::Tally::default(),
+            pending: (0..games).map(|_| None).collect(),
         }
     }
 
@@ -438,6 +442,121 @@ impl Arena {
             .collect();
         self.searched.asked += asked;
         self.searched.overrode += overrode;
+        chosen
+    }
+
+    /// The first half of a search valued by the network. For every live
+    /// game, imagines `worlds` worlds, makes each of the first `candidates`
+    /// moves of `ranked` in each, runs the other players round to the
+    /// deciding seat's next turn, and returns the positions that result.
+    ///
+    /// Returns, in order: every observation concatenated, as float32; how
+    /// many slots each game contributed; what a slot's hand moved if it
+    /// ended on the way, as float32 with NaN where it did not; and whether
+    /// each slot's move was legal in its world, as bytes of 0 and 1. Slots
+    /// are numbered candidate-major within a game. A game that owes no
+    /// decision, or owes a call, contributes no slots.
+    ///
+    /// Python values every slot with one forward pass and hands the numbers
+    /// to [`Arena::decide`].
+    #[pyo3(signature = (ranked, beliefs, worlds=200, candidates=4, hurried=true))]
+    fn leaves<'py>(
+        &mut self,
+        py: Python<'py>,
+        ranked: Vec<Vec<usize>>,
+        beliefs: Vec<f32>,
+        worlds: usize,
+        candidates: usize,
+        hurried: bool,
+    ) -> (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>) {
+        let effort = search::Effort {
+            worlds,
+            candidates,
+            turns: None,
+            margin: 2.0,
+            hurried,
+        };
+        let games = self.seats.len();
+        assert_eq!(ranked.len(), games, "one ranking per game");
+        assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
+
+        let mut observations: Vec<f32> = Vec::new();
+        let mut counts = Vec::with_capacity(games);
+        let mut finished: Vec<f32> = Vec::new();
+        let mut legal: Vec<u8> = Vec::new();
+        for (game, ranking) in ranked.iter().enumerate() {
+            self.pending[game] = None;
+            let seat = &mut self.seats[game];
+            let Some(wind) = seat.pending() else {
+                counts.push(0);
+                continue;
+            };
+            if !seat.asking.is_empty() {
+                counts.push(0);
+                continue;
+            }
+            let shortlist: Vec<Action> = ranking
+                .iter()
+                .filter_map(|index| encoding::decode_action(&seat.hand, *index))
+                .take(candidates.max(1))
+                .collect();
+            if shortlist.is_empty() {
+                counts.push(0);
+                continue;
+            }
+            let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
+            let got = search::leaves(&seat.hand, wind, &shortlist, effort, &belief, &mut seat.rng);
+            counts.push(got.legal.len());
+            observations.extend_from_slice(&got.observations);
+            finished.extend(got.finished.iter().map(|done| match done {
+                Some(moved) => *moved as f32,
+                None => f32::NAN,
+            }));
+            legal.extend(got.legal.iter().map(|ok| u8::from(*ok)));
+            self.pending[game] = Some((shortlist, got));
+        }
+        (
+            PyBytes::new(py, bytemuck_cast(&observations)),
+            counts,
+            finished,
+            legal,
+        )
+    }
+
+    /// The second half: takes one value per slot, in the order `leaves`
+    /// gave them, and returns the move each game came to. Games that
+    /// contributed no slots come back as the first entry of their ranking,
+    /// or [`PASS`] when there was none.
+    fn decide(&mut self, valued: Vec<f32>, margin: f64, ranked: Vec<Vec<usize>>) -> Vec<usize> {
+        let games = self.seats.len();
+        assert_eq!(ranked.len(), games, "one ranking per game");
+        let mut offset = 0;
+        let mut chosen = Vec::with_capacity(games);
+        for (game, ranking) in ranked.iter().enumerate() {
+            let fallback = ranking.first().copied().unwrap_or(PASS);
+            let Some((candidates, leaves)) = self.pending[game].take() else {
+                chosen.push(fallback);
+                continue;
+            };
+            let slots = leaves.legal.len();
+            let values: Vec<f64> = valued[offset..offset + slots]
+                .iter()
+                .map(|value| *value as f64)
+                .collect();
+            offset += slots;
+            self.searched.asked += 1;
+            match search::decide(&candidates, &leaves, &values, margin) {
+                Some(judged) => {
+                    let picked = action_to_index(judged.action);
+                    if Some(picked) != ranking.first().copied() {
+                        self.searched.overrode += 1;
+                    }
+                    chosen.push(picked);
+                }
+                None => chosen.push(fallback),
+            }
+        }
+        assert_eq!(offset, valued.len(), "every value was spent");
         chosen
     }
 
@@ -632,6 +751,7 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("OBSERVATION", OBSERVATION)?;
     module.add("ACTIONS", ACTIONS)?;
     module.add("OPPONENTS", OPPONENTS)?;
+    module.add("POINTS_PER_UNIT", riichi_core::encoding::POINTS_PER_UNIT)?;
     module.add("HANDS", HANDS)?;
     module.add("PASS", PASS)?;
     Ok(())

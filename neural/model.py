@@ -103,6 +103,13 @@ class PolicyValueNet(nn.Module):
         logits = logits.masked_fill(~legal, float("-inf"))
         return logits, self.value(pooled).squeeze(1)
 
+    def value_only(self, planes: torch.Tensor) -> torch.Tensor:
+        """What each position is worth, in the reward's units, and nothing
+        else. The search values thousands of positions a decision and
+        wants none of the policy work for them."""
+        features = self.tail(self.tower(self.stem(planes)))
+        return self.value(features.mean(dim=2)).squeeze(1)
+
     def read_hands(self, planes: torch.Tensor) -> torch.Tensor:
         """What each opponent is holding, as logits over the 34 kinds.
 

@@ -31,6 +31,12 @@ pub const OBSERVATION: usize = PLANES * POSITIONS;
 
 /// Opponents whose hands a network may be asked to guess at.
 pub const OPPONENTS: usize = 3;
+/// The points one unit of the value head is worth. The reward a network is
+/// trained on is the points a hand moved divided by this, plus a bonus for
+/// the place the game ended in, so a value of 0.5 means about two thousand
+/// points. A search that mixes valued positions with hands that actually
+/// ended needs the two in the same units, and this is the conversion.
+pub const POINTS_PER_UNIT: f32 = 4000.0;
 /// Numbers in one answer about what the opponents are holding.
 pub const HANDS: usize = OPPONENTS * POSITIONS;
 /// Roughly how many discards a hand holds before the wall runs out, used to
