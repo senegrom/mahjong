@@ -21,6 +21,8 @@ POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 OPPONENTS = riichi_py.OPPONENTS
 ORACLE_PLANES = riichi_py.ORACLE_PLANES
+HANDS = riichi_py.HANDS
+HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 
 # What a hand moved, brought to about the size of the placement term below
 # so neither drowns the other. A big hand is worth a few tenths.
@@ -56,6 +58,10 @@ class Batch:
     #: planes kept in bytes. For the oracle critic, which only trains; the
     #: network is never shown this when choosing.
     oracle: torch.Tensor
+    #: What the proposal imagined the opponents held at each decision, dealt
+    #: from the network's own belief about them: the reader's negatives,
+    #: against the real hands the oracle planes carry.
+    imagined: torch.Tensor
     returns: torch.Tensor
     log_probs: torch.Tensor
     games: int
@@ -88,6 +94,7 @@ def play(
     legal_masks: list[np.ndarray] = []
     held: list[np.ndarray] = []
     oracle: list[np.ndarray] = []
+    imagined: list[np.ndarray] = []
     actions: list[int] = []
     log_probs: list[float] = []
     rewards: list[float] = []
@@ -118,9 +125,18 @@ def play(
         batch_planes = torch.from_numpy(planes[index]).to(device)
         batch_mask = torch.from_numpy(mask[index]).to(device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
-            logits, _value = net(batch_planes, batch_mask)
+            logits, _value, guessed = net.everything(batch_planes, batch_mask)
         logits = logits.float()
         distribution = torch.distributions.Categorical(logits=logits)
+        # What the network believes the opponents hold, so the engine can
+        # imagine one world per game from it: the reader's negatives, the
+        # hands the proposal deals that were not the real ones.
+        beliefs = np.zeros((games, HANDS), dtype=np.float32)
+        beliefs[index] = (
+            torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
+        )
+        proposed = np.frombuffer(arena.imagined_hands(beliefs.reshape(-1).tolist()), dtype=np.float32)
+        proposed = proposed.reshape(games, HIDDEN_HANDS_PLANES, POSITIONS)
         chosen = logits.argmax(dim=1) if greedy else distribution.sample()
         chosen_log_prob = distribution.log_prob(chosen)
 
@@ -137,6 +153,7 @@ def play(
             legal_masks.append(mask[game])
             held.append(truth[game])
             oracle.append(hidden[game].astype(np.uint8))
+            imagined.append(proposed[game].astype(np.uint8))
             actions.append(int(chosen_cpu[slot]))
             log_probs.append(float(log_prob_cpu[slot]))
             rewards.append(0.0)
@@ -176,6 +193,7 @@ def play(
         actions=torch.tensor(actions, dtype=torch.int64),
         held=torch.from_numpy(np.stack(held)),
         oracle=torch.from_numpy(np.stack(oracle)),
+        imagined=torch.from_numpy(np.stack(imagined)),
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,

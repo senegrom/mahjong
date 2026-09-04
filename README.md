@@ -54,6 +54,18 @@ plays and the game the opponents were trained on cannot drift apart.
   what is left is what they wanted to keep, and the network has a head that
   learns that from the discards. Self-play knows the true hands, so the
   label is free and exact.
+- **The hidden hands are weighed, not only sampled.** Dealing from that
+  head's per-tile marginals is only a proposal: it knows nothing of shape,
+  and deals a hand of thirteen strays as readily as one a turn from
+  winning. So a second network, the reader, is shown the position with the
+  real hidden hands and with hands the proposal imagined, and learns to
+  tell them apart; what it learns is how much more likely a set of hidden
+  hands is than the proposal made it. The search imagines a pool of worlds,
+  has the reader weigh them, keeps the plausible ones with their weights,
+  and decides by weight, which is what the strongest published searchers do
+  with their hidden information. In training a second critic, the oracle,
+  sees the hidden tiles outright and gives the policy gradient a quieter
+  baseline; the policy never sees them.
 - **The trained opponent in the browser**, as ONNX in a worker beside the
   rules in WebAssembly, so a whole game runs offline.
 

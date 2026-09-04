@@ -27,7 +27,7 @@ import torch
 from torch import nn
 
 from . import selfplay
-from .model import PolicyValueNet, load_weights
+from .model import HIDDEN_HANDS_PLANES, PolicyValueNet, load_weights
 
 
 # How much of a new measurement goes into the smoothed figure the best
@@ -55,6 +55,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=3, help="passes over a round")
     parser.add_argument("--entropy", type=float, default=0.03)
     parser.add_argument("--value-weight", type=float, default=0.5)
+    parser.add_argument(
+        "--reader-weight",
+        type=float,
+        default=1.0,
+        help="how hard the reader of hidden hands is trained to tell the "
+        "real ones from the ones the proposal imagines",
+    )
     parser.add_argument(
         "--distil-weight",
         type=float,
@@ -115,6 +122,7 @@ def main() -> None:
 
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
     learn = torch.compile(net.with_oracle) if args.compile else net.with_oracle
+    read = torch.compile(net.read_plausibility) if args.compile else net.read_plausibility
     print(
         f"device {device} | {net.channels} channels x {net.blocks} blocks "
         f"| {net.parameter_count() / 1e6:.2f}M parameters",
@@ -143,8 +151,10 @@ def main() -> None:
         legal = batch.legal.to(device)
         actions = batch.actions.to(device)
         held = batch.held.to(device)
-        # The oracle's planes likewise, in bytes.
+        # The oracle's planes likewise, in bytes, and the hands the proposal
+        # imagined, the reader's negatives.
         oracle = batch.oracle
+        imagined = batch.imagined
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
 
@@ -163,6 +173,7 @@ def main() -> None:
         net.train()
         total_policy = total_value = total_entropy = 0.0
         total_oracle = total_distil = 0.0
+        total_reader = total_read_right = 0.0
         total_clipped = 0.0
         total_hands = total_covered = 0.0
         steps = 0
@@ -182,6 +193,24 @@ def main() -> None:
                 value = value.float()
                 guessed = guessed.float()
                 oracle_value = oracle_value.float()
+                # The reader: shown the position with the real hidden hands
+                # and with the hands the proposal imagined, it learns to tell
+                # which is which, and what it learns is the likelihood ratio
+                # a search weighs imagined worlds by.
+                real = seen[:, :HIDDEN_HANDS_PLANES]
+                fake = imagined[drawn].to(device).float()
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
+                    verdict = read(torch.cat([planes, planes]), torch.cat([real, fake]))
+                verdict = verdict.float()
+                truth = torch.cat(
+                    [
+                        torch.ones(len(drawn), device=device),
+                        torch.zeros(len(drawn), device=device),
+                    ]
+                )
+                reader_loss = nn.functional.binary_cross_entropy_with_logits(verdict, truth)
+                with torch.no_grad():
+                    reader_right = ((verdict > 0).float() == truth).float().mean()
                 distribution = torch.distributions.Categorical(logits=logits)
                 log_prob = distribution.log_prob(actions[picks])
                 # The oracle critic is the baseline. It depends on the hidden
@@ -226,6 +255,7 @@ def main() -> None:
                     + args.value_weight * (value_loss + oracle_loss)
                     + args.value_weight * args.distil_weight * distil_loss
                     + args.hands_weight * hands_loss
+                    + args.reader_weight * reader_loss
                     - args.entropy * entropy
                 )
 
@@ -238,6 +268,8 @@ def main() -> None:
                 total_value += value_loss.item()
                 total_oracle += oracle_loss.item()
                 total_distil += distil_loss.item()
+                total_reader += reader_loss.item()
+                total_read_right += reader_right.item()
                 total_entropy += entropy.item()
                 total_hands += hands_loss.item()
                 total_covered += covered.item()
@@ -253,6 +285,10 @@ def main() -> None:
             "value_loss": round(total_value / max(steps, 1), 4),
             "oracle_loss": round(total_oracle / max(steps, 1), 4),
             "distil": round(total_distil / max(steps, 1), 4),
+            # The reader's loss and how often it tells a real set of hidden
+            # hands from an imagined one; a half is guessing.
+            "reader_loss": round(total_reader / max(steps, 1), 4),
+            "reader_right": round(total_read_right / max(steps, 1), 4),
             # What a constant guess would score, so the two losses above
             # read as how much of the return each head explains.
             "return_variance": round(float(returns.var()), 4),

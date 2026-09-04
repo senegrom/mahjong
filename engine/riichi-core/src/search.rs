@@ -52,20 +52,23 @@
 //! as an input rather than only used to pick. Tenhou allows about five
 //! seconds a decision, which is the budget any of this has to fit.
 //!
-//! This module samples instead. A world is dealt from the belief, the move
-//! is made, the other players take their turns, and the network values
-//! what results. Sampling is the simpler thing to build on a rules engine
-//! that already plays, and it lets the same code answer whether the belief
-//! is any good: worlds dealt from a belief that reads the discards should
-//! judge moves better than worlds dealt evenly, and that is a duel. The
-//! cost is variance. Each world is one draw from the belief, so the search
-//! needs many of them, and a sampled world can still be one the belief
-//! would have called unlikely. Weighting the hidden hands, as the
-//! information-set search does, spends the same network calls on the
-//! likely worlds and none on the rest, and is the natural next step if the
-//! variance turns out to be what limits this. Nothing published searches
-//! sampled worlds with a network at the leaves, so whether it works here
-//! is something the arena decides, not the literature.
+//! This module deals worlds and then weighs them, which is how the two
+//! ideas meet. Dealing from the belief's per-tile marginals is only a
+//! proposal: it puts the right tiles in the right hands on average and
+//! knows nothing of shape, so it deals a hand of thirteen strays as
+//! readily as one that is a turn from winning. What is still in an
+//! opponent's hand was kept on purpose, and what is in the wall is what
+//! those choices left, so the hidden tiles are not a random draw from the
+//! unseen ones and a learned distribution over whole hands has to say
+//! which imagined worlds deserve to count. The caller supplies that: a
+//! reader trained to tell real hidden hands from imagined ones gives each
+//! world a weight, the likelihood ratio between the two, and [`leaves_from`]
+//! takes the worlds with their weights. The plausible worlds carry the
+//! decision and the rest are dropped or discounted, which is what the
+//! information-set search does with its weighted candidates, on an engine
+//! that already plays. The paired comparison honours the weights, and even
+//! weights give exactly the unweighted numbers, so a search with no reader
+//! is the sampled search it grew out of.
 
 use crate::bot::{Bot, Style};
 use crate::encoding::{self, OBSERVATION, OPPONENTS, PLACEMENT_VALUE, POINTS_PER_UNIT, POSITIONS};
@@ -192,6 +195,10 @@ pub struct Judged {
     pub per_world: Vec<Option<f64>>,
     /// How many worlds it was tried in.
     pub worlds: usize,
+    /// How much each world counts, in the order the worlds were made:
+    /// even when they were only sampled, from a reader of hidden hands
+    /// when they were weighed.
+    pub weights: Vec<f64>,
 }
 
 /// How much better one move looks than another, and how sure that is.
@@ -200,23 +207,42 @@ pub struct Judged {
 /// by world: the spread of those differences is far smaller than the spread
 /// of either move's own result, because the luck of the deal is the same on
 /// both sides of it and cancels.
+///
+/// The worlds carry weights, so this is a weighted mean of the differences,
+/// and its error is the error of a weighted mean of independent draws with
+/// the weights' concentration taken out, Kish's effective sample size, so
+/// that even weights give the usual n-1 and a few heavy worlds are not
+/// mistaken for many.
 fn compare(candidate: &Judged, against: &Judged) -> Option<(f64, f64)> {
-    let paired: Vec<f64> = candidate
+    let paired: Vec<(f64, f64)> = candidate
         .per_world
         .iter()
         .zip(&against.per_world)
-        .filter_map(|(mine, theirs)| Some(mine.as_ref()? - theirs.as_ref()?))
+        .zip(&candidate.weights)
+        .filter_map(|((mine, theirs), weight)| Some((mine.as_ref()? - theirs.as_ref()?, *weight)))
+        .filter(|(_, weight)| *weight > 0.0)
         .collect();
     if paired.len() < 3 {
         return None;
     }
-    let mean = paired.iter().sum::<f64>() / paired.len() as f64;
-    let variance = paired
+    let total: f64 = paired.iter().map(|(_, weight)| weight).sum();
+    let mean = paired
         .iter()
-        .map(|value| (value - mean).powi(2))
+        .map(|(difference, weight)| difference * weight)
         .sum::<f64>()
-        / (paired.len() - 1) as f64;
-    Some((mean, (variance / paired.len() as f64).sqrt()))
+        / total;
+    let concentration: f64 = paired
+        .iter()
+        .map(|(_, weight)| (weight / total).powi(2))
+        .sum();
+    if concentration >= 1.0 {
+        return None;
+    }
+    let spread: f64 = paired
+        .iter()
+        .map(|(difference, weight)| (weight / total).powi(2) * (difference - mean).powi(2))
+        .sum();
+    Some((mean, (spread / (1.0 - concentration)).sqrt()))
 }
 
 /// Everything a seat can see of the tiles.
@@ -443,6 +469,7 @@ pub fn judge(
                 },
                 per_world,
                 worlds: counted,
+                weights: vec![1.0; worlds.len()],
             }
         })
         .collect()
@@ -560,6 +587,9 @@ pub struct Leaves {
     /// the move could not be made in that world, which an imagined hand
     /// can do to a quad, or when the world could not be played on.
     pub counted: Vec<bool>,
+    /// How much each world counts, one per world: what the reader of
+    /// hidden hands made of it, or one each when nobody read them.
+    pub weights: Vec<f64>,
 }
 
 /// Where an imagined world got to after a candidate move.
@@ -700,8 +730,23 @@ fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64) -> Leaf {
     Leaf::Broken
 }
 
-/// Imagines the worlds, makes each candidate move in each, and returns the
-/// positions that result for the value head to judge.
+/// Imagines `count` worlds from the belief: the proposal a reader of
+/// hidden hands then weighs.
+pub fn imagine_worlds(
+    hand: &Hand,
+    seat: Wind,
+    belief: &Belief,
+    rng: &mut Rng,
+    count: usize,
+) -> Vec<Hand> {
+    (0..count)
+        .map(|_| imagine(hand, seat, belief, rng))
+        .collect()
+}
+
+/// Imagines the worlds evenly weighted, makes each candidate move in each,
+/// and returns the positions that result for the value head to judge. The
+/// sampled search; [`leaves_from`] is the weighed one.
 pub fn leaves(
     hand: &Hand,
     seat: Wind,
@@ -710,15 +755,28 @@ pub fn leaves(
     belief: &Belief,
     rng: &mut Rng,
 ) -> Leaves {
+    let worlds = imagine_worlds(hand, seat, belief, rng, effort.worlds);
+    let weights = vec![1.0; worlds.len()];
+    leaves_from(seat, candidates, &worlds, &weights, effort)
+}
+
+/// Makes each candidate move in each of the given worlds, which the caller
+/// has imagined and weighed, and returns the positions that result for the
+/// value head to judge. `weights` says how much each world counts.
+pub fn leaves_from(
+    seat: Wind,
+    candidates: &[Action],
+    worlds: &[Hand],
+    weights: &[f64],
+    effort: Effort,
+) -> Leaves {
     assert!(!candidates.is_empty(), "there is always something to do");
+    assert_eq!(worlds.len(), weights.len(), "one weight per world");
     let style = if effort.hurried {
         Style::rollout()
     } else {
         Style::club()
     };
-    let worlds: Vec<Hand> = (0..effort.worlds)
-        .map(|_| imagine(hand, seat, belief, rng))
-        .collect();
 
     let jobs: Vec<(usize, usize)> = (0..candidates.len())
         .flat_map(|candidate| (0..worlds.len()).map(move |world| (candidate, world)))
@@ -764,6 +822,7 @@ pub fn leaves(
         settled,
         wanted,
         counted,
+        weights: weights.to_vec(),
     }
 }
 
@@ -798,16 +857,23 @@ pub fn decide(
                 })
                 .collect();
             let counted = per_world.iter().flatten().count();
-            let total: f64 = per_world.iter().flatten().sum();
+            let (total, weight) = per_world
+                .iter()
+                .zip(&leaves.weights)
+                .filter_map(|(value, weight)| Some((value.as_ref()? * weight, *weight)))
+                .fold((0.0, 0.0), |(sum, mass), (value, weight)| {
+                    (sum + value, mass + weight)
+                });
             Judged {
                 action: candidates[candidate],
-                value: if counted == 0 {
+                value: if counted == 0 || weight <= 0.0 {
                     f64::NEG_INFINITY
                 } else {
-                    total / counted as f64
+                    total / weight
                 },
                 per_world,
                 worlds: counted,
+                weights: leaves.weights.clone(),
             }
         })
         .collect();
@@ -1103,6 +1169,89 @@ mod tests {
         let flat = vec![1.0; 18];
         let kept = decide(&candidates, &got, &flat, 2.0).expect("a decision");
         assert_eq!(kept.action, candidates[0], "nothing beats the incumbent");
+    }
+
+    /// Even weights are the unweighted comparison to the last digit, and a
+    /// heavier world pulls the mean its way.
+    #[test]
+    fn even_weights_are_the_unweighted_comparison() {
+        let judged = |per_world: Vec<Option<f64>>, weights: Vec<f64>| Judged {
+            action: Action::Discard(Tile::new(0)),
+            value: 0.0,
+            worlds: per_world.len(),
+            per_world,
+            weights,
+        };
+        let mine = judged(
+            vec![Some(1.0), Some(2.0), Some(4.0), Some(3.0)],
+            vec![1.0; 4],
+        );
+        let theirs = judged(vec![Some(0.0); 4], vec![1.0; 4]);
+        let (mean, error) = compare(&mine, &theirs).expect("four worlds compare");
+        // Differences 1, 2, 4, 3: mean 2.5, sample variance 5/3, and the
+        // error of the mean is the root of that over four.
+        assert!((mean - 2.5).abs() < 1e-12);
+        assert!((error - (5.0f64 / 3.0 / 4.0).sqrt()).abs() < 1e-12);
+
+        let heavier = judged(
+            vec![Some(1.0), Some(2.0), Some(4.0), Some(3.0)],
+            vec![1.0, 1.0, 1.0, 2.0],
+        );
+        let (mean, _) = compare(&heavier, &theirs).expect("still four worlds");
+        assert!((mean - (1.0 + 2.0 + 4.0 + 6.0) / 5.0).abs() < 1e-12);
+
+        // A world that counts for nothing is not a world, and two are too
+        // few to compare.
+        let thin = judged(
+            vec![Some(1.0), Some(2.0), Some(4.0), Some(3.0)],
+            vec![0.0, 0.0, 1.0, 1.0],
+        );
+        assert!(compare(&thin, &theirs).is_none());
+    }
+
+    /// The leaves carry the weights they were given, the sampled search
+    /// weighs every world the same, and the decision is a weighted one:
+    /// with all the weight on one world, what that world says goes.
+    #[test]
+    fn leaves_carry_their_weights_and_decide_by_them() {
+        let mut rng = Rng::from_seed(2026);
+        let hand = Table::new().deal(&mut rng);
+        let seat = hand.turn;
+        let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
+        let effort = Effort {
+            worlds: 4,
+            candidates: 2,
+            turns: None,
+            margin: 2.0,
+            hurried: true,
+        };
+        let mut rng = Rng::from_seed(5);
+        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 4);
+        let given = [0.5, 2.0, 1.0, 0.25];
+        let got = leaves_from(seat, &candidates, &worlds, &given, effort);
+        assert_eq!(got.weights, given.to_vec());
+        assert_eq!(got.worlds, 4);
+
+        let plain = leaves(&hand, seat, &candidates, effort, &Belief::even(), &mut rng);
+        assert!(plain.weights.iter().all(|weight| *weight == 1.0));
+
+        // Value the second candidate far above the first in the second
+        // world only. Weighed evenly that is one world in four and not
+        // enough to override; with the weight on that world it is, but
+        // one world cannot be compared, so the answer is the incumbent
+        // both ways and the difference shows in the value instead.
+        if got.counted.iter().all(|counts| *counts) {
+            let mut valued = vec![0.0; 8];
+            valued[4 + 1] = 5.0;
+            let heavy = leaves_from(seat, &candidates, &worlds, &[0.0, 1.0, 0.0, 0.0], effort);
+            let picked = decide(&candidates, &heavy, &valued, 2.0).expect("a decision");
+            assert_eq!(
+                picked.action, candidates[0],
+                "one world is not a comparison"
+            );
+            let judged = decide(&candidates, &got, &valued, 2.0).expect("a decision");
+            assert_eq!(judged.action, candidates[0]);
+        }
     }
 
     /// Plays a hand to its end with the hurried bots.

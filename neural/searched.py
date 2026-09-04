@@ -35,21 +35,60 @@ POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 OPPONENTS = riichi_py.OPPONENTS
 HANDS = riichi_py.HANDS
+HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 SEATS = 4
 
 
-def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidates, margin, hurried, device="cuda"):
+@torch.no_grad()
+def search_with_value_head(
+    net, arena, ranked, belief_flat, *, worlds, candidates, margin, hurried, device="cuda", pool=4
+):
     """One searched decision for every live game, valued by the network.
 
     `ranked` is the network's move order per game, best first; `belief_flat`
     is its belief about the opponents' hands, one row of HANDS per game.
-    The engine imagines the worlds and makes the moves; the network values
-    every resulting position in a single pass; the engine picks, keeping the
-    first move unless another beats it by `margin` standard errors of the
+
+    The hidden hands are weighed, not only sampled. The engine imagines
+    `pool` times `worlds` worlds from the belief's per-tile marginals,
+    which is only a proposal; the reader says of each how much more likely
+    its hidden hands are than the proposal made them; the `worlds` most
+    plausible are kept with those weights and the rest dropped. The engine
+    makes the moves in the kept worlds, the network values every resulting
+    position in a single pass, and the engine picks, keeping the first move
+    unless another beats it by `margin` standard errors of the weighted
     world-by-world difference.
     """
-    planes_bytes, counts, _settled, _wanted = arena.leaves(
-        ranked, belief_flat, worlds=worlds, candidates=candidates, hurried=hurried
+    games = len(ranked)
+    hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
+    total = sum(counts)
+    kept = [[] for _ in range(games)]
+    weights = [[] for _ in range(games)]
+    if total:
+        hands = np.frombuffer(hands_bytes, dtype=np.float32)
+        hands = hands.reshape(total, HIDDEN_HANDS_PLANES, POSITIONS)
+        public = np.frombuffer(arena.observations(), dtype=np.float32)
+        public = public.reshape(games, PLANES, POSITIONS)
+        game_of = np.repeat(np.arange(games), counts)
+        plausible = np.empty(total, dtype=np.float32)
+        step = 4096
+        for start in range(0, total, step):
+            rows = slice(start, start + step)
+            position = torch.from_numpy(public[game_of[rows]]).to(device)
+            shown = torch.from_numpy(hands[rows]).to(device)
+            plausible[rows] = net.read_plausibility(position, shown).float().cpu().numpy()
+        offset = 0
+        for game, count in enumerate(counts):
+            if count == 0:
+                continue
+            scores = plausible[offset : offset + count]
+            offset += count
+            order = np.argsort(-scores)[:worlds]
+            top = scores[order]
+            weight = np.exp(top - top.max())
+            kept[game] = [int(index) for index in order]
+            weights[game] = [float(value) for value in weight / weight.sum()]
+    planes_bytes, counts, _settled, _wanted = arena.leaves_from(
+        ranked, kept, weights, candidates=candidates, hurried=hurried
     )
     total = sum(counts)
     if total == 0:

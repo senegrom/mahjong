@@ -31,7 +31,8 @@ use pyo3::types::PyBytes;
 
 use riichi_core::bot::Bot;
 use riichi_core::encoding::{
-    self, ACTIONS, HANDS, OBSERVATION, OPPONENTS, ORACLE, ORACLE_PLANES, PASS, PLANES, POSITIONS,
+    self, ACTIONS, HANDS, HIDDEN_HANDS, HIDDEN_HANDS_PLANES, OBSERVATION, OPPONENTS, ORACLE,
+    ORACLE_PLANES, PASS, PLANES, POSITIONS,
 };
 use riichi_core::game::Action;
 use riichi_core::game::{Call, Hand, Outcome, Phase};
@@ -293,6 +294,9 @@ pub struct Arena {
     /// For each game, the candidates and leaves of a search whose values
     /// have been asked for and not yet given back.
     pending: Vec<Option<(Vec<Action>, search::Leaves)>>,
+    /// For each game, the worlds imagined for a weighed search and not yet
+    /// weighed.
+    imagined: Vec<Vec<Hand>>,
 }
 
 #[pymethods]
@@ -316,6 +320,7 @@ impl Arena {
             hands: vec![0.0; games * HANDS],
             searched: search::Tally::default(),
             pending: (0..games).map(|_| None).collect(),
+            imagined: (0..games).map(|_| Vec::new()).collect(),
         }
     }
 
@@ -537,6 +542,148 @@ impl Arena {
             settled,
             wanted,
         )
+    }
+
+    /// The first step of a weighed search. For every live game that owes a
+    /// move, imagines `worlds` worlds from the belief's per-tile marginals
+    /// and returns what each puts in the three hidden hands, as float32
+    /// planes of [`HIDDEN_HANDS_PLANES`] by thirty-four, one world after
+    /// another, with how many each game contributed. The marginals are
+    /// only a proposal; the reader weighs the worlds and
+    /// [`Arena::leaves_from`] takes the ones to keep.
+    #[pyo3(signature = (beliefs, worlds=800))]
+    fn imagine<'py>(
+        &mut self,
+        py: Python<'py>,
+        beliefs: Vec<f32>,
+        worlds: usize,
+    ) -> (Bound<'py, PyBytes>, Vec<usize>) {
+        let games = self.seats.len();
+        assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
+        let mut planes: Vec<f32> = Vec::new();
+        let mut counts = Vec::with_capacity(games);
+        for (game, stored) in self.imagined.iter_mut().enumerate() {
+            stored.clear();
+            let seat = &mut self.seats[game];
+            let Some(wind) = seat.pending() else {
+                counts.push(0);
+                continue;
+            };
+            if !seat.asking.is_empty() {
+                counts.push(0);
+                continue;
+            }
+            let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
+            let imagined = search::imagine_worlds(&seat.hand, wind, &belief, &mut seat.rng, worlds);
+            let start = planes.len();
+            planes.resize(start + imagined.len() * HIDDEN_HANDS, 0.0);
+            for (index, world) in imagined.iter().enumerate() {
+                let slot = start + index * HIDDEN_HANDS;
+                encoding::hidden_hands(world, wind, &mut planes[slot..slot + HIDDEN_HANDS]);
+            }
+            counts.push(imagined.len());
+            *stored = imagined;
+        }
+        (PyBytes::new(py, bytemuck_cast(&planes)), counts)
+    }
+
+    /// The second step: takes, per game, which of the imagined worlds to
+    /// keep and how much each counts, makes each of the first `candidates`
+    /// moves of `ranked` in every kept world, and returns the leaves as
+    /// [`Arena::leaves`] does. A game that imagined no worlds, or keeps
+    /// none, contributes no slots and comes back as its first move.
+    #[pyo3(signature = (ranked, kept, weights, candidates=4, hurried=true))]
+    fn leaves_from<'py>(
+        &mut self,
+        py: Python<'py>,
+        ranked: Vec<Vec<usize>>,
+        kept: Vec<Vec<usize>>,
+        weights: Vec<Vec<f32>>,
+        candidates: usize,
+        hurried: bool,
+    ) -> (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>) {
+        let games = self.seats.len();
+        assert_eq!(ranked.len(), games, "one ranking per game");
+        assert_eq!(kept.len(), games, "one list of kept worlds per game");
+        assert_eq!(weights.len(), games, "one list of weights per game");
+        let effort = search::Effort {
+            worlds: 0,
+            candidates,
+            turns: None,
+            margin: 2.0,
+            hurried,
+        };
+        let mut observations: Vec<f32> = Vec::new();
+        let mut counts = Vec::with_capacity(games);
+        let mut settled: Vec<f32> = Vec::new();
+        let mut wanted: Vec<u8> = Vec::new();
+        for (game, ranking) in ranked.iter().enumerate() {
+            self.pending[game] = None;
+            let imagined = std::mem::take(&mut self.imagined[game]);
+            let seat = &mut self.seats[game];
+            let Some(wind) = seat.pending() else {
+                counts.push(0);
+                continue;
+            };
+            if !seat.asking.is_empty() || imagined.is_empty() || kept[game].is_empty() {
+                counts.push(0);
+                continue;
+            }
+            let shortlist: Vec<Action> = ranking
+                .iter()
+                .filter_map(|index| encoding::decode_action(&seat.hand, *index))
+                .take(candidates.max(1))
+                .collect();
+            if shortlist.is_empty() {
+                counts.push(0);
+                continue;
+            }
+            assert_eq!(
+                kept[game].len(),
+                weights[game].len(),
+                "one weight per kept world"
+            );
+            let worlds: Vec<Hand> = kept[game]
+                .iter()
+                .map(|index| imagined[*index].clone())
+                .collect();
+            let world_weights: Vec<f64> = weights[game].iter().map(|w| *w as f64).collect();
+            let got = search::leaves_from(wind, &shortlist, &worlds, &world_weights, effort);
+            counts.push(got.counted.len());
+            observations.extend_from_slice(&got.observations);
+            settled.extend(got.settled.iter().map(|worth| *worth as f32));
+            wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
+            self.pending[game] = Some((shortlist, got));
+        }
+        (
+            PyBytes::new(py, bytemuck_cast(&observations)),
+            counts,
+            settled,
+            wanted,
+        )
+    }
+
+    /// One imagined world per live game, from the belief's marginals, as
+    /// the hidden-hand planes the reader is shown: the negatives it learns
+    /// to tell from the real hands, which [`Arena::oracle`] carries. Zeros
+    /// for a game that owes nothing.
+    fn imagined_hands<'py>(&mut self, py: Python<'py>, beliefs: Vec<f32>) -> Bound<'py, PyBytes> {
+        let games = self.seats.len();
+        assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
+        let mut planes = vec![0.0f32; games * HIDDEN_HANDS];
+        for (game, seat) in self.seats.iter_mut().enumerate() {
+            let Some(wind) = seat.pending() else {
+                continue;
+            };
+            let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
+            let world = search::imagine(&seat.hand, wind, &belief, &mut seat.rng);
+            encoding::hidden_hands(
+                &world,
+                wind,
+                &mut planes[game * HIDDEN_HANDS..(game + 1) * HIDDEN_HANDS],
+            );
+        }
+        PyBytes::new(py, bytemuck_cast(&planes))
     }
 
     /// The second half: takes one value per slot, in the order `leaves`
@@ -768,6 +915,7 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ACTIONS", ACTIONS)?;
     module.add("OPPONENTS", OPPONENTS)?;
     module.add("ORACLE_PLANES", ORACLE_PLANES)?;
+    module.add("HIDDEN_HANDS_PLANES", HIDDEN_HANDS_PLANES)?;
     module.add("POINTS_PER_UNIT", riichi_core::encoding::POINTS_PER_UNIT)?;
     module.add(
         "PLACEMENT_VALUE",

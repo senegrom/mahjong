@@ -27,6 +27,7 @@ ACTIONS = riichi_py.ACTIONS
 # The three players a network may be asked to read, in relative seat order.
 OPPONENTS = riichi_py.OPPONENTS
 ORACLE_PLANES = riichi_py.ORACLE_PLANES
+HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 
 
 # Group normalisation rather than batch normalisation: the network acts
@@ -39,6 +40,10 @@ GROUPS = 8
 # planes together. A fraction of the main tower.
 ORACLE_CHANNELS = 128
 ORACLE_BLOCKS = 4
+
+# The reader of hidden hands: the same shape, for the same reason.
+READER_CHANNELS = 128
+READER_BLOCKS = 4
 
 
 class Residual(nn.Module):
@@ -122,6 +127,41 @@ class PolicyValueNet(nn.Module):
             nn.ReLU(),
             nn.Linear(256, 1),
         )
+
+        # The reader of hidden hands: the learned distribution a search
+        # weighs imagined worlds by. Shown the position and a set of three
+        # hidden hands, it says how much more likely those hands are than
+        # the proposal that deals from per-tile marginals would make them.
+        # It learns that by telling the real hidden hands from imagined
+        # ones during self-play, and what a well-trained discriminator's
+        # logit converges to is exactly that likelihood ratio. What the
+        # marginals miss is what it is for: shape, and the selection in
+        # what an opponent kept. Nothing at play time in the browser calls
+        # it; the search does.
+        self.reader_stem = nn.Sequential(
+            nn.Conv1d(PLANES + HIDDEN_HANDS_PLANES, READER_CHANNELS, 3, padding=1, bias=False),
+            nn.GroupNorm(GROUPS, READER_CHANNELS),
+            nn.ReLU(),
+        )
+        self.reader_tower = nn.Sequential(
+            *[Residual(READER_CHANNELS) for _ in range(READER_BLOCKS)]
+        )
+        self.reader_tail = nn.Sequential(nn.GroupNorm(GROUPS, READER_CHANNELS), nn.ReLU())
+        self.reader = nn.Sequential(
+            nn.Linear(READER_CHANNELS, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1),
+        )
+
+    def read_plausibility(self, planes: torch.Tensor, hands: torch.Tensor) -> torch.Tensor:
+        """How much more likely these hidden hands are, given the position,
+        than the proposal made them: a logit per row, the log of the
+        likelihood ratio once trained. `hands` holds HIDDEN_HANDS_PLANES
+        planes, the three opponents' concealed tiles as unary counts in the
+        observation's seat order, real or imagined."""
+        together = torch.cat([planes, hands], dim=1)
+        features = self.reader_tail(self.reader_tower(self.reader_stem(together)))
+        return self.reader(features.mean(dim=2)).squeeze(1)
 
     def forward(
         self, planes: torch.Tensor, legal: torch.Tensor
@@ -224,7 +264,7 @@ def load_weights(net: PolicyValueNet, saved: dict[str, torch.Tensor]) -> None:
     fresh = net.state_dict()
     saved = dict(saved)
     for key, value in fresh.items():
-        if key.startswith(("hands.", "oracle_")) and (
+        if key.startswith(("hands.", "oracle_", "reader")) and (
             key not in saved or saved[key].shape != value.shape
         ):
             saved[key] = value
