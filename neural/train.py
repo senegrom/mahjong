@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import time
 from pathlib import Path
@@ -70,6 +71,14 @@ def parse_args() -> argparse.Namespace:
         default=180,
         help="minibatches drawn from the ring after each round's policy "
         "update, for those heads only; about one pass over a round",
+    )
+    parser.add_argument(
+        "--replay-kl",
+        type=float,
+        default=1.0,
+        help="how hard the policy is held, through the replay pass, to what "
+        "it was before the pass: a KL on the replayed positions, as in "
+        "Phasic Policy Gradient's auxiliary phase",
     )
     parser.add_argument(
         "--reader-weight",
@@ -359,18 +368,30 @@ def main() -> None:
         # table, on minibatches drawn evenly from the last several rounds.
         # No policy term, and no distillation, since the oracle's pre-round
         # estimate exists only for the round just played.
-        replay_value = replay_oracle = replay_read_right = 0.0
+        replay_value = replay_oracle = replay_read_right = replay_drift = 0.0
         replay_steps = 0
         if args.replay_steps and ring.total() >= args.batch:
+            # The policy must not move in this pass. The tower learns the
+            # value of old rounds, and a KL from the policy as it stood
+            # before the pass to the policy now, on the same positions,
+            # holds the play where it was: the first generation without
+            # this raised entropy from 0.50 to 0.55. Phasic Policy
+            # Gradient's auxiliary phase is the same remedy.
+            frozen = copy.deepcopy(net).eval()
+            for parameter in frozen.parameters():
+                parameter.requires_grad_(False)
             for _ in range(args.replay_steps):
                 rows = ring.sample(args.batch, replay_rng)
                 planes = rows["observations"].to(device).float()
+                legal_rows = rows["legal"].to(device)
                 seen = rows["oracle"].to(device).float()
                 target = rows["returns"].to(device)
+                with torch.no_grad():
+                    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
+                        old_logits, _old_value = frozen(planes, legal_rows)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
-                    _logits, value, guessed, oracle_value = learn(
-                        planes, rows["legal"].to(device), seen
-                    )
+                    logits, value, guessed, oracle_value = learn(planes, legal_rows, seen)
+                logits = logits.float()
                 value = value.float()
                 guessed = guessed.float()
                 oracle_value = oracle_value.float()
@@ -380,10 +401,16 @@ def main() -> None:
                 reader_loss, reader_right = reader_loss_of(
                     planes, seen[:, :HIDDEN_HANDS_PLANES], rows["imagined"].to(device).float()
                 )
+                old = torch.log_softmax(old_logits.float(), dim=1)
+                new = torch.log_softmax(logits, dim=1)
+                # Illegal moves are minus infinity on both sides; their
+                # terms are set to nothing rather than left as NaN.
+                drift = (old.exp() * (old - new)).masked_fill(~legal_rows, 0.0).sum(dim=1).mean()
                 loss = (
                     args.value_weight * (value_loss + oracle_loss)
                     + args.hands_weight * hands_loss
                     + args.reader_weight * reader_loss
+                    + args.replay_kl * drift
                 )
                 optimiser.zero_grad(set_to_none=True)
                 loss.backward()
@@ -392,7 +419,9 @@ def main() -> None:
                 replay_value += value_loss.item()
                 replay_oracle += oracle_loss.item()
                 replay_read_right += reader_right.item()
+                replay_drift += drift.item()
                 replay_steps += 1
+            del frozen
 
         record = {
             "generation": generation,
@@ -415,6 +444,9 @@ def main() -> None:
             "replay_value_loss": round(replay_value / max(replay_steps, 1), 4),
             "replay_oracle_loss": round(replay_oracle / max(replay_steps, 1), 4),
             "replay_reader_right": round(replay_read_right / max(replay_steps, 1), 4),
+            # How far the policy was pulled during the pass, as a KL; it
+            # should stay near nothing.
+            "replay_drift": round(replay_drift / max(replay_steps, 1), 5),
             "distil": round(total_distil / max(steps, 1), 4),
             # The reader's loss and how often it tells a real set of hidden
             # hands from an imagined one; a half is guessing.
