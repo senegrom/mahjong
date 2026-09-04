@@ -71,6 +71,21 @@ class Batch:
     hand_results: list[int] = field(default_factory=list)
 
 
+def gather(blocks: list[np.ndarray]) -> torch.Tensor:
+    """Stacks a round's blocks into one tensor, freeing each block as it
+    is copied, so the peak is the round itself and one block over."""
+    total = sum(len(block) for block in blocks)
+    out = np.empty((total, *blocks[0].shape[1:]), dtype=blocks[0].dtype)
+    at = 0
+    for index in range(len(blocks)):
+        block = blocks[index]
+        out[at : at + len(block)] = block
+        at += len(block)
+        blocks[index] = None
+    blocks.clear()
+    return torch.from_numpy(out)
+
+
 @torch.no_grad()
 def play(
     net,
@@ -90,6 +105,9 @@ def play(
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=bot_places or [])
 
+    # One block per step, holding the live games' rows in the order the
+    # decisions are numbered below: a round is a few hundred blocks rather
+    # than a few hundred thousand arrays, which the heap handles.
     observations: list[np.ndarray] = []
     legal_masks: list[np.ndarray] = []
     held: list[np.ndarray] = []
@@ -145,18 +163,17 @@ def play(
         log_prob_cpu = chosen_log_prob.cpu().numpy()
         choice[index] = chosen_cpu
 
+        # Copies, not views: a view would keep the whole step's buffer
+        # alive until the round is gathered at the end.
+        observations.append(planes[index].copy())
+        legal_masks.append(mask[index].copy())
+        held.append(truth[index].copy())
+        oracle.append(hidden[index].astype(np.uint8))
+        imagined.append(proposed[index].astype(np.uint8))
         for slot, game in enumerate(index):
             seat = int(seats[game])
             person = int(players[game][seat])
             step_index = len(actions)
-            # Copies, not views: a view would keep the whole step's buffer
-            # alive, seven megabytes for five hundred tables, until the
-            # round is stacked at the end.
-            observations.append(planes[game].copy())
-            legal_masks.append(mask[game].copy())
-            held.append(truth[game].copy())
-            oracle.append(hidden[game].astype(np.uint8))
-            imagined.append(proposed[game].astype(np.uint8))
             actions.append(int(chosen_cpu[slot]))
             log_probs.append(float(log_prob_cpu[slot]))
             rewards.append(0.0)
@@ -191,12 +208,12 @@ def play(
         raise RuntimeError("self-play produced no decisions")
 
     return Batch(
-        observations=torch.from_numpy(np.stack(observations)),
-        legal=torch.from_numpy(np.stack(legal_masks)),
+        observations=gather(observations),
+        legal=gather(legal_masks),
         actions=torch.tensor(actions, dtype=torch.int64),
-        held=torch.from_numpy(np.stack(held)),
-        oracle=torch.from_numpy(np.stack(oracle)),
-        imagined=torch.from_numpy(np.stack(imagined)),
+        held=gather(held),
+        oracle=gather(oracle),
+        imagined=gather(imagined),
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,
