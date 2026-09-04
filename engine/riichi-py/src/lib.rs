@@ -31,7 +31,7 @@ use pyo3::types::PyBytes;
 
 use riichi_core::bot::Bot;
 use riichi_core::encoding::{
-    self, ACTIONS, HANDS, OBSERVATION, OPPONENTS, PASS, PLANES, POSITIONS,
+    self, ACTIONS, HANDS, OBSERVATION, OPPONENTS, ORACLE, ORACLE_PLANES, PASS, PLANES, POSITIONS,
 };
 use riichi_core::game::Action;
 use riichi_core::game::{Call, Hand, Outcome, Phase};
@@ -283,6 +283,8 @@ fn call_to_index(call: Call, claimed: riichi_core::tile::Tile) -> usize {
 pub struct Arena {
     seats: Vec<Seat>,
     observations: Vec<f32>,
+    /// What each deciding seat cannot see, filled in only when asked for.
+    oracle: Vec<f32>,
     mask: Vec<bool>,
     /// What the opponents are holding, filled in only when asked for.
     hands: Vec<f32>,
@@ -309,6 +311,7 @@ impl Arena {
                 .map(|index| Seat::new(seed.wrapping_add(index as u64), &bot_places))
                 .collect(),
             observations: vec![0.0; games * OBSERVATION],
+            oracle: vec![0.0; games * ORACLE],
             mask: vec![false; games * ACTIONS],
             hands: vec![0.0; games * HANDS],
             searched: search::Tally::default(),
@@ -345,6 +348,21 @@ impl Arena {
             }
         }
         PyBytes::new(py, bytemuck_cast(&self.observations))
+    }
+
+    /// What each deciding seat cannot see, as float32 planes for the
+    /// oracle critic: [`ORACLE_PLANES`] planes of thirty-four per game,
+    /// zeros for a game that owes no decision. Only training asks for it;
+    /// the network is never shown it when choosing a move.
+    fn oracle<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        for (index, seat) in self.seats.iter().enumerate() {
+            let slice = &mut self.oracle[index * ORACLE..(index + 1) * ORACLE];
+            match seat.pending() {
+                Some(wind) => encoding::oracle(&seat.hand, wind, slice),
+                None => slice.fill(0.0),
+            }
+        }
+        PyBytes::new(py, bytemuck_cast(&self.oracle))
     }
 
     /// What the opponents are actually holding, one answer per game, as
@@ -749,6 +767,7 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("OBSERVATION", OBSERVATION)?;
     module.add("ACTIONS", ACTIONS)?;
     module.add("OPPONENTS", OPPONENTS)?;
+    module.add("ORACLE_PLANES", ORACLE_PLANES)?;
     module.add("POINTS_PER_UNIT", riichi_core::encoding::POINTS_PER_UNIT)?;
     module.add(
         "PLACEMENT_VALUE",

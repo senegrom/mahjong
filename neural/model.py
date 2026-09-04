@@ -26,6 +26,7 @@ POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 # The three players a network may be asked to read, in relative seat order.
 OPPONENTS = riichi_py.OPPONENTS
+ORACLE_PLANES = riichi_py.ORACLE_PLANES
 
 
 # Group normalisation rather than batch normalisation: the network acts
@@ -87,6 +88,29 @@ class PolicyValueNet(nn.Module):
         # each kind, how much of that opponent's hand it makes up.
         self.hands = nn.Conv1d(channels, OPPONENTS, 1)
 
+        # The oracle critic. In training only, it also sees what the player
+        # cannot: the opponents' concealed tiles, the draws to come and the
+        # hidden indicators. Knowing them makes the return far less of a
+        # surprise, so its estimate is far less noisy than the public value
+        # head's, which makes it the better baseline for the policy gradient
+        # and a quieter target for the public head to learn from. Its planes
+        # go through a small stem of their own and meet the tower's pooled
+        # features only here, so the policy never touches them and nothing
+        # at play time calls this.
+        self.oracle_stem = nn.Sequential(
+            nn.Conv1d(ORACLE_PLANES, 64, 3, padding=1, bias=False),
+            nn.GroupNorm(GROUPS, 64),
+            nn.ReLU(),
+            nn.Conv1d(64, 64, 3, padding=1, bias=False),
+            nn.GroupNorm(GROUPS, 64),
+            nn.ReLU(),
+        )
+        self.oracle_value = nn.Sequential(
+            nn.Linear(channels + 64, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1),
+        )
+
     def forward(
         self, planes: torch.Tensor, legal: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -136,6 +160,21 @@ class PolicyValueNet(nn.Module):
         logits = logits.masked_fill(~legal, float("-inf"))
         return logits, self.value(pooled).squeeze(1), self.hands(features)
 
+    def with_oracle(
+        self, planes: torch.Tensor, legal: torch.Tensor, oracle: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Everything, and the oracle critic's value too, from one pass of
+        the tower. For training; see the note on the oracle critic above."""
+        features = self.tail(self.tower(self.stem(planes)))
+        pooled = features.mean(dim=2)
+        tiles = self.policy_tiles(features)
+        tiles = tiles.reshape(tiles.shape[0], -1)
+        logits = torch.cat([tiles, self.policy_pooled(pooled)], dim=1)
+        logits = logits.masked_fill(~legal, float("-inf"))
+        hidden = self.oracle_stem(oracle).mean(dim=2)
+        oracle_value = self.oracle_value(torch.cat([pooled, hidden], dim=1)).squeeze(1)
+        return logits, self.value(pooled).squeeze(1), self.hands(features), oracle_value
+
     def parameter_count(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
@@ -165,12 +204,12 @@ def load_weights(net: PolicyValueNet, saved: dict[str, torch.Tensor]) -> None:
         raise ValueError(
             f"the checkpoint saw {seen} planes and the engine now makes {PLANES}"
         )
-    # A checkpoint from before the network read the opponents' hands has
-    # no such head. It starts fresh, and everything else loads as saved;
-    # any other gap is still an error.
+    # A checkpoint from before the network read the opponents' hands, or
+    # before it had an oracle critic, has no such head. Those start fresh,
+    # and everything else loads as saved; any other gap is still an error.
     fresh = net.state_dict()
     missing = [key for key in fresh if key not in saved]
-    if missing and all(key.startswith("hands.") for key in missing):
+    if missing and all(key.startswith(("hands.", "oracle_")) for key in missing):
         saved = dict(saved)
         for key in missing:
             saved[key] = fresh[key]

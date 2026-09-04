@@ -45,6 +45,15 @@ pub const POINTS_PER_UNIT: f32 = 4000.0;
 /// is for, and a search that plays an imagined world to the end of the
 /// game needs the same numbers.
 pub const PLACEMENT_VALUE: [f32; 4] = [1.5, 0.5, -0.5, -1.5];
+/// How many of the coming draws the oracle is shown.
+pub const ORACLE_DRAWS: usize = 4;
+/// Planes in the oracle's view, which is what the player cannot see: the
+/// three opponents' concealed tiles as unary counts, the next
+/// [`ORACLE_DRAWS`] live draws in order, and the hidden dora indicators as
+/// unary counts. For a critic consulted only in training.
+pub const ORACLE_PLANES: usize = OPPONENTS * COPIES as usize + ORACLE_DRAWS + COPIES as usize;
+/// Numbers in one oracle view.
+pub const ORACLE: usize = ORACLE_PLANES * POSITIONS;
 /// Numbers in one answer about what the opponents are holding.
 pub const HANDS: usize = OPPONENTS * POSITIONS;
 /// Roughly how many discards a hand holds before the wall runs out, used to
@@ -267,6 +276,39 @@ pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
     debug_assert_eq!(plane, PLANES, "the observation must fill every plane");
 }
 
+/// Writes what `seat` cannot see into `out`, which must hold [`ORACLE`]
+/// numbers: the other three concealed hands, in the same relative seat
+/// order as [`observe`], then the coming draws in order, then the hidden
+/// dora indicators.
+///
+/// This is for a critic that is only ever consulted in training. Knowing
+/// the hidden tiles makes the return far less of a surprise, so its
+/// estimate of a position is far less noisy than one made from what the
+/// seat can see, and that estimate is a better baseline for the policy
+/// gradient and a quieter target for the public value head. The policy
+/// never sees these planes, and nothing at play time asks for them.
+pub fn oracle(hand: &Hand, seat: Wind, out: &mut [f32]) {
+    assert_eq!(out.len(), ORACLE, "oracle buffer is the wrong size");
+    out.fill(0.0);
+    let mut plane = 0;
+    for offset in 1..4 {
+        let other = &hand.players[seat.plus(offset).index()];
+        unary(out, &mut plane, |tile| other.hand.count(tile));
+    }
+    for (order, tile) in hand.wall.upcoming(ORACLE_DRAWS).iter().enumerate() {
+        out[(plane + order) * POSITIONS + tile.idx()] = 1.0;
+    }
+    plane += ORACLE_DRAWS;
+    unary(out, &mut plane, |tile| {
+        hand.wall
+            .ura_indicators()
+            .iter()
+            .filter(|indicator| **indicator == tile)
+            .count() as u8
+    });
+    debug_assert_eq!(plane, ORACLE_PLANES, "the oracle must fill every plane");
+}
+
 fn meld_count(hand: &Hand, seat: Wind, tile: Tile) -> u8 {
     hand.players[seat.index()]
         .melds
@@ -487,6 +529,45 @@ mod tests {
         // as many distinct kinds as a hand can hold twice over.
         let first_plane: f32 = out[..POSITIONS].iter().sum();
         assert!((7.0..=14.0).contains(&first_plane));
+    }
+
+    /// The oracle shows what the seat cannot see and nothing of what it
+    /// can: each opponent's concealed tiles in the observation's relative
+    /// order, then the draws to come in order, then the hidden indicators.
+    #[test]
+    fn the_oracle_shows_the_hidden_tiles() {
+        let hand = fresh();
+        let seat = Wind::South;
+        let mut out = vec![0.0; ORACLE];
+        oracle(&hand, seat, &mut out);
+
+        for offset in 1..4 {
+            let other = &hand.players[seat.plus(offset).index()];
+            let first = (offset - 1) * COPIES as usize;
+            for tile in Tile::all() {
+                let lit = (first..first + COPIES as usize)
+                    .filter(|plane| out[plane * POSITIONS + tile.idx()] == 1.0)
+                    .count() as u8;
+                assert_eq!(lit, other.hand.count(tile), "opponent {offset}, {tile:?}");
+            }
+        }
+        let held: f32 = out[..OPPONENTS * COPIES as usize * POSITIONS].iter().sum();
+        assert_eq!(held, 40.0, "thirteen tiles twice and the dealer's fourteen");
+
+        let coming = hand.wall.upcoming(ORACLE_DRAWS);
+        assert_eq!(coming.len(), ORACLE_DRAWS);
+        for (order, tile) in coming.iter().enumerate() {
+            let plane = OPPONENTS * COPIES as usize + order;
+            let row = &out[plane * POSITIONS..(plane + 1) * POSITIONS];
+            assert_eq!(row.iter().sum::<f32>(), 1.0, "one tile per draw");
+            assert_eq!(row[tile.idx()], 1.0, "draw {order} is {tile:?}");
+        }
+
+        let indicators = OPPONENTS * COPIES as usize + ORACLE_DRAWS;
+        let ura = hand.wall.ura_indicators();
+        let row = &out[indicators * POSITIONS..(indicators + 1) * POSITIONS];
+        assert_eq!(row[ura[0].idx()], 1.0, "the hidden indicator is shown");
+        assert_eq!(row.iter().sum::<f32>(), 1.0);
     }
 
     /// The hand's number has a plane of its own, at the end, so a network

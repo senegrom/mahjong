@@ -20,6 +20,7 @@ PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 OPPONENTS = riichi_py.OPPONENTS
+ORACLE_PLANES = riichi_py.ORACLE_PLANES
 
 # What a hand moved, brought to about the size of the placement term below
 # so neither drowns the other. A big hand is worth a few tenths.
@@ -50,6 +51,11 @@ class Batch:
     #: reads a table, and never shown to the network when it chooses.
     #: Named apart from `hands`, which counts how many were played.
     held: torch.Tensor
+    #: What the deciding seat could not see at each decision: the opponents'
+    #: concealed tiles, the draws to come and the hidden indicators, as 0/1
+    #: planes kept in bytes. For the oracle critic, which only trains; the
+    #: network is never shown this when choosing.
+    oracle: torch.Tensor
     returns: torch.Tensor
     log_probs: torch.Tensor
     games: int
@@ -76,6 +82,7 @@ def play(
     observations: list[np.ndarray] = []
     legal_masks: list[np.ndarray] = []
     held: list[np.ndarray] = []
+    oracle: list[np.ndarray] = []
     actions: list[int] = []
     log_probs: list[float] = []
     rewards: list[float] = []
@@ -98,6 +105,8 @@ def play(
         mask = mask.reshape(games, ACTIONS).astype(bool)
         truth = np.frombuffer(arena.opponent_hands(), dtype=np.float32)
         truth = truth.reshape(games, OPPONENTS, POSITIONS)
+        hidden = np.frombuffer(arena.oracle(), dtype=np.float32)
+        hidden = hidden.reshape(games, ORACLE_PLANES, POSITIONS)
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
 
         index = np.nonzero(live)[0]
@@ -120,6 +129,7 @@ def play(
             observations.append(planes[game])
             legal_masks.append(mask[game])
             held.append(truth[game])
+            oracle.append(hidden[game].astype(np.uint8))
             actions.append(int(chosen_cpu[slot]))
             log_probs.append(float(log_prob_cpu[slot]))
             rewards.append(0.0)
@@ -158,6 +168,7 @@ def play(
         legal=torch.from_numpy(np.stack(legal_masks)),
         actions=torch.tensor(actions, dtype=torch.int64),
         held=torch.from_numpy(np.stack(held)),
+        oracle=torch.from_numpy(np.stack(oracle)),
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,

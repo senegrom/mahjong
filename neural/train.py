@@ -56,6 +56,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--entropy", type=float, default=0.03)
     parser.add_argument("--value-weight", type=float, default=0.5)
     parser.add_argument(
+        "--distil-weight",
+        type=float,
+        default=1.0,
+        help="how hard the public value head is pulled towards the oracle "
+        "critic's estimate, on top of the return itself",
+    )
+    parser.add_argument(
         "--hands-weight",
         type=float,
         default=1.0,
@@ -114,6 +121,10 @@ def main() -> None:
         legal = batch.legal.to(device)
         actions = batch.actions.to(device)
         held = batch.held.to(device)
+        # The oracle's planes stay on the host in bytes and cross to the
+        # card a step at a time: a round of them is a quarter of a gigabyte
+        # and the card is already close to full at this batch size.
+        oracle = batch.oracle
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
 
@@ -131,6 +142,7 @@ def main() -> None:
 
         net.train()
         total_policy = total_value = total_entropy = 0.0
+        total_oracle = total_distil = 0.0
         total_clipped = 0.0
         total_hands = total_covered = 0.0
         steps = 0
@@ -140,10 +152,16 @@ def main() -> None:
                 picks = order[start_index : start_index + args.batch]
                 if picks.numel() < 2:
                     continue
-                logits, value, guessed = net.everything(observations[picks], legal[picks])
+                seen = oracle[picks.cpu()].to(device, non_blocking=True).float()
+                logits, value, guessed, oracle_value = net.with_oracle(
+                    observations[picks], legal[picks], seen
+                )
                 distribution = torch.distributions.Categorical(logits=logits)
                 log_prob = distribution.log_prob(actions[picks])
-                advantage = (normalised[picks] - value).detach()
+                # The oracle critic is the baseline. It depends on the hidden
+                # tiles but not on the action, so it takes nothing away from
+                # the gradient's expectation and a great deal from its noise.
+                advantage = (normalised[picks] - oracle_value).detach()
 
                 # The clipped objective: an update may improve an action's
                 # odds, but only so far in one round, which is what keeps a
@@ -153,6 +171,11 @@ def main() -> None:
                 policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
                 total_clipped += float((ratio != clipped).float().mean())
                 value_loss = nn.functional.mse_loss(value, normalised[picks])
+                oracle_loss = nn.functional.mse_loss(oracle_value, normalised[picks])
+                # The public head also learns from the oracle's estimate,
+                # which averages over the hidden tiles far more quietly than
+                # one game's return does.
+                distil_loss = nn.functional.mse_loss(value, oracle_value.detach())
                 entropy = distribution.entropy().mean()
 
                 # What the opponents are holding. Cross-entropy against the
@@ -174,7 +197,8 @@ def main() -> None:
                     covered = (overlap * holding).sum() / holding.sum().clamp(min=1)
                 loss = (
                     policy_loss
-                    + args.value_weight * value_loss
+                    + args.value_weight * (value_loss + oracle_loss)
+                    + args.value_weight * args.distil_weight * distil_loss
                     + args.hands_weight * hands_loss
                     - args.entropy * entropy
                 )
@@ -186,6 +210,8 @@ def main() -> None:
 
                 total_policy += policy_loss.item()
                 total_value += value_loss.item()
+                total_oracle += oracle_loss.item()
+                total_distil += distil_loss.item()
                 total_entropy += entropy.item()
                 total_hands += hands_loss.item()
                 total_covered += covered.item()
@@ -199,6 +225,11 @@ def main() -> None:
             "play_seconds": round(played, 1),
             "policy_loss": round(total_policy / max(steps, 1), 4),
             "value_loss": round(total_value / max(steps, 1), 4),
+            "oracle_loss": round(total_oracle / max(steps, 1), 4),
+            "distil": round(total_distil / max(steps, 1), 4),
+            # What a constant guess would score, so the two losses above
+            # read as how much of the return each head explains.
+            "return_variance": round(float(returns.var()), 4),
             "entropy": round(total_entropy / max(steps, 1), 4),
             "hands_loss": round(total_hands / max(steps, 1), 4),
             "hands_read": round(total_covered / max(steps, 1), 4),

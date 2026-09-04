@@ -168,6 +168,13 @@ impl Wall {
             .collect()
     }
 
+    /// The next `count` live draws in order, or as many as are left: what
+    /// a player could only know by looking, which is what the oracle does.
+    pub fn upcoming(&self, count: usize) -> &[Tile] {
+        let end = (self.next_draw + count).min(self.live_end);
+        &self.tiles[self.next_draw..end]
+    }
+
     /// Every tile of the wall in order, for replays and tests.
     pub fn tiles(&self) -> &[Tile] {
         &self.tiles
