@@ -466,9 +466,14 @@ impl Arena {
     /// action index, or 0xFF where no decision is owed. This is the label a
     /// network is taught from before it is left to play on its own.
     fn teacher<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        // The teacher counts acceptance for every candidate discard, which
+        // is the expensive part of the heuristic player, and the warm start
+        // asks it at every seat of every game. Across the cores, as the
+        // stepping is.
+        use rayon::prelude::*;
         let bytes: Vec<u8> = self
             .seats
-            .iter_mut()
+            .par_iter_mut()
             .map(|seat| {
                 seat.teacher_choice()
                     .map(|index| index as u8)
@@ -487,8 +492,16 @@ impl Arena {
                 actions.len()
             )));
         }
-        for (seat, index) in self.seats.iter_mut().zip(actions) {
-            seat.step(index);
+        // Every game is its own table, hand and generator, and stepping one
+        // means running the heuristic players round to the next decision the
+        // network owes, which is where the CPU time of a generation goes.
+        // The GPU was sitting at ten percent waiting for this loop.
+        {
+            use rayon::prelude::*;
+            self.seats
+                .par_iter_mut()
+                .zip(actions.par_iter())
+                .for_each(|(seat, index)| seat.step(*index));
         }
         Ok(())
     }
