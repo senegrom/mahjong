@@ -40,8 +40,10 @@ plays and the game the opponents were trained on cannot drift apart.
 - **A search that imagines the hands it cannot see.** A policy head answers
   from the position in front of it and never plays anything out; this deals
   the unseen tiles into the other three hands and the wall, plays that world
-  to the end, and does it again. A move has to beat the player's own choice
-  by two standard errors of the paired difference before it is taken.
+  to the end, and does it again, across every core. A move has to beat the
+  player's own choice by two standard errors of the paired difference before
+  it is taken, because taking the best of several noisy rollouts otherwise
+  keeps the luckiest candidate rather than the best.
 - **A network that reads the table.** The worlds are not dealt evenly, which
   would assume opponents discard at random. They chose what to throw, so
   what is left is what they wanted to keep, and the network has a head that
@@ -75,7 +77,10 @@ A network no better than those bots averages 2.5. Reproduce it with
 `python -m neural.arena <checkpoint> --games 2500`.
 
 It reaches the browser as 2.4 MB of int8 weights in a worker beside the
-rules in WebAssembly, so a whole game runs offline. Quantising left the
+rules in WebAssembly, so a whole game runs offline. That published network
+is 192 channels by 10 blocks; the one training now is 320 by 20, 12.6M
+parameters and about fifty megabytes, far too big for a phone and meant to
+be distilled down once it is worth distilling. Quantising left the
 best move unchanged on every position tested. It answers in 38 milliseconds
 at the median and 41 at the ninetieth percentile, where the plan asks for
 under 200.
