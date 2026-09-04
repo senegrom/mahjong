@@ -75,7 +75,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--replay-kl",
         type=float,
-        default=1.0,
+        default=10.0,
         help="how hard the policy is held, through the replay pass, to what "
         "it was before the pass: a KL on the replayed positions, as in "
         "Phasic Policy Gradient's auxiliary phase",
@@ -397,10 +397,13 @@ def main() -> None:
                 oracle_value = oracle_value.float()
                 value_loss = nn.functional.mse_loss(value, target)
                 oracle_loss = nn.functional.mse_loss(oracle_value, target)
-                hands_loss, _covered = hands_loss_of(guessed, rows["held"].to(device))
                 reader_loss, reader_right = reader_loss_of(
                     planes, seen[:, :HIDDEN_HANDS_PLANES], rows["imagined"].to(device).float()
                 )
+                # The hand-reading loss is the largest of them all and is
+                # left to the policy pass, where the policy term balances
+                # it; here it only pushed the tower about.
+                del guessed
                 old = torch.log_softmax(old_logits.float(), dim=1)
                 new = torch.log_softmax(logits, dim=1)
                 # Illegal moves are minus infinity on both sides; their
@@ -408,7 +411,6 @@ def main() -> None:
                 drift = (old.exp() * (old - new)).masked_fill(~legal_rows, 0.0).sum(dim=1).mean()
                 loss = (
                     args.value_weight * (value_loss + oracle_loss)
-                    + args.hands_weight * hands_loss
                     + args.reader_weight * reader_loss
                     + args.replay_kl * drift
                 )
