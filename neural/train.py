@@ -76,6 +76,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260903)
     parser.add_argument("--out", type=Path, default=Path("E:/tmp-claude/mahjong/run1"))
     parser.add_argument("--resume", type=Path, default=None)
+    parser.add_argument(
+        "--amp",
+        action="store_true",
+        help="run the learning step's forward pass in bfloat16; the losses "
+        "and the optimiser stay in float32",
+    )
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="compile the learning step's forward pass with torch.compile, "
+        "which fuses its kernels and matters most when the launching "
+        "thread is starved",
+    )
     return parser.parse_args()
 
 
@@ -101,6 +114,7 @@ def main() -> None:
         print(f"resumed from {args.resume} at generation {start}", flush=True)
 
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
+    learn = torch.compile(net.with_oracle) if args.compile else net.with_oracle
     print(
         f"device {device} | {net.channels} channels x {net.blocks} blocks "
         f"| {net.parameter_count() / 1e6:.2f}M parameters",
@@ -117,17 +131,19 @@ def main() -> None:
         )
         played = time.time() - began
 
-        # The observations stay on the host, pinned, and each minibatch
-        # crosses to the card as it is drawn: a round of them is five
-        # gigabytes and sat on the card beside the step's own eight, which
-        # with the oracle critic left a gigabyte spare of sixteen. A
-        # minibatch is 27 MB and crosses in a couple of milliseconds.
-        observations = batch.observations.pin_memory()
+        # The observations stay on the host and each minibatch crosses to
+        # the card as it is drawn: a round of them is five gigabytes and sat
+        # on the card beside the step's own eight, which with the oracle
+        # critic left a gigabyte spare of sixteen. A minibatch is 27 MB and
+        # crosses in a few milliseconds. Not pinned: pinning copies the
+        # round into page-locked memory, which took the run from twelve
+        # gigabytes of host memory to twenty-eight and the machine to none.
+        observations = batch.observations
         legal = batch.legal.to(device)
         actions = batch.actions.to(device)
         held = batch.held.to(device)
         # The oracle's planes likewise, in bytes.
-        oracle = batch.oracle.pin_memory()
+        oracle = batch.oracle
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
 
@@ -156,11 +172,15 @@ def main() -> None:
                 if picks.numel() < 2:
                     continue
                 drawn = picks.cpu()
-                planes = observations[drawn].to(device, non_blocking=True)
-                seen = oracle[drawn].to(device, non_blocking=True).float()
-                logits, value, guessed, oracle_value = net.with_oracle(
-                    planes, legal[picks], seen
-                )
+                planes = observations[drawn].to(device)
+                seen = oracle[drawn].to(device).float()
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
+                    logits, value, guessed, oracle_value = learn(planes, legal[picks], seen)
+                # Whatever the forward pass ran in, the losses are float32.
+                logits = logits.float()
+                value = value.float()
+                guessed = guessed.float()
+                oracle_value = oracle_value.float()
                 distribution = torch.distributions.Categorical(logits=logits)
                 log_prob = distribution.log_prob(actions[picks])
                 # The oracle critic is the baseline. It depends on the hidden
