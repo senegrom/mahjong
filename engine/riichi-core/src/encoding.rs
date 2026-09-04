@@ -45,8 +45,9 @@ pub const POINTS_PER_UNIT: f32 = 4000.0;
 /// is for, and a search that plays an imagined world to the end of the
 /// game needs the same numbers.
 pub const PLACEMENT_VALUE: [f32; 4] = [1.5, 0.5, -0.5, -1.5];
-/// How many of the coming draws the oracle is shown.
-pub const ORACLE_DRAWS: usize = 4;
+/// How many of the coming draws the oracle is shown: four rounds of the
+/// table, so it knows every seat's next four turns.
+pub const ORACLE_DRAWS: usize = 16;
 /// Planes in the oracle's view, which is what the player cannot see: the
 /// three opponents' concealed tiles as unary counts, the next
 /// [`ORACLE_DRAWS`] live draws in order, and the hidden dora indicators as

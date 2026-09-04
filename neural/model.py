@@ -35,6 +35,11 @@ ORACLE_PLANES = riichi_py.ORACLE_PLANES
 # the data differ from the one being updated.
 GROUPS = 8
 
+# The oracle critic's own tower, which sees the position and the hidden
+# planes together. A fraction of the main tower.
+ORACLE_CHANNELS = 128
+ORACLE_BLOCKS = 4
+
 
 class Residual(nn.Module):
     """A pre-activation residual block along the tile axis."""
@@ -93,20 +98,27 @@ class PolicyValueNet(nn.Module):
         # hidden indicators. Knowing them makes the return far less of a
         # surprise, so its estimate is far less noisy than the public value
         # head's, which makes it the better baseline for the policy gradient
-        # and a quieter target for the public head to learn from. Its planes
-        # go through a small stem of their own and meet the tower's pooled
-        # features only here, so the policy never touches them and nothing
-        # at play time calls this.
+        # and a quieter target for the public head to learn from.
+        #
+        # It has a small tower of its own that sees the position and the
+        # hidden planes together. That is what lets it ask, per tile, the
+        # one question it is for: whether the tile this seat is about to
+        # throw is the tile an opponent is waiting on. A first version
+        # pooled the hidden planes on their own and joined them to the
+        # main tower's pooled features only at the end, which cannot say
+        # that, and its loss sat on top of the public head's. The policy
+        # never touches any of this and nothing at play time calls it.
         self.oracle_stem = nn.Sequential(
-            nn.Conv1d(ORACLE_PLANES, 64, 3, padding=1, bias=False),
-            nn.GroupNorm(GROUPS, 64),
-            nn.ReLU(),
-            nn.Conv1d(64, 64, 3, padding=1, bias=False),
-            nn.GroupNorm(GROUPS, 64),
+            nn.Conv1d(PLANES + ORACLE_PLANES, ORACLE_CHANNELS, 3, padding=1, bias=False),
+            nn.GroupNorm(GROUPS, ORACLE_CHANNELS),
             nn.ReLU(),
         )
+        self.oracle_tower = nn.Sequential(
+            *[Residual(ORACLE_CHANNELS) for _ in range(ORACLE_BLOCKS)]
+        )
+        self.oracle_tail = nn.Sequential(nn.GroupNorm(GROUPS, ORACLE_CHANNELS), nn.ReLU())
         self.oracle_value = nn.Sequential(
-            nn.Linear(channels + 64, 256),
+            nn.Linear(channels + ORACLE_CHANNELS, 256),
             nn.ReLU(),
             nn.Linear(256, 1),
         )
@@ -171,7 +183,8 @@ class PolicyValueNet(nn.Module):
         tiles = tiles.reshape(tiles.shape[0], -1)
         logits = torch.cat([tiles, self.policy_pooled(pooled)], dim=1)
         logits = logits.masked_fill(~legal, float("-inf"))
-        hidden = self.oracle_stem(oracle).mean(dim=2)
+        together = torch.cat([planes, oracle], dim=1)
+        hidden = self.oracle_tail(self.oracle_tower(self.oracle_stem(together))).mean(dim=2)
         oracle_value = self.oracle_value(torch.cat([pooled, hidden], dim=1)).squeeze(1)
         return logits, self.value(pooled).squeeze(1), self.hands(features), oracle_value
 
@@ -205,12 +218,17 @@ def load_weights(net: PolicyValueNet, saved: dict[str, torch.Tensor]) -> None:
             f"the checkpoint saw {seen} planes and the engine now makes {PLANES}"
         )
     # A checkpoint from before the network read the opponents' hands, or
-    # before it had an oracle critic, has no such head. Those start fresh,
-    # and everything else loads as saved; any other gap is still an error.
+    # before it had an oracle critic, or with an oracle critic of another
+    # shape, has no such head or the wrong one. Those start fresh, and
+    # everything else loads as saved; any other gap is still an error.
     fresh = net.state_dict()
-    missing = [key for key in fresh if key not in saved]
-    if missing and all(key.startswith(("hands.", "oracle_")) for key in missing):
-        saved = dict(saved)
-        for key in missing:
-            saved[key] = fresh[key]
+    saved = dict(saved)
+    for key, value in fresh.items():
+        if key.startswith(("hands.", "oracle_")) and (
+            key not in saved or saved[key].shape != value.shape
+        ):
+            saved[key] = value
+    for key in [key for key in saved if key not in fresh]:
+        if key.startswith("oracle_"):
+            del saved[key]
     net.load_state_dict(saved)
