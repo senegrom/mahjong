@@ -117,6 +117,7 @@ def main() -> None:
     for round_index in range(args.rounds):
         began = time.time()
         planes, masks, labels, truth = collect(args.games, args.seed + round_index * 977)
+        played = time.time() - began
         observations = torch.from_numpy(planes).to(device)
         legal = torch.from_numpy(masks).to(device)
         targets = torch.from_numpy(labels).to(device)
@@ -163,6 +164,9 @@ def main() -> None:
             "agreement": round(agreed / max(seen, 1), 4),
             "hands_read": round(total_covered / max(seen, 1), 4),
             "seconds": round(time.time() - began, 1),
+            # Kept apart so a slow round can be blamed on the right half:
+            # the engine playing on the CPU, or the GPU being fed too slowly.
+            "play_seconds": round(played, 1),
         }
         if (round_index + 1) % args.measure_every == 0 or round_index == 0:
             against = selfplay.measure(
