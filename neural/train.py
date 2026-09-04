@@ -23,11 +23,13 @@ import json
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch import nn
 
 from . import selfplay
 from .model import HIDDEN_HANDS_PLANES, PolicyValueNet, load_weights
+from .replay import Ring
 
 
 # How much of a new measurement goes into the smoothed figure the best
@@ -55,6 +57,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=3, help="passes over a round")
     parser.add_argument("--entropy", type=float, default=0.03)
     parser.add_argument("--value-weight", type=float, default=0.5)
+    parser.add_argument(
+        "--replay-rounds",
+        type=int,
+        default=8,
+        help="how many past rounds the ring on disk keeps for the value "
+        "heads, the reader and the head that reads the table to train on",
+    )
+    parser.add_argument(
+        "--replay-steps",
+        type=int,
+        default=180,
+        help="minibatches drawn from the ring after each round's policy "
+        "update, for those heads only; about one pass over a round",
+    )
     parser.add_argument(
         "--reader-weight",
         type=float,
@@ -123,6 +139,45 @@ def main() -> None:
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
     learn = torch.compile(net.with_oracle) if args.compile else net.with_oracle
     read = torch.compile(net.read_plausibility) if args.compile else net.read_plausibility
+
+    # The last several rounds, on disk, for the heads that may learn from
+    # stale play: see `replay.py`. The policy never trains on it.
+    ring = Ring(args.out / "ring", args.replay_rounds)
+    replay_rng = np.random.default_rng(args.seed + 17)
+
+    def hands_loss_of(guessed, wanted):
+        """Cross-entropy against the distribution each opponent's hand
+        actually was, over the 34 kinds, and how much of the hand the
+        guess covers, which is readable where a cross-entropy is not.
+        Positions where nobody was holding anything carry rows of zeros
+        and are skipped."""
+        holding = wanted.sum(dim=2) > 0
+        log_guess = torch.log_softmax(guessed, dim=2)
+        loss = -(wanted * log_guess).sum(dim=2)
+        loss = (loss * holding).sum() / holding.sum().clamp(min=1)
+        with torch.no_grad():
+            overlap = torch.minimum(log_guess.exp(), wanted).sum(dim=2)
+            covered = (overlap * holding).sum() / holding.sum().clamp(min=1)
+        return loss, covered
+
+    def reader_loss_of(planes, real, fake):
+        """The reader, shown the position with the real hidden hands and
+        with the hands the proposal imagined, learns to tell which is
+        which; what it learns is the likelihood ratio a search weighs
+        imagined worlds by. Returns the loss and how often it was right."""
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
+            verdict = read(torch.cat([planes, planes]), torch.cat([real, fake]))
+        verdict = verdict.float()
+        truth = torch.cat(
+            [
+                torch.ones(len(planes), device=device),
+                torch.zeros(len(planes), device=device),
+            ]
+        )
+        loss = nn.functional.binary_cross_entropy_with_logits(verdict, truth)
+        with torch.no_grad():
+            right = ((verdict > 0).float() == truth).float().mean()
+        return loss, right
     print(
         f"device {device} | {net.channels} channels x {net.blocks} blocks "
         f"| {net.parameter_count() / 1e6:.2f}M parameters",
@@ -144,6 +199,7 @@ def main() -> None:
             amp=args.amp,
         )
         played = time.time() - began
+        ring.push(batch)
 
         # The observations stay on the host and each minibatch crosses to
         # the card as it is drawn: a round of them is five gigabytes and sat
@@ -245,24 +301,9 @@ def main() -> None:
                 value = value.float()
                 guessed = guessed.float()
                 oracle_value = oracle_value.float()
-                # The reader: shown the position with the real hidden hands
-                # and with the hands the proposal imagined, it learns to tell
-                # which is which, and what it learns is the likelihood ratio
-                # a search weighs imagined worlds by.
-                real = seen[:, :HIDDEN_HANDS_PLANES]
-                fake = imagined[drawn].to(device).float()
-                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
-                    verdict = read(torch.cat([planes, planes]), torch.cat([real, fake]))
-                verdict = verdict.float()
-                truth = torch.cat(
-                    [
-                        torch.ones(len(drawn), device=device),
-                        torch.zeros(len(drawn), device=device),
-                    ]
+                reader_loss, reader_right = reader_loss_of(
+                    planes, seen[:, :HIDDEN_HANDS_PLANES], imagined[drawn].to(device).float()
                 )
-                reader_loss = nn.functional.binary_cross_entropy_with_logits(verdict, truth)
-                with torch.no_grad():
-                    reader_right = ((verdict > 0).float() == truth).float().mean()
                 distribution = torch.distributions.Categorical(logits=logits)
                 log_prob = distribution.log_prob(actions[picks])
                 # The oracle critic is the baseline, as it stood before the
@@ -286,23 +327,8 @@ def main() -> None:
                 distil_loss = nn.functional.mse_loss(value, oracle_guess[picks])
                 entropy = distribution.entropy().mean()
 
-                # What the opponents are holding. Cross-entropy against the
-                # distribution their hand actually was, over the 34 kinds,
-                # for each of the three of them. Positions where nobody was
-                # holding anything carry a row of zeros and are skipped.
-                wanted = held[picks]
-                # Named apart from `held`, which is the whole round's labels:
-                # reusing that name rebound it to this mask, and the next
-                # pass then indexed the mask instead of the labels.
-                holding = wanted.sum(dim=2) > 0
-                log_guess = torch.log_softmax(guessed, dim=2)
-                hands_loss = -(wanted * log_guess).sum(dim=2)
-                hands_loss = (hands_loss * holding).sum() / holding.sum().clamp(min=1)
-                # How much of the hand the guess covers, which is readable
-                # where a cross-entropy is not.
-                with torch.no_grad():
-                    overlap = torch.minimum(log_guess.exp(), wanted).sum(dim=2)
-                    covered = (overlap * holding).sum() / holding.sum().clamp(min=1)
+                # What the opponents are holding.
+                hands_loss, covered = hands_loss_of(guessed, held[picks])
                 loss = (
                     policy_loss
                     + args.value_weight * (value_loss + oracle_loss)
@@ -328,6 +354,46 @@ def main() -> None:
                 total_covered += covered.item()
                 steps += 1
 
+        # The heads that may learn from stale play take a pass over the
+        # ring: the value heads, the reader and the head that reads the
+        # table, on minibatches drawn evenly from the last several rounds.
+        # No policy term, and no distillation, since the oracle's pre-round
+        # estimate exists only for the round just played.
+        replay_value = replay_oracle = replay_read_right = 0.0
+        replay_steps = 0
+        if args.replay_steps and ring.total() >= args.batch:
+            for _ in range(args.replay_steps):
+                rows = ring.sample(args.batch, replay_rng)
+                planes = rows["observations"].to(device).float()
+                seen = rows["oracle"].to(device).float()
+                target = rows["returns"].to(device)
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
+                    _logits, value, guessed, oracle_value = learn(
+                        planes, rows["legal"].to(device), seen
+                    )
+                value = value.float()
+                guessed = guessed.float()
+                oracle_value = oracle_value.float()
+                value_loss = nn.functional.mse_loss(value, target)
+                oracle_loss = nn.functional.mse_loss(oracle_value, target)
+                hands_loss, _covered = hands_loss_of(guessed, rows["held"].to(device))
+                reader_loss, reader_right = reader_loss_of(
+                    planes, seen[:, :HIDDEN_HANDS_PLANES], rows["imagined"].to(device).float()
+                )
+                loss = (
+                    args.value_weight * (value_loss + oracle_loss)
+                    + args.hands_weight * hands_loss
+                    + args.reader_weight * reader_loss
+                )
+                optimiser.zero_grad(set_to_none=True)
+                loss.backward()
+                nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                optimiser.step()
+                replay_value += value_loss.item()
+                replay_oracle += oracle_loss.item()
+                replay_read_right += reader_right.item()
+                replay_steps += 1
+
         record = {
             "generation": generation,
             "decisions": batch.decisions,
@@ -343,6 +409,12 @@ def main() -> None:
             "oracle_error": round(oracle_error, 4),
             "baseline": "oracle" if oracle_better else "public",
             "advantage_spread": round(advantage_spread, 4),
+            # The same heads on the ring of past rounds, which is where
+            # they must not learn a round by heart.
+            "replay_rounds": len(ring),
+            "replay_value_loss": round(replay_value / max(replay_steps, 1), 4),
+            "replay_oracle_loss": round(replay_oracle / max(replay_steps, 1), 4),
+            "replay_reader_right": round(replay_read_right / max(replay_steps, 1), 4),
             "distil": round(total_distil / max(steps, 1), 4),
             # The reader's loss and how often it tells a real set of hidden
             # hands from an imagined one; a half is guessing.
