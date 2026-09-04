@@ -186,20 +186,36 @@ def main() -> None:
         # The advantages are then standardised, because the clipped
         # objective is not indifferent to a shift in them the way a plain
         # policy gradient is.
+        #
+        # Which head is the baseline is the round's to decide. The oracle
+        # memorises: the hidden planes make nearly every position unique,
+        # and its loss inside the epochs fell to two thirds of its error on
+        # the next round, which was no better than guessing the mean. A
+        # baseline worse than the public head adds noise rather than taking
+        # it away, so both heads are measured on the round before either is
+        # updated, the better one is the baseline, and the public head is
+        # distilled towards the oracle only on rounds where the oracle is
+        # the better of the two.
         net.eval()
-        baseline = torch.empty(batch.decisions, device=device)
+        public_guess = torch.empty(batch.decisions, device=device)
+        oracle_guess = torch.empty(batch.decisions, device=device)
         with torch.no_grad():
             for start_index in range(0, batch.decisions, 8192):
                 chunk = slice(start_index, start_index + 8192)
                 planes = observations[chunk].to(device).float()
                 seen = oracle[chunk].to(device).float()
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
-                    _logits, _value, _guessed, judged = net.with_oracle(planes, legal[chunk], seen)
-                baseline[chunk] = judged.float()
+                    _logits, guessed_value, _guessed, judged = net.with_oracle(
+                        planes, legal[chunk], seen
+                    )
+                public_guess[chunk] = guessed_value.float()
+                oracle_guess[chunk] = judged.float()
+        public_error = float(((normalised - public_guess) ** 2).mean())
+        oracle_error = float(((normalised - oracle_guess) ** 2).mean())
+        oracle_better = oracle_error < public_error
+        baseline = oracle_guess if oracle_better else public_guess
+        distil_weight = args.distil_weight if oracle_better else 0.0
         advantages = normalised - baseline
-        # The oracle's error on a round it has not yet seen, and the spread
-        # the policy gradient actually had to work with.
-        baseline_error = float((advantages**2).mean())
         advantage_spread = float(advantages.std())
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
 
@@ -264,10 +280,10 @@ def main() -> None:
                 total_clipped += float((ratio != clipped).float().mean())
                 value_loss = nn.functional.mse_loss(value, normalised[picks])
                 oracle_loss = nn.functional.mse_loss(oracle_value, normalised[picks])
-                # The public head also learns from the oracle's estimate,
-                # which averages over the hidden tiles far more quietly than
-                # one game's return does.
-                distil_loss = nn.functional.mse_loss(value, oracle_value.detach())
+                # The public head also learns from the oracle's estimate as
+                # it stood before the round, on rounds where that estimate
+                # was the better one; see the choice of baseline above.
+                distil_loss = nn.functional.mse_loss(value, oracle_guess[picks])
                 entropy = distribution.entropy().mean()
 
                 # What the opponents are holding. Cross-entropy against the
@@ -290,7 +306,7 @@ def main() -> None:
                 loss = (
                     policy_loss
                     + args.value_weight * (value_loss + oracle_loss)
-                    + args.value_weight * args.distil_weight * distil_loss
+                    + args.value_weight * distil_weight * distil_loss
                     + args.hands_weight * hands_loss
                     + args.reader_weight * reader_loss
                     - args.entropy * entropy
@@ -321,7 +337,11 @@ def main() -> None:
             "policy_loss": round(total_policy / max(steps, 1), 4),
             "value_loss": round(total_value / max(steps, 1), 4),
             "oracle_loss": round(total_oracle / max(steps, 1), 4),
-            "baseline_error": round(baseline_error, 4),
+            # Each head's error on the round before it was trained on it,
+            # against the return variance below, and which was the baseline.
+            "public_error": round(public_error, 4),
+            "oracle_error": round(oracle_error, 4),
+            "baseline": "oracle" if oracle_better else "public",
             "advantage_spread": round(advantage_spread, 4),
             "distil": round(total_distil / max(steps, 1), 4),
             # The reader's loss and how often it tells a real set of hidden
