@@ -189,7 +189,10 @@ def main() -> None:
                 if picks.numel() < 2:
                     continue
                 drawn = picks.cpu()
-                planes = observations[drawn].to(device)
+                # Half precision on the host, float32 on the card: the
+                # tower's weights are float32, and autocast takes it from
+                # there.
+                planes = observations[drawn].to(device).float()
                 seen = oracle[drawn].to(device).float()
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
                     logits, value, guessed, oracle_value = learn(planes, legal[picks], seen)

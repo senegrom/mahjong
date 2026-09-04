@@ -45,6 +45,9 @@ PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 class Batch:
     """What one round of self-play produced."""
 
+    #: The planes of every decision, in half precision: a round of them is
+    #: gigabytes, and nothing in an observation needs more than three
+    #: digits. The training step makes each minibatch float32 again.
     observations: torch.Tensor
     legal: torch.Tensor
     actions: torch.Tensor
@@ -165,7 +168,7 @@ def play(
 
         # Copies, not views: a view would keep the whole step's buffer
         # alive until the round is gathered at the end.
-        observations.append(planes[index].copy())
+        observations.append(planes[index].astype(np.float16))
         legal_masks.append(mask[index].copy())
         held.append(truth[index].copy())
         oracle.append(hidden[index].astype(np.uint8))
