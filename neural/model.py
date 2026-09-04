@@ -54,7 +54,7 @@ class Residual(nn.Module):
 class PolicyValueNet(nn.Module):
     """The policy and value network."""
 
-    def __init__(self, channels: int = 256, blocks: int = 20) -> None:
+    def __init__(self, channels: int = 320, blocks: int = 20) -> None:
         super().__init__()
         self.channels = channels
         self.blocks = blocks
@@ -133,6 +133,6 @@ class PolicyValueNet(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
 
-def build(channels: int = 256, blocks: int = 20, device: str = "cuda") -> PolicyValueNet:
+def build(channels: int = 320, blocks: int = 20, device: str = "cuda") -> PolicyValueNet:
     net = PolicyValueNet(channels, blocks).to(device)
     return net

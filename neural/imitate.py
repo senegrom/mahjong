@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=200)
     parser.add_argument("--games", type=int, default=64, help="tables per round")
-    parser.add_argument("--channels", type=int, default=256)
+    parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=2048)

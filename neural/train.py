@@ -40,14 +40,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generations", type=int, default=200)
     parser.add_argument("--games", type=int, default=128, help="tables per round")
-# AlphaZero used twenty residual blocks of 256 filters for chess, shogi and
-# Go, and that is the shape here. It comes to 8.1M parameters rather than the
-# roughly 23M it was there, because a line of thirty-four tiles takes a
-# kernel of three where a Go board takes three by three; matching the count
-# rather than the shape would mean about 400 channels. This is 8.3 MB
-# quantised, too much to want on a phone, which is a thing to distil away
-# later rather than a reason to train something smaller now.
-    parser.add_argument("--channels", type=int, default=256)
+# 320 channels by 20 blocks: 12.6M parameters, about fifty megabytes of
+# float weights. AlphaZero's twenty blocks of 256 came to roughly 23M
+# parameters on a Go board; on a line of thirty-four tiles the same shape is
+# a third of that, because the kernel is three rather than three by three,
+# and this width puts the count nearer the original's. Far too big for a
+# phone, which is something to distil away later rather than a reason to
+# train something smaller now.
+    parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--clip", type=float, default=0.2, help="PPO ratio clip")

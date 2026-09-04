@@ -112,7 +112,7 @@ def main() -> None:
     parser.add_argument("--worlds", type=int, default=10)
     parser.add_argument("--candidates", type=int, default=4)
     parser.add_argument("--margin", type=float, default=2.0)
-    parser.add_argument("--channels", type=int, default=256)
+    parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
     args = parser.parse_args()
 

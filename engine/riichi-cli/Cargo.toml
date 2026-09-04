@@ -8,4 +8,4 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-riichi-core = { path = "../riichi-core" }
+riichi-core = { path = "../riichi-core", features = ["parallel"] }

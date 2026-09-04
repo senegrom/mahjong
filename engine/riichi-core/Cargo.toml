@@ -8,6 +8,12 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# Only for the search's rollouts, and only when asked: the rules engine is
+# dependency-free on its own, and the browser build has no threads.
+rayon = { version = "1", optional = true }
+
+[features]
+parallel = ["dep:rayon"]
 
 [lints.rust]
 missing_docs = "warn"

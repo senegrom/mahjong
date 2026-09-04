@@ -54,7 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--batch", type=int, default=1024)
     parser.add_argument("--epochs", type=int, default=2)
-    parser.add_argument("--channels", type=int, default=256)
+    parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
     parser.add_argument("--measure-every", type=int, default=10)
     parser.add_argument("--measure-games", type=int, default=384)

@@ -359,31 +359,44 @@ pub fn judge(
         Style::club()
     };
 
-    // One set of worlds, shared by all the candidates.
+    // One set of worlds, shared by all the candidates. They are imagined in
+    // order from the one generator, so a searched game replays exactly
+    // whatever the threads below get up to.
     let worlds: Vec<Hand> = (0..effort.worlds)
         .map(|_| imagine(hand, seat, belief, rng))
         .collect();
 
+    // Every candidate in every world is its own job, and there are
+    // thousands of them when the search is asked to think properly.
+    let jobs: Vec<(usize, usize)> = (0..candidates.len())
+        .flat_map(|candidate| (0..worlds.len()).map(move |world| (candidate, world)))
+        .collect();
+    let results: Vec<Option<f64>> = run_all(&jobs, |&(candidate, world)| {
+        let mut trial = worlds[world].clone();
+        // A move the engine will not take in this world is not a fault: an
+        // imagined hand can make a quad illegal that was legal in the real
+        // one. It is simply not counted.
+        if trial.act(candidates[candidate]).is_err() {
+            return None;
+        }
+        Some(play_out(
+            trial,
+            seat,
+            style,
+            effort.turns,
+            world as u64 * 977 + 13,
+        ))
+    });
+
     candidates
         .iter()
-        .map(|action| {
-            let mut total = 0.0;
-            let mut counted = 0;
-            let mut per_world = Vec::with_capacity(worlds.len());
-            for (index, world) in worlds.iter().enumerate() {
-                let mut trial = world.clone();
-                // A move the engine will not take in this world is not a
-                // fault: an imagined hand can make a quad illegal that was
-                // legal in the real one. It is simply not counted.
-                if trial.act(*action).is_err() {
-                    per_world.push(None);
-                    continue;
-                }
-                let value = play_out(trial, seat, style, effort.turns, index as u64 * 977 + 13);
-                per_world.push(Some(value));
-                total += value;
-                counted += 1;
-            }
+        .enumerate()
+        .map(|(candidate, action)| {
+            let per_world: Vec<Option<f64>> = (0..worlds.len())
+                .map(|world| results[candidate * worlds.len() + world])
+                .collect();
+            let counted = per_world.iter().flatten().count();
+            let total: f64 = per_world.iter().flatten().sum();
             Judged {
                 action: *action,
                 value: if counted == 0 {
@@ -396,6 +409,21 @@ pub fn judge(
             }
         })
         .collect()
+}
+
+/// Maps `work` over `jobs`, across every core when the crate was built with
+/// the `parallel` feature and one after another otherwise. The order of the
+/// results is the order of the jobs either way.
+#[cfg(feature = "parallel")]
+fn run_all<T: Sync, R: Send>(jobs: &[T], work: impl Fn(&T) -> R + Sync + Send) -> Vec<R> {
+    use rayon::prelude::*;
+    jobs.par_iter().map(work).collect()
+}
+
+/// The same, one job after another, for builds without threads.
+#[cfg(not(feature = "parallel"))]
+fn run_all<T, R>(jobs: &[T], work: impl Fn(&T) -> R) -> Vec<R> {
+    jobs.iter().map(work).collect()
 }
 
 /// The move that came out best, having played each of them out.
