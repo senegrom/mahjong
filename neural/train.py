@@ -129,8 +129,13 @@ def main() -> None:
         flush=True,
     )
 
+    # A round of planes is about five gigabytes on the host. The names
+    # below are cleared before the next round is played, so the machine
+    # carries one round rather than two.
+    batch = observations = oracle = imagined = None
     for generation in range(start, args.generations):
         began = time.time()
+        batch = observations = oracle = imagined = None
         batch = selfplay.play(
             net,
             games=args.games,
