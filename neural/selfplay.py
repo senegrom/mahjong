@@ -149,9 +149,12 @@ def play(
             seat = int(seats[game])
             person = int(players[game][seat])
             step_index = len(actions)
-            observations.append(planes[game])
-            legal_masks.append(mask[game])
-            held.append(truth[game])
+            # Copies, not views: a view would keep the whole step's buffer
+            # alive, seven megabytes for five hundred tables, until the
+            # round is stacked at the end.
+            observations.append(planes[game].copy())
+            legal_masks.append(mask[game].copy())
+            held.append(truth[game].copy())
             oracle.append(hidden[game].astype(np.uint8))
             imagined.append(proposed[game].astype(np.uint8))
             actions.append(int(chosen_cpu[slot]))
