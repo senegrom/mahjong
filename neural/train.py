@@ -41,6 +41,13 @@ SMOOTHING = 1 / 3
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generations", type=int, default=200)
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        default=0,
+        help="how many generations to train from where the run resumes, "
+        "instead of running to --generations; for a short probe",
+    )
     parser.add_argument("--games", type=int, default=128, help="tables per round")
 # 320 channels by 20 blocks: 12.6M parameters, about fifty megabytes of
 # float weights. AlphaZero's twenty blocks of 256 came to roughly 23M
@@ -70,6 +77,14 @@ def parse_args() -> argparse.Namespace:
         default=180,
         help="minibatches drawn from the ring after each round's policy "
         "update, for those heads only; about one pass over a round",
+    )
+    parser.add_argument(
+        "--freeze-aux",
+        action="store_true",
+        help="train only the policy tower and its heads, by the policy loss "
+        "alone: no value, table reading, critic, oracle, reader or replay "
+        "pass. For finding whether the PPO step by itself flattens the "
+        "policy",
     )
     parser.add_argument(
         "--freeze-policy",
@@ -149,6 +164,15 @@ def main() -> None:
             if not name.startswith(("critic", "oracle_", "reader")):
                 parameter.requires_grad_(False)
         print("policy frozen: training the critic, the oracle and the reader", flush=True)
+    if args.freeze_aux:
+        for name, parameter in net.named_parameters():
+            if name.startswith(("critic", "oracle_", "reader", "hands.", "value.")):
+                parameter.requires_grad_(False)
+        args.value_weight = 0.0
+        args.hands_weight = 0.0
+        args.reader_weight = 0.0
+        args.replay_steps = 0
+        print("auxiliaries frozen: training the policy by the policy loss alone", flush=True)
     trainable = [parameter for parameter in net.parameters() if parameter.requires_grad]
     optimiser = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=1e-4)
     learn = torch.compile(net.with_oracle) if args.compile else net.with_oracle
@@ -202,7 +226,8 @@ def main() -> None:
     # below are cleared before the next round is played, so the machine
     # carries one round rather than two.
     batch = observations = oracle = imagined = None
-    for generation in range(start, args.generations):
+    end = start + args.rounds if args.rounds else args.generations
+    for generation in range(start, end):
         began = time.time()
         batch = observations = oracle = imagined = None
         batch = selfplay.play(
@@ -297,6 +322,10 @@ def main() -> None:
         net.train()
         total_policy = total_value = total_entropy = 0.0
         total_oracle = total_distil = total_critic = 0.0
+        # The advantage of the taken action, by how sure the policy was of
+        # it: over a half, a fifth to a half, under a fifth.
+        sure_sum = likely_sum = unlikely_sum = 0.0
+        sure_count = likely_count = unlikely_count = 0
         total_reader = total_read_right = 0.0
         total_clipped = 0.0
         total_hands = total_covered = 0.0
@@ -337,6 +366,17 @@ def main() -> None:
                 # The clipped objective: an update may improve an action's
                 # odds, but only so far in one round, which is what keeps a
                 # policy from narrowing onto a single action.
+                with torch.no_grad():
+                    confidence = old_log_probs[picks].exp()
+                    sure = confidence > 0.5
+                    likely = (confidence > 0.2) & ~sure
+                    unlikely = confidence <= 0.2
+                    sure_sum += float((advantage * sure).sum())
+                    sure_count += int(sure.sum())
+                    likely_sum += float((advantage * likely).sum())
+                    likely_count += int(likely.sum())
+                    unlikely_sum += float((advantage * unlikely).sum())
+                    unlikely_count += int(unlikely.sum())
                 ratio = torch.exp(log_prob - old_log_probs[picks])
                 clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
                 policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
@@ -437,6 +477,12 @@ def main() -> None:
             "critic_error": round(critic_error, 4),
             "baseline": chosen,
             "advantage_spread": round(advantage_spread, 4),
+            # Mean standardised advantage of the taken action by the policy's
+            # confidence in it, and how much of the round each bin was.
+            "advantage_sure": round(sure_sum / max(sure_count, 1), 4),
+            "advantage_likely": round(likely_sum / max(likely_count, 1), 4),
+            "advantage_unlikely": round(unlikely_sum / max(unlikely_count, 1), 4),
+            "share_sure": round(sure_count / max(steps * args.batch, 1), 3),
             # The same heads on the ring of past rounds, which is where
             # they must not learn a round by heart.
             "replay_rounds": len(ring),
@@ -510,7 +556,7 @@ def main() -> None:
             handle.write(json.dumps(record) + "\n")
 
     torch.save(
-        {"model": net.state_dict(), "generation": args.generations,
+        {"model": net.state_dict(), "generation": end,
          "channels": net.channels, "blocks": net.blocks},
         args.out / "latest.pt",
     )
