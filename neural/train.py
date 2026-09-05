@@ -161,12 +161,12 @@ def main() -> None:
 
     if args.freeze_policy:
         for name, parameter in net.named_parameters():
-            if not name.startswith(("critic", "oracle_", "reader")):
+            if not name.startswith(("critic", "oracle_", "reader", "belief_", "hands.", "value.")):
                 parameter.requires_grad_(False)
         print("policy frozen: training the critic, the oracle and the reader", flush=True)
     if args.freeze_aux:
         for name, parameter in net.named_parameters():
-            if name.startswith(("critic", "oracle_", "reader", "hands.", "value.")):
+            if name.startswith(("critic", "oracle_", "reader", "belief_", "hands.", "value.")):
                 parameter.requires_grad_(False)
         args.value_weight = 0.0
         args.hands_weight = 0.0
@@ -437,18 +437,21 @@ def main() -> None:
                 seen = rows["oracle"].to(device).float()
                 target = rows["returns"].to(device)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
-                    _logits, _value, _guessed, oracle_value, criticised = learn(
+                    _logits, _value, guessed, oracle_value, criticised = learn(
                         planes, rows["legal"].to(device), seen
                     )
+                guessed = guessed.float()
                 oracle_value = oracle_value.float()
                 criticised = criticised.float()
                 critic_loss = nn.functional.mse_loss(criticised, target)
                 oracle_loss = nn.functional.mse_loss(oracle_value, target)
+                hands_loss, _covered = hands_loss_of(guessed, rows["held"].to(device))
                 reader_loss, reader_right = reader_loss_of(
                     planes, seen[:, :HIDDEN_HANDS_PLANES], rows["imagined"].to(device).float()
                 )
                 loss = (
                     args.value_weight * (critic_loss + oracle_loss)
+                    + args.hands_weight * hands_loss
                     + args.reader_weight * reader_loss
                 )
                 optimiser.zero_grad(set_to_none=True)

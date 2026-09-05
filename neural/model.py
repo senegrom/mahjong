@@ -50,6 +50,10 @@ READER_BLOCKS = 4
 CRITIC_CHANNELS = 128
 CRITIC_BLOCKS = 6
 
+# The tower behind the head that reads the table, for the same reason.
+BELIEF_CHANNELS = 128
+BELIEF_BLOCKS = 4
+
 
 class Residual(nn.Module):
     """A pre-activation residual block along the tile axis."""
@@ -98,10 +102,24 @@ class PolicyValueNet(nn.Module):
         )
 
         # What the three opponents are holding, a distribution over the 34
-        # kinds for each. Read from the per-tile features rather than the
-        # pooled position, because the answer is per tile: this asks, of
-        # each kind, how much of that opponent's hand it makes up.
-        self.hands = nn.Conv1d(channels, OPPONENTS, 1)
+        # kinds for each. Read per tile, because the answer is per tile:
+        # this asks, of each kind, how much of that opponent's hand it
+        # makes up. It has a tower of its own over the planes and reads
+        # the policy tower's per-tile features without gradient. Its loss
+        # is the largest the network carries, and while it trained the
+        # policy's tower the policy flattened, a hundredth of entropy a
+        # generation; trained alone, the policy sharpened. Nothing but the
+        # policy loss trains the policy's tower now.
+        self.belief_stem = nn.Sequential(
+            nn.Conv1d(PLANES, BELIEF_CHANNELS, 3, padding=1, bias=False),
+            nn.GroupNorm(GROUPS, BELIEF_CHANNELS),
+            nn.ReLU(),
+        )
+        self.belief_tower = nn.Sequential(
+            *[Residual(BELIEF_CHANNELS) for _ in range(BELIEF_BLOCKS)]
+        )
+        self.belief_tail = nn.Sequential(nn.GroupNorm(GROUPS, BELIEF_CHANNELS), nn.ReLU())
+        self.hands = nn.Conv1d(channels + BELIEF_CHANNELS, OPPONENTS, 1)
 
         # The oracle critic. In training only, it also sees what the player
         # cannot: the opponents' concealed tiles, the draws to come and the
@@ -183,6 +201,13 @@ class PolicyValueNet(nn.Module):
             nn.Linear(256, 1),
         )
 
+    def hands_from(self, planes: torch.Tensor, features: torch.Tensor) -> torch.Tensor:
+        """What each opponent is holding, as logits over the 34 kinds, from
+        the planes and the policy tower's per-tile features, which it reads
+        but does not train."""
+        own = self.belief_tail(self.belief_tower(self.belief_stem(planes)))
+        return self.hands(torch.cat([features.detach(), own], dim=1))
+
     def critic_value(self, planes: torch.Tensor, pooled: torch.Tensor) -> torch.Tensor:
         """The critic's value of each position, from the planes and the
         policy tower's pooled features, which it reads but does not train."""
@@ -230,7 +255,7 @@ class PolicyValueNet(nn.Module):
         over the last axis gives the distribution the label is written in.
         """
         features = self.tail(self.tower(self.stem(planes)))
-        return self.hands(features)
+        return self.hands_from(planes, features)
 
     def everything(
         self, planes: torch.Tensor, legal: torch.Tensor
@@ -246,7 +271,7 @@ class PolicyValueNet(nn.Module):
         tiles = tiles.reshape(tiles.shape[0], -1)
         logits = torch.cat([tiles, self.policy_pooled(pooled)], dim=1)
         logits = logits.masked_fill(~legal, float("-inf"))
-        return logits, self.value(pooled).squeeze(1), self.hands(features)
+        return logits, self.value(pooled).squeeze(1), self.hands_from(planes, features)
 
     def with_oracle(
         self, planes: torch.Tensor, legal: torch.Tensor, oracle: torch.Tensor
@@ -267,10 +292,13 @@ class PolicyValueNet(nn.Module):
         # reach the tower the policy's entropy climbed from 0.36 to 0.49
         # over thirty generations. It learns on its own tower.
         oracle_value = self.oracle_value(torch.cat([pooled.detach(), hidden], dim=1)).squeeze(1)
+        # The old value head reads the pooled features without gradient
+        # too: it is a candidate baseline and a number to watch, not a
+        # reason to move the tower.
         return (
             logits,
-            self.value(pooled).squeeze(1),
-            self.hands(features),
+            self.value(pooled.detach()).squeeze(1),
+            self.hands_from(planes, features),
             oracle_value,
             self.critic_value(planes, pooled),
         )
@@ -311,7 +339,7 @@ def load_weights(net: PolicyValueNet, saved: dict[str, torch.Tensor]) -> None:
     fresh = net.state_dict()
     saved = dict(saved)
     for key, value in fresh.items():
-        if key.startswith(("hands.", "oracle_", "reader", "critic")) and (
+        if key.startswith(("hands.", "oracle_", "reader", "critic", "belief_")) and (
             key not in saved or saved[key].shape != value.shape
         ):
             saved[key] = value
