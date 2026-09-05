@@ -7,7 +7,7 @@
    * One opponent, placed around the table. `side` is where they sit from the
    * player's chair, which decides whether their tiles run across or down.
    */
-  let { seat, side = 'across', dealer = false } = $props();
+  let { seat, side = 'across', dealer = false, dora = [] } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
   let vertical = $derived(side === 'left' || side === 'right');
@@ -54,10 +54,10 @@
   </div>
 
   {#if seat.melds.length}
-    <Melds melds={seat.melds} size="tiny" />
+    <Melds melds={seat.melds} size="tiny" {dora} />
   {/if}
 
-  <Discards discards={seat.discards} compact />
+  <Discards discards={seat.discards} compact {dora} />
 </section>
 
 <style>
@@ -154,10 +154,6 @@
     display: flex;
     gap: 1px;
     flex-wrap: wrap;
-  }
-
-  .held.vertical {
-    max-width: calc(var(--tile-width) * 1.6);
   }
 
   .back {

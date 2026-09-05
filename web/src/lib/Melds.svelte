@@ -7,7 +7,7 @@
    * table shows who fed the set (EMA 2025 section 3.3.6). The two middle
    * tiles of a concealed quad are face down.
    */
-  let { melds = [], size = 'small' } = $props();
+  let { melds = [], size = 'small', dora = [] } = $props();
 
   function rotatedIndex(meld) {
     if (meld.kind === 'concealed-kan') return -1;
@@ -30,6 +30,7 @@
           {size}
           rotated={index === rotatedIndex(meld)}
           facedown={facedown(meld, index)}
+          dora={!facedown(meld, index) && dora.includes(tile)}
         />
       {/each}
     </div>

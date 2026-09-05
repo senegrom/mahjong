@@ -117,8 +117,18 @@
     {#if dora}<span class="foil" aria-hidden="true"></span>{/if}
   </button>
 {:else}
-  <span class="tile {size}" class:rotated class:dimmed role="img" aria-label={words} title={title || words}>
+  <span
+    class="tile {size}"
+    class:rotated
+    class:dimmed
+    class:ringed={marks.length > 0}
+    style:--ring={ring}
+    role="img"
+    aria-label={words}
+    title={title || words}
+  >
     <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
+    {#if dora}<span class="foil" aria-hidden="true"></span>{/if}
   </span>
 {/if}
 
@@ -230,7 +240,9 @@
     filter: grayscale(0.7) brightness(0.75);
   }
 
-  /* The ring: one colour, or stripes of several, behind the face. */
+  /* The ring: one colour, or stripes of several, behind the face. On the
+     small tiles of a discard row or a called set it is thinner, in
+     proportion. */
   .ringed::before {
     content: '';
     position: absolute;
@@ -238,6 +250,18 @@
     border-radius: 6px;
     background: var(--ring);
     z-index: -1;
+  }
+
+  .small.ringed::before,
+  .tiny.ringed::before {
+    inset: -2px;
+    border-radius: 4px;
+  }
+
+  /* A tile on its side keeps its ring the right way round: the ring is
+     on the box, which is not turned, so it needs the box's shape. */
+  .rotated.ringed::before {
+    inset: 0 -2px;
   }
 
   /* A dora shines, as a foil card does: a sheen that crosses the face

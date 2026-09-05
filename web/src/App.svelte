@@ -258,6 +258,11 @@
     return discardChoices.some((choice) => choice.tile === tile);
   }
 
+  // Which tiles are dora, wherever they show, when hints are on: the
+  // mark is worth the same han in an opponent's discards, in a called
+  // set, among the waits or on the score screen as it is in the hand.
+  let shownDora = $derived(hints && view?.dora ? view.dora : []);
+
   // The hand as it is laid out: the concealed tiles, then the one just
   // drawn, which the table keeps apart and so does the page.
   let handTiles = $derived(me ? [...me.hand, ...(me.drawn ? [me.drawn] : [])] : []);
@@ -371,10 +376,10 @@
   {:else if view}
     <div class="board">
       <div class="place across">
-        <Seat seat={across} side="across" dealer={across.seat === 'east'} />
+        <Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} />
       </div>
       <div class="place left">
-        <Seat seat={left} side="left" dealer={left.seat === 'east'} />
+        <Seat seat={left} side="left" dealer={left.seat === 'east'} dora={shownDora} />
       </div>
 
       <div class="centre" aria-label="the table">
@@ -406,7 +411,7 @@
       </div>
 
       <div class="place right">
-        <Seat seat={right} side="right" dealer={right.seat === 'east'} />
+        <Seat seat={right} side="right" dealer={right.seat === 'east'} dora={shownDora} />
       </div>
 
       <section class="mine" aria-label="your seat">
@@ -425,7 +430,7 @@
                 waiting on
                 {#each view.waits as wait, index (wait)}
                   <span class="wait">
-                    <Tile tile={wait} size="tiny" />
+                    <Tile tile={wait} size="tiny" dora={shownDora.includes(wait)} />
                     <span
                       class="remaining"
                       class:none={view.waits_left?.[index] === 0}
@@ -463,7 +468,7 @@
               ? 'you have discarded nothing yet'
               : `you have discarded ${me.discards.length}`}
           </span>
-          <Discards discards={me.discards} compact={false} />
+          <Discards discards={me.discards} compact={false} dora={shownDora} />
         </div>
 
         <div class="hand" role="group" aria-label="your tiles">
@@ -473,8 +478,8 @@
               onclick={discard}
               disabled={!canDiscard(tile)}
               selected={myTurn && index === marker}
-              safe={hints && view.safe.includes(tile)}
-              dora={hints && view.dora?.includes(tile)}
+              safe={hints && view.phase !== 'over' && view.safe.includes(tile)}
+              dora={shownDora.includes(tile)}
               title={hints && view.safe.includes(tile)
                 ? `${tileWords(tile)}: cannot deal in`
                 : hints && view.dora?.includes(tile)
@@ -493,15 +498,15 @@
                 onclick={discard}
                 disabled={!canDiscard(me.drawn)}
                 selected={myTurn && marker === me.hand.length}
-                safe={hints && view.safe.includes(me.drawn)}
-                dora={hints && view.dora?.includes(me.drawn)}
+                safe={hints && view.phase !== 'over' && view.safe.includes(me.drawn)}
+                dora={shownDora.includes(me.drawn)}
                 title="just drawn: the {tileWords(me.drawn)}"
               />
             </span>
           {/if}
           {#if me.melds.length}
             <span class="spacer"></span>
-            <Melds melds={me.melds} size="normal" />
+            <Melds melds={me.melds} size="normal" dora={shownDora} />
           {/if}
         </div>
       </section>
@@ -514,6 +519,8 @@
         <ScoreScreen
           outcome={view.outcome}
           seats={view.seats}
+          dora={shownDora}
+          bets={view.riichi_sticks ?? 0}
           gameOver={game?.game_is_over() ?? false}
           onnext={nextHand}
           ongame={start}
@@ -522,7 +529,7 @@
           onlog={saveLog}
         />
         {#if notes !== null}
-          <Review {notes} />
+          <Review {notes} dora={shownDora} />
         {/if}
       {:else if callChoices.length}
         <!-- On the player's own turn these buttons are extras: riichi, a
@@ -735,15 +742,18 @@
     padding-top: 2px;
   }
 
+  /* Counters and riichi bets on the table: they change what the next win
+     is worth, so they are said plainly, in the gold of the sticks. */
   .table-extras {
     display: flex;
-    gap: 10px;
-    font-size: 0.78rem;
-    opacity: 0.85;
+    gap: 12px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
   }
 
   .bets {
-    color: var(--accent);
+    color: var(--gold);
   }
 
   .mine header {

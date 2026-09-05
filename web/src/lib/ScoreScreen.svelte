@@ -16,6 +16,8 @@
     reviewed = false,
     onlog,
     gameOver = false,
+    dora = [],
+    bets = 0,
   } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
@@ -39,19 +41,27 @@
         Waiting: {outcome.tenpai.map((seat) => NAMES[seat]).join(', ')}
       </p>
     {/if}
+    {#if outcome.kind === 'draw' && bets > 0}
+      <p class="waiting">
+        {bets} riichi bet{bets > 1 ? 's' : ''} stay{bets > 1 ? '' : 's'} on the table for the next
+        winner, which is why a player who declared shows less than they were paid.
+      </p>
+    {/if}
   </header>
 
   {#each outcome.wins as win (win.seat)}
     <article class="win">
       <div class="tiles">
         {#each win.hand as tile, index (tile + index)}
-          <Tile {tile} size="small" />
+          <Tile {tile} size="small" dora={dora.includes(tile)} />
         {/each}
         <span class="gap"></span>
-        <span class="winning"><Tile tile={win.winning_tile} size="small" /></span>
+        <span class="winning">
+          <Tile tile={win.winning_tile} size="small" dora={dora.includes(win.winning_tile)} />
+        </span>
         {#if win.melds.length}
           <span class="gap"></span>
-          <Melds melds={win.melds} size="small" />
+          <Melds melds={win.melds} size="small" {dora} />
         {/if}
       </div>
 

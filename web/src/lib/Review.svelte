@@ -8,7 +8,7 @@
    * traded: how far the hand was left from complete, how many tiles would
    * have improved it, and whether the tile could have dealt in.
    */
-  let { notes = [] } = $props();
+  let { notes = [], dora = [] } = $props();
 
   let disputed = $derived(notes.filter((note) => !note.agreed));
   let shown = $state('disputed');
@@ -56,7 +56,7 @@
             <span class="turn">{note.turn}</span>
             <span class="played">
               {#if note.played_tile}
-                <Tile tile={note.played_tile} size="small" />
+                <Tile tile={note.played_tile} size="small" dora={dora.includes(note.played_tile)} />
               {/if}
               <span class="what">{note.played}</span>
             </span>
@@ -64,7 +64,7 @@
               <span class="instead">instead of</span>
               <span class="advised">
                 {#if note.advised_tile}
-                  <Tile tile={note.advised_tile} size="small" />
+                  <Tile tile={note.advised_tile} size="small" dora={dora.includes(note.advised_tile)} />
                 {/if}
                 <span class="what">{note.advised}</span>
               </span>

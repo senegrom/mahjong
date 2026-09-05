@@ -5,7 +5,7 @@
    * A discard row, six to a line as at a real table, with the riichi
    * declaration turned sideways and claimed tiles greyed out.
    */
-  let { discards = [], compact = false } = $props();
+  let { discards = [], compact = false, dora = [] } = $props();
 </script>
 
 <div class="pool" class:compact aria-label="discards">
@@ -14,6 +14,7 @@
       tile={discard.tile}
       rotated={discard.riichi}
       dimmed={discard.claimed}
+      dora={dora.includes(discard.tile)}
       size={compact ? 'tiny' : 'small'}
       title={discard.claimed ? `${discard.tile}, claimed` : discard.tile}
     />
