@@ -15,11 +15,21 @@
     'Hatsu',
     'Chun',
   ];
+  // One at a time, at low priority, and not for the first two seconds: a
+  // burst of thirty-seven on a slow connection put the faces the table
+  // needed now behind ones it did not, and each waited on all of them.
   if (typeof Image !== 'undefined') {
-    for (const face of FACES) {
+    const pending = [...FACES];
+    const next = () => {
+      const face = pending.shift();
+      if (!face) return;
       const image = new Image();
+      image.fetchPriority = 'low';
+      image.onload = next;
+      image.onerror = next;
       image.src = `tiles/${face}.svg`;
-    }
+    };
+    setTimeout(next, 2000);
   }
 </script>
 
@@ -132,6 +142,10 @@
 
   .tile img {
     width: 100%;
+    /* The faces are 300 by 400. Said here as well, so a tile keeps its
+       box while its face is still on the way: an image with no bytes yet
+       has no height, and a loading tile collapsed to a bar. */
+    aspect-ratio: 3 / 4;
     height: auto;
     display: block;
     border-radius: 4px;
