@@ -53,7 +53,9 @@ export function chooseAction(planes, mask, temperature = 0, timeout = 20000, sig
   if (signal?.aborted) return Promise.reject(new DOMException('Match changed', 'AbortError'));
   return new Promise((resolve, reject) => {
     const id = nextId++;
-    const abort = () => resetPolicy();
+    // A match that ends drops its own request and no more: the worker,
+    // with the runtime and the model loaded, stays for the next match.
+    const abort = () => finish(reject, new DOMException('Match changed', 'AbortError'));
     const timer = setTimeout(() => resetPolicy(new Error('The trained opponent did not answer in time')), timeout);
     const finish = (callback, value) => {
       clearTimeout(timer);

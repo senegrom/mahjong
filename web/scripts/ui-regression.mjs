@@ -187,7 +187,6 @@ try {
   await check('global dora stays marked after discarding the last held copy',async()=>{
     const page=await open(initial); await page.click('.hand button[data-tile="6z"]');
     await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.length===1,{},SAVE_KEY);
-    await page.click('.own-discards summary');
     assert.ok(await page.$('.own-discards [aria-label="green dragon, dora"]'));
     noErrors(page);
   });

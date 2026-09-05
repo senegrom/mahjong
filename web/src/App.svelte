@@ -62,6 +62,17 @@
     try { storage?.setItem(SETTINGS_KEY, JSON.stringify(value)); } catch { /* Gameplay still works. */ }
   });
 
+  // When the turn comes to you and nothing else has focus, the hand takes
+  // it, so the arrows and Enter work at once: the shortcuts only run with
+  // focus inside the hand, which keeps them off the controls.
+  $effect(() => {
+    if (!myTurn || !handElement || !shortcuts || touch) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || handElement.contains(active)) {
+      handElement.focus({ preventScroll: true });
+    }
+  });
+
   function update(owner) {
     if (session !== owner) return;
     view = owner.view;
@@ -87,7 +98,8 @@
   }
 
   const callbacks = {
-    ai: (planes, mask, signal) => chooseAction(planes, mask, 0.4, 20000, signal),
+    // Greedy: the opponent plays its best move, not a sample of them.
+    ai: (planes, mask, signal) => chooseAction(planes, mask, 0, 20000, signal),
     onChange: update,
     onSave: saveMatch,
   };
@@ -121,14 +133,12 @@
       mounted = false;
       window.removeEventListener('pagehide', saveOnLeave);
       session?.dispose();
-      resetPolicy();
       reportProgress(null);
     };
   });
 
   function start(strength = difficulty) {
     session?.dispose();
-    resetPolicy();
     picked = null;
     selected = null;
     notes = null;
@@ -405,10 +415,10 @@
           {/each}
         </div>
         {#if me.melds.length}<div class="my-melds"><Melds melds={me.melds} size="small" dora={shownDora} /></div>{/if}
-        <details class="own-discards">
-          <summary>Your discards ({me.discards.length})</summary>
+        <div class="own-discards">
+          <span class="caption">Your discards ({me.discards.length})</span>
           <Discards discards={me.discards} compact={false} dora={shownDora} />
-        </details>
+        </div>
       </section>
 
       <section class="controls" aria-label="your choices" bind:this={callElement}>
@@ -539,7 +549,10 @@
   .hand :global(button.tile[data-drawn=true]) { margin-left: 10px; }
   .hand:focus-visible { border-radius: 6px; }
   .my-melds { padding: 4px; }
-  .own-discards summary { font-size: .75rem; min-height: 32px; }
+  /* Always in view: the row is your furiten record and what the table
+     sees of you, so it is not folded away on any screen. */
+  .own-discards { display: grid; gap: 4px; }
+  .own-discards .caption { font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; opacity: .6; }
   .controls { display: grid; gap: 8px; min-width: 0; }
   .prompt { margin: 0; font-size: .9rem; }
   .key-help { display: block; font-size: .78rem; }
@@ -611,7 +624,7 @@
     .hand { display: grid; grid-template-columns: repeat(7,minmax(0,44px)); gap: 5px; padding: 6px 3px; }
     .controls { font-size: .8rem; }
     .prompt { font-size: .8rem; }
-    .own-discards summary { min-height: 28px; padding: 4px 0; }
+    .own-discards .caption { font-size: .62rem; }
     .hand :global(button.tile) { width: 100%; min-height: 44px; }
     .hand :global(button.tile[data-drawn=true]) { margin-left: 0; }
     .hint { margin-left: 0; }
