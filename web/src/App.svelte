@@ -547,7 +547,9 @@
   .dora-note { color: var(--gold); }
   .hand { display: flex; gap: 5px; align-items: end; flex-wrap: wrap; padding: 6px 4px; min-width: 0; }
   .hand :global(button.tile[data-drawn=true]) { margin-left: 10px; }
-  .hand:focus-visible { border-radius: 6px; }
+  /* The hand takes focus on every turn, so its ring is a hint, not a
+     frame: softer than a control's, and set out from the tiles. */
+  .hand:focus-visible { border-radius: 8px; outline: 2px solid rgba(216, 161, 42, 0.45); outline-offset: 6px; }
   .my-melds { padding: 4px; }
   /* Always in view: the row is your furiten record and what the table
      sees of you, so it is not folded away on any screen. */
