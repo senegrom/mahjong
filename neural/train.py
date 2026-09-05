@@ -19,7 +19,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import time
 from pathlib import Path
@@ -71,14 +70,6 @@ def parse_args() -> argparse.Namespace:
         default=180,
         help="minibatches drawn from the ring after each round's policy "
         "update, for those heads only; about one pass over a round",
-    )
-    parser.add_argument(
-        "--replay-kl",
-        type=float,
-        default=10.0,
-        help="how hard the policy is held, through the replay pass, to what "
-        "it was before the pass: a KL on the replayed positions, as in "
-        "Phasic Policy Gradient's auxiliary phase",
     )
     parser.add_argument(
         "--reader-weight",
@@ -264,21 +255,26 @@ def main() -> None:
         net.eval()
         public_guess = torch.empty(batch.decisions, device=device)
         oracle_guess = torch.empty(batch.decisions, device=device)
+        critic_guess = torch.empty(batch.decisions, device=device)
         with torch.no_grad():
             for start_index in range(0, batch.decisions, 8192):
                 chunk = slice(start_index, start_index + 8192)
                 planes = observations[chunk].to(device).float()
                 seen = oracle[chunk].to(device).float()
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
-                    _logits, guessed_value, _guessed, judged = net.with_oracle(
+                    _logits, guessed_value, _guessed, judged, criticised = net.with_oracle(
                         planes, legal[chunk], seen
                     )
                 public_guess[chunk] = guessed_value.float()
                 oracle_guess[chunk] = judged.float()
+                critic_guess[chunk] = criticised.float()
         public_error = float(((normalised - public_guess) ** 2).mean())
         oracle_error = float(((normalised - oracle_guess) ** 2).mean())
-        oracle_better = oracle_error < public_error
-        baseline = oracle_guess if oracle_better else public_guess
+        critic_error = float(((normalised - critic_guess) ** 2).mean())
+        errors = {"public": public_error, "oracle": oracle_error, "critic": critic_error}
+        chosen = min(errors, key=errors.get)
+        baseline = {"public": public_guess, "oracle": oracle_guess, "critic": critic_guess}[chosen]
+        oracle_better = chosen == "oracle"
         distil_weight = args.distil_weight if oracle_better else 0.0
         advantages = normalised - baseline
         advantage_spread = float(advantages.std())
@@ -286,7 +282,7 @@ def main() -> None:
 
         net.train()
         total_policy = total_value = total_entropy = 0.0
-        total_oracle = total_distil = 0.0
+        total_oracle = total_distil = total_critic = 0.0
         total_reader = total_read_right = 0.0
         total_clipped = 0.0
         total_hands = total_covered = 0.0
@@ -304,12 +300,15 @@ def main() -> None:
                 planes = observations[drawn].to(device).float()
                 seen = oracle[drawn].to(device).float()
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
-                    logits, value, guessed, oracle_value = learn(planes, legal[picks], seen)
+                    logits, value, guessed, oracle_value, criticised = learn(
+                        planes, legal[picks], seen
+                    )
                 # Whatever the forward pass ran in, the losses are float32.
                 logits = logits.float()
                 value = value.float()
                 guessed = guessed.float()
                 oracle_value = oracle_value.float()
+                criticised = criticised.float()
                 reader_loss, reader_right = reader_loss_of(
                     planes, seen[:, :HIDDEN_HANDS_PLANES], imagined[drawn].to(device).float()
                 )
@@ -330,6 +329,7 @@ def main() -> None:
                 total_clipped += float((ratio != clipped).float().mean())
                 value_loss = nn.functional.mse_loss(value, normalised[picks])
                 oracle_loss = nn.functional.mse_loss(oracle_value, normalised[picks])
+                critic_loss = nn.functional.mse_loss(criticised, normalised[picks])
                 # The public head also learns from the oracle's estimate as
                 # it stood before the round, on rounds where that estimate
                 # was the better one; see the choice of baseline above.
@@ -340,7 +340,7 @@ def main() -> None:
                 hands_loss, covered = hands_loss_of(guessed, held[picks])
                 loss = (
                     policy_loss
-                    + args.value_weight * (value_loss + oracle_loss)
+                    + args.value_weight * (value_loss + oracle_loss + critic_loss)
                     + args.value_weight * distil_weight * distil_loss
                     + args.hands_weight * hands_loss
                     + args.reader_weight * reader_loss
@@ -355,6 +355,7 @@ def main() -> None:
                 total_policy += policy_loss.item()
                 total_value += value_loss.item()
                 total_oracle += oracle_loss.item()
+                total_critic += critic_loss.item()
                 total_distil += distil_loss.item()
                 total_reader += reader_loss.item()
                 total_read_right += reader_right.item()
@@ -368,62 +369,42 @@ def main() -> None:
         # table, on minibatches drawn evenly from the last several rounds.
         # No policy term, and no distillation, since the oracle's pre-round
         # estimate exists only for the round just played.
-        replay_value = replay_oracle = replay_read_right = replay_drift = 0.0
+        replay_critic = replay_oracle = replay_read_right = 0.0
         replay_steps = 0
         if args.replay_steps and ring.total() >= args.batch:
-            # The policy must not move in this pass. The tower learns the
-            # value of old rounds, and a KL from the policy as it stood
-            # before the pass to the policy now, on the same positions,
-            # holds the play where it was: the first generation without
-            # this raised entropy from 0.50 to 0.55. Phasic Policy
-            # Gradient's auxiliary phase is the same remedy.
-            frozen = copy.deepcopy(net).eval()
-            for parameter in frozen.parameters():
-                parameter.requires_grad_(False)
+            # Nothing in this pass reaches the policy tower: the critic, the
+            # oracle and the reader each read it without gradient or not at
+            # all. Every version that did reach it, however the policy's
+            # output was held, crept the policy's entropy up a little each
+            # generation, and the policy pass alone did not.
             for _ in range(args.replay_steps):
                 rows = ring.sample(args.batch, replay_rng)
                 planes = rows["observations"].to(device).float()
-                legal_rows = rows["legal"].to(device)
                 seen = rows["oracle"].to(device).float()
                 target = rows["returns"].to(device)
-                with torch.no_grad():
-                    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
-                        old_logits, _old_value = frozen(planes, legal_rows)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=args.amp):
-                    logits, value, guessed, oracle_value = learn(planes, legal_rows, seen)
-                logits = logits.float()
-                value = value.float()
-                guessed = guessed.float()
+                    _logits, _value, _guessed, oracle_value, criticised = learn(
+                        planes, rows["legal"].to(device), seen
+                    )
                 oracle_value = oracle_value.float()
-                value_loss = nn.functional.mse_loss(value, target)
+                criticised = criticised.float()
+                critic_loss = nn.functional.mse_loss(criticised, target)
                 oracle_loss = nn.functional.mse_loss(oracle_value, target)
                 reader_loss, reader_right = reader_loss_of(
                     planes, seen[:, :HIDDEN_HANDS_PLANES], rows["imagined"].to(device).float()
                 )
-                # The hand-reading loss is the largest of them all and is
-                # left to the policy pass, where the policy term balances
-                # it; here it only pushed the tower about.
-                del guessed
-                old = torch.log_softmax(old_logits.float(), dim=1)
-                new = torch.log_softmax(logits, dim=1)
-                # Illegal moves are minus infinity on both sides; their
-                # terms are set to nothing rather than left as NaN.
-                drift = (old.exp() * (old - new)).masked_fill(~legal_rows, 0.0).sum(dim=1).mean()
                 loss = (
-                    args.value_weight * (value_loss + oracle_loss)
+                    args.value_weight * (critic_loss + oracle_loss)
                     + args.reader_weight * reader_loss
-                    + args.replay_kl * drift
                 )
                 optimiser.zero_grad(set_to_none=True)
                 loss.backward()
                 nn.utils.clip_grad_norm_(net.parameters(), 1.0)
                 optimiser.step()
-                replay_value += value_loss.item()
+                replay_critic += critic_loss.item()
                 replay_oracle += oracle_loss.item()
                 replay_read_right += reader_right.item()
-                replay_drift += drift.item()
                 replay_steps += 1
-            del frozen
 
         record = {
             "generation": generation,
@@ -434,21 +415,20 @@ def main() -> None:
             "policy_loss": round(total_policy / max(steps, 1), 4),
             "value_loss": round(total_value / max(steps, 1), 4),
             "oracle_loss": round(total_oracle / max(steps, 1), 4),
+            "critic_loss": round(total_critic / max(steps, 1), 4),
             # Each head's error on the round before it was trained on it,
             # against the return variance below, and which was the baseline.
             "public_error": round(public_error, 4),
             "oracle_error": round(oracle_error, 4),
-            "baseline": "oracle" if oracle_better else "public",
+            "critic_error": round(critic_error, 4),
+            "baseline": chosen,
             "advantage_spread": round(advantage_spread, 4),
             # The same heads on the ring of past rounds, which is where
             # they must not learn a round by heart.
             "replay_rounds": len(ring),
-            "replay_value_loss": round(replay_value / max(replay_steps, 1), 4),
+            "replay_critic_loss": round(replay_critic / max(replay_steps, 1), 4),
             "replay_oracle_loss": round(replay_oracle / max(replay_steps, 1), 4),
             "replay_reader_right": round(replay_read_right / max(replay_steps, 1), 4),
-            # How far the policy was pulled during the pass, as a KL; it
-            # should stay near nothing.
-            "replay_drift": round(replay_drift / max(replay_steps, 1), 5),
             "distil": round(total_distil / max(steps, 1), 4),
             # The reader's loss and how often it tells a real set of hidden
             # hands from an imagined one; a half is guessing.

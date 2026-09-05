@@ -45,6 +45,11 @@ ORACLE_BLOCKS = 4
 READER_CHANNELS = 128
 READER_BLOCKS = 4
 
+# The critic's own tower. It also reads the policy tower's pooled features,
+# so it need not be large to be good; what it must not do is train them.
+CRITIC_CHANNELS = 128
+CRITIC_BLOCKS = 6
+
 
 class Residual(nn.Module):
     """A pre-activation residual block along the tile axis."""
@@ -153,6 +158,37 @@ class PolicyValueNet(nn.Module):
             nn.Linear(128, 1),
         )
 
+        # The critic: the value the search reads and the baseline the policy
+        # gradient is measured against, on a tower of its own. The value
+        # head above shares the policy's tower, and training that tower on
+        # a ring of old rounds for the value's sake drifted the features
+        # the policy reads from, however hard the policy's output was held:
+        # entropy crept up every generation the ring was in use and stood
+        # still when it was not. The critic reads the policy tower's pooled
+        # features without gradient and adds a tower of its own over the
+        # planes, so it can be trained on anything, as the oracle and the
+        # reader are, and the policy tower is trained by the policy alone.
+        self.critic_stem = nn.Sequential(
+            nn.Conv1d(PLANES, CRITIC_CHANNELS, 3, padding=1, bias=False),
+            nn.GroupNorm(GROUPS, CRITIC_CHANNELS),
+            nn.ReLU(),
+        )
+        self.critic_tower = nn.Sequential(
+            *[Residual(CRITIC_CHANNELS) for _ in range(CRITIC_BLOCKS)]
+        )
+        self.critic_tail = nn.Sequential(nn.GroupNorm(GROUPS, CRITIC_CHANNELS), nn.ReLU())
+        self.critic = nn.Sequential(
+            nn.Linear(channels + CRITIC_CHANNELS, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1),
+        )
+
+    def critic_value(self, planes: torch.Tensor, pooled: torch.Tensor) -> torch.Tensor:
+        """The critic's value of each position, from the planes and the
+        policy tower's pooled features, which it reads but does not train."""
+        own = self.critic_tail(self.critic_tower(self.critic_stem(planes))).mean(dim=2)
+        return self.critic(torch.cat([pooled.detach(), own], dim=1)).squeeze(1)
+
     def read_plausibility(self, planes: torch.Tensor, hands: torch.Tensor) -> torch.Tensor:
         """How much more likely these hidden hands are, given the position,
         than the proposal made them: a logit per row, the log of the
@@ -181,10 +217,10 @@ class PolicyValueNet(nn.Module):
 
     def value_only(self, planes: torch.Tensor) -> torch.Tensor:
         """What each position is worth, in the reward's units, and nothing
-        else. The search values thousands of positions a decision and
-        wants none of the policy work for them."""
+        else: the critic's answer. The search values thousands of positions
+        a decision and wants none of the policy work for them."""
         features = self.tail(self.tower(self.stem(planes)))
-        return self.value(features.mean(dim=2)).squeeze(1)
+        return self.critic_value(planes, features.mean(dim=2))
 
     def read_hands(self, planes: torch.Tensor) -> torch.Tensor:
         """What each opponent is holding, as logits over the 34 kinds.
@@ -214,9 +250,10 @@ class PolicyValueNet(nn.Module):
 
     def with_oracle(
         self, planes: torch.Tensor, legal: torch.Tensor, oracle: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Everything, and the oracle critic's value too, from one pass of
-        the tower. For training; see the note on the oracle critic above."""
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Everything, the oracle's value and the critic's, from one pass of
+        the tower. For training; see the notes on the oracle and the critic
+        above."""
         features = self.tail(self.tower(self.stem(planes)))
         pooled = features.mean(dim=2)
         tiles = self.policy_tiles(features)
@@ -230,7 +267,13 @@ class PolicyValueNet(nn.Module):
         # reach the tower the policy's entropy climbed from 0.36 to 0.49
         # over thirty generations. It learns on its own tower.
         oracle_value = self.oracle_value(torch.cat([pooled.detach(), hidden], dim=1)).squeeze(1)
-        return logits, self.value(pooled).squeeze(1), self.hands(features), oracle_value
+        return (
+            logits,
+            self.value(pooled).squeeze(1),
+            self.hands(features),
+            oracle_value,
+            self.critic_value(planes, pooled),
+        )
 
     def parameter_count(self) -> int:
         return sum(p.numel() for p in self.parameters())
@@ -268,7 +311,7 @@ def load_weights(net: PolicyValueNet, saved: dict[str, torch.Tensor]) -> None:
     fresh = net.state_dict()
     saved = dict(saved)
     for key, value in fresh.items():
-        if key.startswith(("hands.", "oracle_", "reader")) and (
+        if key.startswith(("hands.", "oracle_", "reader", "critic")) and (
             key not in saved or saved[key].shape != value.shape
         ):
             saved[key] = value
