@@ -72,6 +72,14 @@ def parse_args() -> argparse.Namespace:
         "update, for those heads only; about one pass over a round",
     )
     parser.add_argument(
+        "--freeze-policy",
+        action="store_true",
+        help="train only the critic, the oracle and the reader; the policy "
+        "tower and its heads keep their weights. For a night when the "
+        "evaluator is worth improving and the policy is not to be trusted "
+        "to improve itself",
+    )
+    parser.add_argument(
         "--reader-weight",
         type=float,
         default=1.0,
@@ -136,7 +144,13 @@ def main() -> None:
             raise SystemExit("the checkpoint was trained at a different width")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
 
-    optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
+    if args.freeze_policy:
+        for name, parameter in net.named_parameters():
+            if not name.startswith(("critic", "oracle_", "reader")):
+                parameter.requires_grad_(False)
+        print("policy frozen: training the critic, the oracle and the reader", flush=True)
+    trainable = [parameter for parameter in net.parameters() if parameter.requires_grad]
+    optimiser = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=1e-4)
     learn = torch.compile(net.with_oracle) if args.compile else net.with_oracle
     read = torch.compile(net.read_plausibility) if args.compile else net.read_plausibility
 
