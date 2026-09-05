@@ -1,5 +1,4 @@
 <script>
-  import Tile from './Tile.svelte';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
 
@@ -10,31 +9,11 @@
   let { seat, side = 'across', dealer = false, dora = [] } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
-  let vertical = $derived(side === 'left' || side === 'right');
 
-  // A call or a declaration is the moment a player's game changes, and a
-  // line in the log is easy to miss. The seat says so, and keeps saying so
-  // until the hand is over: it used to fade after two seconds, which is
-  // easy to miss while looking at your own tiles.
-  let announcement = $state('');
-  let lastMelds = seat.melds.length;
-  let lastRiichi = seat.riichi;
-  let lastDiscards = seat.discards.length;
-
-  $effect(() => {
-    // A new hand: the discards start again, and so does the seat.
-    if (seat.discards.length < lastDiscards || (seat.melds.length < lastMelds)) {
-      announcement = '';
-    }
-    if (seat.riichi && !lastRiichi) announcement = 'Riichi';
-    else if (seat.melds.length > lastMelds) {
-      const meld = seat.melds[seat.melds.length - 1];
-      announcement = meld.kind.includes('kan') ? 'Kan' : meld.kind === 'pon' ? 'Pon' : 'Chii';
-    }
-    lastMelds = seat.melds.length;
-    lastRiichi = seat.riichi;
-    lastDiscards = seat.discards.length;
-  });
+  // These facts belong to the hand, so restoration/new deals cannot retain
+  // a stale announcement from a previous seat. Upgraded quads count too.
+  let announcement = $derived(seat.riichi ? 'Riichi' : seat.melds.length
+    ? (seat.melds.at(-1).kind.includes('kan') ? 'Kan' : seat.melds.at(-1).kind === 'pon' ? 'Pon' : 'Chii') : '');
 </script>
 
 <section class="seat {side}" class:turn={seat.turn} aria-label="{NAMES[seat.seat]} seat">
@@ -47,7 +26,7 @@
     {/if}
   </header>
 
-  <div class="held" class:vertical aria-label="{seat.hand_size} tiles in hand">
+  <div class="held" aria-label="{seat.hand_size} tiles in hand">
     {#each Array(Math.min(seat.hand_size, 14)) as _, index (index)}
       <span class="back"></span>
     {/each}
@@ -80,6 +59,7 @@
   header {
     display: flex;
     align-items: baseline;
+    flex-wrap: wrap;
     gap: 8px;
     font-size: 0.82rem;
   }
@@ -163,5 +143,11 @@
     background: linear-gradient(180deg, var(--rail) 0%, var(--rail-dark) 100%);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
     flex: none;
+  }
+  @media (max-width: 760px), (max-height: 500px) and (orientation: landscape) {
+    .seat { padding: 6px; gap: 4px; }
+    header { font-size: .7rem; gap: 2px 5px; }
+    .back { width: 4px; height: 9px; }
+    .called { font-size: .65rem; margin-left: 0; }
   }
 </style>

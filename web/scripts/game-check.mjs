@@ -10,7 +10,7 @@ const URL = process.argv[2] ?? 'http://127.0.0.1:8732/?opponents=club';
 const LIMIT = Number(process.argv[3] ?? 600) * 1000;
 
 const browser = await puppeteer.launch({
-  executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  executablePath: process.env.CHROME_BIN ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: 'new',
   args: ['--disable-gpu', '--hide-scrollbars', '--no-sandbox'],
 });
@@ -82,7 +82,7 @@ try {
       // hand where that tile is barred, which is what a swap-call does.
       const acted = await page.evaluate(() => {
         const win = [...document.querySelectorAll('.controls button')].find(
-          (b) => b.textContent.trim() === 'Win',
+          (b) => b.dataset.choice === 'ron' || b.dataset.choice === 'tsumo',
         );
         if (win) {
           win.click();
@@ -105,7 +105,7 @@ try {
       spent.calls += 1;
       await page.evaluate(() => {
         const buttons = [...document.querySelectorAll('.controls button')];
-        const win = buttons.find((b) => b.textContent.trim() === 'Win');
+        const win = buttons.find((b) => b.dataset.choice === 'ron' || b.dataset.choice === 'tsumo');
         const pass = buttons.find((b) => b.textContent.trim() === 'Pass');
         (win ?? pass)?.click();
       });

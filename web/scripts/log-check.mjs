@@ -10,7 +10,7 @@ const LIMIT = Number(process.argv[3] ?? 180) * 1000;
 const DOWNLOADS = mkdtempSync(join(process.env.CLAUDE_CODE_TMPDIR ?? tmpdir(), 'riichi-log-'));
 
 const browser = await puppeteer.launch({
-  executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  executablePath: process.env.CHROME_BIN ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: 'new',
   args: ['--disable-gpu', '--no-sandbox'],
 });
@@ -36,6 +36,7 @@ try {
       () => (document.querySelector('.prompt')?.textContent ?? '').includes('Your turn'),
     );
     if (mine) {
+      await page.focus('.hand');
       await page.keyboard.press('1');
     } else {
       await page.evaluate(() => {

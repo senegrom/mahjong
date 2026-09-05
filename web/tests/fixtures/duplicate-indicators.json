@@ -1,0 +1,69 @@
+{
+  "seed": 369,
+  "actions": [
+    {
+      "kind": "discard",
+      "tile": "5z"
+    },
+    {
+      "kind": "discard",
+      "tile": "1z"
+    },
+    {
+      "kind": "pass",
+      "tile": null
+    },
+    {
+      "kind": "discard",
+      "tile": "8s"
+    },
+    {
+      "kind": "discard",
+      "tile": "4s"
+    },
+    {
+      "kind": "discard",
+      "tile": "4s"
+    },
+    {
+      "kind": "discard",
+      "tile": "1s"
+    },
+    {
+      "kind": "discard",
+      "tile": "1s"
+    },
+    {
+      "kind": "discard",
+      "tile": "4z"
+    },
+    {
+      "kind": "pass",
+      "tile": null
+    },
+    {
+      "kind": "discard",
+      "tile": "4s"
+    },
+    {
+      "kind": "pass",
+      "tile": null
+    },
+    {
+      "kind": "discard",
+      "tile": "8p"
+    },
+    {
+      "kind": "pass",
+      "tile": null
+    },
+    {
+      "kind": "discard",
+      "tile": "7p"
+    },
+    {
+      "kind": "discard",
+      "tile": "7p"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 <script>
+  import { onMount, tick } from 'svelte';
   import init, { Game } from './wasm/riichi.js';
   import Tile from './lib/Tile.svelte';
   import Seat from './lib/Seat.svelte';
@@ -7,304 +8,269 @@
   import ScoreScreen from './lib/ScoreScreen.svelte';
   import Standings from './lib/Standings.svelte';
   import Review from './lib/Review.svelte';
-  import { chooseAction, modelIsAvailable, reportProgress } from './lib/policy.js';
+  import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
+  import { MatchSession, SAVE_KEY, SETTINGS_KEY, readSettings } from './lib/session.js';
+  import { acceptsHandKey, heldSafeCount, callLabel, callTiles } from './lib/ui.js';
   import { tileWords } from './lib/tiles.js';
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
-
+  let storage = null;
+  try { storage = window.localStorage; } catch { /* Private/restricted browsing. */ }
+  const touch = matchMedia('(pointer: coarse)').matches;
+  const preferences = readSettings(storage, touch);
+  const requested = new URLSearchParams(location.search).get('opponents');
+  let difficulty = $state(['beginner', 'club', 'neural'].includes(requested) ? requested : preferences.difficulty);
+  let hints = $state(preferences.hints);
+  let confirmDiscards = $state(preferences.confirmDiscards);
+  let shortcuts = $state(preferences.shortcuts);
   let ready = $state(false);
   let failure = $state('');
-  let game = $state(null);
+  let storageWarning = $state('');
+  let notice = $state('');
+  let loadNote = $state('');
+  let session = $state.raw(null);
   let view = $state(null);
   let choices = $state([]);
   let log = $state([]);
-  let hints = $state(true);
   let busy = $state(false);
-  // The opponents can be named in the address, which makes a particular
-  // table shareable and testable.
-  const requested = new URLSearchParams(location.search).get('opponents');
-  // A phone has no number keys to offer.
-  const touch = matchMedia('(pointer: coarse)').matches;
-  let difficulty = $state(
-    ['beginner', 'club', 'neural'].includes(requested) ? requested : 'club',
-  );
-  let trainedAvailable = $state(false);
   let thinking = $state(false);
+  let recovery = $state(false);
+  let trainedAvailable = $state(false);
   let standings = $state(null);
+  let notes = $state(null);
+  let picked = $state(null);
+  let selected = $state(null);
+  let handElement = $state(null);
+  let callElement = $state(null);
+  let tableDialog = $state(null);
+  let guideOpen = $state(false);
 
-  modelIsAvailable().then((available) => {
-    trainedAvailable = available;
-  });
-  // The first load of the runtime and the network takes a moment; every
-  // move after that is instant, so it is said once and not again.
-  let announced = false;
-  reportProgress((note) => {
-    if (announced) return;
-    announced = true;
-    log = [`(${note})`, ...log].slice(0, 60);
-  });
-
-  let me = $derived(view ? view.seats[0] : null);
-  // Turn order runs to the right: the next player to act sits there, the
-  // one after that across the table (EMA 2025 section 2.1).
-  let right = $derived(view ? view.seats[1] : null);
-  let across = $derived(view ? view.seats[2] : null);
-  let left = $derived(view ? view.seats[3] : null);
+  let me = $derived(view?.seats[0]);
+  let right = $derived(view?.seats[1]);
+  let across = $derived(view?.seats[2]);
+  let left = $derived(view?.seats[3]);
+  let handTiles = $derived(me ? [...me.hand, ...(me.drawn ? [me.drawn] : [])] : []);
   let discardChoices = $derived(choices.filter((choice) => choice.kind === 'discard'));
-  let callChoices = $derived(
-    choices.filter((choice) => choice.kind !== 'discard'),
-  );
+  let callChoices = $derived(choices.filter((choice) => choice.kind !== 'discard'));
   let myTurn = $derived(view?.phase === 'act' && me?.turn);
+  let shownDora = $derived(hints ? (view?.dora_types ?? []) : []);
+  let safeCount = $derived(heldSafeCount(view));
+  let selectedTile = $derived(selected === null ? null : handTiles[selected]);
 
-  init()
-    .then(() => {
-      start();
+  $effect(() => {
+    const value = { version: 1, difficulty, hints, confirmDiscards, shortcuts };
+    try { storage?.setItem(SETTINGS_KEY, JSON.stringify(value)); } catch { /* Gameplay still works. */ }
+  });
+
+  function update(owner) {
+    if (session !== owner) return;
+    view = owner.view;
+    choices = owner.choices;
+    log = owner.events;
+    busy = owner.busy;
+    thinking = owner.thinking;
+    failure = owner.failure;
+    recovery = owner.needsRecovery;
+    difficulty = owner.difficulty;
+    standings = owner.over ? owner.engine.standings() : null;
+    if (!thinking) loadNote = '';
+  }
+
+  function saveMatch(snapshot) {
+    try {
+      if (!storage) throw new Error('unavailable');
+      storage.setItem(SAVE_KEY, JSON.stringify(snapshot));
+      storageWarning = '';
+    } catch {
+      storageWarning = 'This browser could not save the match. Keep this page open to avoid losing progress.';
+    }
+  }
+
+  const callbacks = {
+    ai: (planes, mask, signal) => chooseAction(planes, mask, 0.4, 20000, signal),
+    onChange: update,
+    onSave: saveMatch,
+  };
+
+  onMount(() => {
+    let mounted = true;
+    modelIsAvailable().then((available) => { if (mounted) trainedAvailable = available; });
+    reportProgress((note) => { if (mounted && thinking) loadNote = note; });
+    init().then(() => {
+      if (!mounted) return;
       ready = true;
-    })
-    .catch((error) => {
-      failure = `The rules engine did not load: ${error}`;
+      let saved = null;
+      try { saved = storage?.getItem(SAVE_KEY); } catch { /* Saving unavailable. */ }
+      if (saved) {
+        try {
+          session = MatchSession.restore(Game, saved, callbacks);
+          update(session);
+          notice = 'Saved match restored.';
+          void session.run();
+        } catch (error) {
+          // Do not overwrite the only saved copy without a deliberate New game.
+          failure = `The saved match could not be restored: ${error.message}. Choose New game to start again.`;
+        }
+      } else start();
+    }).catch((error) => {
+      failure = `The rules engine did not load: ${error.message ?? error}. Reload this page to retry.`;
     });
+    const saveOnLeave = () => { if (session && !session.closed) saveMatch(session.snapshot()); };
+    window.addEventListener('pagehide', saveOnLeave);
+    return () => {
+      mounted = false;
+      window.removeEventListener('pagehide', saveOnLeave);
+      session?.dispose();
+      resetPolicy();
+      reportProgress(null);
+    };
+  });
 
-  function start() {
-    game = new Game(Date.now() % 2 ** 31, difficulty);
-    log = [];
-    failure = '';
-    standings = null;
+  function start(strength = difficulty) {
+    session?.dispose();
+    resetPolicy();
+    picked = null;
+    selected = null;
     notes = null;
-    refresh(true);
+    notice = '';
+    loadNote = '';
+    session = new MatchSession(Game, Date.now() % 2 ** 31, strength, callbacks);
+    void session.run();
   }
 
-  // Abandoning a game part-way is worth one question; at the end of a game,
-  // or before the first discard, there is nothing to lose.
-  function startFresh() {
-    const underway = game && !game.game_is_over() && view && view.phase !== 'over';
-    const played = view?.seats?.some((seat) => seat.discards.length > 0);
-    if (underway && played && !confirm('Leave this game and deal a new one?')) return;
-    start();
+  function startFresh(strength = difficulty) {
+    if (!ready) return;
+    if (session?.progressed && !confirm('Leave this unfinished match and deal a new one?')) return;
+    start(strength);
   }
 
-  async function refresh(advance = false) {
-    if (!game) return;
-    if (advance) {
-      const lines = game.advance();
-      if (lines.length) log = [...lines, ...log].slice(0, 60);
-    }
-    // Show the table before waiting on anybody: a trained opponent takes a
-    // moment to answer, and an empty screen while it does is not a table.
-    view = game.view();
-    choices = game.choices();
-    if (advance) {
-      await playTrainedOpponents();
-      view = game.view();
-      choices = game.choices();
-    }
+  function changeOpponents(event) {
+    const strength = event.currentTarget.value;
+    // The control displays the active mode until the change is confirmed.
+    event.currentTarget.value = difficulty;
+    if (strength !== difficulty) startFresh(strength);
   }
 
-  /**
-   * With the trained opponents chosen, their moves come from the network in
-   * the worker rather than from the engine. Each answer is one the rules
-   * allow, because the mask that comes with the position decides what may
-   * be picked.
-   */
-  async function playTrainedOpponents() {
-    if (!game || difficulty !== 'neural') return;
-    let guard = 0;
-    while (game.needs_opponent_move() && guard < 400) {
-      guard += 1;
-      thinking = true;
-      try {
-        const planes = game.opponent_observation();
-        const mask = game.opponent_mask();
-        // A little temperature early keeps three opponents from playing the
-        // same game as one another.
-        const action = await chooseAction(planes, mask, 0.4);
-        game.play_opponent(action);
-      } catch (error) {
-        failure = `The trained opponent could not answer: ${error.message}`;
-        difficulty = 'club';
-        break;
-      } finally {
-        thinking = false;
-      }
-      const lines = game.advance();
-      if (lines.length) log = [...lines, ...log].slice(0, 60);
-      // Redraw between opponents, so their moves are watched rather than
-      // arriving all at once.
-      view = game.view();
-    }
-  }
+  function canDiscard(tile) { return !busy && !failure && discardChoices.some((choice) => choice.tile === tile); }
 
   async function choose(choice) {
-    if (busy || !game) return;
-    busy = true;
-    try {
-      game.choose(choice.kind, choice.tile ?? undefined);
-      await refresh(true);
-    } catch (error) {
-      failure = String(error);
-    } finally {
-      busy = false;
-    }
+    if (!session || busy) return;
+    picked = null;
+    selected = null;
+    await session.choose(choice);
   }
 
   function discard(tile) {
     const choice = discardChoices.find((entry) => entry.tile === tile);
-    if (choice) choose(choice);
+    if (choice && canDiscard(tile)) void choose(choice);
   }
 
-  // The review is built on request rather than after every hand: it asks
-  // the adviser to think about each decision again, and most hands go by
-  // without anyone wanting to look back at them.
-  let notes = $state(null);
+  function selectTile(tile, index) {
+    if (!canDiscard(tile)) return;
+    picked = null;
+    if (confirmDiscards && selected !== index) selected = index;
+    else discard(tile);
+  }
 
-  // The hand as an mjai log, saved to a file. The name carries the round and
-  // the seat so a folder of them stays readable.
+  async function onKey(event) {
+    if (!shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
+    if (event.key === 'Escape') { picked = null; selected = null; return; }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      const step = event.key === 'ArrowLeft' ? -1 : 1;
+      picked = picked === null ? Math.max(handTiles.length - 1, 0)
+        : Math.min(Math.max(picked + step, 0), handTiles.length - 1);
+      selected = null;
+      await tick();
+      handElement?.querySelector(`[data-hand-index="${picked}"]`)?.focus({ preventScroll: true });
+      return;
+    }
+    if (event.repeat) { event.preventDefault(); return; }
+    if (event.key === 'Enter' || event.key === ' ') {
+      const focused = event.target.closest('[data-hand-index]');
+      const index = picked ?? (focused ? Number(focused.dataset.handIndex) : null);
+      if (index !== null && canDiscard(handTiles[index])) {
+        event.preventDefault();
+        discard(handTiles[index]);
+      }
+      return;
+    }
+    if (/^[1-9]$/.test(event.key)) {
+      const tile = me.hand[Number(event.key) - 1];
+      if (tile) { event.preventDefault(); discard(tile); }
+    } else if (event.key === '0' && me.drawn) {
+      event.preventDefault();
+      discard(me.drawn);
+    } else if (event.key.toLowerCase() === 'r') {
+      const first = callElement?.querySelector('[data-choice="riichi"]');
+      if (first) { event.preventDefault(); first.focus(); }
+    } else if (event.key.toLowerCase() === 't') {
+      const tsumo = choices.find((choice) => choice.kind === 'tsumo');
+      if (tsumo) { event.preventDefault(); void choose(tsumo); }
+    }
+  }
+
+  function retryAi() { resetPolicy(); void session?.retry(); }
+  function continueClub() { resetPolicy(); void session?.continueWithClub(); }
+  function nextHand() {
+    if (busy) return;
+    notes = null;
+    picked = null;
+    selected = null;
+    void session?.nextHand();
+  }
+
   function saveLog() {
-    if (!game) return;
+    if (!session) return;
     try {
-      const text = game.log();
-      if (!text) return;
-      const blob = new Blob([text + '\n'], { type: 'application/jsonl' });
-      const url = URL.createObjectURL(blob);
+      const text = session.engine.log();
+      const url = URL.createObjectURL(new Blob([text + '\n'], { type: 'application/jsonl' }));
       const link = document.createElement('a');
-      const round = (view?.round ?? 'hand').toLowerCase();
       link.href = url;
-      link.download = `riichi-${round}-${Date.now()}.mjai.jsonl`;
+      link.download = `riichi-${view.round}-${view.kyoku}-${Date.now()}.mjai.jsonl`;
       document.body.appendChild(link);
       link.click();
       link.remove();
-      // Freed on the next turn of the event loop, once the click is through.
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-    } catch (error) {
-      console.error('the log could not be saved', error);
-    }
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { notice = 'The hand could not be saved to a file. Your current match is unchanged.'; }
   }
 
   function showReview() {
-    try {
-      notes = game?.review() ?? [];
-    } catch (error) {
-      console.error('the review could not be built', error);
-      notes = [];
-    }
+    try { notes = session?.engine.review() ?? []; }
+    catch { notice = 'The review could not be built. Your match is unchanged.'; }
   }
 
-  async function nextHand() {
-    notes = null;
-    if (!game) return;
-    try {
-      game.next_hand();
-      if (game.game_is_over()) {
-        view = game.view();
-        choices = [];
-        standings = game.standings();
-      } else {
-        await refresh(true);
-      }
-    } catch (error) {
-      failure = String(error);
-    }
-  }
-
-  function onKey(event) {
-    if (!myTurn || !me) return;
-
-    // Left and right walk the hand, Enter throws what is under the marker.
-    // The numbers are a shortcut on top of that, not the only way in: they
-    // stop at nine, and a hand is fourteen tiles.
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      event.preventDefault();
-      // There is no marker until an arrow is pressed, so a mouse player
-      // never meets one. The first press puts it on the tile just drawn,
-      // which is the usual discard; the presses after that move it.
-      if (picked === null) {
-        picked = Math.max(handTiles.length - 1, 0);
-        return;
-      }
-      const step = event.key === 'ArrowLeft' ? -1 : 1;
-      picked = Math.min(Math.max(picked + step, 0), Math.max(handTiles.length - 1, 0));
-      return;
-    }
-    if (event.key === 'Enter' || event.key === ' ') {
-      if (picked === null) return;
-      const tile = handTiles[Math.min(picked, handTiles.length - 1)];
-      if (tile && canDiscard(tile)) {
-        event.preventDefault();
-        discard(tile);
-      }
-      return;
-    }
-
-    const index = Number(event.key);
-    if (Number.isInteger(index) && index >= 1 && index <= 9) {
-      const tile = me.hand[index - 1];
-      if (tile) discard(tile);
-    }
-    // Zero is the tile just drawn, which sits apart at the end of the hand
-    // and is the one most often thrown straight back out.
-    if (event.key === '0' && me.drawn) discard(me.drawn);
-
-    if (event.key === 'r') {
-      const riichi = choices.find((choice) => choice.kind === 'riichi');
-      if (riichi) choose(riichi);
-    }
-    if (event.key === 't') {
-      const tsumo = choices.find((choice) => choice.kind === 'tsumo');
-      if (tsumo) choose(tsumo);
-    }
-  }
-
-  function canDiscard(tile) {
-    return discardChoices.some((choice) => choice.tile === tile);
-  }
-
-  // Which tiles are dora, wherever they show, when hints are on: the
-  // mark is worth the same han in an opponent's discards, in a called
-  // set, among the waits or on the score screen as it is in the hand.
-  let shownDora = $derived(hints && view?.dora ? view.dora : []);
-
-  // The hand as it is laid out: the concealed tiles, then the one just
-  // drawn, which the table keeps apart and so does the page.
-  let handTiles = $derived(me ? [...me.hand, ...(me.drawn ? [me.drawn] : [])] : []);
-  // Where the keyboard marker stands, or nowhere until an arrow is pressed.
-  let picked = $state(null);
-  // A discard shortens the hand, so the marker is clamped rather than left
-  // pointing past the end.
-  let marker = $derived(
-    picked === null ? -1 : Math.min(picked, Math.max(handTiles.length - 1, 0)),
-  );
-  // The marker lives for one turn: whatever it pointed at is gone once a
-  // tile is thrown, and the next turn starts without one.
-  $effect(() => {
-    myTurn;
-    picked = null;
-  });
+  function inspectTable() { tableDialog?.showModal(); }
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window onkeydown={onKey} />
 
 <main>
   <header class="bar">
     <h1>Riichi</h1>
-    <label class="toggle">
-      opponents
-      <select bind:value={difficulty} onchange={startFresh} aria-label="opponent strength">
+    <label class="opponents">
+      <span>Opponents</span>
+      <select value={difficulty} onchange={changeOpponents} disabled={!ready} aria-label="opponent strength">
         <option value="beginner">Beginner</option>
         <option value="club">Club</option>
-        {#if trainedAvailable}
-          <option value="neural">Trained</option>
-        {/if}
+        {#if trainedAvailable || difficulty === 'neural'}<option value="neural">Trained</option>{/if}
       </select>
     </label>
-    <label class="toggle plain">
-      <input type="checkbox" bind:checked={hints} />
-      hints
-    </label>
-    <button class="restart" onclick={startFresh} disabled={!ready}>New game</button>
+    <button class="restart" onclick={() => startFresh()} disabled={!ready}>New game</button>
   </header>
 
-  <details class="guide">
-    <summary>What the table is telling you</summary>
+  <div class="preferences">
+  <details class="options">
+    <summary>Options</summary>
+    <div class="option-fields">
+      <label><input type="checkbox" bind:checked={hints} /> Hints and markings</label>
+      <label><input type="checkbox" bind:checked={confirmDiscards} onchange={() => selected = null} /> Select before discarding</label>
+      <label><input type="checkbox" bind:checked={shortcuts} onchange={() => picked = null} /> Keyboard shortcuts in your hand</label>
+      <p>With confirmation on, tap a tile to select it, then tap it again or press Discard. Your match and preferences are saved on this device.</p>
+    </div>
+  </details>
+  <details class="guide" bind:open={guideOpen}>
+    <summary>Tile markings and rules</summary>
     <div class="guide-body">
       <dl>
         <dt>3 tiles away from a wait</dt>
@@ -325,8 +291,8 @@
 
         <dt><span class="swatch safe"></span> a green ring</dt>
         <dd>
-          The tile cannot deal into anybody who has declared riichi, because
-          they threw it themselves or it has already passed them.
+          The tile is safe against the opponents who have declared riichi, because
+          they threw it themselves or it has already passed them. It can still deal into an undeclared hand. The safe count includes copies in your concealed hand only.
         </dd>
 
         <dt><span class="swatch drawn"></span> a gold ring</dt>
@@ -346,16 +312,15 @@
       <dl>
         <dt>furiten</dt>
         <dd>
-          One of the tiles you are waiting for sits in your own discards, so
-          you may not win on a discard. You may still win on your own draw.
+          You may not win on a discard: a wait is in your own discards, or you have passed a winning discard. You may still win on your own draw.
         </dd>
 
         <dt>Keys</dt>
         <dd>
-          An arrow key brings the marker up on the tile you drew, the arrows
+          Focus your hand first. An arrow key brings the marker up on the tile you drew, the arrows
           move it along your hand, and Enter throws the marked tile. The
           numbers 1 to 9 throw a tile directly and 0 throws the one you just
-          drew. Press r to declare riichi and t to win on your own draw.
+          drew. Press r to focus the riichi choices and t to win on your own draw. Shortcuts never run while you are using another control and can be turned off in Options.
         </dd>
 
         <dt>Rules</dt>
@@ -366,688 +331,290 @@
       </dl>
     </div>
   </details>
+  {#if notice}<p class="notice" role="status">{notice}</p>{/if}
+  </div>
 
   {#if failure}
-    <p class="failure" role="alert">{failure}</p>
+    <section class="failure" aria-label="game recovery">
+      <p role="alert">{failure}</p>
+      {#if recovery}
+        <div class="recovery-actions">
+          <button onclick={retryAi} disabled={busy}>Retry trained opponent</button>
+          <button onclick={continueClub} disabled={busy}>Continue with Club opponents</button>
+          <button onclick={() => startFresh()} disabled={!ready}>New game</button>
+        </div>
+      {/if}
+    </section>
   {/if}
+  {#if storageWarning}<p class="notice" role="status">{storageWarning}</p>{/if}
 
-  {#if !ready}
-    <p class="loading">Shuffling the wall…</p>
+  {#if !ready && !failure}
+    <p class="loading" role="status">Shuffling the wall…</p>
   {:else if view}
     <div class="board">
-      <div class="place across">
-        <Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} />
-      </div>
-      <div class="place left">
-        <Seat seat={left} side="left" dealer={left.seat === 'east'} dora={shownDora} />
-      </div>
-
+      <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} /></div>
+      <div class="place left"><Seat seat={left} side="left" dealer={left.seat === 'east'} dora={shownDora} /></div>
       <div class="centre" aria-label="the table">
-        <div class="round">
-          <span class="wind-mark">{NAMES[view.round]}</span>
-          <span class="label">round</span>
-        </div>
-        <div class="wall">
-          <span class="count">{view.wall}</span>
-          <span class="label">tiles left</span>
-        </div>
-        <div class="dora" aria-label="dora indicators">
-          {#each view.dora_indicators as indicator (indicator)}
-            <Tile tile={indicator} size="small" />
-          {/each}
+        <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>round / hand</span></div>
+        <div class="wall"><strong>{view.wall}</strong><span>tiles left</span></div>
+        <div class="indicators" aria-label="dora indicators">
+          {#each view.dora_indicators as indicator, slot (slot)}<Tile tile={indicator} size="small" />{/each}
         </div>
         {#if view.counters || view.riichi_sticks}
           <div class="table-extras">
-            {#if view.counters}
-              <span title="counters on the table">{view.counters}× 300</span>
-            {/if}
-            {#if view.riichi_sticks}
-              <span class="bets" title="riichi bets on the table">
-                {view.riichi_sticks} bet{view.riichi_sticks > 1 ? 's' : ''}
-              </span>
-            {/if}
+            {#if view.counters}<span>{view.counters} honba (+{view.counters * 300})</span>{/if}
+            {#if view.riichi_sticks}<span>{view.riichi_sticks} riichi bet{view.riichi_sticks === 1 ? '' : 's'}</span>{/if}
           </div>
         {/if}
+        <button class="inspect" onclick={inspectTable} aria-label="Inspect all discards and called sets">All discards</button>
       </div>
+      <div class="place right"><Seat seat={right} side="right" dealer={right.seat === 'east'} dora={shownDora} /></div>
+    </div>
 
-      <div class="place right">
-        <Seat seat={right} side="right" dealer={right.seat === 'east'} dora={shownDora} />
-      </div>
-
+    <div class="play-area" class:ended={view.phase === 'over' || Boolean(standings)}>
       <section class="mine" aria-label="your seat">
         <header>
-          <span class="wind">You are {NAMES[me.seat]}</span>
+          <strong>You are {NAMES[me.seat]}</strong>
           <span class="score">{me.score.toLocaleString()}</span>
-          {#if me.riichi}<span class="riichi">riichi</span>{/if}
+          {#if me.riichi}<span class="riichi">Riichi</span>{/if}
           {#if hints}
-            <span
-              class="hint"
-              title="How many tiles the hand still has to exchange before it is one tile from a win. Riichi players call this the shanten count."
-            >
-              {#if view.shanten < 0}
-                a winning hand
+            <span class="hint">
+              {#if view.shanten < 0}Complete tile shape
               {:else if view.shanten === 0}
-                waiting on
-                {#each view.waits as wait, index (wait)}
-                  <span class="wait">
-                    <Tile tile={wait} size="tiny" dora={shownDora.includes(wait)} />
-                    <span
-                      class="remaining"
-                      class:none={view.waits_left?.[index] === 0}
-                      title="{view.waits_left?.[index] ?? 0} of the four are still unseen"
-                    >
-                      {view.waits_left?.[index] ?? 0}
-                    </span>
-                  </span>
+                Waiting on
+                {#each view.waits as wait, index (index)}
+                  <span class="wait"><Tile tile={wait} size="tiny" dora={shownDora.includes(wait)} /><span class="remaining" class:none={view.waits_left[index] === 0} aria-label="{view.waits_left[index]} unseen">{view.waits_left[index]}</span></span>
                 {/each}
-              {:else if view.shanten === 1}
-                one tile away from a wait
-              {:else}
-                {view.shanten} tiles away from a wait
-              {/if}
+              {:else}{view.shanten} tile{view.shanten === 1 ? '' : 's'} from a wait{/if}
             </span>
-            {#if view.safe.length}
-              <span class="safe-note" title="These tiles cannot deal into a declared riichi">
-                {view.safe.length} safe
-              </span>
-            {/if}
-            {#if view.dora?.length}
-              <span class="dora-note" title="Each of these is worth a han">
-                {view.dora.length} dora
-              </span>
-            {/if}
-            {#if view.furiten}
-              <span class="furiten" title="A wait sits among your own discards, so you may not win on a discard">furiten</span>
-            {/if}
           {/if}
         </header>
-
-        <div class="pond" aria-label="what you have discarded">
-          <span class="caption">
-            {me.discards.length === 0
-              ? 'you have discarded nothing yet'
-              : `you have discarded ${me.discards.length}`}
-          </span>
-          <Discards discards={me.discards} compact={false} dora={shownDora} />
-        </div>
-
-        <div class="hand" role="group" aria-label="your tiles">
-          {#each me.hand as tile, index (tile + index)}
-            <Tile
-              {tile}
-              onclick={discard}
-              disabled={!canDiscard(tile)}
-              selected={myTurn && index === marker}
-              safe={hints && view.phase !== 'over' && view.safe.includes(tile)}
-              dora={shownDora.includes(tile)}
-              title={hints && view.safe.includes(tile)
-                ? `${tileWords(tile)}: cannot deal in`
-                : hints && view.dora?.includes(tile)
-                  ? `${tileWords(tile)}: dora, worth a han`
-                  : myTurn
-                    ? `discard the ${tileWords(tile)}`
-                    : tileWords(tile)}
-            />
+        {#if hints && (safeCount || view.dora.length || view.furiten)}
+          <div class="hand-facts">
+            {#if safeCount}<span class="safe-note">{safeCount} held tile{safeCount === 1 ? '' : 's'} safe against declared riichi</span>{/if}
+            {#if view.dora.length}<span class="dora-note">{view.dora.length} dora han in hand</span>{/if}
+            {#if view.furiten}<span class="furiten">Furiten — self-draw wins only</span>{/if}
+          </div>
+        {/if}
+        <div class="hand" role="group" aria-label="your tiles" aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement}>
+          {#each handTiles as tile, index (index)}
+            <Tile {tile} handIndex={index} onclick={() => selectTile(tile, index)}
+              disabled={!canDiscard(tile)} selected={myTurn && (picked === index || selected === index)}
+              drawn={Boolean(me.drawn) && index === me.hand.length}
+              safe={hints && view.phase !== 'over' && view.safe.includes(tile)} dora={shownDora.includes(tile)} />
           {/each}
-          {#if me.drawn}
-            <span class="drawn-gap"></span>
-            <span class="drawn">
-              <Tile
-                tile={me.drawn}
-                drawn
-                onclick={discard}
-                disabled={!canDiscard(me.drawn)}
-                selected={myTurn && marker === me.hand.length}
-                safe={hints && view.phase !== 'over' && view.safe.includes(me.drawn)}
-                dora={shownDora.includes(me.drawn)}
-                title="just drawn: the {tileWords(me.drawn)}"
-              />
-            </span>
-          {/if}
-          {#if me.melds.length}
-            <span class="spacer"></span>
-            <Melds melds={me.melds} size="normal" dora={shownDora} />
-          {/if}
         </div>
+        {#if me.melds.length}<div class="my-melds"><Melds melds={me.melds} size="small" dora={shownDora} /></div>{/if}
+        <details class="own-discards">
+          <summary>Your discards ({me.discards.length})</summary>
+          <Discards discards={me.discards} compact={false} dora={shownDora} />
+        </details>
+      </section>
+
+      <section class="controls" aria-label="your choices" bind:this={callElement}>
+        {#if standings}
+          <Standings {standings} onagain={() => start()} />
+        {:else if view.phase === 'over' && view.outcome}
+          <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
+            bets={view.riichi_sticks ?? 0} gameOver={session?.over ?? false} onnext={nextHand}
+            ongame={() => start()} onreview={showReview} reviewed={notes !== null} onlog={saveLog} />
+          {#if notes !== null}<Review {notes} {hints} />{/if}
+        {:else}
+          <p id="hand-help" class="prompt" role="status">
+            {#if failure}Choose a recovery option above to continue.
+            {:else if busy}{thinking ? (loadNote || 'Trained opponents are thinking…') : 'Playing the turn…'}
+            {:else if myTurn}
+              {confirmDiscards ? 'Your turn. Select a tile, then confirm the discard.' : 'Your turn. Choose a tile to discard.'}
+              {#if !touch && shortcuts}<span class="key-help">Focus your hand to use arrows and Enter.</span>{/if}
+            {:else if !callChoices.length}Waiting for the others…
+            {:else}Choose a call, or pass.{/if}
+          </p>
+          {#if view.phase === 'call' && view.pending_discard && callChoices.length}
+            <div class="offered-tile"><Tile tile={view.pending_discard} size="small" dora={shownDora.includes(view.pending_discard)} />
+              <span><strong>{NAMES[view.pending_from] ?? 'An opponent'}</strong> offers the {tileWords(view.pending_discard)}</span>
+            </div>
+          {/if}
+          {#if selectedTile && myTurn && !busy}
+            <div class="confirm-discard" aria-live="polite">
+              <span>Selected: {tileWords(selectedTile)}</span>
+              <button class="primary" onclick={() => discard(selectedTile)}>Discard {tileWords(selectedTile)}</button>
+              <button onclick={() => selected = null}>Cancel</button>
+            </div>
+          {/if}
+          {#if callChoices.length}
+            <div class="call-options">
+              {#each callChoices as choice, index (index)}
+                <button class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
+                  aria-label={callLabel(choice)} disabled={busy || Boolean(failure)} onclick={() => choose(choice)}>
+                  <span class="call-label">{callLabel(choice)}</span>
+                  {#if callTiles(choice, view.pending_discard).length}
+                    <span class="call-preview" aria-hidden="true">
+                      {#each callTiles(choice, view.pending_discard) as tile, slot (slot)}<Tile {tile} size="tiny" />{/each}
+                    </span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        {/if}
       </section>
     </div>
 
-    <section class="controls" aria-label="your choices">
-      {#if standings}
-        <Standings {standings} onagain={start} />
-      {:else if view.phase === 'over' && view.outcome}
-        <ScoreScreen
-          outcome={view.outcome}
-          seats={view.seats}
-          dora={shownDora}
-          bets={view.riichi_sticks ?? 0}
-          gameOver={game?.game_is_over() ?? false}
-          onnext={nextHand}
-          ongame={start}
-          onreview={showReview}
-          reviewed={notes !== null}
-          onlog={saveLog}
-        />
-        {#if notes !== null}
-          <Review {notes} dora={shownDora} />
-        {/if}
-      {:else if callChoices.length}
-        <!-- On the player's own turn these buttons are extras: riichi, a
-             quad, a win. Discarding is still there and is usually what
-             happens, so the line saying so has to stay. Without it the
-             player is shown two riichi buttons and nothing else, at the one
-             moment they most need to know they can simply throw a tile. -->
-        {#if myTurn}
-          <p class="prompt">
-            {touch
-              ? 'Your turn. Tap a tile to discard it, or choose below.'
-              : 'Your turn. Click a tile, or move with the arrow keys and press Enter, or choose below.'}
-          </p>
-        {/if}
-        {#each callChoices as choice (choice.kind + (choice.tile ?? ''))}
-          <button
-            class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'}
-            onclick={() => choose(choice)}
-          >
-            {#if choice.kind === 'chii'}Sequence from the {tileWords(choice.tile)}
-            {:else if choice.kind === 'pon'}Triplet
-            {:else if choice.kind === 'kan'}Quad
-            {:else if choice.kind === 'ron'}Win
-            {:else if choice.kind === 'tsumo'}Win
-            {:else if choice.kind === 'riichi'}Riichi on the {tileWords(choice.tile)}
-            {:else if choice.kind === 'concealed-kan'}Quad of the {tileWords(choice.tile)}
-            {:else if choice.kind === 'extended-kan'}Extend the {tileWords(choice.tile)}
-            {:else}Pass{/if}
-          </button>
-        {/each}
-      {:else if myTurn}
-        <p class="prompt">
-          {touch
-            ? 'Your turn. Tap a tile to discard it.'
-            : 'Your turn. Click a tile, or move with the arrow keys and press Enter.'}
-        </p>
-      {:else if thinking}
-        <p class="prompt">Thinking…</p>
-      {:else}
-        <p class="prompt">Waiting for the others…</p>
-      {/if}
-    </section>
+    <details class="history">
+      <summary>Hand history · {log.length} event{log.length === 1 ? '' : 's'}</summary>
+      <section class="log" aria-label="what happened, oldest first">
+        {#each log as line, index (index)}<p>{line}</p>{/each}
+      </section>
+    </details>
 
-    <section class="log" aria-live="polite" aria-label="what happened">
-      {#each log.slice(0, 8) as line, index (line + index)}
-        <p>{line}</p>
-      {/each}
-    </section>
+    <dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="table-dialog-title">
+      <header><h2 id="table-dialog-title">All discards and called sets</h2><button onclick={() => tableDialog.close()}>Close</button></header>
+      <div class="inspection-grid">
+        {#each view.seats as seat, index (index)}
+          <section><h3>{index === 0 ? 'You' : NAMES[seat.seat]} · {NAMES[seat.seat]} · {seat.score.toLocaleString()}</h3>
+            <Discards discards={seat.discards} dora={shownDora} />
+            {#if seat.melds.length}<Melds melds={seat.melds} dora={shownDora} />{/if}
+            {#if seat.discards.length === 0}<p>No discards yet.</p>{/if}
+          </section>
+        {/each}
+      </div>
+    </dialog>
   {/if}
 </main>
 
 <style>
-  main {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 12px 14px 32px;
-    display: grid;
-    gap: 14px;
-  }
-
-  .bar {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-    padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 1.1rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    font-weight: 600;
-  }
-
-  .dora {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .toggle {
-    margin-left: auto;
-    font-size: 0.85rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .toggle.plain {
-    margin-left: 0;
-  }
-
-  .toggle select {
-    font: inherit;
-    color: inherit;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 6px;
-    padding: 3px 6px;
-  }
-
-  .toggle option {
-    color: #1c2a27;
-  }
-
-  .restart {
-    padding: 5px 12px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    background: rgba(0, 0, 0, 0.25);
-    font-size: 0.85rem;
-    cursor: pointer;
-  }
-
-  .restart:hover:not(:disabled) {
-    background: rgba(0, 0, 0, 0.4);
-  }
-
-  .restart:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .board {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(190px, auto) minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-    gap: 10px;
-    align-items: start;
-  }
-
-  .across {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  /* A pond is always six tiles to a row, so a seat's panel never needs more
-     width than that. Letting the side seats hug their contents puts them at
-     the edges of the table where the players sit, instead of stretching two
-     mostly empty panels across the whole board. */
-  .left {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
-  }
-
-  .centre {
-    grid-column: 2;
-    grid-row: 2;
-    display: grid;
-    justify-items: center;
-    align-content: center;
-    gap: 8px;
-    padding: 14px 18px;
-    border-radius: 12px;
-    background: rgba(0, 0, 0, 0.22);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    min-height: 150px;
-  }
-
-  .right {
-    grid-column: 3;
-    grid-row: 2;
-    justify-self: end;
-  }
-
-  .mine {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    display: grid;
-    gap: 10px;
-    padding: 10px 12px 14px;
-    border-radius: 12px;
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(216, 161, 42, 0.25);
-  }
-
-  .round,
-  .wall {
-    display: grid;
-    justify-items: center;
-    line-height: 1.1;
-  }
-
-  .wind-mark {
-    font-size: 1.5rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-  }
-
-  .count {
-    font-size: 1.5rem;
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-  }
-
-  .centre .label {
-    font-size: 0.7rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    opacity: 0.7;
-  }
-
-  .centre .dora {
-    display: flex;
-    gap: 3px;
-    padding-top: 2px;
-  }
-
-  /* Counters and riichi bets on the table: they change what the next win
-     is worth, so they are said plainly, in the gold of the sticks. */
-  .table-extras {
-    display: flex;
-    gap: 12px;
-    font-size: 0.88rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-  }
-
-  .bets {
-    color: var(--gold);
-  }
-
-  .mine header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    font-size: 0.9rem;
-  }
-
-  .wind {
-    font-weight: 600;
-  }
-
-  .score {
-    font-variant-numeric: tabular-nums;
-  }
-
-  .riichi {
-    color: var(--accent);
-    font-weight: 600;
-    text-transform: uppercase;
-    font-size: 0.75rem;
-    letter-spacing: 0.06em;
-  }
-
-  .hint {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    margin-left: auto;
-    opacity: 0.9;
-    font-size: 0.85rem;
-  }
-
-  .safe-note {
-    color: #7fd1a0;
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-
-  /* How many of a wait are left, sat on the tile it belongs to. */
-  .wait {
-    position: relative;
-    display: inline-flex;
-    margin-right: 3px;
-  }
-
-  /* Named for what it is rather than where it sits: `.left` is already the
-     seat to the player's left, and giving this the same name put that whole
-     seat under `position: absolute` and three pixels off the side of the
-     page. */
-  .remaining {
-    position: absolute;
-    right: -3px;
-    bottom: -2px;
-    min-width: 12px;
-    padding: 0 2px;
-    border-radius: 6px;
-    background: var(--rail-dark, #2b2b2b);
-    color: var(--ivory, #f2ece0);
-    font-size: 0.6rem;
-    line-height: 1.2;
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .remaining.none {
-    background: var(--accent);
-  }
-
-  .dora-note {
-    color: var(--gold);
-  }
-
-  .furiten {
-    color: var(--accent);
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-
-  /* What has been thrown lies on the table, not in the hand. It is set
-     back into the felt and captioned, so the two rows cannot be read as one
-     long hand: they were the same size and eight pixels apart before. */
-  .pond {
-    display: grid;
-    gap: 4px;
-    justify-self: start;
-    padding: 6px 8px 8px;
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.22);
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
-  }
-
-  .caption {
-    font-size: 0.68rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    opacity: 0.55;
-  }
-
-  .hand {
-    display: flex;
-    align-items: flex-end;
-    gap: 3px;
-    flex-wrap: wrap;
-    min-height: calc(var(--tile-width) * 1.4);
-  }
-
-  .spacer {
-    width: 18px;
-  }
-
-  /* The tile just drawn is held apart, as it would be at the table. */
-  .drawn-gap {
-    width: 12px;
-  }
-
-  /* The gold ring is the tile's own now, so it rises with the tile. */
-  .drawn {
-    position: relative;
-    display: inline-flex;
-  }
-
-  .controls {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-    min-height: 44px;
-  }
-
-  /* The score screen takes the width; the controls sit in a row. */
-  .controls > :global(section) {
-    width: 100%;
-  }
-
-  .controls button {
-    padding: 8px 16px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    background: rgba(0, 0, 0, 0.25);
-    cursor: pointer;
-    transition: background 0.12s ease;
-  }
-
-  .controls button:hover {
-    background: rgba(0, 0, 0, 0.4);
-  }
-
-  .controls .primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    font-weight: 600;
-  }
-
-  .prompt {
-    margin: 0;
-    font-size: 0.9rem;
-    opacity: 0.9;
-  }
-
-  .log {
-    font-size: 0.82rem;
-    opacity: 0.75;
-    display: grid;
-    gap: 2px;
-    max-height: 8.5rem;
-    overflow: hidden;
-  }
-
-  .log p {
-    margin: 0;
-  }
-
-  /* Shut by default: a player who knows what a wait is should not have to
-     scroll past an explanation of one every game. */
-  .guide {
-    margin: 0 0 10px;
-    font-size: 0.85rem;
-  }
-
-  .guide summary {
-    cursor: pointer;
-    padding: 4px 0;
-    opacity: 0.7;
-    letter-spacing: 0.02em;
-  }
-
-  .guide summary:hover {
-    opacity: 1;
-  }
-
-  .guide-body {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 8px 28px;
-    padding: 10px 14px 12px;
-    border-radius: 10px;
-    background: rgba(0, 0, 0, 0.22);
-  }
-
-  .guide dl {
-    margin: 0;
-  }
-
-  .guide dt {
-    font-weight: 600;
-    margin-top: 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .guide dd {
-    margin: 2px 0 0;
-    opacity: 0.8;
-    max-width: 62ch;
-  }
-
-  /* The marks themselves, drawn the way they are drawn on a tile: a small
-     ivory face with the ring around it. */
-  .swatch {
-    display: inline-block;
-    vertical-align: -3px;
-    width: 12px;
-    height: 16px;
-    margin-right: 4px;
-    border-radius: 3px;
-    background: var(--ivory);
-  }
-
-  .swatch.dora {
-    box-shadow: 0 0 0 2px #e2453d;
-  }
-
-  .swatch.safe {
-    box-shadow: 0 0 0 2px #7fd1a0;
-  }
-
-  .swatch.drawn {
-    box-shadow: 0 0 0 2px var(--gold);
-  }
-
-  .swatch.marker {
-    box-shadow: 0 0 0 2px #4ea3ff;
-  }
-
-  .swatch.striped {
-    border: 3px solid transparent;
-    background:
-      linear-gradient(var(--ivory), var(--ivory)) padding-box,
-      repeating-linear-gradient(45deg, #e2453d 0 4px, var(--gold) 4px 8px, #7fd1a0 8px 12px)
-        border-box;
-  }
-
-  .failure {
-    background: var(--accent-soft);
-    color: var(--accent);
-    padding: 8px 12px;
-    border-radius: 8px;
-    margin: 0;
-  }
-
-  .loading {
-    opacity: 0.8;
-  }
-
-  /* On a narrow screen the ring becomes a column, which is the only
-     arrangement that keeps the tiles readable. */
+  main { max-width: 1100px; margin: 0 auto; padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); display: grid; gap: 10px; }
+  .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid #ffffff28; padding-bottom: 8px; }
+  h1 { margin: 0; font-size: 1.1rem; letter-spacing: .16em; text-transform: uppercase; }
+  .opponents { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: .85rem; }
+  select, button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 12px; font: inherit; }
+  button { cursor: pointer; touch-action: manipulation; }
+  button:hover:not(:disabled) { background: #0007; }
+  button:disabled { opacity: .55; cursor: default; }
+  select option { color: #17241f; background: #f7f2e4; }
+  .restart { font-size: .85rem; }
+  .preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-width: 0; }
+  .preferences details[open] { flex-basis: 100%; order: 1; }
+  .preferences .notice { margin-left: auto; }
+  .options, .guide, .history { font-size: .85rem; min-width: 0; }
+  summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
+  .option-fields { display: flex; gap: 4px 20px; flex-wrap: wrap; background: #0003; padding: 10px; border-radius: 8px; }
+  .option-fields label { min-height: 44px; display: flex; gap: 8px; align-items: center; }
+  .option-fields p { flex-basis: 100%; margin: 4px 0; max-width: 70ch; }
+  input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--gold); }
+  .guide-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 8px 28px; padding: 10px 14px; border-radius: 10px; background: #0003; }
+  .guide dl { margin: 0; min-width: 0; }
+  .guide dt { font-weight: 600; margin-top: 8px; display: flex; align-items: center; gap: 6px; }
+  .guide dd { margin: 2px 0 0; max-width: 62ch; }
+  .swatch { display: inline-block; width: 12px; height: 16px; margin-right: 4px; border-radius: 3px; background: var(--ivory); flex: none; }
+  .swatch.dora { box-shadow: 0 0 0 2px #e2453d; }
+  .swatch.safe { box-shadow: 0 0 0 2px #7fd1a0; }
+  .swatch.drawn { box-shadow: 0 0 0 2px var(--gold); }
+  .swatch.marker { box-shadow: 0 0 0 2px #4ea3ff; }
+  .swatch.striped { border: 3px solid transparent; background: linear-gradient(var(--ivory),var(--ivory)) padding-box, repeating-linear-gradient(45deg,#e2453d 0 4px,var(--gold) 4px 8px,#7fd1a0 8px 12px) border-box; }
+  .board { display: grid; grid-template-columns: minmax(0,1fr) minmax(190px,auto) minmax(0,1fr); gap: 10px; align-items: start; }
+  .across { grid-area: 1 / 2; }
+  .left { grid-area: 2 / 1; justify-self: start; }
+  .right { grid-area: 2 / 3; justify-self: end; }
+  .centre { grid-area: 2 / 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 18px; max-width: 350px; border-radius: 12px; padding: 12px; background: #0004; }
+  .round, .wall { display: grid; text-align: center; }
+  .round strong, .wall strong { font-size: 1.3rem; }
+  .round span, .wall span { font-size: .7rem; }
+  .indicators { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
+  .table-extras { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: .8rem; color: var(--gold); }
+  .inspect { font-size: .8rem; }
+  .play-area { display: grid; gap: 10px; min-width: 0; }
+  .mine { display: grid; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #0004; border: 1px solid #d8a12a60; min-width: 0; }
+  .mine header { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: .9rem; }
+  .score { font-variant-numeric: tabular-nums; }
+  .riichi, .furiten { color: var(--warning-text); font-weight: 600; }
+  .hint { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-left: auto; font-size: .85rem; }
+  .wait { position: relative; display: inline-flex; margin-right: 4px; }
+  .remaining { position: absolute; right: -3px; bottom: -2px; min-width: 12px; padding: 0 2px; border-radius: 6px; background: #231d12; color: #fff; font-size: .65rem; line-height: 1.2; text-align: center; }
+  .remaining.none { background: #932812; }
+  .hand-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .8rem; }
+  .safe-note { color: #9cddb5; }
+  .dora-note { color: var(--gold); }
+  .hand { display: flex; gap: 5px; align-items: end; flex-wrap: wrap; padding: 6px 4px; min-width: 0; }
+  .hand :global(button.tile[data-drawn=true]) { margin-left: 10px; }
+  .hand:focus-visible { border-radius: 6px; }
+  .my-melds { padding: 4px; }
+  .own-discards summary { font-size: .75rem; min-height: 32px; }
+  .controls { display: grid; gap: 8px; min-width: 0; }
+  .prompt { margin: 0; font-size: .9rem; }
+  .key-help { display: block; font-size: .78rem; }
+  .call-options { display: flex; flex-wrap: wrap; gap: 8px; }
+  .call-options button { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; }
+  .call-label { min-width: 0; overflow-wrap: anywhere; }
+  .call-preview, .offered-tile { display: inline-flex; align-items: center; gap: 4px; }
+  .offered-tile { gap: 12px; font-size: .9rem; padding: 4px; }
+  .confirm-discard { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .confirm-discard > span { font-size: .85rem; }
+  button.primary { background: var(--button-accent); color: var(--button-text); border-color: var(--button-accent); font-weight: 600; }
+  button.primary:hover { background: var(--button-accent-hover); }
+  .failure { background: var(--accent-soft); color: var(--accent); padding: 12px; border-radius: 8px; }
+  .failure p { margin: 0; }
+  .recovery-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .notice { margin: 0; font-size: .8rem; }
+  .log { font-size: .82rem; display: grid; gap: 4px; max-height: 40vh; overflow-y: auto; padding: 8px 12px; background: #0003; border-radius: 8px; }
+  .log p { margin: 0; }
+  .table-dialog { max-width: min(900px, calc(100vw - 20px)); width: 100%; max-height: 90dvh; background: var(--felt-deep); color: var(--ivory); border: 1px solid #d8a12a99; border-radius: 12px; padding: 14px; }
+  .table-dialog::backdrop { background: #0009; }
+  .table-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .table-dialog h2 { margin: 0; font-size: 1rem; }
+  .inspection-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 16px; --tile-width: 60px; }
+  .inspection-grid section { min-width: 0; display: grid; gap: 8px; align-content: start; }
+  .inspection-grid h3 { font-size: .85rem; }
   @media (max-width: 760px) {
-    .board {
-      grid-template-columns: 1fr;
-    }
-
-    .across,
-    .left,
-    .centre,
-    .right,
-    .mine {
-      grid-column: 1;
-      grid-row: auto;
-      /* Stacked one above another, they read better filling the width. */
-      justify-self: stretch;
-    }
-
-    .centre {
-      grid-auto-flow: column;
-      justify-items: start;
-      align-items: center;
-      min-height: 0;
-      gap: 16px;
-    }
+    main { gap: 6px; }
+    .bar { gap: 8px; flex-wrap: nowrap; }
+    h1 { font-size: 1rem; letter-spacing: .1em; }
+    .bar select, .restart { padding: 8px; }
+    .preferences { gap: 0 16px; }
+    .opponents { gap: 5px; }
+    .opponents > span { display: none; }
+    .options, .guide { font-size: .8rem; }
+    .board { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+    .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; justify-content: space-between; gap: 6px 10px; padding: 8px; }
+    .round strong, .wall strong { font-size: 1rem; }
+    .round span, .wall span { font-size: .65rem; }
+    .indicators { --tile-width: 36px; }
+    .left { grid-area: 2 / 1; justify-self: stretch; }
+    .across { grid-area: 2 / 2; }
+    .right { grid-area: 2 / 3; justify-self: stretch; }
+    .place { --tile-width: 28px; }
+    .play-area:not(.ended) { position: sticky; top: 6px; bottom: auto; z-index: 2; background: var(--felt-deep); padding: 6px 0 max(6px, env(safe-area-inset-bottom)); border-radius: 10px; box-shadow: 0 -6px 16px #0003; }
+    .mine { padding: 8px; gap: 4px; }
+    .mine header { font-size: .8rem; }
+    .hint { margin-left: 0; font-size: .75rem; }
+    .hand { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 6px; padding: 6px 3px; }
+    .hand :global(button.tile) { width: 100%; min-height: 44px; }
+    .hand :global(button.tile[data-drawn=true]) { margin-left: 0; }
+    .controls { padding: 0 8px; }
+    .prompt { font-size: .82rem; }
+    .call-options { gap: 6px; }
+    .call-options button { font-size: .8rem; padding: 6px 10px; }
   }
+  @media (max-width: 359px) { .place { --tile-width: 23px; } }
+  @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    main { max-width: none; grid-template-columns: minmax(270px, .85fr) minmax(340px, 1.15fr); align-items: start; }
+    .bar, .preferences, .notice, .failure, .loading, .history { grid-column: 1 / -1; }
+    .board { grid-column: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
+    .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; gap: 4px 8px; padding: 6px; }
+    .left { grid-area: 2 / 1; justify-self: stretch; }
+    .across { grid-area: 2 / 2; }
+    .right { grid-area: 2 / 3; justify-self: stretch; }
+    .place { --tile-width: 23px; }
+    .play-area { grid-column: 2; grid-row: auto; position: sticky; top: 8px; bottom: auto; }
+    .mine { padding: 6px 8px; gap: 4px; }
+    .mine header { font-size: .8rem; }
+    .hand { display: grid; grid-template-columns: repeat(7,minmax(0,44px)); gap: 5px; padding: 6px 3px; }
+    .controls { font-size: .8rem; }
+    .prompt { font-size: .8rem; }
+    .own-discards summary { min-height: 28px; padding: 4px 0; }
+    .hand :global(button.tile) { width: 100%; min-height: 44px; }
+    .hand :global(button.tile[data-drawn=true]) { margin-left: 0; }
+    .hint { margin-left: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 </style>

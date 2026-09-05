@@ -6,7 +6,7 @@ const URL = process.argv[2] ?? 'http://127.0.0.1:8732/?opponents=club';
 const LIMIT = Number(process.argv[3] ?? 180) * 1000;
 
 const browser = await puppeteer.launch({
-  executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  executablePath: process.env.CHROME_BIN ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: 'new',
   args: ['--disable-gpu', '--no-sandbox'],
 });
@@ -47,6 +47,7 @@ try {
     const now = await state();
     if (now.over) break;
     if (now.myTurn) {
+      await page.focus('.hand');
       await page.keyboard.press('1');
       discards += 1;
       await new Promise((r) => setTimeout(r, 350));

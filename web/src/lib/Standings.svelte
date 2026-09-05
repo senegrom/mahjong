@@ -71,6 +71,8 @@
     background: rgba(0, 0, 0, 0.32);
     border: 1px solid rgba(216, 161, 42, 0.4);
     justify-items: start;
+    min-width: 0;
+    overflow-x: auto;
   }
 
   h2 {
@@ -117,14 +119,16 @@
   }
 
   .down {
-    color: var(--accent);
+    color: var(--warning-text);
   }
 
   button {
+    min-height: 44px;
     padding: 8px 18px;
     border-radius: 999px;
-    border: 1px solid var(--accent);
-    background: var(--accent);
+    border: 1px solid var(--button-accent);
+    background: var(--button-accent);
+    color: var(--button-text);
     font-weight: 600;
     cursor: pointer;
   }

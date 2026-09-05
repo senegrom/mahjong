@@ -239,3 +239,6 @@ web/public/ort/
 # says it is stronger than the heuristic players: it is 2.4 MB of quantised
 # weights and the game offers that tier only when it is present, so leaving
 # it out means the published site has no trained opponent at all.
+
+# Browser UI regression evidence
+web/test-results/

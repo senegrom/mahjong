@@ -5,7 +5,7 @@ import puppeteer from 'puppeteer-core';
 const URL = process.argv[2] ?? 'http://127.0.0.1:8732/?opponents=club';
 
 const browser = await puppeteer.launch({
-  executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  executablePath: process.env.CHROME_BIN ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: 'new',
   args: ['--disable-gpu', '--no-sandbox'],
 });
@@ -37,6 +37,8 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 400));
       continue;
     }
+    // Shortcuts intentionally operate only while the hand has focus.
+    await page.focus('.hand');
     const way = ways[played % ways.length];
     if (way === 'arrows') {
       // Walk to the far end of the hand, which is past where the number

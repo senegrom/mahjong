@@ -8,7 +8,7 @@
    * traded: how far the hand was left from complete, how many tiles would
    * have improved it, and whether the tile could have dealt in.
    */
-  let { notes = [], dora = [] } = $props();
+  let { notes = [], hints = true } = $props();
 
   let disputed = $derived(notes.filter((note) => !note.agreed));
   let shown = $state('disputed');
@@ -41,10 +41,10 @@
     <p class="clean">Every move was the one the adviser would have made.</p>
   {:else}
     <div class="tabs" role="group" aria-label="which decisions to show">
-      <button class:on={shown === 'disputed'} onclick={() => (shown = 'disputed')}>
+      <button class:on={shown === 'disputed'} aria-pressed={shown === 'disputed'} onclick={() => (shown = 'disputed')}>
         Where it differs ({disputed.length})
       </button>
-      <button class:on={shown === 'all'} onclick={() => (shown = 'all')}>
+      <button class:on={shown === 'all'} aria-pressed={shown === 'all'} onclick={() => (shown = 'all')}>
         Every decision ({notes.length})
       </button>
     </div>
@@ -56,7 +56,7 @@
             <span class="turn">{note.turn}</span>
             <span class="played">
               {#if note.played_tile}
-                <Tile tile={note.played_tile} size="small" dora={dora.includes(note.played_tile)} />
+                <Tile tile={note.played_tile} size="small" dora={hints && (note.dora_types ?? []).includes(note.played_tile)} />
               {/if}
               <span class="what">{note.played}</span>
             </span>
@@ -64,7 +64,7 @@
               <span class="instead">instead of</span>
               <span class="advised">
                 {#if note.advised_tile}
-                  <Tile tile={note.advised_tile} size="small" dora={dora.includes(note.advised_tile)} />
+                  <Tile tile={note.advised_tile} size="small" dora={hints && (note.dora_types ?? []).includes(note.advised_tile)} />
                 {/if}
                 <span class="what">{note.advised}</span>
               </span>
@@ -135,7 +135,8 @@
   .review {
     display: grid;
     gap: 12px;
-    padding: 16px 18px;
+    padding: 12px;
+    min-width: 0;
     border-radius: 12px;
     background: rgba(0, 0, 0, 0.28);
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -162,11 +163,13 @@
 
   .tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
   }
 
   .tabs button {
-    padding: 4px 12px;
+    padding: 8px 12px;
+    min-height: 44px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.22);
     background: transparent;
@@ -193,6 +196,7 @@
 
   li {
     display: grid;
+    min-width: 0;
     gap: 6px;
     padding: 8px 10px;
     border-radius: 8px;
@@ -247,6 +251,9 @@
 
   .numbers {
     border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+    overflow-wrap: anywhere;
     font-size: 0.82rem;
     font-variant-numeric: tabular-nums;
   }
@@ -271,6 +278,6 @@
   }
 
   .worse {
-    color: var(--accent);
+    color: var(--warning-text);
   }
 </style>

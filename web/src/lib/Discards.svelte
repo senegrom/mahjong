@@ -1,5 +1,6 @@
 <script>
   import Tile from './Tile.svelte';
+  import { tileWords } from './tiles.js';
 
   /**
    * A discard row, six to a line as at a real table, with the riichi
@@ -9,14 +10,14 @@
 </script>
 
 <div class="pool" class:compact aria-label="discards">
-  {#each discards as discard (discard.tile + '-' + discards.indexOf(discard))}
+  {#each discards as discard, index (index)}
     <Tile
       tile={discard.tile}
       rotated={discard.riichi}
       dimmed={discard.claimed}
       dora={dora.includes(discard.tile)}
       size={compact ? 'tiny' : 'small'}
-      title={discard.claimed ? `${discard.tile}, claimed` : discard.tile}
+      title={`${tileWords(discard.tile)}${discard.claimed ? ', claimed' : ''}${discard.riichi ? ', riichi declaration' : ''}${discard.drawn ? ', discarded from the draw' : ''}`}
     />
   {/each}
 </div>
@@ -24,7 +25,8 @@
 <style>
   .pool {
     display: grid;
-    grid-template-columns: repeat(6, calc(var(--tile-width) * 0.62));
+    grid-template-columns: repeat(6, max-content);
+    align-items: end;
     gap: 2px;
     justify-content: start;
     align-content: start;
@@ -34,7 +36,7 @@
   }
 
   .compact {
-    grid-template-columns: repeat(6, calc(var(--tile-width) * 0.5));
+    grid-template-columns: repeat(6, max-content);
     min-height: calc(var(--tile-width) * 0.5 * 1.35 * 3);
   }
 

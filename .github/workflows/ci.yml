@@ -59,6 +59,20 @@ jobs:
       - name: Build the site
         working-directory: web
         run: npm run build
+      - name: UI and saved-match regression tests
+        working-directory: web
+        run: npm run test:unit
+      - name: Browser interaction and mobile layout regressions
+        working-directory: web
+        run: npm run test:browser
+      - name: Upload UI regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-regression-evidence
+          path: web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Validate browser and Home Screen icons
         working-directory: web
         run: |
@@ -71,7 +85,7 @@ jobs:
 
   deploy:
     name: publish
-    needs: web
+    needs: [web, engine]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

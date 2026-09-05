@@ -18,13 +18,20 @@
     gameOver = false,
     dora = [],
     bets = 0,
+    busy = false,
+    hints = true,
   } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
   // The table is tall enough that the result can land below the fold.
   function reveal(node) {
-    node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const id = requestAnimationFrame(() => {
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      node.scrollIntoView({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
+      node.focus({ preventScroll: true });
+    });
+    return { destroy: () => cancelAnimationFrame(id) };
   }
 
   function signed(value) {
@@ -33,7 +40,7 @@
   }
 </script>
 
-<section class="screen" aria-label="how the hand ended" use:reveal>
+<section class="screen" aria-label="how the hand ended" tabindex="-1" use:reveal>
   <header>
     <h2>{outcome.line}</h2>
     {#if outcome.kind === 'draw' && outcome.tenpai.length}
@@ -51,17 +58,18 @@
 
   {#each outcome.wins as win (win.seat)}
     <article class="win">
+      <h3>{NAMES[win.seat]} — {win.by === 'self-draw' ? 'Tsumo' : 'Ron'}</h3>
       <div class="tiles">
         {#each win.hand as tile, index (tile + index)}
-          <Tile {tile} size="small" dora={dora.includes(tile)} />
+          <Tile {tile} size="small" dora={hints && (win.dora_types ?? dora).includes(tile)} />
         {/each}
         <span class="gap"></span>
         <span class="winning">
-          <Tile tile={win.winning_tile} size="small" dora={dora.includes(win.winning_tile)} />
+          <Tile tile={win.winning_tile} size="small" dora={hints && (win.dora_types ?? dora).includes(win.winning_tile)} />
         </span>
         {#if win.melds.length}
           <span class="gap"></span>
-          <Melds melds={win.melds} size="small" {dora} />
+          <Melds melds={win.melds} size="small" dora={hints ? (win.dora_types ?? dora) : []} />
         {/if}
       </div>
 
@@ -87,6 +95,7 @@
   {/each}
 
   <table class="changes">
+    <thead><tr><th scope="col">Player</th><th scope="col">Change</th><th scope="col">Points</th></tr></thead>
     <tbody>
       {#each seats as seat, index (seat.seat)}
         <tr>
@@ -102,9 +111,9 @@
 
   <div class="buttons">
     {#if gameOver}
-      <button class="primary" onclick={ongame}>Play again</button>
+      <button disabled={busy} class="primary" onclick={ongame}>Play again</button>
     {:else}
-      <button class="primary" onclick={onnext}>Next hand</button>
+      <button disabled={busy} class="primary" onclick={onnext}>Next hand</button>
     {/if}
     {#if onreview && !reviewed}
       <button class="quiet" onclick={onreview}>Look at my hand again</button>
@@ -130,6 +139,8 @@
     background: rgba(0, 0, 0, 0.3);
     border: 1px solid rgba(216, 161, 42, 0.35);
   }
+
+  h3 { margin: 0; font-size: .9rem; }
 
   h2 {
     margin: 0;
@@ -177,7 +188,7 @@
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
     gap: 1px 18px;
     font-size: 0.9rem;
   }
@@ -235,7 +246,7 @@
   }
 
   .down {
-    color: var(--accent);
+    color: var(--warning-text);
   }
 
   .after {
@@ -249,10 +260,12 @@
   }
 
   .buttons button {
+    min-height: 44px;
     padding: 8px 18px;
     border-radius: 999px;
-    border: 1px solid var(--accent);
-    background: var(--accent);
+    border: 1px solid var(--button-accent);
+    background: var(--button-accent);
+    color: var(--button-text);
     font-weight: 600;
     cursor: pointer;
   }

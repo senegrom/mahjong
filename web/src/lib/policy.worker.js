@@ -37,8 +37,9 @@ async function load(url, runtimeBase) {
       graphOptimizationLevel: 'all',
     }).then((created) => {
       session = created;
-      loading = null;
       return created;
+    }).finally(() => {
+      loading = null;
     });
   }
   return session ?? loading;

@@ -13,10 +13,14 @@
   --paper: #f2ede0;
   --line: #d5cdb8;
   --accent: #b8361f;
+  --button-accent: #a52b17;
+  --button-accent-hover: #882310;
+  --button-text: #fff8ee;
+  --warning-text: #ffb8a4;
   --accent-soft: #f0d8d1;
   --gold: #d8a12a;
   --radius: 6px;
-  --tile-width: clamp(30px, 5.2vw, 46px);
+  --tile-width: 46px;
   color-scheme: light dark;
 }
 
@@ -45,6 +49,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  min-width: 0;
 }
 
 body {
@@ -74,3 +79,6 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+button, select, summary, label { -webkit-tap-highlight-color: transparent; }
+button { touch-action: manipulation; }

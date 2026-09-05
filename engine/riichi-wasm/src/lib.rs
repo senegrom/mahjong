@@ -73,6 +73,10 @@ pub struct SeatView {
 pub struct TableView {
     /// The round wind.
     pub round: String,
+    /// Hand number within the round (East 1 through South 4).
+    pub kyoku: u8,
+    /// Completed hands, including dealer repeats.
+    pub hands_played: usize,
     /// Counters on the table.
     pub counters: u32,
     /// Riichi bets on the table.
@@ -87,6 +91,11 @@ pub struct TableView {
     pub phase: String,
     /// The tile awaiting claims, if any.
     pub pending_discard: Option<String>,
+    /// The seat that offered the pending tile.
+    pub pending_from: Option<String>,
+    /// Global dora types, once per indicator; repeated entries mean extra han.
+    /// Unlike `dora`, this does not depend on the viewer holding any copies.
+    pub dora_types: Vec<String>,
     /// How the hand ended, once it has.
     pub outcome: Option<OutcomeView>,
     /// The viewer's waits, when the hand is waiting.
@@ -128,6 +137,8 @@ pub struct WinView {
     pub han: u8,
     /// How many of those han came from dora.
     pub dora: u8,
+    /// This winner's dora types, including ura-dora when riichi applies.
+    pub dora_types: Vec<String>,
     /// Minipoints.
     pub fu: u32,
     /// The limit reached, if any.
@@ -213,6 +224,8 @@ pub struct NoteView {
     pub dora_played: u8,
     /// The same for the advised tile.
     pub dora_advised: u8,
+    /// Dora types at this decision, not at the end of the hand.
+    pub dora_types: Vec<String>,
     /// Why they differ, in words.
     pub reason: String,
     /// A short tag for the reason, for styling.
@@ -357,6 +370,36 @@ impl Game {
         }
     }
 
+    /// Continue the same position with the built-in Club opponents.
+    /// Any neural claims already gathered remain binding. Finish gathering
+    /// the others before resolving the window, then leave external mode.
+    pub fn continue_with_club(&mut self) -> Result<(), JsValue> {
+        if !self.external {
+            return Ok(());
+        }
+        if !self.asking.is_empty() {
+            let offered = self.hand.legal_calls();
+            let mut answers = self.gathered.clone();
+            for seat in &self.asking {
+                if let Some((_, calls)) = offered.iter().find(|(other, _)| other == seat) {
+                    let who = self.table.player_at(*seat);
+                    let call = self.bots[who].call(&self.hand, *seat, calls);
+                    answers.push((*seat, call));
+                }
+            }
+            self.hand.resolve_calls(&answers).map_err(refused)?;
+            for (seat, call) in &answers {
+                if self.asking.contains(seat) && !matches!(call, Call::Pass) {
+                    self.note(*seat, &describe_call(*call).label);
+                }
+            }
+        }
+        self.asking.clear();
+        self.gathered.clear();
+        self.external = false;
+        Ok(())
+    }
+
     /// The table as the player sees it.
     pub fn view(&self) -> Result<JsValue, JsValue> {
         let player = &self.hand.players[self.seat.index()];
@@ -364,6 +407,8 @@ impl Game {
         let seen = review::visible_to(&self.hand, self.seat);
         let view = TableView {
             round: wind_name(self.hand.round).to_string(),
+            kyoku: self.hand.kyoku,
+            hands_played: self.table.hands_played,
             counters: self.hand.counters,
             riichi_sticks: self.hand.riichi_sticks,
             wall: self.hand.wall.remaining(),
@@ -428,6 +473,11 @@ impl Game {
             }
             .to_string(),
             pending_discard: self.hand.pending_discard.map(|(_, tile)| tile.to_string()),
+            pending_from: self
+                .hand
+                .pending_discard
+                .map(|(seat, _)| wind_name(seat).to_string()),
+            dora_types: dora_types(&self.hand),
             outcome: self.describe_outcome(),
             waits: waits.tiles().map(|tile| tile.to_string()).collect(),
             waits_left: waits
@@ -566,9 +616,14 @@ impl Game {
                     ("extended-kan", Some(tile)) => Action::ExtendedKan(tile),
                     _ => return Err(JsValue::from_str("that is not an action")),
                 };
+                if !self.hand.legal_actions().contains(&action) {
+                    return Err(JsValue::from_str("that action is not legal now"));
+                }
+                let before = self.hand.clone();
+                self.hand.act(action).map_err(refused)?;
                 self.note(self.seat, &describe_action(action).label);
-                self.decisions.push((self.hand.clone(), action));
-                self.hand.act(action).map_err(refused)
+                self.decisions.push((before, action));
+                Ok(())
             }
             Phase::CallWindow => {
                 let call = match (kind, tile) {
@@ -580,6 +635,12 @@ impl Game {
                     _ => return Err(JsValue::from_str("that is not a call")),
                 };
                 let offered = self.hand.legal_calls();
+                if !offered
+                    .iter()
+                    .any(|(seat, calls)| *seat == self.seat && calls.contains(&call))
+                {
+                    return Err(JsValue::from_str("that call is not legal now"));
+                }
                 let mut answers: Vec<(Wind, Call)> = vec![(self.seat, call)];
                 for (seat, calls) in &offered {
                     if *seat == self.seat {
@@ -638,6 +699,7 @@ impl Game {
                     danger_advised: danger_name(note.danger_advised).to_string(),
                     dora_played: note.dora_played,
                     dora_advised: note.dora_advised,
+                    dora_types: dora_types(position),
                     reason: note.reason.line().to_string(),
                     kind: reason_name(note.reason).to_string(),
                     cost: note.cost(),
@@ -675,6 +737,9 @@ impl Game {
 
     /// Settles the finished hand and deals the next one.
     pub fn next_hand(&mut self) -> Result<(), JsValue> {
+        if self.table.finished {
+            return Err(JsValue::from_str("the match has already finished"));
+        }
         if !matches!(self.hand.phase, Phase::Over) {
             return Err(JsValue::from_str("the hand is still being played"));
         }
@@ -821,6 +886,19 @@ impl Game {
                                 .collect(),
                             han: score.han,
                             dora: score.dora,
+                            dora_types: {
+                                let mut types = dora_types(&self.hand);
+                                if player.has_riichi() {
+                                    types.extend(
+                                        self.hand
+                                            .wall
+                                            .ura_indicators()
+                                            .iter()
+                                            .map(|tile| tile.dora().to_string()),
+                                    );
+                                }
+                                types
+                            },
                             fu: score.fu,
                             limit: score.limit.map(|limit| limit.name().to_string()),
                             payment: describe_payment(
@@ -1016,6 +1094,14 @@ fn describe_call(call: Call) -> ActionView {
             label: "passes".into(),
         },
     }
+}
+
+fn dora_types(hand: &Hand) -> Vec<String> {
+    hand.wall
+        .dora_indicators()
+        .iter()
+        .map(|tile| tile.dora().to_string())
+        .collect()
 }
 
 fn scores_of(hand: &Hand) -> [i32; 4] {

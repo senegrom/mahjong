@@ -60,6 +60,7 @@
     onclick = null,
     disabled = false,
     title = '',
+    handIndex = null,
   } = $props();
 
   const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
@@ -93,7 +94,10 @@
 
   let file = $derived(facedown ? 'Back' : fileFor(tile));
   let words = $derived(
-    facedown ? 'face-down tile' : dora ? `${tileWords(tile)}, dora` : tileWords(tile),
+    facedown ? 'face-down tile' : [tileWords(tile), dora && 'dora',
+      drawn && 'just drawn', selected && 'selected',
+      safe && 'safe against declared riichi, not guaranteed against undeclared hands']
+      .filter(Boolean).join(', '),
   );
   // The white dragon's face is blank, which reads as a missing picture.
   // Sets that do not leave it plain frame it in blue; so does this one.
@@ -106,6 +110,14 @@
     class:rotated
     class:dimmed
     class:selected
+    class:safe
+    class:dora
+    class:drawn
+    data-tile={tile}
+    data-hand-index={handIndex ?? undefined}
+    data-drawn={drawn ? 'true' : undefined}
+    aria-pressed={selected}
+    type="button"
     class:ringed={marks.length > 0}
     style:--ring={ring}
     {disabled}
@@ -142,7 +154,8 @@
     display: inline-flex;
     align-items: flex-end;
     justify-content: center;
-    width: var(--tile-width);
+    --face-width: var(--tile-width);
+    width: var(--face-width);
     padding: 0;
     border: none;
     background: none;
@@ -173,11 +186,11 @@
   }
 
   .small {
-    width: calc(var(--tile-width) * 0.62);
+    --face-width: calc(var(--tile-width) * 0.62);
   }
 
   .tiny {
-    width: calc(var(--tile-width) * 0.5);
+    --face-width: calc(var(--tile-width) * 0.5);
   }
 
   .rotated img {
@@ -192,14 +205,14 @@
      Sizing the box as a square instead made the picture hang over both
      edges and its neighbours. */
   .rotated {
-    width: calc(var(--tile-width) * 0.62 * 4 / 3);
-    height: calc(var(--tile-width) * 0.62);
+    width: calc(var(--face-width) * 4 / 3);
+    height: var(--face-width);
     align-items: center;
     justify-content: center;
   }
 
   .rotated img {
-    width: calc(var(--tile-width) * 0.62);
+    width: var(--face-width);
   }
 
   .dimmed img {

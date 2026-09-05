@@ -1,87 +1,72 @@
-/**
- * The page's side of the trained opponent: starts the worker, asks it for a
- * move, and reports honestly when there is no model to ask.
- */
-
-// Both are relative to wherever the site is published, which is the only
-// thing the page knows and the worker does not.
+/** Worker ownership, bounded requests and explicit retry. A broken worker is
+ * discarded; retry never reuses a rejected loading promise or a hung process. */
 const MODEL_URL = new URL('model.onnx', document.baseURI).href;
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
-
 let worker = null;
 let nextId = 1;
 const waiting = new Map();
 let onProgress = null;
 
-/** Watches the loading of the runtime and the network. */
-export function reportProgress(callback) {
-  onProgress = callback;
+export function reportProgress(callback) { onProgress = callback; }
+
+export function resetPolicy(reason = new DOMException('Match changed', 'AbortError')) {
+  const old = worker;
+  worker = null;
+  old?.terminate();
+  for (const pending of waiting.values()) pending.reject(reason);
+  waiting.clear();
 }
 
 function ensureWorker() {
   if (worker) return worker;
-  worker = new Worker(new URL('./policy.worker.js', import.meta.url), { type: 'module' });
-  worker.onmessage = (event) => {
-    const { id, action, error, progress } = event.data;
-    if (progress) {
-      // Loading the runtime and the network takes a moment on a first
-      // visit; saying so beats a table that appears to have stopped.
-      if (onProgress) onProgress(progress);
-      return;
-    }
+  const current = new Worker(new URL('./policy.worker.js', import.meta.url), { type: 'module' });
+  worker = current;
+  current.onmessage = ({ data }) => {
+    if (worker !== current) return;
+    const { id, action, error, progress } = data;
     const pending = waiting.get(id);
     if (!pending) return;
-    waiting.delete(id);
+    if (progress) {
+      onProgress?.(progress);
+      return;
+    }
     if (error) pending.reject(new Error(error));
     else pending.resolve(action);
   };
-  worker.onerror = (event) => {
-    for (const pending of waiting.values()) pending.reject(new Error(event.message));
-    waiting.clear();
+  current.onerror = (event) => {
+    if (worker === current) resetPolicy(new Error(event.message || 'The opponent worker failed'));
   };
-  return worker;
+  current.onmessageerror = () => {
+    if (worker === current) resetPolicy(new Error('The opponent returned an unreadable response'));
+  };
+  return current;
 }
 
-/** Whether a trained opponent has been published alongside the game. */
 export async function modelIsAvailable() {
   try {
-    const response = await fetch(MODEL_URL, { method: 'HEAD' });
+    const response = await fetch(MODEL_URL, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
     return response.ok;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
-/**
- * Asks the trained opponent for a move.
- *
- * `planes` is the observation the engine produced for that seat and `mask`
- * says which entries of the action space the rules allow, so the answer is
- * always one the engine will accept.
- */
-export function chooseAction(planes, mask, temperature = 0, timeout = 20000) {
-  const id = nextId;
-  nextId += 1;
+export function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal) {
+  if (signal?.aborted) return Promise.reject(new DOMException('Match changed', 'AbortError'));
   return new Promise((resolve, reject) => {
-    // A worker that never answers must say so rather than leave the table
-    // waiting: the game falls back to the heuristic opponents.
-    const timer = setTimeout(() => {
+    const id = nextId++;
+    const abort = () => resetPolicy();
+    const timer = setTimeout(() => resetPolicy(new Error('The trained opponent did not answer in time')), timeout);
+    const finish = (callback, value) => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       waiting.delete(id);
-      reject(new Error('the trained opponent did not answer in time'));
-    }, timeout);
-    waiting.set(id, {
-      resolve: (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      reject: (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    });
-    ensureWorker().postMessage(
-      { id, url: MODEL_URL, runtimeBase: RUNTIME_BASE, planes, mask, temperature },
-      [planes.buffer],
-    );
+      callback(value);
+    };
+    waiting.set(id, { resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error) });
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      ensureWorker().postMessage({ id, url: MODEL_URL, runtimeBase: RUNTIME_BASE, planes, mask, temperature }, [planes.buffer]);
+    } catch (error) {
+      resetPolicy(error);
+    }
   });
 }

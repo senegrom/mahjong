@@ -1,0 +1,180 @@
+/** A match owns its engine, AI work and replay log. No async continuation uses
+ * a replaceable global Game. Saves replay legal commands on the real engine;
+ * they never deserialize arbitrary internal Rust state or rerun neural choices.
+ */
+export const SAVE_KEY = 'riichi.match.v1';
+export const SETTINGS_KEY = 'riichi.settings.v1';
+const VERSION = 1;
+const MAX_COMMANDS = 20000;
+const MAX_SAVE_BYTES = 2_000_000;
+const DIFFICULTIES = ['beginner', 'club', 'neural'];
+const PLAYER_ACTIONS = ['discard', 'riichi', 'tsumo', 'concealed-kan', 'extended-kan', 'ron', 'pon', 'kan', 'chii', 'pass'];
+
+function require(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+export function readSettings(storage, touch = false) {
+  const defaults = { difficulty: 'club', hints: true, confirmDiscards: touch, shortcuts: true };
+  try {
+    const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
+    if (value?.version !== VERSION) return defaults;
+    for (const key of ['hints', 'confirmDiscards', 'shortcuts']) {
+      if (typeof value[key] === 'boolean') defaults[key] = value[key];
+    }
+    if (DIFFICULTIES.includes(value.difficulty)) defaults.difficulty = value.difficulty;
+  } catch { /* Restricted storage should not prevent playing. */ }
+  return defaults;
+}
+
+export class MatchSession {
+  constructor(Game, seed, difficulty, { ai, onChange = () => {}, onSave = () => {} } = {}) {
+    require(Number.isSafeInteger(seed) && seed >= 0 && seed < 2 ** 31, 'Invalid match seed');
+    require(DIFFICULTIES.includes(difficulty), 'Invalid opponents');
+    this.engine = new Game(seed, difficulty);
+    this.seed = seed;
+    this.initialDifficulty = difficulty;
+    this.difficulty = difficulty;
+    this.commands = [];
+    this.events = [];
+    this.ai = ai;
+    this.onChange = onChange;
+    this.onSave = onSave;
+    this.closed = false;
+    this.busy = false;
+    this.thinking = false;
+    this.failure = '';
+    this.abort = new AbortController();
+  }
+
+  get view() { return this.engine.view(); }
+  get choices() { return this.engine.choices(); }
+  get over() { return this.engine.game_is_over(); }
+  get needsRecovery() { return Boolean(this.failure) && this.difficulty === 'neural' && this.engine.needs_opponent_move(); }
+  get progressed() {
+    const view = this.view;
+    return !this.over && (this.commands.length > 0 || view.hands_played > 0 || view.phase === 'over'
+      || view.seats.some((seat) => seat.discards.length || seat.melds.length || seat.riichi));
+  }
+
+  stateKey() { return JSON.stringify([this.view, this.choices, this.over]); }
+
+  snapshot() {
+    return { version: VERSION, seed: this.seed, difficulty: this.initialDifficulty,
+      commands: this.commands.map((command) => ({ ...command })), state: this.stateKey() };
+  }
+
+  static restore(Game, text, options) {
+    require(typeof text === 'string' && text.length <= MAX_SAVE_BYTES, 'Saved match is too large');
+    const saved = JSON.parse(text);
+    require(saved?.version === VERSION && Array.isArray(saved.commands), 'Unsupported saved match');
+    require(saved.commands.length <= MAX_COMMANDS && typeof saved.state === 'string', 'Invalid saved match');
+    const session = new MatchSession(Game, saved.seed, saved.difficulty, options);
+    try {
+      session.advance(false);
+      for (const command of saved.commands) {
+        session.apply(command);
+        session.advance(false);
+      }
+      require(session.stateKey() === saved.state, 'The saved match does not match this engine version');
+      return session;
+    } catch (error) {
+      session.dispose();
+      throw error;
+    }
+  }
+
+  apply(command) {
+    require(command && typeof command === 'object' && !Array.isArray(command), 'Invalid match command');
+    require(this.commands.length < MAX_COMMANDS, 'This match has exceeded the save limit');
+    let recorded;
+    switch (command.type) {
+      case 'choose': {
+        require(PLAYER_ACTIONS.includes(command.kind), 'Invalid player action');
+        const tile = command.tile ?? null;
+        require(tile === null || (typeof tile === 'string' && /^[1-9][mps]$|^[1-7]z$/.test(tile)), 'Invalid tile');
+        require(this.choices.some((choice) => choice.kind === command.kind && (choice.tile ?? null) === tile), 'That choice is no longer available');
+        this.engine.choose(command.kind, tile ?? undefined);
+        recorded = { type: 'choose', kind: command.kind, tile };
+        break;
+      }
+      case 'opponent': {
+        require(this.engine.needs_opponent_move(), 'No opponent decision is pending');
+        const mask = this.engine.opponent_mask();
+        require(Number.isInteger(command.action) && command.action >= 0 && command.action < mask.length && mask[command.action], 'Invalid opponent action');
+        this.engine.play_opponent(command.action);
+        recorded = { type: 'opponent', action: command.action };
+        break;
+      }
+      case 'next':
+        require(!this.over && this.engine.hand_is_over(), 'The hand cannot be advanced');
+        this.engine.next_hand();
+        this.events = [];
+        recorded = { type: 'next' };
+        break;
+      case 'club':
+        require(this.difficulty === 'neural', 'Already using built-in opponents');
+        this.engine.continue_with_club();
+        this.difficulty = 'club';
+        recorded = { type: 'club' };
+        break;
+      default:
+        throw new Error('Unrecognized saved match command');
+    }
+    // Store only successfully applied, sanitized commands.
+    this.commands.push(recorded);
+  }
+
+  advance(save = true) {
+    if (!this.over) this.events = [...this.events, ...this.engine.advance()].slice(-300);
+    if (save) this.onSave(this.snapshot());
+  }
+
+  notify() { if (!this.closed) this.onChange(this); }
+
+  async run(command = null) {
+    if (this.closed || this.busy) return false;
+    this.busy = true;
+    this.failure = '';
+    this.notify();
+    try {
+      if (command) this.apply(command);
+      this.advance();
+      this.notify();
+      let moves = 0;
+      while (!this.over && this.engine.needs_opponent_move()) {
+        require(moves++ < 400, 'The opponent sequence did not settle');
+        this.thinking = true;
+        this.notify();
+        const action = await this.ai(this.engine.opponent_observation(), this.engine.opponent_mask(), this.abort.signal);
+        if (this.closed) return false;
+        this.apply({ type: 'opponent', action });
+        this.advance();
+        this.notify();
+      }
+      return true;
+    } catch (error) {
+      if (!this.closed) this.failure = error?.message ?? String(error);
+      return false;
+    } finally {
+      // A reply/error from a disposed match must not touch its replacement.
+      if (!this.closed) {
+        this.busy = false;
+        this.thinking = false;
+        this.notify();
+      }
+    }
+  }
+
+  choose(choice) { return this.run({ type: 'choose', kind: choice.kind, tile: choice.tile ?? null }); }
+  nextHand() { return this.run({ type: 'next' }); }
+  retry() { return this.run(); }
+  continueWithClub() { return this.run({ type: 'club' }); }
+
+  dispose() {
+    if (this.closed) return;
+    this.closed = true;
+    this.abort.abort();
+    this.engine.free();
+  }
+}
