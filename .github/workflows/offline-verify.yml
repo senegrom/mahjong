@@ -35,6 +35,16 @@ jobs:
         run: |
           git apply --check .offline-change/application.patch
           git apply .offline-change/application.patch
+      - name: Synchronise upgrade assertions with an actual player decision
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('web/scripts/offline-check.mjs')
+          old = "  await p.waitForFunction(() => !/thinking|Playing the turn|loading the network/i.test(document.querySelector('.prompt')?.textContent ?? ''), { timeout: 45000 });"
+          new = "  // Runtime progress can say 'network ready' before opponents finish moving.\n  // Wait for a real player decision, not a transient status message.\n  await p.waitForFunction(() => document.querySelector('.failure, .screen, .standings, .hand button:not(:disabled), .call-options button:not(:disabled)'), { timeout: 45000 });"
+          s = p.read_text()
+          assert s.count(old) == 1, 'Concurrent test change'
+          p.write_text(s.replace(old, new))
       - name: Rebuild actual browser engine
         run: |
           if ! command -v wasm-pack >/dev/null || [ "$(wasm-pack --version)" != "wasm-pack 0.15.0" ]; then
@@ -73,7 +83,7 @@ jobs:
         run: |
           original=$(git rev-parse HEAD)
           git rm .offline-change/application.patch .github/workflows/offline-verify.yml
-          git add web/package.json web/scripts/mixed-opponents-check.mjs web/scripts/ui-regression.mjs web/src/App.svelte web/src/lib/Tile.svelte web/src/lib/policy.js web/vite.config.js
+          git add web/package.json web/scripts/mixed-opponents-check.mjs web/scripts/ui-regression.mjs web/scripts/offline-check.mjs web/src/App.svelte web/src/lib/Tile.svelte web/src/lib/policy.js web/vite.config.js
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Save trained AI, runtime and all tiles for reliable offline play'
           git fetch origin main
           if [ "$(git rev-parse origin/main)" != "$original" ]; then
