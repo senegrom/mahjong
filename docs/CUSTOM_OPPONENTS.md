@@ -33,3 +33,28 @@ Verification is part of the normal unit, native and browser suites. It covers
 all 27 combinations, mixed simultaneous wins, pending-claim recovery, complete
 matches, legacy restoration, cancellation, mobile layouts, and two Trained
 players using the actual published model with one shared model load.
+
+## Reproducing the checks
+
+```sh
+cargo test --locked --workspace
+cd web
+npm ci
+npm run wasm
+npm run lint
+npm run check
+npm run build
+npm run test:unit
+npm run test:browser
+```
+
+The mixed-opponent browser checks produce `test-results/mixed-opponents-report.json`
+and screenshots of the setup, the labelled table and selective recovery. The
+network-sharing check uses the actual published ONNX model, counts model GET
+requests and replays the recorded decisions to verify that both Trained players
+used it. Error-path checks deliberately inject a failed worker separately.
+
+The native and real-WASM tests cover controller routing, not neural strength.
+The published weights are unchanged by this feature. Browser validation uses
+Chromium at desktop and six portrait/landscape sizes; this is not a claim of
+physical-iPhone or Safari testing.
