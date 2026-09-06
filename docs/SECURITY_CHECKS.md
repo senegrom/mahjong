@@ -42,10 +42,10 @@ handwritten application source.
 
 Dependabot checks the Cargo workspace at `/`, npm at `/web`, and GitHub
 Actions at `/`. PyO3 is upgraded from 0.23.5 to the patched 0.29.2 series;
-the bindings use the current interpreter-detachment API and explicitly retain
-the previous GIL requirement. This avoids remaining on a vulnerable release
-or upgrading into another affected release. Relevant upstream advisories are
-RUSTSEC-2025-0020, RUSTSEC-2026-0176 and RUSTSEC-2026-0177.
+the bindings explicitly retain the previous GIL requirement. This avoids
+remaining on a vulnerable release or upgrading into another affected release.
+Relevant upstream advisories are RUSTSEC-2025-0020, RUSTSEC-2026-0176 and
+RUSTSEC-2026-0177.
 
 Actions are pinned to full upstream commit IDs. The JavaScript actions use
 Node 24 internally; the application build still uses Node 22. wasm-pack is
