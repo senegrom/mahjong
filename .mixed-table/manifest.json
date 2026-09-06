@@ -1,0 +1,14 @@
+{
+  "docs/CUSTOM_OPPONENTS.md": {"before": null, "after": "2e6dfdcf709410bc5f98d11a8396c5e842dd1eef"},
+  "engine/riichi-wasm/src/lib.rs": {"before": "afbe049f042c7f426e6c6424a15a0fcdea80620c", "after": "29921368306a14bd573743e1c14470decd82a8df"},
+  "web/package.json": {"before": "392ca634df6c354fb124fa53601f0a55ff0dc8fa", "after": "327aecb67c36da85a093c39643feb7f6d0c10495"},
+  "web/scripts/mixed-opponents-check.mjs": {"before": null, "after": "9bb5d71e7fb887d34ff77db6f2773119b4eb5544"},
+  "web/scripts/ui-regression.mjs": {"before": "de0cfdbd9bc2819e84c76a2005be770ba49c7dd7", "after": "02291dc6f3eaa40d01b6d44466094c190129801d"},
+  "web/src/App.svelte": {"before": "37e7bae6e9dc85c9e3cd1b9a0c89617e803c4597", "after": "d6eaade0eac52c67095126f89cfe599b5a34c7bf"},
+  "web/src/lib/Seat.svelte": {"before": "931a9d3b104df2bdf4571e022fb4998a5ed4835d", "after": "c04301b110a0ba66c0167b662afa65996121e2a1"},
+  "web/src/lib/opponents.js": {"before": null, "after": "68018c2df69f167b17eb0ed2780a93f6d66f6b92"},
+  "web/src/lib/session.js": {"before": "1c986ad4bb23c9772c24dc2acc00b1449f17ded2", "after": "df91d4e8e72caf6ee05feec7cf8a1e5d9a0ee36d"},
+  "web/tests/engine-ui.test.js": {"before": "216e6291135b874d302759e89ff10c262bbd9455", "after": "8d4f3a8282202cbd1c43c82e9509b11ecfacf92f"},
+  "web/tests/full-review.test.js": {"before": "d6cde8f48221d69eb7f5416c8869a0d551de48ee", "after": "9efa721235bd765cad6b6f8a6a8a6832413dbee9"},
+  "web/tests/mixed-opponents.test.js": {"before": null, "after": "cf96c0bb39708c75ad6090df0dea69470887eca6"}
+}

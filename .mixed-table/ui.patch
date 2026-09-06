@@ -1,0 +1,221 @@
+diff --git a/web/src/App.svelte b/web/src/App.svelte
+index 37e7bae..d6eaade 100644
+--- a/web/src/App.svelte
++++ b/web/src/App.svelte
+@@ -13,6 +13,7 @@
+   import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards } from './lib/ui.js';
+   import { MatchStore } from './lib/save-store.js';
+   import { tileWords } from './lib/tiles.js';
++  import { normalizeOpponents, OPPONENT_LABELS, OPPONENT_TYPES, OPPONENT_POSITIONS } from './lib/opponents.js';
+ 
+   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
+   let storage = null;
+@@ -21,6 +22,10 @@
+   const preferences = readSettings(storage, touch);
+   const requested = new URLSearchParams(location.search).get('opponents');
+   let difficulty = $state(['beginner', 'club', 'neural'].includes(requested) ? requested : preferences.difficulty);
++  let opponents = $state(normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty));
++  let draftOpponents = $state(['club', 'club', 'club']);
++  let customDialog = $state(null);
++  let pendingOpponent = $state(null);
+   let hints = $state(preferences.hints);
+   let confirmDiscards = $state(preferences.confirmDiscards);
+   let shortcuts = $state(preferences.shortcuts);
+@@ -70,7 +75,7 @@
+   let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
+ 
+   $effect(() => {
+-    const value = { version: 1, difficulty, hints, confirmDiscards, shortcuts };
++    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts };
+     try { storage?.setItem(SETTINGS_KEY, JSON.stringify(value)); } catch { /* Gameplay still works. */ }
+   });
+ 
+@@ -95,6 +100,8 @@
+     failure = owner.failure;
+     recovery = owner.needsRecovery;
+     difficulty = owner.difficulty;
++    opponents = [...owner.opponents];
++    pendingOpponent = owner.pendingOpponent;
+     standings = owner.over ? owner.engine.standings() : null;
+     if (!thinking) loadNote = '';
+   }
+@@ -107,6 +114,8 @@
+     busy = false;
+     thinking = false;
+     recovery = false;
++    pendingOpponent = null;
++    customDialog?.close();
+     selected = null;
+     picked = null;
+   }
+@@ -166,7 +175,7 @@
+     };
+   });
+ 
+-  function start(strength = difficulty) {
++  function start(strength = opponents) {
+     if (saveConflict) return;
+     session?.dispose();
+     matchStore.newMatch();
+@@ -179,17 +188,28 @@
+     void session.run();
+   }
+ 
+-  function startFresh(strength = difficulty) {
+-    if (!ready || saveConflict) return;
+-    if (session?.progressed && !confirm('Leave this unfinished match and deal a new one?')) return;
++  function startFresh(strength = opponents) {
++    if (!ready || saveConflict) return false;
++    if (session?.progressed && !confirm('Leave this unfinished match and deal a new one?')) return false;
+     start(strength);
++    return true;
++  }
++
++  function configureTable() {
++    draftOpponents = [...opponents];
++    customDialog?.showModal();
++  }
++
++  function startCustomTable() {
++    if (startFresh([...draftOpponents])) customDialog?.close();
+   }
+ 
+   function changeOpponents(event) {
+     const strength = event.currentTarget.value;
+     // The control displays the active mode until the change is confirmed.
+     event.currentTarget.value = difficulty;
+-    if (strength !== difficulty) startFresh(strength);
++    if (strength === 'custom') configureTable();
++    else if (strength !== difficulty) startFresh(strength);
+   }
+ 
+   function canDiscard(tile) { return !busy && !failure && !saveConflict && discardChoices.some((choice) => choice.tile === tile); }
+@@ -268,6 +288,7 @@
+ 
+   function retryAi() { resetPolicy(); void session?.retry(); }
+   function continueClub() { resetPolicy(); void session?.continueWithClub(); }
++  function continueThisOpponent() { resetPolicy(); void session?.continueOpponentWithClub(); }
+   async function nextHand() {
+     if (busy || !session) return;
+     const owner = session;
+@@ -310,13 +331,17 @@
+       <select value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
+         <option value="beginner">Beginner</option>
+         <option value="club">Club</option>
+-        {#if trainedAvailable || difficulty === 'neural'}<option value="neural">Trained</option>{/if}
++        {#if trainedAvailable || opponents.includes('neural')}<option value="neural">Trained</option>{/if}
++        <option value="custom">Custom table</option>
+       </select>
+     </label>
+     <button class="restart" onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>
+   </header>
+ 
+   <div class="preferences">
++  {#if difficulty === 'custom'}
++    <button class="edit-table" onclick={configureTable} disabled={!ready || Boolean(saveConflict)}>Edit opponents</button>
++  {/if}
+   <details class="options">
+     <summary>Options</summary>
+     <div class="option-fields">
+@@ -404,6 +429,29 @@
+   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
+   </div>
+ 
++  <dialog class="custom-dialog" bind:this={customDialog} aria-labelledby="custom-table-title">
++    <h2 id="custom-table-title">Custom table</h2>
++    <p>Choose each opponent for a new match. They keep their type as the seat winds change.</p>
++    <div class="opponent-fields">
++      {#each [2, 1, 0] as position (position)}
++        <label>
++          <span>{OPPONENT_POSITIONS[position]}</span>
++          <select bind:value={draftOpponents[position]} aria-label={`${OPPONENT_POSITIONS[position]} opponent`}>
++            {#each OPPONENT_TYPES as type (type)}
++              <option value={type} disabled={type === 'neural' && !trainedAvailable && !opponents.includes('neural')}>{OPPONENT_LABELS[type]}</option>
++            {/each}
++          </select>
++        </label>
++      {/each}
++    </div>
++    <p class="custom-help">Beginner plays simply. Club uses tile efficiency and defence. Trained uses the published network; all Trained players share one loaded model.</p>
++    {#if !trainedAvailable && !opponents.includes('neural')}<p class="custom-help">The trained model is not currently available. Beginner and Club can still be mixed.</p>{/if}
++    <div class="custom-actions">
++      <button onclick={() => customDialog.close()}>Cancel</button>
++      <button class="primary" onclick={startCustomTable} disabled={!ready || Boolean(saveConflict)}>Start custom game</button>
++    </div>
++  </dialog>
++
+   {#if saveConflict}
+     <section class="save-conflict" role="alert">
+       <p>{saveConflict}</p>
+@@ -414,10 +462,14 @@
+   {#if failure}
+     <section class="failure" aria-label="game recovery">
+       <p role="alert">{failure}</p>
++      {#if recovery && pendingOpponent}<p class="recovery-note">Waiting for the {pendingOpponent.position.toLowerCase()} opponent. Retry the network or explicitly switch that player to Club.</p>{/if}
+       {#if recovery}
+         <div class="recovery-actions">
+           <button onclick={retryAi} disabled={busy}>Retry trained opponent</button>
+-          <button onclick={continueClub} disabled={busy}>Continue with Club opponents</button>
++          {#if pendingOpponent}
++            <button onclick={continueThisOpponent} disabled={busy}>Use Club for {pendingOpponent.position.toLowerCase()} opponent only</button>
++          {/if}
++          <button onclick={continueClub} disabled={busy}>{difficulty === 'custom' ? 'Use Club for all Trained opponents' : 'Continue with Club opponents'}</button>
+           <button onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>
+         </div>
+       {/if}
+@@ -514,7 +566,7 @@
+           <p id="hand-help" class="prompt" role="status">
+             {#if saveConflict}Reload the latest match to continue here.
+             {:else if failure}Choose a recovery option above to continue.
+-            {:else if busy}{thinking ? (loadNote || 'Trained opponents are thinking…') : 'Playing the turn…'}
++            {:else if busy}{thinking ? (loadNote || (pendingOpponent ? `${pendingOpponent.position} Trained opponent is thinking…` : 'Trained opponents are thinking…')) : 'Playing the turn…'}
+             {:else if myTurn}
+               {confirmDiscards ? 'Your turn. Select a tile, then confirm the discard.' : 'Your turn. Choose a tile to discard.'}
+               {#if !touch && shortcuts}<span class="key-help">Focus your hand to use arrows and Enter.</span>{/if}
+@@ -575,6 +627,16 @@
+ </main>
+ 
+ <style>
++  .custom-dialog { width: min(460px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); box-sizing: border-box; padding: 20px; border: 1px solid var(--gold); border-radius: 12px; background: var(--felt-deep); color: var(--ivory); }
++  .custom-dialog::backdrop { background: #000a; }
++  .custom-dialog h2 { margin: 0; font-size: 1.15rem; }
++  .custom-dialog p { font-size: .85rem; line-height: 1.45; }
++  .opponent-fields { display: grid; gap: 10px; }
++  .opponent-fields label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
++  .opponent-fields select { width: 60%; min-width: 0; }
++  .custom-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
++  .custom-help, .recovery-note { opacity: .85; }
++  .edit-table { font-size: .8rem; padding: 4px 8px; }
+   .save-conflict { padding: 12px; border: 1px solid var(--gold); border-radius: 8px; background: var(--felt-deep); }
+   .save-conflict p { margin: 0 0 8px; }
+   .save-conflict button { min-height: 44px; padding: 8px 14px; }
+diff --git a/web/src/lib/Seat.svelte b/web/src/lib/Seat.svelte
+index 931a9d3..c04301b 100644
+--- a/web/src/lib/Seat.svelte
++++ b/web/src/lib/Seat.svelte
+@@ -1,4 +1,5 @@
+ <script>
++  import { OPPONENT_LABELS } from './opponents.js';
+   import Discards from './Discards.svelte';
+   import Melds from './Melds.svelte';
+ 
+@@ -20,6 +21,10 @@
+   <header>
+     <span class="wind" class:dealer>{NAMES[seat.seat]}</span>
+     <span class="score">{seat.score.toLocaleString()}</span>
++    {#if OPPONENT_LABELS[seat.controller]}
++      <span class="opponent-type" data-controller={seat.controller} data-player={seat.player}
++        aria-label={`${OPPONENT_LABELS[seat.controller]} opponent`}>{OPPONENT_LABELS[seat.controller]}</span>
++    {/if}
+     {#if seat.riichi}<span class="stick" title="declared riichi"></span>{/if}
+     {#if announcement}
+       <span class="called" aria-live="polite">{announcement}</span>
+@@ -64,6 +69,8 @@
+     font-size: 0.82rem;
+   }
+ 
++  .opponent-type { font-size: .66rem; line-height: 1.2; opacity: .9; }
++
+   .wind {
+     font-weight: 600;
+     letter-spacing: 0.05em;

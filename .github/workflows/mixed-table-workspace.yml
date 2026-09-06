@@ -1,36 +1,116 @@
-name: mixed table workspace
+name: verify mixed table on main
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/mixed-table-workspace.yml]
+    paths: [.github/workflows/mixed-table-workspace.yml, '.mixed-table/**']
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: mixed-table-verification
+  cancel-in-progress: true
 jobs:
-  workspace:
+  verify:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm ci
-        working-directory: web
-      - name: Package source and test dependencies (no credentials)
+      - name: Apply verified source changes
         run: |
-          git rev-parse HEAD > /tmp/mixed-base.txt
-          git ls-files -z | tar --null -T - -czf /tmp/mixed-source.tar.gz
-          tar -czf /tmp/mixed-node-modules.tar.gz web/node_modules
+          python3 .mixed-table/apply.py
+          cargo fmt --all
+      - name: Native controller and rules regressions
+        shell: bash
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace 2>&1 | tee /tmp/mixed-native.txt
+      - name: Install and rebuild browser engine
+        run: |
+          if ! command -v wasm-pack >/dev/null || [ "$(wasm-pack --version)" != "wasm-pack 0.15.0" ]; then
+            cargo install wasm-pack --version 0.15.0 --locked
+          fi
+          cd web
+          npm ci
+          npm run wasm
+      - name: Static checks and production build
+        working-directory: web
+        run: |
+          npm run lint
+          npm run check
+          npm run build
+      - name: Real-engine, legacy-save and all 27 controller tests
+        working-directory: web
+        shell: bash
+        run: npm run test:unit 2>&1 | tee /tmp/mixed-unit.txt
+      - name: Browser and real-network regressions
+        working-directory: web
+        shell: bash
+        run: npm run test:browser 2>&1 | tee /tmp/mixed-browser.txt
+      - name: Installation icon checks
+        working-directory: web
+        run: |
+          node scripts/check-icons.mjs
+          node scripts/check-icons.mjs --built
+      - name: Commit tested application and remove temporary transfer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import base64
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          def git(*args, **kwargs):
+              return subprocess.check_output(['git', *args], text=True, **kwargs).strip()
+          git('fetch', 'origin', 'main')
+          changed = git('diff', '--name-only', os.environ['GITHUB_SHA'], 'origin/main', '--', 'engine', 'web', 'Cargo.toml', 'Cargo.lock', 'docs/CUSTOM_OPPONENTS.md', '.mixed-table', '.github/workflows/mixed-table-workspace.yml')
+          if changed:
+              raise SystemExit('Concurrent integration changes require revalidation: ' + changed)
+          files = json.loads(Path('/tmp/mixed-files.json').read_text())
+          git('add', '--', *files)
+          git('rm', '-r', '--', '.mixed-table', '.github/workflows/mixed-table-workspace.yml')
+          git('config', 'user.name', 'github-actions[bot]')
+          git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+          git('commit', '-m', 'Support mixed Beginner, Club and Trained opponents per player')
+          git('rebase', 'origin/main')
+          env = dict(os.environ)
+          env['GIT_CONFIG_COUNT'] = '1'
+          env['GIT_CONFIG_KEY_0'] = 'http.https://github.com/.extraheader'
+          env['GIT_CONFIG_VALUE_0'] = 'AUTHORIZATION: basic ' + base64.b64encode(('x-access-token:' + env['GH_TOKEN']).encode()).decode()
+          git('push', 'origin', 'HEAD:refs/heads/main', env=env)
+          Path('/tmp/mixed-commit.txt').write_text(git('rev-parse', 'HEAD'))
+      - name: Package tested source and evidence
+        if: always()
+        run: |
+          tar --exclude='web/node_modules' --exclude='web/public/ort' -czf /tmp/mixed-tested.tar.gz engine web docs Cargo.toml Cargo.lock .github
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
-          name: mixed-workspace
+          name: mixed-tested
           path: |
-            /tmp/mixed-base.txt
-            /tmp/mixed-source.tar.gz
-            /tmp/mixed-node-modules.tar.gz
+            /tmp/mixed-tested.tar.gz
+            /tmp/mixed-commit.txt
+            /tmp/mixed-native.txt
+            /tmp/mixed-unit.txt
+            /tmp/mixed-browser.txt
+          if-no-files-found: error
           retention-days: 2

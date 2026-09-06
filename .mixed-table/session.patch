@@ -1,0 +1,206 @@
+diff --git a/web/package.json b/web/package.json
+index 392ca63..327aecb 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -19,7 +19,7 @@
+     "check:speed": "node scripts/speed-check.mjs",
+     "check:all": "npm run lint && npm run check && npm run check:play && npm run check:keyboard && npm run check:aids && npm run check:review && npm run check:log && npm run check:game && npm run check:speed",
+     "test:unit": "node --test tests/*.test.js",
+-    "test:browser": "node scripts/ui-regression.mjs && node scripts/tile-effects-check.mjs && node scripts/full-review-check.mjs && node scripts/discard-readiness-check.mjs",
++    "test:browser": "node scripts/ui-regression.mjs && node scripts/tile-effects-check.mjs && node scripts/full-review-check.mjs && node scripts/discard-readiness-check.mjs && node scripts/mixed-opponents-check.mjs",
+     "check:play": "node scripts/play-check.mjs",
+     "lint": "eslint . --max-warnings 0"
+   },
+diff --git a/web/scripts/ui-regression.mjs b/web/scripts/ui-regression.mjs
+index de0cfdb..02291dc 100644
+--- a/web/scripts/ui-regression.mjs
++++ b/web/scripts/ui-regression.mjs
+@@ -204,7 +204,7 @@ try {
+   });
+   await check('Club recovery continues and reloads the same neural-origin match',async()=>{
+     const page=await open(neuralSave,{mock:{fail:true}}); await page.waitForSelector('.recovery-actions');
+-    await page.$$eval('.recovery-actions button',n=>n[1].click());
++    await page.$$eval('.recovery-actions button',n=>n.find(button=>button.textContent==='Continue with Club opponents').click());
+     await page.waitForFunction(()=>document.querySelector('select').value==='club'&&!document.querySelector('.failure'));
+     const state=await saved(page); assert.equal(state.seed,neuralSave.seed); assert.equal(state.commands.at(-1).type,'club');
+     await page.reload({waitUntil:'networkidle0'}); assert.deepEqual(await saved(page),state); noErrors(page);
+@@ -247,8 +247,8 @@ try {
+       await page.click('.guide summary');
+       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Expanded help overflows');
+       await page.click('.guide summary'); await page.click('.inspect');
+-      assert.equal(await page.$eval('dialog',n=>n.open),true); assert.equal(await page.$$eval('.inspection-grid section',n=>n.length),4);
+-      await page.keyboard.press('Escape'); assert.equal(await page.$eval('dialog',n=>n.open),false); noErrors(page);
++      assert.equal(await page.$eval('.table-dialog',n=>n.open),true); assert.equal(await page.$$eval('.inspection-grid section',n=>n.length),4);
++      await page.keyboard.press('Escape'); assert.equal(await page.$eval('.table-dialog',n=>n.open),false); noErrors(page);
+     });
+   }
+   await check('dark-mode result button contrast exceeds 4.5:1',async()=>{
+diff --git a/web/src/lib/session.js b/web/src/lib/session.js
+index 1c986ad..df91d4e 100644
+--- a/web/src/lib/session.js
++++ b/web/src/lib/session.js
+@@ -2,12 +2,14 @@
+  * a replaceable global Game. Saves replay legal commands on the real engine;
+  * they never deserialize arbitrary internal Rust state or rerun neural choices.
+  */
++import { normalizeOpponents, opponentPreset, OPPONENT_TYPES, OPPONENT_POSITIONS } from './opponents.js';
++
+ export const SAVE_KEY = 'riichi.match.v2';
+ export const SETTINGS_KEY = 'riichi.settings.v1';
+ const VERSION = 1;
+ const MAX_COMMANDS = 20000;
+ const MAX_SAVE_BYTES = 2_000_000;
+-const DIFFICULTIES = ['beginner', 'club', 'neural'];
++const DIFFICULTIES = OPPONENT_TYPES;
+ const PLAYER_ACTIONS = ['discard', 'riichi', 'tsumo', 'concealed-kan', 'extended-kan', 'ron', 'pon', 'kan', 'chii', 'pass'];
+ 
+ function require(condition, message) {
+@@ -23,6 +25,12 @@ export function readSettings(storage, touch = false) {
+       if (typeof value[key] === 'boolean') defaults[key] = value[key];
+     }
+     if (DIFFICULTIES.includes(value.difficulty)) defaults.difficulty = value.difficulty;
++    if (Array.isArray(value.opponents)) {
++      // Only a complete valid table replaces the legacy single-tier setting.
++      const opponents = normalizeOpponents(value.opponents);
++      defaults.opponents = opponents;
++      defaults.difficulty = opponentPreset(opponents);
++    }
+   } catch { /* Restricted storage should not prevent playing. */ }
+   return defaults;
+ }
+@@ -30,11 +38,13 @@ export function readSettings(storage, touch = false) {
+ export class MatchSession {
+   constructor(Game, seed, difficulty, { ai, onChange = () => {}, onSave = () => {}, guard = (task) => task() } = {}) {
+     require(Number.isSafeInteger(seed) && seed >= 0 && seed < 2 ** 31, 'Invalid match seed');
+-    require(DIFFICULTIES.includes(difficulty), 'Invalid opponents');
+-    this.engine = new Game(seed, difficulty);
++    const opponents = normalizeOpponents(difficulty);
++    const preset = opponentPreset(opponents);
++    this.engine = preset === 'custom' ? Game.with_opponents(seed, ...opponents) : new Game(seed, preset);
+     this.seed = seed;
+-    this.initialDifficulty = difficulty;
+-    this.difficulty = difficulty;
++    this.initialDifficulty = preset;
++    this.initialOpponents = Object.freeze([...opponents]);
++    this.opponents = [...opponents];
+     this.commands = [];
+     this.events = [];
+     this.ai = ai;
+@@ -51,7 +61,16 @@ export class MatchSession {
+   get view() { return this.engine.view(); }
+   get choices() { return this.engine.choices(); }
+   get over() { return this.engine.game_is_over(); }
+-  get needsRecovery() { return Boolean(this.failure) && this.difficulty === 'neural' && this.engine.needs_opponent_move(); }
++  get difficulty() { return opponentPreset(this.opponents); }
++  get needsRecovery() { return !this.closed && Boolean(this.failure) && this.engine.needs_opponent_move(); }
++  get pendingOpponent() {
++    if (this.closed || !this.engine.needs_opponent_move()) return null;
++    const player = this.engine.opponent_player?.();
++    if (!Number.isInteger(player)) return null;
++    const seats = this.view.seats;
++    const index = seats.findIndex(seat => seat.player === player);
++    return index > 0 ? { player, position: OPPONENT_POSITIONS[index - 1], seat: seats[index].seat } : null;
++  }
+   get progressed() {
+     const view = this.view;
+     return !this.over && (this.commands.length > 0 || view.hands_played > 0 || view.phase === 'over'
+@@ -61,16 +80,19 @@ export class MatchSession {
+   stateKey() { return JSON.stringify([this.view, this.choices, this.over]); }
+ 
+   snapshot() {
+-    return { version: VERSION, format: 3, seed: this.seed, difficulty: this.initialDifficulty,
++    return { version: VERSION, format: 4, seed: this.seed, difficulty: this.initialDifficulty, opponents: [...this.initialOpponents],
+       commands: this.commands.map((command) => ({ ...command })), state: this.stateKey() };
+   }
+ 
+   static restore(Game, text, options) {
+     require(typeof text === 'string' && text.length <= MAX_SAVE_BYTES, 'Saved match is too large');
+     const saved = JSON.parse(text);
+-    require(saved?.version === VERSION && (saved.format === undefined || saved.format === 2 || saved.format === 3) && Array.isArray(saved.commands), 'Unsupported saved match');
++    require(saved?.version === VERSION && (saved.format === undefined || saved.format === 2 || saved.format === 3 || saved.format === 4) && Array.isArray(saved.commands), 'Unsupported saved match');
+     require(saved.commands.length <= MAX_COMMANDS && typeof saved.state === 'string', 'Invalid saved match');
+-    const session = new MatchSession(Game, saved.seed, saved.difficulty, options);
++    require(saved.format === 4 || !saved.commands.some(command => command?.type === 'opponent-club'), 'Unsupported legacy controller change');
++    const opponents = saved.format === 4 ? normalizeOpponents(saved.opponents) : normalizeOpponents(saved.difficulty);
++    require(saved.format !== 4 || saved.difficulty === opponentPreset(opponents), 'Saved opponents disagree with their preset');
++    const session = new MatchSession(Game, saved.seed, opponents, options);
+     try {
+       session.advance(false);
+       for (const command of saved.commands) {
+@@ -92,8 +114,12 @@ export class MatchSession {
+       // Divergent rules/commands still fail closed and leave the save untouched.
+       const state = session.stateKey();
+       const comparable = (value) => {
+-        if (saved.format === 3) return value;
++        if (saved.format === 4) return value;
+         const data = JSON.parse(value);
++        // Only new identity/controller metadata is ignored for old saves. The
++        // original uniform controllers are replayed, never inferred from UI.
++        for (const seat of data[0].seats ?? []) { delete seat.player; delete seat.controller; }
++        if (saved.format === 3) return JSON.stringify(data);
+         // These derived hints were incorrect on 14-tile hands. They are not
+         // authoritative game state; every tile, score, phase and legal choice
+         // must still agree exactly with the replayed record.
+@@ -143,11 +169,21 @@ export class MatchSession {
+         recorded = { type: 'next' };
+         break;
+       case 'club':
+-        require(this.difficulty === 'neural', 'Already using built-in opponents');
++        require(this.opponents.includes('neural'), 'Already using built-in opponents');
+         this.engine.continue_with_club();
+-        this.difficulty = 'club';
++        this.opponents = this.opponents.map(type => type === 'neural' ? 'club' : type);
+         recorded = { type: 'club' };
+         break;
++      case 'opponent-club': {
++        const pending = this.pendingOpponent;
++        require(pending && Number.isInteger(command.player) && command.player === pending.player, 'That trained opponent is not awaiting an answer');
++        const index = this.view.seats.findIndex(seat => seat.player === command.player) - 1;
++        require(index >= 0 && this.opponents[index] === 'neural', 'That opponent is not Trained');
++        this.engine.continue_opponent_with_club(command.player);
++        this.opponents = this.opponents.map((type, position) => position === index ? 'club' : type);
++        recorded = { type: 'opponent-club', player: command.player };
++        break;
++      }
+       default:
+         throw new Error('Unrecognized saved match command');
+     }
+@@ -203,6 +239,10 @@ export class MatchSession {
+   nextHand() { return this.run({ type: 'next' }); }
+   retry() { return this.run(); }
+   continueWithClub() { return this.run({ type: 'club' }); }
++  continueOpponentWithClub() {
++    const pending = this.pendingOpponent;
++    return pending ? this.run({ type: 'opponent-club', player: pending.player }) : Promise.resolve(false);
++  }
+ 
+   dispose() {
+     if (this.closed) return;
+diff --git a/web/tests/engine-ui.test.js b/web/tests/engine-ui.test.js
+index 216e629..8d4f3a8 100644
+--- a/web/tests/engine-ui.test.js
++++ b/web/tests/engine-ui.test.js
+@@ -41,7 +41,9 @@ test('neural fallback preserves the pending position, scores and seat', () => {
+   const before = match.view;
+   assert.equal(before.phase, 'act');
+   match.apply({type:'club'});
+-  assert.deepEqual(match.view, before, 'Switching the controller does not redeal');
++  assert.deepEqual(match.view.seats.slice(1).map(seat => seat.controller), ['club','club','club']);
++  const physicalState = view => JSON.parse(JSON.stringify(view, (key, value) => key === 'controller' ? undefined : value));
++  assert.deepEqual(physicalState(match.view), physicalState(before), 'Switching the controller does not redeal');
+   assert.equal(match.engine.needs_opponent_move(), false);
+   match.advance(false);
+   assert.ok(match.choices.length > 0 || match.view.phase === 'over');
+diff --git a/web/tests/full-review.test.js b/web/tests/full-review.test.js
+index d6cde8f..9efa721 100644
+--- a/web/tests/full-review.test.js
++++ b/web/tests/full-review.test.js
+@@ -59,7 +59,7 @@ test('old format-2 hints migrate without relaxing tile, score or action validati
+   assert.deepEqual(JSON.parse(original.state)[0].waits,['4z','6z']);
+   const m=MatchSession.restore(Game,JSON.stringify(original));
+   try {
+-    assert.deepEqual(m.view.waits,['6z']);assert.equal(m.snapshot().format,3);
++    assert.deepEqual(m.view.waits,['6z']);assert.equal(m.snapshot().format,4);
+     const restored=MatchSession.restore(Game,JSON.stringify(m.snapshot()));
+     assert.equal(restored.stateKey(),m.stateKey());restored.dispose();
+   } finally {m.dispose();}
