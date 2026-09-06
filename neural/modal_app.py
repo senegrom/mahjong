@@ -77,6 +77,19 @@ def _publish(run: Path, generation: int) -> None:
         shutil.copyfile(source, staged)
         staged.replace(target / name)
     (target / "generation.txt").write_text(str(generation), encoding="utf-8")
+    # Keep a checkpoint every tenth generation, for good. `best.pt` is
+    # chosen on placement against the heuristic players, and that figure
+    # has been measured moving opposite to real strength: over generations
+    # 270 to 286 it improved by 0.088 while the network lost 0.13 at the
+    # table. So the best network this run ever had was overwritten twice by
+    # worse ones with better bot scores, and is gone. A run cannot be
+    # rolled back to a peak it did not keep.
+    if generation % 10 == 0:
+        history = target / "history"
+        history.mkdir(parents=True, exist_ok=True)
+        kept = history / f"gen-{generation:05d}.pt"
+        if not kept.exists() and (run / "latest.pt").exists():
+            shutil.copyfile(run / "latest.pt", kept)
     volume.commit()
 
 
