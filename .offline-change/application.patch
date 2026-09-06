@@ -1,0 +1,326 @@
+diff --git a/web/package.json b/web/package.json
+index 51c092a..7025aa0 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -19,10 +19,11 @@
+     "check:speed": "node scripts/speed-check.mjs",
+     "check:all": "npm run lint && npm run check && npm run check:play && npm run check:keyboard && npm run check:aids && npm run check:review && npm run check:log && npm run check:game && npm run check:speed",
+     "test:unit": "node --test tests/*.test.js",
+-    "test:browser": "node scripts/ui-regression.mjs && node scripts/tile-effects-check.mjs && node scripts/full-review-check.mjs && node scripts/discard-readiness-check.mjs && node scripts/mixed-opponents-check.mjs && npm run test:toolchain",
++    "test:browser": "node scripts/ui-regression.mjs && node scripts/tile-effects-check.mjs && node scripts/full-review-check.mjs && node scripts/discard-readiness-check.mjs && node scripts/mixed-opponents-check.mjs && npm run test:toolchain && npm run test:offline",
+     "check:play": "node scripts/play-check.mjs",
+     "lint": "eslint . --max-warnings 0",
+-    "test:toolchain": "node scripts/toolchain-check.mjs"
++    "test:toolchain": "node scripts/toolchain-check.mjs",
++    "test:offline": "node scripts/offline-check.mjs"
+   },
+   "devDependencies": {
+     "@eslint/js": "10.0.1",
+diff --git a/web/scripts/mixed-opponents-check.mjs b/web/scripts/mixed-opponents-check.mjs
+index 2f6cc2a..0ae05b0 100644
+--- a/web/scripts/mixed-opponents-check.mjs
++++ b/web/scripts/mixed-opponents-check.mjs
+@@ -40,6 +40,8 @@ async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false
+     if(!localStorage.getItem(key))localStorage.setItem(key,JSON.stringify(snapshot));
+     if(!localStorage.getItem(settings))localStorage.setItem(settings,JSON.stringify({version:1,difficulty:'club',hints:true,confirmDiscards:true,shortcuts:true}));
+   },SAVE_KEY,SETTINGS_KEY,snapshot);
++  // Do not let a cached genuine worker bypass intentional AI failure mocks.
++  if(mock || missing) await p.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'serviceWorker', { value: undefined }));
+   await p.setRequestInterception(true);
+   p.on('request',req=>{
+     if(missing&&req.url().endsWith('/model.onnx'))void req.respond({status:404,body:''});
+diff --git a/web/scripts/ui-regression.mjs b/web/scripts/ui-regression.mjs
+index 02291dc..f37f90e 100644
+--- a/web/scripts/ui-regression.mjs
++++ b/web/scripts/ui-regression.mjs
+@@ -102,6 +102,9 @@ async function open(saved=initial, {width=1100,height=850,dark=false,confirm=fal
+     if(!localStorage.getItem(saveKey)) localStorage.setItem(saveKey,JSON.stringify(saved));
+   }, SAVE_KEY, SETTINGS_KEY, saved, confirm);
+   if(mock) {
++    // Fault-injection tests replace the worker's bytes; integrity-checked
++    // offline assets are exercised separately by offline-check.mjs.
++    await page.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'serviceWorker', { value: undefined }));
+     await page.setCacheEnabled(false);
+     await page.setRequestInterception(true);
+     page.on('request',request=>{
+diff --git a/web/src/App.svelte b/web/src/App.svelte
+index d6eaade..f218d1c 100644
+--- a/web/src/App.svelte
++++ b/web/src/App.svelte
+@@ -1,7 +1,8 @@
+ <script>
+   import { onMount, tick } from 'svelte';
+   import init, { Game } from './wasm/riichi.js';
+-  import Tile from './lib/Tile.svelte';
++  import Tile, { preloadTiles } from './lib/Tile.svelte';
++  import { startOffline, watchOffline, prepareOfflineAi, refreshOffline, retryOffline } from './lib/offline.js';
+   import Seat from './lib/Seat.svelte';
+   import Discards from './lib/Discards.svelte';
+   import Melds from './lib/Melds.svelte';
+@@ -30,6 +31,8 @@
+   let confirmDiscards = $state(preferences.confirmDiscards);
+   let shortcuts = $state(preferences.shortcuts);
+   let ready = $state(false);
++  let startupNote = $state('Preparing the game for offline play…');
++  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', persistent: false, updateReady: false });
+   let failure = $state('');
+   let storageWarning = $state('');
+   let saveConflict = $state('');
+@@ -135,9 +138,16 @@
+ 
+   onMount(() => {
+     let mounted = true;
++    const unwatchOffline = watchOffline(value => { if (mounted) offline = value; });
+     modelIsAvailable().then((available) => { if (mounted) trainedAvailable = available; });
+     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
+-    init().then(() => {
++    (async () => {
++      await startOffline();
++      if (!mounted) return;
++      await Promise.all([init(), preloadTiles((done, total) => {
++        if (mounted) startupNote = `Loading all tile graphics… ${done}/${total}`;
++      })]);
++    })().then(() => {
+       if (!mounted) return;
+       ready = true;
+       const saved = matchStore.read();
+@@ -145,6 +155,7 @@
+         try {
+           session = MatchSession.restore(Game, saved, callbacks);
+           update(session);
++          if (session.opponents.includes('neural')) downloadAi();
+           notice = 'Saved match restored.';
+           void session.run();
+         } catch (error) {
+@@ -153,7 +164,7 @@
+         }
+       } else start();
+     }).catch((error) => {
+-      failure = `The rules engine did not load: ${error.message ?? error}. Reload this page to retry.`;
++      failure = `The game could not finish loading: ${error.message ?? error}. Reconnect and reload to retry.`;
+     });
+     // Completed actions are already saved inside their writer transaction.
+     // Never write an old snapshot during pagehide. A cached page must restore
+@@ -161,11 +172,15 @@
+     const leave = () => { session?.dispose(); matchStore.close(); };
+     const returnToPage = (event) => { if (event.persisted) location.reload(); };
+     const storageChanged = (event) => matchStore.changed(event);
++    const checkOffline = () => { if (document.visibilityState === 'visible') void refreshOffline().catch(() => {}); };
++    document.addEventListener('visibilitychange', checkOffline);
+     window.addEventListener('pagehide', leave);
+     window.addEventListener('pageshow', returnToPage);
+     window.addEventListener('storage', storageChanged);
+     return () => {
+       mounted = false;
++      unwatchOffline();
++      document.removeEventListener('visibilitychange', checkOffline);
+       window.removeEventListener('pagehide', leave);
+       window.removeEventListener('pageshow', returnToPage);
+       window.removeEventListener('storage', storageChanged);
+@@ -175,6 +190,9 @@
+     };
+   });
+ 
++  function downloadAi() { void prepareOfflineAi().catch(() => {}); }
++  function retryDownloads() { void retryOffline().catch(() => {}); }
++
+   function start(strength = opponents) {
+     if (saveConflict) return;
+     session?.dispose();
+@@ -185,6 +203,7 @@
+     notice = '';
+     loadNote = '';
+     session = new MatchSession(Game, Date.now() % 2 ** 31, strength, callbacks);
++    if (session.opponents.includes('neural')) downloadAi();
+     void session.run();
+   }
+ 
+@@ -426,6 +445,21 @@
+       </dl>
+     </div>
+   </details>
++  <details class="offline-settings">
++    <summary data-offline-status>{offline.aiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? `Saving AI… ${offline.progress}%` : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
++    <div class="option-fields">
++      <p role="status">{offline.warning || (offline.aiReady && offline.coreReady
++        ? 'Game, all tile graphics and trained AI are saved on this device. You can close and reopen this app without a connection.'
++        : offline.coreReady ? 'Game and all tile graphics are saved. Download the trained AI once before using it without a connection.'
++        : 'Preparing offline files. Stay connected until the download is complete.')}</p>
++      {#if offline.hasModel && !offline.aiReady}
++        <button onclick={downloadAi} disabled={offline.phase === 'ai'}>Download AI for offline play</button>
++      {/if}
++      {#if offline.warning}<button onclick={retryDownloads}>Retry offline download</button>{/if}
++      <p class="offline-detail">{offline.persistent ? 'Persistent storage granted.' : 'Your browser can remove website downloads when storage is low.'} Clearing website data removes downloads. On iPhone, check this status inside the Home Screen app before flying.</p>
++      {#if offline.updateReady}<p>A new version is downloaded. Close all Mahjong windows and reopen to use it; this match is saved.</p>{/if}
++    </div>
++  </details>
+   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
+   </div>
+ 
+@@ -462,6 +496,7 @@
+   {#if failure}
+     <section class="failure" aria-label="game recovery">
+       <p role="alert">{failure}</p>
++      {#if !ready}<button onclick={() => location.reload()}>Reload to retry</button>{/if}
+       {#if recovery && pendingOpponent}<p class="recovery-note">Waiting for the {pendingOpponent.position.toLowerCase()} opponent. Retry the network or explicitly switch that player to Club.</p>{/if}
+       {#if recovery}
+         <div class="recovery-actions">
+@@ -478,7 +513,7 @@
+   {#if storageWarning}<p class="notice" role="status">{storageWarning}</p>{/if}
+ 
+   {#if !ready && !failure}
+-    <p class="loading" role="status">Shuffling the wall…</p>
++    <p class="loading" role="status">{startupNote}</p>
+   {:else if view}
+     <div class="board">
+       <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} /></div>
+@@ -653,7 +688,7 @@
+   .preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-width: 0; }
+   .preferences details[open] { flex-basis: 100%; order: 1; }
+   .preferences .notice { margin-left: auto; }
+-  .options, .guide, .history { font-size: .85rem; min-width: 0; }
++  .options, .guide, .history, .offline-settings { font-size: .85rem; min-width: 0; }
+   summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
+   .option-fields { display: flex; gap: 4px 20px; flex-wrap: wrap; background: #0003; padding: 10px; border-radius: 8px; }
+   .option-fields label { min-height: 44px; display: flex; gap: 8px; align-items: center; }
+@@ -739,7 +774,7 @@
+     .preferences { gap: 0 16px; }
+     .opponents { gap: 5px; }
+     .opponents > span { display: none; }
+-    .options, .guide { font-size: .8rem; }
++    .options, .guide, .offline-settings { font-size: .8rem; }
+     .board { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+     .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; justify-content: space-between; gap: 6px 10px; padding: 8px; }
+     .round strong, .wall strong { font-size: 1rem; }
+diff --git a/web/src/lib/Tile.svelte b/web/src/lib/Tile.svelte
+index e70fc00..7b249aa 100644
+--- a/web/src/lib/Tile.svelte
++++ b/web/src/lib/Tile.svelte
+@@ -1,36 +1,40 @@
+ <script module>
+   import dragonUrl from '../assets/white-dragon.webp';
+-  // Every face, fetched once when the page loads. A face is otherwise
+-  // fetched the first time a tile of that kind is shown, and until it
+-  // arrives the tile is blank, or still wears the face it had before,
+-  // which on a slow connection or a busy machine was up to a second.
+   const FACES = [
+-    'Back',
+-    'Front',
+-    ...['Man', 'Pin', 'Sou'].flatMap((suit) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((rank) => suit + rank)),
+-    'Ton',
+-    'Nan',
+-    'Shaa',
+-    'Pei',
+-    'Haku',
+-    'Hatsu',
+-    'Chun',
++    'Back', 'Front',
++    ...['Man', 'Pin', 'Sou'].flatMap(suit => [1,2,3,4,5,6,7,8,9].map(rank => suit + rank)),
++    'Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun',
+   ];
+-  // One at a time, at low priority, and not for the first two seconds: a
+-  // burst of thirty-seven on a slow connection put the faces the table
+-  // needed now behind ones it did not, and each waited on all of them.
+-  if (typeof Image !== 'undefined') {
+-    const pending = [...FACES.map((face) => `tiles/${face}.svg`), dragonUrl];
+-    const next = () => {
+-      const url = pending.shift();
+-      if (!url) return;
+-      const image = new Image();
+-      image.fetchPriority = 'low';
+-      image.onload = next;
+-      image.onerror = next;
+-      image.src = url;
+-    };
+-    setTimeout(next, 2000);
++  const images = [];
++  let preloading = null;
++  // Decode EVERY face before the first hand, including the hidden dragon art.
++  // Keep Image objects alive; the service worker also keeps the original bytes
++  // across reloads, new games and browser restarts, independently of HTTP cache.
++  export function preloadTiles(onProgress = () => {}) {
++    if (preloading) return preloading;
++    const urls = [...FACES.map(face => `tiles/${face}.svg`), dragonUrl];
++    let next = 0, complete = 0;
++    preloading = Promise.all(Array.from({ length: 6 }, async () => {
++      while (next < urls.length) {
++        const url = urls[next++];
++        const image = new Image();
++        images.push(image);
++        image.decoding = 'async';
++        await new Promise((resolve, reject) => {
++          const timer = setTimeout(() => done(new Error(`Tile download timed out: ${url}`)), 45000);
++          const done = error => {
++            clearTimeout(timer); image.onload = null; image.onerror = null;
++            if (error) reject(error); else resolve();
++          };
++          image.onload = () => done();
++          image.onerror = () => done(new Error(`Tile graphic could not load: ${url}`));
++          image.src = url;
++        });
++        await image.decode();
++        onProgress(++complete, urls.length);
++      }
++    })).catch(error => { preloading = null; throw error; });
++    return preloading;
+   }
+ </script>
+ 
+diff --git a/web/src/lib/policy.js b/web/src/lib/policy.js
+index 9a3ea4c..09486b8 100644
+--- a/web/src/lib/policy.js
++++ b/web/src/lib/policy.js
+@@ -1,5 +1,7 @@
+ /** Worker ownership, bounded requests and explicit retry. A broken worker is
+  * discarded; retry never reuses a rejected loading promise or a hung process. */
++import { startOffline, prepareOfflineAi } from './offline.js';
++
+ const MODEL_URL = new URL('model.onnx', document.baseURI).href;
+ const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
+ let worker = null;
+@@ -44,12 +46,27 @@ function ensureWorker() {
+ 
+ export async function modelIsAvailable() {
+   try {
++    const offline = await startOffline();
++    if (offline) return offline.hasModel;
+     const response = await fetch(MODEL_URL, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
+     return response.ok;
+   } catch { return false; }
+ }
+ 
+-export function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal) {
++export async function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal) {
++  // Download and durably save the model AND runtime before the inference
++  // timeout starts. Recreating a worker or reopening offline uses these bytes.
++  if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
++  const preparation = prepareOfflineAi();
++  if (signal) {
++    await new Promise((resolve, reject) => {
++      const abort = () => { signal.removeEventListener('abort', abort); reject(new DOMException('Match changed', 'AbortError')); };
++      signal.addEventListener('abort', abort, { once: true });
++      preparation.then(value => { signal.removeEventListener('abort', abort); resolve(value); },
++        error => { signal.removeEventListener('abort', abort); reject(error); });
++      if (signal.aborted) abort();
++    });
++  } else await preparation;
+   if (signal?.aborted) return Promise.reject(new DOMException('Match changed', 'AbortError'));
+   return new Promise((resolve, reject) => {
+     const id = nextId++;
+diff --git a/web/vite.config.js b/web/vite.config.js
+index 892903f..ea36579 100644
+--- a/web/vite.config.js
++++ b/web/vite.config.js
+@@ -1,10 +1,11 @@
+ import { defineConfig } from 'vite';
+ import { svelte } from '@sveltejs/vite-plugin-svelte';
++import { offlineBuild } from './scripts/offline-build.mjs';
+ 
+ // The site is served from a project page, so assets resolve relatively.
+ export default defineConfig({
+   base: './',
+-  plugins: [svelte()],
++  plugins: [svelte(), offlineBuild()],
+   build: {
+     target: 'es2022',
+     outDir: 'dist',

@@ -1,0 +1,99 @@
+name: verify offline play before publishing
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/offline-verify.yml, .offline-change/**]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: offline-verification
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Apply scoped application integration
+        run: |
+          git apply --check .offline-change/application.patch
+          git apply .offline-change/application.patch
+      - name: Rebuild actual browser engine
+        run: |
+          if ! command -v wasm-pack >/dev/null || [ "$(wasm-pack --version)" != "wasm-pack 0.15.0" ]; then
+            cargo install wasm-pack --version 0.15.0 --locked
+          fi
+          cd web
+          npm ci
+          npm run wasm
+      - name: Static checks and production build
+        working-directory: web
+        run: |
+          npm run lint
+          npm run check
+          npm run build
+      - name: Unit and cache-integrity regressions
+        working-directory: web
+        shell: bash
+        run: npm run test:unit 2>&1 | tee /tmp/offline-unit.txt
+      - name: Cold browser restart and real-network offline checks
+        working-directory: web
+        shell: bash
+        run: npm run test:offline 2>&1 | tee /tmp/offline-browser.txt
+      - name: Existing UI, mixed opponents, toolchain and offline regressions
+        working-directory: web
+        shell: bash
+        run: npm run test:browser 2>&1 | tee /tmp/offline-all-browser.txt
+      - name: Installation icons
+        working-directory: web
+        run: |
+          node scripts/check-icons.mjs
+          node scripts/check-icons.mjs --built
+      - name: Commit tested integration directly to main and remove temporary verifier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          original=$(git rev-parse HEAD)
+          git rm .offline-change/application.patch .github/workflows/offline-verify.yml
+          git add web/package.json web/scripts/mixed-opponents-check.mjs web/scripts/ui-regression.mjs web/src/App.svelte web/src/lib/Tile.svelte web/src/lib/policy.js web/vite.config.js
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Save trained AI, runtime and all tiles for reliable offline play'
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" != "$original" ]; then
+            git diff --quiet "$original" origin/main -- web .offline-change .github/workflows/offline-verify.yml || { echo 'Concurrent web changes: refusing to overwrite'; exit 1; }
+            git rebase origin/main
+          fi
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:main
+          git rev-parse HEAD > /tmp/offline-commit.txt
+      - name: Package exact tested workspace
+        if: always()
+        run: tar --exclude=web/node_modules --exclude=web/public/ort -czf /tmp/offline-tested.tar.gz web docs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: offline-verification
+          path: |
+            /tmp/offline-tested.tar.gz
+            /tmp/offline-unit.txt
+            /tmp/offline-browser.txt
+            /tmp/offline-all-browser.txt
+            /tmp/offline-commit.txt
+          retention-days: 3
