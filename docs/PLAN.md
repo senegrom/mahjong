@@ -7,9 +7,30 @@ from self-play on the same rules engine the humans play against.
 Status: 6 September 2026. The engine, the browser game and the training
 loop are built and published at <https://senegrom.github.io/mahjong/>; what
 is left is the strength of the trained opponent. The published network is
-the 192 by 10 that measures 2.443 against the heuristic bots. The 320 by 20
-being trained measured 2.574 in the morning and 2.466 by midday, and it
-ships when the arena says it is stronger, not before.
+the 192 by 10, and it keeps its place: played head to head against the
+320 by 20 being trained it wins from both directions.
+
+The day's real finding is about the measurement. Placement against the
+heuristic players, which this project has quoted throughout and which the
+trainer selects checkpoints on, cannot rank two trained networks. It
+compresses differences about sevenfold, and over generations 270 to 286 it
+moved the wrong way outright: it improved by 0.088 while the network lost
+between 0.09 and 0.13 against two different fixed opponents. Networks are
+now ranked by `neural.duel`, one against three copies of the other at the
+same table, run in both directions; two identical networks return exactly
+2.50 with no error, which is the check that it is not inventing precision.
+
+That regression is the second finding. The run peaked around generation
+270 and went backwards, and because the best checkpoint was selected on
+the misleading figure, generation 270 was overwritten by weaker networks
+with better bot scores and is gone. Every tenth generation is now kept for
+good. The likely cause is that four copies of one network play only each
+other, with the entropy bonus at zero for two hundred generations: an
+equilibrium nothing from outside disturbs, which improves against fixed
+weak opponents and loses to a policy that steers the game elsewhere. Two
+answers are in flight, an entropy bonus restored at 0.005 and the ability
+to seat an older checkpoint in a share of games, the second written and
+tested but not yet switched on.
 
 Training moved to Modal (`neural/modal_app.py`) that midday. The desktop
 card was running the learning step at about a tenth of its arithmetic,
