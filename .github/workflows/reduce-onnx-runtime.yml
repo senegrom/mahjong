@@ -35,8 +35,7 @@ jobs:
 
       - name: Apply scoped review fixes
         run: |
-          git apply --check .runtime-change/application.patch
-          git apply .runtime-change/application.patch
+          python3 .runtime-change/application.patch
           cd web
           npm ci
 
