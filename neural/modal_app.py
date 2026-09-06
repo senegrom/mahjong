@@ -261,6 +261,12 @@ def arena(
     local = Path("/scratch/arena")
     local.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, local / f"{which}.pt")
+    # Say which generation this is. The report named only the file it
+    # copied, so two runs on an unchanged checkpoint were indistinguishable
+    # from two on different ones, and at a fixed seed they give the same
+    # number: one of them was a container spent to learn nothing.
+    generation = _generation_of(local / f"{which}.pt")
+    print(f"measuring {which}.pt, generation {generation}", flush=True)
 
     environment = dict(os.environ)
     environment["RAYON_NUM_THREADS"] = str(int(os.cpu_count() or 16))
@@ -280,6 +286,9 @@ def arena(
         text=True,
     )
     answer = (result.stdout or "") + (result.stderr or "" if result.returncode else "")
+    # Prefixed so the caller can tell one measurement from another without
+    # parsing the report; the JSON still starts at the first brace.
+    answer = f"generation {generation}\n{answer}"
     print(answer, flush=True)
     return answer
 
