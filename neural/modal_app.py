@@ -227,6 +227,50 @@ def train(
 
 
 @app.function(
+    gpu="L40S",
+    cpu=16.0,
+    memory=32768,
+    timeout=2 * 60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def arena(which: str = "best", games: int = 1000, seed: int = 555_000) -> str:
+    """Measures a checkpoint from the volume against the heuristic players.
+
+    Its own container, so a strength check never shares a card with the
+    learning step and never has to stop it. The training loop's own
+    placement figure is 1024 games in one seat and its error is around
+    0.035, which cannot separate this network from the one the browser
+    plays; this is the same deals four times over with the network in each
+    seat, and its error comes from the deals.
+    """
+    volume.reload()
+    source = VOLUME / "w320-run" / f"{which}.pt"
+    if not source.exists():
+        return f"no checkpoint at {source}"
+    local = Path("/scratch/arena")
+    local.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, local / f"{which}.pt")
+
+    environment = dict(os.environ)
+    environment["RAYON_NUM_THREADS"] = str(int(os.cpu_count() or 16))
+    environment["PYTHONPATH"] = "/src"
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "neural.arena", str(local / f"{which}.pt"),
+            "--games", str(games), "--seed", str(seed),
+            "--channels", "320", "--blocks", "20",
+        ],
+        cwd="/src",
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    answer = (result.stdout or "") + (result.stderr or "" if result.returncode else "")
+    print(answer, flush=True)
+    return answer
+
+
+@app.function(
     gpu="L4",
     cpu=8.0,
     memory=32768,
