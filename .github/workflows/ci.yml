@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
@@ -14,38 +17,64 @@ jobs:
   engine:
     name: rules engine
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
+        with:
+          toolchain: 1.98.1
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Lint
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --workspace
-      - name: Fuzz the rules
+        run: cargo test --locked --workspace
+      - name: Python binding smoke test
         run: |
-          cargo build --release -p riichi-cli
-          ./target/release/riichi-cli fuzz --games 500 --seed ${{ github.run_number }}
+          cargo build --locked -p riichi-py
+          python3 engine/riichi-py/smoke-test.py
+      - name: Audit Rust dependencies
+        run: |
+          if ! command -v cargo-audit >/dev/null || [ "$(cargo-audit --version)" != "cargo-audit 0.22.2" ]; then
+            cargo install cargo-audit --version 0.22.2 --locked
+          fi
+          cargo audit
+      - name: Fuzz the rules
+        env:
+          FUZZ_SEED: ${{ github.run_number }}
+        run: |
+          cargo build --locked --release -p riichi-cli
+          ./target/release/riichi-cli fuzz --games 500 --seed "$FUZZ_SEED"
       - name: Arena sanity check
         run: ./target/release/riichi-cli arena --games 20 --seed 1
 
   web:
     name: web app
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
+        with:
+          toolchain: 1.98.1
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - uses: jetli/wasm-pack-action@v0.4.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          version: latest
-      - uses: actions/setup-node@v4
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install pinned wasm-pack
+        run: |
+          if ! command -v wasm-pack >/dev/null || [ "$(wasm-pack --version)" != "wasm-pack 0.15.0" ]; then
+            cargo install wasm-pack --version 0.15.0 --locked
+          fi
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
@@ -53,9 +82,17 @@ jobs:
       - name: Install
         working-directory: web
         run: npm ci
+      - name: Audit web dependencies
+        working-directory: web
+        run: npm audit --audit-level=low
       - name: Build the engine for the browser
         working-directory: web
         run: npm run wasm
+      - name: JavaScript lint and Svelte diagnostics
+        working-directory: web
+        run: |
+          npm run lint
+          npm run check
       - name: Build the site
         working-directory: web
         run: npm run build
@@ -67,7 +104,7 @@ jobs:
         run: npm run test:browser
       - name: Upload UI regression evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ui-regression-evidence
           path: web/test-results
@@ -78,16 +115,30 @@ jobs:
         run: |
           node scripts/check-icons.mjs
           node scripts/check-icons.mjs --built
-      - uses: actions/upload-pages-artifact@v3
+      # upload-pages-artifact v4 still embeds a Node 20 action. Preserve its
+      # Pages tar format but upload with the Node 24 artifact action instead.
+      - name: Package Pages artifact
         if: github.ref == 'refs/heads/main'
+        run: |
+          tar --dereference --hard-dereference --directory web/dist \
+            --exclude=.git --exclude=.github --exclude='.[^/]*' \
+            -cf "$RUNNER_TEMP/artifact.tar" .
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          path: web/dist
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
   deploy:
     name: publish
     needs: [web, engine]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write
@@ -96,4 +147,4 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
