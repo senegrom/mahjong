@@ -27,8 +27,7 @@ subprocess.run(['git', 'apply', '--whitespace=error', '-'], input=packet['patch'
 for name, hashes in packet['files'].items():
     assert blob(Path(name)) == hashes['after'], f'Applied file checksum mismatch: {name}'
 
-# The final hand-total assertion must include every individual payment,
-# not mistake the first settlement's incremental delta for a hand total.
+# Include all individual payments in the hand-total assertion.
 p = Path('engine/riichi-core/tests/mjai_replay.rs')
 s = p.read_text()
 a = s.index('            let reported = hand\n')
@@ -51,4 +50,17 @@ s = s[:a] + '''            let mut reported = [0; 4];
 ''' + s[b:]
 p.write_text(s)
 assert blob(p) == '1064e8e1a0970a763501fc723a1c4dc78f3438a2'
-print(f"Applied {len(packet['files'])} checked source files")
+
+# Short table captions avoid pushing All discards onto another row at 320px.
+# Full indicator labels remain in accessible names and the winning-hand panel.
+p = Path('web/src/App.svelte')
+s = p.read_text().replace('<span>Dora indicators</span>', '<span>Dora</span>').replace('<span>Ura-dora indicators</span>', '<span>Ura-dora</span>')
+p.write_text(s)
+assert blob(p) == '983afbee8565c3d9c9e858a495dae6a79210cd8a'
+p = Path('engine/riichi-core/src/mjai.rs')
+assert blob(p) == '7b1f522a3aa0dacd0b3048d4828cf49091fc6234'
+s = p.read_text()
+assert s.count('/// What each seat gained or lost over the hand.') == 2
+p.write_text(s.replace('/// What each seat gained or lost over the hand.', '/// Change caused by this settlement only; earlier events are already applied.'))
+assert blob(p) == '57f7da7f356c9fec827786bf5f3c2cd14d49515d'
+print(f"Applied {len(packet['files']) + 1} checked source files")
