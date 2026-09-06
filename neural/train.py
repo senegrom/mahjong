@@ -149,12 +149,25 @@ def main() -> None:
 
     net = PolicyValueNet(args.channels, args.blocks).to(device)
     start = 0
+    # Carried in the checkpoint, not reset per process: a run that resumes
+    # has to judge a new measurement against what it has already reached,
+    # or the first one after every restart becomes the new best whatever it
+    # is. That replaced a 2.447 checkpoint with a 2.592 one, and on a
+    # trainer that runs in blocks it would happen at every block.
     best_placement = float("inf")
     smoothed = None
     if args.resume and args.resume.exists():
         payload = torch.load(args.resume, map_location=device, weights_only=True)
         load_weights(net, payload["model"])
         start = int(payload.get("generation", 0))
+        smoothed = payload.get("smoothed")
+        best_placement = float(payload.get("best_placement", float("inf")))
+        if smoothed is not None:
+            print(
+                f"carrying a smoothed placement of {smoothed:.3f}, "
+                f"best {best_placement:.3f}",
+                flush=True,
+            )
         if payload.get("channels") not in (None, net.channels):
             raise SystemExit("the checkpoint was trained at a different width")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
@@ -512,6 +525,9 @@ def main() -> None:
             "generation": generation + 1,
             "channels": net.channels,
             "blocks": net.blocks,
+            # So a restart knows what this run has already reached.
+            "smoothed": smoothed,
+            "best_placement": best_placement,
         }
         if (generation + 1) % args.measure_every == 0 or generation == 0:
             against = selfplay.measure(
@@ -544,8 +560,11 @@ def main() -> None:
                 else SMOOTHING * against["placement"] + (1 - SMOOTHING) * smoothed
             )
             record["smoothed"] = round(smoothed, 3)
+            payload["smoothed"] = smoothed
             if smoothed < best_placement:
                 best_placement = smoothed
+                payload["smoothed"] = smoothed
+                payload["best_placement"] = best_placement
                 torch.save(payload, args.out / "best.pt")
                 record["best"] = True
 
@@ -558,9 +577,20 @@ def main() -> None:
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
+    # The same fields the per-generation save writes. This one used to drop
+    # the smoothed placement and the best it had reached, so every restart
+    # began judging from nothing however carefully they were carried, and a
+    # run that trained nothing at all still stamped `end` on the checkpoint
+    # as its generation.
     torch.save(
-        {"model": net.state_dict(), "generation": end,
-         "channels": net.channels, "blocks": net.blocks},
+        {
+            "model": net.state_dict(),
+            "generation": max(end, start),
+            "channels": net.channels,
+            "blocks": net.blocks,
+            "smoothed": smoothed,
+            "best_placement": best_placement,
+        },
         args.out / "latest.pt",
     )
     print("training finished", flush=True)
