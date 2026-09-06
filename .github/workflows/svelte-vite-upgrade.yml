@@ -1,0 +1,96 @@
+name: validate Svelte Vite upgrade
+
+on:
+  push:
+    branches: [maintenance/svelte-vite-upgrade]
+    paths: [.github/workflows/svelte-vite-upgrade.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: svelte-vite-upgrade
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.repository == 'senegrom/mahjong' && github.ref == 'refs/heads/maintenance/svelte-vite-upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+      - name: Resolve compatible versions together
+        working-directory: web
+        run: |
+          npm install --save-dev svelte@5 @sveltejs/vite-plugin-svelte@7.3.0 vite@8.2.2
+          npm pkg set 'engines.node=^20.19.0 || ^22.13.0 || >=24.0.0'
+          npm install --package-lock-only --ignore-scripts
+          npm ci
+          npm ls --depth=0
+          npm ls svelte vite @sveltejs/vite-plugin-svelte typescript
+          npm audit --audit-level=low
+      - name: Build WASM
+        working-directory: web
+        run: |
+          if ! command -v wasm-pack >/dev/null || [ "$(wasm-pack --version)" != "wasm-pack 0.15.0" ]; then
+            cargo install wasm-pack --version 0.15.0 --locked
+          fi
+          npm run wasm
+      - name: Static checks and production build
+        working-directory: web
+        run: |
+          npm run lint
+          npm run check
+          npm run build
+          npm run test:unit
+      - name: All current browser regression suites
+        working-directory: web
+        run: npm run test:browser
+      - name: Validate source and built icons
+        working-directory: web
+        run: |
+          node scripts/check-icons.mjs
+          node scripts/check-icons.mjs --built
+      - name: Preserve reproducible workspace and evidence
+        if: always()
+        run: |
+          mkdir -p /tmp/svelte-vite-evidence
+          git diff -- web/package.json web/package-lock.json > /tmp/svelte-vite-evidence/upgrade.patch
+          git rev-parse HEAD > /tmp/svelte-vite-evidence/base.txt
+          git ls-files -z | tar --null -T - -czf /tmp/svelte-vite-evidence/source.tar.gz
+          tar -czf /tmp/svelte-vite-evidence/runtime.tar.gz web/node_modules web/src/wasm web/dist 2>/dev/null || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: svelte-vite-upgrade-evidence
+          path: |
+            /tmp/svelte-vite-evidence
+            web/test-results
+          retention-days: 3
+      - name: Commit validated manifests to candidate branch only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add web/package.json web/package-lock.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Upgrade Svelte 5, Vite 8 and the compatible Svelte plugin together'
+          gh auth setup-git
+          git push origin HEAD:refs/heads/maintenance/svelte-vite-upgrade
