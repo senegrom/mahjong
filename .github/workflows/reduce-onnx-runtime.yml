@@ -47,7 +47,7 @@ jobs:
           ORT="$RUNNER_TEMP/onnxruntime"
           git clone --depth 1 --branch v1.29.0 --recurse-submodules --shallow-submodules https://github.com/microsoft/onnxruntime.git "$ORT"
           mkdir -p web/runtime
-          python3 "$ORT/tools/python/util/create_reduced_build_config.py" web/public/model.onnx web/runtime/reduced-ops.config
+          python3 "$ORT/tools/python/create_reduced_build_config.py" web/public/model.onnx web/runtime/reduced-ops.config
           echo 'Required operators:'
           cat web/runtime/reduced-ops.config
           pushd "$ORT/cmake/external/emsdk"
