@@ -41,7 +41,9 @@ test('neural fallback preserves the pending position, scores and seat', () => {
   const before = match.view;
   assert.equal(before.phase, 'act');
   match.apply({type:'club'});
-  assert.deepEqual(match.view, before, 'Switching the controller does not redeal');
+  assert.deepEqual(match.view.seats.slice(1).map(seat => seat.controller), ['club','club','club']);
+  const physicalState = view => JSON.parse(JSON.stringify(view, (key, value) => key === 'controller' ? undefined : value));
+  assert.deepEqual(physicalState(match.view), physicalState(before), 'Switching the controller does not redeal');
   assert.equal(match.engine.needs_opponent_move(), false);
   match.advance(false);
   assert.ok(match.choices.length > 0 || match.view.phase === 'over');

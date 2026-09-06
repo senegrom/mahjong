@@ -1,4 +1,5 @@
 <script>
+  import { OPPONENT_LABELS } from './opponents.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
 
@@ -20,6 +21,10 @@
   <header>
     <span class="wind" class:dealer>{NAMES[seat.seat]}</span>
     <span class="score">{seat.score.toLocaleString()}</span>
+    {#if OPPONENT_LABELS[seat.controller]}
+      <span class="opponent-type" data-controller={seat.controller} data-player={seat.player}
+        aria-label={`${OPPONENT_LABELS[seat.controller]} opponent`}>{OPPONENT_LABELS[seat.controller]}</span>
+    {/if}
     {#if seat.riichi}<span class="stick" title="declared riichi"></span>{/if}
     {#if announcement}
       <span class="called" aria-live="polite">{announcement}</span>
@@ -63,6 +68,8 @@
     gap: 8px;
     font-size: 0.82rem;
   }
+
+  .opponent-type { font-size: .66rem; line-height: 1.2; opacity: .9; }
 
   .wind {
     font-weight: 600;

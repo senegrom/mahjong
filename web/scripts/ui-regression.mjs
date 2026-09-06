@@ -204,7 +204,7 @@ try {
   });
   await check('Club recovery continues and reloads the same neural-origin match',async()=>{
     const page=await open(neuralSave,{mock:{fail:true}}); await page.waitForSelector('.recovery-actions');
-    await page.$$eval('.recovery-actions button',n=>n[1].click());
+    await page.$$eval('.recovery-actions button',n=>n.find(button=>button.textContent==='Continue with Club opponents').click());
     await page.waitForFunction(()=>document.querySelector('select').value==='club'&&!document.querySelector('.failure'));
     const state=await saved(page); assert.equal(state.seed,neuralSave.seed); assert.equal(state.commands.at(-1).type,'club');
     await page.reload({waitUntil:'networkidle0'}); assert.deepEqual(await saved(page),state); noErrors(page);
@@ -247,8 +247,8 @@ try {
       await page.click('.guide summary');
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Expanded help overflows');
       await page.click('.guide summary'); await page.click('.inspect');
-      assert.equal(await page.$eval('dialog',n=>n.open),true); assert.equal(await page.$$eval('.inspection-grid section',n=>n.length),4);
-      await page.keyboard.press('Escape'); assert.equal(await page.$eval('dialog',n=>n.open),false); noErrors(page);
+      assert.equal(await page.$eval('.table-dialog',n=>n.open),true); assert.equal(await page.$$eval('.inspection-grid section',n=>n.length),4);
+      await page.keyboard.press('Escape'); assert.equal(await page.$eval('.table-dialog',n=>n.open),false); noErrors(page);
     });
   }
   await check('dark-mode result button contrast exceeds 4.5:1',async()=>{

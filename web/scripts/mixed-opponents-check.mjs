@@ -77,7 +77,12 @@ try {
     assert.deepEqual(await saved(p),before);assert.deepEqual(p.errors,[]);
   });
   await check('a mixed table can be created, labelled, edited and restored without changing controllers',async()=>{
-    const p=await open();await custom(p);
+    const p=await open();
+    // This check needs an unfinished match with progress, not the untouched
+    // opening deal (which intentionally needs no abandonment confirmation).
+    await p.click('.hand button:not(:disabled)');await p.click('.confirm-discard .primary');
+    await p.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.length>0,{},SAVE_KEY);
+    await settled(p);await custom(p);
     await p.select('select[aria-label="Left opponent"]','beginner');await p.select('select[aria-label="Right opponent"]','neural');
     const dismiss=d=>void d.dismiss();p.on('dialog',dismiss);const before=await saved(p);
     await confirmStart(p);assert.deepEqual(await saved(p),before);assert.ok(await p.$('.custom-dialog[open]'));
@@ -95,7 +100,11 @@ try {
     assert.equal(await p.$('.edit-table'),null);assert.deepEqual(p.errors,[]);
   });
   await check('one-opponent recovery preserves the other trained player and the Beginner',async()=>{
-    const p=await open(recovery,{fail:true});await p.waitForSelector('.failure');
+    const p=await open(recovery,{fail:true});
+    // The human starts as East in seed 81. Trigger the next trained turn
+    // before expecting the deliberately failing worker to need recovery.
+    await p.click('.hand button:not(:disabled)');await p.click('.confirm-discard .primary');
+    await p.waitForSelector('.failure');
     const before=await labels(p),snapshot=await saved(p);const seats=JSON.parse(snapshot.state)[0].seats;
     const label=await p.$eval('.recovery-actions button:nth-child(2)',el=>el.textContent);
     assert.match(label,/opponent only/);const position=/right/.test(label)?0:/opposite/.test(label)?1:2;
