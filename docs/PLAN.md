@@ -7,9 +7,19 @@ from self-play on the same rules engine the humans play against.
 Status: 6 September 2026. The engine, the browser game and the training
 loop are built and published at <https://senegrom.github.io/mahjong/>; what
 is left is the strength of the trained opponent. The published network is
-the 192 by 10 that measures 2.443 against the heuristic bots; the 320 by 20
-being trained measures 2.574 and ships when the arena says it is stronger,
-not before.
+the 192 by 10 that measures 2.443 against the heuristic bots. The 320 by 20
+being trained measured 2.574 in the morning and 2.466 by midday, and it
+ships when the arena says it is stronger, not before.
+
+Training moved to Modal (`neural/modal_app.py`) that midday. The desktop
+card was running the learning step at about a tenth of its arithmetic,
+because the process sits at lowest priority on a machine whose terminal
+alone holds half the cores; the same generation took 481 milliseconds a
+step one round and 825 the next. A container that has a card to itself
+does eleven times the work per decision, and each round carries twice the
+games. Strength is measured on its own container while the learner keeps
+going, which is what the desktop could never do: the card cannot be
+shared, so every measurement there meant stopping training first.
 
 | milestone | where it stands |
 |---|---|
