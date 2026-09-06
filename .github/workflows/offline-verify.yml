@@ -35,7 +35,7 @@ jobs:
         run: |
           git apply --check .offline-change/application.patch
           git apply .offline-change/application.patch
-      - name: Synchronise upgrade assertions with an actual player decision
+      - name: Synchronise settled-turn assertions and compact small-phone controls
         shell: python
         run: |
           from pathlib import Path
@@ -44,6 +44,18 @@ jobs:
           new = "  // Runtime progress can say 'network ready' before opponents finish moving.\n  // Wait for a real player decision, not a transient status message.\n  await p.waitForFunction(() => document.querySelector('.failure, .screen, .standings, .hand button:not(:disabled), .call-options button:not(:disabled)'), { timeout: 45000 });"
           s = p.read_text()
           assert s.count(old) == 1, 'Concurrent test change'
+          p.write_text(s.replace(old, new))
+          p = Path('web/src/App.svelte')
+          old = '  @media (max-width: 359px) { .place { --tile-width: 23px; } }'
+          new = '''  @media (max-width: 359px) {
+              .place { --tile-width: 23px; }
+              .preferences { column-gap: 8px; }
+              .opponents { min-width: 0; }
+              .bar select { min-width: 0; max-width: 100%; }
+              .restart { white-space: nowrap; flex-shrink: 0; }
+            }'''
+          s = p.read_text()
+          assert s.count(old) == 1, 'Concurrent phone layout change'
           p.write_text(s.replace(old, new))
       - name: Rebuild actual browser engine
         run: |
