@@ -42,3 +42,44 @@ test('ordinary white dragons remain blank and other dora keep their own artwork'
   assert.match(html, /class="foil\b/);
   assert.doesNotMatch(html, /class="haku-dragon-reveal\b/);
 });
+
+test('newly drawn alone is a label, not a border', () => {
+  const html = tile({ tile: '9s', drawn: true, onclick() {} });
+  assert.match(html, /just drawn/);
+  assert.doesNotMatch(html, /\bringed\b|data-readiness=/);
+});
+
+test('only legal actionable one-shanten and tenpai discards get readiness rings', () => {
+  const gold = tile({ tile: '2z', discardShanten: 0, onclick() {} });
+  assert.match(gold, /data-readiness="ready"/);
+  assert.match(gold, /discard leaves a ready hand \(tenpai\)/);
+  assert.match(gold, /--ring:\s*var\(--gold, #d8a12a\)/);
+  const silver = tile({ tile: '7m', discardShanten: 1, onclick() {} });
+  assert.match(silver, /data-readiness="one-away"/);
+  assert.match(silver, /--ring:\s*#c5cbd3/);
+  assert.match(silver, /discard leaves one tile from ready/);
+  for (const discardShanten of [-1, 2, 3, null, undefined]) {
+    assert.doesNotMatch(tile({ tile: '7m', discardShanten, onclick() {} }), /\bringed\b|data-readiness=/);
+  }
+});
+
+test('disabled, unknown, face-down and display-only tiles cannot retain readiness hints', () => {
+  for (const props of [{ disabled: true }, { facedown: true }, { tile: null }, { onclick: null }]) {
+    for (const discardShanten of [0, 1]) {
+      const html = tile({ tile: '5z', onclick() {}, discardShanten, ...props });
+      assert.doesNotMatch(html, /\bringed\b|data-readiness=|discard leaves/);
+    }
+  }
+});
+
+test('readiness rings coexist with unchanged dora foil, dragon artwork, safety and selection', () => {
+  for (const discardShanten of [0, 1]) {
+    const html = tile({ tile: '5z', dora: true, safe: true, selected: true, discardShanten, onclick() {} });
+    assert.match(html, /repeating-linear-gradient/);
+    for (const colour of ['#e2453d', '#7fd1a0', '#4ea3ff', discardShanten ? '#c5cbd3' : 'var(--gold, #d8a12a)']) {
+      assert.ok(html.includes(colour), colour);
+    }
+    assert.match(html, /class="foil\b/);
+    assert.match(html, /class="haku-dragon-reveal\b/);
+  }
+});

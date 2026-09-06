@@ -77,3 +77,18 @@ export function moveHandFocus(hand, direction) {
   const focused = buttons.find(button => button === document.activeElement);
   return focused ? Number(focused.dataset.handIndex) : null;
 }
+
+/** Analyse each distinct legal discard once for a decision. The previews and
+ * border hints share these exact, read-only engine results. In particular, do
+ * not infer readiness from the 14-tile hand or require a riichi action: an open
+ * hand can be tenpai too. Callers invalidate this map when choices change.
+ */
+export function analyzeDiscards(engine, choices = []) {
+  const hints = new Map();
+  if (!engine) return hints;
+  for (const choice of choices) {
+    if (choice.kind !== 'discard' || hints.has(choice.tile)) continue;
+    hints.set(choice.tile, engine.discard_hint(choice.tile));
+  }
+  return hints;
+}

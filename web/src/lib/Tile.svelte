@@ -43,8 +43,9 @@
    * a hand can be read out without relying on the picture.
    *
    * A tile in the hand can carry marks, each a colour of ring around the
-   * face: gold for the tile just drawn, red for a dora, green for a tile
-   * that cannot deal in, blue for the one under the keyboard marker. One
+   * face: gold for a discard leaving tenpai, silver for one shanten, red
+   * for dora, green for safety against declared riichi, blue for selection.
+   * A newly drawn tile is identified by spacing, never by its own ring. One
    * mark is a solid ring; more than one is drawn as stripes of each colour
    * in turn, so no mark hides another.
    */
@@ -57,6 +58,7 @@
     safe = false,
     dora: markedDora = false,
     drawn = false,
+    discardShanten = null,
     size = 'normal',
     onclick = null,
     disabled = false,
@@ -67,6 +69,11 @@
 
   // A hidden face must not disclose dora through its ring, name or effects.
   let dora = $derived(Boolean(markedDora && tile && !facedown));
+  // Readiness describes a legal action on a visible, interactive hand tile.
+  // Never let a stale preview mark a disabled tile, a meld or a hidden face.
+  let readiness = $derived(tile && !facedown && onclick && !disabled
+    ? discardShanten === 0 ? 'ready' : discardShanten === 1 ? 'one-away' : null
+    : null);
 
   const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
   const HONOURS = ['Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun'];
@@ -79,13 +86,14 @@
   }
 
   const COLOURS = {
-    drawn: 'var(--gold, #d8a12a)',
+    ready: 'var(--gold, #d8a12a)',
+    'one-away': '#c5cbd3',
     dora: '#e2453d',
     safe: '#7fd1a0',
     selected: '#4ea3ff',
   };
   let marks = $derived(
-    [drawn && 'drawn', dora && 'dora', safe && 'safe', selected && 'selected'].filter(Boolean),
+    [readiness, dora && 'dora', safe && 'safe', selected && 'selected'].filter(Boolean),
   );
   let ring = $derived(
     marks.length === 0
@@ -101,6 +109,8 @@
   let words = $derived(
     facedown ? 'face-down tile' : [tileWords(tile), dora && 'dora',
       drawn && 'just drawn', selected && 'selected',
+      readiness === 'ready' && 'discard leaves a ready hand (tenpai)',
+      readiness === 'one-away' && 'discard leaves one tile from ready (one shanten)',
       safe && 'safe against declared riichi, not guaranteed against undeclared hands']
       .filter(Boolean).join(', '),
   );
@@ -123,6 +133,7 @@
     data-tile={tile}
     data-hand-index={handIndex ?? undefined}
     data-drawn={drawn ? 'true' : undefined}
+    data-readiness={readiness ?? undefined}
     aria-pressed={selected}
     type="button"
     class:ringed={marks.length > 0}

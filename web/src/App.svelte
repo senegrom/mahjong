@@ -10,7 +10,7 @@
   import Review from './lib/Review.svelte';
   import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
-  import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus } from './lib/ui.js';
+  import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { tileWords } from './lib/tiles.js';
 
@@ -59,8 +59,12 @@
   let safeCount = $derived(heldSafeCount(view));
   let selectedTile = $derived(selected === null ? null : handTiles[selected]);
   let previewTile = $derived(handTiles[selected ?? picked] ?? null);
-  let discardHint = $derived(previewTile && canDiscard(previewTile)
-    ? session?.engine.discard_hint(previewTile) : null);
+  // Recompute once when the engine offers a new decision, not on every hover,
+  // selection or animation frame. The selected tile and all readiness rings
+  // use the same hypothetical-discard results, including open hands.
+  let discardHints = $derived(hints && myTurn && !busy && !failure && !saveConflict && !session?.closed
+    ? analyzeDiscards(session?.engine, discardChoices) : new Map());
+  let discardHint = $derived(previewTile ? discardHints.get(previewTile) ?? null : null);
   let displayWaits = $derived(discardHint?.waits ?? view?.waits ?? []);
   let displayLeft = $derived(discardHint?.waits_left ?? view?.waits_left ?? []);
   let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
@@ -337,6 +341,9 @@
         <dd>
           The tiles that would complete your hand, each with how many of the
           four nobody has seen yet. A wait with none left is marked in red.
+          Select a tile for discard to see the waits of the hand you would keep;
+          the preview does not play the move. Enable Select before discarding
+          in Options to preview with a mouse or touch, or use the arrow keys.
         </dd>
 
         <dt><span class="swatch dora"></span> a red ring, and a shine</dt>
@@ -348,8 +355,18 @@
           they threw it themselves or it has already passed them. It can still deal into an undeclared hand. The safe count includes copies in your concealed hand only.
         </dd>
 
-        <dt><span class="swatch drawn"></span> a gold ring</dt>
-        <dd>The tile you just drew, held apart from the rest as it is at the table.</dd>
+        <dt><span class="swatch one-away"></span> a silver ring</dt>
+        <dd>Discarding this tile leaves your hand one tile from ready (one shanten).</dd>
+
+        <dt><span class="swatch ready"></span> a gold ring</dt>
+        <dd>
+          Discarding this tile leaves a ready hand (tenpai), whether closed or open.
+          This marks the tile shape, not a guaranteed win: you still need a yaku,
+          and riichi is available only when its other conditions are met.
+        </dd>
+
+        <dt>A tile held apart</dt>
+        <dd>The tile you just drew is separated by a gap, not given its own border.</dd>
 
         <dt><span class="swatch marker"></span> a blue ring</dt>
         <dd>
@@ -468,11 +485,12 @@
             {#if view.furiten}<span class="furiten">Furiten — self-draw wins only</span>{/if}
           </div>
         {/if}
-        <div class="hand" role="group" aria-label="your tiles" aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
+        <div class="hand" class:has-draw={Boolean(me.drawn)} role="group" aria-label="your tiles" aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
           {#each handTiles as tile, index (index)}
             <Tile {tile} handIndex={index} onclick={() => selectTile(tile, index)}
               disabled={!canDiscard(tile)} muted={view.phase === 'over'} selected={myTurn && (picked === index || selected === index)}
               drawn={Boolean(me.drawn) && index === me.hand.length}
+              discardShanten={discardHints.get(tile)?.shanten ?? null}
               safe={hints && view.phase !== 'over' && view.safe.includes(tile)} dora={shownDora.includes(tile)} />
           {/each}
         </div>
@@ -586,7 +604,8 @@
   .swatch { display: inline-block; width: 12px; height: 16px; margin-right: 4px; border-radius: 3px; background: var(--ivory); flex: none; }
   .swatch.dora { box-shadow: 0 0 0 2px #e2453d; }
   .swatch.safe { box-shadow: 0 0 0 2px #7fd1a0; }
-  .swatch.drawn { box-shadow: 0 0 0 2px var(--gold); }
+  .swatch.one-away { box-shadow: 0 0 0 2px #c5cbd3; }
+  .swatch.ready { box-shadow: 0 0 0 2px var(--gold); }
   .swatch.marker { box-shadow: 0 0 0 2px #4ea3ff; }
   .swatch.striped { border: 3px solid transparent; background: linear-gradient(var(--ivory),var(--ivory)) padding-box, repeating-linear-gradient(45deg,#e2453d 0 4px,var(--gold) 4px 8px,#7fd1a0 8px 12px) border-box; }
   .board { display: grid; grid-template-columns: minmax(0,1fr) minmax(190px,auto) minmax(0,1fr); gap: 10px; align-items: start; }
@@ -615,8 +634,8 @@
   .hand-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .8rem; }
   .safe-note { color: #9cddb5; }
   .dora-note { color: var(--gold); }
-  .hand { display: flex; gap: 5px; align-items: end; flex-wrap: wrap; padding: 6px 4px; min-width: 0; }
-  .hand :global(button.tile[data-drawn=true]) { margin-left: 10px; }
+  .hand { --draw-gap: 12px; display: flex; gap: 5px; align-items: end; flex-wrap: wrap; padding: 6px 4px; min-width: 0; }
+  .hand :global(button.tile[data-drawn=true]) { margin-inline-start: var(--draw-gap); }
   /* The hand takes focus on every turn, so its ring is a hint, not a
      frame: softer than a control's, and set out from the tiles. */
   .hand:focus-visible { border-radius: 8px; outline: 2px solid rgba(216, 161, 42, 0.45); outline-offset: 6px; }
@@ -674,7 +693,9 @@
     .hint { margin-left: 0; font-size: .75rem; }
     .hand { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 6px; padding: 6px 3px; }
     .hand :global(button.tile) { width: 100%; min-height: 44px; }
-    .hand :global(button.tile[data-drawn=true]) { margin-left: 0; }
+    /* Reserve the extra gap within the grid, keeping all tile faces equal
+       sized and the drawn tile inside the viewport even on a 320px phone. */
+    .hand.has-draw { padding-inline-end: calc(3px + var(--draw-gap)); }
     .controls { padding: 0 8px; }
     .prompt { font-size: .82rem; }
     .call-options { gap: 6px; }
@@ -698,7 +719,9 @@
     .prompt { font-size: .8rem; }
     .own-discards .caption { font-size: .62rem; }
     .hand :global(button.tile) { width: 100%; min-height: 44px; }
-    .hand :global(button.tile[data-drawn=true]) { margin-left: 0; }
+    /* Reserve the extra gap within the grid, keeping all tile faces equal
+       sized and the drawn tile inside the viewport even on a 320px phone. */
+    .hand.has-draw { padding-inline-end: calc(3px + var(--draw-gap)); }
     .hint { margin-left: 0; }
   }
   @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
