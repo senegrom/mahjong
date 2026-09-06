@@ -136,6 +136,8 @@ def train(
     replay_rounds: int = 8,
     replay_steps: int = 180,
     resume: str = "latest.pt",
+    opponents: list[str] | None = None,
+    opponent_share: float = 0.0,
 ) -> str:
     """Runs `generations` rounds of self-play and learning, resuming from the
     checkpoint of that name on the volume when it is there.
@@ -197,6 +199,25 @@ def train(
     ]
     if (RUN / "latest.pt").exists():
         command += ["--resume", str(RUN / "latest.pt")]
+
+    # Older selves to seat in a share of the games, named relative to the
+    # run's directory on the volume, so "old" and "history/gen-00290" both
+    # work. Measured 6 September: this run recovers fully against its own
+    # past and only halfway against a foreign network, so a large part of
+    # what it gains is knowing its own family. An older self is foreign
+    # enough to be worth playing.
+    seated = []
+    for name in opponents or []:
+        source = VOLUME / "w320-run" / f"{name}.pt"
+        if not source.exists():
+            print(f"no opponent at {source}", flush=True)
+            continue
+        local = RUN / "opponents" / f"{Path(name).name}.pt"
+        local.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, local)
+        seated.append(str(local))
+    if seated:
+        command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
 
     environment = dict(os.environ)
     environment["RAYON_NUM_THREADS"] = str(int(os.cpu_count() or 16))
