@@ -26,5 +26,11 @@ for name, hashes in manifest.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes((Path('.mixed-table/new') / path).read_bytes())
     assert blob(path) == hashes['after'], f'Patch checksum mismatch: {name}'
+# Start the two browser tests from positions that actually have progress and
+# a pending network response. Keep their cancellation and recovery assertions.
+patch = '.mixed-table/fixtures.patch'
+subprocess.run(['git', 'apply', '--check', '--whitespace=error', patch], check=True)
+subprocess.run(['git', 'apply', '--whitespace=error', patch], check=True)
+assert blob(Path('web/scripts/mixed-opponents-check.mjs')) == '2f6cc2a90e5d645f5baea4e8be3afbfd27babbe5', 'Fixture patch checksum mismatch'
 Path('/tmp/mixed-files.json').write_text(json.dumps(list(manifest)))
 print(f'Applied {len(manifest)} source files with verified pre/post hashes')
