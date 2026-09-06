@@ -310,12 +310,19 @@ def main() -> None:
         help="how the network's moves inside the lookahead are drawn: its "
         "best at zero, a sample of its policy above",
     )
+    parser.add_argument(
+        "--device",
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help="where the network runs. The card by default, and the "
+        "processor when there is none, which is slow but lets a command "
+        "line be tried while a run holds the card",
+    )
     parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
     args = parser.parse_args()
 
-    state = torch.load(args.checkpoint, map_location="cuda", weights_only=True)
-    net = build(channels=args.channels, blocks=args.blocks)
+    state = torch.load(args.checkpoint, map_location=args.device, weights_only=True)
+    net = build(channels=args.channels, blocks=args.blocks, device=args.device)
     load_weights(net, state["model"])
 
     per_chair = []
@@ -332,6 +339,7 @@ def main() -> None:
             candidates=args.candidates,
             margin=args.margin,
             pool=args.pool,
+            device=args.device,
             played_by=args.played_by,
             depth=args.depth,
             temperature=args.temperature,
@@ -376,6 +384,7 @@ def main() -> None:
                 "candidates": args.candidates,
                 "margin": args.margin,
                 "games_total": args.games * SEATS,
+                "device": args.device,
                 "placement": overall,
                 "standard_error": error,
                 "difference_from_level": edge,
