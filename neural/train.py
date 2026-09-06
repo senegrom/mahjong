@@ -115,6 +115,24 @@ def parse_args() -> argparse.Namespace:
         help="how much to weigh reading the opponents' hands, which is a "
         "free and dense label where the game's result is neither",
     )
+    parser.add_argument(
+        "--opponents",
+        type=Path,
+        nargs="*",
+        default=[],
+        help="older checkpoints to seat in a share of the self-play games. "
+        "Four copies of one network playing only each other are never shown "
+        "a position their own policy would not have created, and this run "
+        "was measured getting worse against outside policies while getting "
+        "better against fixed weak ones",
+    )
+    parser.add_argument(
+        "--opponent-share",
+        type=float,
+        default=0.0,
+        help="the share of games in which one seat is played by one of "
+        "them, drawn at random. Nothing that seat does is recorded",
+    )
     parser.add_argument("--measure-every", type=int, default=10)
     # Placement over sixty-four games wanders by about as much as the
     # improvements worth noticing, so the benchmark is wider.
@@ -194,6 +212,26 @@ def main() -> None:
     # The last several rounds, on disk, for the heads that may learn from
     # stale play: see `replay.py`. The policy never trains on it.
     ring = Ring(args.out / "ring", args.replay_rounds)
+
+    # The older selves that share the table, loaded once. They are only
+    # ever asked for a move, so they need no optimiser and no gradients.
+    seated = []
+    for path in args.opponents:
+        if not Path(path).exists():
+            print(f"no opponent at {path}, skipping", flush=True)
+            continue
+        older = PolicyValueNet(args.channels, args.blocks).to(device)
+        load_weights(older, torch.load(path, map_location=device, weights_only=True)["model"])
+        older.eval()
+        for parameter in older.parameters():
+            parameter.requires_grad_(False)
+        seated.append(older)
+    if seated:
+        print(
+            f"{len(seated)} older checkpoints seated in {args.opponent_share:.0%} "
+            "of games",
+            flush=True,
+        )
     replay_rng = np.random.default_rng(args.seed + 17)
 
     def hands_loss_of(guessed, wanted):
@@ -249,6 +287,8 @@ def main() -> None:
             seed=args.seed + generation * 1000,
             device=device,
             amp=args.amp,
+            opponents=seated,
+            opponent_share=args.opponent_share,
         )
         played = time.time() - began
         ring.push(batch)
