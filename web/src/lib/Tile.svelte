@@ -55,7 +55,7 @@
     dimmed = false,
     selected = false,
     safe = false,
-    dora = false,
+    dora: markedDora = false,
     drawn = false,
     size = 'normal',
     onclick = null,
@@ -64,6 +64,9 @@
     title = '',
     handIndex = null,
   } = $props();
+
+  // A hidden face must not disclose dora through its ring, name or effects.
+  let dora = $derived(Boolean(markedDora && tile && !facedown));
 
   const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
   const HONOURS = ['Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun'];
