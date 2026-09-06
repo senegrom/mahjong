@@ -1056,7 +1056,7 @@ fn cast_i32(values: &[i32]) -> &[u8] {
 }
 
 /// The riichi rules engine, as a batched environment.
-#[pymodule]
+#[pymodule(gil_used = true)]
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
     module.add("PLANES", PLANES)?;

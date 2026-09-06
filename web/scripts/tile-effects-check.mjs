@@ -3,9 +3,10 @@
  * rotated geometry, prop changes, hidden tiles and reduced motion. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { createFixtureHandler } from './static-fixture-server.mjs';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { resolve, extname, sep } from 'node:path';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
@@ -43,19 +44,7 @@ const cases = [
 <style>:global(body){margin:30px;background:#173e35;color:#fff;font:16px system-ui;--tile-width:60px;--ivory:#fffaf0;} .samples{display:flex;gap:26px;align-items:start;flex-wrap:wrap;margin-bottom:40px} section{min-width:70px} #dynamic{margin:25px 0} button{margin:10px;padding:10px}</style>`);
   await build({configFile:false,root:temporary,base:'/mahjong/',publicDir:false,plugins:[svelte()],logLevel:'warn',build:{outDir:out,target:'es2022'}});
   if (!process.argv.includes('--build-only')) {
-    const types = {'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webp':'image/webp'};
-    server = createServer(async (request,response)=>{
-      try {
-        const path = decodeURIComponent(new URL(request.url,'http://localhost').pathname);
-        if (!path.startsWith('/mahjong/')) { response.writeHead(404).end(); return; }
-        const relative = path.slice('/mahjong/'.length) || 'index.html';
-        const root = relative.startsWith('tiles/') ? resolve(web,'public') : out;
-        const file = resolve(root,relative);
-        if (!file.startsWith(root+sep)) { response.writeHead(403).end(); return; }
-        response.writeHead(200,{'Content-Type':types[extname(file)] ?? 'application/octet-stream'});
-        response.end(await readFile(file));
-      } catch { response.end(); }
-    });
+    server = createServer(createFixtureHandler({root:out,publicRoot:resolve(web,'public')}));
     await new Promise(done=>server.listen(0,'127.0.0.1',done));
     const executablePath = process.env.CHROME_BIN || ['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);
     assert.ok(executablePath,'Set CHROME_BIN to Chrome/Chromium');
