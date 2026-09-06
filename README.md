@@ -102,6 +102,15 @@ The published network, over 10,000 games against three heuristic players:
 A network no better than those bots averages 2.5. Reproduce it with
 `python -m neural.arena <checkpoint> --games 2500`.
 
+A larger network, 320 channels by 20 blocks, is being trained to replace
+it and has not earned the place yet: 2.574 against the same bots on the
+same deals, which is on the wrong side of the line. Seventy generations of
+it were spent with the auxiliary heads flattening its policy through the
+tower they shared, and it is climbing back; its own best was 2.447 before
+that drift. The browser gets whichever network the arena says is stronger,
+and the number the arena gives is the only one that decides: the placement
+the training loop logs is 512 games in one seat, and its error is 0.05.
+
 It reaches the browser as 2.4 MB of int8 weights in a worker beside the
 rules in WebAssembly, so a whole game runs offline. That published network
 is 192 channels by 10 blocks; the one training now is 320 by 20, 12.6M

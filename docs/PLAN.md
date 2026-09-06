@@ -4,9 +4,12 @@ A browser riichi mahjong game with a beautiful, usable table, faithful to the
 European Mahjong Association rules, and AI opponents trained AlphaZero-style
 from self-play on the same rules engine the humans play against.
 
-Status: 3 September 2026. The engine, the browser game and the training
+Status: 6 September 2026. The engine, the browser game and the training
 loop are built and published at <https://senegrom.github.io/mahjong/>; what
-is left is the strength of the trained opponent.
+is left is the strength of the trained opponent. The published network is
+the 192 by 10 that measures 2.443 against the heuristic bots; the 320 by 20
+being trained measures 2.574 and ships when the arena says it is stronger,
+not before.
 
 | milestone | where it stands |
 |---|---|
