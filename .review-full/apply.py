@@ -26,4 +26,29 @@ subprocess.run(['git', 'apply', '--check', '--whitespace=error', '-'], input=pac
 subprocess.run(['git', 'apply', '--whitespace=error', '-'], input=packet['patch'], text=True, check=True)
 for name, hashes in packet['files'].items():
     assert blob(Path(name)) == hashes['after'], f'Applied file checksum mismatch: {name}'
+
+# The final hand-total assertion must include every individual payment,
+# not mistake the first settlement's incremental delta for a hand total.
+p = Path('engine/riichi-core/tests/mjai_replay.rs')
+s = p.read_text()
+a = s.index('            let reported = hand\n')
+b = s.index('            assert_eq!(\n                reported, deltas,', a)
+s = s[:a] + '''            let mut reported = [0; 4];
+            let mut settled = false;
+            for event in &hand.log {
+                match event {
+                    Event::ReachAccepted { actor } => reported[actor.index()] -= 1000,
+                    Event::Hora { deltas, .. } | Event::Ryukyoku { deltas, .. } => {
+                        settled = true;
+                        for (total, delta) in reported.iter_mut().zip(deltas) {
+                            *total += delta;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert!(settled, "a finished hand says what it moved");
+''' + s[b:]
+p.write_text(s)
+assert blob(p) == '1064e8e1a0970a763501fc723a1c4dc78f3438a2'
 print(f"Applied {len(packet['files'])} checked source files")
