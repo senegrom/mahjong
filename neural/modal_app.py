@@ -66,7 +66,10 @@ def _publish(run: Path, generation: int) -> None:
     """Copies the checkpoints and the log to the volume and commits them."""
     target = VOLUME / "w320-run"
     target.mkdir(parents=True, exist_ok=True)
-    for name in ("latest.pt", "best.pt", "train.log"):
+    # `log.jsonl` is the record the loop writes itself, one line a
+    # generation. `train.log` is only what the desktop's shell redirect
+    # captured, and nothing on this side appends to it.
+    for name in ("latest.pt", "best.pt", "log.jsonl"):
         source = run / name
         if not source.exists():
             continue
@@ -132,9 +135,12 @@ def train(
     if source.exists():
         started_from = str(source)
         shutil.copyfile(source, RUN / "latest.pt")
-        log = VOLUME / "w320-run" / "train.log"
-        if log.exists():
-            shutil.copyfile(log, RUN / "train.log")
+        # Carry the history forward so a resumed run appends to it rather
+        # than starting a fresh record every container.
+        for name in ("log.jsonl", "train.log"):
+            history = VOLUME / "w320-run" / name
+            if history.exists():
+                shutil.copyfile(history, RUN / name)
     print(f"resuming from {started_from or 'nothing: a fresh network'}", flush=True)
 
     command = [
