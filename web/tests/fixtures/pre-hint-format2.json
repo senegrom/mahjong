@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "format": 2,
+  "seed": 81,
+  "difficulty": "club",
+  "commands": [
+    {
+      "type": "choose",
+      "kind": "discard",
+      "tile": "9s"
+    },
+    {
+      "type": "choose",
+      "kind": "discard",
+      "tile": "5z"
+    },
+    {
+      "type": "choose",
+      "kind": "riichi",
+      "tile": "2z"
+    }
+  ],
+  "state": "[{\"round\":\"east\",\"kyoku\":1,\"hands_played\":0,\"counters\":0,\"riichi_sticks\":1,\"wall\":57,\"dora_indicators\":[\"6m\"],\"seats\":[{\"seat\":\"east\",\"hand_size\":14,\"hand\":[\"7m\",\"7m\",\"8m\",\"8m\",\"9p\",\"9p\",\"4s\",\"4s\",\"5s\",\"5s\",\"1z\",\"1z\",\"6z\"],\"drawn\":\"4z\",\"melds\":[],\"discards\":[{\"tile\":\"9s\",\"drawn\":true,\"riichi\":false,\"claimed\":false},{\"tile\":\"5z\",\"drawn\":true,\"riichi\":false,\"claimed\":false},{\"tile\":\"2z\",\"drawn\":false,\"riichi\":true,\"claimed\":false}],\"score\":29000,\"riichi\":true,\"turn\":true},{\"seat\":\"south\",\"hand_size\":13,\"hand\":[],\"melds\":[],\"discards\":[{\"tile\":\"7z\",\"drawn\":false,\"riichi\":false,\"claimed\":false},{\"tile\":\"9s\",\"drawn\":false,\"riichi\":false,\"claimed\":false},{\"tile\":\"1p\",\"drawn\":false,\"riichi\":false,\"claimed\":false}],\"score\":30000,\"riichi\":false,\"turn\":false},{\"seat\":\"west\",\"hand_size\":13,\"hand\":[],\"melds\":[],\"discards\":[{\"tile\":\"7z\",\"drawn\":false,\"riichi\":false,\"claimed\":false},{\"tile\":\"1p\",\"drawn\":true,\"riichi\":false,\"claimed\":false},{\"tile\":\"4z\",\"drawn\":true,\"riichi\":false,\"claimed\":false}],\"score\":30000,\"riichi\":false,\"turn\":false},{\"seat\":\"north\",\"hand_size\":13,\"hand\":[],\"melds\":[],\"discards\":[{\"tile\":\"4z\",\"drawn\":false,\"riichi\":false,\"claimed\":false},{\"tile\":\"1p\",\"drawn\":false,\"riichi\":false,\"claimed\":false},{\"tile\":\"2z\",\"drawn\":false,\"riichi\":false,\"claimed\":false}],\"score\":30000,\"riichi\":false,\"turn\":false}],\"phase\":\"act\",\"dora_types\":[\"7m\"],\"waits\":[\"4z\",\"6z\"],\"waits_left\":[1,3],\"dora\":[\"7m\",\"7m\"],\"shanten\":0,\"furiten\":false,\"safe\":[]},[{\"kind\":\"discard\",\"tile\":\"4z\",\"label\":\"discards the north wind\"}],false]"
+}

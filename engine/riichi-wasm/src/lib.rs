@@ -118,6 +118,17 @@ pub struct TableView {
     pub safe: Vec<String>,
 }
 
+/// Waiting tiles after a proposed legal discard, without applying it.
+#[derive(Serialize)]
+pub struct DiscardHint {
+    /// Distance of the resulting hand from a wait.
+    pub shanten: i32,
+    /// Tiles completing that exact resulting shape.
+    pub waits: Vec<String>,
+    /// Unseen copies of each wait, in the same order.
+    pub waits_left: Vec<u8>,
+}
+
 /// A hand that won, with the working shown.
 #[derive(Serialize)]
 pub struct WinView {
@@ -141,6 +152,12 @@ pub struct WinView {
     pub dora: u8,
     /// This winner's dora types, including ura-dora when riichi applies.
     pub dora_types: Vec<String>,
+    /// Face-up indicators used to score this winner, including kan indicators.
+    pub dora_indicators: Vec<String>,
+    /// Revealed only for a riichi winner after the hand has ended.
+    pub ura_indicators: Vec<String>,
+    /// The ura-dora portion of `dora`; zero for yakuman, where dora do not score.
+    pub ura_dora: u8,
     /// Minipoints.
     pub fu: u32,
     /// The limit reached, if any.
@@ -413,7 +430,19 @@ impl Game {
     /// The table as the player sees it.
     pub fn view(&self) -> Result<JsValue, JsValue> {
         let player = &self.hand.players[self.seat.index()];
-        let waits = player.waits();
+        // Waits belong to a 13-tile shape (fewer with melds), never a
+        // 14-tile hand plus an imaginary fifteenth tile. Keep the locked
+        // riichi wait stable across draws; before riichi this is the shape
+        // before the draw, not a prediction of the player's next discard.
+        let mut waiting = player.clone();
+        if let Some(drawn) = self.drawn_tile(self.seat) {
+            waiting.hand.remove(drawn);
+        }
+        let waits = if waiting.hand.len() % 3 == 1 {
+            waiting.waits()
+        } else {
+            riichi_core::TileSet::new()
+        };
         let seen = review::visible_to(&self.hand, self.seat);
         let view = TableView {
             round: wind_name(self.hand.round).to_string(),
@@ -509,6 +538,32 @@ impl Game {
             safe: self.safe_tiles(),
         };
         serde_wasm_bindgen::to_value(&view).map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    /// A read-only preview of a legal discard, using the resulting hand.
+    pub fn discard_hint(&self, tile: &str) -> Result<JsValue, JsValue> {
+        let tile: Tile = tile
+            .parse()
+            .map_err(|_| JsValue::from_str("invalid tile"))?;
+        if self.hand.turn != self.seat
+            || !self.hand.legal_actions().contains(&Action::Discard(tile))
+        {
+            return Err(JsValue::from_str("that tile cannot be discarded"));
+        }
+        let mut player = self.hand.players[self.seat.index()].clone();
+        player.hand.remove(tile);
+        let waits = player.waits();
+        // The discard stays visible, so it still counts among seen copies.
+        let seen = review::visible_to(&self.hand, self.seat);
+        let hint = DiscardHint {
+            shanten: riichi_core::shanten::shanten(&player.hand, player.melds.len()),
+            waits: waits.tiles().map(|tile| tile.to_string()).collect(),
+            waits_left: waits
+                .tiles()
+                .map(|tile| riichi_core::tile::COPIES.saturating_sub(seen.count(tile)))
+                .collect(),
+        };
+        serde_wasm_bindgen::to_value(&hint).map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
     /// What the player may do right now, which may be nothing while the
@@ -894,6 +949,22 @@ impl Game {
                         if discarder.is_none() {
                             hand.remove(score.winning_tile);
                         }
+                        let ura = if player.has_riichi() {
+                            self.hand.wall.ura_indicators()
+                        } else {
+                            Vec::new()
+                        };
+                        let ura_dora = if score.dora == 0 {
+                            0
+                        } else {
+                            let mut all = player.visible_to_self();
+                            if discarder.is_some() {
+                                all.add(score.winning_tile);
+                            }
+                            ura.iter()
+                                .map(|indicator| all.count(indicator.dora()))
+                                .sum()
+                        };
                         WinView {
                             seat: wind_name(*seat).to_string(),
                             by: if discarder.is_some() {
@@ -929,6 +1000,15 @@ impl Game {
                                 }
                                 types
                             },
+                            dora_indicators: self
+                                .hand
+                                .wall
+                                .dora_indicators()
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect(),
+                            ura_indicators: ura.iter().map(ToString::to_string).collect(),
+                            ura_dora,
                             fu: score.fu,
                             limit: score.limit.map(|limit| limit.name().to_string()),
                             payment: describe_payment(

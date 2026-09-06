@@ -16,6 +16,7 @@
     reviewed = false,
     onlog,
     gameOver = false,
+    finalHand = false,
     dora = [],
     bets = 0,
     busy = false,
@@ -73,13 +74,34 @@
         {/if}
       </div>
 
+      <div class="bonus-indicators">
+        <div class="indicator-row" aria-label="winning hand dora indicators">
+          <span>Dora indicators</span>
+          <div class="indicator-tiles">
+            {#each win.dora_indicators ?? [] as tile, slot (slot)}<Tile {tile} size="small" />{/each}
+          </div>
+        </div>
+        {#if win.ura_indicators?.length}
+          <div class="indicator-row ura" aria-label="winning hand ura-dora indicators">
+            <span>Ura-dora indicators</span>
+            <div class="indicator-tiles">
+              {#each win.ura_indicators as tile, slot (slot)}<Tile {tile} size="small" />{/each}
+            </div>
+          </div>
+          <p class="indicator-help">Ura-dora are revealed for a riichi win. Each indicator points to the next tile; repeats count again.{win.limit === 'yakuman' ? ' Dora do not add han to yakuman.' : ''}</p>
+        {/if}
+      </div>
+
       <div class="working">
         <ul class="yaku">
           {#each win.yaku as yaku (yaku.name)}
             <li><span>{yaku.name}</span><b>{yaku.han}</b></li>
           {/each}
-          {#if win.dora}
-            <li><span>Dora</span><b>{win.dora}</b></li>
+          {#if win.dora || win.ura_indicators?.length}
+            <li class="dora-count"><span>Dora</span><b>{win.dora - (win.ura_dora ?? 0)}</b></li>
+          {/if}
+          {#if win.ura_indicators?.length}
+            <li class="ura-count"><span>Ura-dora</span><b>{win.ura_dora ?? 0}</b></li>
           {/if}
         </ul>
         <p class="total">
@@ -110,13 +132,15 @@
   </table>
 
   <div class="buttons">
-    {#if gameOver}
+    {#if finalHand}
+      <span class="final-caption">Final hand</span>
+    {:else if gameOver}
       <button disabled={busy} class="primary" onclick={ongame}>Play again</button>
     {:else}
       <button disabled={busy} class="primary" onclick={onnext}>Next hand</button>
     {/if}
     {#if onreview && !reviewed}
-      <button class="quiet" onclick={onreview}>Look at my hand again</button>
+      <button class="quiet" onclick={onreview}>{finalHand ? 'Review final hand' : 'Look at my hand again'}</button>
     {/if}
     {#if onlog}
       <button
@@ -124,7 +148,7 @@
         onclick={onlog}
         title="The hand as an mjai event log, which replayers and other riichi programs read"
       >
-        Save this hand
+        {finalHand ? 'Save final hand' : 'Save this hand'}
       </button>
     {/if}
   </div>
@@ -177,6 +201,12 @@
     border-radius: 6px;
     box-shadow: 0 0 0 2px var(--gold);
   }
+
+  .bonus-indicators { display: flex; flex-wrap: wrap; gap: 10px 22px; min-width: 0; }
+  .indicator-row { display: grid; gap: 6px; font-size: .8rem; min-width: 0; }
+  .indicator-tiles { display: flex; flex-wrap: wrap; gap: 5px; }
+  .indicator-help { margin: 0; flex-basis: 100%; font-size: .78rem; opacity: .85; }
+  .final-caption { align-self: center; font-size: .85rem; }
 
   .working {
     display: grid;

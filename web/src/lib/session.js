@@ -61,14 +61,14 @@ export class MatchSession {
   stateKey() { return JSON.stringify([this.view, this.choices, this.over]); }
 
   snapshot() {
-    return { version: VERSION, format: 2, seed: this.seed, difficulty: this.initialDifficulty,
+    return { version: VERSION, format: 3, seed: this.seed, difficulty: this.initialDifficulty,
       commands: this.commands.map((command) => ({ ...command })), state: this.stateKey() };
   }
 
   static restore(Game, text, options) {
     require(typeof text === 'string' && text.length <= MAX_SAVE_BYTES, 'Saved match is too large');
     const saved = JSON.parse(text);
-    require(saved?.version === VERSION && (saved.format === undefined || saved.format === 2) && Array.isArray(saved.commands), 'Unsupported saved match');
+    require(saved?.version === VERSION && (saved.format === undefined || saved.format === 2 || saved.format === 3) && Array.isArray(saved.commands), 'Unsupported saved match');
     require(saved.commands.length <= MAX_COMMANDS && typeof saved.state === 'string', 'Invalid saved match');
     const session = new MatchSession(Game, saved.seed, saved.difficulty, options);
     try {
@@ -91,10 +91,22 @@ export class MatchSession {
       // Compare every former field, then migrate only this additive metadata.
       // Divergent rules/commands still fail closed and leave the save untouched.
       const state = session.stateKey();
-      const comparable = saved.format === undefined
-        ? JSON.stringify(JSON.parse(state), (key, value) => key === 'claimed_tile' ? undefined : value)
-        : state;
-      require(comparable === saved.state, 'The saved match does not match this engine version');
+      const comparable = (value) => {
+        if (saved.format === 3) return value;
+        const data = JSON.parse(value);
+        // These derived hints were incorrect on 14-tile hands. They are not
+        // authoritative game state; every tile, score, phase and legal choice
+        // must still agree exactly with the replayed record.
+        delete data[0].waits;
+        delete data[0].waits_left;
+        for (const win of data[0].outcome?.wins ?? []) {
+          delete win.dora_indicators;
+          delete win.ura_indicators;
+          delete win.ura_dora;
+        }
+        return JSON.stringify(data, (key, field) => saved.format === undefined && key === 'claimed_tile' ? undefined : field);
+      };
+      require(comparable(state) === comparable(saved.state), 'The saved match does not match this engine version');
       return session;
     } catch (error) {
       session.dispose();
@@ -127,7 +139,7 @@ export class MatchSession {
       case 'next':
         require(!this.over && this.engine.hand_is_over(), 'The hand cannot be advanced');
         this.engine.next_hand();
-        this.events = [];
+        if (!this.engine.game_is_over()) this.events = [];
         recorded = { type: 'next' };
         break;
       case 'club':

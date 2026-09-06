@@ -58,3 +58,22 @@ export function placeLabel(row) {
   const place = ['1st', '2nd', '3rd', '4th'][row.place - 1] ?? String(row.place);
   return row.tied ? `Joint ${place}` : place;
 }
+
+/** Move among legal tile buttons, not array slots that may be disabled.
+ * The returned marker always names the element that actually owns focus.
+ */
+export function moveHandFocus(hand, direction) {
+  if (!hand || ![-1, 1].includes(direction)) return null;
+  const buttons = [...hand.querySelectorAll('button[data-hand-index]')].filter(button => !button.disabled);
+  if (!buttons.length) return null;
+  const document = hand.ownerDocument;
+  const active = document.activeElement;
+  if (!hand.contains(active)) return null;
+  const current = active?.closest('[data-hand-index]');
+  const position = buttons.indexOf(current);
+  const next = position < 0 ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, position + direction));
+  const target = buttons[next];
+  target.focus({ preventScroll: true });
+  const focused = buttons.find(button => button === document.activeElement);
+  return focused ? Number(focused.dataset.handIndex) : null;
+}

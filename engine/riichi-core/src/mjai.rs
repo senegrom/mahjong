@@ -192,7 +192,7 @@ pub enum Event {
         han: u8,
         /// What the hand paid, bets aside.
         points: u32,
-        /// What each seat gained or lost over the hand.
+        /// Change caused by this settlement only; earlier events are already applied.
         deltas: [i32; 4],
         /// Points held afterwards, by seat.
         scores: [i32; 4],
@@ -204,7 +204,7 @@ pub enum Event {
         reason: &'static str,
         /// Who was waiting, by seat.
         tenpai: [bool; 4],
-        /// What each seat gained or lost over the hand.
+        /// Change caused by this settlement only; earlier events are already applied.
         deltas: [i32; 4],
         /// Points held afterwards, by seat.
         scores: [i32; 4],

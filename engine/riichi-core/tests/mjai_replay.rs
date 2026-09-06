@@ -67,7 +67,10 @@ impl Replay {
                 self.discarded[actor.index()].push(*tile);
             }
             Event::Reach { .. } => {}
-            Event::ReachAccepted { actor } => self.riichi[actor.index()] = true,
+            Event::ReachAccepted { actor } => {
+                self.riichi[actor.index()] = true;
+                self.scores[actor.index()] -= 1000;
+            }
             Event::Chi {
                 actor,
                 target,
@@ -124,7 +127,15 @@ impl Replay {
                 }
             }
             Event::Dora { indicator } => self.indicators.push(*indicator),
-            Event::Hora { scores, .. } | Event::Ryukyoku { scores, .. } => self.scores = *scores,
+            Event::Hora { scores, deltas, .. } | Event::Ryukyoku { scores, deltas, .. } => {
+                for (balance, delta) in self.scores.iter_mut().zip(deltas) {
+                    *balance += delta;
+                }
+                assert_eq!(
+                    self.scores, *scores,
+                    "each settlement must balance on its own"
+                );
+            }
             Event::StartGame { .. } | Event::EndKyoku | Event::EndGame => {}
         }
     }
@@ -240,14 +251,21 @@ fn replay_games(seeds: impl Iterator<Item = u64>) -> usize {
 
             // What the log says the hand moved is what it moved.
             let deltas = hand.deltas();
-            let reported = hand
-                .log
-                .iter()
-                .find_map(|event| match event {
-                    Event::Hora { deltas, .. } | Event::Ryukyoku { deltas, .. } => Some(*deltas),
-                    _ => None,
-                })
-                .expect("a finished hand says what it moved");
+            let mut reported = [0; 4];
+            let mut settled = false;
+            for event in &hand.log {
+                match event {
+                    Event::ReachAccepted { actor } => reported[actor.index()] -= 1000,
+                    Event::Hora { deltas, .. } | Event::Ryukyoku { deltas, .. } => {
+                        settled = true;
+                        for (total, delta) in reported.iter_mut().zip(deltas) {
+                            *total += delta;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert!(settled, "a finished hand says what it moved");
             assert_eq!(
                 reported, deltas,
                 "seed {seed}: the log misreports what the hand moved"

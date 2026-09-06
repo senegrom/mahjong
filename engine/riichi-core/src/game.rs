@@ -1233,7 +1233,23 @@ impl Hand {
     }
 
     fn apply_win(&mut self, winners: Vec<(Wind, Score)>, discarder: Option<Wind>) {
+        // Allocate bets exactly once. Every riichi winner gets their own bet
+        // back; the first winner in turn order collects the remaining pool.
+        let mut pool = self.riichi_sticks;
+        let mut awards = [0; 4];
+        for (seat, _) in &winners {
+            let own = self.bets_this_hand[seat.index()].min(pool);
+            awards[seat.index()] = (own * 1000) as i32;
+            pool -= own;
+        }
+        if let Some((seat, _)) = winners.first() {
+            awards[seat.index()] += (pool * 1000) as i32;
+            pool = 0;
+        }
         for (seat, score) in &winners {
+            // MJAI deltas describe this event, not the whole hand. Previous
+            // reach_accepted and hora events have already changed the ledger.
+            let before = self.scores();
             let payments = score.payments;
             let liable = self.liable_for(*seat);
             match (discarder, liable) {
@@ -1280,25 +1296,8 @@ impl Hand {
                     }
                 }
             }
-        }
-        // Every winner who declared riichi this hand gets their own bet
-        // back; whatever is left, including bets from earlier hands, goes to
-        // the winner first in turn order from the discarder (EMA 3.3.10).
-        let mut pool = self.riichi_sticks;
-        for (seat, _) in &winners {
-            let own = self.bets_this_hand[seat.index()].min(pool);
-            if own > 0 {
-                self.players[seat.index()].score += (own * 1000) as i32;
-                pool -= own;
-            }
-        }
-        if let Some((seat, _)) = winners.first() {
-            self.players[seat.index()].score += (pool * 1000) as i32;
-            pool = 0;
-        }
-        self.riichi_sticks = pool;
-        self.bets_this_hand = [0; 4];
-        for (seat, score) in &winners {
+            self.players[seat.index()].score += awards[seat.index()];
+            let scores = self.scores();
             let riichi = self.players[seat.index()].has_riichi();
             self.log.push(mjai::Event::Hora {
                 actor: *seat,
@@ -1312,16 +1311,19 @@ impl Hand {
                 fu: score.fu,
                 han: score.han,
                 points: mjai::hora_points(score, discarder.is_some()),
-                deltas: self.deltas(),
-                scores: self.scores(),
+                deltas: core::array::from_fn(|index| scores[index] - before[index]),
+                scores,
             });
         }
+        self.riichi_sticks = pool;
+        self.bets_this_hand = [0; 4];
         self.log.push(mjai::Event::EndKyoku);
         self.outcome = Some(Outcome::Win { winners, discarder });
         self.phase = Phase::Over;
     }
 
     fn finish_exhaustive(&mut self) {
+        let before = self.scores();
         let tenpai: Vec<Wind> = Wind::ALL
             .into_iter()
             .filter(|seat| self.players[seat.index()].is_tenpai())
@@ -1347,7 +1349,7 @@ impl Hand {
         self.log.push(mjai::Event::Ryukyoku {
             reason: "howanpai",
             tenpai: waiting,
-            deltas: self.deltas(),
+            deltas: core::array::from_fn(|index| self.players[index].score - before[index]),
             scores: self.scores(),
         });
         self.log.push(mjai::Event::EndKyoku);

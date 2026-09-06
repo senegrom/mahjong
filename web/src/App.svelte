@@ -10,7 +10,7 @@
   import Review from './lib/Review.svelte';
   import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
-  import { acceptsHandKey, heldSafeCount, callLabel, callTiles } from './lib/ui.js';
+  import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { tileWords } from './lib/tiles.js';
 
@@ -58,6 +58,12 @@
   let shownDora = $derived(hints ? (view?.dora_types ?? []) : []);
   let safeCount = $derived(heldSafeCount(view));
   let selectedTile = $derived(selected === null ? null : handTiles[selected]);
+  let previewTile = $derived(handTiles[selected ?? picked] ?? null);
+  let discardHint = $derived(previewTile && canDiscard(previewTile)
+    ? session?.engine.discard_hint(previewTile) : null);
+  let displayWaits = $derived(discardHint?.waits ?? view?.waits ?? []);
+  let displayLeft = $derived(discardHint?.waits_left ?? view?.waits_left ?? []);
+  let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
 
   $effect(() => {
     const value = { version: 1, difficulty, hints, confirmDiscards, shortcuts };
@@ -68,7 +74,7 @@
   // it, so the arrows and Enter work at once: the shortcuts only run with
   // focus inside the hand, which keeps them off the controls.
   $effect(() => {
-    if (!myTurn || !handElement || !shortcuts || touch) return;
+    if (busy || failure || saveConflict || !myTurn || !handElement || !shortcuts || touch) return;
     const active = document.activeElement;
     if (!active || active === document.body || handElement.contains(active)) {
       handElement.focus({ preventScroll: true });
@@ -186,9 +192,15 @@
 
   async function choose(choice) {
     if (!session || busy) return;
+    const owner = session;
+    const fromHand = handElement?.contains(document.activeElement);
     picked = null;
     selected = null;
-    await session.choose(choice);
+    await owner.choose(choice);
+    await tick();
+    if (session !== owner || owner.closed || !fromHand || busy || failure || saveConflict || !myTurn || !shortcuts || touch) return;
+    const active = document.activeElement;
+    if (active === document.body || handElement?.contains(active)) handElement?.focus({ preventScroll: true });
   }
 
   function discard(tile) {
@@ -216,14 +228,13 @@
     if (event.key === 'Escape') { picked = null; selected = null; return; }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
+      const owner = session;
       const step = event.key === 'ArrowLeft' ? -1 : 1;
-      const focused = event.target.closest('[data-hand-index]');
-      const index = focused ? Number(focused.dataset.handIndex) : null;
-      picked = index === null ? Math.max(handTiles.length - 1, 0)
-        : Math.min(Math.max(index + step, 0), handTiles.length - 1);
       selected = null;
       await tick();
-      handElement?.querySelector(`[data-hand-index="${picked}"]`)?.focus({ preventScroll: true });
+      if (session !== owner || busy || failure || saveConflict || !myTurn || !handElement?.contains(document.activeElement)) return;
+      // Only enabled, actually focused tiles can acquire a keyboard marker.
+      picked = moveHandFocus(handElement, step);
       return;
     }
     if (event.repeat) { event.preventDefault(); return; }
@@ -253,12 +264,13 @@
 
   function retryAi() { resetPolicy(); void session?.retry(); }
   function continueClub() { resetPolicy(); void session?.continueWithClub(); }
-  function nextHand() {
-    if (busy) return;
-    notes = null;
+  async function nextHand() {
+    if (busy || !session) return;
+    const owner = session;
     picked = null;
     selected = null;
-    void session?.nextHand();
+    const advanced = await owner.nextHand();
+    if (session === owner && advanced && !owner.over) notes = null;
   }
 
   function saveLog() {
@@ -405,8 +417,15 @@
       <div class="centre" aria-label="the table">
         <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>round / hand</span></div>
         <div class="wall"><strong>{view.wall}</strong><span>tiles left</span></div>
-        <div class="indicators" aria-label="dora indicators">
-          {#each view.dora_indicators as indicator, slot (slot)}<Tile tile={indicator} size="small" />{/each}
+        <div class="table-indicators">
+          <div class="indicator-line"><span>Dora</span><div class="indicators" aria-label="dora indicators">
+            {#each view.dora_indicators as indicator, slot (slot)}<Tile tile={indicator} size="small" />{/each}
+          </div></div>
+          {#if uraIndicators.length}
+            <div class="indicator-line"><span>Ura-dora</span><div class="ura-indicators" aria-label="ura-dora indicators">
+              {#each uraIndicators as indicator, slot (slot)}<Tile tile={indicator} size="small" />{/each}
+            </div></div>
+          {/if}
         </div>
         {#if view.counters || view.riichi_sticks}
           <div class="table-extras">
@@ -427,13 +446,18 @@
           {#if me.riichi}<span class="riichi">Riichi</span>{/if}
           {#if hints}
             <span class="hint">
-              {#if view.shanten < 0}Complete tile shape
-              {:else if view.shanten === 0}
-                Waiting on
-                {#each view.waits as wait, index (index)}
-                  <span class="wait"><Tile tile={wait} size="tiny" dora={shownDora.includes(wait)} /><span class="remaining" class:none={view.waits_left[index] === 0} aria-label="{view.waits_left[index]} unseen">{view.waits_left[index]}</span></span>
+              {#if !discardHint && view.shanten < 0}Complete tile shape
+              {:else if displayWaits.length}
+                {discardHint ? `After discarding ${tileWords(previewTile)}, waiting on` : me.riichi || !me.drawn ? 'Waiting on' : 'Wait before this draw:'}
+                {#each displayWaits as wait, index (index)}
+                  <span class="wait"><Tile tile={wait} size="tiny" dora={shownDora.includes(wait)} /><span class="remaining" class:none={displayLeft[index] === 0} aria-label="{displayLeft[index]} unseen">{displayLeft[index]}</span></span>
                 {/each}
-              {:else}{view.shanten} tile{view.shanten === 1 ? '' : 's'} from a wait{/if}
+              {:else if (discardHint?.shanten ?? view.shanten) === 0}
+                Select a discard to see its waits
+              {:else}
+                {#if discardHint}After discarding {tileWords(previewTile)}: {/if}
+                {discardHint?.shanten ?? view.shanten} tile{(discardHint?.shanten ?? view.shanten) === 1 ? '' : 's'} from a wait
+              {/if}
             </span>
           {/if}
         </header>
@@ -462,10 +486,11 @@
       <section class="controls" aria-label="your choices" bind:this={callElement}>
         {#if standings}
           <Standings {standings} onagain={() => start()} />
-        {:else if view.phase === 'over' && view.outcome}
+        {/if}
+        {#if view.phase === 'over' && view.outcome}
           <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
             bets={view.riichi_sticks ?? 0} gameOver={session?.over ?? false} onnext={nextHand}
-            ongame={() => start()} onreview={showReview} reviewed={notes !== null} onlog={saveLog} />
+            ongame={() => start()} onreview={showReview} reviewed={notes !== null} onlog={saveLog} finalHand={Boolean(standings)} />
           {#if notes !== null}<Review {notes} {hints} />{/if}
         {:else}
           <p id="hand-help" class="prompt" role="status">
@@ -572,6 +597,9 @@
   .round, .wall { display: grid; text-align: center; }
   .round strong, .wall strong { font-size: 1.3rem; }
   .round span, .wall span { font-size: .7rem; }
+  .table-indicators { display: grid; gap: 6px; min-width: 0; }
+  .indicator-line { display: grid; gap: 4px; font-size: .65rem; }
+  .ura-indicators { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
   .indicators { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
   .table-extras { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: .8rem; color: var(--gold); }
   .inspect { font-size: .8rem; }
@@ -635,7 +663,7 @@
     .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; justify-content: space-between; gap: 6px 10px; padding: 8px; }
     .round strong, .wall strong { font-size: 1rem; }
     .round span, .wall span { font-size: .65rem; }
-    .indicators { --tile-width: 36px; }
+    .indicators, .ura-indicators { --tile-width: 36px; }
     .left { grid-area: 2 / 1; justify-self: stretch; }
     .across { grid-area: 2 / 2; }
     .right { grid-area: 2 / 3; justify-self: stretch; }
