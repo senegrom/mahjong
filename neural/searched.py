@@ -390,6 +390,11 @@ def main() -> None:
                 "difference_from_level": edge,
                 "standard_errors": sigmas,
                 "by_chair": per_chair,
+                # One figure a deal: the four chairs' placements on that
+                # deal, averaged. Two arms run at the same seed share their
+                # deals exactly, so subtracting these elementwise gives a
+                # paired difference whose error is the honest one.
+                "by_deal": [round(float(value), 4) for value in paired],
                 "overrides": f"{overrode} of {asked}, {100.0 * overrode / max(asked, 1):.1f}%",
                 "verdict": (
                     "searching helps"
