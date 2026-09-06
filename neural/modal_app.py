@@ -100,7 +100,11 @@ def _generation_of(checkpoint: Path) -> int:
 
 @app.function(
     gpu="H100",
-    cpu=16.0,
+    # Self-play is now the long pole, not the card: at sixteen processors a
+    # generation was 184 seconds of which 82 were playing. Those are the
+    # rules engine on the processors, and the card idles through them, so
+    # buying processors buys back billed card time as well as wall clock.
+    cpu=32.0,
     memory=98304,
     timeout=24 * 60 * 60,
     volumes={str(VOLUME): volume},
