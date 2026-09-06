@@ -95,6 +95,11 @@ def duplicate(net, games: int, seed: int, device: str = "cuda") -> dict:
         "games_total": games * SEATS,
         "placement": overall,
         "standard_error": error,
+        # One figure a deal: the four seatings' placements on that deal,
+        # averaged. Two checkpoints measured at the same seed play the same
+        # deals, so subtracting these elementwise gives a paired difference
+        # whose error is the honest one, and far smaller than either run's.
+        "by_deal": [round(float(value), 4) for value in per_deal],
         "score": float(statistics.fmean(row["score"] for row in per_seat)),
         "wins": float(statistics.fmean(row["wins"] for row in per_seat)),
         "by_seat": per_seat,
@@ -127,16 +132,23 @@ def main() -> None:
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("--games", type=int, default=500, help="deals per seating")
     parser.add_argument("--seed", type=int, default=555_000)
+    parser.add_argument(
+        "--device",
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help="where the network runs. The card by default, and the "
+        "processor when there is none, which is slow but lets a command "
+        "line be tried while a run holds the card",
+    )
     parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
     args = parser.parse_args()
 
-    state = torch.load(args.checkpoint, map_location="cuda", weights_only=True)
-    net = build(channels=args.channels, blocks=args.blocks)
+    state = torch.load(args.checkpoint, map_location=args.device, weights_only=True)
+    net = build(channels=args.channels, blocks=args.blocks, device=args.device)
     load_weights(net, state["model"])
     net.eval()
 
-    result = duplicate(net, games=args.games, seed=args.seed)
+    result = duplicate(net, games=args.games, seed=args.seed, device=args.device)
     result["checkpoint"] = str(args.checkpoint)
     result["verdict"] = verdict(result)
     print(json.dumps(result, indent=1))
