@@ -1,4 +1,5 @@
 <script module>
+  import dragonUrl from '../assets/white-dragon.webp';
   // Every face, fetched once when the page loads. A face is otherwise
   // fetched the first time a tile of that kind is shown, and until it
   // arrives the tile is blank, or still wears the face it had before,
@@ -19,15 +20,15 @@
   // burst of thirty-seven on a slow connection put the faces the table
   // needed now behind ones it did not, and each waited on all of them.
   if (typeof Image !== 'undefined') {
-    const pending = [...FACES];
+    const pending = [...FACES.map((face) => `tiles/${face}.svg`), dragonUrl];
     const next = () => {
-      const face = pending.shift();
-      if (!face) return;
+      const url = pending.shift();
+      if (!url) return;
       const image = new Image();
       image.fetchPriority = 'low';
       image.onload = next;
       image.onerror = next;
-      image.src = `tiles/${face}.svg`;
+      image.src = url;
     };
     setTimeout(next, 2000);
   }
@@ -103,6 +104,7 @@
   // The white dragon's face is blank, which reads as a missing picture.
   // Sets that do not leave it plain frame it in blue; so does this one.
   let blank = $derived(!facedown && tile === '5z');
+  let whiteDragonDora = $derived(blank && dora);
 </script>
 
 {#if onclick}
@@ -127,8 +129,17 @@
     aria-label={words}
     onclick={() => onclick(tile)}
   >
-    <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
-    {#if dora}<span class="foil" aria-hidden="true"></span>{/if}
+    <span class="face" class:haku={whiteDragonDora}>
+      <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
+      {#if dora && !facedown}
+        {#key whiteDragonDora}
+          {#if whiteDragonDora}
+            <span class="haku-dragon-reveal" style:background-image={`url("${dragonUrl}")`} aria-hidden="true"></span>
+          {/if}
+          <span class="foil" aria-hidden="true"></span>
+        {/key}
+      {/if}
+    </span>
   </button>
 {:else}
   <span
@@ -142,8 +153,17 @@
     aria-label={words}
     title={title || words}
   >
-    <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
-    {#if dora}<span class="foil" aria-hidden="true"></span>{/if}
+    <span class="face" class:haku={whiteDragonDora}>
+      <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
+      {#if dora && !facedown}
+        {#key whiteDragonDora}
+          {#if whiteDragonDora}
+            <span class="haku-dragon-reveal" style:background-image={`url("${dragonUrl}")`} aria-hidden="true"></span>
+          {/if}
+          <span class="foil" aria-hidden="true"></span>
+        {/key}
+      {/if}
+    </span>
   </span>
 {/if}
 
@@ -164,6 +184,25 @@
     background: none;
     line-height: 0;
     flex: none;
+  }
+
+  .face {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    flex: none;
+    isolation: isolate;
+    --sheen-from: 120%;
+    --sheen-to: -20%;
+    --sheen-duration: 5s;
+  }
+
+  /* Both layers start together, also when a keyed tile changes identity.
+     Off-face endpoints leave Haku genuinely blank between passes. */
+  .face.haku {
+    --sheen-from: 160%;
+    --sheen-to: -60%;
   }
 
   .tile img {
@@ -196,7 +235,7 @@
     --face-width: calc(var(--tile-width) * 0.5);
   }
 
-  .rotated img {
+  .rotated .face {
     transform: rotate(90deg);
     transform-origin: center;
   }
@@ -214,11 +253,11 @@
     justify-content: center;
   }
 
-  .rotated img {
+  .rotated .face {
     width: var(--face-width);
   }
 
-  .dimmed img {
+  .dimmed .face {
     filter: grayscale(0.55) brightness(0.82);
   }
 
@@ -252,7 +291,7 @@
     cursor: default;
   }
 
-  button.tile:disabled.muted img {
+  button.tile:disabled.muted .face {
     filter: grayscale(0.7) brightness(0.75);
   }
 
@@ -282,6 +321,44 @@
 
   /* A dora shines, as a foil card does: a sheen that crosses the face
      slowly, over the picture and under the pointer. */
+  /* The approved artwork is a decorative layer, never a replacement for
+     the tile name. Hide it entirely if CSS masking is unsupported. */
+  .haku-dragon-reveal {
+    display: none;
+    position: absolute;
+    inset: 0;
+    border-radius: 4px;
+    pointer-events: none;
+    background-size: 92% 94%;
+    background-position: center;
+    background-repeat: no-repeat;
+    mix-blend-mode: multiply;
+    -webkit-mask-image: linear-gradient(115deg, transparent 30%, black 44%, black 56%, transparent 70%);
+    mask-image: linear-gradient(115deg, transparent 30%, black 44%, black 56%, transparent 70%);
+    -webkit-mask-size: 250% 100%;
+    mask-size: 250% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: var(--sheen-from) 0;
+    mask-position: var(--sheen-from) 0;
+    animation: dragon-reveal var(--sheen-duration) linear infinite;
+  }
+
+  @supports (mask-image: linear-gradient(black, transparent)) or (-webkit-mask-image: linear-gradient(black, transparent)) {
+    .haku-dragon-reveal { display: block; }
+  }
+
+  @keyframes dragon-reveal {
+    from {
+      -webkit-mask-position: var(--sheen-from) 0;
+      mask-position: var(--sheen-from) 0;
+    }
+    to {
+      -webkit-mask-position: var(--sheen-to) 0;
+      mask-position: var(--sheen-to) 0;
+    }
+  }
+
   .foil {
     position: absolute;
     inset: 0;
@@ -296,20 +373,26 @@
       rgba(255, 255, 255, 0) 70%
     );
     background-size: 250% 100%;
+    background-repeat: no-repeat;
     mix-blend-mode: screen;
-    animation: sheen 5s linear infinite;
+    animation: sheen var(--sheen-duration) linear infinite;
   }
 
   @keyframes sheen {
     from {
-      background-position: 120% 0;
+      background-position: var(--sheen-from) 0;
     }
     to {
-      background-position: -20% 0;
+      background-position: var(--sheen-to) 0;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .haku-dragon-reveal {
+      animation: none;
+      -webkit-mask-position: 40% 0;
+      mask-position: 40% 0;
+    }
     .foil {
       animation: none;
       background-position: 40% 0;
