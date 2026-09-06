@@ -102,14 +102,29 @@ The published network, over 10,000 games against three heuristic players:
 A network no better than those bots averages 2.5. Reproduce it with
 `python -m neural.arena <checkpoint> --games 2500`.
 
+This figure says a network beats the heuristic players. It does not say
+which of two networks is better, and it is much too coarse to: the
+saturation is severe. Two checkpoints of the larger network being trained
+score 2.4635 and 2.4288 here, a difference of 0.035, and when they play
+each other the later one wins by 0.23 placement at thirteen standard
+errors. Both beat the bots easily, so how much better one is than the
+other barely shows.
+
+Two networks are therefore ranked by sitting them at one table. One takes
+a place and the other the remaining three, in the same games, four times
+over with the challenger in each seat; two identical networks return
+exactly 2.50 with no error, which is the check that the estimator is not
+inventing precision. `python -m neural.duel challenger.pt incumbent.pt`.
+Run it in both directions, because sitting alone against three of a kind
+could in principle be a handicap of its own, and only the reverse duel
+rules that out.
+
 A larger network, 320 channels by 20 blocks, is being trained to replace
-it and has not earned the place yet: 2.574 against the same bots on the
-same deals, which is on the wrong side of the line. Seventy generations of
-it were spent with the auxiliary heads flattening its policy through the
-tower they shared, and it is climbing back; its own best was 2.447 before
-that drift. The browser gets whichever network the arena says is stronger,
-and the number the arena gives is the only one that decides: the placement
-the training loop logs is 512 games in one seat, and its error is 0.05.
+this one and has not earned the place yet. Against the bots the two are
+level, 2.4288 against 2.4247. At one table the published network wins by
+0.06, from both directions, so it keeps the browser. The larger one gains
+about 0.23 every thirty-five generations by that measure, so the gap is
+small and closing.
 
 It reaches the browser as 2.4 MB of int8 weights in a worker beside the
 rules in WebAssembly, so a whole game runs offline. That published network
