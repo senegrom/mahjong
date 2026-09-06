@@ -1,5 +1,16 @@
 # Offline play and first-download preparation
 
+## Before travelling
+
+Open the updated game while connected. On iPhone, open the actual Home Screen
+app you will use on the flight. Select a Trained opponent, or open the Offline
+status panel and choose **Download AI for offline play** without changing your
+current match. Wait for **Offline: game + AI ready**. After that, closing and
+reopening the app, restoring a match and starting another game use saved files.
+There is no need to clear website data or reinstall; either can remove downloads.
+
+## What is saved
+
 The production build generates a scoped service worker from an inventory of the
 actual output, including hashed JavaScript chunks, the rules engine, all tile
 SVGs, the white-dragon artwork, icons and installation manifest.
@@ -42,8 +53,21 @@ against CacheStorage at startup and when the app returns to the foreground,
 not inferred from a flag in the saved match. Unsupported storage is explicitly
 labelled online-only. Saved matches remain a separate, unchanged mechanism.
 
+## Verification
+
 `npm run test:offline` exercises the real production service worker and shipped
 network, including a browser-process restart with HTTP cache cleared, disabled
 network access, all graphics reloaded offline, continued mixed-opponent play,
 interrupted downloads and version updates. Unit tests independently cover
 hash/length validation, quotas, eviction, cache isolation and failed upgrades.
+
+The release candidate passed 84 unit/session/cache tests and 98 browser checks,
+including all five offline checks. The cold-restart test refuses every game
+asset at the HTTP server as well as disabling browser networking, so ordinary
+HTTP caching cannot conceal a missing offline file. It plays the actual shipped
+network after restart, checks every tile graphic, and starts another match.
+The update check waits until opponent turns actually settle before comparing
+saved commands. Existing small-phone layout assertions are retained unchanged.
+
+These automated browser results are from Chromium. Physical iPhone and Safari
+installation testing is not claimed.
