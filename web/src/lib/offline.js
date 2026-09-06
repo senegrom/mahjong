@@ -5,8 +5,10 @@ const script = new URL('sw.js', base).href;
 let worker = null;
 let boot = null;
 let aiJob = null;
+let coreJob = null;
 let state = { supported: null, coreReady: false, aiReady: false, hasModel: false,
-  phase: 'checking', progress: 0, warning: '', persistent: false, updateReady: false };
+  phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false,
+  persistent: false, updateReady: false };
 const listeners = new Set();
 function update(values) {
   state = { ...state, ...values };
@@ -64,6 +66,28 @@ function observeUpdates(registration) {
     registration.installing?.addEventListener('statechange', check);
   });
 }
+// The game and graphics are mandatory, not an optional offline pack. Repair
+// an evicted or interrupted core cache automatically, without requesting AI.
+async function prepareCore(info) {
+  update(info);
+  if (info.coreReady) {
+    update({ coreWarning: '' });
+    return info;
+  }
+  if (coreJob) return coreJob;
+  coreJob = (async () => {
+    update({ coreLoading: true, coreWarning: '' });
+    try {
+      const ready = await request('MAHJONG_PREPARE_CORE');
+      update({ ...ready, coreWarning: '' });
+      return ready;
+    } catch (error) {
+      update({ coreReady: false, coreWarning: `Game and tile download incomplete: ${error.message} It will retry automatically when you reconnect or reopen the app.` });
+      return null;
+    } finally { update({ coreLoading: false }); }
+  })().finally(() => { coreJob = null; });
+  return coreJob;
+}
 export function startOffline() {
   if (boot) return boot;
   boot = (async () => {
@@ -91,7 +115,8 @@ export function startOffline() {
           navigator.serviceWorker.addEventListener('controllerchange', changed); changed();
         });
       }
-      update({ supported: true, ...(await request('MAHJONG_STATUS')), phase: 'ready', warning: '' });
+      update({ supported: true, phase: 'ready', warning: '' });
+      await prepareCore(await request('MAHJONG_STATUS'));
       observeUpdates(registration);
       void persistentStorage();
       // Background updates never block this version or replace it mid-match.
@@ -107,17 +132,21 @@ export function startOffline() {
   return boot;
 }
 export async function refreshOffline() {
+  // A first visit may have lost its connection during installation. The
+  // reconnect/foreground event retries automatically, never via the AI button.
+  if (!worker && state.phase === 'unavailable') boot = null;
   await startOffline();
   if (!worker) return null;
-  const info = await request('MAHJONG_STATUS');
-  update(info);
-  return info;
+  return prepareCore(await request('MAHJONG_STATUS'));
 }
 export function prepareOfflineAi() {
   if (aiJob) return aiJob;
   aiJob = (async () => {
     if (!(await startOffline())) return null; // Online-only browsers still work, with a visible warning.
-    const info = await refreshOffline();
+    // This action adds only the trained network/runtime. Core preparation has
+    // its own automatic startup/reconnect path and is not opt-in.
+    const info = await request('MAHJONG_STATUS');
+    update(info);
     if (info.aiReady) return info;
     update({ phase: 'ai', progress: 0, warning: '' });
     try {
@@ -133,12 +162,4 @@ export function prepareOfflineAi() {
     }
   })().finally(() => { aiJob = null; });
   return aiJob;
-}
-export async function retryOffline() {
-  if (!worker) boot = null;
-  await startOffline();
-  if (worker) {
-    update({ ...(await request('MAHJONG_PREPARE_CORE')), warning: '', phase: 'ready' });
-    await prepareOfflineAi();
-  }
 }

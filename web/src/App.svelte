@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte';
   import init, { Game } from './wasm/riichi.js';
   import Tile, { preloadTiles } from './lib/Tile.svelte';
-  import { startOffline, watchOffline, prepareOfflineAi, refreshOffline, retryOffline } from './lib/offline.js';
+  import { startOffline, watchOffline, prepareOfflineAi, refreshOffline } from './lib/offline.js';
   import Seat from './lib/Seat.svelte';
   import Discards from './lib/Discards.svelte';
   import Melds from './lib/Melds.svelte';
@@ -32,7 +32,7 @@
   let shortcuts = $state(preferences.shortcuts);
   let ready = $state(false);
   let startupNote = $state('Preparing the game for offline play…');
-  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', persistent: false, updateReady: false });
+  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, persistent: false, updateReady: false });
   let failure = $state('');
   let storageWarning = $state('');
   let saveConflict = $state('');
@@ -174,6 +174,7 @@
     const storageChanged = (event) => matchStore.changed(event);
     const checkOffline = () => { if (document.visibilityState === 'visible') void refreshOffline().catch(() => {}); };
     document.addEventListener('visibilitychange', checkOffline);
+    window.addEventListener('online', checkOffline);
     window.addEventListener('pagehide', leave);
     window.addEventListener('pageshow', returnToPage);
     window.addEventListener('storage', storageChanged);
@@ -181,6 +182,7 @@
       mounted = false;
       unwatchOffline();
       document.removeEventListener('visibilitychange', checkOffline);
+      window.removeEventListener('online', checkOffline);
       window.removeEventListener('pagehide', leave);
       window.removeEventListener('pageshow', returnToPage);
       window.removeEventListener('storage', storageChanged);
@@ -191,7 +193,6 @@
   });
 
   function downloadAi() { void prepareOfflineAi().catch(() => {}); }
-  function retryDownloads() { void retryOffline().catch(() => {}); }
 
   function start(strength = opponents) {
     if (saveConflict) return;
@@ -448,14 +449,19 @@
   <details class="offline-settings">
     <summary data-offline-status>{offline.aiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? `Saving AI… ${offline.progress}%` : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
     <div class="option-fields">
-      <p role="status">{offline.warning || (offline.aiReady && offline.coreReady
-        ? 'Game, all tile graphics and trained AI are saved on this device. You can close and reopen this app without a connection.'
-        : offline.coreReady ? 'Game and all tile graphics are saved. Download the trained AI once before using it without a connection.'
-        : 'Preparing offline files. Stay connected until the download is complete.')}</p>
+      <p data-core-status data-core-ready={offline.coreReady} role="status"><strong>Game and all tile graphics — automatic.</strong>
+        {offline.coreWarning || (offline.coreReady
+          ? 'Fully saved on this device. Beginner and Club already work offline; no download button is needed.'
+          : offline.supported === false ? 'Offline storage is unavailable here, but all tile graphics still load before play.'
+          : 'Downloading the complete game and every tile graphic automatically. Stay connected until ready.')}</p>
+      <p data-ai-status role="status"><strong>Trained AI — optional.</strong>
+        {(offline.phase === 'incomplete' && offline.warning) || (offline.aiReady
+          ? 'The network and its runtime are saved too.'
+          : offline.phase === 'ai' ? `Saving the trained network and runtime… ${offline.progress}%`
+          : 'Only the trained network and its runtime need this extra download. Selecting a Trained opponent also starts it automatically.')}</p>
       {#if offline.hasModel && !offline.aiReady}
-        <button onclick={downloadAi} disabled={offline.phase === 'ai'}>Download AI for offline play</button>
+        <button data-download-ai onclick={downloadAi} disabled={!offline.coreReady || offline.phase === 'ai'}>{offline.phase === 'incomplete' ? 'Retry trained AI download' : 'Download trained AI for offline play'}</button>
       {/if}
-      {#if offline.warning}<button onclick={retryDownloads}>Retry offline download</button>{/if}
       <p class="offline-detail">{offline.persistent ? 'Persistent storage granted.' : 'Your browser can remove website downloads when storage is low.'} Clearing website data removes downloads. On iPhone, check this status inside the Home Screen app before flying.</p>
       {#if offline.updateReady}<p>A new version is downloaded. Close all Mahjong windows and reopen to use it; this match is saved.</p>{/if}
     </div>

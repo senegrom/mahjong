@@ -52,7 +52,12 @@ async function launch(profile) {
   browsers.add(browser); return browser;
 }
 async function close(browser) { await browser.close(); browsers.delete(browser); }
-async function page(browser, { seed = true, offline = false } = {}) {
+async function page(browser, { seed = true, offline = false, strength = 'neural' } = {}) {
+  let initial = fixture;
+  if (strength !== 'neural') {
+    const session = new MatchSession(Game, 81, strength);
+    try { session.advance(false); initial = session.snapshot(); } finally { session.dispose(); }
+  }
   const p = await browser.newPage(); p.errors = [];
   p.on('pageerror', error => p.errors.push(error.message));
   await p.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
@@ -60,13 +65,13 @@ async function page(browser, { seed = true, offline = false } = {}) {
   if (offline) await p.setOfflineMode(true);
   if (seed) await p.evaluateOnNewDocument((key, settings, snapshot) => {
     if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(snapshot));
-    localStorage.setItem(settings, JSON.stringify({version:1,difficulty:'custom',opponents:['neural','club','neural'],hints:true,confirmDiscards:true,shortcuts:true}));
+    localStorage.setItem(settings, JSON.stringify({version:1,difficulty:snapshot.difficulty,opponents:snapshot.opponents,hints:true,confirmDiscards:true,shortcuts:true}));
     // Instrument Image only in this test. The application has no test hooks.
     const ImageClass = window.Image;
     window.preloadedImages = [];
     window.Image = class extends ImageClass { constructor(...args) { super(...args); window.preloadedImages.push(this); } };
-  }, SAVE_KEY, SETTINGS_KEY, fixture);
-  await p.goto(`http://127.0.0.1:${server.address().port}/mahjong/?opponents=neural&source=home-screen`, { waitUntil:'domcontentloaded' });
+  }, SAVE_KEY, SETTINGS_KEY, initial);
+  await p.goto(`http://127.0.0.1:${server.address().port}/mahjong/?opponents=${strength}&source=home-screen`, { waitUntil:'domcontentloaded' });
   return p;
 }
 const hand = p => p.waitForSelector('.hand', { timeout: 120000 });
@@ -100,6 +105,73 @@ async function profile() { const dir = await mkdtemp(join(tmpdir(), 'mahjong-off
 try {
   await mkdir(output, { recursive:true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
+  for (const strength of ['beginner', 'club']) await check(`${strength}: complete game and graphics save automatically and restart offline with NO AI download or button`, async () => {
+    const dir = await profile(); let b = await launch(dir); const p = await page(b, { strength });
+    await hand(p);
+    await p.waitForSelector('[data-core-ready=true]');
+    const images = await p.evaluate(() => window.preloadedImages.map(image => image.complete && image.naturalWidth > 0));
+    assert.equal(images.length, 37); assert.ok(images.every(Boolean));
+    assert.ok(await p.evaluate(async entries => {
+      const cache = await caches.open('mahjong-offline-v1:/mahjong/');
+      return (await Promise.all(entries.filter(e => e.group === 'core').map(e =>
+        cache.match(new URL(`__offline_content__/${e.hash}`, location.href).href)))).every(Boolean);
+    }, manifest.entries), 'Every core resource must be saved without interacting');
+    for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0, entry.url);
+    const cdp = await p.createCDPSession(); await cdp.send('Network.clearBrowserCache');
+    await close(b); unavailable = true; count.clear(); refused.length = 0;
+    b = await launch(dir); const cold = await page(b, { seed: false, offline: true, strength });
+    await hand(cold); await cold.waitForSelector('[data-core-ready=true]');
+    await play(cold, 4);
+    const before = await saved(cold);
+    assert.ok(!before.commands.some(command => command.type === 'opponent'), 'Built-in game must not request the network');
+    cold.on('dialog', dialog => void dialog.accept());
+    await cold.click('.restart'); await hand(cold); await play(cold, 3);
+    assert.notEqual((await saved(cold)).seed, before.seed);
+    const art = manifest.entries.filter(e => e.url.endsWith('.svg') || e.url.includes('white-dragon')).map(e => e.url);
+    assert.ok(await cold.evaluate(async urls => (await Promise.all(urls.map(async url => {
+      const image = new Image(); image.src = url; await image.decode(); return image.naturalWidth > 0;
+    }))).every(Boolean), art));
+    assert.deepEqual(refused.filter(name => name !== 'sw.js'), []);
+    if (strength === 'club') await cold.screenshot({ path: resolve(output, 'automatic-game-tiles-offline.png'), fullPage: true });
+    assert.deepEqual(cold.errors, []);
+  });
+  await check('the optional button adds ONLY trained AI bytes and does not change the match', async () => {
+    const b = await launch(await profile()), p = await page(b, { strength: 'club' });
+    await hand(p); await p.waitForSelector('[data-core-ready=true]');
+    const before = await saved(p), previous = new Map(count);
+    assert.equal(count.get(modelPath) ?? 0, 0);
+    await p.click('.offline-settings summary');
+    assert.match(await p.$eval('[data-core-status]', el => el.textContent), /automatic/);
+    assert.match(await p.$eval('[data-ai-status]', el => el.textContent), /optional/);
+    assert.match(await p.$eval('[data-download-ai]', el => el.textContent), /Download trained AI/);
+    await p.click('[data-download-ai]'); await ready(p);
+    assert.deepEqual(await saved(p), before);
+    for (const entry of manifest.entries.filter(e => e.group === 'core')) {
+      assert.equal(count.get(entry.url) ?? 0, previous.get(entry.url) ?? 0, `AI button redownloaded core asset: ${entry.url}`);
+    }
+    assert.equal(count.get(modelPath), 1);
+    await p.screenshot({ path: resolve(output, 'automatic-game-optional-ai.png'), fullPage: true });
+    assert.deepEqual(p.errors, []);
+  });
+  await check('missing tile and icon cache entries repair automatically on reconnect without downloading AI', async () => {
+    const b = await launch(await profile()), p = await page(b, { strength: 'club' });
+    await hand(p); await p.waitForSelector('[data-core-ready=true]');
+    const missing = manifest.entries.filter(e => e.url === 'tiles/Chun.svg' || e.url === 'favicon.ico');
+    assert.equal(missing.length, 2);
+    const previous = new Map(count);
+    await p.evaluate(async entries => {
+      const cache = await caches.open('mahjong-offline-v1:/mahjong/');
+      for (const entry of entries) await cache.delete(new URL(`__offline_content__/${entry.hash}`, location.href).href);
+      window.dispatchEvent(new Event('online'));
+    }, missing);
+    await p.waitForFunction(async entries => {
+      const cache = await caches.open('mahjong-offline-v1:/mahjong/');
+      return (await Promise.all(entries.map(entry => cache.match(new URL(`__offline_content__/${entry.hash}`, location.href).href)))).every(Boolean);
+    }, {}, missing);
+    for (const entry of missing) assert.equal(count.get(entry.url), (previous.get(entry.url) ?? 0) + 1);
+    for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0);
+    assert.deepEqual(p.errors, []);
+  });
   await check('first play waits for every tile face, including unused tiles and dragon artwork', async () => {
     holdPath = 'tiles/Chun.svg';
     const seen = new Promise(done => { holdSeenResolve = done; });
