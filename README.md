@@ -75,6 +75,22 @@ plays and the game the opponents were trained on cannot drift apart.
   and the policy answers them in one pass; the same handle lets the
   network play the searching player's own next turns before the position
   is valued, which is how a policy buys depth without a tree.
+- **And the search is off, because it does not pay.** Every version of it
+  measures worse than not searching, against a level of 2.50: 2.73 with
+  heuristic rollouts, 2.52 with the critic on sampled worlds, 2.54 on
+  weighed ones, 2.54 played by the club heuristic and 2.57 with the value
+  head that predicts the return best. Those last two differ by 0.025 at
+  0.3 standard errors, so the evaluator is not the variable.
+
+  What settles it is that the heads separate candidate moves at four times
+  the margin the rule demands. The search is not guessing, it is choosing
+  confidently and wrongly, and the two-standard-error margin cannot catch
+  that: it measures disagreement between imagined worlds, and every world
+  agrees with the same systematic error. The likely cause is that the
+  search asks what a position is worth after a move the policy would never
+  make, while the value heads have only ever seen positions the policy did
+  reach. If the line is revived, the thing to change is what those heads
+  are trained on, not what the search evaluates.
 - **The trained opponent in the browser**, as ONNX in a worker beside the
   rules in WebAssembly, so a whole game runs offline.
 
