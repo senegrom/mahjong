@@ -38,9 +38,25 @@ jobs:
       - name: Resolve compatible versions together
         working-directory: web
         run: |
-          npm install --save-dev svelte@5 @sveltejs/vite-plugin-svelte@7.3.0 vite@8.2.2
-          npm pkg set 'engines.node=^20.19.0 || ^22.13.0 || >=24.0.0'
-          npm install --package-lock-only --ignore-scripts
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          Object.assign(pkg.devDependencies, {
+            svelte: '^5.57.0',
+            '@sveltejs/vite-plugin-svelte': '^7.3.0',
+            vite: '^8.2.2',
+          });
+          pkg.engines = { node: '^20.19.0 || ^22.13.0 || >=24.0.0' };
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+          lock.packages[''].devDependencies = pkg.devDependencies;
+          // The old inspector and plugin have circular peers. Drop only those
+          // obsolete lock entries; npm resolves their replacement normally.
+          delete lock.packages['node_modules/@sveltejs/vite-plugin-svelte'];
+          delete lock.packages['node_modules/@sveltejs/vite-plugin-svelte-inspector'];
+          writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+          JS
+          npm install
           npm ci
           npm ls --depth=0
           npm ls svelte vite @sveltejs/vite-plugin-svelte typescript
