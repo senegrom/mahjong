@@ -368,6 +368,55 @@ def duel(
 
 
 @app.function(
+    gpu="L40S",
+    cpu=16.0,
+    memory=32768,
+    timeout=60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def discriminate(
+    which: str = "latest",
+    decisions: int = 40,
+    worlds: int = 40,
+    candidates: int = 4,
+    warmup: int = 24,
+) -> str:
+    """Whether the value heads can tell two candidate moves apart.
+
+    The search's whole comparison is between positions differing by one
+    discarded tile, and a head can predict the return well while being
+    nearly blind to that. This reports the separation against the error on
+    it, per head, in minutes rather than the two hours a search arm takes.
+    """
+    volume.reload()
+    source = VOLUME / "w320-run" / f"{which}.pt"
+    if not source.exists():
+        return f"no checkpoint at {source}"
+    local = Path("/scratch/discriminate")
+    local.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, local / f"{which}.pt")
+
+    environment = dict(os.environ)
+    environment["RAYON_NUM_THREADS"] = str(int(os.cpu_count() or 16))
+    environment["PYTHONPATH"] = "/src"
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "neural.discriminate", str(local / f"{which}.pt"),
+            "--decisions", str(decisions), "--worlds", str(worlds),
+            "--candidates", str(candidates), "--warmup", str(warmup),
+            "--channels", "320", "--blocks", "20",
+        ],
+        cwd="/src",
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    answer = (result.stdout or "") + (result.stderr or "" if result.returncode else "")
+    print(answer, flush=True)
+    return answer
+
+
+@app.function(
     gpu="L4",
     cpu=8.0,
     memory=32768,
