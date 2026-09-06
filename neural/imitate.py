@@ -55,6 +55,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--measure-every", type=int, default=20)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="start the student from this checkpoint instead of from "
+        "nothing, which is what distilling into a trained run means",
+    )
+    parser.add_argument(
         "--teacher",
         type=Path,
         default=None,
@@ -157,6 +164,14 @@ def main() -> None:
     log_path = args.out / "log.jsonl"
 
     net = PolicyValueNet(args.channels, args.blocks).to(device)
+    if args.resume is not None and args.resume.exists():
+        payload = torch.load(args.resume, map_location=device, weights_only=True)
+        load_weights(net, payload["model"])
+        print(
+            f"student resumed from {args.resume} at generation "
+            f"{payload.get('generation', 0)}",
+            flush=True,
+        )
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
 
     teacher = None

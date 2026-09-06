@@ -438,6 +438,78 @@ def discriminate(
 
 
 @app.function(
+    gpu="H100",
+    cpu=16.0,
+    memory=65536,
+    timeout=6 * 60 * 60,
+    volumes={str(VOLUME): volume},
+    max_containers=1,
+)
+def distil(
+    teacher: str = "published",
+    student: str = "latest",
+    rounds: int = 60,
+    games: int = 256,
+    lr: float = 2e-4,
+    teacher_channels: int = 192,
+    teacher_blocks: int = 10,
+) -> str:
+    """Teaches this run the published network's moves.
+
+    Both runs began by imitating the heuristic player, so method is not
+    what separates them: the published network is the end of a chain of
+    runs each resuming from the last, and this one has been rediscovering
+    that alone. It is 0.09 behind on the calibrated scale, about sixty
+    generations of progress when this run is moving at all, and one
+    imitation run can transfer it instead.
+
+    The student starts from its own latest weights, so this is fine-tuning
+    rather than starting again, and it learns the teacher's whole
+    distribution rather than its choice alone.
+    """
+    volume.reload()
+    local = Path("/scratch/distil")
+    local.mkdir(parents=True, exist_ok=True)
+    for name in (teacher, student):
+        source = VOLUME / "w320-run" / f"{name}.pt"
+        if not source.exists():
+            return f"no checkpoint at {source}"
+        shutil.copyfile(source, local / f"{name}.pt")
+
+    environment = dict(os.environ)
+    environment["RAYON_NUM_THREADS"] = str(int(os.cpu_count() or 16))
+    environment["PYTHONPATH"] = "/src"
+    out = Path("/scratch/distilled")
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "neural.imitate",
+            "--rounds", str(rounds), "--games", str(games), "--lr", str(lr),
+            "--channels", "320", "--blocks", "20",
+            "--resume", str(local / f"{student}.pt"),
+            "--teacher", str(local / f"{teacher}.pt"),
+            "--teacher-channels", str(teacher_channels),
+            "--teacher-blocks", str(teacher_blocks),
+            "--measure-every", "10", "--measure-games", "512",
+            "--out", str(out),
+        ],
+        cwd="/src",
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    answer = (result.stdout or "")[-4000:] + (result.stderr or "" if result.returncode else "")
+    # The distilled network goes to the volume under its own name, so it
+    # can be duelled before anything decides to train on from it.
+    if (out / "latest.pt").exists():
+        target = VOLUME / "w320-run"
+        shutil.copyfile(out / "latest.pt", target / "distilled.pt")
+        volume.commit()
+        answer += "\nwrote w320-run/distilled.pt"
+    print(answer, flush=True)
+    return answer
+
+
+@app.function(
     gpu="L4",
     cpu=8.0,
     memory=32768,
