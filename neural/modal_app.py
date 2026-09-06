@@ -294,6 +294,67 @@ def arena(
 
 
 @app.function(
+    gpu="L40S",
+    cpu=16.0,
+    memory=32768,
+    timeout=3 * 60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def duel(
+    challenger: str = "best",
+    incumbent: str = "published",
+    games: int = 1000,
+    seed: int = 555_000,
+    channels: int = 320,
+    blocks: int = 20,
+    incumbent_channels: int = 192,
+    incumbent_blocks: int = 10,
+) -> str:
+    """Sits two checkpoints from the volume at the same table.
+
+    Measuring each against the heuristic players and subtracting has a
+    floor of about 0.024 on the difference, so two close networks never
+    separate. At one table the luck of the deal falls on both at once, and
+    what comes back is a single placement against the 2.50 two identical
+    players would average.
+    """
+    volume.reload()
+    local = Path("/scratch/duel")
+    local.mkdir(parents=True, exist_ok=True)
+    for name in (challenger, incumbent):
+        source = VOLUME / "w320-run" / f"{name}.pt"
+        if not source.exists():
+            return f"no checkpoint at {source}"
+        shutil.copyfile(source, local / f"{name}.pt")
+    print(
+        f"challenger {challenger}.pt generation "
+        f"{_generation_of(local / f'{challenger}.pt')} against {incumbent}.pt",
+        flush=True,
+    )
+
+    environment = dict(os.environ)
+    environment["RAYON_NUM_THREADS"] = str(int(os.cpu_count() or 16))
+    environment["PYTHONPATH"] = "/src"
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "neural.duel",
+            str(local / f"{challenger}.pt"), str(local / f"{incumbent}.pt"),
+            "--games", str(games), "--seed", str(seed),
+            "--channels", str(channels), "--blocks", str(blocks),
+            "--incumbent-channels", str(incumbent_channels),
+            "--incumbent-blocks", str(incumbent_blocks),
+        ],
+        cwd="/src",
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    answer = (result.stdout or "") + (result.stderr or "" if result.returncode else "")
+    print(answer, flush=True)
+    return answer
+
+
+@app.function(
     gpu="L4",
     cpu=8.0,
     memory=32768,
