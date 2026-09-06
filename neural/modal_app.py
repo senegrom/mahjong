@@ -237,7 +237,13 @@ def train(
     timeout=2 * 60 * 60,
     volumes={str(VOLUME): volume},
 )
-def arena(which: str = "best", games: int = 1000, seed: int = 555_000) -> str:
+def arena(
+    which: str = "best",
+    games: int = 1000,
+    seed: int = 555_000,
+    channels: int = 320,
+    blocks: int = 20,
+) -> str:
     """Measures a checkpoint from the volume against the heuristic players.
 
     Its own container, so a strength check never shares a card with the
@@ -262,7 +268,10 @@ def arena(which: str = "best", games: int = 1000, seed: int = 555_000) -> str:
         [
             sys.executable, "-m", "neural.arena", str(local / f"{which}.pt"),
             "--games", str(games), "--seed", str(seed),
-            "--channels", "320", "--blocks", "20",
+            # The width is the caller's to say, so the network the browser
+            # plays can be measured on the same deals as the one being
+            # trained. That pairing is the whole point of the same seed.
+            "--channels", str(channels), "--blocks", str(blocks),
         ],
         cwd="/src",
         env=environment,
