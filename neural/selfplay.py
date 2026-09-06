@@ -285,21 +285,46 @@ def measure(
     web app does. Measuring sampled play would mix how well the network has
     learned with how much exploration noise is on top of it, and then the
     checkpoint kept as best would be chosen partly on that noise.
+
+    This is intentionally a score-only loop rather than `play(..., greedy=True)`.
+    A benchmark does not need training observations, hidden-hand labels,
+    proposal worlds, log probabilities or rewards. The old path generated
+    and retained all of them for hundreds of thousands of decisions only to
+    read `final_scores` at the end, making measurement resemble another
+    self-play round in both memory use and wall time.
     """
-    batch = play(
-        net,
-        games=games,
-        seed=seed,
-        device=device,
-        bot_places=[1, 2, 3],
-        greedy=True,
-        amp=amp,
-    )
-    scores = batch.final_scores
+    net.eval()
+    arena = riichi_py.Arena(games=games, seed=seed, bot_places=[1, 2, 3])
+    hands = 0
+    steps = 0
+    while not arena.all_finished() and steps < 4000:
+        steps += 1
+        seats = np.frombuffer(arena.seats(), dtype=np.uint8)
+        live = seats != 0xFF
+        if not live.any():
+            break
+
+        planes = np.frombuffer(arena.observations(), dtype=np.float32)
+        planes = planes.reshape(games, PLANES, POSITIONS)
+        mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
+        mask = mask.reshape(games, ACTIONS).astype(bool)
+        index = np.nonzero(live)[0]
+
+        choice = np.zeros(games, dtype=np.int64)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
+            logits, _value = net(
+                torch.from_numpy(planes[index]).to(device),
+                torch.from_numpy(mask[index]).to(device),
+            )
+        choice[index] = logits.float().argmax(dim=1).cpu().numpy()
+        arena.step(choice.tolist())
+        hands += int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())
+
+    scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4).copy()
     order = (-scores).argsort(axis=1).argsort(axis=1) + 1
     return {
         "placement": float(order[:, 0].mean()),
         "score": float(scores[:, 0].mean()),
         "wins": float((order[:, 0] == 1).mean()),
-        "hands": batch.hands,
+        "hands": hands,
     }
