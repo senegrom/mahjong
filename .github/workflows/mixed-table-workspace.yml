@@ -26,7 +26,7 @@ jobs:
           git rev-parse HEAD > /tmp/mixed-base.txt
           git ls-files -z | tar --null -T - -czf /tmp/mixed-source.tar.gz
           tar -czf /tmp/mixed-node-modules.tar.gz web/node_modules
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: mixed-workspace
           path: |
