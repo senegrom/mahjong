@@ -99,14 +99,38 @@ def play(
     greedy: bool = False,
     max_steps: int = 4000,
     amp: bool = False,
+    opponents: list | None = None,
+    opponent_share: float = 0.0,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
     With `amp` the network's forward passes run in bfloat16, which is
     plenty for choosing a move and about half the arithmetic.
+
+    `opponents` are older checkpoints of the same network. In that share of
+    games one seat is played by one of them, drawn at random, and nothing
+    that seat does is recorded: PPO trains on what the learner's own policy
+    did. The point is that four copies of one network playing only each
+    other have nothing to be robust to, and this run has been measured
+    getting worse against outside policies while getting better against
+    fixed weak ones. With no opponents given, every path below is the one
+    that ran before.
     """
     net.eval()
+    for other in opponents or []:
+        other.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=bot_places or [])
+
+    # Which player, if any, an older checkpoint holds in each game, and
+    # which checkpoint it is. Fixed for the game, so a seat does not change
+    # hands mid-hand.
+    foreign_player = np.full(games, -1, dtype=np.int64)
+    foreign_which = np.zeros(games, dtype=np.int64)
+    if opponents and opponent_share > 0:
+        picker = np.random.default_rng(seed ^ 0x0DDBA11)
+        taken = picker.random(games) < opponent_share
+        foreign_player[taken] = picker.integers(0, 4, size=int(taken.sum()))
+        foreign_which[taken] = picker.integers(0, len(opponents), size=int(taken.sum()))
 
     # One block per step, holding the live games' rows in the order the
     # decisions are numbered below: a round is a few hundred blocks rather
@@ -141,8 +165,29 @@ def play(
         hidden = np.frombuffer(arena.oracle(), dtype=np.float32)
         hidden = hidden.reshape(games, ORACLE_PLANES, POSITIONS)
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
+        their_choice = np.zeros(games, dtype=np.int64)
 
-        index = np.nonzero(live)[0]
+        # Games whose pending decision belongs to an older checkpoint are
+        # answered separately and never recorded.
+        deciding = np.array(
+            [players[game][seats[game]] if live[game] else -1 for game in range(games)]
+        )
+        theirs = live & (deciding == foreign_player) & (foreign_player >= 0)
+        index = np.nonzero(live & ~theirs)[0]
+        if theirs.any():
+            for which in np.unique(foreign_which[theirs]):
+                rows = np.nonzero(theirs & (foreign_which == which))[0]
+                with torch.autocast(
+                    "cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"
+                ):
+                    their_logits, _their_value = opponents[int(which)](
+                        torch.from_numpy(planes[rows]).to(device),
+                        torch.from_numpy(mask[rows]).to(device),
+                    )
+                their_choice[rows] = their_logits.float().argmax(dim=1).cpu().numpy()
+        if not len(index):
+            arena.step(their_choice.tolist())
+            continue
         batch_planes = torch.from_numpy(planes[index]).to(device)
         batch_mask = torch.from_numpy(mask[index]).to(device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
@@ -161,7 +206,7 @@ def play(
         chosen = logits.argmax(dim=1) if greedy else distribution.sample()
         chosen_log_prob = distribution.log_prob(chosen)
 
-        choice = np.zeros(games, dtype=np.int64)
+        choice = their_choice.copy()
         chosen_cpu = chosen.cpu().numpy()
         log_prob_cpu = chosen_log_prob.cpu().numpy()
         choice[index] = chosen_cpu
