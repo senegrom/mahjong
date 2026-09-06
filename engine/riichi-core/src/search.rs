@@ -70,8 +70,12 @@
 //! weights give exactly the unweighted numbers, so a search with no reader
 //! is the sampled search it grew out of.
 
+use std::collections::VecDeque;
+
 use crate::bot::{Bot, Style};
-use crate::encoding::{self, OBSERVATION, OPPONENTS, PLACEMENT_VALUE, POINTS_PER_UNIT, POSITIONS};
+use crate::encoding::{
+    self, ACTIONS, OBSERVATION, OPPONENTS, PLACEMENT_VALUE, POINTS_PER_UNIT, POSITIONS,
+};
 use crate::game::{Action, Call, Hand, Phase};
 use crate::hand::TileSet;
 use crate::rng::Rng;
@@ -990,6 +994,369 @@ impl Searcher {
     }
 }
 
+/// A lookahead whose decisions on the way are made by the caller: the
+/// network, in practice, rather than the heuristic player.
+///
+/// [`leaves_from`] runs the other players with the club heuristic from the
+/// candidate move to the searching player's next turn. That is a model of
+/// the opponents, and against the network's own kind it is the wrong one:
+/// in self-play the opponents are the network, and the strong searchers
+/// (OLSS, LuckyJ) play every seat of the tree with the policy. This is the
+/// same lookahead with the decisions on the way handed out. Every slot,
+/// one candidate move in one imagined world, advances until somebody owes
+/// a decision; the caller is given the observations and legality masks of
+/// every waiting slot at once, answers them in one pass of the policy, and
+/// hands the actions back; the slots advance again. A slot stops at the
+/// searching player's own turn to act, which is the leaf the value head
+/// judges, unless `depth` says to let the policy play that turn too and
+/// value a later one, which is the shape of OLSS's policy-guided depth.
+/// The searching player's claims on the way are answered by the policy at
+/// any depth: a claim is a small decision and the leaf is a turn to act.
+///
+/// Slots are numbered `candidate * worlds + world`, as in [`Leaves`], and
+/// the answers are given in the order [`Lookahead::owed`] lists the
+/// waiting slots, which is slot order.
+#[derive(Clone, Debug)]
+pub struct Lookahead {
+    worlds: usize,
+    candidates: usize,
+    weights: Vec<f64>,
+    slots: Vec<Slot>,
+}
+
+/// One candidate move in one imagined world, on its way to a leaf.
+#[derive(Clone, Debug)]
+struct Slot {
+    world: Hand,
+    /// The searching player's seat in the world's current hand.
+    seat: Wind,
+    /// What is already banked, in the value head's units.
+    settled: f64,
+    /// How many more turns to act the searching player takes with the
+    /// policy before the position is valued.
+    depth: usize,
+    /// Seats still to answer the claim on the table, in order, and the
+    /// answers so far, as the arena keeps them.
+    asking: VecDeque<Wind>,
+    answers: Vec<(Wind, Call)>,
+    /// Hands dealt on the way, so a world that never reaches a decision is
+    /// given up on.
+    dealt: u64,
+    /// What the next hand's deal is seeded from.
+    seed: u64,
+    state: SlotState,
+}
+
+/// Where a slot stands.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SlotState {
+    /// Advancing, or waiting on the caller for a decision.
+    Running,
+    /// The searching player has a turn to act: the leaf, seen from `seat`.
+    Leaf,
+    /// The game ended, and `settled` is all there is.
+    Settled,
+    /// The world could not be played on.
+    Broken,
+}
+
+impl Slot {
+    /// The seat whose decision the slot is waiting for, if any.
+    fn owed(&self) -> Option<Wind> {
+        if self.state != SlotState::Running {
+            return None;
+        }
+        if let Some(seat) = self.asking.front() {
+            return Some(*seat);
+        }
+        matches!(self.world.phase, Phase::Act).then_some(self.world.turn)
+    }
+
+    /// Advances until somebody owes a decision, the searching player has a
+    /// turn to act at depth zero, or the game ends.
+    fn settle(&mut self) {
+        let mut guard = 0;
+        loop {
+            guard += 1;
+            if guard > 4000 {
+                self.state = SlotState::Broken;
+                return;
+            }
+            if self.state != SlotState::Running || !self.asking.is_empty() {
+                return;
+            }
+            match self.world.phase {
+                Phase::Act => {
+                    if self.world.turn == self.seat && self.depth == 0 {
+                        self.state = SlotState::Leaf;
+                    }
+                    return;
+                }
+                Phase::Draw => {
+                    if self.world.draw().is_err() {
+                        self.state = SlotState::Broken;
+                        return;
+                    }
+                }
+                Phase::CallWindow => {
+                    let offered = self.world.legal_calls();
+                    if offered.is_empty() {
+                        if self.world.resolve_calls(&[]).is_err() {
+                            self.state = SlotState::Broken;
+                            return;
+                        }
+                    } else {
+                        self.asking = offered.iter().map(|(seat, _)| *seat).collect();
+                        self.answers.clear();
+                        return;
+                    }
+                }
+                Phase::Over => self.next_hand(),
+            }
+        }
+    }
+
+    /// Banks what the hand that just ended moved for the searching player
+    /// and deals the next, or settles the placement when the game is over.
+    /// The same accounting as [`play_to_leaf`].
+    fn next_hand(&mut self) {
+        let player = self.seat.index();
+        let moved = self.world.players[player].score - self.world.opening[player];
+        self.settled += moved as f64 / POINTS_PER_UNIT as f64;
+        let mut table = table_of(&self.world);
+        table.finish(&self.world);
+        if table.finished {
+            self.settled += placement_value(&table, player);
+            self.state = SlotState::Settled;
+            return;
+        }
+        self.dealt += 1;
+        if self.dealt > 16 {
+            self.state = SlotState::Broken;
+            return;
+        }
+        let mut rng = Rng::from_seed(self.seed.wrapping_add(self.dealt * 4) ^ 0x9e37_79b9);
+        self.world = table.deal(&mut rng);
+        self.seat = table.seat_of(player);
+    }
+
+    /// Applies the caller's decision, an index into the action space, and
+    /// advances. An index the engine will not take is read as a pass, or
+    /// as the first legal move, the way the arena reads one.
+    fn apply(&mut self, index: usize) {
+        if self.state != SlotState::Running {
+            return;
+        }
+        if let Some(seat) = self.asking.pop_front() {
+            let call = encoding::decode_call(&self.world, seat, index)
+                .or_else(|| encoding::decode_call(&self.world, seat, encoding::PASS))
+                .unwrap_or(Call::Pass);
+            self.answers.push((seat, call));
+            if self.asking.is_empty() {
+                let answers = std::mem::take(&mut self.answers);
+                if self.world.resolve_calls(&answers).is_err() {
+                    self.state = SlotState::Broken;
+                    return;
+                }
+            }
+            self.settle();
+            return;
+        }
+        if matches!(self.world.phase, Phase::Act) {
+            let Some(action) = encoding::decode_action(&self.world, index)
+                .or_else(|| self.world.legal_actions().into_iter().next())
+            else {
+                self.state = SlotState::Broken;
+                return;
+            };
+            // The searching player's own turn, played by the policy on the
+            // way to a deeper leaf.
+            if self.world.turn == self.seat {
+                self.depth = self.depth.saturating_sub(1);
+            }
+            if self.world.act(action).is_err() {
+                self.state = SlotState::Broken;
+                return;
+            }
+            self.settle();
+        }
+    }
+}
+
+/// Runs `work` on every slot, across the cores where there are threads.
+#[cfg(feature = "parallel")]
+fn each_slot(slots: &mut [Slot], work: impl Fn(&mut Slot) + Sync + Send) {
+    use rayon::prelude::*;
+    slots.par_iter_mut().for_each(work);
+}
+
+/// The same, one slot after another, for builds without threads.
+#[cfg(not(feature = "parallel"))]
+fn each_slot(slots: &mut [Slot], work: impl Fn(&mut Slot)) {
+    slots.iter_mut().for_each(work);
+}
+
+/// Runs `work` on every slot with the item that goes with it, across the
+/// cores where there are threads.
+#[cfg(feature = "parallel")]
+fn each_slot_with<T: Copy + Sync>(
+    slots: &mut [Slot],
+    items: &[T],
+    work: impl Fn(&mut Slot, T) + Sync + Send,
+) {
+    use rayon::prelude::*;
+    slots
+        .par_iter_mut()
+        .zip(items.par_iter())
+        .for_each(|(slot, item)| work(slot, *item));
+}
+
+/// The same, one slot after another, for builds without threads.
+#[cfg(not(feature = "parallel"))]
+fn each_slot_with<T: Copy>(slots: &mut [Slot], items: &[T], work: impl Fn(&mut Slot, T)) {
+    slots
+        .iter_mut()
+        .zip(items)
+        .for_each(|(slot, item)| work(slot, *item));
+}
+
+impl Lookahead {
+    /// Makes each candidate move in each of the given worlds, which the
+    /// caller has imagined and weighed, and advances every slot to the
+    /// first decision somebody owes. `depth` is how many of the searching
+    /// player's own turns to act the caller plays before the position is
+    /// valued; zero values the next one, as [`leaves_from`] does.
+    pub fn begin(
+        seat: Wind,
+        candidates: &[Action],
+        worlds: &[Hand],
+        weights: &[f64],
+        depth: usize,
+    ) -> Lookahead {
+        assert!(!candidates.is_empty(), "there is always something to do");
+        assert_eq!(worlds.len(), weights.len(), "one weight per world");
+        let mut slots: Vec<Slot> = (0..candidates.len())
+            .flat_map(|candidate| (0..worlds.len()).map(move |world| (candidate, world)))
+            .map(|(candidate, world)| {
+                let mut trial = worlds[world].clone();
+                let state = if trial.act(candidates[candidate]).is_err() {
+                    SlotState::Broken
+                } else {
+                    SlotState::Running
+                };
+                Slot {
+                    world: trial,
+                    seat,
+                    settled: 0.0,
+                    depth,
+                    asking: VecDeque::new(),
+                    answers: Vec::new(),
+                    dealt: 0,
+                    seed: world as u64 * 977 + 13,
+                    state,
+                }
+            })
+            .collect();
+        each_slot(&mut slots, Slot::settle);
+        Lookahead {
+            worlds: worlds.len(),
+            candidates: candidates.len(),
+            weights: weights.to_vec(),
+            slots,
+        }
+    }
+
+    /// The slots waiting on a decision, in slot order, and whose it is.
+    pub fn owed(&self) -> Vec<(usize, Wind)> {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot)| slot.owed().map(|seat| (index, seat)))
+            .collect()
+    }
+
+    /// Appends the observation and legality mask of every waiting slot,
+    /// from the deciding seat's point of view and in the order
+    /// [`Lookahead::owed`] lists them, and returns how many there were.
+    pub fn observe_into(&self, observations: &mut Vec<f32>, masks: &mut Vec<bool>) -> usize {
+        let owed = self.owed();
+        let first = observations.len();
+        observations.resize(first + owed.len() * OBSERVATION, 0.0);
+        let first_mask = masks.len();
+        masks.resize(first_mask + owed.len() * ACTIONS, false);
+        for (n, (index, seat)) in owed.iter().enumerate() {
+            let slot = &self.slots[*index];
+            let start = first + n * OBSERVATION;
+            encoding::observe(
+                &slot.world,
+                *seat,
+                &mut observations[start..start + OBSERVATION],
+            );
+            let start = first_mask + n * ACTIONS;
+            encoding::legal_mask(&slot.world, *seat, &mut masks[start..start + ACTIONS]);
+        }
+        owed.len()
+    }
+
+    /// Applies one decision per waiting slot, in the order
+    /// [`Lookahead::owed`] listed them, and advances every slot again.
+    pub fn apply(&mut self, actions: &[usize]) {
+        let owed = self.owed();
+        assert_eq!(actions.len(), owed.len(), "one action per waiting slot");
+        let mut chosen: Vec<Option<usize>> = vec![None; self.slots.len()];
+        for ((index, _), action) in owed.iter().zip(actions) {
+            chosen[*index] = Some(*action);
+        }
+        each_slot_with(&mut self.slots, &chosen, |slot, action| {
+            if let Some(action) = action {
+                slot.apply(action);
+            }
+        });
+    }
+
+    /// Whether no slot is waiting on a decision.
+    pub fn finished(&self) -> bool {
+        self.slots.iter().all(|slot| slot.owed().is_none())
+    }
+
+    /// The positions to value, as [`leaves_from`] gives them. A slot still
+    /// waiting on a decision, because the caller stopped early, does not
+    /// count.
+    pub fn leaves(&self) -> Leaves {
+        let slots = self.slots.len();
+        let mut observations = vec![0.0f32; slots * OBSERVATION];
+        let mut settled = vec![0.0; slots];
+        let mut wanted = vec![false; slots];
+        let mut counted = vec![false; slots];
+        for (index, slot) in self.slots.iter().enumerate() {
+            settled[index] = slot.settled;
+            match slot.state {
+                SlotState::Leaf => {
+                    let start = index * OBSERVATION;
+                    encoding::observe(
+                        &slot.world,
+                        slot.seat,
+                        &mut observations[start..start + OBSERVATION],
+                    );
+                    wanted[index] = true;
+                    counted[index] = true;
+                }
+                SlotState::Settled => counted[index] = true,
+                SlotState::Running | SlotState::Broken => {}
+            }
+        }
+        Leaves {
+            worlds: self.worlds,
+            candidates: self.candidates,
+            observations,
+            settled,
+            wanted,
+            counted,
+            weights: self.weights.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1252,6 +1619,169 @@ mod tests {
             let judged = decide(&candidates, &got, &valued, 2.0).expect("a decision");
             assert_eq!(judged.action, candidates[0]);
         }
+    }
+
+    /// The policy that takes the first legal move, standing in for a
+    /// network: what a lookahead is driven by in these tests. In a claim
+    /// window that is a win when one is offered and a pass otherwise.
+    fn first_legal(masks: &[bool]) -> Vec<usize> {
+        masks
+            .chunks(ACTIONS)
+            .map(|mask| {
+                mask.iter()
+                    .position(|legal| *legal)
+                    .expect("something is legal")
+            })
+            .collect()
+    }
+
+    /// Drives a lookahead to its leaves with the first-legal policy and
+    /// returns how many passes it took.
+    fn drive(lookahead: &mut Lookahead) -> usize {
+        let mut passes = 0;
+        while !lookahead.finished() {
+            passes += 1;
+            assert!(passes < 1000, "a lookahead ends");
+            let mut observations = Vec::new();
+            let mut masks = Vec::new();
+            let count = lookahead.observe_into(&mut observations, &mut masks);
+            assert_eq!(count, lookahead.owed().len());
+            assert_eq!(observations.len(), count * OBSERVATION);
+            assert_eq!(masks.len(), count * ACTIONS);
+            lookahead.apply(&first_legal(&masks));
+        }
+        passes
+    }
+
+    /// A lookahead played by the caller reaches the same kind of leaves as
+    /// the heuristic one: one slot per candidate per world, a real
+    /// observation wherever a value is wanted, every leaf the searching
+    /// player's turn to act, the weights carried through, and a decision
+    /// that follows the values.
+    #[test]
+    fn a_lookahead_played_by_the_caller_reaches_leaves() {
+        let table = Table::new();
+        let mut rng = Rng::from_seed(2026);
+        let hand = table.deal(&mut rng);
+        let seat = hand.turn;
+        let candidates: Vec<Action> = hand.legal_actions().into_iter().take(3).collect();
+        let mut rng = Rng::from_seed(9);
+        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 5);
+        let weights = vec![0.1, 0.2, 0.3, 0.2, 0.2];
+
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0);
+        let passes = drive(&mut lookahead);
+        assert!(
+            passes >= 3,
+            "three other players had turns on the way, took {passes}"
+        );
+        let got = lookahead.leaves();
+        assert_eq!(got.worlds, 5);
+        assert_eq!(got.candidates, 3);
+        assert_eq!(got.counted.len(), 15);
+        assert_eq!(got.weights, weights);
+        assert!(
+            got.counted.iter().all(|counts| *counts),
+            "a discard is legal in every world and every world plays on"
+        );
+        for slot in (0..15).filter(|slot| got.wanted[*slot]) {
+            let planes = &got.observations[slot * OBSERVATION..(slot + 1) * OBSERVATION];
+            assert!(
+                planes.iter().any(|value| *value != 0.0),
+                "slot {slot} was handed back empty"
+            );
+        }
+        for slot in &lookahead.slots {
+            if slot.state == SlotState::Leaf {
+                assert_eq!(
+                    slot.world.turn, slot.seat,
+                    "a leaf is the player's own turn"
+                );
+                assert!(matches!(slot.world.phase, Phase::Act));
+            }
+        }
+
+        let mut valued = vec![0.0; 15];
+        for world in 0..5 {
+            valued[2 * 5 + world] = 5.0 + world as f64 * 0.01;
+        }
+        let chosen = decide(&candidates, &got, &valued, 2.0).expect("a decision");
+        if (10..15).all(|slot| got.wanted[slot]) {
+            assert_eq!(
+                chosen.action, candidates[2],
+                "the clearly better move is taken"
+            );
+        }
+        let flat = vec![1.0; 15];
+        let kept = decide(&candidates, &got, &flat, 2.0).expect("a decision");
+        assert_eq!(kept.action, candidates[0], "nothing beats the incumbent");
+    }
+
+    /// With depth, the policy plays the searching player's next turn too
+    /// and the leaf is the one after: the player has discarded once more
+    /// in every world that reached both leaves in the same hand.
+    #[test]
+    fn depth_plays_the_searching_players_turn_before_valuing() {
+        let table = Table::new();
+        let mut rng = Rng::from_seed(77);
+        let hand = table.deal(&mut rng);
+        let seat = hand.turn;
+        let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
+        let mut rng = Rng::from_seed(3);
+        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 4);
+        let weights = vec![1.0; 4];
+
+        let mut shallow = Lookahead::begin(seat, &candidates, &worlds, &weights, 0);
+        let near_passes = drive(&mut shallow);
+        let mut deep = Lookahead::begin(seat, &candidates, &worlds, &weights, 1);
+        let far_passes = drive(&mut deep);
+        assert!(
+            far_passes > near_passes,
+            "the deeper lookahead asks more of the policy"
+        );
+
+        let mut compared = 0;
+        for (near, far) in shallow.slots.iter().zip(&deep.slots) {
+            if near.state != SlotState::Leaf
+                || far.state != SlotState::Leaf
+                || near.seat != far.seat
+                || near.dealt != far.dealt
+            {
+                continue;
+            }
+            compared += 1;
+            assert_eq!(
+                far.world.players[far.seat.index()].discards.len(),
+                near.world.players[near.seat.index()].discards.len() + 1,
+                "one more discard by the player at the deeper leaf"
+            );
+            assert_eq!(far.depth, 0, "the depth was spent");
+        }
+        assert!(compared > 0, "some world reached both leaves");
+    }
+
+    /// A slot whose candidate the world will not take does not count, and
+    /// a lookahead the caller walks away from values nothing it had not
+    /// reached.
+    #[test]
+    fn a_lookahead_counts_only_what_it_reached() {
+        let table = Table::new();
+        let mut rng = Rng::from_seed(5);
+        let hand = table.deal(&mut rng);
+        let seat = hand.turn;
+        let candidates: Vec<Action> = hand.legal_actions().into_iter().take(1).collect();
+        let mut rng = Rng::from_seed(6);
+        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
+        let weights = vec![1.0; 3];
+
+        let lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0);
+        assert!(!lookahead.finished(), "the next player has a turn to take");
+        let got = lookahead.leaves();
+        assert!(
+            got.counted.iter().all(|counts| !*counts),
+            "nothing reached a leaf yet, so nothing counts"
+        );
+        assert!(got.wanted.iter().all(|wants| !*wants));
     }
 
     /// Plays a hand to its end with the hurried bots.

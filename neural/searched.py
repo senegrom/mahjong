@@ -7,6 +7,15 @@ moves; the network values every position that results in one pass; the
 engine picks. Nothing is played out to the end by a heuristic, which is
 what the first version did and what measured worse than not searching.
 
+Between the candidate move and the position that is valued, the other
+seats have to be moved by somebody. By default that is the club heuristic;
+with `--played-by network` it is the network itself, which is what the
+opponents are in self-play and what the strong searchers do, the engine
+handing every decision the imagined worlds are waiting on to the policy in
+one batch at a time. With the network moving them, `--depth` lets it play
+the searching player's own next turns too before the position is valued,
+in the manner of OLSS's policy-guided depth.
+
 The comparison is the same deals four times over with the searching player
 in each chair, and its error bar comes from the deals rather than the four
 seatings, for the reason set out in `arena.py`: the seatings share their
@@ -40,8 +49,55 @@ SEATS = 4
 
 
 @torch.no_grad()
+def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=400):
+    """Plays every decision the lookaheads are waiting on with the policy
+    until none is left: the network moving the other seats inside the
+    search, and the searching player's own turns beyond the first when a
+    depth was asked for. Its best move at temperature zero, a sample
+    otherwise. Returns how many passes of the policy it took; a slot still
+    waiting after `passes` is given up on and does not count."""
+    taken = 0
+    while taken < passes:
+        planes_bytes, masks_bytes, count = arena.lookahead_owed()
+        if count == 0:
+            break
+        taken += 1
+        planes = np.frombuffer(planes_bytes, dtype=np.float32).reshape(count, PLANES, POSITIONS)
+        masks = np.frombuffer(masks_bytes, dtype=np.uint8).reshape(count, ACTIONS).astype(bool)
+        actions = np.empty(count, dtype=np.int64)
+        step = 8192
+        for start in range(0, count, step):
+            rows = slice(start, start + step)
+            logits, _value = net(
+                torch.from_numpy(planes[rows]).to(device),
+                torch.from_numpy(masks[rows]).to(device),
+            )
+            if temperature > 0:
+                odds = torch.softmax(logits.float() / temperature, dim=1)
+                picked = torch.multinomial(odds, 1).squeeze(1)
+            else:
+                picked = logits.argmax(dim=1)
+            actions[rows] = picked.cpu().numpy()
+        arena.lookahead_apply(actions.tolist())
+    return taken
+
+
+@torch.no_grad()
 def search_with_value_head(
-    net, arena, ranked, belief_flat, *, worlds, candidates, margin, hurried, device="cuda", pool=4
+    net,
+    arena,
+    ranked,
+    belief_flat,
+    *,
+    worlds,
+    candidates,
+    margin,
+    hurried,
+    device="cuda",
+    pool=4,
+    played_by="club",
+    depth=0,
+    temperature=0.0,
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -57,6 +113,12 @@ def search_with_value_head(
     position in a single pass, and the engine picks, keeping the first move
     unless another beats it by `margin` standard errors of the weighted
     world-by-world difference.
+
+    `played_by` says who moves the other seats between the candidate move
+    and the leaf: the club heuristic, or the network itself. With the
+    network, `depth` is how many of the searching player's own turns it
+    plays before the position is valued, and `temperature` whether those
+    moves are its best (zero) or sampled.
     """
     games = len(ranked)
     hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
@@ -87,9 +149,14 @@ def search_with_value_head(
             weight = np.exp(top - top.max())
             kept[game] = [int(index) for index in order]
             weights[game] = [float(value) for value in weight / weight.sum()]
-    planes_bytes, counts, _settled, _wanted = arena.leaves_from(
-        ranked, kept, weights, candidates=candidates, hurried=hurried
-    )
+    if played_by == "network":
+        arena.lookahead_begin(ranked, kept, weights, candidates=candidates, depth=depth)
+        play_lookahead(net, arena, device=device, temperature=temperature)
+        planes_bytes, counts, _settled, _wanted = arena.lookahead_leaves()
+    else:
+        planes_bytes, counts, _settled, _wanted = arena.leaves_from(
+            ranked, kept, weights, candidates=candidates, hurried=hurried
+        )
     total = sum(counts)
     if total == 0:
         return arena.decide([], margin, ranked)
@@ -117,6 +184,9 @@ def play(
     pool: int = 4,
     hurried: bool = True,
     device: str = "cuda",
+    played_by: str = "club",
+    depth: int = 0,
+    temperature: float = 0.0,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -171,6 +241,9 @@ def play(
                 hurried=hurried,
                 device=device,
                 pool=pool,
+                played_by=played_by,
+                depth=depth,
+                temperature=temperature,
             )
         arena.step(list(choice))
 
@@ -199,6 +272,28 @@ def main() -> None:
         "the sampled search, with no weighing at all",
     )
     parser.add_argument("--margin", type=float, default=2.0)
+    parser.add_argument(
+        "--played-by",
+        choices=("club", "network"),
+        default="club",
+        help="who moves the other seats between the candidate move and the "
+        "position that is valued: the club heuristic, or the network itself",
+    )
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=0,
+        help="with the network moving the other seats, how many of the "
+        "searching player's own turns it plays before the position is "
+        "valued; zero values the next one",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="how the network's moves inside the lookahead are drawn: its "
+        "best at zero, a sample of its policy above",
+    )
     parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
     args = parser.parse_args()
@@ -221,6 +316,9 @@ def main() -> None:
             candidates=args.candidates,
             margin=args.margin,
             pool=args.pool,
+            played_by=args.played_by,
+            depth=args.depth,
+            temperature=args.temperature,
         )
         asked += tally[0]
         overrode += tally[1]
@@ -254,6 +352,9 @@ def main() -> None:
                 "checkpoint": args.checkpoint,
                 "worlds": args.worlds,
                 "pool": args.pool,
+                "played_by": args.played_by,
+                "depth": args.depth,
+                "temperature": args.temperature,
                 "candidates": args.candidates,
                 "margin": args.margin,
                 "games_total": args.games * SEATS,

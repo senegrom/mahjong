@@ -66,6 +66,15 @@ plays and the game the opponents were trained on cannot drift apart.
   with their hidden information. In training a second critic, the oracle,
   sees the hidden tiles outright and gives the policy gradient a quieter
   baseline; the policy never sees them.
+- **The network moves the other seats inside the search.** Between the
+  candidate move and the position that gets valued, the other three
+  players have to act, and who they are is an assumption. The heuristic
+  player is one answer and the wrong one against a network: in self-play
+  the opponents are the network. So the engine hands every decision its
+  imagined worlds are waiting on back to the caller, thousands at a time,
+  and the policy answers them in one pass; the same handle lets the
+  network play the searching player's own next turns before the position
+  is valued, which is how a policy buys depth without a tree.
 - **The trained opponent in the browser**, as ONNX in a worker beside the
   rules in WebAssembly, so a whole game runs offline.
 

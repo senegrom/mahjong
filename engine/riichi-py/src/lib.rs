@@ -297,6 +297,9 @@ pub struct Arena {
     /// For each game, the worlds imagined for a weighed search and not yet
     /// weighed.
     imagined: Vec<Vec<Hand>>,
+    /// For each game, a lookahead the caller is playing the other seats
+    /// of, with its candidates.
+    lookaheads: Vec<Option<(Vec<Action>, search::Lookahead)>>,
 }
 
 #[pymethods]
@@ -321,6 +324,7 @@ impl Arena {
             searched: search::Tally::default(),
             pending: (0..games).map(|_| None).collect(),
             imagined: (0..games).map(|_| Vec::new()).collect(),
+            lookaheads: (0..games).map(|_| None).collect(),
         }
     }
 
@@ -649,6 +653,152 @@ impl Arena {
                 .collect();
             let world_weights: Vec<f64> = weights[game].iter().map(|w| *w as f64).collect();
             let got = search::leaves_from(wind, &shortlist, &worlds, &world_weights, effort);
+            counts.push(got.counted.len());
+            observations.extend_from_slice(&got.observations);
+            settled.extend(got.settled.iter().map(|worth| *worth as f32));
+            wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
+            self.pending[game] = Some((shortlist, got));
+        }
+        (
+            PyBytes::new(py, bytemuck_cast(&observations)),
+            counts,
+            settled,
+            wanted,
+        )
+    }
+
+    /// Begins, for every live game that owes a move, a lookahead in which
+    /// the caller plays every decision on the way: the weighed search of
+    /// [`Arena::leaves_from`] with the network rather than the heuristic
+    /// player moving the other seats. Takes, per game, which of the
+    /// imagined worlds to keep and how much each counts, makes each of the
+    /// first `candidates` moves of `ranked` in every kept world, and
+    /// advances every slot to the first decision somebody owes. `depth` is
+    /// how many of the deciding player's own turns to act the caller plays
+    /// before the position is valued; zero values the next one.
+    ///
+    /// Returns how many games have a lookahead running. The caller then
+    /// alternates [`Arena::lookahead_owed`] and [`Arena::lookahead_apply`]
+    /// until nothing is owed, and takes the leaves with
+    /// [`Arena::lookahead_leaves`] for [`Arena::decide`].
+    #[pyo3(signature = (ranked, kept, weights, candidates=4, depth=0))]
+    fn lookahead_begin(
+        &mut self,
+        ranked: Vec<Vec<usize>>,
+        kept: Vec<Vec<usize>>,
+        weights: Vec<Vec<f32>>,
+        candidates: usize,
+        depth: usize,
+    ) -> usize {
+        let games = self.seats.len();
+        assert_eq!(ranked.len(), games, "one ranking per game");
+        assert_eq!(kept.len(), games, "one list of kept worlds per game");
+        assert_eq!(weights.len(), games, "one list of weights per game");
+        let mut running = 0;
+        for (game, ranking) in ranked.iter().enumerate() {
+            self.pending[game] = None;
+            self.lookaheads[game] = None;
+            let imagined = std::mem::take(&mut self.imagined[game]);
+            let seat = &self.seats[game];
+            let Some(wind) = seat.pending() else {
+                continue;
+            };
+            if !seat.asking.is_empty() || imagined.is_empty() || kept[game].is_empty() {
+                continue;
+            }
+            let shortlist: Vec<Action> = ranking
+                .iter()
+                .filter_map(|index| encoding::decode_action(&seat.hand, *index))
+                .take(candidates.max(1))
+                .collect();
+            if shortlist.is_empty() {
+                continue;
+            }
+            assert_eq!(
+                kept[game].len(),
+                weights[game].len(),
+                "one weight per kept world"
+            );
+            let worlds: Vec<Hand> = kept[game]
+                .iter()
+                .map(|index| imagined[*index].clone())
+                .collect();
+            let world_weights: Vec<f64> = weights[game].iter().map(|w| *w as f64).collect();
+            let lookahead =
+                search::Lookahead::begin(wind, &shortlist, &worlds, &world_weights, depth);
+            self.lookaheads[game] = Some((shortlist, lookahead));
+            running += 1;
+        }
+        running
+    }
+
+    /// The decisions the lookaheads are waiting on: the observations, as
+    /// float32, and the legality masks, as bytes of 0 and 1, of every
+    /// waiting slot across every game, in game and slot order, and how
+    /// many there are. Nothing waiting means the leaves are ready.
+    fn lookahead_owed<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> (Bound<'py, PyBytes>, Bound<'py, PyBytes>, usize) {
+        let mut observations: Vec<f32> = Vec::new();
+        let mut masks: Vec<bool> = Vec::new();
+        let mut count = 0;
+        for (_, lookahead) in self.lookaheads.iter().flatten() {
+            count += lookahead.observe_into(&mut observations, &mut masks);
+        }
+        let bytes: Vec<u8> = masks.iter().map(|flag| u8::from(*flag)).collect();
+        (
+            PyBytes::new(py, bytemuck_cast(&observations)),
+            PyBytes::new(py, &bytes),
+            count,
+        )
+    }
+
+    /// Answers them: one action index per waiting slot, in the order
+    /// [`Arena::lookahead_owed`] gave them, and every lookahead advances
+    /// to the next decision it owes.
+    fn lookahead_apply(&mut self, actions: Vec<usize>) -> PyResult<()> {
+        let mut offset = 0;
+        for (_, lookahead) in self.lookaheads.iter_mut().flatten() {
+            let waiting = lookahead.owed().len();
+            if offset + waiting > actions.len() {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "expected at least {} actions, got {}",
+                    offset + waiting,
+                    actions.len()
+                )));
+            }
+            lookahead.apply(&actions[offset..offset + waiting]);
+            offset += waiting;
+        }
+        if offset != actions.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "expected {offset} actions, got {}",
+                actions.len()
+            )));
+        }
+        Ok(())
+    }
+
+    /// The leaves of every lookahead, as [`Arena::leaves_from`] gives
+    /// them, ready for [`Arena::decide`]. A slot still waiting on a
+    /// decision does not count. The lookaheads are spent.
+    fn lookahead_leaves<'py>(
+        &mut self,
+        py: Python<'py>,
+    ) -> (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>) {
+        let games = self.seats.len();
+        let mut observations: Vec<f32> = Vec::new();
+        let mut counts = Vec::with_capacity(games);
+        let mut settled: Vec<f32> = Vec::new();
+        let mut wanted: Vec<u8> = Vec::new();
+        for game in 0..games {
+            self.pending[game] = None;
+            let Some((shortlist, lookahead)) = self.lookaheads[game].take() else {
+                counts.push(0);
+                continue;
+            };
+            let got = lookahead.leaves();
             counts.push(got.counted.len());
             observations.extend_from_slice(&got.observations);
             settled.extend(got.settled.iter().map(|worth| *worth as f32));
