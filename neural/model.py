@@ -240,12 +240,29 @@ class PolicyValueNet(nn.Module):
         logits = logits.masked_fill(~legal, float("-inf"))
         return logits, self.value(pooled).squeeze(1)
 
-    def value_only(self, planes: torch.Tensor) -> torch.Tensor:
+    def value_only(self, planes: torch.Tensor, head: str = "critic") -> torch.Tensor:
         """What each position is worth, in the reward's units, and nothing
-        else: the critic's answer. The search values thousands of positions
-        a decision and wants none of the policy work for them."""
+        else. The search values thousands of positions a decision and wants
+        none of the policy work for them.
+
+        Which head answers is the caller's to choose, because which one is
+        the better judge is a question the training log asks every
+        generation and does not always answer the same way. `critic` is the
+        head with a tower of its own, trained on the ring of old rounds as
+        well as the current one; `public` is the head that reads the policy
+        tower's pooled features, which is the stronger representation and
+        costs nothing extra here, the tower's pass being paid for already;
+        `mean` averages them, which beats either whenever their errors are
+        not the same errors."""
         features = self.tail(self.tower(self.stem(planes)))
-        return self.critic_value(planes, features.mean(dim=2))
+        pooled = features.mean(dim=2)
+        if head == "public":
+            return self.value(pooled).squeeze(1)
+        if head == "critic":
+            return self.critic_value(planes, pooled)
+        if head == "mean":
+            return 0.5 * (self.critic_value(planes, pooled) + self.value(pooled).squeeze(1))
+        raise ValueError(f"no such value head: {head}")
 
     def read_hands(self, planes: torch.Tensor) -> torch.Tensor:
         """What each opponent is holding, as logits over the 34 kinds.

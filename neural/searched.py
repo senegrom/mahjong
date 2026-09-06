@@ -98,6 +98,7 @@ def search_with_value_head(
     played_by="club",
     depth=0,
     temperature=0.0,
+    valued_by="critic",
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -118,7 +119,8 @@ def search_with_value_head(
     and the leaf: the club heuristic, or the network itself. With the
     network, `depth` is how many of the searching player's own turns it
     plays before the position is valued, and `temperature` whether those
-    moves are its best (zero) or sampled.
+    moves are its best (zero) or sampled. `valued_by` names the head that
+    judges the leaves.
     """
     games = len(ranked)
     hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
@@ -168,7 +170,9 @@ def search_with_value_head(
     step = 8192
     for start in range(0, total, step):
         chunk = torch.from_numpy(planes[start : start + step]).to(device)
-        valued[start : start + step] = net.value_only(chunk).float().cpu().numpy()
+        valued[start : start + step] = (
+            net.value_only(chunk, head=valued_by).float().cpu().numpy()
+        )
     return arena.decide(valued.tolist(), margin, ranked)
 
 
@@ -187,6 +191,7 @@ def play(
     played_by: str = "club",
     depth: int = 0,
     temperature: float = 0.0,
+    valued_by: str = "critic",
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -244,6 +249,7 @@ def play(
                 played_by=played_by,
                 depth=depth,
                 temperature=temperature,
+                valued_by=valued_by,
             )
         arena.step(list(choice))
 
@@ -288,6 +294,16 @@ def main() -> None:
         "valued; zero values the next one",
     )
     parser.add_argument(
+        "--valued-by",
+        choices=("critic", "public", "mean"),
+        default="critic",
+        help="which head judges the leaves: the critic with a tower of its "
+        "own, the public head on the policy tower's pooled features, or "
+        "their mean. Every generation measures all three on a fresh round "
+        "before updating them, under public_error, oracle_error and "
+        "critic_error in the training log",
+    )
+    parser.add_argument(
         "--temperature",
         type=float,
         default=0.0,
@@ -319,6 +335,7 @@ def main() -> None:
             played_by=args.played_by,
             depth=args.depth,
             temperature=args.temperature,
+            valued_by=args.valued_by,
         )
         asked += tally[0]
         overrode += tally[1]
@@ -353,6 +370,7 @@ def main() -> None:
                 "worlds": args.worlds,
                 "pool": args.pool,
                 "played_by": args.played_by,
+                "valued_by": args.valued_by,
                 "depth": args.depth,
                 "temperature": args.temperature,
                 "candidates": args.candidates,
