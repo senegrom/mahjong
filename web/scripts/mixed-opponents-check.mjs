@@ -40,6 +40,8 @@ async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false
     if(!localStorage.getItem(key))localStorage.setItem(key,JSON.stringify(snapshot));
     if(!localStorage.getItem(settings))localStorage.setItem(settings,JSON.stringify({version:1,difficulty:'club',hints:true,confirmDiscards:true,shortcuts:true}));
   },SAVE_KEY,SETTINGS_KEY,snapshot);
+  // Do not let a cached genuine worker bypass intentional AI failure mocks.
+  if(mock || missing) await p.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'serviceWorker', { value: undefined }));
   await p.setRequestInterception(true);
   p.on('request',req=>{
     if(missing&&req.url().endsWith('/model.onnx'))void req.respond({status:404,body:''});

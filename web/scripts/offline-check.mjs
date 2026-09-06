@@ -84,7 +84,9 @@ async function play(p, turns = 5) {
     else { await p.click('.hand button:not(:disabled)'); await p.click('.confirm-discard .primary'); }
     await p.waitForFunction((key,n) => JSON.parse(localStorage.getItem(key)).commands.length > n, {}, SAVE_KEY, before.commands.length);
   }
-  await p.waitForFunction(() => !/thinking|Playing the turn|loading the network/i.test(document.querySelector('.prompt')?.textContent ?? ''), { timeout: 45000 });
+  // Runtime progress can say 'network ready' before opponents finish moving.
+  // Wait for a real player decision, not a transient status message.
+  await p.waitForFunction(() => document.querySelector('.failure, .screen, .standings, .hand button:not(:disabled), .call-options button:not(:disabled)'), { timeout: 45000 });
   assert.equal(await p.$('.failure'), null);
   assert.deepEqual(p.errors, []);
 }

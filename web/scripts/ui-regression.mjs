@@ -102,6 +102,9 @@ async function open(saved=initial, {width=1100,height=850,dark=false,confirm=fal
     if(!localStorage.getItem(saveKey)) localStorage.setItem(saveKey,JSON.stringify(saved));
   }, SAVE_KEY, SETTINGS_KEY, saved, confirm);
   if(mock) {
+    // Fault-injection tests replace the worker's bytes; integrity-checked
+    // offline assets are exercised separately by offline-check.mjs.
+    await page.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'serviceWorker', { value: undefined }));
     await page.setCacheEnabled(false);
     await page.setRequestInterception(true);
     page.on('request',request=>{

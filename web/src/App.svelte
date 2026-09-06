@@ -1,7 +1,8 @@
 <script>
   import { onMount, tick } from 'svelte';
   import init, { Game } from './wasm/riichi.js';
-  import Tile from './lib/Tile.svelte';
+  import Tile, { preloadTiles } from './lib/Tile.svelte';
+  import { startOffline, watchOffline, prepareOfflineAi, refreshOffline, retryOffline } from './lib/offline.js';
   import Seat from './lib/Seat.svelte';
   import Discards from './lib/Discards.svelte';
   import Melds from './lib/Melds.svelte';
@@ -30,6 +31,8 @@
   let confirmDiscards = $state(preferences.confirmDiscards);
   let shortcuts = $state(preferences.shortcuts);
   let ready = $state(false);
+  let startupNote = $state('Preparing the game for offline play…');
+  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', persistent: false, updateReady: false });
   let failure = $state('');
   let storageWarning = $state('');
   let saveConflict = $state('');
@@ -135,9 +138,16 @@
 
   onMount(() => {
     let mounted = true;
+    const unwatchOffline = watchOffline(value => { if (mounted) offline = value; });
     modelIsAvailable().then((available) => { if (mounted) trainedAvailable = available; });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
-    init().then(() => {
+    (async () => {
+      await startOffline();
+      if (!mounted) return;
+      await Promise.all([init(), preloadTiles((done, total) => {
+        if (mounted) startupNote = `Loading all tile graphics… ${done}/${total}`;
+      })]);
+    })().then(() => {
       if (!mounted) return;
       ready = true;
       const saved = matchStore.read();
@@ -145,6 +155,7 @@
         try {
           session = MatchSession.restore(Game, saved, callbacks);
           update(session);
+          if (session.opponents.includes('neural')) downloadAi();
           notice = 'Saved match restored.';
           void session.run();
         } catch (error) {
@@ -153,7 +164,7 @@
         }
       } else start();
     }).catch((error) => {
-      failure = `The rules engine did not load: ${error.message ?? error}. Reload this page to retry.`;
+      failure = `The game could not finish loading: ${error.message ?? error}. Reconnect and reload to retry.`;
     });
     // Completed actions are already saved inside their writer transaction.
     // Never write an old snapshot during pagehide. A cached page must restore
@@ -161,11 +172,15 @@
     const leave = () => { session?.dispose(); matchStore.close(); };
     const returnToPage = (event) => { if (event.persisted) location.reload(); };
     const storageChanged = (event) => matchStore.changed(event);
+    const checkOffline = () => { if (document.visibilityState === 'visible') void refreshOffline().catch(() => {}); };
+    document.addEventListener('visibilitychange', checkOffline);
     window.addEventListener('pagehide', leave);
     window.addEventListener('pageshow', returnToPage);
     window.addEventListener('storage', storageChanged);
     return () => {
       mounted = false;
+      unwatchOffline();
+      document.removeEventListener('visibilitychange', checkOffline);
       window.removeEventListener('pagehide', leave);
       window.removeEventListener('pageshow', returnToPage);
       window.removeEventListener('storage', storageChanged);
@@ -174,6 +189,9 @@
       reportProgress(null);
     };
   });
+
+  function downloadAi() { void prepareOfflineAi().catch(() => {}); }
+  function retryDownloads() { void retryOffline().catch(() => {}); }
 
   function start(strength = opponents) {
     if (saveConflict) return;
@@ -185,6 +203,7 @@
     notice = '';
     loadNote = '';
     session = new MatchSession(Game, Date.now() % 2 ** 31, strength, callbacks);
+    if (session.opponents.includes('neural')) downloadAi();
     void session.run();
   }
 
@@ -426,6 +445,21 @@
       </dl>
     </div>
   </details>
+  <details class="offline-settings">
+    <summary data-offline-status>{offline.aiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? `Saving AI… ${offline.progress}%` : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
+    <div class="option-fields">
+      <p role="status">{offline.warning || (offline.aiReady && offline.coreReady
+        ? 'Game, all tile graphics and trained AI are saved on this device. You can close and reopen this app without a connection.'
+        : offline.coreReady ? 'Game and all tile graphics are saved. Download the trained AI once before using it without a connection.'
+        : 'Preparing offline files. Stay connected until the download is complete.')}</p>
+      {#if offline.hasModel && !offline.aiReady}
+        <button onclick={downloadAi} disabled={offline.phase === 'ai'}>Download AI for offline play</button>
+      {/if}
+      {#if offline.warning}<button onclick={retryDownloads}>Retry offline download</button>{/if}
+      <p class="offline-detail">{offline.persistent ? 'Persistent storage granted.' : 'Your browser can remove website downloads when storage is low.'} Clearing website data removes downloads. On iPhone, check this status inside the Home Screen app before flying.</p>
+      {#if offline.updateReady}<p>A new version is downloaded. Close all Mahjong windows and reopen to use it; this match is saved.</p>{/if}
+    </div>
+  </details>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   </div>
 
@@ -462,6 +496,7 @@
   {#if failure}
     <section class="failure" aria-label="game recovery">
       <p role="alert">{failure}</p>
+      {#if !ready}<button onclick={() => location.reload()}>Reload to retry</button>{/if}
       {#if recovery && pendingOpponent}<p class="recovery-note">Waiting for the {pendingOpponent.position.toLowerCase()} opponent. Retry the network or explicitly switch that player to Club.</p>{/if}
       {#if recovery}
         <div class="recovery-actions">
@@ -478,7 +513,7 @@
   {#if storageWarning}<p class="notice" role="status">{storageWarning}</p>{/if}
 
   {#if !ready && !failure}
-    <p class="loading" role="status">Shuffling the wall…</p>
+    <p class="loading" role="status">{startupNote}</p>
   {:else if view}
     <div class="board">
       <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} /></div>
@@ -653,7 +688,7 @@
   .preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-width: 0; }
   .preferences details[open] { flex-basis: 100%; order: 1; }
   .preferences .notice { margin-left: auto; }
-  .options, .guide, .history { font-size: .85rem; min-width: 0; }
+  .options, .guide, .history, .offline-settings { font-size: .85rem; min-width: 0; }
   summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .option-fields { display: flex; gap: 4px 20px; flex-wrap: wrap; background: #0003; padding: 10px; border-radius: 8px; }
   .option-fields label { min-height: 44px; display: flex; gap: 8px; align-items: center; }
@@ -739,7 +774,7 @@
     .preferences { gap: 0 16px; }
     .opponents { gap: 5px; }
     .opponents > span { display: none; }
-    .options, .guide { font-size: .8rem; }
+    .options, .guide, .offline-settings { font-size: .8rem; }
     .board { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
     .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; justify-content: space-between; gap: 6px 10px; padding: 8px; }
     .round strong, .wall strong { font-size: 1rem; }
@@ -763,7 +798,13 @@
     .call-options { gap: 6px; }
     .call-options button { font-size: .8rem; padding: 6px 10px; }
   }
-  @media (max-width: 359px) { .place { --tile-width: 23px; } }
+  @media (max-width: 359px) {
+    .place { --tile-width: 23px; }
+    .preferences { column-gap: 8px; }
+    .opponents { min-width: 0; }
+    .bar select { min-width: 0; max-width: 100%; }
+    .restart { white-space: nowrap; flex-shrink: 0; }
+  }
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     main { max-width: none; grid-template-columns: minmax(270px, .85fr) minmax(340px, 1.15fr); align-items: start; }
     .bar, .preferences, .notice, .failure, .save-conflict, .loading, .history { grid-column: 1 / -1; }

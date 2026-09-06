@@ -1,5 +1,7 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
+import { startOffline, prepareOfflineAi } from './offline.js';
+
 const MODEL_URL = new URL('model.onnx', document.baseURI).href;
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
 let worker = null;
@@ -44,12 +46,27 @@ function ensureWorker() {
 
 export async function modelIsAvailable() {
   try {
+    const offline = await startOffline();
+    if (offline) return offline.hasModel;
     const response = await fetch(MODEL_URL, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
     return response.ok;
   } catch { return false; }
 }
 
-export function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal) {
+export async function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal) {
+  // Download and durably save the model AND runtime before the inference
+  // timeout starts. Recreating a worker or reopening offline uses these bytes.
+  if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
+  const preparation = prepareOfflineAi();
+  if (signal) {
+    await new Promise((resolve, reject) => {
+      const abort = () => { signal.removeEventListener('abort', abort); reject(new DOMException('Match changed', 'AbortError')); };
+      signal.addEventListener('abort', abort, { once: true });
+      preparation.then(value => { signal.removeEventListener('abort', abort); resolve(value); },
+        error => { signal.removeEventListener('abort', abort); reject(error); });
+      if (signal.aborted) abort();
+    });
+  } else await preparation;
   if (signal?.aborted) return Promise.reject(new DOMException('Match changed', 'AbortError'));
   return new Promise((resolve, reject) => {
     const id = nextId++;

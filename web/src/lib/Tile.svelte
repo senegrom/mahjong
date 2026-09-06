@@ -1,36 +1,40 @@
 <script module>
   import dragonUrl from '../assets/white-dragon.webp';
-  // Every face, fetched once when the page loads. A face is otherwise
-  // fetched the first time a tile of that kind is shown, and until it
-  // arrives the tile is blank, or still wears the face it had before,
-  // which on a slow connection or a busy machine was up to a second.
   const FACES = [
-    'Back',
-    'Front',
-    ...['Man', 'Pin', 'Sou'].flatMap((suit) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((rank) => suit + rank)),
-    'Ton',
-    'Nan',
-    'Shaa',
-    'Pei',
-    'Haku',
-    'Hatsu',
-    'Chun',
+    'Back', 'Front',
+    ...['Man', 'Pin', 'Sou'].flatMap(suit => [1,2,3,4,5,6,7,8,9].map(rank => suit + rank)),
+    'Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun',
   ];
-  // One at a time, at low priority, and not for the first two seconds: a
-  // burst of thirty-seven on a slow connection put the faces the table
-  // needed now behind ones it did not, and each waited on all of them.
-  if (typeof Image !== 'undefined') {
-    const pending = [...FACES.map((face) => `tiles/${face}.svg`), dragonUrl];
-    const next = () => {
-      const url = pending.shift();
-      if (!url) return;
-      const image = new Image();
-      image.fetchPriority = 'low';
-      image.onload = next;
-      image.onerror = next;
-      image.src = url;
-    };
-    setTimeout(next, 2000);
+  const images = [];
+  let preloading = null;
+  // Decode EVERY face before the first hand, including the hidden dragon art.
+  // Keep Image objects alive; the service worker also keeps the original bytes
+  // across reloads, new games and browser restarts, independently of HTTP cache.
+  export function preloadTiles(onProgress = () => {}) {
+    if (preloading) return preloading;
+    const urls = [...FACES.map(face => `tiles/${face}.svg`), dragonUrl];
+    let next = 0, complete = 0;
+    preloading = Promise.all(Array.from({ length: 6 }, async () => {
+      while (next < urls.length) {
+        const url = urls[next++];
+        const image = new Image();
+        images.push(image);
+        image.decoding = 'async';
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => done(new Error(`Tile download timed out: ${url}`)), 45000);
+          const done = error => {
+            clearTimeout(timer); image.onload = null; image.onerror = null;
+            if (error) reject(error); else resolve();
+          };
+          image.onload = () => done();
+          image.onerror = () => done(new Error(`Tile graphic could not load: ${url}`));
+          image.src = url;
+        });
+        await image.decode();
+        onProgress(++complete, urls.length);
+      }
+    })).catch(error => { preloading = null; throw error; });
+    return preloading;
   }
 </script>
 
