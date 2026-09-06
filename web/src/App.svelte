@@ -9,8 +9,9 @@
   import Standings from './lib/Standings.svelte';
   import Review from './lib/Review.svelte';
   import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
-  import { MatchSession, SAVE_KEY, SETTINGS_KEY, readSettings } from './lib/session.js';
+  import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
   import { acceptsHandKey, heldSafeCount, callLabel, callTiles } from './lib/ui.js';
+  import { MatchStore } from './lib/save-store.js';
   import { tileWords } from './lib/tiles.js';
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
@@ -26,6 +27,7 @@
   let ready = $state(false);
   let failure = $state('');
   let storageWarning = $state('');
+  let saveConflict = $state('');
   let notice = $state('');
   let loadNote = $state('');
   let session = $state.raw(null);
@@ -87,21 +89,29 @@
     if (!thinking) loadNote = '';
   }
 
-  function saveMatch(snapshot) {
-    try {
-      if (!storage) throw new Error('unavailable');
-      storage.setItem(SAVE_KEY, JSON.stringify(snapshot));
-      storageWarning = '';
-    } catch {
-      storageWarning = 'This browser could not save the match. Keep this page open to avoid losing progress.';
-    }
+  function stopForConflict(message) {
+    saveConflict = message;
+    session?.dispose();
+    session = null;
+    choices = [];
+    busy = false;
+    thinking = false;
+    recovery = false;
+    selected = null;
+    picked = null;
   }
+
+  const matchStore = new MatchStore(storage, navigator.locks, {
+    onConflict: stopForConflict,
+    onWarning: (message) => { storageWarning = message; },
+  });
 
   const callbacks = {
     // Greedy: the opponent plays its best move, not a sample of them.
     ai: (planes, mask, signal) => chooseAction(planes, mask, 0, 20000, signal),
     onChange: update,
-    onSave: saveMatch,
+    onSave: (snapshot) => matchStore.save(snapshot),
+    guard: (task) => matchStore.run(task),
   };
 
   onMount(() => {
@@ -111,8 +121,7 @@
     init().then(() => {
       if (!mounted) return;
       ready = true;
-      let saved = null;
-      try { saved = storage?.getItem(SAVE_KEY); } catch { /* Saving unavailable. */ }
+      const saved = matchStore.read();
       if (saved) {
         try {
           session = MatchSession.restore(Game, saved, callbacks);
@@ -127,18 +136,30 @@
     }).catch((error) => {
       failure = `The rules engine did not load: ${error.message ?? error}. Reload this page to retry.`;
     });
-    const saveOnLeave = () => { if (session && !session.closed) saveMatch(session.snapshot()); };
-    window.addEventListener('pagehide', saveOnLeave);
+    // Completed actions are already saved inside their writer transaction.
+    // Never write an old snapshot during pagehide. A cached page must restore
+    // the current record rather than resume a stale engine on Back navigation.
+    const leave = () => { session?.dispose(); matchStore.close(); };
+    const returnToPage = (event) => { if (event.persisted) location.reload(); };
+    const storageChanged = (event) => matchStore.changed(event);
+    window.addEventListener('pagehide', leave);
+    window.addEventListener('pageshow', returnToPage);
+    window.addEventListener('storage', storageChanged);
     return () => {
       mounted = false;
-      window.removeEventListener('pagehide', saveOnLeave);
+      window.removeEventListener('pagehide', leave);
+      window.removeEventListener('pageshow', returnToPage);
+      window.removeEventListener('storage', storageChanged);
+      matchStore.close();
       session?.dispose();
       reportProgress(null);
     };
   });
 
   function start(strength = difficulty) {
+    if (saveConflict) return;
     session?.dispose();
+    matchStore.newMatch();
     picked = null;
     selected = null;
     notes = null;
@@ -149,7 +170,7 @@
   }
 
   function startFresh(strength = difficulty) {
-    if (!ready) return;
+    if (!ready || saveConflict) return;
     if (session?.progressed && !confirm('Leave this unfinished match and deal a new one?')) return;
     start(strength);
   }
@@ -161,7 +182,7 @@
     if (strength !== difficulty) startFresh(strength);
   }
 
-  function canDiscard(tile) { return !busy && !failure && discardChoices.some((choice) => choice.tile === tile); }
+  function canDiscard(tile) { return !busy && !failure && !saveConflict && discardChoices.some((choice) => choice.tile === tile); }
 
   async function choose(choice) {
     if (!session || busy) return;
@@ -182,14 +203,24 @@
     else discard(tile);
   }
 
+  function syncHandFocus(event) {
+    const tile = event.target.closest('[data-hand-index]');
+    const index = tile ? Number(tile.dataset.handIndex) : null;
+    if (picked !== null) picked = index;
+    // Native Tab navigation must not leave a confirmation for a different tile.
+    if (selected !== null && selected !== index) selected = null;
+  }
+
   async function onKey(event) {
     if (!shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
     if (event.key === 'Escape') { picked = null; selected = null; return; }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
       const step = event.key === 'ArrowLeft' ? -1 : 1;
-      picked = picked === null ? Math.max(handTiles.length - 1, 0)
-        : Math.min(Math.max(picked + step, 0), handTiles.length - 1);
+      const focused = event.target.closest('[data-hand-index]');
+      const index = focused ? Number(focused.dataset.handIndex) : null;
+      picked = index === null ? Math.max(handTiles.length - 1, 0)
+        : Math.min(Math.max(index + step, 0), handTiles.length - 1);
       selected = null;
       await tick();
       handElement?.querySelector(`[data-hand-index="${picked}"]`)?.focus({ preventScroll: true });
@@ -198,7 +229,7 @@
     if (event.repeat) { event.preventDefault(); return; }
     if (event.key === 'Enter' || event.key === ' ') {
       const focused = event.target.closest('[data-hand-index]');
-      const index = picked ?? (focused ? Number(focused.dataset.handIndex) : null);
+      const index = focused ? Number(focused.dataset.handIndex) : picked;
       if (index !== null && canDiscard(handTiles[index])) {
         event.preventDefault();
         discard(handTiles[index]);
@@ -260,13 +291,13 @@
     <h1>Riichi</h1>
     <label class="opponents">
       <span>Opponents</span>
-      <select value={difficulty} onchange={changeOpponents} disabled={!ready} aria-label="opponent strength">
+      <select value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
         <option value="beginner">Beginner</option>
         <option value="club">Club</option>
         {#if trainedAvailable || difficulty === 'neural'}<option value="neural">Trained</option>{/if}
       </select>
     </label>
-    <button class="restart" onclick={() => startFresh()} disabled={!ready}>New game</button>
+    <button class="restart" onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>
   </header>
 
   <div class="preferences">
@@ -344,6 +375,13 @@
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   </div>
 
+  {#if saveConflict}
+    <section class="save-conflict" role="alert">
+      <p>{saveConflict}</p>
+      <button onclick={() => location.reload()}>Reload latest match</button>
+    </section>
+  {/if}
+
   {#if failure}
     <section class="failure" aria-label="game recovery">
       <p role="alert">{failure}</p>
@@ -351,7 +389,7 @@
         <div class="recovery-actions">
           <button onclick={retryAi} disabled={busy}>Retry trained opponent</button>
           <button onclick={continueClub} disabled={busy}>Continue with Club opponents</button>
-          <button onclick={() => startFresh()} disabled={!ready}>New game</button>
+          <button onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>
         </div>
       {/if}
     </section>
@@ -406,10 +444,10 @@
             {#if view.furiten}<span class="furiten">Furiten — self-draw wins only</span>{/if}
           </div>
         {/if}
-        <div class="hand" role="group" aria-label="your tiles" aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement}>
+        <div class="hand" role="group" aria-label="your tiles" aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
           {#each handTiles as tile, index (index)}
             <Tile {tile} handIndex={index} onclick={() => selectTile(tile, index)}
-              disabled={!canDiscard(tile)} selected={myTurn && (picked === index || selected === index)}
+              disabled={!canDiscard(tile)} muted={view.phase === 'over'} selected={myTurn && (picked === index || selected === index)}
               drawn={Boolean(me.drawn) && index === me.hand.length}
               safe={hints && view.phase !== 'over' && view.safe.includes(tile)} dora={shownDora.includes(tile)} />
           {/each}
@@ -431,7 +469,8 @@
           {#if notes !== null}<Review {notes} {hints} />{/if}
         {:else}
           <p id="hand-help" class="prompt" role="status">
-            {#if failure}Choose a recovery option above to continue.
+            {#if saveConflict}Reload the latest match to continue here.
+            {:else if failure}Choose a recovery option above to continue.
             {:else if busy}{thinking ? (loadNote || 'Trained opponents are thinking…') : 'Playing the turn…'}
             {:else if myTurn}
               {confirmDiscards ? 'Your turn. Select a tile, then confirm the discard.' : 'Your turn. Choose a tile to discard.'}
@@ -493,6 +532,9 @@
 </main>
 
 <style>
+  .save-conflict { padding: 12px; border: 1px solid var(--gold); border-radius: 8px; background: var(--felt-deep); }
+  .save-conflict p { margin: 0 0 8px; }
+  .save-conflict button { min-height: 44px; padding: 8px 14px; }
   main { max-width: 1100px; margin: 0 auto; padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); display: grid; gap: 10px; }
   .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid #ffffff28; padding-bottom: 8px; }
   h1 { margin: 0; font-size: 1.1rem; letter-spacing: .16em; text-transform: uppercase; }
@@ -613,7 +655,7 @@
   @media (max-width: 359px) { .place { --tile-width: 23px; } }
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     main { max-width: none; grid-template-columns: minmax(270px, .85fr) minmax(340px, 1.15fr); align-items: start; }
-    .bar, .preferences, .notice, .failure, .loading, .history { grid-column: 1 / -1; }
+    .bar, .preferences, .notice, .failure, .save-conflict, .loading, .history { grid-column: 1 / -1; }
     .board { grid-column: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
     .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; gap: 4px 8px; padding: 6px; }
     .left { grid-area: 2 / 1; justify-self: stretch; }

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "seed": 287,
+  "difficulty": "neural",
+  "commands": [
+    {
+      "type": "opponent",
+      "action": 1
+    },
+    {
+      "type": "choose",
+      "kind": "pass",
+      "tile": null
+    }
+  ],
+  "state": "[{\"round\":\"east\",\"kyoku\":1,\"hands_played\":0,\"counters\":0,\"riichi_sticks\":0,\"wall\":68,\"dora_indicators\":[\"5s\"],\"seats\":[{\"seat\":\"north\",\"hand_size\":13,\"hand\":[\"2m\",\"2m\",\"4m\",\"6m\",\"6m\",\"6m\",\"8m\",\"9m\",\"1p\",\"7s\",\"8s\",\"5z\",\"6z\"],\"melds\":[],\"discards\":[],\"score\":30000,\"riichi\":false,\"turn\":false},{\"seat\":\"east\",\"hand_size\":13,\"hand\":[],\"melds\":[],\"discards\":[{\"tile\":\"2m\",\"drawn\":false,\"riichi\":false,\"claimed\":false}],\"score\":30000,\"riichi\":false,\"turn\":false},{\"seat\":\"south\",\"hand_size\":14,\"hand\":[],\"melds\":[],\"discards\":[],\"score\":30000,\"riichi\":false,\"turn\":true},{\"seat\":\"west\",\"hand_size\":13,\"hand\":[],\"melds\":[],\"discards\":[],\"score\":30000,\"riichi\":false,\"turn\":false}],\"phase\":\"act\",\"dora_types\":[\"6s\"],\"waits\":[],\"waits_left\":[],\"dora\":[],\"shanten\":3,\"furiten\":false,\"safe\":[]},[],false]"
+}

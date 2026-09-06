@@ -59,6 +59,7 @@
     size = 'normal',
     onclick = null,
     disabled = false,
+    muted = disabled,
     title = '',
     handIndex = null,
   } = $props();
@@ -109,6 +110,7 @@
     class="tile {size}"
     class:rotated
     class:dimmed
+    class:muted
     class:selected
     class:safe
     class:dora
@@ -133,6 +135,7 @@
     class="tile {size}"
     class:rotated
     class:dimmed
+    class:muted
     class:ringed={marks.length > 0}
     style:--ring={ring}
     role="img"
@@ -249,7 +252,7 @@
     cursor: default;
   }
 
-  button.tile:disabled img {
+  button.tile:disabled.muted img {
     filter: grayscale(0.7) brightness(0.75);
   }
 

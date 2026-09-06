@@ -1,4 +1,5 @@
 <script>
+  import { placeLabel } from './ui.js';
   /**
    * Where everybody finished. A game is played for placement rather than
    * points, so the places lead and the arithmetic follows: what was on the
@@ -7,7 +8,6 @@
   let { standings = [], onagain } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
-  const PLACES = ['1st', '2nd', '3rd', '4th'];
 
   function signed(value) {
     if (value === 0) return '0';
@@ -20,7 +20,7 @@
 <section class="standings" aria-label="final standings">
   <h2>
     {#if yours}
-      You finished {PLACES[yours.place - 1]}
+      You finished {placeLabel(yours).toLowerCase()}
     {:else}
       The game is over
     {/if}
@@ -43,9 +43,9 @@
       </tr>
     </thead>
     <tbody>
-      {#each standings as row (row.place)}
+      {#each standings as row (row.player)}
         <tr class:you={row.you}>
-          <td>{PLACES[row.place - 1]}</td>
+          <td>{placeLabel(row)}</td>
           <td>{row.you ? 'You' : NAMES[row.seat]}</td>
           <td class="number">{row.score.toLocaleString()}</td>
           <td class="number" class:up={row.uma > 0} class:down={row.uma < 0}>
@@ -120,6 +120,17 @@
 
   .down {
     color: var(--warning-text);
+  }
+
+  /* Keep all five columns visible on phones; scrolling the whole panel hid
+     the result column even when the document itself had no overflow. */
+  @media (max-width: 600px) {
+    .standings { padding: 12px 10px; }
+    table { width: 100%; font-size: .82rem; }
+    th { font-size: .62rem; letter-spacing: .02em; }
+    th, td { padding-right: 4px; }
+    th:last-child, td:last-child { padding-right: 0; }
+    .number { white-space: nowrap; }
   }
 
   button {

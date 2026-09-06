@@ -2,7 +2,7 @@
  * a replaceable global Game. Saves replay legal commands on the real engine;
  * they never deserialize arbitrary internal Rust state or rerun neural choices.
  */
-export const SAVE_KEY = 'riichi.match.v1';
+export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
 const VERSION = 1;
 const MAX_COMMANDS = 20000;
@@ -28,7 +28,7 @@ export function readSettings(storage, touch = false) {
 }
 
 export class MatchSession {
-  constructor(Game, seed, difficulty, { ai, onChange = () => {}, onSave = () => {} } = {}) {
+  constructor(Game, seed, difficulty, { ai, onChange = () => {}, onSave = () => {}, guard = (task) => task() } = {}) {
     require(Number.isSafeInteger(seed) && seed >= 0 && seed < 2 ** 31, 'Invalid match seed');
     require(DIFFICULTIES.includes(difficulty), 'Invalid opponents');
     this.engine = new Game(seed, difficulty);
@@ -38,6 +38,7 @@ export class MatchSession {
     this.commands = [];
     this.events = [];
     this.ai = ai;
+    this.guard = guard;
     this.onChange = onChange;
     this.onSave = onSave;
     this.closed = false;
@@ -60,23 +61,40 @@ export class MatchSession {
   stateKey() { return JSON.stringify([this.view, this.choices, this.over]); }
 
   snapshot() {
-    return { version: VERSION, seed: this.seed, difficulty: this.initialDifficulty,
+    return { version: VERSION, format: 2, seed: this.seed, difficulty: this.initialDifficulty,
       commands: this.commands.map((command) => ({ ...command })), state: this.stateKey() };
   }
 
   static restore(Game, text, options) {
     require(typeof text === 'string' && text.length <= MAX_SAVE_BYTES, 'Saved match is too large');
     const saved = JSON.parse(text);
-    require(saved?.version === VERSION && Array.isArray(saved.commands), 'Unsupported saved match');
+    require(saved?.version === VERSION && (saved.format === undefined || saved.format === 2) && Array.isArray(saved.commands), 'Unsupported saved match');
     require(saved.commands.length <= MAX_COMMANDS && typeof saved.state === 'string', 'Invalid saved match');
     const session = new MatchSession(Game, saved.seed, saved.difficulty, options);
     try {
       session.advance(false);
       for (const command of saved.commands) {
+        const legacyCall = saved.format === undefined && session.difficulty === 'neural'
+          && command.type === 'choose' && session.view.phase === 'call';
         session.apply(command);
         session.advance(false);
+        // The old binding implicitly passed all unasked opponents after a
+        // human call. Preserve those historical decisions as explicit legal
+        // passes, never by asking a new network to rewrite the past.
+        while (legacyCall && !session.over && session.view.phase === 'call' && session.engine.needs_opponent_move()) {
+          require(session.engine.opponent_mask()[70], 'Cannot migrate a historical claim');
+          session.apply({ type: 'opponent', action: 70 });
+          session.advance(false);
+        }
       }
-      require(session.stateKey() === saved.state, 'The saved match does not match this engine version');
+      // Prior saves did not include the claimed tile in meld presentation.
+      // Compare every former field, then migrate only this additive metadata.
+      // Divergent rules/commands still fail closed and leave the save untouched.
+      const state = session.stateKey();
+      const comparable = saved.format === undefined
+        ? JSON.stringify(JSON.parse(state), (key, value) => key === 'claimed_tile' ? undefined : value)
+        : state;
+      require(comparable === saved.state, 'The saved match does not match this engine version');
       return session;
     } catch (error) {
       session.dispose();
@@ -138,21 +156,24 @@ export class MatchSession {
     this.failure = '';
     this.notify();
     try {
-      if (command) this.apply(command);
-      this.advance();
-      this.notify();
-      let moves = 0;
-      while (!this.over && this.engine.needs_opponent_move()) {
-        require(moves++ < 400, 'The opponent sequence did not settle');
-        this.thinking = true;
-        this.notify();
-        const action = await this.ai(this.engine.opponent_observation(), this.engine.opponent_mask(), this.abort.signal);
+      return await this.guard(async () => {
         if (this.closed) return false;
-        this.apply({ type: 'opponent', action });
+        if (command) this.apply(command);
         this.advance();
         this.notify();
-      }
-      return true;
+        let moves = 0;
+        while (!this.over && this.engine.needs_opponent_move()) {
+          require(moves++ < 400, 'The opponent sequence did not settle');
+          this.thinking = true;
+          this.notify();
+          const action = await this.ai(this.engine.opponent_observation(), this.engine.opponent_mask(), this.abort.signal);
+          if (this.closed) return false;
+          this.apply({ type: 'opponent', action });
+          this.advance();
+          this.notify();
+        }
+        return true;
+      });
     } catch (error) {
       if (!this.closed) this.failure = error?.message ?? String(error);
       return false;

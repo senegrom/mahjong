@@ -35,6 +35,9 @@
     min-height: calc(var(--tile-width) * 0.62 * 1.35);
   }
 
+  /* Keep the caption visible, without reserving a blank row before any discard. */
+  .pool:not(.compact):empty { min-height: 0; }
+
   .compact {
     grid-template-columns: repeat(6, max-content);
     min-height: calc(var(--tile-width) * 0.5 * 1.35 * 3);

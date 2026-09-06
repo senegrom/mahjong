@@ -9,7 +9,7 @@ continues the same position with Club opponents, or starts a new match.
 ## Saved matches
 
 After each successful player/AI action and each hand transition, the application
-stores `riichi.match.v1` in local storage. The versioned record contains the
+stores `riichi.match.v2` in local storage. The versioned record contains the
 initial seed, original opponent mode, a validated sequence of legal commands,
 and the final visible state. Neural action choices are recorded too. Reloading
 replays these exact choices on the rules engine; it does not ask the network to
@@ -67,3 +67,31 @@ Set `CHROME_BIN` when Chrome/Chromium is not in a standard system location.
 Screenshots and the structured browser report are saved to `web/test-results/`.
 CI requires both the rules-engine job and the web regression job before Pages
 publication. Browser viewport emulation is not a physical iPhone/Safari test.
+
+## Second-review corrections
+
+Saved-match commands run inside a same-origin Web Lock. Each write compares the
+exact revision originally read, so a stale window cannot take over merely by
+acquiring the lock later. Other windows stop accepting moves when storage changes
+and offer **Reload latest match**. Nothing is saved by `pagehide`; successful
+commands were already saved in their transaction. Returning from the back/forward
+cache reloads the current match. Browsers without usable storage/Web Locks may
+play without shared persistence and show a warning rather than use a racy fallback.
+
+Compatible old records are read from `riichi.match.v1` and migrated to the new key
+without deleting the old copy. Old-version windows can no longer overwrite the
+new save. Additive claimed-tile metadata and historical implicit neural passes are migrated; other rules/replay divergence is
+still rejected without overwriting the original record.
+
+A submitted human call remains pending until every other eligible claimant has
+answered, including competing ron claims. Pending calls replay exactly and can
+recover to Club. The retained final hand and exported log preserve their original
+player-to-seat mapping. Ties have a joint place and a distinct player identifier.
+Meld presentation obtains the actual claimed tile from its authoritative event,
+not from its position in the sorted sequence. Native Tab focus and arrow-key
+markers stay synchronised, and Enter prioritises the focused tile. Tiles disabled
+while deciding a call stay readable.
+
+The regression suite includes real shared browser tabs, simultaneous writers,
+shift-Tab/mouse input, a completed match, and late-hand, multiple-meld, long-call
+and tied-standings layouts at narrow portrait and landscape viewport sizes.

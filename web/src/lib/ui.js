@@ -40,3 +40,21 @@ export function acceptsHandKey(event, hand) {
   const button = target.closest('button');
   return !button || button.classList.contains('tile');
 }
+
+/** Preserve meld shape, but move the tile actually claimed to its source-side
+ * position. Concealed quads have no claimed tile; an added kan retains the pon's.
+ */
+export function meldTiles(meld) {
+  const tiles = [...meld.tiles];
+  const source = tiles.indexOf(meld.claimed_tile);
+  if (meld.kind === 'concealed-kan' || source < 0) return tiles;
+  const target = meld.from === 'left' ? 0 : meld.from === 'across' ? 1 : tiles.length - 1;
+  tiles.splice(source, 1);
+  tiles.splice(target, 0, meld.claimed_tile);
+  return tiles;
+}
+
+export function placeLabel(row) {
+  const place = ['1st', '2nd', '3rd', '4th'][row.place - 1] ?? String(row.place);
+  return row.tied ? `Joint ${place}` : place;
+}

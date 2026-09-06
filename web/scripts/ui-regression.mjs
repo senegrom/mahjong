@@ -34,7 +34,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const url = `http://127.0.0.1:${server.address().port}/mahjong/`;
 const chrome = process.env.CHROME_BIN || ['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);
 assert.ok(chrome, 'Set CHROME_BIN to a Chromium/Chrome executable');
-const browser = await puppeteer.launch({executablePath:chrome,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+const browser = await puppeteer.launch({executablePath:chrome,headless:true,protocolTimeout:30000,args:['--no-sandbox','--disable-dev-shm-usage']});
 const results = [];
 const contexts = [];
 const problems = new WeakMap();
@@ -46,13 +46,13 @@ function chooseSimple(match) {
   return choices.find(c=>c.kind==='ron'||c.kind==='tsumo') ?? choices.find(c=>c.kind==='pass')
     ?? choices.find(c=>c.kind==='discard' && c.tile===match.view.seats[0].drawn) ?? choices.find(c=>c.kind==='discard') ?? choices[0];
 }
-function findFixture(predicate) {
+function findFixture(predicate, policy=chooseSimple) {
   for(let seed=1;seed<=70;seed++) {
     const match=make(seed);
     for(let n=0;n<80;n++) {
       if(predicate(match)) { const snapshot=match.snapshot(); match.dispose(); return snapshot; }
       if(match.view.phase==='over') break;
-      step(match,chooseSimple(match));
+      step(match,policy(match));
     }
     match.dispose();
   }
@@ -68,8 +68,31 @@ const safeSave=findFixture(m=>heldSafeCount(m.view)>0 && m.view.safe.length!==he
 const endSave=findFixture(m=>m.view.phase==='over');
 const dormant=make(1,'neural'); const neuralSave=dormant.snapshot(); dormant.dispose();
 
-async function open(saved=initial, {width=1100,height=850,dark=false,confirm=false,mock=null}={}) {
-  const context=await browser.createBrowserContext(); contexts.push(context);
+function chooseOpen(match) {
+  const c=match.choices;
+  return c.find(c=>c.kind==='ron'||c.kind==='tsumo') ?? c.find(c=>['chii','pon','kan'].includes(c.kind))
+    ?? c.find(c=>c.kind==='pass') ?? c.find(c=>c.kind==='discard') ?? c[0];
+}
+const lateSave=findFixture(m=>m.view.wall<=15,chooseOpen);
+const meldSave=findFixture(m=>m.view.seats.reduce((n,s)=>n+s.melds.length,0)>=3,chooseOpen);
+const manyCallsSave=findFixture(m=>m.choices.filter(c=>c.kind!=='discard').length>=4,chooseOpen);
+function completeSave(seed) {
+  const m=make(seed,'beginner');
+  for(let n=0;n<3500&&!m.over;n++) {
+    if(m.engine.hand_is_over()) {m.apply({type:'next'});m.advance(false);}
+    else { const c=m.choices;step(m,c.find(c=>c.kind==='ron'||c.kind==='tsumo')??c.find(c=>c.kind==='pass')??c.find(c=>c.kind==='discard')??c[0]); }
+  }
+  assert.ok(m.over);const snapshot=m.snapshot();m.dispose();return snapshot;
+}
+const tiedSave=completeSave(2);
+const finalSave=completeSave(14);
+const chii=make(1);for(const tile of ['9s','3m','8s','7p'])step(chii,{kind:'discard',tile});
+const chiiSave=chii.snapshot();chii.dispose();
+const sharedCall=make(287,'neural');sharedCall.apply({type:'opponent',action:1});sharedCall.advance(false);
+const sharedCallSave=sharedCall.snapshot();sharedCall.dispose();
+
+async function open(saved=initial, {width=1100,height=850,dark=false,confirm=false,mock=null,sharedContext=null}={}) {
+  const context=sharedContext ?? await browser.createBrowserContext(); if(!sharedContext) contexts.push(context);
   const page=await context.newPage(); const errors=[]; problems.set(page, errors);
   page.on('pageerror',error=>errors.push(error.message));
   await page.setViewport({width,height,isMobile:width<500 || height<500,hasTouch:width<500 || height<500,deviceScaleFactor:1});
@@ -83,7 +106,8 @@ async function open(saved=initial, {width=1100,height=850,dark=false,confirm=fal
     await page.setRequestInterception(true);
     page.on('request',request=>{
       if(request.url().includes('/assets/policy.worker-')) {
-        const text=mock.delay ? `self.onmessage=({data:d})=>setTimeout(()=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)}),${mock.delay});`
+        const text=mock.sharedCall ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[73]?73:d.mask.findIndex(Boolean)});'
+          : mock.delay ? `self.onmessage=({data:d})=>setTimeout(()=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)}),${mock.delay});`
           : mock.fail ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,error:"Simulated network failure"});'
           : 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)});';
         void request.respond({status:200,contentType:'text/javascript',body:text});
@@ -145,6 +169,7 @@ try {
     const tile=await page.$('.hand button:not(:disabled)'); await tile.click();
     assert.equal((await saved(page)).commands.length,0,'First tap only selects');
     await page.click('.confirm-discard .primary');
+    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.length===1,{},SAVE_KEY);
     const before=await saved(page); assert.equal(before.commands.length,1);
     await page.reload({waitUntil:'networkidle0'}); await page.waitForSelector('.hand');
     assert.deepEqual(await saved(page),before);
@@ -237,6 +262,91 @@ try {
     const actual=await page.$$eval('.log p',nodes=>nodes.map(n=>n.textContent));
     const match=MatchSession.restore(Game,JSON.stringify(duplicateSave)); assert.deepEqual(actual,match.events);match.dispose(); noErrors(page);
   });
+  await check('mixed arrows and Shift+Tab discard the focused tile',async()=>{
+    const page=await open(initial);await page.focus('.hand');await page.keyboard.press('ArrowLeft');
+    await page.keyboard.down('Shift');await page.keyboard.press('Tab');await page.keyboard.up('Shift');
+    const tile=await page.evaluate(()=>document.activeElement.dataset.tile);
+    assert.ok(tile);assert.equal(await page.$eval('.hand .selected',n=>n.dataset.tile),tile);
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.length>0,{},SAVE_KEY);
+    assert.equal((await saved(page)).commands.find(c=>c.type==='choose').tile,tile);noErrors(page);
+  });
+  await check('mouse selection after a keyboard marker follows the new focus',async()=>{
+    const page=await open(initial,{confirm:true});await page.focus('.hand');await page.keyboard.press('ArrowLeft');
+    const tile=await page.$eval('.hand button',n=>n.dataset.tile);await page.click('.hand button');
+    assert.equal((await saved(page)).commands.length,0);await page.keyboard.press('Enter');
+    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.length>0,{},SAVE_KEY);
+    assert.equal((await saved(page)).commands.find(c=>c.type==='choose').tile,tile);noErrors(page);
+  });
+  await check('Tab navigation clears a confirmation for a different tile',async()=>{
+    const page=await open(initial,{confirm:true});await page.click('.hand button');
+    await page.keyboard.press('Tab');const tile=await page.evaluate(()=>document.activeElement.dataset.tile);
+    assert.ok(tile);assert.equal(await page.$('.confirm-discard'),null);
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.length>0,{},SAVE_KEY);
+    assert.equal((await saved(page)).commands.find(c=>c.type==='choose').tile,tile);noErrors(page);
+  });
+  await check('human Pass in the browser still lets the trained opponent claim Chii',async()=>{
+    const page=await open(sharedCallSave,{mock:{sharedCall:true}});await page.click('[data-choice=pass]');
+    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.some(c=>c.type==='opponent'&&c.action===73),{},SAVE_KEY);
+    const snapshot=await saved(page);assert.ok(snapshot.commands.some(c=>c.type==='choose'&&c.kind==='pass'));
+    const south=JSON.parse(snapshot.state)[0].seats.find(s=>s.seat==='south');
+    assert.ok(south.melds.some(m=>m.kind==='chii'&&m.claimed_tile==='2m'));noErrors(page);
+  });
+  await check('two real tabs cannot roll back progress on pagehide; reload resumes latest',async()=>{
+    const a=await open(initial);const b=await open(initial,{sharedContext:a.browserContext()});
+    await a.bringToFront();await a.click('.hand button:not(:disabled)');
+    await b.bringToFront();await b.waitForSelector('.save-conflict');
+    const current=await saved(a);assert.equal(current.commands.length,1);
+    assert.equal(await b.$$eval('.hand button:not(:disabled)',n=>n.length),0);
+    await b.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
+    assert.deepEqual(await saved(b),current,'A stale pagehide must never rewrite the newer record');
+    await Promise.all([b.waitForNavigation({waitUntil:'networkidle0'}),b.click('.save-conflict button')]);
+    assert.deepEqual(await saved(b),current);assert.equal(await b.$('.save-conflict'),null);
+    await b.click('.hand button:not(:disabled)');await a.bringToFront();await a.waitForSelector('.save-conflict');
+    assert.equal((await saved(b)).commands.length,2);noErrors(a);noErrors(b);
+  });
+  await check('simultaneous tab moves have one writer, not two accepted saves',async()=>{
+    const a=await open(initial);const b=await open(initial,{sharedContext:a.browserContext()});
+    await Promise.all([a.evaluate(()=>document.querySelector('.hand button:not(:disabled)').click()),b.evaluate(()=>document.querySelector('.hand button:not(:disabled)')?.click())]);
+    await new Promise(resolve=>setTimeout(resolve,150));
+    assert.equal((await saved(a)).commands.length,1);
+    assert.equal((await a.$('.save-conflict')?1:0)+(await b.$('.save-conflict')?1:0),1);
+    noErrors(a);noErrors(b);
+  });
+  await check('call decisions keep disabled hand artwork fully legible',async()=>{
+    const page=await open(callSave,{width:390,height:844});
+    const tiles=await page.$$eval('.hand button',ns=>ns.map(n=>({disabled:n.disabled,filter:getComputedStyle(n.querySelector('img')).filter})));
+    assert.ok(tiles.length>0&&tiles.every(t=>t.disabled&&t.filter==='none'));await shot(page,'review2-call-readable');noErrors(page);
+  });
+  await check('Chii rotates the middle tile that was actually claimed',async()=>{
+    const page=await open(chiiSave);await page.click('[data-choice=chii]');
+    await page.waitForSelector('.my-melds .rotated');
+    assert.match(await page.$eval('.my-melds .rotated',n=>n.getAttribute('aria-label')),/5 characters/);noErrors(page);
+  });
+  await check('completed match keeps the human panel and joint finishing labels',async()=>{
+    const page=await open(finalSave,{width:390,height:844});
+    assert.equal(await page.$eval('.mine .score',n=>n.textContent),'27,400');
+    assert.equal(await page.$eval('.standings tr.you td:nth-child(3)',n=>n.textContent),'27,400');noErrors(page);
+    const tied=await open(tiedSave,{width:390,height:844});
+    assert.equal(await tied.$$eval('.standings tbody tr',ns=>ns.filter(n=>n.querySelector('td').textContent==='Joint 3rd').length),2);
+    await shot(tied,'review2-joint-standings');noErrors(tied);
+  });
+  for(const [name,fixture] of [['late-hand',lateSave],['multiple-melds',meldSave],['many-calls',manyCallsSave],['standings',tiedSave]]) {
+    for(const [width,height] of [[320,568],[390,844],[568,320],[844,390]]) {
+      await check(`${name}: no horizontal overflow at ${width}x${height}`,async()=>{
+        const page=await open(fixture,{width,height,confirm:width<500});
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+        if(name==='standings') {
+          const box=await page.$eval('.standings',n=>({scroll:n.scrollWidth,width:n.clientWidth}));
+          assert.ok(box.scroll<=box.width+1,`Standings clip their result column: ${JSON.stringify(box)}`);
+        }
+        const buttons=await page.$$eval('.controls button',ns=>ns.map(n=>{const r=n.getBoundingClientRect();return {width:r.width,left:r.left,right:r.right};}));
+        assert.ok(buttons.every(r=>r.left>=0&&r.right<=width+1),JSON.stringify(buttons));
+        await shot(page,`review2-${name}-${width}x${height}`);noErrors(page);
+      });
+    }
+  }
 } finally {
   await writeFile(resolve(output,'ui-report.json'),JSON.stringify(results,null,2));
   for(const context of contexts) await context.close();

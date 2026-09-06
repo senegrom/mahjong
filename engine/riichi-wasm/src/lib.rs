@@ -42,6 +42,8 @@ pub struct MeldView {
     /// Which side the claimed tile came from: `"left"`, `"across"`, `"right"`
     /// or `"self"` for a concealed quad.
     pub from: String,
+    /// The actual claimed tile, retained by the event log (not necessarily the lowest).
+    pub claimed_tile: Option<String>,
 }
 
 /// One player, as the person at the table can see them.
@@ -178,6 +180,10 @@ pub struct OutcomeView {
 /// Where one player finished.
 #[derive(Serialize)]
 pub struct StandingView {
+    /// Stable player identity, independent of seat wind and tied place.
+    pub player: usize,
+    /// Whether another player shares this finishing place.
+    pub tied: bool,
     /// First to fourth.
     pub place: usize,
     /// The seat they hold in the last hand, which is what the table shows.
@@ -257,6 +263,8 @@ pub struct Game {
     /// seats move between hands; this does not.
     player: usize,
     seat: Wind,
+    /// Mapping belonging to the retained hand, including after match settlement.
+    hand_seating: [usize; 4],
     log: Vec<String>,
     /// Points each seat held when the hand was dealt, so the score screen
     /// can say what the hand cost or paid.
@@ -294,6 +302,7 @@ impl Game {
         let player = rng.below(4);
         let hand = table.deal(&mut rng);
         let seat = table.seat_of(player);
+        let hand_seating = table.seating();
         let mut game = Game {
             table,
             hand,
@@ -303,6 +312,7 @@ impl Game {
                 .collect(),
             player,
             seat,
+            hand_seating,
             log: Vec::new(),
             opening: [0; 4],
             decisions: Vec::new(),
@@ -440,15 +450,7 @@ impl Game {
                         } else {
                             None
                         },
-                        melds: player
-                            .melds
-                            .iter()
-                            .map(|meld| MeldView {
-                                kind: meld_kind_name(meld.kind).to_string(),
-                                tiles: meld.tiles().iter().map(ToString::to_string).collect(),
-                                from: claimed_from_name(meld.from).to_string(),
-                            })
-                            .collect(),
+                        melds: meld_views(&self.hand, seat),
                         discards: player
                             .discards
                             .iter()
@@ -521,7 +523,7 @@ impl Game {
             }
             Phase::CallWindow => {
                 for (seat, calls) in self.hand.legal_calls() {
-                    if seat != self.seat {
+                    if seat != self.seat || self.gathered.iter().any(|(who, _)| *who == seat) {
                         continue;
                     }
                     for call in calls {
@@ -565,6 +567,11 @@ impl Game {
                     self.hand.act(action).map_err(refused)?;
                 }
                 Phase::CallWindow => {
+                    // The human may already have answered. Do not present that
+                    // decision again or resolve other claimants as implicit passes.
+                    if self.external && !self.asking.is_empty() {
+                        break;
+                    }
                     let offered = self.hand.legal_calls();
                     if offered.iter().any(|(seat, _)| *seat == self.seat) {
                         break;
@@ -641,22 +648,30 @@ impl Game {
                 {
                     return Err(JsValue::from_str("that call is not legal now"));
                 }
+                if self.gathered.iter().any(|(seat, _)| *seat == self.seat) {
+                    return Err(JsValue::from_str(
+                        "this player has already answered the claim",
+                    ));
+                }
+                if self.external {
+                    self.gathered = vec![(self.seat, call)];
+                    self.asking = offered
+                        .iter()
+                        .map(|(seat, _)| *seat)
+                        .filter(|seat| *seat != self.seat)
+                        .collect();
+                    if !matches!(call, Call::Pass) {
+                        self.note(self.seat, &describe_call(call).label);
+                    }
+                    if self.asking.is_empty() {
+                        let answers = std::mem::take(&mut self.gathered);
+                        self.hand.resolve_calls(&answers).map_err(refused)?;
+                    }
+                    return Ok(());
+                }
                 let mut answers: Vec<(Wind, Call)> = vec![(self.seat, call)];
                 for (seat, calls) in &offered {
                     if *seat == self.seat {
-                        continue;
-                    }
-                    // With the page answering for the opponents, a claim it
-                    // has already gathered stands; anything not yet asked
-                    // passes, since the player's own answer settles the
-                    // window either way.
-                    if self.external {
-                        let already = self
-                            .gathered
-                            .iter()
-                            .find(|(other, _)| other == seat)
-                            .map(|(_, call)| *call);
-                        answers.push((*seat, already.unwrap_or(Call::Pass)));
                         continue;
                     }
                     let who = self.table.player_at(*seat);
@@ -716,7 +731,7 @@ impl Game {
     /// Players are numbered rather than seated, and number 0 is whoever
     /// dealt first, which is what those programs expect.
     pub fn log(&self) -> String {
-        let seating = self.table.seating();
+        let seating = self.hand_seating;
         self.hand
             .log
             .iter()
@@ -744,9 +759,11 @@ impl Game {
             return Err(JsValue::from_str("the hand is still being played"));
         }
         self.table.finish(&self.hand);
-        // The player keeps their place at the table while the seats move.
-        self.seat = self.table.seat_of(self.player);
+        // A finished match retains its last hand and that hand's identities.
+        // Only rotate the displayed seats when a new hand actually exists.
         if !self.table.finished {
+            self.seat = self.table.seat_of(self.player);
+            self.hand_seating = self.table.seating();
             self.hand = self.table.deal(&mut self.rng);
             self.opening = scores_of(&self.hand);
             self.decisions.clear();
@@ -761,27 +778,48 @@ impl Game {
 
     /// Where everybody finished, best first, once the game is over.
     pub fn standings(&self) -> Result<JsValue, JsValue> {
+        let standings = self.standing_rows();
+        serde_wasm_bindgen::to_value(&standings)
+            .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    fn standing_rows(&self) -> Vec<StandingView> {
         let totals = self.table.final_scores();
         let mut order: Vec<usize> = (0..4).collect();
         order.sort_by_key(|player| core::cmp::Reverse(self.table.scores[*player]));
-
-        let standings: Vec<StandingView> = order
+        order
             .iter()
-            .enumerate()
-            .map(|(place, player)| StandingView {
-                place: place + 1,
-                seat: wind_name(self.table.seat_of(*player)).to_string(),
-                score: self.table.scores[*player],
-                // What the bonus was worth is the difference between the
-                // final total and the points over the return score.
-                uma: totals[*player]
-                    - (self.table.scores[*player] - riichi_core::table::RETURN_SCORE),
-                total: totals[*player],
-                you: *player == self.player,
+            .map(|player| {
+                let score = self.table.scores[*player];
+                let place = 1 + self
+                    .table
+                    .scores
+                    .iter()
+                    .filter(|other| **other > score)
+                    .count();
+                let seat = self
+                    .hand_seating
+                    .iter()
+                    .position(|who| who == player)
+                    .expect("four players");
+                StandingView {
+                    player: *player,
+                    tied: self
+                        .table
+                        .scores
+                        .iter()
+                        .filter(|other| **other == score)
+                        .count()
+                        > 1,
+                    place,
+                    seat: wind_name(Wind::ALL[seat]).to_string(),
+                    score,
+                    uma: totals[*player] - (score - riichi_core::table::RETURN_SCORE),
+                    total: totals[*player],
+                    you: *player == self.player,
+                }
             })
-            .collect();
-        serde_wasm_bindgen::to_value(&standings)
-            .map_err(|error| JsValue::from_str(&error.to_string()))
+            .collect()
     }
 
     /// The tile the seat has just drawn and not yet used, if any.
@@ -866,15 +904,7 @@ impl Game {
                             .to_string(),
                             from: discarder.map(|from| wind_name(from).to_string()),
                             hand: hand.tiles().map(|tile| tile.to_string()).collect(),
-                            melds: player
-                                .melds
-                                .iter()
-                                .map(|meld| MeldView {
-                                    kind: meld_kind_name(meld.kind).to_string(),
-                                    tiles: meld.tiles().iter().map(ToString::to_string).collect(),
-                                    from: claimed_from_name(meld.from).to_string(),
-                                })
-                                .collect(),
+                            melds: meld_views(&self.hand, *seat),
                             winning_tile: score.winning_tile.to_string(),
                             yaku: score
                                 .yaku
@@ -1096,6 +1126,43 @@ fn describe_call(call: Call) -> ActionView {
     }
 }
 
+/// Presentation-only information comes from the authoritative event log. This
+/// keeps the training/scoring Meld representation unchanged. A kakan extends an
+/// existing pon, so it must not occupy a new slot in this list.
+fn meld_views(hand: &Hand, seat: Wind) -> Vec<MeldView> {
+    use riichi_core::mjai::Event;
+    let claimed: Vec<Option<Tile>> = hand
+        .log
+        .iter()
+        .filter_map(|event| match event {
+            Event::Chi { actor, tile, .. }
+            | Event::Pon { actor, tile, .. }
+            | Event::Daiminkan { actor, tile, .. }
+                if *actor == seat =>
+            {
+                Some(Some(*tile))
+            }
+            Event::Ankan { actor, .. } if *actor == seat => Some(None),
+            _ => None,
+        })
+        .collect();
+    hand.players[seat.index()]
+        .melds
+        .iter()
+        .enumerate()
+        .map(|(slot, meld)| MeldView {
+            kind: meld_kind_name(meld.kind).to_string(),
+            tiles: meld.tiles().iter().map(ToString::to_string).collect(),
+            from: claimed_from_name(meld.from).to_string(),
+            claimed_tile: claimed
+                .get(slot)
+                .copied()
+                .flatten()
+                .map(|tile| tile.to_string()),
+        })
+        .collect()
+}
+
 fn dora_types(hand: &Hand) -> Vec<String> {
     hand.wall
         .dora_indicators()
@@ -1164,5 +1231,99 @@ pub fn riichi_label(state: Riichi) -> &'static str {
         Riichi::None => "",
         Riichi::Declared => "riichi",
         Riichi::Double => "double riichi",
+    }
+}
+
+#[cfg(test)]
+mod ui_review_tests {
+    use super::*;
+
+    fn shared_window(human_wins: bool) -> Game {
+        let mut game = Game::new(287.0, Some("neural".into()));
+        game.player = 2;
+        game.seat = Wind::West;
+        game.hand_seating = [0, 1, 2, 3];
+        let hands = [
+            "3m123456789p1112s",
+            "12m123456789p11z",
+            if human_wins {
+                "12m123456789p22z"
+            } else {
+                "33m123456789s55p"
+            },
+            "147m147p147s1234z",
+        ];
+        for (index, text) in hands.iter().enumerate() {
+            game.hand.players[index].hand = text.parse().unwrap();
+            game.hand.players[index].discards.clear();
+        }
+        game.hand.turn = Wind::East;
+        game.hand.phase = Phase::Act;
+        game.hand.drawn = Some("3m".parse().unwrap());
+        game.hand.first_turns_unbroken = false;
+        game.hand
+            .act(Action::Discard("3m".parse().unwrap()))
+            .unwrap();
+        assert!(game
+            .hand
+            .legal_calls()
+            .iter()
+            .any(|(seat, calls)| *seat == Wind::South && calls.contains(&Call::Ron)));
+        game
+    }
+
+    #[test]
+    fn human_pon_cannot_preempt_an_opponents_ron() {
+        let mut game = shared_window(false);
+        game.choose("pon", None).unwrap();
+        assert_eq!(game.hand.phase, Phase::CallWindow);
+        assert!(game.asking.contains(&Wind::South));
+        game.play_opponent(encoding::RON).unwrap();
+        // Any other eligible players must still answer before resolution.
+        while !game.asking.is_empty() {
+            game.play_opponent(encoding::PASS).unwrap();
+        }
+        match game.hand.outcome.as_ref().unwrap() {
+            Outcome::Win { winners, .. } => assert_eq!(
+                winners.iter().map(|(seat, _)| *seat).collect::<Vec<_>>(),
+                vec![Wind::South]
+            ),
+            _ => panic!("ron must win over pon"),
+        }
+        assert!(game.hand.players[Wind::West.index()].melds.is_empty());
+    }
+
+    #[test]
+    fn a_human_ron_does_not_suppress_another_ron() {
+        let mut game = shared_window(true);
+        game.choose("ron", None).unwrap();
+        assert_eq!(game.hand.phase, Phase::CallWindow);
+        game.play_opponent(encoding::RON).unwrap();
+        while !game.asking.is_empty() {
+            game.play_opponent(encoding::PASS).unwrap();
+        }
+        match game.hand.outcome.as_ref().unwrap() {
+            Outcome::Win { winners, .. } => assert_eq!(
+                winners.iter().map(|(seat, _)| *seat).collect::<Vec<_>>(),
+                vec![Wind::South, Wind::West]
+            ),
+            _ => panic!("both winning claims must be retained"),
+        }
+    }
+
+    #[test]
+    fn equal_points_share_placement_but_never_share_player_identity() {
+        let mut game = Game::new(2.0, Some("beginner".into()));
+        game.table.scores = [33400, 33400, 26600, 26600];
+        let rows = game.standing_rows();
+        assert_eq!(
+            rows.iter().map(|row| row.place).collect::<Vec<_>>(),
+            vec![1, 1, 3, 3]
+        );
+        assert!(rows.iter().all(|row| row.tied));
+        let mut ids = rows.iter().map(|row| row.player).collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), 4);
     }
 }
