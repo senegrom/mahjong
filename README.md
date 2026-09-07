@@ -172,6 +172,14 @@ games, so each is trained against the other. After thirty generations
 the fine-tuned Mortal beat the original at one table by +0.061 placement
 at 3.6 standard errors.
 
+A third player joins the two (`neural/combined.py`): a head over
+Mortal's encoder vector and Q values, our tower's features and our
+logits, with both legality masks, whose output is added to our logits and
+starts at zero, so it begins as our network and learns where to lean on
+Mortal. Beneath it both networks keep training in the same loop; each
+generation draws which of the two stays fixed, Mortal, ours or neither
+(`python -m neural.train_combined`).
+
 Still to come: replays in the browser. The plan is in
 [docs/PLAN.md](docs/PLAN.md).
 
