@@ -28,6 +28,7 @@ import torch
 from torch import nn
 
 from . import selfplay, zoo
+from .observe import resident
 from .prefetch import Prefetcher
 from .model import (
     DEFAULT_BLOCKS,
@@ -391,11 +392,11 @@ def main() -> None:
     # A round of planes is a few gigabytes on the host, kept sparse. The
     # names below are cleared before the next round is played, so the
     # machine carries one round rather than two.
-    batch = observations = oracle = imagined = None
+    batch = observations = oracle = imagined = on_card = None
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
-        batch = observations = oracle = imagined = None
+        batch = observations = oracle = imagined = on_card = None
         batch = selfplay.play(
             net,
             games=args.games,
@@ -425,6 +426,15 @@ def main() -> None:
         imagined = batch.imagined
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
+        # The round's planes go to the card whole when it has room, and
+        # the minibatch is gathered there; otherwise they stay on the host
+        # and are gathered a few steps ahead. On the card the small byte
+        # planes go too, so a step touches the host for nothing.
+        on_card = resident(observations, device)
+        if on_card is not None:
+            oracle = oracle.to(device)
+            imagined = imagined.to(device)
+        loaded = time.time() - began - played
 
         # The value head predicts the return in the reward's own units: the
         # points a hand moved over four thousand, plus the place bonus. It
@@ -450,7 +460,10 @@ def main() -> None:
         with torch.no_grad():
             for start_index in range(0, batch.decisions, 8192):
                 chunk = slice(start_index, start_index + 8192)
-                planes = observations.slice(start_index, start_index + 8192).dense(device)
+                if on_card is not None:
+                    planes = on_card.slice(start_index, start_index + 8192)
+                else:
+                    planes = observations.slice(start_index, start_index + 8192).dense(device)
                 seen = oracle[chunk].to(device).float()
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     guessed_value, judged, criticised = values(planes, seen)
@@ -522,7 +535,21 @@ def main() -> None:
                     imagined[drawn].to(device).float(),
                 )
 
-            for picks, planes, seen, fake in Prefetcher(slices, prepare):
+            def gather_on_card(drawn: torch.Tensor):
+                picks = drawn.to(device)
+                return (
+                    picks,
+                    on_card.rows(picks),
+                    oracle[picks].float(),
+                    imagined[picks].float(),
+                )
+
+            minibatches = (
+                (gather_on_card(drawn) for drawn in slices)
+                if on_card is not None
+                else Prefetcher(slices, prepare)
+            )
+            for picks, planes, seen, fake in minibatches:
                 optimiser.zero_grad(set_to_none=True)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     logits, value, guessed, oracle_value, criticised = learn(
@@ -673,6 +700,9 @@ def main() -> None:
             # Where the play went: the engine and follower, the encoder,
             # the network, the seated others, and the bookkeeping.
             "play_split": {name: round(value, 1) for name, value in batch.timing.items()},
+            # Moving the round to the card, and whether it went there.
+            "load_seconds": round(loaded, 1),
+            "resident": on_card is not None,
             "baseline_seconds": round(baseline_seconds, 1),
             "policy_loss": round(float(total_policy / denom), 4),
             "value_loss": round(float(total_value / denom), 4),

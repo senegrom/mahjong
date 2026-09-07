@@ -23,6 +23,7 @@ import torch
 from torch import nn
 
 from . import mortal_learner, selfplay, zoo
+from .observe import resident
 from .prefetch import Prefetcher
 
 SMOOTHING = 1 / 3
@@ -132,6 +133,9 @@ def main() -> None:
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
+        # Let go of the last round, on the host and on the card, before
+        # the next is played.
+        batch = observations = on_card = None
         batch = selfplay.play(
             net,
             games=args.games,
@@ -147,6 +151,10 @@ def main() -> None:
         actions = batch.actions.to(device)
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
+        # The round's planes on the card whole when it has room, gathered
+        # there; otherwise on the host, gathered a few steps ahead.
+        on_card = resident(observations, device)
+        loaded = time.time() - began - played
 
         # The baseline: the value head as it stands before the round.
         net.eval()
@@ -154,11 +162,12 @@ def main() -> None:
         with torch.no_grad():
             for start_index in range(0, batch.decisions, 4096):
                 chunk = slice(start_index, start_index + 4096)
+                if on_card is not None:
+                    planes = on_card.slice(start_index, start_index + 4096)
+                else:
+                    planes = observations.slice(start_index, start_index + 4096).dense(device)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    _logits, value = net.policy(
-                        observations.slice(start_index, start_index + 4096).dense(device),
-                        legal[chunk],
-                    )
+                    _logits, value = net.policy(planes, legal[chunk])
                 guess[chunk] = value.float()
         value_error = float(((returns - guess) ** 2).mean())
         advantages = returns - guess
@@ -183,7 +192,16 @@ def main() -> None:
                 # the step on the card, in a thread of its own.
                 return drawn.to(device), observations.rows(drawn.numpy()).dense(device)
 
-            for picks, planes in Prefetcher(slices, prepare):
+            def gather_on_card(drawn: torch.Tensor):
+                picks = drawn.to(device)
+                return picks, on_card.rows(picks)
+
+            minibatches = (
+                (gather_on_card(drawn) for drawn in slices)
+                if on_card is not None
+                else Prefetcher(slices, prepare)
+            )
+            for picks, planes in minibatches:
                 optimiser.zero_grad(set_to_none=True)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     logits, value = net.policy(planes, legal[picks])
@@ -218,6 +236,8 @@ def main() -> None:
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),
             "play_split": {name: round(value, 1) for name, value in batch.timing.items()},
+            "load_seconds": round(loaded, 1),
+            "resident": on_card is not None,
             "policy_loss": round(float(total_policy / denom), 4),
             "value_loss": round(float(total_value / denom), 4),
             "value_error": round(value_error, 4),

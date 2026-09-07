@@ -22,6 +22,7 @@ where it used to.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -165,6 +166,81 @@ class Planes:
     @classmethod
     def exists(cls, root: Path, stem: str) -> bool:
         return all((Path(root) / f"{stem}-{name}.npy").exists() for name in cls.ARRAYS)
+
+
+class DevicePlanes:
+    """A round's sparse planes resident on the card, gathered there.
+
+    A round of 800,000 decisions is about 2,500 entries each, twelve
+    gigabytes at six bytes an entry, which the card has room for beside
+    the network. Gathering a minibatch's rows from the host took longer
+    than the step on the card even a few steps ahead; here the gather is a
+    handful of kernels and the host does nothing per step.
+    """
+
+    def __init__(self, planes: Planes, device: str | torch.device) -> None:
+        self.device = torch.device(device)
+        self.indptr = torch.from_numpy(np.asarray(planes.indptr, dtype=np.int64)).to(self.device)
+        signed = torch.from_numpy(np.ascontiguousarray(planes.indices).view(np.int16))
+        self.indices = signed.to(self.device).to(torch.int32) & 0xFFFF
+        self.values = torch.from_numpy(np.ascontiguousarray(planes.values)).to(self.device)
+
+    def __len__(self) -> int:
+        return int(self.indptr.numel()) - 1
+
+    @property
+    def nnz(self) -> int:
+        return int(self.indices.numel())
+
+    @staticmethod
+    def bytes_needed(planes: Planes) -> int:
+        """What holding `planes` on the card would take."""
+        return planes.nnz * 6 + len(planes) * 8 + 8
+
+    def rows(self, picks: torch.Tensor) -> torch.Tensor:
+        """The rows `picks` (a tensor of indices on the card) as dense
+        float32 planes, shape (rows, PLANES, 34)."""
+        picks = picks.to(self.device, torch.int64)
+        n = int(picks.numel())
+        starts = self.indptr[picks]
+        counts = self.indptr[picks + 1] - starts
+        total = int(counts.sum())
+        out = torch.zeros(n * WIDTH, dtype=torch.float32, device=self.device)
+        if total:
+            offsets = torch.cumsum(counts, 0) - counts
+            row = torch.repeat_interleave(
+                torch.arange(n, device=self.device), counts, output_size=total
+            )
+            within = torch.arange(total, device=self.device) - torch.repeat_interleave(
+                offsets, counts, output_size=total
+            )
+            flat = torch.repeat_interleave(starts, counts, output_size=total) + within
+            columns = self.indices[flat].to(torch.int64)
+            out[row * WIDTH + columns] = self.values[flat].float()
+        return out.reshape(n, PLANES, POSITIONS)
+
+    def slice(self, start: int, stop: int) -> torch.Tensor:
+        stop = min(stop, len(self))
+        return self.rows(torch.arange(start, stop, device=self.device))
+
+
+def resident(
+    planes: Planes, device: str | torch.device, spare: int | None = None
+) -> DevicePlanes | None:
+    """`planes` on the card when it has room for them and `spare` bytes to
+    spare afterwards for the step itself, else None and the host keeps
+    them. Sixteen gigabytes by default, which the learning step's
+    activations need; `RESIDENT_SPARE_GB` overrides it, so a small card
+    can be made to take the path for a small round."""
+    device = torch.device(device)
+    if device.type != "cuda":
+        return None
+    if spare is None:
+        spare = int(float(os.environ.get("RESIDENT_SPARE_GB", "16")) * (1 << 30))
+    free, _total = torch.cuda.mem_get_info(device)
+    if free - DevicePlanes.bytes_needed(planes) < spare:
+        return None
+    return DevicePlanes(planes, device)
 
 
 class Observer:
