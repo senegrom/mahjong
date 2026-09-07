@@ -285,21 +285,57 @@ def measure(
     web app does. Measuring sampled play would mix how well the network has
     learned with how much exploration noise is on top of it, and then the
     checkpoint kept as best would be chosen partly on that noise.
+
+    This is a score-only loop rather than `play(..., greedy=True)`: it does
+    not fetch oracle/truth labels, construct rewards, or retain a round-sized
+    training batch. It deliberately still asks the belief head for one
+    imagined world per decision. `Arena::imagined_hands` advances the same
+    per-table RNG that later deals the next hand, so keeping that one side
+    effect makes a fixed benchmark seed produce exactly the same games as the
+    historical path while the large allocations disappear.
     """
-    batch = play(
-        net,
-        games=games,
-        seed=seed,
-        device=device,
-        bot_places=[1, 2, 3],
-        greedy=True,
-        amp=amp,
-    )
-    scores = batch.final_scores
+    net.eval()
+    arena = riichi_py.Arena(games=games, seed=seed, bot_places=[1, 2, 3])
+    hands = 0
+    steps = 0
+    while not arena.all_finished() and steps < 4000:
+        steps += 1
+        seats = np.frombuffer(arena.seats(), dtype=np.uint8)
+        live = seats != 0xFF
+        if not live.any():
+            break
+
+        planes = np.frombuffer(arena.observations(), dtype=np.float32)
+        planes = planes.reshape(games, PLANES, POSITIONS)
+        mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
+        mask = mask.reshape(games, ACTIONS).astype(bool)
+        index = np.nonzero(live)[0]
+
+        batch_planes = torch.from_numpy(planes[index]).to(device)
+        batch_mask = torch.from_numpy(mask[index]).to(device)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
+            logits, _value, guessed = net.everything(batch_planes, batch_mask)
+        logits = logits.float()
+
+        # Preserve the old evaluator's RNG consumption exactly. The imagined
+        # hands themselves are not needed for scoring, so they are discarded
+        # immediately rather than retained with every decision.
+        beliefs = np.zeros((games, HANDS), dtype=np.float32)
+        beliefs[index] = (
+            torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
+        )
+        arena.imagined_hands(beliefs.reshape(-1).tolist())
+
+        choice = np.zeros(games, dtype=np.int64)
+        choice[index] = logits.argmax(dim=1).cpu().numpy()
+        arena.step(choice.tolist())
+        hands += int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())
+
+    scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4).copy()
     order = (-scores).argsort(axis=1).argsort(axis=1) + 1
     return {
         "placement": float(order[:, 0].mean()),
         "score": float(scores[:, 0].mean()),
         "wins": float((order[:, 0] == 1).mean()),
-        "hands": batch.hands,
+        "hands": hands,
     }
