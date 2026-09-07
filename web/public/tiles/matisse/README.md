@@ -14,6 +14,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Sou6.svg](approved/Sou6.svg) | 6 bamboo | C: six jointed bamboo forms in three staggered pairs, varied greens on pale sage |
 | [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Cut-out C: one coral and six green forms circling an open centre on butter yellow |
 | [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Two sweeping fans of four jointed fronds |
+| [Sou9.svg](approved/Sou9.svg) | 9 bamboo | Vestment B: three triads of green, ivory and chartreuse bamboo ribbons on ultramarine |
 | [Ton.svg](approved/Ton.svg) | East wind | Ribbon lettering B, blue with a red stroke on pale yellow |
 | [Chun.svg](approved/Chun.svg) | Red dragon | Red cut-paper 中 on pink: direction B |
 | [Sou1.svg](approved/Sou1.svg) | 1 bamboo | Blue and green cut-paper bird on a bamboo perch |
@@ -23,7 +24,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All fourteen approved faces appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 20 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All fifteen approved faces appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 19 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
@@ -34,6 +35,8 @@ The 2 bamboo tile uses **Dance B** from `08-two-bamboo-approved.png`. Preserve t
 The 5 bamboo tile uses **Fan C** from `09-five-bamboo-approved.png`: five complete sprigs, with four in pale green and one red centre, on a deep forest-green field. It uses the same full-face fit, bleed and rounded clipping as the other approved tiles. The study's labels and surrounding board are excluded from the export.
 
 The 6 bamboo tile uses **C** from `six-bamboo-c-approved.png`: three staggered pairs in forest, emerald and sage greens. The lossless crop excludes the study label and surrounding board, and uses the same full-face fitting, corner radius and bleed as the other approved tiles.
+
+The 9 bamboo tile uses **Vestment B** from `nine-bamboo-b-approved.png`: exactly nine jointed ribbons in three groups of three on ultramarine. It keeps the approved green, ivory and chartreuse artwork, with the shared 3:4 face, 26-unit corners and 1% bleed. Only the centre B tile is exported; study labels and surrounding board are excluded.
 
 The 7 characters tile uses **Cut-out C** from `06-character-compositions.png`. Carl also likes **Dance B** and suggested using its freer lettering on **deep purple** for other character tiles. Vary the scale and placement of the number and 萬 instead of keeping the number above the suit character.
 
@@ -55,4 +58,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The fourteen approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The fifteen approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
