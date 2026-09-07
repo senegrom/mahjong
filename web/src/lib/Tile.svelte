@@ -343,6 +343,8 @@
     background-position: center;
     background-repeat: no-repeat;
     mix-blend-mode: multiply;
+    /* The black brush master becomes a silver impression through the shine. */
+    opacity: 0.4;
     -webkit-mask-image: linear-gradient(115deg, transparent 30%, black 44%, black 56%, transparent 70%);
     mask-image: linear-gradient(115deg, transparent 30%, black 44%, black 56%, transparent 70%);
     -webkit-mask-size: 250% 100%;
@@ -359,6 +361,7 @@
   .haku-dragon-reveal.matisse {
     background-size: 100% 100%;
     mix-blend-mode: normal;
+    opacity: 1;
   }
 
   @supports (mask-image: linear-gradient(black, transparent)) or (-webkit-mask-image: linear-gradient(black, transparent)) {
