@@ -253,10 +253,28 @@ def main() -> None:
                     total_grad += grad_norm
                 steps += 1
 
+        # How much the head adds to our logits, on the last minibatch: the
+        # mean over legal moves of what it changed, and the weight of the
+        # straight road to Mortal's values.
+        head_shift = 0.0
+        with torch.no_grad():
+            net.eval()
+            parts = net.backbones(planes, legal[picks])
+            phi, q, q_mask, pooled, features, a1, _value, _guessed = parts
+            joined = net.fuse(
+                phi.float(), q.float(), q_mask, pooled.float(), features.float(), a1.float(), legal[picks]
+            )
+            allowed = legal[picks]
+            shift = (joined - a1).abs().masked_fill(~allowed, 0.0)
+            head_shift = float(shift.sum() / allowed.sum().clamp(min=1))
+            net.train()
+
         denom = max(steps, 1)
         record = {
             "generation": generation,
             "fixed": fixed,
+            "head_shift": round(head_shift, 4),
+            "mix": round(float(net.fuse.mix), 4),
             "decisions": batch.decisions,
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),

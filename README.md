@@ -180,7 +180,10 @@ logits, with both legality masks, whose output is added to our logits and
 starts at zero, so it begins as our network and learns where to lean on
 Mortal. Beneath it both networks keep training in the same loop; each
 generation draws which of the two stays fixed, Mortal, ours or neither
-(`python -m neural.train_combined`).
+(`python -m neural.train_combined`). After ten generations it duelled
+level with the standalone network, which had twenty-one more
+generations since the join, so the standalone training was retired and
+the joined player is what trains now.
 
 Still to come: replays in the browser. The plan is in
 [docs/PLAN.md](docs/PLAN.md).

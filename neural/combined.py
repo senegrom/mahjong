@@ -57,6 +57,11 @@ class Fuse(nn.Module):
         # Two per tile, discard it or discard it with riichi, from our
         # per-tile features, which is where the thirty-four discards live.
         self.tile = nn.Conv1d(channels, 2, 1)
+        # One number that adds Mortal's value of each of our moves straight
+        # to our logits: the shortest road to Mortal's judgement, which the
+        # network above can learn but a single weight finds in a few
+        # updates. Zero at first, like the rest.
+        self.mix = nn.Parameter(torch.zeros(()))
         # Nothing added at first: the joined player starts as our network.
         nn.init.zeros_(self.mlp[-1].weight)
         nn.init.zeros_(self.mlp[-1].bias)
@@ -95,7 +100,9 @@ class Fuse(nn.Module):
         delta = self.mlp(inputs)
         tiles = self.tile(features).reshape(features.shape[0], -1)
         delta = torch.cat([delta[:, : tiles.shape[1]] + tiles, delta[:, tiles.shape[1] :]], dim=1)
-        return (finite_a1 + delta).masked_fill(~legal, float("-inf"))
+        # Mortal's value of a move it does not allow here adds nothing.
+        straight = torch.where(mask_here, q_here, torch.zeros_like(q_here)) * self.mix
+        return (finite_a1 + delta + straight).masked_fill(~legal, float("-inf"))
 
 
 class Combined(nn.Module):
@@ -241,7 +248,9 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
     mortal.dqn.load_state_dict(state["current_dqn"])
     net = Combined(ours, mortal.to(device)).to(device)
     net.mortal_config = state["config"]
-    net.fuse.load_state_dict(state["combined"])
+    # A head saved before it had the straight road keeps its other weights
+    # and starts that one at zero.
+    net.fuse.load_state_dict(state["combined"], strict=False)
     return net, state
 
 
