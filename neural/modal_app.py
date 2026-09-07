@@ -513,6 +513,7 @@ def train_combined(
     opponents: list[str] | None = None,
     opponent_share: float = 0.0,
     run: str = "joined-run",
+    compile: bool = True,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -531,8 +532,13 @@ def train_combined(
         "--lr", str(lr), "--lr-ours", str(lr_ours), "--lr-mortal", str(lr_mortal),
         "--entropy", str(entropy),
         "--measure-every", str(measure_every), "--measure-games", str(measure_games),
-        "--amp", "--compile", "--out", str(where),
+        "--amp", "--out", str(where),
     ]
+    # Six networks compile here, the joined player twice over and its four
+    # seated others once, which took a fresh container over an hour before
+    # its first generation; eager is the choice when that is not worth it.
+    if compile:
+        command.append("--compile")
     if fixed:
         command += ["--fixed", *fixed]
     if source.exists():
