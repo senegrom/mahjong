@@ -207,7 +207,9 @@ def _environment(cpus: int | None = None) -> dict[str, str]:
 
 
 @app.function(
-    gpu="H100",
+    # An A100 when no H100 can be had: on 7 September two blocks sat two
+    # hours with no container at all, their calls still marked running.
+    gpu=["H100", "A100-80GB"],
     # Self-play is the long pole here, not the card. With the engine's own
     # planes a generation was about 180 seconds of which 80 were playing,
     # and thirty-two processors made it worse, 93 seconds against 78.
@@ -371,7 +373,9 @@ def train(
 
 
 @app.function(
-    gpu="H100",
+    # An A100 when no H100 can be had: on 7 September two blocks sat two
+    # hours with no container at all, their calls still marked running.
+    gpu=["H100", "A100-80GB"],
     cpu=TRAINER_CPUS,
     memory=98304,
     timeout=24 * 60 * 60,
@@ -474,7 +478,9 @@ def train_mortal(
 
 
 @app.function(
-    gpu="H100",
+    # An A100 when no H100 can be had: on 7 September two blocks sat two
+    # hours with no container at all, their calls still marked running.
+    gpu=["H100", "A100-80GB"],
     cpu=TRAINER_CPUS,
     memory=98304,
     timeout=24 * 60 * 60,
@@ -761,7 +767,9 @@ def discriminate(
 
 
 @app.function(
-    gpu="H100",
+    # An A100 when no H100 can be had: on 7 September two blocks sat two
+    # hours with no container at all, their calls still marked running.
+    gpu=["H100", "A100-80GB"],
     cpu=16.0,
     memory=65536,
     timeout=6 * 60 * 60,
