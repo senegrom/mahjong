@@ -39,10 +39,9 @@ jobs:
 
       - name: Apply scoped UI changes
         run: |
-          # The second pass keeps existing regressions aligned with intentional
-          # compact controls and constrains the 320px result sheet explicitly.
           python3 .ui-polish/application.py
           python3 .ui-polish/fix-warnings.py
+          python3 .ui-polish/fix-overflow.py
 
       - name: Build and verify every web path
         working-directory: web
@@ -67,7 +66,7 @@ jobs:
         run: |
           set -euxo pipefail
           original=$(git rev-parse HEAD)
-          git rm .github/workflows/ui-polish-once.yml .ui-polish/application.py .ui-polish/fix-warnings.py
+          git rm .github/workflows/ui-polish-once.yml .ui-polish/application.py .ui-polish/fix-warnings.py .ui-polish/fix-overflow.py
           git add -A
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -m 'Polish the table, mobile chrome, calls, results and tile hints'
