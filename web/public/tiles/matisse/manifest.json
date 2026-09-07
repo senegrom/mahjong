@@ -164,6 +164,23 @@
       "notes": "Two sweeping fans of four jointed fronds."
     },
     {
+      "name": "Sou9",
+      "tile": "9s",
+      "label": "9 bamboo",
+      "status": "approved",
+      "png": "approved/Sou9.png",
+      "svg": "approved/Sou9.svg",
+      "source": "docs/design/matisse/studies/nine-bamboo-b-approved.png",
+      "sourceSha256": "850a5f024da1f9c9cc0821176febb993fa4291ce799041ea6ee3ef0f032e479f",
+      "crop": {
+        "x": 531,
+        "y": 200,
+        "width": 477,
+        "height": 631
+      },
+      "notes": "Vestment B: nine jointed bamboo ribbons in three staggered groups of three, green, ivory and chartreuse on an ultramarine cut-paper field."
+    },
+    {
       "name": "Ton",
       "tile": "1z",
       "label": "East wind",
@@ -366,12 +383,6 @@
       "name": "Sou3",
       "label": "3 bamboo",
       "svg": "placeholders/Sou3.svg"
-    },
-    {
-      "tile": "9s",
-      "name": "Sou9",
-      "label": "9 bamboo",
-      "svg": "placeholders/Sou9.svg"
     },
     {
       "tile": "2z",
