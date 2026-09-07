@@ -10,6 +10,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pin3.svg](approved/Pin3.svg) | 3 dots | Blue, red and green rosettes on ivory |
 | [Pin5.svg](approved/Pin5.svg) | 5 dots | Five black and ivory rosettes on yellow |
 | [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Dance B: two sweeping bamboo forms in green on pale mint |
+| [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
 | [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Fan C: four pale-green sprigs and a red centre on deep forest green |
 | [Sou6.svg](approved/Sou6.svg) | 6 bamboo | C: six jointed bamboo forms in three staggered pairs, varied greens on pale sage |
 | [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Cut-out C: one coral and six green forms circling an open centre on butter yellow |
@@ -23,13 +24,15 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All fourteen approved faces appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 20 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All fifteen approved faces appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 19 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
 ## Next design directions
 
 The 2 bamboo tile uses **Dance B** from `08-two-bamboo-approved.png`. Preserve the all-green appearance of tiles eligible for All Green: multiple shades of green are welcome, with neutral ivory for the tile substrate. The approved source pixels are kept exactly; no new colours are introduced when exporting.
+
+The 4 bamboo tile uses **Chapel B** from `four-bamboo-b-approved.png`: four pale-green sculptural cut-outs on a deep forest-green field. The lossless crop contains only the flat artwork, preserving the all-green palette. It uses the same 3:4 face, bleed and rounded clipping as the other approved tiles.
 
 The 5 bamboo tile uses **Fan C** from `09-five-bamboo-approved.png`: five complete sprigs, with four in pale green and one red centre, on a deep forest-green field. It uses the same full-face fit, bleed and rounded clipping as the other approved tiles. The study's labels and surrounding board are excluded from the export.
 
@@ -55,4 +58,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The fourteen approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The fifteen approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
