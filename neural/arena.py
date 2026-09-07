@@ -31,7 +31,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .model import build, load_weights
+from .model import from_payload
 from .selfplay import play
 
 SEATS = 4
@@ -144,8 +144,7 @@ def main() -> None:
     args = parser.parse_args()
 
     state = torch.load(args.checkpoint, map_location=args.device, weights_only=True)
-    net = build(channels=args.channels, blocks=args.blocks, device=args.device)
-    load_weights(net, state["model"])
+    net = from_payload(state, args.device, args.channels, args.blocks)
     net.eval()
 
     result = duplicate(net, games=args.games, seed=args.seed, device=args.device)

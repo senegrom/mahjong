@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "libriichi"
+version = "0.1.0"
+description = "Mortal's riichi engine and observation encoder, with a follower for many games at once"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0-or-later" }
+
+[tool.maturin]
+module-name = "libriichi"
+no-default-features = true
+features = ["pymod"]

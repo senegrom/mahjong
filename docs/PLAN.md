@@ -342,13 +342,25 @@ choices:
 
 ### 5.2 Network
 
-- Input: per-player observation as channels over the 34 tile kinds (own
-  hand counts, melds, each player's discards with order, tsumogiri and
-  riichi-tile flags, dora indicators, visible-tile counts, riichi states,
-  furiten, waits of the own hand) plus a scalar block (scores, seat, round,
-  counters, sticks, tiles left).
-- Body: 1-D residual network over the 34 positions, 10 to 20 million
-  parameters at first, scaled once the loop is stable.
+- Input: from 7 September 2026, Mortal's own observation, 1012 planes over
+  the 34 tile kinds, built by Mortal's engine (`engine/libriichi`,
+  vendored under its AGPL licence and built as its own Python module) from
+  the mjai events our arena writes as it plays. It carries what the
+  engine's ninety-seven planes did not: every discard in order with what
+  was drawn and thrown from the hand, the last hand-thrown and riichi
+  tiles, the waits of every hand, furiten, shanten, and an efficiency
+  lookahead giving, for each discard, which draws advance the hand and the
+  chance by turn of being ready, of winning, and for how much. Our engine
+  stays the authority on the rules and the legal moves; Mortal's only
+  describes the position. The lookahead costs about two milliseconds a
+  decision on one core, so the encoder runs across games in parallel
+  without the GIL, and the planes are stored sparse (seven per cent of the
+  values are non-zero).
+- Body: 1-D residual network over the 34 positions, 320 channels by 24
+  blocks, each block with a channel attention of Mortal's kind (mean and
+  maximum pooled over the line, a two-layer gate per channel), so every
+  block sees the whole position. The earlier lineage, 320 by 20 without
+  the attention over the engine's planes, is kept for calibration.
 - Heads: policy over about 46 masked actions (34 discards plus tsumogiri,
   riichi, three chii shapes, pon, three quad kinds, ron, tsumo, pass), value,
   and auxiliary heads that predict each opponent's tenpai state and waits

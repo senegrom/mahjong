@@ -35,9 +35,16 @@ from torch import nn
 import riichi_py
 
 from . import selfplay
-from .model import PolicyValueNet, load_weights
+from .model import (
+    DEFAULT_BLOCKS,
+    DEFAULT_CHANNELS,
+    PolicyValueNet,
+    from_payload,
+    load_weights,
+    shape_of,
+)
+from .observe import Planes, Views
 
-PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 OPPONENTS = riichi_py.OPPONENTS
@@ -47,8 +54,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=200)
     parser.add_argument("--games", type=int, default=64, help="tables per round")
-    parser.add_argument("--channels", type=int, default=320)
-    parser.add_argument("--blocks", type=int, default=20)
+    parser.add_argument("--channels", type=int, default=DEFAULT_CHANNELS)
+    parser.add_argument("--blocks", type=int, default=DEFAULT_BLOCKS)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=2048)
     parser.add_argument("--epochs", type=int, default=1)
@@ -83,10 +90,10 @@ def parse_args() -> argparse.Namespace:
 
 def collect(
     games: int, seed: int, teacher=None, device: str = "cpu", temperature: float = 1.0
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+) -> tuple[Planes, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
     """Plays a round with one teacher at every place, keeping every position
-    it saw, the move it made there, and what the other three were actually
-    holding.
+    it saw, as the student sees it, the move it made there, and what the
+    other three were actually holding.
 
     With no teacher given that is the heuristic player and the label is its
     move. With a checkpoint, the label is its move and the full distribution
@@ -94,7 +101,9 @@ def collect(
     that is worth more to a student than the argmax alone.
     """
     arena = riichi_py.Arena(games=games, seed=seed)
-    observations: list[np.ndarray] = []
+    kinds = {"mortal"} | ({teacher.kind} if teacher is not None else set())
+    views = Views(arena, games, kinds)
+    observations: list[Planes] = []
     masks: list[np.ndarray] = []
     labels: list[int] = []
     held: list[np.ndarray] = []
@@ -105,13 +114,15 @@ def collect(
         live = seats != 0xFF
         if not live.any():
             break
+        views.advance()
         advice = (
             np.frombuffer(arena.teacher(), dtype=np.uint8)
             if teacher is None
             else np.zeros(games, dtype=np.uint8)
         )
-        planes = np.frombuffer(arena.observations(), dtype=np.float32)
-        planes = planes.reshape(games, PLANES, POSITIONS)
+        players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
+        rows = np.nonzero(live)[0]
+        who = np.array([players[game][seats[game]] for game in rows])
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
         mask = mask.reshape(games, ACTIONS).astype(bool)
         truth = np.frombuffer(arena.opponent_hands(), dtype=np.float32)
@@ -119,10 +130,9 @@ def collect(
 
         odds = None
         if teacher is not None:
-            rows = np.nonzero(live)[0]
             with torch.no_grad():
                 logits, _value = teacher(
-                    torch.from_numpy(planes[rows]).to(device),
+                    views.dense(teacher.kind, rows, who, device),
                     torch.from_numpy(mask[rows]).to(device),
                 )
                 soft = torch.softmax(logits.float() / temperature, dim=1).cpu().numpy()
@@ -131,14 +141,16 @@ def collect(
             advice = np.zeros(games, dtype=np.int64)
             advice[rows] = soft.argmax(axis=1)
 
+        # What the student will see at each of this step's decisions, in
+        # the order the rows below are kept.
+        observations.append(views.sparse(rows, who))
         choice = np.zeros(games, dtype=np.int64)
-        for index in np.nonzero(live)[0]:
+        for index in rows:
             wanted = int(advice[index])
             # The teacher only ever names something it is allowed to do, but
             # a position it cannot express falls back to the first legal move.
             if wanted >= ACTIONS or not mask[index][wanted]:
                 wanted = int(np.argmax(mask[index]))
-            observations.append(planes[index])
             masks.append(mask[index])
             labels.append(wanted)
             held.append(truth[index])
@@ -148,7 +160,7 @@ def collect(
         arena.step(choice.tolist())
 
     return (
-        np.stack(observations),
+        Planes.cat(observations),
         np.stack(masks),
         np.array(labels, dtype=np.int64),
         np.stack(held),
@@ -163,28 +175,35 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     log_path = args.out / "log.jsonl"
 
-    net = PolicyValueNet(args.channels, args.blocks).to(device)
     if args.resume is not None and args.resume.exists():
         payload = torch.load(args.resume, map_location=device, weights_only=True)
+        net = PolicyValueNet(**shape_of(payload, args.channels, args.blocks)).to(device)
         load_weights(net, payload["model"])
         print(
             f"student resumed from {args.resume} at generation "
             f"{payload.get('generation', 0)}",
             flush=True,
         )
+    else:
+        net = PolicyValueNet(args.channels, args.blocks).to(device)
+    if net.kind != "mortal":
+        raise SystemExit("imitation teaches a network that sees Mortal's planes")
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
 
     teacher = None
     if args.teacher is not None:
-        teacher = PolicyValueNet(args.teacher_channels, args.teacher_blocks).to(device)
-        load_weights(
-            teacher, torch.load(args.teacher, map_location=device, weights_only=True)["model"]
+        teacher = from_payload(
+            torch.load(args.teacher, map_location=device, weights_only=True),
+            device,
+            args.teacher_channels,
+            args.teacher_blocks,
         )
         teacher.eval()
         for parameter in teacher.parameters():
             parameter.requires_grad_(False)
         print(
-            f"teacher {args.teacher} at {args.teacher_channels}x{args.teacher_blocks}",
+            f"teacher {args.teacher} at {teacher.channels}x{teacher.blocks}, "
+            f"seeing {teacher.planes} planes",
             flush=True,
         )
     print(
@@ -203,7 +222,7 @@ def main() -> None:
             temperature=args.temperature,
         )
         played = time.time() - began
-        observations = torch.from_numpy(planes).to(device)
+        observations = planes
         legal = torch.from_numpy(masks).to(device)
         targets = torch.from_numpy(labels).to(device)
         held = torch.from_numpy(truth).to(device)
@@ -220,7 +239,9 @@ def main() -> None:
                 picks = order[start : start + args.batch]
                 if picks.numel() < 2:
                     continue
-                logits, _value, guessed = net.everything(observations[picks], legal[picks])
+                logits, _value, guessed = net.everything(
+                    observations.rows(picks.cpu().numpy()).dense(device), legal[picks]
+                )
                 if odds is None:
                     loss = nn.functional.cross_entropy(logits, targets[picks])
                 else:
@@ -281,8 +302,7 @@ def main() -> None:
                 }
             )
             torch.save(
-                {"model": net.state_dict(), "generation": 0,
-                 "channels": net.channels, "blocks": net.blocks},
+                {"model": net.state_dict(), "generation": 0, **net.payload_fields()},
                 args.out / "latest.pt",
             )
         print(json.dumps(record), flush=True)
@@ -290,8 +310,7 @@ def main() -> None:
             handle.write(json.dumps(record) + "\n")
 
     torch.save(
-        {"model": net.state_dict(), "generation": 0,
-         "channels": net.channels, "blocks": net.blocks},
+        {"model": net.state_dict(), "generation": 0, **net.payload_fields()},
         args.out / "latest.pt",
     )
     print("imitation finished", flush=True)

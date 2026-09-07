@@ -18,7 +18,7 @@ import torch
 
 import riichi_py
 
-from .model import PolicyValueNet, load_weights
+from .model import from_payload
 
 
 class PolicyOnly(torch.nn.Module):
@@ -50,8 +50,12 @@ def main() -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
-    net = PolicyValueNet(payload.get("channels", 192), payload.get("blocks", 10))
-    load_weights(net, payload["model"])
+    net = from_payload(payload, "cpu", 192, 10)
+    if net.kind != "engine":
+        raise SystemExit(
+            "the browser encodes the engine's planes, and this network sees "
+            "Mortal's; it cannot be exported until Mortal's encoder runs there"
+        )
     net.eval()
 
     wrapped = PolicyOnly(net).eval()

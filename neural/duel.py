@@ -30,10 +30,9 @@ import torch
 
 import riichi_py
 
-from .model import build, load_weights
+from .model import from_payload
+from .observe import Views
 
-PLANES = riichi_py.PLANES
-POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 SEATS = 4
 
@@ -57,6 +56,9 @@ def table(
     challenger.eval()
     incumbent.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
+    # Each network is served the planes it sees, so the two may be of
+    # different lineages.
+    views = Views(arena, games, {challenger.kind, incumbent.kind})
     steps = 0
     while not arena.all_finished() and steps < max_steps:
         steps += 1
@@ -64,9 +66,8 @@ def table(
         live = seats != 0xFF
         if not live.any():
             break
+        views.advance()
 
-        planes = np.frombuffer(arena.observations(), dtype=np.float32)
-        planes = planes.reshape(games, PLANES, POSITIONS)
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
         mask = mask.reshape(games, ACTIONS).astype(bool)
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, SEATS)
@@ -82,7 +83,7 @@ def table(
             if not len(rows):
                 continue
             logits, _value = net(
-                torch.from_numpy(planes[rows]).to(device),
+                views.dense(net.kind, rows, owner[wanted], device),
                 torch.from_numpy(mask[rows]).to(device),
             )
             choice[rows] = logits.argmax(dim=1).cpu().numpy()
@@ -144,9 +145,11 @@ def verdict(result: dict) -> str:
 
 
 def load(path: Path, channels: int, blocks: int, device: str):
+    """The network at the shape its checkpoint says, of whichever kind;
+    the width and depth given stand in only where the checkpoint is
+    silent, as the oldest ones are."""
     payload = torch.load(path, map_location=device, weights_only=True)
-    net = build(channels=channels, blocks=blocks, device=device)
-    load_weights(net, payload["model"])
+    net = from_payload(payload, device, channels, blocks)
     net.eval()
     return net
 

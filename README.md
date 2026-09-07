@@ -218,7 +218,10 @@ npm install -g wasm-pack
 ## Training
 
 Build the engine for Python once, with `maturin develop --release` inside
-`engine/riichi-py`, then:
+`engine/riichi-py`, and Mortal's engine the same way inside
+`engine/libriichi` (vendored from the Mortal project under its AGPL
+licence; its encoder is what the network sees, see
+`engine/libriichi/NOTICE.md`), then:
 
 ```bash
 python -m neural.imitate --rounds 400 --out runs/clone
@@ -230,6 +233,17 @@ The warm start teaches the network the heuristic player's moves, which saves
 it rediscovering that tiles which go together should be kept; self-play then
 improves on them. Progress is reported as average placement against three
 heuristic opponents, where 2.5 is even and lower is better.
+
+From September 2026 the network sees Mortal's observation, 1012 planes
+built by Mortal's own engine from the game our engine plays, rather than
+the engine's ninety-seven: waits, furiten, every discard in order and an
+efficiency lookahead are in it, and a network that had to learn those from
+the raw position plateaued 0.09 behind the published one. Each block of
+the tower also pools the whole line, Mortal's channel attention. A
+checkpoint records which planes it sees, and a table serves each network
+its own, so the new lineage is measured against the old at one table
+(`python -m neural.duel new.pt old.pt`). The browser keeps the older
+network until Mortal's encoder runs there.
 
 The game offers the **Trained** tier only when `web/public/model.onnx` is
 present, so a checkout without one simply shows the two heuristic tiers.

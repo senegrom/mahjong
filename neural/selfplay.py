@@ -5,6 +5,10 @@ known later, so each one waits: when the hand ends, the points that changed
 hands are credited to the decisions that led to it, and when the game ends
 the placement is credited to every decision in it. That is the whole reward
 signal, and it is the game's own, not a hand-made one.
+
+What the network sees at each decision comes from `observe.Views`: Mortal's
+planes for the current lineage, the engine's own for older networks, so a
+table can seat both.
 """
 
 from __future__ import annotations
@@ -16,7 +20,8 @@ import torch
 
 import riichi_py
 
-PLANES = riichi_py.PLANES
+from .observe import Planes, Views
+
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 OPPONENTS = riichi_py.OPPONENTS
@@ -45,10 +50,12 @@ PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 class Batch:
     """What one round of self-play produced."""
 
-    #: The planes of every decision, in half precision: a round of them is
-    #: gigabytes, and nothing in an observation needs more than three
-    #: digits. The training step makes each minibatch float32 again.
-    observations: torch.Tensor
+    #: The planes of every decision, kept sparse: a decision is 34,408
+    #: values of which about one in eighteen is not zero, and a round of
+    #: them dense would be tens of gigabytes. A minibatch is made dense on
+    #: the card. Empty when the network that played sees the engine's
+    #: planes, which nothing trains on any more.
+    observations: Planes
     legal: torch.Tensor
     actions: torch.Tensor
     #: What the three opponents were holding at each decision, as a
@@ -107,7 +114,7 @@ def play(
     With `amp` the network's forward passes run in bfloat16, which is
     plenty for choosing a move and about half the arithmetic.
 
-    `opponents` are older checkpoints of the same network. In that share of
+    `opponents` are older checkpoints, of either kind. In that share of
     games one seat is played by one of them, drawn at random, and nothing
     that seat does is recorded: PPO trains on what the learner's own policy
     did. The point is that four copies of one network playing only each
@@ -120,6 +127,9 @@ def play(
     for other in opponents or []:
         other.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=bot_places or [])
+    kinds = {net.kind} | {other.kind for other in opponents or []}
+    views = Views(arena, games, kinds)
+    recording = net.kind == "mortal"
 
     # Which player, if any, an older checkpoint holds in each game, and
     # which checkpoint it is. Fixed for the game, so a seat does not change
@@ -135,7 +145,7 @@ def play(
     # One block per step, holding the live games' rows in the order the
     # decisions are numbered below: a round is a few hundred blocks rather
     # than a few hundred thousand arrays, which the heap handles.
-    observations: list[np.ndarray] = []
+    observations: list[Planes] = []
     legal_masks: list[np.ndarray] = []
     held: list[np.ndarray] = []
     oracle: list[np.ndarray] = []
@@ -155,9 +165,10 @@ def play(
         live = seats != 0xFF
         if not live.any():
             break
+        # The arena has settled: every game either owes a decision or is
+        # over, and everything up to that is in its log. Read it.
+        views.advance()
 
-        planes = np.frombuffer(arena.observations(), dtype=np.float32)
-        planes = planes.reshape(games, PLANES, POSITIONS)
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
         mask = mask.reshape(games, ACTIONS).astype(bool)
         truth = np.frombuffer(arena.opponent_hands(), dtype=np.float32)
@@ -167,28 +178,36 @@ def play(
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
         their_choice = np.zeros(games, dtype=np.int64)
 
-        # Games whose pending decision belongs to an older checkpoint are
-        # answered separately and never recorded.
+        # Who owes each game's decision, as a person rather than a seat:
+        # the seats move between hands and the players do not.
         deciding = np.array(
             [players[game][seats[game]] if live[game] else -1 for game in range(games)]
         )
+        # Games whose pending decision belongs to an older checkpoint are
+        # answered separately and never recorded.
         theirs = live & (deciding == foreign_player) & (foreign_player >= 0)
         index = np.nonzero(live & ~theirs)[0]
         if theirs.any():
             for which in np.unique(foreign_which[theirs]):
                 rows = np.nonzero(theirs & (foreign_which == which))[0]
+                other = opponents[int(which)]
                 with torch.autocast(
                     "cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"
                 ):
-                    their_logits, _their_value = opponents[int(which)](
-                        torch.from_numpy(planes[rows]).to(device),
+                    their_logits, _their_value = other(
+                        views.dense(other.kind, rows, deciding[rows], device),
                         torch.from_numpy(mask[rows]).to(device),
                     )
                 their_choice[rows] = their_logits.float().argmax(dim=1).cpu().numpy()
         if not len(index):
             arena.step(their_choice.tolist())
             continue
-        batch_planes = torch.from_numpy(planes[index]).to(device)
+        if recording:
+            sparse = views.sparse(index, deciding[index])
+            batch_planes = sparse.dense(device)
+        else:
+            sparse = None
+            batch_planes = views.dense(net.kind, index, deciding[index], device)
         batch_mask = torch.from_numpy(mask[index]).to(device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
             logits, _value, guessed = net.everything(batch_planes, batch_mask)
@@ -213,7 +232,8 @@ def play(
 
         # Copies, not views: a view would keep the whole step's buffer
         # alive until the round is gathered at the end.
-        observations.append(planes[index].astype(np.float16))
+        if sparse is not None:
+            observations.append(sparse)
         legal_masks.append(mask[index].copy())
         held.append(truth[index].copy())
         oracle.append(hidden[index].astype(np.uint8))
@@ -256,7 +276,7 @@ def play(
         raise RuntimeError("self-play produced no decisions")
 
     return Batch(
-        observations=gather(observations),
+        observations=Planes.cat(observations),
         legal=gather(legal_masks),
         actions=torch.tensor(actions, dtype=torch.int64),
         held=gather(held),
@@ -296,6 +316,7 @@ def measure(
     """
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[1, 2, 3])
+    views = Views(arena, games, {net.kind})
     hands = 0
     steps = 0
     while not arena.all_finished() and steps < 4000:
@@ -304,14 +325,15 @@ def measure(
         live = seats != 0xFF
         if not live.any():
             break
+        views.advance()
 
-        planes = np.frombuffer(arena.observations(), dtype=np.float32)
-        planes = planes.reshape(games, PLANES, POSITIONS)
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
         mask = mask.reshape(games, ACTIONS).astype(bool)
+        players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
         index = np.nonzero(live)[0]
+        deciding = players[index, seats[index]]
 
-        batch_planes = torch.from_numpy(planes[index]).to(device)
+        batch_planes = views.dense(net.kind, index, deciding, device)
         batch_mask = torch.from_numpy(mask[index]).to(device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
             logits, _value, guessed = net.everything(batch_planes, batch_mask)

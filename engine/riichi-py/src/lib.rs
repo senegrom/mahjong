@@ -39,6 +39,7 @@ use riichi_core::game::{Call, Hand, Outcome, Phase};
 use riichi_core::rng::Rng;
 use riichi_core::search;
 use riichi_core::table::Table;
+use riichi_core::mjai;
 use riichi_core::Wind;
 
 /// One game, and where its next decision sits.
@@ -63,6 +64,14 @@ struct Seat {
     /// A heuristic player kept aside to answer "what would you do here",
     /// which is how a network is taught to imitate it.
     teacher: Bot,
+    /// The mjai events of this game not yet handed to Python, as JSON
+    /// lines, each written under the seating its hand was dealt with.
+    events: Vec<String>,
+    /// How many of the current hand's log entries have been written out.
+    logged: usize,
+    /// Whether start_game and end_game have been written.
+    started: bool,
+    ended: bool,
 }
 
 impl Seat {
@@ -88,6 +97,10 @@ impl Seat {
             finished: false,
             bots,
             teacher: Bot::new(seed ^ 0x7EAC_4E12),
+            events: Vec::new(),
+            logged: 0,
+            started: false,
+            ended: false,
         };
         seat.settle();
         seat
@@ -173,7 +186,26 @@ impl Seat {
         }
     }
 
+    /// Writes the current hand's unwritten events out, under the seating
+    /// the hand was dealt with. It has to run before the table rotates,
+    /// because the mjai player numbers are the seating and the seating
+    /// changes with the deal.
+    fn flush_events(&mut self) {
+        if !self.started {
+            let names = std::array::from_fn(|player| format!("player {player}"));
+            self.events
+                .push(mjai::Event::StartGame { names }.to_json([0, 1, 2, 3]));
+            self.started = true;
+        }
+        let seating = self.table.seating();
+        for event in &self.hand.log[self.logged..] {
+            self.events.push(event.to_json(seating));
+        }
+        self.logged = self.hand.log.len();
+    }
+
     fn next_hand(&mut self) {
+        self.flush_events();
         // Report the hand's result by person rather than by seat: the
         // seats move between hands, and a trajectory belongs to whoever was
         // sitting there. This has to happen before the deal rotates.
@@ -190,6 +222,7 @@ impl Seat {
         }
         self.hand = self.table.deal(&mut self.rng);
         self.opening_scores = scores_of(&self.hand);
+        self.logged = 0;
     }
 
     /// Applies one decision from the seat that owed it.
@@ -936,6 +969,27 @@ impl Arena {
                 .for_each(|(seat, index)| seat.step(*index));
         }
         Ok(())
+    }
+
+    /// One game's mjai events since they were last asked for, as JSON
+    /// lines: start_game first, then every event of every hand under the
+    /// seating it was dealt with, end_game last. What a player state on
+    /// the Python side follows to describe the game the way Mortal's own
+    /// bot sees it.
+    fn mjai(&mut self, game: usize) -> Vec<String> {
+        let seat = &mut self.seats[game];
+        seat.flush_events();
+        if seat.finished && !seat.ended {
+            seat.events.push(mjai::Event::EndGame.to_json([0, 1, 2, 3]));
+            seat.ended = true;
+        }
+        std::mem::take(&mut seat.events)
+    }
+
+    /// The same for every game at once, one list per game, so a round's
+    /// worth of following costs one call a step rather than one a game.
+    fn mjai_all(&mut self) -> Vec<Vec<String>> {
+        (0..self.seats.len()).map(|game| self.mjai(game)).collect()
     }
 
     /// Whether every game has finished.

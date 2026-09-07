@@ -28,7 +28,15 @@ import torch
 from torch import nn
 
 from . import selfplay
-from .model import HIDDEN_HANDS_PLANES, PolicyValueNet, load_weights
+from .model import (
+    DEFAULT_BLOCKS,
+    DEFAULT_CHANNELS,
+    HIDDEN_HANDS_PLANES,
+    PolicyValueNet,
+    from_payload,
+    load_weights,
+    shape_of,
+)
 from .replay import Ring
 
 
@@ -49,15 +57,17 @@ def parse_args() -> argparse.Namespace:
         "instead of running to --generations; for a short probe",
     )
     parser.add_argument("--games", type=int, default=128, help="tables per round")
-    # 320 channels by 20 blocks: 12.6M parameters, about fifty megabytes of
-    # float weights. AlphaZero's twenty blocks of 256 came to roughly 23M
-    # parameters on a Go board; on a line of thirty-four tiles the same shape
-    # is a third of that, because the kernel is three rather than three by
-    # three, and this width puts the count nearer the original's. Far too big
-    # for a phone, which is something to distil away later rather than a
-    # reason to train something smaller now.
-    parser.add_argument("--channels", type=int, default=320)
-    parser.add_argument("--blocks", type=int, default=20)
+    # 320 channels by 24 blocks with channel attention: about 15M parameters
+    # in the policy tower. AlphaZero's twenty blocks of 256 came to roughly
+    # 23M parameters on a Go board; on a line of thirty-four tiles the same
+    # shape is a third of that, because the kernel is three rather than
+    # three by three. The lineage before this one was twenty blocks over the
+    # engine's ninety-seven planes; this one sees Mortal's thousand and
+    # twelve, and four more blocks are the little more capacity that many
+    # more inputs are given. Far too big for a phone, which is something to
+    # distil away later rather than a reason to train something smaller now.
+    parser.add_argument("--channels", type=int, default=DEFAULT_CHANNELS)
+    parser.add_argument("--blocks", type=int, default=DEFAULT_BLOCKS)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--clip", type=float, default=0.2, help="PPO ratio clip")
     parser.add_argument("--batch", type=int, default=4096, help="decisions per step")
@@ -174,7 +184,6 @@ def main() -> None:
     if device == "cuda":
         torch.cuda.manual_seed_all(args.seed)
 
-    net = PolicyValueNet(args.channels, args.blocks).to(device)
     start = 0
     resume_payload = None
     # Carried in the checkpoint, not reset per process: a run that resumes
@@ -190,10 +199,10 @@ def main() -> None:
         # larger than the model itself and should not transiently occupy the
         # card twice while loading.
         resume_payload = torch.load(args.resume, map_location="cpu", weights_only=True)
-        if resume_payload.get("channels") not in (None, net.channels):
-            raise SystemExit("the checkpoint was trained at a different width")
-        if resume_payload.get("blocks") not in (None, net.blocks):
-            raise SystemExit("the checkpoint was trained at a different depth")
+        # The checkpoint says what shape it is; the flags stand in only
+        # where it is silent.
+        shape = shape_of(resume_payload, args.channels, args.blocks)
+        net = PolicyValueNet(**shape).to(device)
         load_weights(net, resume_payload["model"])
         start = int(resume_payload.get("generation", 0))
         smoothed = resume_payload.get("smoothed")
@@ -205,6 +214,10 @@ def main() -> None:
                 flush=True,
             )
         print(f"resumed from {args.resume} at generation {start}", flush=True)
+    else:
+        net = PolicyValueNet(args.channels, args.blocks).to(device)
+    if net.kind != "mortal":
+        raise SystemExit("training needs a network that sees Mortal's planes")
 
     if args.freeze_policy:
         for name, parameter in net.named_parameters():
@@ -285,15 +298,15 @@ def main() -> None:
     # stale play: see `replay.py`. The policy never trains on it.
     ring = Ring(args.out / "ring", args.replay_rounds)
 
-    # The older selves that share the table, loaded once. They are only
-    # ever asked for a move, so they need no optimiser and no gradients.
+    # The older selves that share the table, loaded once, each at whatever
+    # shape and of whatever kind its checkpoint says. They are only ever
+    # asked for a move, so they need no optimiser and no gradients.
     seated = []
     for path in args.opponents:
         if not Path(path).exists():
             print(f"no opponent at {path}, skipping", flush=True)
             continue
-        older = PolicyValueNet(args.channels, args.blocks).to(device)
-        load_weights(older, torch.load(path, map_location=device, weights_only=True)["model"])
+        older = from_payload(torch.load(path, map_location=device, weights_only=True), device)
         older.eval()
         for parameter in older.parameters():
             parameter.requires_grad_(False)
@@ -325,8 +338,7 @@ def main() -> None:
             "model": net.state_dict(),
             "optimizer": optimiser.state_dict(),
             "generation": generation,
-            "channels": net.channels,
-            "blocks": net.blocks,
+            **net.payload_fields(),
             "smoothed": smoothed,
             "best_placement": best_placement,
             "torch_rng_state": torch.get_rng_state(),
@@ -372,13 +384,13 @@ def main() -> None:
 
     print(
         f"device {device} | {net.channels} channels x {net.blocks} blocks "
-        f"| {net.parameter_count() / 1e6:.2f}M parameters",
+        f"| {net.planes} planes | {net.parameter_count() / 1e6:.2f}M parameters",
         flush=True,
     )
 
-    # A round of planes is about five gigabytes on the host. The names
-    # below are cleared before the next round is played, so the machine
-    # carries one round rather than two.
+    # A round of planes is a few gigabytes on the host, kept sparse. The
+    # names below are cleared before the next round is played, so the
+    # machine carries one round rather than two.
     batch = observations = oracle = imagined = None
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
@@ -396,13 +408,13 @@ def main() -> None:
         played = time.time() - began
         ring.push(batch)
 
-        # The observations stay on the host and each minibatch crosses to
-        # the card as it is drawn: a round of them is five gigabytes and sat
-        # on the card beside the step's own eight, which with the oracle
-        # critic left a gigabyte spare of sixteen. A minibatch is 27 MB and
-        # crosses in a few milliseconds. Not pinned: pinning copies the
-        # round into page-locked memory, which took the run from twelve
-        # gigabytes of host memory to twenty-eight and the machine to none.
+        # The observations stay on the host, sparse, and each minibatch is
+        # made dense on the card as it is drawn: a round of them dense would
+        # be tens of gigabytes. A minibatch's entries are a few tens of
+        # megabytes and cross in a few milliseconds. Not pinned: pinning
+        # copies the round into page-locked memory, which once took the run
+        # from twelve gigabytes of host memory to twenty-eight and the
+        # machine to none.
         observations = batch.observations
         legal = batch.legal.to(device)
         actions = batch.actions.to(device)
@@ -438,7 +450,7 @@ def main() -> None:
         with torch.no_grad():
             for start_index in range(0, batch.decisions, 8192):
                 chunk = slice(start_index, start_index + 8192)
-                planes = observations[chunk].to(device).float()
+                planes = observations.slice(start_index, start_index + 8192).dense(device)
                 seen = oracle[chunk].to(device).float()
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     guessed_value, judged, criticised = values(planes, seen)
@@ -498,10 +510,10 @@ def main() -> None:
                     continue
                 picks = drawn.to(device)
                 optimiser.zero_grad(set_to_none=True)
-                # Half precision on the host, float32 on the card: the
+                # Sparse on the host, dense float32 on the card: the
                 # tower's weights are float32, and autocast takes it from
                 # there.
-                planes = observations[drawn].to(device).float()
+                planes = observations.rows(drawn.numpy()).dense(device)
                 seen = oracle[drawn].to(device).float()
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     logits, value, guessed, oracle_value, criticised = learn(
@@ -598,7 +610,7 @@ def main() -> None:
             for _ in range(args.replay_steps):
                 rows = ring.sample(args.batch, replay_rng)
                 optimiser.zero_grad(set_to_none=True)
-                planes = rows["observations"].to(device).float()
+                planes = rows["observations"].dense(device)
                 seen = rows["oracle"].to(device).float()
                 target = rows["returns"].to(device)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):

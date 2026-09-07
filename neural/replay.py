@@ -17,6 +17,9 @@ each head sees an order of magnitude more games than it did and no round
 often enough to learn it by heart. This is the replay window every
 AlphaZero-style trainer has, in the form the host's memory allows: the
 rounds live on the SSD and only the minibatch crosses into memory.
+
+The observations are kept sparse, as `observe.Planes`; the other fields are
+dense arrays.
 """
 
 from __future__ import annotations
@@ -27,7 +30,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-FIELDS = ("observations", "legal", "held", "oracle", "imagined", "returns")
+from .observe import Planes
+
+FIELDS = ("legal", "held", "oracle", "imagined", "returns")
+SPARSE = "observations"
 
 
 class Ring:
@@ -46,9 +52,10 @@ class Ring:
                 entry
                 for entry in saved["entries"]
                 if all((self.root / f"{field}-{entry['slot']}.npy").exists() for field in FIELDS)
+                and Planes.exists(self.root, f"{SPARSE}-{entry['slot']}")
             ]
             self.next_slot = int(saved["next_slot"])
-        self.maps: dict[int, dict[str, np.ndarray]] = {}
+        self.maps: dict[int, dict] = {}
 
     def __len__(self) -> int:
         return len(self.entries)
@@ -66,28 +73,34 @@ class Ring:
         self.maps.pop(slot, None)
         for field in FIELDS:
             np.save(self.root / f"{field}-{slot}.npy", getattr(batch, field).numpy())
+        batch.observations.save(self.root, f"{SPARSE}-{slot}")
         self.entries.append({"slot": slot, "n": int(batch.decisions)})
         self.index.write_text(
             json.dumps({"entries": self.entries, "next_slot": self.next_slot}),
             encoding="utf-8",
         )
 
-    def _maps(self, slot: int) -> dict[str, np.ndarray]:
+    def _maps(self, slot: int) -> dict:
         if slot not in self.maps:
-            self.maps[slot] = {
+            maps = {
                 field: np.load(self.root / f"{field}-{slot}.npy", mmap_mode="r") for field in FIELDS
             }
+            maps[SPARSE] = Planes.load(self.root, f"{SPARSE}-{slot}")
+            self.maps[slot] = maps
         return self.maps[slot]
 
-    def sample(self, count: int, rng: np.random.Generator) -> dict[str, torch.Tensor]:
+    def sample(self, count: int, rng: np.random.Generator) -> dict:
         """A minibatch of `count` decisions from one round of the ring,
         the round chosen in proportion to its size, the rows evenly within
         it. One round per minibatch keeps the reads from the map local;
-        over many minibatches every round is seen in proportion."""
+        over many minibatches every round is seen in proportion. The
+        observations come back as `Planes`, the rest as tensors."""
         weights = np.array([entry["n"] for entry in self.entries], dtype=np.float64)
         entry = self.entries[int(rng.choice(len(self.entries), p=weights / weights.sum()))]
         rows = np.sort(rng.choice(entry["n"], size=min(count, entry["n"]), replace=False))
         maps = self._maps(entry["slot"])
-        return {
+        out = {
             field: torch.from_numpy(np.ascontiguousarray(maps[field][rows])) for field in FIELDS
         }
+        out[SPARSE] = maps[SPARSE].rows(rows)
+        return out

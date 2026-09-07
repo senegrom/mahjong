@@ -39,7 +39,7 @@ import torch
 
 import riichi_py
 
-from .model import build, load_weights
+from .model import from_payload
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -112,8 +112,7 @@ def main() -> None:
     args = parser.parse_args()
 
     state = torch.load(args.checkpoint, map_location=args.device, weights_only=True)
-    net = build(channels=args.channels, blocks=args.blocks, device=args.device)
-    load_weights(net, state["model"])
+    net = from_payload(state, args.device, args.channels, args.blocks)
     net.eval()
 
     leaves, counts, settled, worlds, candidates = look(

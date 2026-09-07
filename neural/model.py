@@ -1,17 +1,27 @@
 """The network: one policy and one value head over a riichi position.
 
-A position arrives as planes over the 34 tile kinds (see the engine's
-`encoding` module), so the natural shape is a one-dimensional residual tower
-along those 34 positions. Neighbouring positions are neighbouring ranks
-within a suit, which is exactly the locality a convolution is good at: the
-shapes that matter, a sequence, a wait on either side of a pair, a run of
-three, are all short spans.
+A position arrives as planes over the 34 tile kinds, so the natural shape is
+a one-dimensional residual tower along those 34 positions. Neighbouring
+positions are neighbouring ranks within a suit, which is exactly the
+locality a convolution is good at: the shapes that matter, a sequence, a
+wait on either side of a pair, a run of three, are all short spans.
+
+Which planes is the network's to say. The lineage trained from September
+2026 sees Mortal's thousand and twelve (see `observe.py`): what every hand is
+waiting on, every discard in order, an efficiency lookahead. Older networks
+see the engine's own ninety-seven, and a checkpoint says which, so both
+kinds can sit at one table and be compared.
+
+Each block also looks at the whole line at once: a channel attention of
+Mortal's kind, which pools every channel over the 34 positions, by mean and
+by maximum, and gates the channels by what it finds. A convolution of width
+three needs many blocks to learn that a dora turned and a discard on the
+far side of the board are the same fact; the pooling says so in one.
 
 Two heads:
 
 - **policy** over the flat action space, masked to what the rules allow;
-- **value**, the seat's expected result from here, in units of the final
-  score divided by ten thousand.
+- **value**, the seat's expected result from here, in the reward's units.
 """
 
 from __future__ import annotations
@@ -21,13 +31,22 @@ from torch import nn
 
 import riichi_py
 
-PLANES = riichi_py.PLANES
+from . import observe
+
+# The engine's own planes, which the older networks see.
+ENGINE_PLANES = riichi_py.PLANES
+# Mortal's, which the current lineage sees.
+MORTAL_PLANES = observe.PLANES
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 # The three players a network may be asked to read, in relative seat order.
 OPPONENTS = riichi_py.OPPONENTS
 ORACLE_PLANES = riichi_py.ORACLE_PLANES
 HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
+
+# What a network built without saying is: the current lineage.
+DEFAULT_CHANNELS = 320
+DEFAULT_BLOCKS = 24
 
 
 # Group normalisation rather than batch normalisation: the network acts
@@ -54,36 +73,74 @@ CRITIC_BLOCKS = 6
 BELIEF_CHANNELS = 128
 BELIEF_BLOCKS = 4
 
+# How much narrower the attention's bottleneck is than the channels.
+ATTENTION_RATIO = 16
 
-class Residual(nn.Module):
-    """A pre-activation residual block along the tile axis."""
+
+class Attention(nn.Module):
+    """Channel attention over the whole line, as Mortal's blocks have it.
+
+    Every channel is pooled over the 34 positions twice, by mean and by
+    maximum, and one small network reads each pooled vector; their sum
+    through a sigmoid is a gate per channel. It costs a few thousand
+    parameters a block and gives every block the whole position.
+    """
 
     def __init__(self, channels: int) -> None:
+        super().__init__()
+        narrow = max(channels // ATTENTION_RATIO, 4)
+        self.mlp = nn.Sequential(
+            nn.Linear(channels, narrow),
+            nn.ReLU(),
+            nn.Linear(narrow, channels),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        gate = torch.sigmoid(self.mlp(x.mean(dim=2)) + self.mlp(x.amax(dim=2)))
+        return x * gate.unsqueeze(2)
+
+
+class Residual(nn.Module):
+    """A pre-activation residual block along the tile axis, with the
+    channel attention on its branch when asked for."""
+
+    def __init__(self, channels: int, attention: bool = False) -> None:
         super().__init__()
         self.norm1 = nn.GroupNorm(GROUPS, channels)
         self.conv1 = nn.Conv1d(channels, channels, 3, padding=1, bias=False)
         self.norm2 = nn.GroupNorm(GROUPS, channels)
         self.conv2 = nn.Conv1d(channels, channels, 3, padding=1, bias=False)
+        self.attention = Attention(channels) if attention else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = self.conv1(torch.relu(self.norm1(x)))
         out = self.conv2(torch.relu(self.norm2(out)))
+        if self.attention is not None:
+            out = self.attention(out)
         return x + out
 
 
 class PolicyValueNet(nn.Module):
     """The policy and value network."""
 
-    def __init__(self, channels: int = 320, blocks: int = 20) -> None:
+    def __init__(
+        self,
+        channels: int = DEFAULT_CHANNELS,
+        blocks: int = DEFAULT_BLOCKS,
+        planes: int = MORTAL_PLANES,
+        attention: bool = True,
+    ) -> None:
         super().__init__()
         self.channels = channels
         self.blocks = blocks
+        self.planes = planes
+        self.attention = attention
         self.stem = nn.Sequential(
-            nn.Conv1d(PLANES, channels, 3, padding=1, bias=False),
+            nn.Conv1d(planes, channels, 3, padding=1, bias=False),
             nn.GroupNorm(GROUPS, channels),
             nn.ReLU(),
         )
-        self.tower = nn.Sequential(*[Residual(channels) for _ in range(blocks)])
+        self.tower = nn.Sequential(*[Residual(channels, attention) for _ in range(blocks)])
         self.tail = nn.Sequential(nn.GroupNorm(GROUPS, channels), nn.ReLU())
 
         # The policy reads both the per-tile features, which is where the
@@ -111,12 +168,12 @@ class PolicyValueNet(nn.Module):
         # generation; trained alone, the policy sharpened. Nothing but the
         # policy loss trains the policy's tower now.
         self.belief_stem = nn.Sequential(
-            nn.Conv1d(PLANES, BELIEF_CHANNELS, 3, padding=1, bias=False),
+            nn.Conv1d(planes, BELIEF_CHANNELS, 3, padding=1, bias=False),
             nn.GroupNorm(GROUPS, BELIEF_CHANNELS),
             nn.ReLU(),
         )
         self.belief_tower = nn.Sequential(
-            *[Residual(BELIEF_CHANNELS) for _ in range(BELIEF_BLOCKS)]
+            *[Residual(BELIEF_CHANNELS, attention) for _ in range(BELIEF_BLOCKS)]
         )
         self.belief_tail = nn.Sequential(nn.GroupNorm(GROUPS, BELIEF_CHANNELS), nn.ReLU())
         self.hands = nn.Conv1d(channels + BELIEF_CHANNELS, OPPONENTS, 1)
@@ -137,12 +194,12 @@ class PolicyValueNet(nn.Module):
         # that, and its loss sat on top of the public head's. The policy
         # never touches any of this and nothing at play time calls it.
         self.oracle_stem = nn.Sequential(
-            nn.Conv1d(PLANES + ORACLE_PLANES, ORACLE_CHANNELS, 3, padding=1, bias=False),
+            nn.Conv1d(planes + ORACLE_PLANES, ORACLE_CHANNELS, 3, padding=1, bias=False),
             nn.GroupNorm(GROUPS, ORACLE_CHANNELS),
             nn.ReLU(),
         )
         self.oracle_tower = nn.Sequential(
-            *[Residual(ORACLE_CHANNELS) for _ in range(ORACLE_BLOCKS)]
+            *[Residual(ORACLE_CHANNELS, attention) for _ in range(ORACLE_BLOCKS)]
         )
         self.oracle_tail = nn.Sequential(nn.GroupNorm(GROUPS, ORACLE_CHANNELS), nn.ReLU())
         self.oracle_value = nn.Sequential(
@@ -162,12 +219,12 @@ class PolicyValueNet(nn.Module):
         # what an opponent kept. Nothing at play time in the browser calls
         # it; the search does.
         self.reader_stem = nn.Sequential(
-            nn.Conv1d(PLANES + HIDDEN_HANDS_PLANES, READER_CHANNELS, 3, padding=1, bias=False),
+            nn.Conv1d(planes + HIDDEN_HANDS_PLANES, READER_CHANNELS, 3, padding=1, bias=False),
             nn.GroupNorm(GROUPS, READER_CHANNELS),
             nn.ReLU(),
         )
         self.reader_tower = nn.Sequential(
-            *[Residual(READER_CHANNELS) for _ in range(READER_BLOCKS)]
+            *[Residual(READER_CHANNELS, attention) for _ in range(READER_BLOCKS)]
         )
         self.reader_tail = nn.Sequential(nn.GroupNorm(GROUPS, READER_CHANNELS), nn.ReLU())
         self.reader = nn.Sequential(
@@ -187,12 +244,12 @@ class PolicyValueNet(nn.Module):
         # planes, so it can be trained on anything, as the oracle and the
         # reader are, and the policy tower is trained by the policy alone.
         self.critic_stem = nn.Sequential(
-            nn.Conv1d(PLANES, CRITIC_CHANNELS, 3, padding=1, bias=False),
+            nn.Conv1d(planes, CRITIC_CHANNELS, 3, padding=1, bias=False),
             nn.GroupNorm(GROUPS, CRITIC_CHANNELS),
             nn.ReLU(),
         )
         self.critic_tower = nn.Sequential(
-            *[Residual(CRITIC_CHANNELS) for _ in range(CRITIC_BLOCKS)]
+            *[Residual(CRITIC_CHANNELS, attention) for _ in range(CRITIC_BLOCKS)]
         )
         self.critic_tail = nn.Sequential(nn.GroupNorm(GROUPS, CRITIC_CHANNELS), nn.ReLU())
         self.critic = nn.Sequential(
@@ -200,6 +257,12 @@ class PolicyValueNet(nn.Module):
             nn.ReLU(),
             nn.Linear(256, 1),
         )
+
+    @property
+    def kind(self) -> str:
+        """Which planes this network sees: `mortal` or `engine`. See
+        `observe.Views`, which serves either."""
+        return "mortal" if self.planes == MORTAL_PLANES else "engine"
 
     def hands_from(self, planes: torch.Tensor, features: torch.Tensor) -> torch.Tensor:
         """What each opponent is holding, as logits over the 34 kinds, from
@@ -323,31 +386,88 @@ class PolicyValueNet(nn.Module):
     def parameter_count(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
+    def payload_fields(self) -> dict:
+        """What a checkpoint records about the shape, so it can be rebuilt
+        without being told."""
+        return {
+            "channels": self.channels,
+            "blocks": self.blocks,
+            "planes": self.planes,
+            "attention": self.attention,
+        }
 
-def build(channels: int = 320, blocks: int = 20, device: str = "cuda") -> PolicyValueNet:
-    net = PolicyValueNet(channels, blocks).to(device)
+
+def build(
+    channels: int = DEFAULT_CHANNELS,
+    blocks: int = DEFAULT_BLOCKS,
+    device: str = "cuda",
+    planes: int = MORTAL_PLANES,
+    attention: bool = True,
+) -> PolicyValueNet:
+    return PolicyValueNet(channels, blocks, planes, attention).to(device)
+
+
+def shape_of(payload: dict, channels: int | None = None, blocks: int | None = None) -> dict:
+    """The shape a checkpoint was trained at, from what it says and, for
+    checkpoints from before it said, from the weights themselves. Given
+    `channels` or `blocks` they stand in where the checkpoint is silent."""
+    weights = payload["model"]
+    planes = payload.get("planes")
+    if planes is None:
+        # A network of the engine's kind sees however many planes the
+        # engine makes now; a checkpoint from when it made fewer is padded
+        # on loading. Only Mortal's count names itself.
+        seen = int(weights["stem.0.weight"].shape[1])
+        planes = MORTAL_PLANES if seen == MORTAL_PLANES else ENGINE_PLANES
+    attention = payload.get("attention")
+    if attention is None:
+        attention = any(key.startswith("tower.0.attention.") for key in weights)
+    found_channels = payload.get("channels")
+    if found_channels is None:
+        found_channels = channels or int(weights["stem.0.weight"].shape[0])
+    found_blocks = payload.get("blocks")
+    if found_blocks is None:
+        found_blocks = blocks or (
+            1 + max(int(key.split(".")[1]) for key in weights if key.startswith("tower."))
+        )
+    return {
+        "channels": int(found_channels),
+        "blocks": int(found_blocks),
+        "planes": int(planes),
+        "attention": bool(attention),
+    }
+
+
+def from_payload(
+    payload: dict, device: str = "cuda", channels: int | None = None, blocks: int | None = None
+) -> PolicyValueNet:
+    """A network of the shape a checkpoint was trained at, with its weights."""
+    shape = shape_of(payload, channels, blocks)
+    net = PolicyValueNet(**shape).to(device)
+    load_weights(net, payload["model"])
     return net
 
 
 def load_weights(net: PolicyValueNet, saved: dict[str, torch.Tensor]) -> None:
     """Loads a checkpoint into `net`, widening its first layer if the
-    observation has grown planes since the checkpoint was saved.
+    engine's observation has grown planes since the checkpoint was saved.
 
     The new planes get zero weights, so the network plays exactly as it did
     until training teaches it what they mean. The engine only ever adds
     planes at the end of the observation, which is what makes this a pad
-    rather than a shuffle.
+    rather than a shuffle. Mortal's planes are not ours to grow, so for a
+    network of that kind the count has to match.
     """
     key = "stem.0.weight"
     weight = saved[key]
     seen = weight.shape[1]
-    if seen < PLANES:
+    if seen < net.planes and net.kind == "engine":
         saved = dict(saved)
-        pad = weight.new_zeros(weight.shape[0], PLANES - seen, weight.shape[2])
+        pad = weight.new_zeros(weight.shape[0], net.planes - seen, weight.shape[2])
         saved[key] = torch.cat([weight, pad], dim=1)
-    elif seen > PLANES:
+    elif seen != net.planes:
         raise ValueError(
-            f"the checkpoint saw {seen} planes and the engine now makes {PLANES}"
+            f"the checkpoint saw {seen} planes and this network sees {net.planes}"
         )
     # A checkpoint from before the network read the opponents' hands, or
     # before it had an oracle critic, or with an oracle critic of another

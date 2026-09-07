@@ -6,6 +6,9 @@ members = [
     "engine/riichi-wasm",
     "engine/riichi-py",
 ]
+# Mortal's engine, vendored: its own workspace, built as its own Python
+# module. See engine/libriichi/NOTICE.md.
+exclude = ["engine/libriichi"]
 
 [workspace.package]
 version = "0.1.0"
