@@ -28,6 +28,23 @@
       "notes": "Black disk and ivory rosette on yellow; direction B."
     },
     {
+      "name": "Pin2",
+      "tile": "2p",
+      "label": "2 disks",
+      "status": "approved",
+      "png": "approved/Pin2.png",
+      "svg": "approved/Pin2.svg",
+      "source": "docs/design/matisse/studies/two-disks-b-approved.png",
+      "sourceSha256": "c739c58721740af3b47ee1b7f3e59e53cc1f89b20b853afd75c66a6a93726428",
+      "crop": {
+        "x": 689,
+        "y": 60,
+        "width": 504,
+        "height": 663
+      },
+      "notes": "B: two yellow and magenta cut-paper rosettes on ultramarine, with contrasting petals and blue centres."
+    },
+    {
       "name": "Pin3",
       "tile": "3p",
       "label": "3 dots",
@@ -324,12 +341,6 @@
       "name": "Man9",
       "label": "9 characters",
       "svg": "placeholders/Man9.svg"
-    },
-    {
-      "tile": "2p",
-      "name": "Pin2",
-      "label": "2 circles",
-      "svg": "placeholders/Pin2.svg"
     },
     {
       "tile": "4p",

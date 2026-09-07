@@ -12,10 +12,10 @@ const publicRoot = new URL('../public/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', publicRoot), 'utf8'));
 
 test('all 34 Matisse faces resolve to approved art or a black text placeholder', () => {
-  const approved = ['1p', '3p', '5p', '2s', '5s', '6s', '7s', '8s', '9s', '1z', '7z', '7m', '1s', '6z', '5z'];
+  const approved = ['1p', '2p', '3p', '5p', '2s', '5s', '6s', '7s', '8s', '9s', '1z', '7z', '7m', '1s', '6z', '5z'];
   assert.equal(TILE_TYPES.length, 34);
   assert.deepEqual(manifest.tiles.map(tile => tile.tile).sort(), [...approved].sort());
-  assert.equal(manifest.placeholders.length, 19);
+  assert.equal(manifest.placeholders.length, 18);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'matisse');
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
