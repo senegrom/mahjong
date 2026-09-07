@@ -79,6 +79,23 @@
       "notes": "Dance B: two sweeping green bamboo forms on a pale mint field. All printed artwork stays green for All Green; multiple shades are intentional."
     },
     {
+      "name": "Sou5",
+      "tile": "5s",
+      "label": "5 bamboo",
+      "status": "approved",
+      "png": "approved/Sou5.png",
+      "svg": "approved/Sou5.svg",
+      "source": "docs/design/matisse/studies/09-five-bamboo-approved.png",
+      "sourceSha256": "7ef71bb24fe032b9662021a3805c109ad2df8b1b2e2bd88a0f8bdda35df5c1f6",
+      "crop": {
+        "x": 963,
+        "y": 256,
+        "width": 448,
+        "height": 640
+      },
+      "notes": "Fan C: four pale-green bamboo sprigs and a bold red centre on a deep forest-green field. Exactly five complete sprigs; the red accent distinguishes this tile from All Green tiles."
+    },
+    {
       "name": "Sou8",
       "tile": "8s",
       "label": "8 bamboo",
@@ -304,12 +321,6 @@
       "name": "Sou4",
       "label": "4 bamboo",
       "svg": "placeholders/Sou4.svg"
-    },
-    {
-      "tile": "5s",
-      "name": "Sou5",
-      "label": "5 bamboo",
-      "svg": "placeholders/Sou5.svg"
     },
     {
       "tile": "6s",
