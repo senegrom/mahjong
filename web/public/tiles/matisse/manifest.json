@@ -57,6 +57,23 @@
       "notes": "Five black and ivory rosettes on yellow."
     },
     {
+      "name": "Sou2",
+      "tile": "2s",
+      "label": "2 bamboo",
+      "status": "approved",
+      "png": "approved/Sou2.png",
+      "svg": "approved/Sou2.svg",
+      "source": "docs/design/matisse/studies/08-two-bamboo-approved.png",
+      "sourceSha256": "1a6f5202500390cb2ae6cf893de0beb377d25eeeb11d0006ec449f1f2a2378c0",
+      "crop": {
+        "x": 495,
+        "y": 174,
+        "width": 465,
+        "height": 769
+      },
+      "notes": "Dance B: two sweeping green bamboo forms on a pale mint field. All printed artwork stays green for All Green; multiple shades are intentional."
+    },
+    {
       "name": "Sou8",
       "tile": "8s",
       "label": "8 bamboo",
@@ -270,12 +287,6 @@
       "name": "Pin9",
       "label": "9 circles",
       "svg": "placeholders/Pin9.svg"
-    },
-    {
-      "tile": "2s",
-      "name": "Sou2",
-      "label": "2 bamboo",
-      "svg": "placeholders/Sou2.svg"
     },
     {
       "tile": "3s",

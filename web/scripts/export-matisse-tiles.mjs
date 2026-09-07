@@ -14,6 +14,7 @@ const definitions = [
   ['Pin1', '1p', '1 dot', 'approved', '01-disk-and-red-dragon.png', [77, 232, 410, 554], 'Black disk and ivory rosette on yellow; direction B.'],
   ['Pin3', '3p', '3 dots', 'approved', '03-dots-and-bamboo.png', [77, 99, 604, 835], 'Blue, red and green rosettes on ivory.'],
   ['Pin5', '5p', '5 dots', 'approved', '02-five-dot-study.png', [77, 231, 410, 572], 'Five black and ivory rosettes on yellow.'],
+  ['Sou2', '2s', '2 bamboo', 'approved', '08-two-bamboo-approved.png', [495, 174, 465, 769], 'Dance B: two sweeping green bamboo forms on a pale mint field. All printed artwork stays green for All Green; multiple shades are intentional.'],
   ['Sou8', '8s', '8 bamboo', 'approved', '03-dots-and-bamboo.png', [755, 99, 612, 835], 'Two sweeping fans of four jointed fronds.'],
   ['Ton', '1z', 'East wind', 'approved', '04-wind-calligraphy.png', [518, 225, 411, 579], 'Ribbon lettering B: blue with one red stroke on pale yellow.'],
   ['Chun', '7z', 'Red dragon', 'approved', '01-disk-and-red-dragon.png', [966, 232, 410, 554], 'Red cut-paper 中 on pink; direction B.'],
@@ -80,7 +81,7 @@ const html = `<!doctype html>
 @media(max-width:520px){main{padding:24px 14px}.gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 10px}h1{font-size:29px}}
 </style></head><body><main>
 <div class="eyebrow">Chapelle du Rosaire · Cut-paper studies</div><h1>Matisse Mahjong</h1>
-<p class="intro">Ten approved faces. Select Matisse under Options → Tile face in the game. The other 24 tile types show their names in black until their artwork is approved.</p>
+<p class="intro">${approved.length} approved faces. Select Matisse under Options → Tile face in the game. The other ${manifest.placeholders.length} tile types show their names in black until their artwork is approved.</p>
 <h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label>
 <div class="scroll"><div class="table" id="table"><div class="rack" id="rack" aria-label="Fourteen-tile visual sample"></div></div></div><p class="size" id="size"></p>
 <h2>Approved faces</h2><div class="gallery" id="approved"></div>
@@ -93,7 +94,7 @@ const table=document.getElementById('table');
 function picture(tile){const image=document.createElement('img');image.src=tile.src;image.alt=tile.label;image.title=tile.label;image.width=300;image.height=400;return image}
 for(const tile of tiles){const card=document.createElement('div');card.className='card';card.append(picture(tile));const label=document.createElement('p');label.textContent=tile.label;card.append(label);const badge=document.createElement('span');badge.className='badge';badge.textContent='Approved';card.append(badge);document.getElementById('approved').append(card)}
 function updateSize(){const w=rack.firstElementChild?.getBoundingClientRect().width||0;document.getElementById('size').textContent=w.toFixed(1)+' × '+(w*4/3).toFixed(1)+' CSS px per tile · 14 tiles · scroll horizontally if needed; the preview is not scaled down.'}
-function draw(){const names=['Man7','Man7','Pin1','Pin3','Pin3','Pin5','Haku','Sou1','Sou1','Sou8','Sou8','Ton','Chun','Hatsu'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
+function draw(){const names=['Man7','Man7','Pin1','Pin3','Pin3','Pin5','Haku','Sou1','Sou2','Sou8','Sou8','Ton','Chun','Hatsu'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
 document.getElementById('width').addEventListener('change',draw);new ResizeObserver(updateSize).observe(rack);draw();
 </script></body></html>`;
 writeFileSync(path.join(out, 'preview.html'), html);
