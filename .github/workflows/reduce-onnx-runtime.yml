@@ -50,17 +50,14 @@ jobs:
           python3 "$ORT/tools/python/create_reduced_build_config.py" web/public/model.onnx web/runtime/reduced-ops.config
           echo 'Required operators:'
           cat web/runtime/reduced-ops.config
-          pushd "$ORT/cmake/external/emsdk"
-          ./emsdk install latest
-          ./emsdk activate latest
-          source ./emsdk_env.sh
-          popd
           "$ORT/build.sh" \
             --config MinSizeRel \
             --build_wasm \
+            --target onnxruntime_webassembly \
             --enable_wasm_simd \
             --enable_wasm_threads \
             --skip_tests \
+            --compile_no_warning_as_error \
             --disable_wasm_exception_catching \
             --disable_rtti \
             --disable_ml_ops \
