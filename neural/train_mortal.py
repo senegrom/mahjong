@@ -23,6 +23,7 @@ import torch
 from torch import nn
 
 from . import mortal_learner, selfplay, zoo
+from .prefetch import Prefetcher
 
 SMOOTHING = 1 / 3
 
@@ -171,13 +172,19 @@ def main() -> None:
         steps = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(batch.decisions)
-            for start_index in range(0, batch.decisions, args.batch):
-                drawn = order[start_index : start_index + args.batch]
-                if drawn.numel() < 2:
-                    continue
-                picks = drawn.to(device)
+            slices = [
+                order[start_index : start_index + args.batch]
+                for start_index in range(0, batch.decisions, args.batch)
+            ]
+            slices = [drawn for drawn in slices if drawn.numel() >= 2]
+
+            def prepare(drawn: torch.Tensor):
+                # The gather on the host runs a few minibatches ahead of
+                # the step on the card, in a thread of its own.
+                return drawn.to(device), observations.rows(drawn.numpy()).dense(device)
+
+            for picks, planes in Prefetcher(slices, prepare):
                 optimiser.zero_grad(set_to_none=True)
-                planes = observations.rows(drawn.numpy()).dense(device)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     logits, value = net.policy(planes, legal[picks])
                 logits = logits.float()

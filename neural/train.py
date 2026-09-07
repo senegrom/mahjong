@@ -28,6 +28,7 @@ import torch
 from torch import nn
 
 from . import selfplay, zoo
+from .prefetch import Prefetcher
 from .model import (
     DEFAULT_BLOCKS,
     DEFAULT_CHANNELS,
@@ -503,17 +504,26 @@ def main() -> None:
             # of indices back to the CPU before the observations could be
             # gathered, forcing one device synchronisation per step.
             order = torch.randperm(batch.decisions)
-            for start_index in range(0, batch.decisions, args.batch):
-                drawn = order[start_index : start_index + args.batch]
-                if drawn.numel() < 2:
-                    continue
-                picks = drawn.to(device)
-                optimiser.zero_grad(set_to_none=True)
+            slices = [
+                order[start_index : start_index + args.batch]
+                for start_index in range(0, batch.decisions, args.batch)
+            ]
+            slices = [drawn for drawn in slices if drawn.numel() >= 2]
+
+            def prepare(drawn: torch.Tensor):
                 # Sparse on the host, dense float32 on the card: the
                 # tower's weights are float32, and autocast takes it from
-                # there.
-                planes = observations.rows(drawn.numpy()).dense(device)
-                seen = oracle[drawn].to(device).float()
+                # there. Run a few minibatches ahead in a thread, so the
+                # gather on the host overlaps the step on the card.
+                return (
+                    drawn.to(device),
+                    observations.rows(drawn.numpy()).dense(device),
+                    oracle[drawn].to(device).float(),
+                    imagined[drawn].to(device).float(),
+                )
+
+            for picks, planes, seen, fake in Prefetcher(slices, prepare):
+                optimiser.zero_grad(set_to_none=True)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     logits, value, guessed, oracle_value, criticised = learn(
                         planes, legal[picks], seen
@@ -525,7 +535,7 @@ def main() -> None:
                 oracle_value = oracle_value.float()
                 criticised = criticised.float()
                 reader_loss, reader_right = reader_loss_of(
-                    planes, seen[:, :HIDDEN_HANDS_PLANES], imagined[drawn].to(device).float()
+                    planes, seen[:, :HIDDEN_HANDS_PLANES], fake
                 )
                 distribution = torch.distributions.Categorical(logits=logits)
                 log_prob = distribution.log_prob(actions[picks])
@@ -606,12 +616,24 @@ def main() -> None:
             # oracle and the reader each read it without gradient or not at
             # all. `auxiliary` also avoids calculating policy outputs that
             # this loss never reads.
-            for _ in range(args.replay_steps):
+            def prepare_replay(_step: int):
+                # The ring's rows come off the disk's memory maps, which is
+                # slower still than the host gather above; the same thread
+                # runs ahead. The sampler is used from this thread alone,
+                # in order, so its stream is what it always was.
                 rows = ring.sample(args.batch, replay_rng)
+                return (
+                    rows["observations"].dense(device),
+                    rows["oracle"].to(device).float(),
+                    rows["returns"].to(device),
+                    rows["held"].to(device),
+                    rows["imagined"].to(device).float(),
+                )
+
+            for planes, seen, target, held_rows, fake in Prefetcher(
+                range(args.replay_steps), prepare_replay
+            ):
                 optimiser.zero_grad(set_to_none=True)
-                planes = rows["observations"].dense(device)
-                seen = rows["oracle"].to(device).float()
-                target = rows["returns"].to(device)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     guessed, oracle_value, criticised = auxiliary(planes, seen)
                 guessed = guessed.float()
@@ -619,9 +641,9 @@ def main() -> None:
                 criticised = criticised.float()
                 critic_loss = nn.functional.mse_loss(criticised, target)
                 oracle_loss = nn.functional.mse_loss(oracle_value, target)
-                hands_loss, _covered = hands_loss_of(guessed, rows["held"].to(device))
+                hands_loss, _covered = hands_loss_of(guessed, held_rows)
                 reader_loss, reader_right = reader_loss_of(
-                    planes, seen[:, :HIDDEN_HANDS_PLANES], rows["imagined"].to(device).float()
+                    planes, seen[:, :HIDDEN_HANDS_PLANES], fake
                 )
                 loss = (
                     args.value_weight * (critic_loss + oracle_loss)

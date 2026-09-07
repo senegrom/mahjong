@@ -49,18 +49,6 @@ class Records:
     slots: np.ndarray
 
 
-def translatable(legal: np.ndarray) -> np.ndarray:
-    """Which of Mortal's actions our engine allows here, as a mask over
-    its action space: what the policy is defined over."""
-    out = np.zeros(ACTION_SPACE, dtype=bool)
-    for action in range(ACTION_SPACE):
-        if action == zoo.MORTAL_RIICHI:
-            out[action] = bool(legal[zoo.RIICHI_DISCARD : zoo.TSUMO].any())
-        else:
-            out[action] = bool(zoo.translate(action, legal))
-    return out
-
-
 class MortalLearner(nn.Module):
     """A Mortal that plays in our loop and learns from it."""
 
@@ -119,36 +107,32 @@ class MortalLearner(nn.Module):
         made, in Mortal's action space, that produced them."""
         follower = views.observer.follower
         who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
+        legal = np.atleast_2d(legal)
         indptr, indices, values, masks = follower.encode(who)
         planes = Planes.from_follower(indptr, indices, values)
         # The policy is over what Mortal may do here that our engine allows.
-        allowed = np.asarray(masks, dtype=bool) & np.stack([translatable(row) for row in legal])
+        allowed = np.asarray(masks, dtype=bool) & zoo.translatable(legal)
         # A row where nothing agrees is decided by our engine's first legal
         # move and not recorded; it does not happen in practice.
         decidable = allowed.any(axis=1)
         allowed[~decidable, zoo.MORTAL_PASS] = True
         mask = torch.from_numpy(allowed).to(self.device)
-        logits, _value = self.policy(planes.dense(self.device), mask)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=self.device.startswith("cuda")):
+            logits, _value = self.policy(planes.dense(self.device), mask)
         logits = logits.float()
         distribution = torch.distributions.Categorical(logits=logits)
         picked = logits.argmax(dim=1) if greedy else distribution.sample()
         log_prob = distribution.log_prob(picked).cpu().numpy()
         picked = picked.cpu().numpy()
 
-        choice = np.zeros(len(who), dtype=np.int64)
+        choice = zoo.first_meaning(picked, legal)
+        choice = np.where(decidable & (choice >= 0), choice, legal.argmax(axis=1)).astype(np.int64)
         record_planes = [planes]
         record_masks = [allowed]
         record_actions = [picked]
         record_log_probs = [log_prob]
         record_slots = [np.arange(len(who))]
-        second: list[int] = []
-        for i, action in enumerate(picked):
-            if not decidable[i]:
-                choice[i] = int(np.argmax(legal[i]))
-            elif action == zoo.MORTAL_RIICHI:
-                second.append(i)
-            else:
-                choice[i] = zoo.translate(int(action), legal[i])[0]
+        second = np.nonzero(decidable & (picked == zoo.MORTAL_RIICHI))[0].tolist()
         if not decidable.all():
             keep = decidable
             record_planes = [planes.rows(np.nonzero(keep)[0])]
@@ -173,7 +157,10 @@ class MortalLearner(nn.Module):
                 if not allowed_after[slot].any():
                     allowed_after[slot, :34] = tiles
             mask_after = torch.from_numpy(allowed_after).to(self.device)
-            logits_after, _ = self.policy(after.dense(self.device), mask_after)
+            with torch.autocast(
+                "cuda", dtype=torch.bfloat16, enabled=self.device.startswith("cuda")
+            ):
+                logits_after, _ = self.policy(after.dense(self.device), mask_after)
             logits_after = logits_after.float()
             distribution_after = torch.distributions.Categorical(logits=logits_after)
             tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()

@@ -137,9 +137,21 @@ def _generation_of(checkpoint: Path) -> int:
         return 0
 
 
-def _environment() -> dict[str, str]:
+# Processors for the two trainers. The observation's efficiency lookahead
+# costs about two milliseconds a decision on one of them, and the encoder
+# spreads a step's decisions over all of them, so play is bound by their
+# number: with sixteen, the first block of Mortal's fine-tuning spent 242
+# of a generation's 390 seconds playing. Thirty-two is the measurement to
+# make now; with the old encoding it was slower, but that encoding did not
+# use them.
+TRAINER_CPUS = 32
+
+
+def _environment(cpus: int | None = None) -> dict[str, str]:
     environment = dict(os.environ)
-    environment["RAYON_NUM_THREADS"] = str(int(os.cpu_count() or 16))
+    # The container reports the host's processors, not its share of them;
+    # more threads than the share only queue.
+    environment["RAYON_NUM_THREADS"] = str(int(cpus or min(os.cpu_count() or 16, 16)))
     environment["PYTHONPATH"] = "/src"
     return environment
 
@@ -153,7 +165,7 @@ def _environment() -> dict[str, str]:
     # milliseconds a decision on one processor, which the follower spreads
     # over all of them; whether more of them now pay is a measurement to
     # make on this lineage, not one to carry over.
-    cpu=16.0,
+    cpu=TRAINER_CPUS,
     memory=98304,
     timeout=24 * 60 * 60,
     volumes={str(VOLUME): volume},
@@ -167,7 +179,7 @@ def train(
     lr: float = 4e-5,
     entropy: float = 0.005,
     measure_every: int = 5,
-    measure_games: int = 1024,
+    measure_games: int = 512,
     replay_rounds: int = 8,
     replay_steps: int = 180,
     resume: str = "latest",
@@ -263,7 +275,7 @@ def train(
     if seated:
         command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
 
-    environment = _environment()
+    environment = _environment(TRAINER_CPUS)
     print(" ".join(command), flush=True)
 
     began = time.time()
@@ -309,7 +321,7 @@ def train(
 
 @app.function(
     gpu="H100",
-    cpu=16.0,
+    cpu=TRAINER_CPUS,
     memory=98304,
     timeout=24 * 60 * 60,
     volumes={str(VOLUME): volume},
@@ -324,7 +336,7 @@ def train_mortal(
     entropy: float = 0.005,
     temperature: float = 1.0,
     measure_every: int = 5,
-    measure_games: int = 1024,
+    measure_games: int = 512,
     resume: str = "latest",
     mortal: str = "zoo/mortal_298k",
     opponents: list[str] | None = None,
@@ -384,7 +396,7 @@ def train_mortal(
     process = subprocess.Popen(
         command,
         cwd="/src",
-        env=_environment(),
+        env=_environment(TRAINER_CPUS),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

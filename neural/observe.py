@@ -105,16 +105,23 @@ class Planes:
         return Planes(self.indptr[start : stop + 1] - lo, self.indices[lo:hi], self.values[lo:hi])
 
     def dense(self, device: str | torch.device) -> torch.Tensor:
-        """The rows as float32 planes on `device`, shape (rows, PLANES, 34)."""
+        """The rows as float32 planes on `device`, shape (rows, PLANES, 34).
+
+        The entries cross to the card as they are stored, two bytes each,
+        and are widened there: widening them on the host first cost more
+        than the copy. Torch has no unsigned 16-bit kind, so the indices
+        travel as signed and are put right on the card."""
         n = len(self)
         out = torch.zeros(n * WIDTH, dtype=torch.float32, device=device)
-        if self.nnz:
+        nnz = self.nnz
+        if nnz:
             counts = torch.from_numpy(np.diff(self.indptr)).to(device)
             row = torch.repeat_interleave(
-                torch.arange(n, device=device, dtype=torch.int64), counts
+                torch.arange(n, device=device, dtype=torch.int64), counts, output_size=nnz
             )
-            columns = torch.from_numpy(np.asarray(self.indices, dtype=np.int64)).to(device)
-            values = torch.from_numpy(np.asarray(self.values, dtype=np.float32)).to(device)
+            signed = np.ascontiguousarray(self.indices).view(np.int16)
+            columns = torch.from_numpy(signed).to(device).to(torch.int64) & 0xFFFF
+            values = torch.from_numpy(np.ascontiguousarray(self.values)).to(device).float()
             out[row * WIDTH + columns] = values
         return out.reshape(n, PLANES, POSITIONS)
 

@@ -82,6 +82,16 @@ class Batch:
     hand_results: list[int] = field(default_factory=list)
 
 
+def imagine(arena, beliefs: np.ndarray) -> bytes:
+    """One imagined world per game from the network's beliefs, as the
+    hidden-hand planes. The beliefs cross as bytes where the engine takes
+    them so: a list of a hundred thousand floats a step cost seconds a
+    round to build and read."""
+    if hasattr(arena, "imagined_hands_bytes"):
+        return arena.imagined_hands_bytes(np.ascontiguousarray(beliefs, dtype=np.float32).tobytes())
+    return arena.imagined_hands(beliefs.reshape(-1).tolist())
+
+
 def gather(blocks: list[np.ndarray]) -> torch.Tensor:
     """Stacks a round's blocks into one tensor, freeing each block as it
     is copied, so the peak is the round itself and one block over."""
@@ -181,8 +191,8 @@ def play(
 
         # Who owes each game's decision, as a person rather than a seat:
         # the seats move between hands and the players do not.
-        deciding = np.array(
-            [players[game][seats[game]] if live[game] else -1 for game in range(games)]
+        deciding = np.where(
+            live, players[np.arange(games), np.minimum(seats, 3)].astype(np.int64), -1
         )
         # Games whose pending decision belongs to an older checkpoint are
         # answered separately and never recorded.
@@ -233,9 +243,7 @@ def play(
             beliefs[index] = (
                 torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
             )
-            proposed = np.frombuffer(
-                arena.imagined_hands(beliefs.reshape(-1).tolist()), dtype=np.float32
-            )
+            proposed = np.frombuffer(imagine(arena, beliefs), dtype=np.float32)
             proposed = proposed.reshape(games, HIDDEN_HANDS_PLANES, POSITIONS)
             chosen = logits.argmax(dim=1) if greedy else distribution.sample()
             chosen_log_prob = distribution.log_prob(chosen)
@@ -371,7 +379,7 @@ def measure(
         beliefs[index] = (
             torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
         )
-        arena.imagined_hands(beliefs.reshape(-1).tolist())
+        imagine(arena, beliefs)
 
         choice[index] = logits.argmax(dim=1).cpu().numpy()
         arena.step(choice.tolist())

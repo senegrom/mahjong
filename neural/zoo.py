@@ -55,38 +55,70 @@ MORTAL_RYUKYOKU = 44
 MORTAL_PASS = 45
 
 
+def meanings(action: int) -> list[int]:
+    """Our actions that Mortal's `action` could mean, best first. Riichi
+    means any of the riichi discards, the tile being decided in a second
+    step; an abortive draw means nothing, our rules not offering one."""
+    if action < 34:
+        return [DISCARD + action]
+    if action in MORTAL_RED:
+        return [DISCARD + MORTAL_RED[action]]
+    if action == MORTAL_RIICHI:
+        return list(range(RIICHI_DISCARD, TSUMO))
+    if action == MORTAL_CHI_LOW:
+        # Mortal's low chi has the called tile lowest in the sequence,
+        # which is the sequence that starts at the claimed tile: ours calls
+        # that high. The names cross over.
+        return [CHII_HIGH]
+    if action == MORTAL_CHI_MID:
+        return [CHII_MIDDLE]
+    if action == MORTAL_CHI_HIGH:
+        return [CHII_LOW]
+    if action == MORTAL_PON:
+        return [PON]
+    if action == MORTAL_KAN:
+        return [CLAIMED_KAN, CONCEALED_KAN, EXTENDED_KAN]
+    if action == MORTAL_AGARI:
+        return [TSUMO, RON]
+    if action == MORTAL_PASS:
+        return [PASS]
+    return []
+
+
+# Mortal's action by ours: the rank of our action among the meanings of
+# Mortal's, and infinity where it is no meaning of it. Lets a whole step's
+# rows be translated at once rather than a row at a time.
+MORTAL_ACTIONS = 46
+PRIORITY = np.full((MORTAL_ACTIONS, ACTIONS), np.inf, dtype=np.float32)
+for _action in range(MORTAL_ACTIONS):
+    for _rank, _ours in enumerate(meanings(_action)):
+        PRIORITY[_action, _ours] = _rank
+MEANS = np.isfinite(PRIORITY)
+
+
+def translatable(legal: np.ndarray) -> np.ndarray:
+    """Which of Mortal's actions our engine allows at each row: `legal`
+    is (rows, 78) and the answer (rows, 46)."""
+    legal = np.atleast_2d(legal)
+    return (legal.astype(np.int8) @ MEANS.T.astype(np.int8)) > 0
+
+
+def first_meaning(actions: np.ndarray, legal: np.ndarray) -> np.ndarray:
+    """For each row, the best legal one of ours that Mortal's action means,
+    or -1 when it means nothing legal there."""
+    ranked = np.where(np.atleast_2d(legal), PRIORITY[actions], np.inf)
+    best = ranked.argmin(axis=1)
+    found = np.isfinite(ranked[np.arange(len(best)), best])
+    return np.where(found, best, -1)
+
+
 def translate(action: int, legal: np.ndarray) -> list[int]:
     """Our actions that Mortal's `action` could mean, best first, kept to
     the legal ones. Empty when none is legal, and for riichi, which is
     decided in a second step."""
-    wanted: list[int]
-    if action < 34:
-        wanted = [DISCARD + action]
-    elif action in MORTAL_RED:
-        wanted = [DISCARD + MORTAL_RED[action]]
-    elif action == MORTAL_RIICHI:
+    if action == MORTAL_RIICHI:
         return []
-    elif action == MORTAL_CHI_LOW:
-        # Mortal's low chi has the called tile lowest in the sequence,
-        # which is the sequence that starts at the claimed tile: ours calls
-        # that high. The names cross over.
-        wanted = [CHII_HIGH]
-    elif action == MORTAL_CHI_MID:
-        wanted = [CHII_MIDDLE]
-    elif action == MORTAL_CHI_HIGH:
-        wanted = [CHII_LOW]
-    elif action == MORTAL_PON:
-        wanted = [PON]
-    elif action == MORTAL_KAN:
-        wanted = [CLAIMED_KAN, CONCEALED_KAN, EXTENDED_KAN]
-    elif action == MORTAL_AGARI:
-        wanted = [TSUMO, RON]
-    elif action == MORTAL_PASS:
-        wanted = [PASS]
-    else:
-        # An abortive draw, which our rules do not offer as a move.
-        wanted = []
-    return [index for index in wanted if legal[index]]
+    return [index for index in meanings(action) if legal[index]]
 
 
 class MortalPlayer:
@@ -106,69 +138,54 @@ class MortalPlayer:
     def eval(self) -> MortalPlayer:
         return self
 
-    def _ask(self, views: Views, who: list[tuple[int, int]]) -> np.ndarray:
-        """Mortal's Q values for those players, in its own action space."""
+    def _ask(self, views: Views, who: list[tuple[int, int]]) -> tuple[np.ndarray, np.ndarray]:
+        """Mortal's Q values for those players, in its own action space,
+        and its own mask of what it believes it may do."""
         follower = views.observer.follower
         indptr, indices, values, masks = follower.encode(who)
         planes = Planes.from_follower(indptr, indices, values).dense(self.device)
-        mask = torch.from_numpy(np.asarray(masks, dtype=bool)).to(self.device)
-        with torch.no_grad():
+        masks = np.asarray(masks, dtype=bool)
+        mask = torch.from_numpy(masks).to(self.device)
+        with torch.no_grad(), torch.autocast(
+            "cuda", dtype=torch.bfloat16, enabled=str(self.device).startswith("cuda")
+        ):
             q = self.net(planes, mask)
-        return q.float().cpu().numpy()
+        return q.float().cpu().numpy(), masks
 
     @torch.no_grad()
     def choose(
         self, views: Views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray
     ) -> np.ndarray:
         """One of our actions per row, for `players[i]` in game `rows[i]`,
-        given our engine's legal mask for each."""
+        given our engine's legal mask for each: the best of Mortal's
+        actions that our engine allows, translated."""
         who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
-        q = self._ask(views, who)
-        choice = np.full(len(who), PASS, dtype=np.int64)
-        second: list[int] = []
-        for i, (game, player) in enumerate(who):
-            order = np.argsort(-q[i])
-            allowed = legal[i]
-            picked = None
-            for rank, action in enumerate(order):
-                if not np.isfinite(q[i][action]):
-                    break
-                if action == MORTAL_RIICHI:
-                    if allowed[RIICHI_DISCARD:TSUMO].any():
-                        second.append(i)
-                        picked = -1
-                        break
-                    continue
-                found = translate(int(action), allowed)
-                if found:
-                    picked = found[0]
-                    if rank > 0:
-                        self.fallbacks += 1
-                    break
-            if picked is None:
-                self.orphans += 1
-                picked = int(np.argmax(allowed))
-            choice[i] = picked
+        legal = np.atleast_2d(legal)
+        q, own = self._ask(views, who)
+        allowed = own & translatable(legal)
+        orphan = ~allowed.any(axis=1)
+        self.orphans += int(orphan.sum())
+        allowed[orphan, MORTAL_PASS] = True
+        ranked = np.where(allowed, q, -np.inf)
+        best = ranked.argmax(axis=1)
+        # A fallback is Mortal's own first choice not being a move here.
+        self.fallbacks += int(((np.where(own, q, -np.inf).argmax(axis=1) != best) & ~orphan).sum())
+        choice = first_meaning(best, legal)
+        choice = np.where(orphan | (choice < 0), legal.argmax(axis=1), choice)
 
-        if second:
+        second = np.nonzero((best == MORTAL_RIICHI) & ~orphan)[0]
+        if len(second):
             # The reach declared ahead of the table, then the tile.
             follower = views.observer.follower
             for i in second:
                 game, player = who[i]
                 follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
-            after = self._ask(views, [who[i] for i in second])
-            for slot, i in enumerate(second):
-                allowed = legal[i]
-                order = np.argsort(-after[slot][:34])
-                tile = next(
-                    (int(t) for t in order if allowed[RIICHI_DISCARD + t] and np.isfinite(after[slot][t])),
-                    None,
-                )
-                if tile is None:
-                    self.orphans += 1
-                    tile = int(np.argmax(allowed[RIICHI_DISCARD:TSUMO]))
-                choice[i] = RIICHI_DISCARD + tile
-        return choice
+            after, _own_after = self._ask(views, [who[i] for i in second])
+            tiles = legal[second, RIICHI_DISCARD:TSUMO]
+            ranked_tiles = np.where(tiles, after[:, :34], -np.inf)
+            tile = ranked_tiles.argmax(axis=1)
+            choice[second] = RIICHI_DISCARD + tile
+        return choice.astype(np.int64)
 
 
 def choose(

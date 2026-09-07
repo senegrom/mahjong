@@ -335,6 +335,27 @@ pub struct Arena {
     lookaheads: Vec<Option<(Vec<Action>, search::Lookahead)>>,
 }
 
+/// One imagined world per live game from the beliefs given, as the
+/// hidden-hand planes: the body of both forms of `Arena::imagined_hands`.
+fn imagine_from<'py>(arena: &mut Arena, py: Python<'py>, beliefs: &[f32]) -> Bound<'py, PyBytes> {
+    let games = arena.seats.len();
+    assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
+    let mut planes = vec![0.0f32; games * HIDDEN_HANDS];
+    for (game, seat) in arena.seats.iter_mut().enumerate() {
+        let Some(wind) = seat.pending() else {
+            continue;
+        };
+        let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
+        let world = search::imagine(&seat.hand, wind, &belief, &mut seat.rng);
+        encoding::hidden_hands(
+            &world,
+            wind,
+            &mut planes[game * HIDDEN_HANDS..(game + 1) * HIDDEN_HANDS],
+        );
+    }
+    PyBytes::new(py, bytemuck_cast(&planes))
+}
+
 #[pymethods]
 impl Arena {
     /// Starts `games` games, each seeded from `seed`.
@@ -851,22 +872,19 @@ impl Arena {
     /// to tell from the real hands, which [`Arena::oracle`] carries. Zeros
     /// for a game that owes nothing.
     fn imagined_hands<'py>(&mut self, py: Python<'py>, beliefs: Vec<f32>) -> Bound<'py, PyBytes> {
-        let games = self.seats.len();
-        assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
-        let mut planes = vec![0.0f32; games * HIDDEN_HANDS];
-        for (game, seat) in self.seats.iter_mut().enumerate() {
-            let Some(wind) = seat.pending() else {
-                continue;
-            };
-            let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-            let world = search::imagine(&seat.hand, wind, &belief, &mut seat.rng);
-            encoding::hidden_hands(
-                &world,
-                wind,
-                &mut planes[game * HIDDEN_HANDS..(game + 1) * HIDDEN_HANDS],
-            );
-        }
-        PyBytes::new(py, bytemuck_cast(&planes))
+        imagine_from(self, py, &beliefs)
+    }
+
+    /// The same, taking the beliefs as the raw bytes of float32s rather
+    /// than a Python list: a round has thousands of steps and a list of a
+    /// hundred thousand floats each step cost seconds to build and read.
+    fn imagined_hands_bytes<'py>(&mut self, py: Python<'py>, beliefs: &[u8]) -> Bound<'py, PyBytes> {
+        assert_eq!(beliefs.len() % 4, 0, "float32 bytes");
+        let floats: Vec<f32> = beliefs
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+        imagine_from(self, py, &floats)
     }
 
     /// The second half: takes one value per slot, in the order `leaves`
