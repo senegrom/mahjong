@@ -41,6 +41,7 @@ jobs:
         run: |
           python3 .ui-polish/application.py
           python3 .ui-polish/fix-warnings.py
+          # Includes explicit root border-box containment for 320px phones.
           python3 .ui-polish/fix-overflow.py
 
       - name: Build and verify every web path
