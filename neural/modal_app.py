@@ -147,21 +147,50 @@ def _generation_of(checkpoint: Path) -> int:
 TRAINER_CPUS = 32
 
 
+LOCAL_CACHE = Path("/tmp/inductor-cache")
+SHARED_CACHE = VOLUME / "inductor-cache"
+
+
+def _seed_cache() -> Path:
+    """The local compiler cache, filled from the volume's copy once."""
+    if not LOCAL_CACHE.exists():
+        LOCAL_CACHE.mkdir(parents=True, exist_ok=True)
+        if SHARED_CACHE.exists():
+            try:
+                shutil.copytree(SHARED_CACHE, LOCAL_CACHE, dirs_exist_ok=True)
+                print("compiler cache seeded from the volume", flush=True)
+            except OSError as error:
+                print(f"compiler cache not seeded: {error}", flush=True)
+    return LOCAL_CACHE
+
+
+def _save_cache() -> None:
+    """What the compiler built here, back to the volume for the next
+    container. Called when a trainer's block ends, not during it."""
+    if not LOCAL_CACHE.exists():
+        return
+    try:
+        SHARED_CACHE.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(LOCAL_CACHE, SHARED_CACHE, dirs_exist_ok=True)
+        volume.commit()
+        print("compiler cache saved to the volume", flush=True)
+    except OSError as error:
+        print(f"compiler cache not saved: {error}", flush=True)
+
+
 def _environment(cpus: int | None = None) -> dict[str, str]:
     environment = dict(os.environ)
     # The container reports the host's processors, not its share of them;
     # more threads than the share only queue.
     environment["RAYON_NUM_THREADS"] = str(int(cpus or min(os.cpu_count() or 16, 16)))
     environment["PYTHONPATH"] = "/src"
-    # Compiled kernels on the volume, so a block that resumes in a fresh
-    # container finds the ones the last one built: compiling the network's
-    # graphs took the first generation of a block a quarter of an hour.
-    cache = VOLUME / "inductor-cache"
-    try:
-        cache.mkdir(parents=True, exist_ok=True)
-        environment["TORCHINDUCTOR_CACHE_DIR"] = str(cache)
-    except OSError:
-        pass
+    # Compiled kernels are kept on the container's own disk and seeded from
+    # the volume, so a block that resumes in a fresh container finds the
+    # ones the last one built (compiling the network's graphs took the
+    # first generation of a block a quarter of an hour) without the
+    # compiler writing to the network volume while training: a recompile
+    # that wrote there stalled a generation by about five minutes.
+    environment["TORCHINDUCTOR_CACHE_DIR"] = str(_seed_cache())
     # Say what the container actually has, since the count above is a
     # request: the cgroup's quota is the truth.
     try:
@@ -326,6 +355,7 @@ def train(
                 continue
             _publish(RUN, seen, run)
     code = process.wait()
+    _save_cache()
     # Publish only when a generation actually finished. A run that trained
     # nothing still rewrites its checkpoint with the target generation
     # stamped on it, and publishing that overwrote a good record with one
@@ -435,6 +465,7 @@ def train_mortal(
                 continue
             _publish(where, seen, run)
     code = process.wait()
+    _save_cache()
     if seen > started_at:
         _publish(where, seen, run)
     else:
@@ -547,6 +578,7 @@ def train_combined(
                 continue
             _publish(where, seen, run)
     code = process.wait()
+    _save_cache()
     if seen > started_at:
         _publish(where, seen, run)
     else:
