@@ -78,6 +78,10 @@ def _checkpoint(run: str, name: str) -> Path:
     """Where a checkpoint named by a caller is on the volume: in the run's
     own directory, or, named by its path from the volume's root, in
     another run's, so `w320-run/published` reaches across lineages."""
+    # Named with or without the suffix: the launchers that predate the
+    # runs living side by side say "latest.pt", and a name that resolved to
+    # nothing would start a fresh network over a run's history.
+    name = name.removesuffix(".pt")
     own = VOLUME / run / f"{name}.pt"
     if own.exists():
         return own
