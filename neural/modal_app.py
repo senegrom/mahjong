@@ -153,6 +153,15 @@ def _environment(cpus: int | None = None) -> dict[str, str]:
     # more threads than the share only queue.
     environment["RAYON_NUM_THREADS"] = str(int(cpus or min(os.cpu_count() or 16, 16)))
     environment["PYTHONPATH"] = "/src"
+    # Compiled kernels on the volume, so a block that resumes in a fresh
+    # container finds the ones the last one built: compiling the network's
+    # graphs took the first generation of a block a quarter of an hour.
+    cache = VOLUME / "inductor-cache"
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        environment["TORCHINDUCTOR_CACHE_DIR"] = str(cache)
+    except OSError:
+        pass
     # Say what the container actually has, since the count above is a
     # request: the cgroup's quota is the truth.
     try:
