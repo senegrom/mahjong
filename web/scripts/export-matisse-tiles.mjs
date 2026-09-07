@@ -16,6 +16,7 @@ const sourceDir = 'docs/design/matisse/studies';
 const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
 const definitions = [
   ['Pin1', '1p', '1 dot', 'approved', '01-disk-and-red-dragon.png', [77, 232, 410, 554], 'Black disk and ivory rosette on yellow; direction B.'],
+  ['Pin2', '2p', '2 disks', 'approved', 'two-disks-b-approved.png', [689, 60, 504, 663], 'B: two yellow and magenta cut-paper rosettes on ultramarine, with contrasting petals and blue centres.'],
   ['Pin3', '3p', '3 dots', 'approved', '03-dots-and-bamboo.png', [77, 99, 604, 835], 'Blue, red and green rosettes on ivory.'],
   ['Pin5', '5p', '5 dots', 'approved', '02-five-dot-study.png', [77, 231, 410, 572], 'Five black and ivory rosettes on yellow.'],
   ['Sou2', '2s', '2 bamboo', 'approved', '08-two-bamboo-approved.png', [495, 174, 465, 769], 'Dance B: two sweeping green bamboo forms on a pale mint field. All printed artwork stays green for All Green; multiple shades are intentional.'],
@@ -105,7 +106,7 @@ const table=document.getElementById('table');
 function picture(tile){const image=document.createElement('img');image.src=tile.src;image.alt=tile.label;image.title=tile.label;image.width=300;image.height=400;return image}
 for(const tile of tiles){const card=document.createElement('div');card.className='card';card.append(picture(tile));const label=document.createElement('p');label.textContent=tile.label;card.append(label);const badge=document.createElement('span');badge.className='badge';badge.textContent='Approved';card.append(badge);document.getElementById('approved').append(card)}
 function updateSize(){const w=rack.firstElementChild?.getBoundingClientRect().width||0;document.getElementById('size').textContent=w.toFixed(1)+' × '+(w*4/3).toFixed(1)+' CSS px per tile · 14 tiles · scroll horizontally if needed; the preview is not scaled down.'}
-function draw(){const names=['Man7','Pin1','Haku','Sou1','Sou2','Sou4','Sou5','Sou6','Sou7','Sou8','Sou9','Ton','Chun','Hatsu'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
+function draw(){const names=['Man7','Pin1','Pin2','Haku','Sou1','Sou2','Sou4','Sou5','Sou6','Sou7','Sou8','Sou9','Ton','Hatsu'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
 document.getElementById('width').addEventListener('change',draw);new ResizeObserver(updateSize).observe(rack);draw();
 </script></body></html>`;
 writeFileSync(path.join(out, 'preview.html'), html);
