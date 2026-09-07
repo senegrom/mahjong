@@ -38,6 +38,8 @@ jobs:
           python3 .runtime-change/application.patch
           cd web
           npm ci
+          npm run lint
+          npm run check
 
       - name: Build model-specific ONNX Runtime 1.29.0
         shell: bash
@@ -61,6 +63,8 @@ jobs:
             --disable_wasm_exception_catching \
             --disable_rtti \
             --disable_ml_ops \
+            --disable_contrib_ops \
+            --disable_generation_ops \
             --include_ops_by_config "$GITHUB_WORKSPACE/web/runtime/reduced-ops.config" \
             --parallel \
             --skip_submodule_sync
@@ -92,8 +96,6 @@ jobs:
           fi
           cd web
           npm run wasm
-          npm run lint
-          npm run check
           npm run build
           npm run test:unit 2>&1 | tee /tmp/runtime-unit.txt
           npm run test:browser 2>&1 | tee /tmp/runtime-browser.txt
@@ -137,5 +139,7 @@ jobs:
             web/test-results
             web/runtime/reduced-ops.config
             web/runtime/model.sha256
+            web/runtime/ort-wasm-simd-threaded.wasm
+            web/runtime/ort-wasm-simd-threaded.mjs
           if-no-files-found: ignore
           retention-days: 7
