@@ -17,7 +17,7 @@
       dimmed={discard.claimed}
       dora={dora.includes(discard.tile)}
       size={compact ? 'tiny' : 'small'}
-      title={`${tileWords(discard.tile)}${discard.claimed ? ', claimed' : ''}${discard.riichi ? ', riichi declaration' : ''}${discard.drawn ? ', discarded from the draw' : ''}`}
+      title={`${tileWords(discard.tile)}${discard.claimed ? ', claimed' : ''}${discard.riichi ? ', riichi declaration' : ''}${discard.drawn ? ', discarded from the draw' : ''}${dora.includes(discard.tile) ? ', dora' : ''}`}
     />
   {/each}
 </div>

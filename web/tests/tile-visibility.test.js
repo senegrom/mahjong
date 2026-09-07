@@ -83,3 +83,11 @@ test('readiness rings coexist with unchanged dora foil, dragon artwork, safety a
     assert.match(html, /class="haku-dragon-reveal\b/);
   }
 });
+
+
+test('explicit tile descriptions are exposed to assistive technology', () => {
+  const description = '5 circles, claimed, riichi declaration, discarded from the draw, dora';
+  const html = tile({ tile: '5p', title: description, dora: true });
+  assert.match(html, new RegExp(`aria-label="${description}"`));
+  assert.match(html, new RegExp(`title="${description}"`));
+});

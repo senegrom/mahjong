@@ -144,7 +144,7 @@
     style:--ring={ring}
     {disabled}
     title={title || words}
-    aria-label={words}
+    aria-label={title || words}
     onclick={() => onclick(tile)}
   >
     <span class="face" class:haku={whiteDragonDora}>
@@ -168,7 +168,7 @@
     class:ringed={marks.length > 0}
     style:--ring={ring}
     role="img"
-    aria-label={words}
+    aria-label={title || words}
     title={title || words}
   >
     <span class="face" class:haku={whiteDragonDora}>

@@ -90,6 +90,7 @@ test('safe count includes held copies, not absent globally safe kinds', () => {
 
 test('call previews use tile identity and explain mahjong terminology', () => {
   assert.deepEqual(callTiles({kind:'chii',tile:'5m'},'6m'), ['5m','6m','7m']);
+  assert.equal(callLabel({kind:'chii',tile:'5m'}), 'Chii — 5–6–7 characters');
   assert.deepEqual(callTiles({kind:'pon'},'7z'), ['7z','7z','7z']);
   assert.deepEqual(callTiles({kind:'kan'},'1s'), ['1s','1s','1s','1s']);
   assert.match(callLabel({kind:'ron'}), /Ron.*win on discard/);

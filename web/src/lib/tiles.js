@@ -19,3 +19,10 @@ export function tileWords(name) {
   if (suit === 'z') return HONOUR_WORDS[rank - 1] ?? 'honour tile';
   return `${rank} ${SUIT_WORDS[suit] ?? 'tiles'}`;
 }
+
+/** `"5m"` as a sequence start becomes `"5–6–7 characters"`. */
+export function sequenceWords(name) {
+  if (!/^[1-7][mps]$/.test(name ?? '')) return 'sequence';
+  const rank = Number(name[0]);
+  return `${rank}–${rank + 1}–${rank + 2} ${SUIT_WORDS[name[1]]}`;
+}

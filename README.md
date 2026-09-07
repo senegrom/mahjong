@@ -4,7 +4,8 @@ Riichi mahjong in the browser, played by the **EMA Riichi Competition Rules,
 2025 edition** (in force since 1 January 2026), against opponents that learn
 the game from self-play on the very same engine.
 
-**[Play it](https://senegrom.github.io/mahjong/)** against three heuristic opponents.
+**[Play it](https://senegrom.github.io/mahjong/)** against Beginner, Club or
+Trained opponents, including a custom mix at one table.
 
 The rules live once, in Rust. That crate is compiled to WebAssembly for the
 browser and, later, to a Python extension for training, so the game a person
@@ -18,8 +19,9 @@ plays and the game the opponents were trained on cannot drift apart.
   full game with rounds, counters and uma.
 - **A heuristic opponent** that plays for speed, only opens a hand that can
   still be declared, and folds against a declared riichi.
-- **A browser game** against three of them, with the tile art, discard rows,
-  called sets and optional hints, on a desktop or a phone.
+- **A browser game** against three configurable opponents—Beginner, Club,
+  Trained, or a custom mix—with the tile art, discard rows, called sets and
+  optional hints, on a desktop or a phone.
 - **Played by keyboard or mouse.** Arrow keys move along the hand and Enter
   throws the marked tile, the numbers throw one directly, and every tile
   carries its name for a screen reader.
