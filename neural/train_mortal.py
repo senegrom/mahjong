@@ -56,6 +56,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260907)
     parser.add_argument("--out", type=Path, default=Path("E:/tmp-claude/mahjong/mortal-run"))
     parser.add_argument("--amp", action="store_true")
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="compile Mortal's forward: its forty blocks' batch-norm, Mish and "
+        "attention run as a dozen kernels each in eager mode, and a step of "
+        "learning was bound by them rather than by the data",
+    )
     return parser.parse_args()
 
 
@@ -101,12 +108,19 @@ def main() -> None:
         except (ValueError, RuntimeError) as error:
             print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
 
+    # The learning step's forward with the minibatch's fixed shape, and
+    # the deciding forward with the batch's size left symbolic, since it
+    # changes every step.
+    learn = torch.compile(net.policy) if args.compile else net.policy
+    if args.compile:
+        net.inference = torch.compile(net.policy, dynamic=True)
+
     seated = []
     for path in args.opponents:
         if not Path(path).exists():
             print(f"no opponent at {path}, skipping", flush=True)
             continue
-        other = zoo.load_player(path, device)
+        other = zoo.load_player(path, device, compile=args.compile)
         other.eval()
         seated.append(other)
     if seated:
@@ -167,7 +181,7 @@ def main() -> None:
                 else:
                     planes = observations.slice(start_index, start_index + 4096).dense(device)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    _logits, value = net.policy(planes, legal[chunk])
+                    _logits, value = learn(planes, legal[chunk])
                 guess[chunk] = value.float()
         value_error = float(((returns - guess) ** 2).mean())
         advantages = returns - guess
@@ -204,7 +218,7 @@ def main() -> None:
             for picks, planes in minibatches:
                 optimiser.zero_grad(set_to_none=True)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    logits, value = net.policy(planes, legal[picks])
+                    logits, value = learn(planes, legal[picks])
                 logits = logits.float()
                 value = value.float()
                 distribution = torch.distributions.Categorical(logits=logits)

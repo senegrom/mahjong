@@ -210,6 +210,11 @@ def play(
         index = np.nonzero(live & ~theirs)[0]
         timing["other"] += clock() - began
         began = clock()
+        # Every deciding player's view in one call, for whoever asks below.
+        everyone = np.nonzero(live)[0]
+        views.prepare(everyone, deciding[everyone])
+        timing["encode"] += clock() - began
+        began = clock()
         if theirs.any():
             for which in np.unique(foreign_which[theirs]):
                 rows = np.nonzero(theirs & (foreign_which == which))[0]

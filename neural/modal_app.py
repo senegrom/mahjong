@@ -371,7 +371,7 @@ def train_mortal(
         "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
         "--lr", str(lr), "--entropy", str(entropy), "--temperature", str(temperature),
         "--measure-every", str(measure_every), "--measure-games", str(measure_games),
-        "--amp", "--out", str(where),
+        "--amp", "--compile", "--out", str(where),
     ]
     if source.exists():
         shutil.copyfile(source, where / "latest.pt")
@@ -719,7 +719,7 @@ def smoke() -> str:
             "--generations", "1", "--games", "24", "--batch", "512", "--epochs", "1",
             "--measure-every", "1", "--measure-games", "8",
             "--replay-rounds", "2", "--replay-steps", "4",
-            "--amp",
+            "--amp", "--compile",
             "--out", str(out),
         ],
         cwd="/src",
@@ -732,6 +732,32 @@ def smoke() -> str:
     report.append((result.stdout or "")[-2500:])
     if result.returncode != 0:
         report.append((result.stderr or "")[-2500:])
+    # Mortal's fine-tuning too, from the published Mortal on the volume,
+    # into scratch: nothing is published.
+    volume.reload()
+    origin = _checkpoint("mortal-run", "zoo/mortal_298k")
+    if origin.exists():
+        local = out / "origin.pt"
+        shutil.copyfile(origin, local)
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "neural.train_mortal",
+                "--mortal", str(local), "--rounds", "1", "--games", "16", "--batch", "512",
+                "--measure-every", "1", "--measure-games", "8",
+                "--amp", "--compile", "--out", str(out / "mortal"),
+            ],
+            cwd="/src",
+            env=_environment(),
+            capture_output=True,
+            text=True,
+            timeout=40 * 60,
+        )
+        report.append(f"train_mortal exit={result.returncode}")
+        report.append((result.stdout or "")[-1500:])
+        if result.returncode != 0:
+            report.append((result.stderr or "")[-2500:])
+    else:
+        report.append(f"no Mortal at {origin}; its trainer not tried")
     answer = "\n".join(report)
     # Printed as well as returned: the container's output is what streams
     # back to a `modal run`, and a return value alone shows nothing.

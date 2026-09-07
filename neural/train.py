@@ -294,6 +294,11 @@ def main() -> None:
     read = torch.compile(net.read_plausibility) if args.compile else net.read_plausibility
     values = torch.compile(value_heads) if args.compile else value_heads
     auxiliary = torch.compile(auxiliary_heads) if args.compile else auxiliary_heads
+    if args.compile:
+        # The deciding forward too, its batch's size left symbolic since
+        # it changes every step: the norms, activations and attention
+        # gates fuse, where eager mode ran each as its own kernel.
+        net.everything = torch.compile(net.everything, dynamic=True)
 
     # The last several rounds, on disk, for the heads that may learn from
     # stale play: see `replay.py`. The policy never trains on it.
@@ -307,7 +312,7 @@ def main() -> None:
         if not Path(path).exists():
             print(f"no opponent at {path}, skipping", flush=True)
             continue
-        older = zoo.load_player(path, device)
+        older = zoo.load_player(path, device, compile=args.compile)
         older.eval()
         for parameter in getattr(older, "parameters", list)():
             parameter.requires_grad_(False)

@@ -291,11 +291,50 @@ class Views:
         kinds = set(kinds or {"mortal"})
         self.observer = Observer(arena, games) if "mortal" in kinds else None
         self._engine: np.ndarray | None = None
+        # A step's encoding of every deciding player at once: where each
+        # (game, player) sits, the planes, and Mortal's own masks.
+        self._step: tuple[dict[tuple[int, int], int], Planes, np.ndarray] | None = None
 
     def advance(self) -> None:
         if self.observer is not None:
             self.observer.advance()
         self._engine = None
+        self._step = None
+
+    def prepare(self, games: np.ndarray, players: np.ndarray) -> None:
+        """Encodes the view of every deciding player named, in one call, so
+        that the step's later asks for subsets are served from it. One
+        call over a thousand rows spreads over the processors far better
+        than a few calls over a few dozen each, as when the learner and a
+        seated Mortal ask separately."""
+        if self.observer is None or len(games) == 0:
+            self._step = None
+            return
+        who = list(zip(np.asarray(games).tolist(), np.asarray(players).tolist()))
+        indptr, indices, values, masks = self.observer.follower.encode(who)
+        self._step = (
+            {pair: index for index, pair in enumerate(who)},
+            Planes.from_follower(indptr, indices, values),
+            np.asarray(masks, dtype=bool),
+        )
+
+    def sparse_and_masks(
+        self, rows: np.ndarray, players: np.ndarray, fresh: bool = False
+    ) -> tuple[Planes, np.ndarray]:
+        """Mortal's view of `players[i]` in game `rows[i]`, sparse, with
+        Mortal's own action masks. From the step's prepared encoding when
+        it covers them and `fresh` is not asked for; a player told an event
+        ahead of the table wants a fresh one."""
+        if self.observer is None:
+            raise RuntimeError("this table was not set up to serve Mortal's planes")
+        who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
+        if not fresh and self._step is not None:
+            where, planes, masks = self._step
+            if all(pair in where for pair in who):
+                picked = np.array([where[pair] for pair in who], dtype=np.int64)
+                return planes.rows(picked), masks[picked]
+        indptr, indices, values, masks = self.observer.follower.encode(who)
+        return Planes.from_follower(indptr, indices, values), np.asarray(masks, dtype=bool)
 
     def engine(self) -> np.ndarray:
         """The engine's own planes for every game this step, dense."""
@@ -306,9 +345,7 @@ class Views:
 
     def sparse(self, rows: np.ndarray, players: np.ndarray) -> Planes:
         """Mortal's view of `players[i]` in game `rows[i]`, sparse."""
-        if self.observer is None:
-            raise RuntimeError("this table was not set up to serve Mortal's planes")
-        return self.observer.encode(rows, players)
+        return self.sparse_and_masks(rows, players)[0]
 
     def dense(
         self, kind: str, rows: np.ndarray, players: np.ndarray, device: str | torch.device

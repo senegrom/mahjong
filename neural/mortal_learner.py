@@ -69,6 +69,8 @@ class MortalLearner(nn.Module):
         # Where a round's deciding went, in seconds, for the play record;
         # `selfplay.play` reads and clears it.
         self.timing = {"encode": 0.0, "translate": 0.0, "network": 0.0}
+        # The forward used when deciding; a trainer may set a compiled one.
+        self.inference = self.policy
 
     def to(self, device):  # type: ignore[override]
         self.device = str(device)
@@ -114,12 +116,11 @@ class MortalLearner(nn.Module):
         who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
         legal = np.atleast_2d(legal)
         began = clock()
-        indptr, indices, values, masks = follower.encode(who)
-        planes = Planes.from_follower(indptr, indices, values)
+        planes, own = views.sparse_and_masks(rows, players)
         self.timing["encode"] += clock() - began
         began = clock()
         # The policy is over what Mortal may do here that our engine allows.
-        allowed = np.asarray(masks, dtype=bool) & zoo.translatable(legal)
+        allowed = own & zoo.translatable(legal)
         # A row where nothing agrees is decided by our engine's first legal
         # move and not recorded; it does not happen in practice.
         decidable = allowed.any(axis=1)
@@ -128,7 +129,7 @@ class MortalLearner(nn.Module):
         began = clock()
         mask = torch.from_numpy(allowed).to(self.device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=self.device.startswith("cuda")):
-            logits, _value = self.policy(planes.dense(self.device), mask)
+            logits, _value = self.inference(planes.dense(self.device), mask)
         logits = logits.float()
         distribution = torch.distributions.Categorical(logits=logits)
         picked = logits.argmax(dim=1) if greedy else distribution.sample()
@@ -171,7 +172,7 @@ class MortalLearner(nn.Module):
             with torch.autocast(
                 "cuda", dtype=torch.bfloat16, enabled=self.device.startswith("cuda")
             ):
-                logits_after, _ = self.policy(after.dense(self.device), mask_after)
+                logits_after, _ = self.inference(after.dense(self.device), mask_after)
             logits_after = logits_after.float()
             distribution_after = torch.distributions.Categorical(logits=logits_after)
             tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()

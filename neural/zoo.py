@@ -129,8 +129,12 @@ class MortalPlayer:
 
     kind = "mortal"
 
-    def __init__(self, path: Path | str, device: str = "cuda") -> None:
+    def __init__(self, path: Path | str, device: str = "cuda", compile: bool = False) -> None:
         self.net = mortal_model.load(path, device)
+        # Compiled, the forty blocks' batch-norm, Mish and attention fuse
+        # into a few kernels a block instead of a dozen; the batch varies
+        # from step to step, so the shape is left symbolic.
+        self.forward = torch.compile(self.net, dynamic=True) if compile else self.net
         self.device = device
         self.path = str(path)
         # How often the answer had to fall back on a later choice of
@@ -141,18 +145,21 @@ class MortalPlayer:
     def eval(self) -> MortalPlayer:
         return self
 
-    def _ask(self, views: Views, who: list[tuple[int, int]]) -> tuple[np.ndarray, np.ndarray]:
+    def _ask(
+        self, views: Views, who: list[tuple[int, int]], fresh: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Mortal's Q values for those players, in its own action space,
-        and its own mask of what it believes it may do."""
-        follower = views.observer.follower
-        indptr, indices, values, masks = follower.encode(who)
-        planes = Planes.from_follower(indptr, indices, values).dense(self.device)
-        masks = np.asarray(masks, dtype=bool)
+        and its own mask of what it believes it may do. From the step's
+        shared encoding unless a fresh one is asked for."""
+        rows = np.array([game for game, _player in who], dtype=np.int64)
+        players = np.array([player for _game, player in who], dtype=np.int64)
+        sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
+        planes = sparse.dense(self.device)
         mask = torch.from_numpy(masks).to(self.device)
         with torch.no_grad(), torch.autocast(
             "cuda", dtype=torch.bfloat16, enabled=str(self.device).startswith("cuda")
         ):
-            q = self.net(planes, mask)
+            q = self.forward(planes, mask)
         return q.float().cpu().numpy(), masks
 
     @torch.no_grad()
@@ -183,7 +190,7 @@ class MortalPlayer:
             for i in second:
                 game, player = who[i]
                 follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
-            after, _own_after = self._ask(views, [who[i] for i in second])
+            after, _own_after = self._ask(views, [who[i] for i in second], fresh=True)
             tiles = legal[second, RIICHI_DISCARD:TSUMO]
             ranked_tiles = np.where(tiles, after[:, :34], -np.inf)
             tile = ranked_tiles.argmax(axis=1)
@@ -214,9 +221,17 @@ def choose(
     return torch.distributions.Categorical(logits=logits.float()).sample().cpu().numpy()
 
 
-def load_player(path: Path | str, device: str, channels: int | None = None, blocks: int | None = None):
+def load_player(
+    path: Path | str,
+    device: str,
+    channels: int | None = None,
+    blocks: int | None = None,
+    compile: bool = False,
+):
     """A player from a checkpoint of either kind: one of ours, rebuilt at
-    the shape it says, or a Mortal, told apart by what the file holds."""
+    the shape it says, or a Mortal, told apart by what the file holds.
+    With `compile`, the forward it plays with is compiled, the batch's
+    size left symbolic."""
     from .model import from_payload
 
     path = Path(path)
@@ -227,5 +242,7 @@ def load_player(path: Path | str, device: str, channels: int | None = None, bloc
     if payload is not None and "model" in payload:
         net = from_payload(payload, device, channels, blocks)
         net.eval()
+        if compile:
+            net.forward = torch.compile(net.forward, dynamic=True)
         return net
-    return MortalPlayer(path, device)
+    return MortalPlayer(path, device, compile=compile)
