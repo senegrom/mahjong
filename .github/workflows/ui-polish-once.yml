@@ -39,8 +39,8 @@ jobs:
 
       - name: Apply scoped UI changes
         run: |
-          # The second pass keeps pre-existing production regressions pointed at
-          # their new intentional controls and resolves compact landscape rules.
+          # The second pass keeps existing regressions aligned with intentional
+          # compact controls and constrains the 320px result sheet explicitly.
           python3 .ui-polish/application.py
           python3 .ui-polish/fix-warnings.py
 
