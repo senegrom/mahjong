@@ -158,7 +158,10 @@ its own action space, which `neural/zoo.py` translates into ours with the
 engine's legal mask as the authority; over 8,840 decisions every answer
 translated. So `python -m neural.duel mortal.pth ours.pt` measures ours
 against it directly, and it can be seated as an opponent in self-play and
-as a teacher.
+as a teacher. Measured 7 September 2026 at one table, 1000 deals a
+seating: against the published network Mortal places 2.129, which is
++0.371 placement at 22 standard errors, level across the four seats. That
+is the gap the new lineage is training to close.
 
 Still to come: replays in the browser. The plan is in
 [docs/PLAN.md](docs/PLAN.md).
