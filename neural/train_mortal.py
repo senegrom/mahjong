@@ -217,6 +217,7 @@ def main() -> None:
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),
+            "play_split": {name: round(value, 1) for name, value in batch.timing.items()},
             "policy_loss": round(float(total_policy / denom), 4),
             "value_loss": round(float(total_value / denom), 4),
             "value_error": round(value_error, 4),

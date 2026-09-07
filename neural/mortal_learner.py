@@ -22,6 +22,7 @@ return.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -65,6 +66,9 @@ class MortalLearner(nn.Module):
         for parameter in self.mortal.parameters():
             parameter.requires_grad_(True)
         self.device = "cpu"
+        # Where a round's deciding went, in seconds, for the play record;
+        # `selfplay.play` reads and clears it.
+        self.timing = {"encode": 0.0, "translate": 0.0, "network": 0.0}
 
     def to(self, device):  # type: ignore[override]
         self.device = str(device)
@@ -105,17 +109,23 @@ class MortalLearner(nn.Module):
     ) -> tuple[np.ndarray, Records]:
         """One of our actions per row, and the records of the decisions
         made, in Mortal's action space, that produced them."""
+        clock = time.perf_counter
         follower = views.observer.follower
         who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
         legal = np.atleast_2d(legal)
+        began = clock()
         indptr, indices, values, masks = follower.encode(who)
         planes = Planes.from_follower(indptr, indices, values)
+        self.timing["encode"] += clock() - began
+        began = clock()
         # The policy is over what Mortal may do here that our engine allows.
         allowed = np.asarray(masks, dtype=bool) & zoo.translatable(legal)
         # A row where nothing agrees is decided by our engine's first legal
         # move and not recorded; it does not happen in practice.
         decidable = allowed.any(axis=1)
         allowed[~decidable, zoo.MORTAL_PASS] = True
+        self.timing["translate"] += clock() - began
+        began = clock()
         mask = torch.from_numpy(allowed).to(self.device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=self.device.startswith("cuda")):
             logits, _value = self.policy(planes.dense(self.device), mask)
@@ -124,6 +134,7 @@ class MortalLearner(nn.Module):
         picked = logits.argmax(dim=1) if greedy else distribution.sample()
         log_prob = distribution.log_prob(picked).cpu().numpy()
         picked = picked.cpu().numpy()
+        self.timing["network"] += clock() - began
 
         choice = zoo.first_meaning(picked, legal)
         choice = np.where(decidable & (choice >= 0), choice, legal.argmax(axis=1)).astype(np.int64)
@@ -174,13 +185,22 @@ class MortalLearner(nn.Module):
             record_log_probs.append(log_prob_after)
             record_slots.append(np.array(second, dtype=np.int64))
 
-        records = Records(
-            planes=Planes.cat(record_planes),
-            masks=np.concatenate(record_masks),
-            actions=np.concatenate(record_actions).astype(np.int64),
-            log_probs=np.concatenate(record_log_probs).astype(np.float32),
-            slots=np.concatenate(record_slots).astype(np.int64),
-        )
+        if len(record_planes) == 1:
+            records = Records(
+                planes=record_planes[0],
+                masks=record_masks[0],
+                actions=record_actions[0].astype(np.int64),
+                log_probs=record_log_probs[0].astype(np.float32),
+                slots=record_slots[0].astype(np.int64),
+            )
+        else:
+            records = Records(
+                planes=Planes.cat(record_planes),
+                masks=np.concatenate(record_masks),
+                actions=np.concatenate(record_actions).astype(np.int64),
+                log_probs=np.concatenate(record_log_probs).astype(np.float32),
+                slots=np.concatenate(record_slots).astype(np.int64),
+            )
         return choice, records
 
     def choose(

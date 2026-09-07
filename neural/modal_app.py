@@ -153,6 +153,18 @@ def _environment(cpus: int | None = None) -> dict[str, str]:
     # more threads than the share only queue.
     environment["RAYON_NUM_THREADS"] = str(int(cpus or min(os.cpu_count() or 16, 16)))
     environment["PYTHONPATH"] = "/src"
+    # Say what the container actually has, since the count above is a
+    # request: the cgroup's quota is the truth.
+    try:
+        quota = Path("/sys/fs/cgroup/cpu.max").read_text(encoding="utf-8").split()
+        share = "unlimited" if quota[0] == "max" else f"{int(quota[0]) / int(quota[1]):.1f}"
+    except Exception:
+        share = "unknown"
+    print(
+        f"processors: {os.cpu_count()} visible, quota {share}, "
+        f"rayon threads {environment['RAYON_NUM_THREADS']}",
+        flush=True,
+    )
     return environment
 
 

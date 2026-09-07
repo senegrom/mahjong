@@ -94,13 +94,16 @@ for _action in range(MORTAL_ACTIONS):
     for _rank, _ours in enumerate(meanings(_action)):
         PRIORITY[_action, _ours] = _rank
 MEANS = np.isfinite(PRIORITY)
+# As float32, because NumPy multiplies float matrices through BLAS and
+# integer ones through a plain loop that is many times slower.
+MEANS_BY_OURS = np.ascontiguousarray(MEANS.T, dtype=np.float32)
 
 
 def translatable(legal: np.ndarray) -> np.ndarray:
     """Which of Mortal's actions our engine allows at each row: `legal`
     is (rows, 78) and the answer (rows, 46)."""
     legal = np.atleast_2d(legal)
-    return (legal.astype(np.int8) @ MEANS.T.astype(np.int8)) > 0
+    return (legal.astype(np.float32) @ MEANS_BY_OURS) > 0.5
 
 
 def first_meaning(actions: np.ndarray, legal: np.ndarray) -> np.ndarray:

@@ -13,6 +13,7 @@ table can seat both.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -80,6 +81,10 @@ class Batch:
     decisions: int
     final_scores: np.ndarray
     hand_results: list[int] = field(default_factory=list)
+    #: Where the round's wall time went, in seconds by part: the engine
+    #: and the follower, the encoder, the network, the seated others, and
+    #: the bookkeeping. For finding what to make faster.
+    timing: dict[str, float] = field(default_factory=dict)
 
 
 def imagine(arena, beliefs: np.ndarray) -> bytes:
@@ -170,8 +175,11 @@ def play(
 
     hands = 0
     steps = 0
+    clock = time.perf_counter
+    timing = {"engine": 0.0, "encode": 0.0, "network": 0.0, "opponents": 0.0, "other": 0.0}
     while not arena.all_finished() and steps < max_steps:
         steps += 1
+        began = clock()
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
         live = seats != 0xFF
         if not live.any():
@@ -188,6 +196,8 @@ def play(
         hidden = hidden.reshape(games, ORACLE_PLANES, POSITIONS)
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
         their_choice = np.zeros(games, dtype=np.int64)
+        timing["engine"] += clock() - began
+        began = clock()
 
         # Who owes each game's decision, as a person rather than a seat:
         # the seats move between hands and the players do not.
@@ -198,6 +208,8 @@ def play(
         # answered separately and never recorded.
         theirs = live & (deciding == foreign_player) & (foreign_player >= 0)
         index = np.nonzero(live & ~theirs)[0]
+        timing["other"] += clock() - began
+        began = clock()
         if theirs.any():
             for which in np.unique(foreign_which[theirs]):
                 rows = np.nonzero(theirs & (foreign_which == which))[0]
@@ -208,14 +220,18 @@ def play(
                     their_choice[rows] = zoo.choose(
                         other, views, rows, deciding[rows], mask[rows], device
                     )
+        timing["opponents"] += clock() - began
+        began = clock()
         if not len(index):
             arena.step(their_choice.tolist())
+            timing["engine"] += clock() - began
             continue
         choice = their_choice.copy()
         if hasattr(net, "decide"):
             # A learner in an action space of its own (see
             # `mortal_learner`): it answers the table in ours and records
-            # its decisions itself, possibly more than one per row.
+            # its decisions itself, possibly more than one per row, and
+            # keeps its own account of the time.
             picked, records = net.decide(views, index, deciding[index], mask[index], greedy)
             choice[index] = picked
             observations.append(records.planes)
@@ -223,9 +239,12 @@ def play(
             record_actions = records.actions
             record_log_probs = records.log_probs
             record_slots = records.slots
+            began = clock()
         else:
             if recording:
                 sparse = views.sparse(index, deciding[index])
+                timing["encode"] += clock() - began
+                began = clock()
                 batch_planes = sparse.dense(device)
             else:
                 sparse = None
@@ -260,6 +279,8 @@ def play(
             held.append(truth[index].copy())
             oracle.append(hidden[index].astype(np.uint8))
             imagined.append(proposed[index].astype(np.uint8))
+            timing["network"] += clock() - began
+            began = clock()
 
         for record in range(len(record_actions)):
             game = int(index[record_slots[record]])
@@ -271,6 +292,8 @@ def play(
             rewards.append(0.0)
             pending[game][person].append(step_index)
             everything[game][person].append(step_index)
+        timing["other"] += clock() - began
+        began = clock()
 
         arena.step(choice.tolist())
 
@@ -284,6 +307,15 @@ def play(
                     for step_index in pending[game][person]:
                         rewards[step_index] += value
                     pending[game][person] = []
+        timing["engine"] += clock() - began
+
+    # A learner that decides for itself kept its own account; fold it in
+    # and clear it for the next round.
+    own = getattr(net, "timing", None)
+    if isinstance(own, dict):
+        for name, value in own.items():
+            timing[name] = timing.get(name, 0.0) + value
+            own[name] = 0.0
 
     # The placement, which is what the game is actually for, reaches every
     # decision that player made.
@@ -314,6 +346,7 @@ def play(
         hands=hands,
         decisions=decisions,
         final_scores=final_scores.copy(),
+        timing=timing,
     )
 
 

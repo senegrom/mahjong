@@ -670,6 +670,9 @@ def main() -> None:
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),
+            # Where the play went: the engine and follower, the encoder,
+            # the network, the seated others, and the bookkeeping.
+            "play_split": {name: round(value, 1) for name, value in batch.timing.items()},
             "baseline_seconds": round(baseline_seconds, 1),
             "policy_loss": round(float(total_policy / denom), 4),
             "value_loss": round(float(total_value / denom), 4),
