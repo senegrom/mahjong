@@ -9,6 +9,15 @@ def swap(path, old, new, label):
     file.write_text(text.replace(old, new, 1))
 
 
+# The page's horizontal padding must be included in its declared width. Without
+# border-box, width: auto plus the compact header's min-content width can make
+# the whole app 9px wider than a 320px viewport even though every child is
+# individually responsive.
+swap('web/src/App.svelte',
+     '  main { max-width: 1100px; margin: 0 auto;',
+     '  main { width: 100%; max-width: 1100px; box-sizing: border-box; margin: 0 auto;',
+     'app root viewport containment')
+
 # A final match renders standings behind the fixed result sheet. Give the
 # standings panel an explicit border-box width so its table can never increase
 # the document's intrinsic width on a 320px phone.
