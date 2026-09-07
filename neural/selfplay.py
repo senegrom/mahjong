@@ -177,6 +177,12 @@ def play(
     steps = 0
     clock = time.perf_counter
     timing = {"engine": 0.0, "encode": 0.0, "network": 0.0, "opponents": 0.0, "other": 0.0}
+    # A learner that keeps its own account may have been deciding
+    # elsewhere since, in a measurement; this round starts from nothing.
+    own = getattr(net, "timing", None)
+    if isinstance(own, dict):
+        for name in own:
+            own[name] = 0.0
     while not arena.all_finished() and steps < max_steps:
         steps += 1
         began = clock()
