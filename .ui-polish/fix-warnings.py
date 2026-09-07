@@ -131,3 +131,34 @@ new_boxes = '''        const boxes = await p.$$eval('.hand .hand-tile', els => e
         for (const box of boxes) { assert.ok(Math.abs(box.width - drawn.width) < .2); assert.ok(box.right <= width); }'''
 r = replace_once(r, old_boxes, new_boxes, 'draw-gap viewport regression')
 readiness.write_text(r)
+
+# The 320px result sheet is deliberately edge-to-edge. Explicit box sizing and
+# min-width constraints keep tables, indicator rows and long action labels from
+# contributing a sub-pixel or min-content horizontal scroll width.
+score = Path('web/src/lib/ScoreScreen.svelte')
+s = score.read_text()
+s = replace_once(s,
+    '''  .screen {\n    display: grid;\n    gap: 14px;'''.replace('\\n','\n'),
+    '''  .screen {\n    display: grid;\n    min-width: 0;\n    max-width: 100%;\n    box-sizing: border-box;\n    gap: 14px;'''.replace('\\n','\n'),
+    'result sheet base sizing')
+s = replace_once(s,
+    '  .changes { border-collapse: collapse; font-size: .88rem; font-variant-numeric: tabular-nums; }',
+    '  .changes { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; font-size: .88rem; font-variant-numeric: tabular-nums; }',
+    'result score table sizing')
+s = replace_once(s,
+    '  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }',
+    '  .result-header, .win, .tiles, .bonus-indicators, .working, .buttons { min-width: 0; max-width: 100%; box-sizing: border-box; }\n  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }',
+    'result child sizing')
+s = replace_once(s,
+    '  .buttons button { min-height: 44px; padding: 8px 18px;',
+    '  .buttons button { min-width: 0; max-width: 100%; min-height: 44px; padding: 8px 18px;',
+    'result button sizing')
+s = replace_once(s,
+    '''      bottom: 0;\n      z-index: 50;'''.replace('\\n','\n'),
+    '''      bottom: 0;\n      width: 100%;\n      max-width: 100vw;\n      box-sizing: border-box;\n      z-index: 50;'''.replace('\\n','\n'),
+    'mobile result viewport sizing')
+s = replace_once(s,
+    '    .hero-score b { font-size: 2rem; }',
+    '    .hero-score b { max-width: 100%; font-size: 2rem; overflow-wrap: anywhere; }\n    .changes th, .changes td { min-width: 0; padding-right: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+    'mobile result content sizing')
+score.write_text(s)
