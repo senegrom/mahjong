@@ -20,6 +20,7 @@ import torch
 
 import riichi_py
 
+from . import zoo
 from .observe import Planes, Views
 
 POSITIONS = riichi_py.POSITIONS
@@ -194,11 +195,9 @@ def play(
                 with torch.autocast(
                     "cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"
                 ):
-                    their_logits, _their_value = other(
-                        views.dense(other.kind, rows, deciding[rows], device),
-                        torch.from_numpy(mask[rows]).to(device),
+                    their_choice[rows] = zoo.choose(
+                        other, views, rows, deciding[rows], mask[rows], device
                     )
-                their_choice[rows] = their_logits.float().argmax(dim=1).cpu().numpy()
         if not len(index):
             arena.step(their_choice.tolist())
             continue

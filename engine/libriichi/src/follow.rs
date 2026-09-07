@@ -27,6 +27,9 @@ struct Table {
     states: [PlayerState; 4],
     cans: [ActionCandidate; 4],
     oya: u8,
+    /// Players told of their own reach ahead of the table (see `tell`),
+    /// whose copy of it from the table is therefore to be skipped.
+    told_reach: [bool; 4],
 }
 
 impl Table {
@@ -35,6 +38,7 @@ impl Table {
             states: std::array::from_fn(|player| PlayerState::new(player as u8)),
             cans: [ActionCandidate::default(); 4],
             oya: 0,
+            told_reach: [false; 4],
         }
     }
 
@@ -45,7 +49,21 @@ impl Table {
             if let Event::StartKyoku { oya, .. } = &event {
                 self.oya = *oya;
             }
-            for (state, cans) in self.states.iter_mut().zip(self.cans.iter_mut()) {
+            let already_told = match &event {
+                Event::Reach { actor } => {
+                    let actor = *actor as usize;
+                    let told = self.told_reach[actor];
+                    self.told_reach[actor] = false;
+                    told.then_some(actor)
+                }
+                _ => None,
+            };
+            for (player, (state, cans)) in
+                self.states.iter_mut().zip(self.cans.iter_mut()).enumerate()
+            {
+                if already_told == Some(player) {
+                    continue;
+                }
                 *cans = state
                     .update(&event)
                     .with_context(|| format!("player {} rejected: {line}", state.player_id()))?;
@@ -114,6 +132,29 @@ impl Follower {
     /// Whether `player` in `game` may act after what it was last fed.
     fn can_act(&self, game: usize, player: usize) -> bool {
         self.tables[game].cans[player].can_act()
+    }
+
+    /// Tells one player about an event ahead of the table. A Mortal that
+    /// decides to declare riichi is asked, in a second step, which tile to
+    /// throw with it, and answers that from a state in which the reach is
+    /// already declared: this feeds it that reach. When the table's own
+    /// copy of the event arrives, that player skips it.
+    fn tell(&mut self, game: usize, player: usize, line: &str) -> PyResult<()> {
+        if game >= self.tables.len() || player >= 4 {
+            return Err(PyValueError::new_err(format!(
+                "no player {player} in game {game}"
+            )));
+        }
+        let event: Event = serde_json::from_str(line)
+            .map_err(|error| PyValueError::new_err(format!("bad mjai line: {line}: {error}")))?;
+        let table = &mut self.tables[game];
+        if matches!(&event, Event::Reach { actor } if *actor as usize == player) {
+            table.told_reach[player] = true;
+        }
+        table.cans[player] = table.states[player]
+            .update(&event)
+            .with_context(|| format!("player {player} rejected: {line}"))?;
+        Ok(())
     }
 
     /// The dealer's player number in each game's current hand, which is

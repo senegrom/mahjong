@@ -151,8 +151,17 @@ best move unchanged on every position tested. It answers in 38 milliseconds
 at the median and 41 at the ninetieth percentile, where the plan asks for
 under 200.
 
-Still to come: replays in the browser and a measured game against Mortal.
-The plan is in [docs/PLAN.md](docs/PLAN.md).
+Mortal itself can sit at these tables. A published Mortal (its network is
+vendored in `neural/mortal_model.py`; its weights are not part of the
+repository) reads the same planes from the same follower and answers in
+its own action space, which `neural/zoo.py` translates into ours with the
+engine's legal mask as the authority; over 8,840 decisions every answer
+translated. So `python -m neural.duel mortal.pth ours.pt` measures ours
+against it directly, and it can be seated as an opponent in self-play and
+as a teacher.
+
+Still to come: replays in the browser. The plan is in
+[docs/PLAN.md](docs/PLAN.md).
 
 ## How the rules are checked
 

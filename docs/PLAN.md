@@ -361,6 +361,10 @@ choices:
   maximum pooled over the line, a two-layer gate per channel), so every
   block sees the whole position. The earlier lineage, 320 by 20 without
   the attention over the engine's planes, is kept for calibration.
+- The zoo: a published Mortal plays at the same tables (`neural/zoo.py`),
+  reading the same planes and answering in its own action space, which is
+  translated into ours under the engine's legal mask. It is a yardstick
+  in duels, an opponent in self-play, and a teacher.
 - Heads: policy over about 46 masked actions (34 discards plus tsumogiri,
   riichi, three chii shapes, pon, three quad kinds, ron, tsumo, pass), value,
   and auxiliary heads that predict each opponent's tenpai state and waits

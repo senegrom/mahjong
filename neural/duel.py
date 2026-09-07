@@ -30,7 +30,7 @@ import torch
 
 import riichi_py
 
-from .model import from_payload
+from . import zoo
 from .observe import Views
 
 ACTIONS = riichi_py.ACTIONS
@@ -78,15 +78,11 @@ def table(
         owner = np.array([players[game][seats[game]] for game in index])
         choice = np.zeros(games, dtype=np.int64)
 
-        for net, wanted in ((challenger, owner == place), (incumbent, owner != place)):
+        for player, wanted in ((challenger, owner == place), (incumbent, owner != place)):
             rows = index[wanted]
             if not len(rows):
                 continue
-            logits, _value = net(
-                views.dense(net.kind, rows, owner[wanted], device),
-                torch.from_numpy(mask[rows]).to(device),
-            )
-            choice[rows] = logits.argmax(dim=1).cpu().numpy()
+            choice[rows] = zoo.choose(player, views, rows, owner[wanted], mask[rows], device)
 
         arena.step(choice.tolist())
 
@@ -145,13 +141,11 @@ def verdict(result: dict) -> str:
 
 
 def load(path: Path, channels: int, blocks: int, device: str):
-    """The network at the shape its checkpoint says, of whichever kind;
-    the width and depth given stand in only where the checkpoint is
-    silent, as the oldest ones are."""
-    payload = torch.load(path, map_location=device, weights_only=True)
-    net = from_payload(payload, device, channels, blocks)
-    net.eval()
-    return net
+    """The player in a checkpoint: a network of ours at the shape its
+    checkpoint says, of whichever kind, with the width and depth given
+    standing in only where the checkpoint is silent, as the oldest ones
+    are; or a Mortal, from a checkpoint of Mortal's kind."""
+    return zoo.load_player(path, device, channels, blocks)
 
 
 def main() -> None:

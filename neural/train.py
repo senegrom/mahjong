@@ -27,13 +27,12 @@ import numpy as np
 import torch
 from torch import nn
 
-from . import selfplay
+from . import selfplay, zoo
 from .model import (
     DEFAULT_BLOCKS,
     DEFAULT_CHANNELS,
     HIDDEN_HANDS_PLANES,
     PolicyValueNet,
-    from_payload,
     load_weights,
     shape_of,
 )
@@ -306,9 +305,9 @@ def main() -> None:
         if not Path(path).exists():
             print(f"no opponent at {path}, skipping", flush=True)
             continue
-        older = from_payload(torch.load(path, map_location=device, weights_only=True), device)
+        older = zoo.load_player(path, device)
         older.eval()
-        for parameter in older.parameters():
+        for parameter in getattr(older, "parameters", list)():
             parameter.requires_grad_(False)
         seated.append(older)
     if seated:

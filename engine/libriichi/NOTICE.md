@@ -16,8 +16,10 @@ Local changes, all under the same licence:
 
 - `src/follow.rs`, new: a `Follower` that holds four player states for each
   of many games, is fed each game's events and encodes the deciding
-  players' observations in parallel without the GIL, sparse. Registered in
-  `src/lib.rs` as the `follow` submodule.
+  players' observations in parallel without the GIL, sparse. It can also
+  tell one player an event ahead of the table (its own reach, so a Mortal
+  choosing riichi can be asked which tile follows), skipping the table's
+  copy. Registered in `src/lib.rs` as the `follow` submodule.
 - `src/lib.rs`: the submodules are registered under the short module name,
   because maturin installs the native module inside a package.
 - `Cargo.toml`: its own workspace and release profile; the benches are not
