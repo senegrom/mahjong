@@ -308,6 +308,108 @@ def train(
 
 
 @app.function(
+    gpu="H100",
+    cpu=16.0,
+    memory=98304,
+    timeout=24 * 60 * 60,
+    volumes={str(VOLUME): volume},
+    max_containers=1,
+)
+def train_mortal(
+    generations: int = 40,
+    games: int = 1024,
+    batch: int = 2048,
+    epochs: int = 2,
+    lr: float = 1e-5,
+    entropy: float = 0.005,
+    temperature: float = 1.0,
+    measure_every: int = 5,
+    measure_games: int = 1024,
+    resume: str = "latest",
+    mortal: str = "zoo/mortal_298k",
+    opponents: list[str] | None = None,
+    opponent_share: float = 0.0,
+    run: str = "mortal-run",
+) -> str:
+    """Fine-tunes a published Mortal on our rules by self-play, in a run
+    directory of its own: see `neural/train_mortal.py`. Resumes from the
+    checkpoint of that name in the run when it is there, and starts from
+    the published Mortal named otherwise. Its own function, so it runs
+    beside the other lineage's training rather than queueing behind it.
+    """
+    where = Path("/scratch/mortal-run")
+    where.mkdir(parents=True, exist_ok=True)
+    volume.reload()
+    source = _checkpoint(run, resume)
+    command = [
+        sys.executable, "-m", "neural.train_mortal",
+        "--rounds", str(generations), "--generations", "1000000",
+        "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
+        "--lr", str(lr), "--entropy", str(entropy), "--temperature", str(temperature),
+        "--measure-every", str(measure_every), "--measure-games", str(measure_games),
+        "--amp", "--out", str(where),
+    ]
+    if source.exists():
+        shutil.copyfile(source, where / "latest.pt")
+        history = VOLUME / run / "log.jsonl"
+        if history.exists():
+            shutil.copyfile(history, where / "log.jsonl")
+        command += ["--resume", str(where / "latest.pt")]
+        print(f"resuming from {source}", flush=True)
+    else:
+        origin = _checkpoint(run, mortal)
+        if not origin.exists():
+            return f"no Mortal at {origin}"
+        shutil.copyfile(origin, where / "origin.pt")
+        command += ["--mortal", str(where / "origin.pt")]
+        print(f"starting from {origin}", flush=True)
+
+    seated = []
+    for name in opponents or []:
+        found = _checkpoint(run, name)
+        if not found.exists():
+            print(f"no opponent at {found}", flush=True)
+            continue
+        local = where / "opponents" / (name.replace("/", "--") + ".pt")
+        local.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(found, local)
+        seated.append(str(local))
+    if seated:
+        command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+    print(" ".join(command), flush=True)
+
+    began = time.time()
+    started_at = _generation_of(where / "latest.pt")
+    seen = started_at
+    process = subprocess.Popen(
+        command,
+        cwd="/src",
+        env=_environment(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    for line in process.stdout:
+        print(line.rstrip(), flush=True)
+        if line.startswith("{") and '"generation"' in line:
+            try:
+                import json
+
+                seen = int(json.loads(line)["generation"])
+            except Exception:
+                continue
+            _publish(where, seen, run)
+    code = process.wait()
+    if seen > started_at:
+        _publish(where, seen, run)
+    else:
+        print(f"nothing trained: leaving the volume at generation {started_at}", flush=True)
+    return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
+
+
+@app.function(
     gpu="L40S",
     cpu=16.0,
     memory=32768,

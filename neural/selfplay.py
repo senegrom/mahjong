@@ -201,48 +201,65 @@ def play(
         if not len(index):
             arena.step(their_choice.tolist())
             continue
-        if recording:
-            sparse = views.sparse(index, deciding[index])
-            batch_planes = sparse.dense(device)
-        else:
-            sparse = None
-            batch_planes = views.dense(net.kind, index, deciding[index], device)
-        batch_mask = torch.from_numpy(mask[index]).to(device)
-        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
-            logits, _value, guessed = net.everything(batch_planes, batch_mask)
-        logits = logits.float()
-        distribution = torch.distributions.Categorical(logits=logits)
-        # What the network believes the opponents hold, so the engine can
-        # imagine one world per game from it: the reader's negatives, the
-        # hands the proposal deals that were not the real ones.
-        beliefs = np.zeros((games, HANDS), dtype=np.float32)
-        beliefs[index] = (
-            torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
-        )
-        proposed = np.frombuffer(arena.imagined_hands(beliefs.reshape(-1).tolist()), dtype=np.float32)
-        proposed = proposed.reshape(games, HIDDEN_HANDS_PLANES, POSITIONS)
-        chosen = logits.argmax(dim=1) if greedy else distribution.sample()
-        chosen_log_prob = distribution.log_prob(chosen)
-
         choice = their_choice.copy()
-        chosen_cpu = chosen.cpu().numpy()
-        log_prob_cpu = chosen_log_prob.cpu().numpy()
-        choice[index] = chosen_cpu
+        if hasattr(net, "decide"):
+            # A learner in an action space of its own (see
+            # `mortal_learner`): it answers the table in ours and records
+            # its decisions itself, possibly more than one per row.
+            picked, records = net.decide(views, index, deciding[index], mask[index], greedy)
+            choice[index] = picked
+            observations.append(records.planes)
+            legal_masks.append(records.masks)
+            record_actions = records.actions
+            record_log_probs = records.log_probs
+            record_slots = records.slots
+        else:
+            if recording:
+                sparse = views.sparse(index, deciding[index])
+                batch_planes = sparse.dense(device)
+            else:
+                sparse = None
+                batch_planes = views.dense(net.kind, index, deciding[index], device)
+            batch_mask = torch.from_numpy(mask[index]).to(device)
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
+                logits, _value, guessed = net.everything(batch_planes, batch_mask)
+            logits = logits.float()
+            distribution = torch.distributions.Categorical(logits=logits)
+            # What the network believes the opponents hold, so the engine
+            # can imagine one world per game from it: the reader's
+            # negatives, the hands the proposal deals that were not the
+            # real ones.
+            beliefs = np.zeros((games, HANDS), dtype=np.float32)
+            beliefs[index] = (
+                torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
+            )
+            proposed = np.frombuffer(
+                arena.imagined_hands(beliefs.reshape(-1).tolist()), dtype=np.float32
+            )
+            proposed = proposed.reshape(games, HIDDEN_HANDS_PLANES, POSITIONS)
+            chosen = logits.argmax(dim=1) if greedy else distribution.sample()
+            chosen_log_prob = distribution.log_prob(chosen)
+            record_actions = chosen.cpu().numpy()
+            record_log_probs = chosen_log_prob.cpu().numpy()
+            record_slots = np.arange(len(index))
+            choice[index] = record_actions
 
-        # Copies, not views: a view would keep the whole step's buffer
-        # alive until the round is gathered at the end.
-        if sparse is not None:
-            observations.append(sparse)
-        legal_masks.append(mask[index].copy())
-        held.append(truth[index].copy())
-        oracle.append(hidden[index].astype(np.uint8))
-        imagined.append(proposed[index].astype(np.uint8))
-        for slot, game in enumerate(index):
+            # Copies, not views: a view would keep the whole step's buffer
+            # alive until the round is gathered at the end.
+            if sparse is not None:
+                observations.append(sparse)
+            legal_masks.append(mask[index].copy())
+            held.append(truth[index].copy())
+            oracle.append(hidden[index].astype(np.uint8))
+            imagined.append(proposed[index].astype(np.uint8))
+
+        for record in range(len(record_actions)):
+            game = int(index[record_slots[record]])
             seat = int(seats[game])
             person = int(players[game][seat])
             step_index = len(actions)
-            actions.append(int(chosen_cpu[slot]))
-            log_probs.append(float(log_prob_cpu[slot]))
+            actions.append(int(record_actions[record]))
+            log_probs.append(float(record_log_probs[record]))
             rewards.append(0.0)
             pending[game][person].append(step_index)
             everything[game][person].append(step_index)
@@ -278,9 +295,11 @@ def play(
         observations=Planes.cat(observations),
         legal=gather(legal_masks),
         actions=torch.tensor(actions, dtype=torch.int64),
-        held=gather(held),
-        oracle=gather(oracle),
-        imagined=gather(imagined),
+        # A learner of the zoo's kind records none of the labels the
+        # auxiliary heads want, having no such heads.
+        held=gather(held) if held else torch.zeros(0),
+        oracle=gather(oracle) if oracle else torch.zeros(0),
+        imagined=gather(imagined) if imagined else torch.zeros(0),
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,
@@ -332,6 +351,13 @@ def measure(
         index = np.nonzero(live)[0]
         deciding = players[index, seats[index]]
 
+        choice = np.zeros(games, dtype=np.int64)
+        if hasattr(net, "choose"):
+            # A player of the zoo's kind chooses for itself.
+            choice[index] = net.choose(views, index, deciding, mask[index])
+            arena.step(choice.tolist())
+            hands += int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())
+            continue
         batch_planes = views.dense(net.kind, index, deciding, device)
         batch_mask = torch.from_numpy(mask[index]).to(device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
@@ -347,7 +373,6 @@ def measure(
         )
         arena.imagined_hands(beliefs.reshape(-1).tolist())
 
-        choice = np.zeros(games, dtype=np.int64)
         choice[index] = logits.argmax(dim=1).cpu().numpy()
         arena.step(choice.tolist())
         hands += int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())

@@ -147,8 +147,34 @@ class Mortal(nn.Module):
         self.dqn = dqn
         self.version = brain.version
 
+    def features(self, obs: torch.Tensor) -> torch.Tensor:
+        """The encoder's vector of 1024 per position."""
+        return self.brain(obs)
+
     def forward(self, obs: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        return self.dqn(self.brain(obs), mask)
+        return self.dqn(self.features(obs), mask)
+
+    def state(self) -> dict:
+        """The weights in the layout Mortal's own checkpoints use, so a
+        network trained here loads wherever the published one does."""
+        return {"mortal": self.brain.state_dict(), "current_dqn": self.dqn.state_dict()}
+
+
+def build(conv_channels: int, num_blocks: int, version: int = 4) -> Mortal:
+    return Mortal(
+        Brain(conv_channels=conv_channels, num_blocks=num_blocks, version=version),
+        DQN(version=version),
+    )
+
+
+def shape_of(state: dict) -> dict:
+    """The shape a Mortal checkpoint's config names."""
+    config = state["config"]
+    return {
+        "conv_channels": int(config["resnet"]["conv_channels"]),
+        "num_blocks": int(config["resnet"]["num_blocks"]),
+        "version": int(config["control"]["version"]),
+    }
 
 
 def load(path: Path | str, device: str = "cuda") -> Mortal:
@@ -156,17 +182,10 @@ def load(path: Path | str, device: str = "cuda") -> Mortal:
     config names the version and shape, `mortal` holds the brain and
     `current_dqn` the head."""
     state = torch.load(path, map_location="cpu", weights_only=False)
-    config = state["config"]
-    version = int(config["control"]["version"])
-    brain = Brain(
-        conv_channels=int(config["resnet"]["conv_channels"]),
-        num_blocks=int(config["resnet"]["num_blocks"]),
-        version=version,
-    )
-    dqn = DQN(version=version)
-    brain.load_state_dict(state["mortal"])
-    dqn.load_state_dict(state["current_dqn"])
-    net = Mortal(brain, dqn).to(device).eval()
+    net = build(**shape_of(state))
+    net.brain.load_state_dict(state["mortal"])
+    net.dqn.load_state_dict(state["current_dqn"])
+    net = net.to(device).eval()
     for parameter in net.parameters():
         parameter.requires_grad_(False)
     return net

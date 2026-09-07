@@ -163,6 +163,13 @@ seating: against the published network Mortal places 2.129, which is
 +0.371 placement at 22 standard errors, level across the four seats. That
 is the gap the new lineage is training to close.
 
+Mortal is also trained here, on our rules: `python -m neural.train_mortal`
+runs the same self-play loop with Mortal as the learner (its Q values are
+the policy's logits, a fresh value head on its features is the baseline,
+its batch-normalisation statistics stay frozen), and saves in Mortal's
+own checkpoint layout. The two lineages sit in a share of each other's
+games, so each is trained against the other.
+
 Still to come: replays in the browser. The plan is in
 [docs/PLAN.md](docs/PLAN.md).
 
