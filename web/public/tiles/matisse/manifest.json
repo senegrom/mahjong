@@ -1,8 +1,13 @@
 {
-  "version": 1,
+  "version": 2,
   "canvas": {
     "width": 300,
     "height": 400
+  },
+  "facePresentation": {
+    "radius": 26,
+    "bleed": 3,
+    "preserveAspectRatio": "none"
   },
   "tiles": [
     {

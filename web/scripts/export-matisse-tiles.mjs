@@ -10,6 +10,10 @@ import { TILE_TYPES, tileFile, tileWords } from '../src/lib/tiles.js';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const out = path.join(root, 'web/public/tiles/matisse');
 const sourceDir = 'docs/design/matisse/studies';
+// The study crops include a physical tile, not just the printed motif. Fit
+// that tile to the game's face instead of letterboxing one tile inside another.
+// A small bleed hides the study's outside backdrop without trimming the art.
+const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
 const definitions = [
   ['Pin1', '1p', '1 dot', 'approved', '01-disk-and-red-dragon.png', [77, 232, 410, 554], 'Black disk and ivory rosette on yellow; direction B.'],
   ['Pin3', '3p', '3 dots', 'approved', '03-dots-and-bamboo.png', [77, 99, 604, 835], 'Blue, red and green rosettes on ivory.'],
@@ -29,12 +33,14 @@ function exportCrop(source, crop, png, svg, label) {
   // Mechanical lossless extraction only: keep the artwork's native dimensions.
   const raster = execFileSync('convert', [path.join(root, source), '-crop', `${width}x${height}+${x}+${y}`, '+repage', '-strip', 'PNG:-'], { maxBuffer: 16 * 1024 * 1024 });
   writeFileSync(path.join(out, png), raster, { flush: true });
-  const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Matisse study</title><defs><clipPath id="face"><rect width="300" height="400" rx="16"/></clipPath></defs><g clip-path="url(#face)"><rect width="300" height="400" fill="#f5f1e4"/><image x="0" y="0" width="300" height="400" preserveAspectRatio="xMidYMid meet" href="data:image/png;base64,${raster.toString('base64')}"/></g></svg>\n`;
+  const { radius, bleed, preserveAspectRatio } = facePresentation;
+  const verticalBleed = bleed * 4 / 3;
+  const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Matisse study</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" x="${-bleed}" y="${-verticalBleed}" width="${300 + 2 * bleed}" height="${400 + 2 * verticalBleed}" preserveAspectRatio="${preserveAspectRatio}" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`;
   writeFileSync(path.join(out, svg), svgText);
   return svgText;
 }
 
-const manifest = { version: 1, canvas: { width: 300, height: 400 }, tiles: [], placeholders: [] };
+const manifest = { version: 2, canvas: { width: 300, height: 400 }, facePresentation, tiles: [], placeholders: [] };
 const previews = [];
 for (const [name, tile, label, status, sourceName, crop, notes] of definitions) {
   const group = status === 'approved' ? 'approved' : 'concepts';
@@ -69,7 +75,7 @@ for (const tile of TILE_TYPES) {
   const label = tileWords(tile);
   const lines = label.split(' ');
   const spans = lines.map((line, index) => `<tspan x="150" y="${175 + index * 65}">${line}</tspan>`).join('');
-  writeFileSync(path.join(out, svg), `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label}</title><rect width="300" height="400" rx="16" fill="#f5f1e4"/><text text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="43" font-weight="500">${spans}</text></svg>\n`);
+  writeFileSync(path.join(out, svg), `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label}</title><rect width="300" height="400" rx="${facePresentation.radius}" fill="#f5f1e4"/><text text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="43" font-weight="500">${spans}</text></svg>\n`);
   manifest.placeholders.push({ tile, name, label, svg });
 }
 writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');

@@ -119,6 +119,7 @@
 {#if onclick}
   <button
     class="tile {size}"
+    class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
     class:rotated
     class:dimmed
     class:muted
@@ -154,6 +155,7 @@
 {:else}
   <span
     class="tile {size}"
+    class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
     class:rotated
     class:dimmed
     class:muted
@@ -188,12 +190,19 @@
     align-items: flex-end;
     justify-content: center;
     --face-width: var(--tile-width);
+    --face-radius: 4px;
+    --ring-width: 3px;
     width: var(--face-width);
     padding: 0;
     border: none;
     background: none;
     line-height: 0;
     flex: none;
+  }
+
+  .tile.matisse {
+    /* Match the SVG's 26-unit corners at every tile size. */
+    --face-radius: calc(var(--face-width) * 26 / 300);
   }
 
   .face {
@@ -203,6 +212,12 @@
     aspect-ratio: 3 / 4;
     flex: none;
     isolation: isolate;
+    /* One surface owns the outline, shadow and effect clipping. An image
+       background beneath a differently rounded SVG makes a second edge. */
+    border-radius: var(--face-radius);
+    overflow: hidden;
+    background: var(--ivory);
+    box-shadow: 0 2px 3px rgba(0, 0, 0, 0.35);
     --sheen-from: 120%;
     --sheen-to: -20%;
     --sheen-duration: 5s;
@@ -221,28 +236,26 @@
        box while its face is still on the way: an image with no bytes yet
        has no height, and a loading tile collapsed to a bar. */
     aspect-ratio: 3 / 4;
-    height: auto;
+    height: 100%;
     display: block;
-    border-radius: 4px;
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.55) inset,
-      0 2px 3px rgba(0, 0, 0, 0.35);
-    background: var(--ivory);
+    border-radius: inherit;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
   }
 
   .tile img.blank {
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.55) inset,
-      0 0 0 2px #4a7fb5 inset,
-      0 2px 3px rgba(0, 0, 0, 0.35);
+      0 0 0 2px #4a7fb5 inset;
   }
 
   .small {
     --face-width: calc(var(--tile-width) * 0.62);
+    --ring-width: 2px;
   }
 
   .tiny {
     --face-width: calc(var(--tile-width) * 0.5);
+    --ring-width: 2px;
   }
 
   .rotated .face {
@@ -289,12 +302,10 @@
     transform: translateY(-6px);
   }
 
-  button.tile:hover:not(:disabled) img,
-  button.tile:focus-visible img,
-  button.tile.selected img {
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.6) inset,
-      0 8px 10px rgba(0, 0, 0, 0.4);
+  button.tile:hover:not(:disabled) .face,
+  button.tile:focus-visible .face,
+  button.tile.selected .face {
+    box-shadow: 0 8px 10px rgba(0, 0, 0, 0.4);
   }
 
   button.tile:disabled {
@@ -311,22 +322,10 @@
   .ringed::before {
     content: '';
     position: absolute;
-    inset: -3px;
-    border-radius: 6px;
+    inset: calc(-1 * var(--ring-width));
+    border-radius: calc(var(--face-radius) + var(--ring-width));
     background: var(--ring);
     z-index: -1;
-  }
-
-  .small.ringed::before,
-  .tiny.ringed::before {
-    inset: -2px;
-    border-radius: 4px;
-  }
-
-  /* A tile on its side keeps its ring the right way round: the ring is
-     on the box, which is not turned, so it needs the box's shape. */
-  .rotated.ringed::before {
-    inset: 0 -2px;
   }
 
   /* A dora shines, as a foil card does: a sheen that crosses the face
@@ -337,7 +336,7 @@
     display: none;
     position: absolute;
     inset: 0;
-    border-radius: 4px;
+    border-radius: inherit;
     pointer-events: none;
     background-size: 92% 94%;
     background-position: center;
@@ -382,7 +381,7 @@
   .foil {
     position: absolute;
     inset: 0;
-    border-radius: 4px;
+    border-radius: inherit;
     pointer-events: none;
     background: linear-gradient(
       115deg,

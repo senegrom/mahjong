@@ -36,7 +36,9 @@ East B is the approved wind. Keep the flowing black calligraphy of East A availa
 
 Open [preview.html](preview.html) locally, or visit `/tiles/matisse/preview.html` when running the web project. It is a standalone page with embedded artwork and a CSS-pixel hand preview at 390 or 844 pixels wide. The sample hand is for visual comparison only.
 
-Every face has a lossless PNG crop at its native resolution and a self-contained SVG wrapper on the game's 300 × 400 canvas. The SVGs contain raster artwork; they are not vector redrawings. The symbols keep their original proportions, with ivory padding where required. Design-study shading is retained. These exports do not yet constitute the full tile set.
+Every face has a lossless PNG crop at its native resolution and a self-contained SVG wrapper on the game's 300 × 400 canvas. The SVGs contain raster artwork; they are not vector redrawings. The study tile is fitted to the full 3:4 face with no ivory side padding. A 1% bleed hides the study's outside backdrop, and approved faces, placeholders and the foil overlay share 26-unit rounded corners. The raw PNGs and approved motifs remain unchanged. These exports do not yet constitute the full tile set.
+
+The game clips the face and foil together and draws one outer shadow. Hint rings follow that same outline, including small and rotated tiles, so the artwork cannot sit inside a second tile-shaped frame. The manifest's `facePresentation` field records the shared radius, bleed and fitting rule.
 
 [manifest.json](manifest.json) records tile IDs, approval status, source paths, SHA-256 hashes and exact crop rectangles. The original boards are in [docs/design/matisse/studies](../../../../docs/design/matisse/studies). They preserve the alternative East styles A and C as references; only B is the approved East face. The earlier regular-grid bamboo in the five-dot board is superseded by the fan design.
 
