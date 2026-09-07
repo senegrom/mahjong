@@ -10,6 +10,19 @@ const HONOUR_WORDS = [
   'green dragon',
   'red dragon',
 ];
+const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
+const HONOUR_FILES = ['Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun'];
+
+export const TILE_TYPES = [
+  ...['m', 'p', 's'].flatMap(suit => Array.from({ length: 9 }, (_, index) => `${index + 1}${suit}`)),
+  ...Array.from({ length: 7 }, (_, index) => `${index + 1}z`),
+];
+
+export function tileFile(name) {
+  if (!name) return 'Back';
+  if (!TILE_TYPES.includes(name)) return 'Front';
+  return name[1] === 'z' ? HONOUR_FILES[Number(name[0]) - 1] : `${SUIT_FILES[name[1]]}${name[0]}`;
+}
 
 /** `"3p"` becomes `"3 circles"`, `"5z"` becomes `"white dragon"`. */
 export function tileWords(name) {

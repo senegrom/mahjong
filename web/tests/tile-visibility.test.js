@@ -11,8 +11,8 @@ const source = await readFile(file, 'utf8');
 const compiled = compile(source, { filename: file.pathname, generate: 'server' });
 const js = compiled.js.code
   .replace(/import dragonUrl from '[^']+';/, "const dragonUrl = 'white-dragon.webp';")
-  .replace("'./tiles.js'", JSON.stringify(new URL('../src/lib/tiles.js', import.meta.url).href))
-  .replace(/(['"])(svelte\/[^'"]+)\1/g, (_, quote, name) => JSON.stringify(import.meta.resolve(name)));
+  .replace(/from (['"])([^'"]+)\1/g, (_, _quote, name) =>
+    `from ${JSON.stringify(name.startsWith('.') ? new URL(name, file).href : import.meta.resolve(name))}`);
 const { default: Tile } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
 const tile = (props) => render(Tile, { props }).body;
 

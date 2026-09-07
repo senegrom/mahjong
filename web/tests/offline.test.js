@@ -148,6 +148,7 @@ test('production inventory classifies the external model/runtime package', async
   t.after(() => rm(root, { recursive: true, force: true }));
   const files = { 'index.html': 'game', 'assets/worker-hash.js': 'worker', 'assets/riichi_bg-hash.wasm': 'engine',
     'tiles/Back.svg': '<svg/>', 'tiles/Haku.svg': '<svg>white</svg>', 'assets/white-dragon-hash.webp': 'dragon',
+    'tiles/matisse/approved/Man7.svg': '<svg>cut-out</svg>', 'tiles/matisse/placeholders/Haku.svg': '<svg>white dragon</svg>',
     'model.onnx': 'network', 'ort/ort-wasm-simd-threaded.wasm': 'wasm',
     'ort/ort-wasm-simd-threaded.mjs': 'loader' };
   for (const [path, body] of Object.entries(files)) { await mkdir(join(root, path, '..'), { recursive: true }); await writeFile(join(root, path), body); }
@@ -155,5 +156,6 @@ test('production inventory classifies the external model/runtime package', async
   assert.deepEqual(first, second);
   assert.equal(first.entries.length, Object.keys(files).length);
   assert.equal(first.entries.filter(e => e.group === 'ai').length, 3);
+  assert.equal(first.entries.filter(e => e.url.startsWith('tiles/matisse/') && e.group === 'core').length, 2);
   assert.ok((await readFile(join(root, 'sw.js'), 'utf8')).includes(JSON.stringify(first)));
 });

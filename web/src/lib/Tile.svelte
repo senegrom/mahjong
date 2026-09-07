@@ -1,10 +1,6 @@
 <script module>
   import dragonUrl from '../assets/white-dragon.webp';
-  const FACES = [
-    'Back', 'Front',
-    ...['Man', 'Pin', 'Sou'].flatMap(suit => [1,2,3,4,5,6,7,8,9].map(rank => suit + rank)),
-    'Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun',
-  ];
+  import { MATISSE_DRAGON_URL, TILE_IMAGE_URLS } from './tile-faces.js';
   const images = [];
   let preloading = null;
   // Decode EVERY face before the first hand, including the hidden dragon art.
@@ -12,7 +8,7 @@
   // across reloads, new games and browser restarts, independently of HTTP cache.
   export function preloadTiles(onProgress = () => {}) {
     if (preloading) return preloading;
-    const urls = [...FACES.map(face => `tiles/${face}.svg`), dragonUrl];
+    const urls = [...TILE_IMAGE_URLS, dragonUrl];
     let next = 0, complete = 0;
     preloading = Promise.all(Array.from({ length: 6 }, async () => {
       while (next < urls.length) {
@@ -39,11 +35,16 @@
 </script>
 
 <script>
+  import { getContext } from 'svelte';
   import { tileWords } from './tiles.js';
+  import { TILE_FACE_CONTEXT, tileImage } from './tile-faces.js';
+
+  const currentFace = getContext(TILE_FACE_CONTEXT) ?? (() => 'classic');
+  let tileFace = $derived(currentFace());
 
   /**
-   * One tile. Faces are the public-domain drawings in /tiles; a face-down
-   * tile shows the back. Every tile carries its name for screen readers, so
+   * One tile, using the selected face set; a face-down tile shows the back.
+   * Every tile carries its name for screen readers, so
    * a hand can be read out without relying on the picture.
    *
    * A tile in the hand can carry marks, each a colour of ring around the
@@ -79,16 +80,6 @@
     ? discardShanten === 0 ? 'ready' : discardShanten === 1 ? 'one-away' : null
     : null);
 
-  const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
-  const HONOURS = ['Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun'];
-  function fileFor(name) {
-    if (!name) return 'Back';
-    const rank = Number(name[0]);
-    const suit = name[1];
-    if (suit === 'z') return HONOURS[rank - 1] ?? 'Blank';
-    return `${SUIT_FILES[suit] ?? 'Man'}${rank}`;
-  }
-
   const COLOURS = {
     ready: 'var(--gold, #d8a12a)',
     'one-away': '#c5cbd3',
@@ -109,7 +100,7 @@
             .join(', ')})`,
   );
 
-  let file = $derived(facedown ? 'Back' : fileFor(tile));
+  let imageUrl = $derived(tileImage(tile, tileFace, facedown));
   let words = $derived(
     facedown ? 'face-down tile' : [tileWords(tile), dora && 'dora',
       drawn && 'just drawn', selected && 'selected',
@@ -120,8 +111,9 @@
   );
   // The white dragon's face is blank, which reads as a missing picture.
   // Sets that do not leave it plain frame it in blue; so does this one.
-  let blank = $derived(!facedown && tile === '5z');
-  let whiteDragonDora = $derived(blank && dora);
+  let blank = $derived(tileFace === 'classic' && !facedown && tile === '5z');
+  let whiteDragonDora = $derived(!facedown && tile === '5z' && dora);
+  let revealUrl = $derived(tileFace === 'matisse' ? MATISSE_DRAGON_URL : dragonUrl);
 </script>
 
 {#if onclick}
@@ -148,11 +140,11 @@
     onclick={() => onclick(tile)}
   >
     <span class="face" class:haku={whiteDragonDora}>
-      <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
+      <img src={imageUrl} alt="" draggable="false" class:blank />
       {#if dora && !facedown}
         {#key whiteDragonDora}
           {#if whiteDragonDora}
-            <span class="haku-dragon-reveal" style:background-image={`url("${dragonUrl}")`} aria-hidden="true"></span>
+            <span class="haku-dragon-reveal" class:matisse={tileFace === 'matisse'} style:background-image={`url("${revealUrl}")`} aria-hidden="true"></span>
           {/if}
           <span class="foil" aria-hidden="true"></span>
         {/key}
@@ -172,11 +164,11 @@
     title={title || words}
   >
     <span class="face" class:haku={whiteDragonDora}>
-      <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
+      <img src={imageUrl} alt="" draggable="false" class:blank />
       {#if dora && !facedown}
         {#key whiteDragonDora}
           {#if whiteDragonDora}
-            <span class="haku-dragon-reveal" style:background-image={`url("${dragonUrl}")`} aria-hidden="true"></span>
+            <span class="haku-dragon-reveal" class:matisse={tileFace === 'matisse'} style:background-image={`url("${revealUrl}")`} aria-hidden="true"></span>
           {/if}
           <span class="foil" aria-hidden="true"></span>
         {/key}
@@ -351,6 +343,8 @@
     background-position: center;
     background-repeat: no-repeat;
     mix-blend-mode: multiply;
+    /* The black brush master becomes a silver impression through the shine. */
+    opacity: 0.4;
     -webkit-mask-image: linear-gradient(115deg, transparent 30%, black 44%, black 56%, transparent 70%);
     mask-image: linear-gradient(115deg, transparent 30%, black 44%, black 56%, transparent 70%);
     -webkit-mask-size: 250% 100%;
@@ -360,6 +354,14 @@
     -webkit-mask-position: var(--sheen-from) 0;
     mask-position: var(--sheen-from) 0;
     animation: dragon-reveal var(--sheen-duration) linear infinite;
+  }
+
+  /* Matched quiet/lit exports share a canvas. Reveal the lit state directly
+     so its ivory face and silver cut-outs stay aligned with the base. */
+  .haku-dragon-reveal.matisse {
+    background-size: 100% 100%;
+    mix-blend-mode: normal;
+    opacity: 1;
   }
 
   @supports (mask-image: linear-gradient(black, transparent)) or (-webkit-mask-image: linear-gradient(black, transparent)) {

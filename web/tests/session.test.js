@@ -77,10 +77,10 @@ test('restoration rejects invalid versions, illegal commands and changed state',
 });
 
 test('preferences tolerate inaccessible or malformed storage', () => {
-  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'club',hints:true,confirmDiscards:true,shortcuts:true});
+  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'club',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic'});
   assert.equal(readSettings({getItem(){return '{broken';}}).hints, true);
   const value = {version:1,difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false};
-  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false});
+  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic'});
 });
 
 test('safe count includes held copies, not absent globally safe kinds', () => {

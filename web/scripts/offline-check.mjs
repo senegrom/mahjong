@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
+import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
@@ -110,17 +111,27 @@ try {
     await hand(p);
     await p.waitForSelector('[data-core-ready=true]');
     const images = await p.evaluate(() => window.preloadedImages.map(image => image.complete && image.naturalWidth > 0));
-    assert.equal(images.length, 37); assert.ok(images.every(Boolean));
+    assert.equal(images.length, TILE_IMAGE_URLS.length + 1); assert.ok(images.every(Boolean));
     assert.ok(await p.evaluate(async entries => {
       const cache = await caches.open('mahjong-offline-v1:/mahjong/');
       return (await Promise.all(entries.filter(e => e.group === 'core').map(e =>
         cache.match(new URL(`__offline_content__/${e.hash}`, location.href).href)))).every(Boolean);
     }, manifest.entries), 'Every core resource must be saved without interacting');
     for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0, entry.url);
+    const beforeFaceChange = await saved(p);
+    await p.click('.options summary');
+    for (const face of ['matisse', 'classic', 'matisse']) {
+      await p.select('select[aria-label="Tile face"]', face);
+      await p.waitForFunction((key, face) => JSON.parse(localStorage.getItem(key)).tileFace === face
+        && [...document.querySelectorAll('.hand img')].every(img => img.src.includes('/matisse/') === (face === 'matisse')), {}, SETTINGS_KEY, face);
+      assert.deepEqual(await saved(p), beforeFaceChange, 'Changing artwork must preserve the current match');
+    }
     const cdp = await p.createCDPSession(); await cdp.send('Network.clearBrowserCache');
     await close(b); unavailable = true; count.clear(); refused.length = 0;
     b = await launch(dir); const cold = await page(b, { seed: false, offline: true, strength });
     await hand(cold); await cold.waitForSelector('[data-core-ready=true]');
+    assert.equal(await cold.$eval('select[aria-label="Tile face"]', select => select.value), 'matisse');
+    assert.ok(await cold.$$eval('.hand img', images => images.length > 0 && images.every(image => image.src.includes('/matisse/') && image.complete && image.naturalWidth > 0)));
     await play(cold, 4);
     const before = await saved(cold);
     assert.ok(!before.commands.some(command => command.type === 'opponent'), 'Built-in game must not request the network');
@@ -181,10 +192,10 @@ try {
     holdPath = null; holdResolve();
     await hand(p); await ready(p);
     const images = await p.evaluate(() => window.preloadedImages.map(image => ({ url:image.src, complete:image.complete && image.naturalWidth > 0 })));
-    assert.equal(images.length, 37);
+    assert.equal(images.length, TILE_IMAGE_URLS.length + 1);
     assert.ok(images.every(image => image.complete));
     const faces = manifest.entries.filter(e => e.url.startsWith('tiles/') && e.url.endsWith('.svg'));
-    assert.equal(faces.length, 36);
+    assert.deepEqual(faces.map(face => face.url).sort(), [...TILE_IMAGE_URLS].sort());
     for (const face of faces) assert.ok(count.has(face.url), face.url);
     assert.equal(count.get(modelPath), 1);
     await p.screenshot({path:resolve(output,'offline-first-download.png'),fullPage:true});
