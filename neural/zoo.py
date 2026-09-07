@@ -239,6 +239,15 @@ def load_player(
         payload = torch.load(path, map_location=device, weights_only=True)
     except Exception:
         payload = None
+    if payload is not None and "combined" in payload:
+        # A joined player: our network and a Mortal beneath a fusion head.
+        from . import combined
+
+        net, _state = combined.load(path, device)
+        net.eval()
+        if compile:
+            net.backbones_forward = torch.compile(net.backbones, dynamic=True)
+        return net
     if payload is not None and "model" in payload:
         net = from_payload(payload, device, channels, blocks)
         net.eval()

@@ -443,6 +443,118 @@ def train_mortal(
 
 
 @app.function(
+    gpu="H100",
+    cpu=TRAINER_CPUS,
+    memory=98304,
+    timeout=24 * 60 * 60,
+    volumes={str(VOLUME): volume},
+    max_containers=1,
+)
+def train_combined(
+    generations: int = 20,
+    games: int = 1024,
+    batch: int = 2048,
+    epochs: int = 2,
+    lr: float = 1e-4,
+    lr_ours: float = 4e-5,
+    lr_mortal: float = 3e-5,
+    entropy: float = 0.01,
+    fixed: list[str] | None = None,
+    measure_every: int = 5,
+    measure_games: int = 512,
+    resume: str = "latest",
+    ours: str = "w1012-run/latest",
+    mortal: str = "mortal-run/latest",
+    opponents: list[str] | None = None,
+    opponent_share: float = 0.0,
+    run: str = "joined-run",
+) -> str:
+    """Trains the joined player, our network and a Mortal beneath one
+    fusion head, in a run directory of its own: see
+    `neural/train_combined.py`. Resumes from the checkpoint of that name
+    in the run when it is there, and otherwise joins the two checkpoints
+    named, which may be any run's.
+    """
+    where = Path("/scratch/joined-run")
+    where.mkdir(parents=True, exist_ok=True)
+    volume.reload()
+    source = _checkpoint(run, resume)
+    command = [
+        sys.executable, "-m", "neural.train_combined",
+        "--rounds", str(generations), "--generations", "1000000",
+        "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
+        "--lr", str(lr), "--lr-ours", str(lr_ours), "--lr-mortal", str(lr_mortal),
+        "--entropy", str(entropy),
+        "--measure-every", str(measure_every), "--measure-games", str(measure_games),
+        "--amp", "--compile", "--out", str(where),
+    ]
+    if fixed:
+        command += ["--fixed", *fixed]
+    if source.exists():
+        shutil.copyfile(source, where / "latest.pt")
+        history = VOLUME / run / "log.jsonl"
+        if history.exists():
+            shutil.copyfile(history, where / "log.jsonl")
+        command += ["--resume", str(where / "latest.pt")]
+        print(f"resuming from {source}", flush=True)
+    else:
+        parts = []
+        for label, name in (("--ours", ours), ("--mortal", mortal)):
+            found = _checkpoint(run, name)
+            if not found.exists():
+                return f"no checkpoint at {found}"
+            local = where / (name.replace("/", "--") + ".pt")
+            shutil.copyfile(found, local)
+            parts += [label, str(local)]
+        command += parts
+        print(f"joining {ours} and {mortal}", flush=True)
+
+    seated = []
+    for name in opponents or []:
+        found = _checkpoint(run, name)
+        if not found.exists():
+            print(f"no opponent at {found}", flush=True)
+            continue
+        local = where / "opponents" / (name.replace("/", "--") + ".pt")
+        local.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(found, local)
+        seated.append(str(local))
+    if seated:
+        command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+    print(" ".join(command), flush=True)
+
+    began = time.time()
+    started_at = _generation_of(where / "latest.pt")
+    seen = started_at
+    process = subprocess.Popen(
+        command,
+        cwd="/src",
+        env=_environment(TRAINER_CPUS),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    for line in process.stdout:
+        print(line.rstrip(), flush=True)
+        if line.startswith("{") and '"generation"' in line:
+            try:
+                import json
+
+                seen = int(json.loads(line)["generation"])
+            except Exception:
+                continue
+            _publish(where, seen, run)
+    code = process.wait()
+    if seen > started_at:
+        _publish(where, seen, run)
+    else:
+        print(f"nothing trained: leaving the volume at generation {started_at}", flush=True)
+    return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
+
+
+@app.function(
     gpu="L40S",
     cpu=16.0,
     memory=32768,
