@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -16,15 +16,18 @@ const definitions = [
   ['Sou8', '8s', '8 bamboo', 'approved', '03-dots-and-bamboo.png', [755, 99, 612, 835], 'Two sweeping fans of four jointed fronds.'],
   ['Ton', '1z', 'East wind', 'approved', '04-wind-calligraphy.png', [518, 225, 411, 579], 'Ribbon lettering B: blue with one red stroke on pale yellow.'],
   ['Chun', '7z', 'Red dragon', 'approved', '01-disk-and-red-dragon.png', [966, 232, 410, 554], 'Red cut-paper 中 on pink; direction B.'],
-  ['Man7', '7m', '7 characters', 'concept', '05-characters-bird-green-dragon.png', [59, 210, 425, 630], 'New concept: flowing black 七 above vermilion 萬, introducing style A.'],
-  ['Sou1', '1s', '1 bamboo', 'concept', '05-characters-bird-green-dragon.png', [510, 210, 426, 630], 'New concept: blue and green cut-paper bird on a bamboo perch.'],
-  ['Hatsu', '6z', 'Green dragon', 'concept', '05-characters-bird-green-dragon.png', [964, 210, 433, 630], 'New concept: ivory 發 cut out of emerald green, using style C.'],
+  ['Man7', '7m', '7 characters', 'concept', '05-characters-bird-green-dragon.png', [59, 210, 425, 630], 'Awaiting redesign: the stacked black 七 above vermilion 萬 was considered too restrained. Explore more expressive lettering and varied placement.'],
+  ['Sou1', '1s', '1 bamboo', 'approved', '05-characters-bird-green-dragon.png', [510, 210, 426, 630], 'Blue and green cut-paper bird on a bamboo perch.'],
+  ['Hatsu', '6z', 'Green dragon', 'approved', '05-characters-bird-green-dragon.png', [964, 210, 433, 630], 'Ivory 發 cut out of emerald green, using style C.'],
 ];
 
 const manifest = { version: 1, canvas: { width: 300, height: 400 }, tiles: [] };
 const previews = [];
 for (const [name, tile, label, status, sourceName, crop, notes] of definitions) {
   const group = status === 'approved' ? 'approved' : 'concepts';
+  const previousGroup = status === 'approved' ? 'concepts' : 'approved';
+  // Keep only the current status path when a design is approved or reconsidered.
+  for (const extension of ['png', 'svg']) rmSync(path.join(out, previousGroup, `${name}.${extension}`), { force: true });
   mkdirSync(path.join(out, group), { recursive: true });
   const source = `${sourceDir}/${sourceName}`;
   const [x, y, width, height] = crop;
@@ -48,21 +51,21 @@ const html = `<!doctype html>
 @media(max-width:520px){main{padding:24px 14px}.gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 10px}h1{font-size:29px}}
 </style></head><body><main>
 <div class="eyebrow">Chapelle du Rosaire · Cut-paper studies</div><h1>Matisse Mahjong</h1>
-<p class="intro">Six approved faces and three new concepts. Rosettes, sweeping bamboo and expressive lettering share an ivory tile body.</p>
-<h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label><label><input id="concepts" type="checkbox" checked> Include new concepts</label>
+<p class="intro">Eight approved faces and one concept awaiting redesign. Rosettes, sweeping bamboo, a cut-paper bird and expressive lettering share an ivory tile body.</p>
+<h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label><label><input id="concepts" type="checkbox"> Include character concept</label>
 <div class="scroll"><div class="table" id="table"><div class="rack" id="rack" aria-label="Fourteen-tile visual sample"></div></div></div><p class="size" id="size"></p>
 <h2>Approved faces</h2><div class="gallery" id="approved"></div>
-<h2>New concepts</h2><div class="gallery" id="new"></div>
-<footer>This preview uses the exported source artwork, with no stretching of the symbols. The hand is a visual sample, not a playable game state. The new character, bird and green dragon designs await review. Raw PNG crops retain their source resolution; each SVG provides the game's 300 × 400 canvas.</footer>
+<h2>Character concept awaiting redesign</h2><div class="gallery" id="new"></div>
+<footer>This preview uses the exported source artwork, with no stretching of the symbols. The hand is a visual sample, not a playable game state. The bird and green dragon are approved. The character concept remains for reference while more expressive lettering and varied placement are explored. Raw PNG crops retain their source resolution; each SVG provides the game's 300 × 400 canvas.</footer>
 </main><script>
 const tiles=${JSON.stringify(previews)};
 const byName=Object.fromEntries(tiles.map(tile=>[tile.name,tile]));
 const rack=document.getElementById('rack');
 const table=document.getElementById('table');
 function picture(tile){const image=document.createElement('img');image.src=tile.src;image.alt=tile.label;image.title=tile.label;image.width=300;image.height=400;return image}
-for(const tile of tiles){const card=document.createElement('div');card.className='card';card.append(picture(tile));const label=document.createElement('p');label.textContent=tile.label;card.append(label);const badge=document.createElement('span');badge.className='badge '+tile.status;badge.textContent=tile.status==='approved'?'Approved':'New concept';card.append(badge);document.getElementById(tile.status==='approved'?'approved':'new').append(card)}
+for(const tile of tiles){const card=document.createElement('div');card.className='card';card.append(picture(tile));const label=document.createElement('p');label.textContent=tile.label;card.append(label);const badge=document.createElement('span');badge.className='badge '+tile.status;badge.textContent=tile.status==='approved'?'Approved':'Awaiting redesign';card.append(badge);document.getElementById(tile.status==='approved'?'approved':'new').append(card)}
 function updateSize(){const w=rack.firstElementChild?.getBoundingClientRect().width||0;document.getElementById('size').textContent=w.toFixed(1)+' × '+(w*4/3).toFixed(1)+' CSS px per tile · 14 tiles · scroll horizontally if needed; the preview is not scaled down.'}
-function draw(){const names=document.getElementById('concepts').checked?['Man7','Man7','Pin1','Pin3','Pin3','Pin5','Pin5','Sou1','Sou1','Sou8','Sou8','Ton','Chun','Hatsu']:['Pin1','Pin1','Pin3','Pin3','Pin3','Pin5','Pin5','Pin5','Sou8','Sou8','Ton','Ton','Chun','Chun'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
+function draw(){const names=document.getElementById('concepts').checked?['Man7','Man7','Pin1','Pin3','Pin3','Pin5','Pin5','Sou1','Sou1','Sou8','Sou8','Ton','Chun','Hatsu']:['Pin1','Pin1','Pin3','Pin3','Pin5','Pin5','Sou1','Sou1','Sou8','Sou8','Ton','Ton','Chun','Hatsu'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
 document.getElementById('concepts').addEventListener('change',draw);document.getElementById('width').addEventListener('change',draw);new ResizeObserver(updateSize).observe(rack);draw();
 </script></body></html>`;
 writeFileSync(path.join(out, 'preview.html'), html);

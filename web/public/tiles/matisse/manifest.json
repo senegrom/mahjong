@@ -122,15 +122,15 @@
         "width": 425,
         "height": 630
       },
-      "notes": "New concept: flowing black 七 above vermilion 萬, introducing style A."
+      "notes": "Awaiting redesign: the stacked black 七 above vermilion 萬 was considered too restrained. Explore more expressive lettering and varied placement."
     },
     {
       "name": "Sou1",
       "tile": "1s",
       "label": "1 bamboo",
-      "status": "concept",
-      "png": "concepts/Sou1.png",
-      "svg": "concepts/Sou1.svg",
+      "status": "approved",
+      "png": "approved/Sou1.png",
+      "svg": "approved/Sou1.svg",
       "source": "docs/design/matisse/studies/05-characters-bird-green-dragon.png",
       "sourceSha256": "4398ecc6ba8e97e5a81103492c8e6f5b0ca7cf0dbeddb548971079be2d7d5948",
       "crop": {
@@ -139,15 +139,15 @@
         "width": 426,
         "height": 630
       },
-      "notes": "New concept: blue and green cut-paper bird on a bamboo perch."
+      "notes": "Blue and green cut-paper bird on a bamboo perch."
     },
     {
       "name": "Hatsu",
       "tile": "6z",
       "label": "Green dragon",
-      "status": "concept",
-      "png": "concepts/Hatsu.png",
-      "svg": "concepts/Hatsu.svg",
+      "status": "approved",
+      "png": "approved/Hatsu.png",
+      "svg": "approved/Hatsu.svg",
       "source": "docs/design/matisse/studies/05-characters-bird-green-dragon.png",
       "sourceSha256": "4398ecc6ba8e97e5a81103492c8e6f5b0ca7cf0dbeddb548971079be2d7d5948",
       "crop": {
@@ -156,7 +156,7 @@
         "width": 433,
         "height": 630
       },
-      "notes": "New concept: ivory 發 cut out of emerald green, using style C."
+      "notes": "Ivory 發 cut out of emerald green, using style C."
     }
   ]
 }
