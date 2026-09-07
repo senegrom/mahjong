@@ -11,6 +11,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pin5.svg](approved/Pin5.svg) | 5 dots | Five black and ivory rosettes on yellow |
 | [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Dance B: two sweeping bamboo forms in green on pale mint |
 | [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Fan C: four pale-green sprigs and a red centre on deep forest green |
+| [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Cut-out C: one coral and six green forms circling an open centre on butter yellow |
 | [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Two sweeping fans of four jointed fronds |
 | [Ton.svg](approved/Ton.svg) | East wind | Ribbon lettering B, blue with a red stroke on pale yellow |
 | [Chun.svg](approved/Chun.svg) | Red dragon | Red cut-paper 中 on pink: direction B |
@@ -21,7 +22,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All twelve approved faces appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 22 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All thirteen approved faces appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 21 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
@@ -51,4 +52,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The twelve approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The thirteen approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.

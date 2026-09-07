@@ -96,6 +96,23 @@
       "notes": "Fan C: four pale-green bamboo sprigs and a bold red centre on a deep forest-green field. Exactly five complete sprigs; the red accent distinguishes this tile from All Green tiles."
     },
     {
+      "name": "Sou7",
+      "tile": "7s",
+      "label": "7 bamboo",
+      "status": "approved",
+      "png": "approved/Sou7.png",
+      "svg": "approved/Sou7.svg",
+      "source": "docs/design/matisse/studies/09-seven-bamboo-approved.png",
+      "sourceSha256": "06be8859cb4f07e33c4f9bc1d24fb0b143a30a8a61170db4bf4643d5d99f37c7",
+      "crop": {
+        "x": 1037,
+        "y": 115,
+        "width": 468,
+        "height": 719
+      },
+      "notes": "Cut-out C: one coral and six green abstract forms circling an open centre on butter yellow. Seven separated silhouettes preserve the tile count."
+    },
+    {
       "name": "Sou8",
       "tile": "8s",
       "label": "8 bamboo",
@@ -327,12 +344,6 @@
       "name": "Sou6",
       "label": "6 bamboo",
       "svg": "placeholders/Sou6.svg"
-    },
-    {
-      "tile": "7s",
-      "name": "Sou7",
-      "label": "7 bamboo",
-      "svg": "placeholders/Sou7.svg"
     },
     {
       "tile": "9s",
