@@ -330,6 +330,7 @@ def train(
     environment = _environment(TRAINER_CPUS)
     print(" ".join(command), flush=True)
 
+    saved_cache = False
     began = time.time()
     started_at = _generation_of(RUN / "latest.pt")
     seen = started_at
@@ -356,6 +357,9 @@ def train(
             except Exception:
                 continue
             _publish(RUN, seen, run)
+            if not saved_cache:
+                _save_cache()
+                saved_cache = True
     code = process.wait()
     _save_cache()
     # Publish only when a generation actually finished. A run that trained
@@ -445,6 +449,7 @@ def train_mortal(
         command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
     print(" ".join(command), flush=True)
 
+    saved_cache = False
     began = time.time()
     started_at = _generation_of(where / "latest.pt")
     seen = started_at
@@ -468,6 +473,9 @@ def train_mortal(
             except Exception:
                 continue
             _publish(where, seen, run)
+            if not saved_cache:
+                _save_cache()
+                saved_cache = True
     code = process.wait()
     _save_cache()
     if seen > started_at:
@@ -560,6 +568,7 @@ def train_combined(
         command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
     print(" ".join(command), flush=True)
 
+    saved_cache = False
     began = time.time()
     started_at = _generation_of(where / "latest.pt")
     seen = started_at
@@ -583,6 +592,9 @@ def train_combined(
             except Exception:
                 continue
             _publish(where, seen, run)
+            if not saved_cache:
+                _save_cache()
+                saved_cache = True
     code = process.wait()
     _save_cache()
     if seen > started_at:
