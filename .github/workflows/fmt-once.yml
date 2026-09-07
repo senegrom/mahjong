@@ -1,0 +1,46 @@
+name: one-time Rust formatting repair
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/fmt-once.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-rustfmt
+  cancel-in-progress: false
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: rustfmt
+      - name: Format and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          original=$(git rev-parse HEAD)
+          cargo fmt --all
+          git rm .github/workflows/fmt-once.yml
+          git add -A
+          git diff --cached --check
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'Format Rust workspace'
+          git fetch origin main
+          remote=$(git rev-parse origin/main)
+          if [ "$remote" != "$original" ]; then
+            git rebase origin/main
+          fi
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:main
