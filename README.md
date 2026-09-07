@@ -261,8 +261,11 @@ the raw position plateaued 0.09 behind the published one. Each block of
 the tower also pools the whole line, Mortal's channel attention. A
 checkpoint records which planes it sees, and a table serves each network
 its own, so the new lineage is measured against the old at one table
-(`python -m neural.duel new.pt old.pt`). The browser keeps the older
-network until Mortal's encoder runs there.
+(`python -m neural.duel new.pt old.pt`). Its warm start, taught the
+published network's moves for 120 rounds, duelled level with its
+teacher; ten generations of self-play later it beat it by +0.087
+placement at five standard errors, and stood 0.34 behind Mortal. The
+browser keeps the older network until Mortal's encoder runs there.
 
 The game offers the **Trained** tier only when `web/public/model.onnx` is
 present, so a checkout without one simply shows the two heuristic tiers.
