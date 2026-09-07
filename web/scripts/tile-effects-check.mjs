@@ -28,6 +28,10 @@ try {
   await writeFile(resolve(temporary, 'main.js'), 'import { mount } from "svelte"; import Fixture from "./Fixture.svelte"; mount(Fixture, {target:document.getElementById("app")});');
   await writeFile(resolve(temporary, 'Fixture.svelte'), `<script>
 import Tile from '../src/lib/Tile.svelte';
+import { setContext } from 'svelte';
+import { TILE_FACE_CONTEXT } from '../src/lib/tile-faces.js';
+let face = $state('classic');
+setContext(TILE_FACE_CONTEXT, () => face);
 let tile = $state('1m'); let marked = $state(true); let clicks = $state(0);
 const cases = [
   ['blank', {tile:'5z'}], ['dora', {tile:'5z',dora:true}],
@@ -41,6 +45,7 @@ const cases = [
 <section id="dynamic"><Tile {tile} dora={marked} onclick={()=>clicks++}/></section>
 <button id="identity" onclick={()=>tile=tile==='5z'?'1m':'5z'}>Change tile</button>
 <button id="mark" onclick={()=>marked=!marked}>Toggle dora / hints</button><output>{clicks}</output>
+<button id="faces" onclick={()=>face=face==='classic'?'matisse':'classic'}>Change tile face</button>
 <style>:global(body){margin:30px;background:#173e35;color:#fff;font:16px system-ui;--tile-width:60px;--ivory:#fffaf0;} .samples{display:flex;gap:26px;align-items:start;flex-wrap:wrap;margin-bottom:40px} section{min-width:70px} #dynamic{margin:25px 0} button{margin:10px;padding:10px}</style>`);
   await build({configFile:false,root:temporary,base:'/mahjong/',publicDir:false,plugins:[svelte()],logLevel:'warn',build:{outDir:out,target:'es2022'}});
   if (!process.argv.includes('--build-only')) {
@@ -120,6 +125,23 @@ const cases = [
       await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
       const styles=await page.$eval('#dora .face',el=>[...el.querySelectorAll('.haku-dragon-reveal,.foil')].map(e=>{const s=getComputedStyle(e);return {animation:s.animationName,position:e.classList.contains('foil')?s.backgroundPosition:s.maskPosition};}));
       assert.ok(styles.every(s=>s.animation==='none'));assert.equal(styles[0].position,styles[1].position);
+    });
+    await check('Matisse uses its approved quiet and lit faces with aligned foil and hidden tiles',async()=>{
+      await page.click('#faces');
+      await page.waitForSelector('#dora .haku-dragon-reveal.matisse');
+      const state=await page.$eval('#dora .face',async el=>{
+        const reveal=getComputedStyle(el.querySelector('.haku-dragon-reveal'));
+        const image=new Image();image.src=reveal.backgroundImage.slice(5,-2);await image.decode();
+        return {base:el.querySelector('img').getAttribute('src'),url:image.src,width:image.naturalWidth,height:image.naturalHeight,size:reveal.backgroundSize,blend:reveal.mixBlendMode,mask:reveal.maskPosition,shine:getComputedStyle(el.querySelector('.foil')).backgroundPosition};
+      });
+      assert.equal(state.base,'tiles/matisse/approved/Haku.svg');
+      assert.match(state.url,/\/mahjong\/tiles\/matisse\/approved\/Haku-foil.svg$/);
+      assert.deepEqual([state.width,state.height],[300,400]);
+      assert.equal(state.size,'100% 100%');assert.equal(state.blend,'normal');assert.equal(state.mask,state.shine);
+      assert.equal(await page.$('#blank .haku-dragon-reveal'),null);
+      assert.equal(await page.$('#hidden .haku-dragon-reveal'),null);
+      assert.match(await page.$eval('#hidden img',image=>image.src),/\/tiles\/Back.svg$/);
+      await page.screenshot({path:resolve(evidence,'matisse-white-dragon-fixture.png'),fullPage:true});
     });
     assert.deepEqual(errors,[]);
     console.log(`${results.filter(r=>r.ok).length}/${results.length} tile-effect checks passed`);

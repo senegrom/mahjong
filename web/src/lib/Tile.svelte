@@ -1,6 +1,6 @@
 <script module>
   import dragonUrl from '../assets/white-dragon.webp';
-  import { TILE_IMAGE_URLS } from './tile-faces.js';
+  import { MATISSE_DRAGON_URL, TILE_IMAGE_URLS } from './tile-faces.js';
   const images = [];
   let preloading = null;
   // Decode EVERY face before the first hand, including the hidden dragon art.
@@ -112,7 +112,8 @@
   // The white dragon's face is blank, which reads as a missing picture.
   // Sets that do not leave it plain frame it in blue; so does this one.
   let blank = $derived(tileFace === 'classic' && !facedown && tile === '5z');
-  let whiteDragonDora = $derived(blank && dora);
+  let whiteDragonDora = $derived(!facedown && tile === '5z' && dora);
+  let revealUrl = $derived(tileFace === 'matisse' ? MATISSE_DRAGON_URL : dragonUrl);
 </script>
 
 {#if onclick}
@@ -143,7 +144,7 @@
       {#if dora && !facedown}
         {#key whiteDragonDora}
           {#if whiteDragonDora}
-            <span class="haku-dragon-reveal" style:background-image={`url("${dragonUrl}")`} aria-hidden="true"></span>
+            <span class="haku-dragon-reveal" class:matisse={tileFace === 'matisse'} style:background-image={`url("${revealUrl}")`} aria-hidden="true"></span>
           {/if}
           <span class="foil" aria-hidden="true"></span>
         {/key}
@@ -167,7 +168,7 @@
       {#if dora && !facedown}
         {#key whiteDragonDora}
           {#if whiteDragonDora}
-            <span class="haku-dragon-reveal" style:background-image={`url("${dragonUrl}")`} aria-hidden="true"></span>
+            <span class="haku-dragon-reveal" class:matisse={tileFace === 'matisse'} style:background-image={`url("${revealUrl}")`} aria-hidden="true"></span>
           {/if}
           <span class="foil" aria-hidden="true"></span>
         {/key}
@@ -351,6 +352,13 @@
     -webkit-mask-position: var(--sheen-from) 0;
     mask-position: var(--sheen-from) 0;
     animation: dragon-reveal var(--sheen-duration) linear infinite;
+  }
+
+  /* Matched quiet/lit exports share a canvas. Reveal the lit state directly
+     so its ivory face and silver cut-outs stay aligned with the base. */
+  .haku-dragon-reveal.matisse {
+    background-size: 100% 100%;
+    mix-blend-mode: normal;
   }
 
   @supports (mask-image: linear-gradient(black, transparent)) or (-webkit-mask-image: linear-gradient(black, transparent)) {

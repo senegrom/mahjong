@@ -12,10 +12,10 @@ const publicRoot = new URL('../public/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', publicRoot), 'utf8'));
 
 test('all 34 Matisse faces resolve to approved art or a black text placeholder', () => {
-  const approved = ['1p', '3p', '5p', '8s', '1z', '7z', '7m', '1s', '6z'];
+  const approved = ['1p', '3p', '5p', '8s', '1z', '7z', '7m', '1s', '6z', '5z'];
   assert.equal(TILE_TYPES.length, 34);
   assert.deepEqual(manifest.tiles.map(tile => tile.tile).sort(), [...approved].sort());
-  assert.equal(manifest.placeholders.length, 25);
+  assert.equal(manifest.placeholders.length, 24);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'matisse');
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
@@ -40,12 +40,13 @@ test('hidden tiles cannot reveal their identity through either face set', () => 
     assert.equal(tileImage(null, face), 'tiles/Back.svg');
   }
   assert.equal(tileImage('5z'), 'tiles/Haku.svg');
-  assert.equal(tileImage('5z', 'matisse'), 'tiles/matisse/placeholders/Haku.svg');
+  assert.equal(tileImage('5z', 'matisse'), 'tiles/matisse/approved/Haku.svg');
   assert.equal(tileImage('7m', 'unrecognized'), 'tiles/Man7.svg');
 });
 
 test('both complete face sets are in the preload inventory with valid files', () => {
-  assert.equal(TILE_IMAGE_URLS.length, 70);
+  assert.equal(TILE_IMAGE_URLS.length, 71);
+  assert.ok(TILE_IMAGE_URLS.includes('tiles/matisse/approved/Haku-foil.svg'));
   for (const face of ['classic', 'matisse']) {
     for (const tile of TILE_TYPES) assert.ok(TILE_IMAGE_URLS.includes(tileImage(tile, face)));
   }
@@ -88,9 +89,11 @@ test('the real Tile component respects the selected face, foil and hidden state'
       assert.doesNotMatch(hidden, /matisse\/|class="foil|haku-dragon-reveal/);
     }
     const white = show('5z', 'matisse', { dora: true });
-    assert.match(white, /placeholders\/Haku.svg/);
+    assert.match(white, /approved\/Haku.svg/);
     assert.match(white, /class="foil/);
-    assert.doesNotMatch(white, /haku-dragon-reveal/);
+    assert.match(white, /haku-dragon-reveal/);
+    assert.match(white, /approved\/Haku-foil.svg/);
+    assert.doesNotMatch(show('5z', 'matisse'), /haku-dragon-reveal/);
     assert.match(show('5z', 'classic', { dora: true }), /haku-dragon-reveal/);
     assert.match(show('7m', 'classic'), /src="tiles\/Man7.svg"/);
   }

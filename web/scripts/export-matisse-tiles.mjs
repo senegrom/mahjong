@@ -20,7 +20,18 @@ const definitions = [
   ['Man7', '7m', '7 characters', 'approved', '06-character-compositions.png', [965, 207, 432, 630], 'Cut-out C: pink 萬 at upper left and oversized pale-yellow 七 below on deep purple.'],
   ['Sou1', '1s', '1 bamboo', 'approved', '05-characters-bird-green-dragon.png', [510, 210, 426, 630], 'Blue and green cut-paper bird on a bamboo perch.'],
   ['Hatsu', '6z', 'Green dragon', 'approved', '05-characters-bird-green-dragon.png', [964, 210, 433, 630], 'Ivory 發 cut out of emerald green, using style C.'],
+  ['Haku', '5z', 'White dragon', 'approved', '07-white-dragon-approved.png', [158, 150, 540, 752], 'Approved blend of C and C1: a quiet ivory face with separated abstract dragon shapes, revealed in pearly silver for dora.'],
 ];
+
+function exportCrop(source, crop, png, svg, label) {
+  const [x, y, width, height] = crop;
+  // Mechanical lossless extraction only: keep the artwork's native dimensions.
+  const raster = execFileSync('convert', [path.join(root, source), '-crop', `${width}x${height}+${x}+${y}`, '+repage', '-strip', 'PNG:-'], { maxBuffer: 16 * 1024 * 1024 });
+  writeFileSync(path.join(out, png), raster, { flush: true });
+  const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Matisse study</title><defs><clipPath id="face"><rect width="300" height="400" rx="16"/></clipPath></defs><g clip-path="url(#face)"><rect width="300" height="400" fill="#f5f1e4"/><image x="0" y="0" width="300" height="400" preserveAspectRatio="xMidYMid meet" href="data:image/png;base64,${raster.toString('base64')}"/></g></svg>\n`;
+  writeFileSync(path.join(out, svg), svgText);
+  return svgText;
+}
 
 const manifest = { version: 1, canvas: { width: 300, height: 400 }, tiles: [], placeholders: [] };
 const previews = [];
@@ -34,12 +45,13 @@ for (const [name, tile, label, status, sourceName, crop, notes] of definitions) 
   const [x, y, width, height] = crop;
   const png = `${group}/${name}.png`;
   const svg = `${group}/${name}.svg`;
-  // Mechanical lossless extraction only: keep the artwork's native dimensions.
-  const raster = execFileSync('convert', [path.join(root, source), '-crop', `${width}x${height}+${x}+${y}`, '+repage', '-strip', 'PNG:-'], { maxBuffer: 16 * 1024 * 1024 });
-  writeFileSync(path.join(out, png), raster, { flush: true });
-  const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Matisse study</title><defs><clipPath id="face"><rect width="300" height="400" rx="16"/></clipPath></defs><g clip-path="url(#face)"><rect width="300" height="400" fill="#f5f1e4"/><image x="0" y="0" width="300" height="400" preserveAspectRatio="xMidYMid meet" href="data:image/png;base64,${raster.toString('base64')}"/></g></svg>\n`;
-  writeFileSync(path.join(out, svg), svgText);
+  const svgText = exportCrop(source, crop, png, svg, label);
   const entry = { name, tile, label, status, png, svg, source, sourceSha256: createHash('sha256').update(readFileSync(path.join(root, source))).digest('hex'), crop: { x, y, width, height }, notes };
+  if (name === 'Haku') {
+    const foilCrop = [749, 150, 540, 752];
+    entry.foil = { png: 'approved/Haku-foil.png', svg: 'approved/Haku-foil.svg', crop: { x: foilCrop[0], y: foilCrop[1], width: foilCrop[2], height: foilCrop[3] } };
+    exportCrop(source, foilCrop, entry.foil.png, entry.foil.svg, 'White dragon in the light');
+  }
   manifest.tiles.push(entry);
   previews.push({ name, label, status, src: `data:image/svg+xml;base64,${Buffer.from(svgText).toString('base64')}` });
 }
@@ -68,11 +80,11 @@ const html = `<!doctype html>
 @media(max-width:520px){main{padding:24px 14px}.gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 10px}h1{font-size:29px}}
 </style></head><body><main>
 <div class="eyebrow">Chapelle du Rosaire · Cut-paper studies</div><h1>Matisse Mahjong</h1>
-<p class="intro">Nine approved faces. Select Matisse under Options → Tile face in the game. The other 25 tile types show their names in black until their artwork is approved.</p>
+<p class="intro">Ten approved faces. Select Matisse under Options → Tile face in the game. The other 24 tile types show their names in black until their artwork is approved.</p>
 <h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label>
 <div class="scroll"><div class="table" id="table"><div class="rack" id="rack" aria-label="Fourteen-tile visual sample"></div></div></div><p class="size" id="size"></p>
 <h2>Approved faces</h2><div class="gallery" id="approved"></div>
-<footer>This hand is a visual sample. The approved Cut-out composition is used for 7 characters. Dance lettering on deep purple is a direction for future character tiles; the white dragon is still being refined. Raw PNG crops retain their source resolution; each SVG provides the game's 300 × 400 canvas.</footer>
+<footer>This hand is a visual sample. The approved Cut-out composition is used for 7 characters. Dance lettering on deep purple is a direction for future character tiles. White dragon uses the approved C/C1 blend, with a pearly reveal when it is dora. Raw PNG crops retain their source resolution; each SVG provides the game's 300 × 400 canvas.</footer>
 </main><script>
 const tiles=${JSON.stringify(previews)};
 const byName=Object.fromEntries(tiles.map(tile=>[tile.name,tile]));
@@ -81,7 +93,7 @@ const table=document.getElementById('table');
 function picture(tile){const image=document.createElement('img');image.src=tile.src;image.alt=tile.label;image.title=tile.label;image.width=300;image.height=400;return image}
 for(const tile of tiles){const card=document.createElement('div');card.className='card';card.append(picture(tile));const label=document.createElement('p');label.textContent=tile.label;card.append(label);const badge=document.createElement('span');badge.className='badge';badge.textContent='Approved';card.append(badge);document.getElementById('approved').append(card)}
 function updateSize(){const w=rack.firstElementChild?.getBoundingClientRect().width||0;document.getElementById('size').textContent=w.toFixed(1)+' × '+(w*4/3).toFixed(1)+' CSS px per tile · 14 tiles · scroll horizontally if needed; the preview is not scaled down.'}
-function draw(){const names=['Man7','Man7','Pin1','Pin3','Pin3','Pin5','Pin5','Sou1','Sou1','Sou8','Sou8','Ton','Chun','Hatsu'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
+function draw(){const names=['Man7','Man7','Pin1','Pin3','Pin3','Pin5','Haku','Sou1','Sou1','Sou8','Sou8','Ton','Chun','Hatsu'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
 document.getElementById('width').addEventListener('change',draw);new ResizeObserver(updateSize).observe(rack);draw();
 </script></body></html>`;
 writeFileSync(path.join(out, 'preview.html'), html);

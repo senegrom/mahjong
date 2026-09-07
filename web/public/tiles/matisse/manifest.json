@@ -157,6 +157,33 @@
         "height": 630
       },
       "notes": "Ivory 發 cut out of emerald green, using style C."
+    },
+    {
+      "name": "Haku",
+      "tile": "5z",
+      "label": "White dragon",
+      "status": "approved",
+      "png": "approved/Haku.png",
+      "svg": "approved/Haku.svg",
+      "source": "docs/design/matisse/studies/07-white-dragon-approved.png",
+      "sourceSha256": "714549a653f1fbc0441780c5c1cae255113c36bccdf5addd86394da3b45a9d16",
+      "crop": {
+        "x": 158,
+        "y": 150,
+        "width": 540,
+        "height": 752
+      },
+      "notes": "Approved blend of C and C1: a quiet ivory face with separated abstract dragon shapes, revealed in pearly silver for dora.",
+      "foil": {
+        "png": "approved/Haku-foil.png",
+        "svg": "approved/Haku-foil.svg",
+        "crop": {
+          "x": 749,
+          "y": 150,
+          "width": 540,
+          "height": 752
+        }
+      }
     }
   ],
   "placeholders": [
@@ -303,12 +330,6 @@
       "name": "Pei",
       "label": "north wind",
       "svg": "placeholders/Pei.svg"
-    },
-    {
-      "tile": "5z",
-      "name": "Haku",
-      "label": "white dragon",
-      "svg": "placeholders/Haku.svg"
     }
   ]
 }
