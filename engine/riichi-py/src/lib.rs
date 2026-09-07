@@ -36,10 +36,10 @@ use riichi_core::encoding::{
 };
 use riichi_core::game::Action;
 use riichi_core::game::{Call, Hand, Outcome, Phase};
+use riichi_core::mjai;
 use riichi_core::rng::Rng;
 use riichi_core::search;
 use riichi_core::table::Table;
-use riichi_core::mjai;
 use riichi_core::Wind;
 
 /// One game, and where its next decision sits.
@@ -878,7 +878,11 @@ impl Arena {
     /// The same, taking the beliefs as the raw bytes of float32s rather
     /// than a Python list: a round has thousands of steps and a list of a
     /// hundred thousand floats each step cost seconds to build and read.
-    fn imagined_hands_bytes<'py>(&mut self, py: Python<'py>, beliefs: &[u8]) -> Bound<'py, PyBytes> {
+    fn imagined_hands_bytes<'py>(
+        &mut self,
+        py: Python<'py>,
+        beliefs: &[u8],
+    ) -> Bound<'py, PyBytes> {
         assert_eq!(beliefs.len() % 4, 0, "float32 bytes");
         let floats: Vec<f32> = beliefs
             .chunks_exact(4)

@@ -412,7 +412,12 @@ def main() -> None:
             opponent_share=args.opponent_share,
         )
         played = time.time() - began
+        # Each phase of the learning half is timed and said in the record:
+        # a generation stalled by a near-constant five minutes now and
+        # then, and the record could not say where.
+        phase = time.time()
         ring.push(batch)
+        ring_seconds = time.time() - phase
 
         # The observations stay on the host, sparse, and each minibatch is
         # made dense on the card as it is drawn: a round of them dense would
@@ -491,6 +496,7 @@ def main() -> None:
         advantages = (advantages - advantage_mean) / (advantage_std + 1e-6)
 
         net.train()
+        phase = time.time()
         # Keep metrics on the card until the generation is over. The old loop
         # called `.item()` or `float()` around a dozen times per minibatch,
         # which synchronised the CPU with the GPU around a dozen times per
@@ -634,6 +640,8 @@ def main() -> None:
                     total_grad_norm += grad_norm
                 steps += 1
 
+        epochs_seconds = time.time() - phase
+        phase = time.time()
         # The heads that may learn from stale play take a pass over the
         # ring: the value heads, the reader and the head that reads the
         # table, on minibatches drawn evenly from the last several rounds.
@@ -694,6 +702,7 @@ def main() -> None:
         # One synchronisation here replaces the many per-minibatch metric
         # synchronisations above. Once the first scalar is read, the rest are
         # already complete.
+        replay_seconds = time.time() - phase
         denom = max(steps, 1)
         confidence_total = (sure_count + likely_count + unlikely_count).clamp(min=1)
         record = {
@@ -709,6 +718,9 @@ def main() -> None:
             "load_seconds": round(loaded, 1),
             "resident": on_card is not None,
             "baseline_seconds": round(baseline_seconds, 1),
+            "ring_seconds": round(ring_seconds, 1),
+            "epochs_seconds": round(epochs_seconds, 1),
+            "replay_seconds": round(replay_seconds, 1),
             "policy_loss": round(float(total_policy / denom), 4),
             "value_loss": round(float(total_value / denom), 4),
             "oracle_loss": round(float(total_oracle / denom), 4),
@@ -799,7 +811,10 @@ def main() -> None:
         # Saved every generation, not only when measured, so that a restart
         # loses one generation at most rather than every one since the last
         # measurement.
+        phase = time.time()
         torch.save(payload, args.out / "latest.pt")
+        if time.time() - phase > 30:
+            print(f"saving the checkpoint took {time.time() - phase:.0f}s", flush=True)
 
         print(json.dumps(record), flush=True)
         with log_path.open("a", encoding="utf-8") as handle:

@@ -3,6 +3,7 @@
  * they never deserialize arbitrary internal Rust state or rerun neural choices.
  */
 import { normalizeOpponents, opponentPreset, OPPONENT_TYPES, OPPONENT_POSITIONS } from './opponents.js';
+import { normalizeTileFace } from './tile-faces.js';
 
 export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
@@ -17,10 +18,11 @@ function require(condition, message) {
 }
 
 export function readSettings(storage, touch = false) {
-  const defaults = { difficulty: 'club', hints: true, confirmDiscards: touch, shortcuts: true };
+  const defaults = { difficulty: 'club', hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic' };
   try {
     const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
     if (value?.version !== VERSION) return defaults;
+    defaults.tileFace = normalizeTileFace(value.tileFace);
     for (const key of ['hints', 'confirmDiscards', 'shortcuts']) {
       if (typeof value[key] === 'boolean') defaults[key] = value[key];
     }

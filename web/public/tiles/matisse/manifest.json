@@ -111,18 +111,18 @@
       "name": "Man7",
       "tile": "7m",
       "label": "7 characters",
-      "status": "concept",
-      "png": "concepts/Man7.png",
-      "svg": "concepts/Man7.svg",
-      "source": "docs/design/matisse/studies/05-characters-bird-green-dragon.png",
-      "sourceSha256": "4398ecc6ba8e97e5a81103492c8e6f5b0ca7cf0dbeddb548971079be2d7d5948",
+      "status": "approved",
+      "png": "approved/Man7.png",
+      "svg": "approved/Man7.svg",
+      "source": "docs/design/matisse/studies/06-character-compositions.png",
+      "sourceSha256": "825fdeed12e41171468d083a031b8e7ccdcadd0b6e681e19d2a905507a4ae658",
       "crop": {
-        "x": 59,
-        "y": 210,
-        "width": 425,
+        "x": 965,
+        "y": 207,
+        "width": 432,
         "height": 630
       },
-      "notes": "Awaiting redesign: the stacked black 七 above vermilion 萬 was considered too restrained. Explore more expressive lettering and varied placement."
+      "notes": "Cut-out C: pink 萬 at upper left and oversized pale-yellow 七 below on deep purple."
     },
     {
       "name": "Sou1",
@@ -157,6 +157,158 @@
         "height": 630
       },
       "notes": "Ivory 發 cut out of emerald green, using style C."
+    }
+  ],
+  "placeholders": [
+    {
+      "tile": "1m",
+      "name": "Man1",
+      "label": "1 characters",
+      "svg": "placeholders/Man1.svg"
+    },
+    {
+      "tile": "2m",
+      "name": "Man2",
+      "label": "2 characters",
+      "svg": "placeholders/Man2.svg"
+    },
+    {
+      "tile": "3m",
+      "name": "Man3",
+      "label": "3 characters",
+      "svg": "placeholders/Man3.svg"
+    },
+    {
+      "tile": "4m",
+      "name": "Man4",
+      "label": "4 characters",
+      "svg": "placeholders/Man4.svg"
+    },
+    {
+      "tile": "5m",
+      "name": "Man5",
+      "label": "5 characters",
+      "svg": "placeholders/Man5.svg"
+    },
+    {
+      "tile": "6m",
+      "name": "Man6",
+      "label": "6 characters",
+      "svg": "placeholders/Man6.svg"
+    },
+    {
+      "tile": "8m",
+      "name": "Man8",
+      "label": "8 characters",
+      "svg": "placeholders/Man8.svg"
+    },
+    {
+      "tile": "9m",
+      "name": "Man9",
+      "label": "9 characters",
+      "svg": "placeholders/Man9.svg"
+    },
+    {
+      "tile": "2p",
+      "name": "Pin2",
+      "label": "2 circles",
+      "svg": "placeholders/Pin2.svg"
+    },
+    {
+      "tile": "4p",
+      "name": "Pin4",
+      "label": "4 circles",
+      "svg": "placeholders/Pin4.svg"
+    },
+    {
+      "tile": "6p",
+      "name": "Pin6",
+      "label": "6 circles",
+      "svg": "placeholders/Pin6.svg"
+    },
+    {
+      "tile": "7p",
+      "name": "Pin7",
+      "label": "7 circles",
+      "svg": "placeholders/Pin7.svg"
+    },
+    {
+      "tile": "8p",
+      "name": "Pin8",
+      "label": "8 circles",
+      "svg": "placeholders/Pin8.svg"
+    },
+    {
+      "tile": "9p",
+      "name": "Pin9",
+      "label": "9 circles",
+      "svg": "placeholders/Pin9.svg"
+    },
+    {
+      "tile": "2s",
+      "name": "Sou2",
+      "label": "2 bamboo",
+      "svg": "placeholders/Sou2.svg"
+    },
+    {
+      "tile": "3s",
+      "name": "Sou3",
+      "label": "3 bamboo",
+      "svg": "placeholders/Sou3.svg"
+    },
+    {
+      "tile": "4s",
+      "name": "Sou4",
+      "label": "4 bamboo",
+      "svg": "placeholders/Sou4.svg"
+    },
+    {
+      "tile": "5s",
+      "name": "Sou5",
+      "label": "5 bamboo",
+      "svg": "placeholders/Sou5.svg"
+    },
+    {
+      "tile": "6s",
+      "name": "Sou6",
+      "label": "6 bamboo",
+      "svg": "placeholders/Sou6.svg"
+    },
+    {
+      "tile": "7s",
+      "name": "Sou7",
+      "label": "7 bamboo",
+      "svg": "placeholders/Sou7.svg"
+    },
+    {
+      "tile": "9s",
+      "name": "Sou9",
+      "label": "9 bamboo",
+      "svg": "placeholders/Sou9.svg"
+    },
+    {
+      "tile": "2z",
+      "name": "Nan",
+      "label": "south wind",
+      "svg": "placeholders/Nan.svg"
+    },
+    {
+      "tile": "3z",
+      "name": "Shaa",
+      "label": "west wind",
+      "svg": "placeholders/Shaa.svg"
+    },
+    {
+      "tile": "4z",
+      "name": "Pei",
+      "label": "north wind",
+      "svg": "placeholders/Pei.svg"
+    },
+    {
+      "tile": "5z",
+      "name": "Haku",
+      "label": "white dragon",
+      "svg": "placeholders/Haku.svg"
     }
   ]
 }

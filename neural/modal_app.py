@@ -147,21 +147,50 @@ def _generation_of(checkpoint: Path) -> int:
 TRAINER_CPUS = 32
 
 
+LOCAL_CACHE = Path("/tmp/inductor-cache")
+SHARED_CACHE = VOLUME / "inductor-cache"
+
+
+def _seed_cache() -> Path:
+    """The local compiler cache, filled from the volume's copy once."""
+    if not LOCAL_CACHE.exists():
+        LOCAL_CACHE.mkdir(parents=True, exist_ok=True)
+        if SHARED_CACHE.exists():
+            try:
+                shutil.copytree(SHARED_CACHE, LOCAL_CACHE, dirs_exist_ok=True)
+                print("compiler cache seeded from the volume", flush=True)
+            except OSError as error:
+                print(f"compiler cache not seeded: {error}", flush=True)
+    return LOCAL_CACHE
+
+
+def _save_cache() -> None:
+    """What the compiler built here, back to the volume for the next
+    container. Called when a trainer's block ends, not during it."""
+    if not LOCAL_CACHE.exists():
+        return
+    try:
+        SHARED_CACHE.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(LOCAL_CACHE, SHARED_CACHE, dirs_exist_ok=True)
+        volume.commit()
+        print("compiler cache saved to the volume", flush=True)
+    except OSError as error:
+        print(f"compiler cache not saved: {error}", flush=True)
+
+
 def _environment(cpus: int | None = None) -> dict[str, str]:
     environment = dict(os.environ)
     # The container reports the host's processors, not its share of them;
     # more threads than the share only queue.
     environment["RAYON_NUM_THREADS"] = str(int(cpus or min(os.cpu_count() or 16, 16)))
     environment["PYTHONPATH"] = "/src"
-    # Compiled kernels on the volume, so a block that resumes in a fresh
-    # container finds the ones the last one built: compiling the network's
-    # graphs took the first generation of a block a quarter of an hour.
-    cache = VOLUME / "inductor-cache"
-    try:
-        cache.mkdir(parents=True, exist_ok=True)
-        environment["TORCHINDUCTOR_CACHE_DIR"] = str(cache)
-    except OSError:
-        pass
+    # Compiled kernels are kept on the container's own disk and seeded from
+    # the volume, so a block that resumes in a fresh container finds the
+    # ones the last one built (compiling the network's graphs took the
+    # first generation of a block a quarter of an hour) without the
+    # compiler writing to the network volume while training: a recompile
+    # that wrote there stalled a generation by about five minutes.
+    environment["TORCHINDUCTOR_CACHE_DIR"] = str(_seed_cache())
     # Say what the container actually has, since the count above is a
     # request: the cgroup's quota is the truth.
     try:
@@ -178,7 +207,9 @@ def _environment(cpus: int | None = None) -> dict[str, str]:
 
 
 @app.function(
-    gpu="H100",
+    # An A100 when no H100 can be had: on 7 September two blocks sat two
+    # hours with no container at all, their calls still marked running.
+    gpu=["H100", "A100-80GB"],
     # Self-play is the long pole here, not the card. With the engine's own
     # planes a generation was about 180 seconds of which 80 were playing,
     # and thirty-two processors made it worse, 93 seconds against 78.
@@ -326,6 +357,7 @@ def train(
                 continue
             _publish(RUN, seen, run)
     code = process.wait()
+    _save_cache()
     # Publish only when a generation actually finished. A run that trained
     # nothing still rewrites its checkpoint with the target generation
     # stamped on it, and publishing that overwrote a good record with one
@@ -341,7 +373,9 @@ def train(
 
 
 @app.function(
-    gpu="H100",
+    # An A100 when no H100 can be had: on 7 September two blocks sat two
+    # hours with no container at all, their calls still marked running.
+    gpu=["H100", "A100-80GB"],
     cpu=TRAINER_CPUS,
     memory=98304,
     timeout=24 * 60 * 60,
@@ -435,6 +469,122 @@ def train_mortal(
                 continue
             _publish(where, seen, run)
     code = process.wait()
+    _save_cache()
+    if seen > started_at:
+        _publish(where, seen, run)
+    else:
+        print(f"nothing trained: leaving the volume at generation {started_at}", flush=True)
+    return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
+
+
+@app.function(
+    # An A100 when no H100 can be had: on 7 September two blocks sat two
+    # hours with no container at all, their calls still marked running.
+    gpu=["H100", "A100-80GB"],
+    cpu=TRAINER_CPUS,
+    memory=98304,
+    timeout=24 * 60 * 60,
+    volumes={str(VOLUME): volume},
+    max_containers=1,
+)
+def train_combined(
+    generations: int = 20,
+    games: int = 1024,
+    batch: int = 2048,
+    epochs: int = 2,
+    lr: float = 1e-4,
+    lr_ours: float = 4e-5,
+    lr_mortal: float = 3e-5,
+    entropy: float = 0.01,
+    fixed: list[str] | None = None,
+    measure_every: int = 5,
+    measure_games: int = 512,
+    resume: str = "latest",
+    ours: str = "w1012-run/latest",
+    mortal: str = "mortal-run/latest",
+    opponents: list[str] | None = None,
+    opponent_share: float = 0.0,
+    run: str = "joined-run",
+) -> str:
+    """Trains the joined player, our network and a Mortal beneath one
+    fusion head, in a run directory of its own: see
+    `neural/train_combined.py`. Resumes from the checkpoint of that name
+    in the run when it is there, and otherwise joins the two checkpoints
+    named, which may be any run's.
+    """
+    where = Path("/scratch/joined-run")
+    where.mkdir(parents=True, exist_ok=True)
+    volume.reload()
+    source = _checkpoint(run, resume)
+    command = [
+        sys.executable, "-m", "neural.train_combined",
+        "--rounds", str(generations), "--generations", "1000000",
+        "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
+        "--lr", str(lr), "--lr-ours", str(lr_ours), "--lr-mortal", str(lr_mortal),
+        "--entropy", str(entropy),
+        "--measure-every", str(measure_every), "--measure-games", str(measure_games),
+        "--amp", "--compile", "--out", str(where),
+    ]
+    if fixed:
+        command += ["--fixed", *fixed]
+    if source.exists():
+        shutil.copyfile(source, where / "latest.pt")
+        history = VOLUME / run / "log.jsonl"
+        if history.exists():
+            shutil.copyfile(history, where / "log.jsonl")
+        command += ["--resume", str(where / "latest.pt")]
+        print(f"resuming from {source}", flush=True)
+    else:
+        parts = []
+        for label, name in (("--ours", ours), ("--mortal", mortal)):
+            found = _checkpoint(run, name)
+            if not found.exists():
+                return f"no checkpoint at {found}"
+            local = where / (name.replace("/", "--") + ".pt")
+            shutil.copyfile(found, local)
+            parts += [label, str(local)]
+        command += parts
+        print(f"joining {ours} and {mortal}", flush=True)
+
+    seated = []
+    for name in opponents or []:
+        found = _checkpoint(run, name)
+        if not found.exists():
+            print(f"no opponent at {found}", flush=True)
+            continue
+        local = where / "opponents" / (name.replace("/", "--") + ".pt")
+        local.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(found, local)
+        seated.append(str(local))
+    if seated:
+        command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+    print(" ".join(command), flush=True)
+
+    began = time.time()
+    started_at = _generation_of(where / "latest.pt")
+    seen = started_at
+    process = subprocess.Popen(
+        command,
+        cwd="/src",
+        env=_environment(TRAINER_CPUS),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    for line in process.stdout:
+        print(line.rstrip(), flush=True)
+        if line.startswith("{") and '"generation"' in line:
+            try:
+                import json
+
+                seen = int(json.loads(line)["generation"])
+            except Exception:
+                continue
+            _publish(where, seen, run)
+    code = process.wait()
+    _save_cache()
     if seen > started_at:
         _publish(where, seen, run)
     else:
@@ -617,7 +767,9 @@ def discriminate(
 
 
 @app.function(
-    gpu="H100",
+    # An A100 when no H100 can be had: on 7 September two blocks sat two
+    # hours with no container at all, their calls still marked running.
+    gpu=["H100", "A100-80GB"],
     cpu=16.0,
     memory=65536,
     timeout=6 * 60 * 60,

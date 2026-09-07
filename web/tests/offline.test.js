@@ -21,7 +21,9 @@ function storage() {
     if (!stores.has(name)) stores.set(name, new Map());
     const entries = stores.get(name);
     return { async match(request) { return entries.get(String(request.url ?? request))?.clone(); },
-      async put(request, response) { entries.set(String(request.url ?? request), response.clone()); } };
+      async put(request, response) { entries.set(String(request.url ?? request), response.clone()); },
+      async delete(request) { return entries.delete(String(request.url ?? request)); },
+      async keys() { return [...entries.keys()].map(url => new Request(url)); } };
   } };
 }
 function worker({ files = bodies, caches = storage(), config = manifest(files), network } = {}) {
@@ -38,6 +40,7 @@ function worker({ files = bodies, caches = storage(), config = manifest(files), 
   });
   return { caches, counts,
     async install() { let work; events.install({ waitUntil(p) { work = p; } }); await work; },
+    async activate() { let work; events.activate({ waitUntil(p) { work = p; } }); await work; },
     async message(type) {
       let work, reply;
       events.message({ data: { type }, ports: [{ postMessage(data) { if (!data.progress) reply = data; } }], waitUntil(p) { work = p; } });
@@ -104,6 +107,18 @@ test('an app-only upgrade reuses every tile and all trained weights/runtime byte
   assert.deepEqual([...update.counts.keys()], ['index.html']);
   assert.equal(await (await old.get('index.html')).text(), bodies['index.html']);
 });
+test('activation removes obsolete Mahjong bodies but keeps current content and metadata', async () => {
+  const old = worker(); await old.install(); await download(old);
+  const files = { ...bodies, 'index.html': 'new shell', 'tiles/Haku.svg': '<svg>new dragon</svg>', 'model.onnx': 'new weights' };
+  const update = worker({ files, caches: old.caches }); await update.install();
+  const store = update.caches.stores.get('mahjong-offline-v1:/mahjong/');
+  const oldHashes = [bodies['index.html'], bodies['tiles/Haku.svg'], bodies['model.onnx']].map(sha);
+  for (const hash of oldHashes) assert.equal(store.has(base + '__offline_content__/' + hash), true);
+  await update.activate();
+  for (const hash of oldHashes) assert.equal(store.has(base + '__offline_content__/' + hash), false);
+  for (const body of new Set(Object.values(files))) assert.equal(store.has(base + '__offline_content__/' + sha(body)), true);
+  assert.equal(store.has(base + '__offline_meta__/ai-requested'), true);
+});
 test('an interrupted AI upgrade cannot install or destroy the working offline version', async () => {
   const old = worker(); await old.install(); await download(old);
   const files = { ...bodies, 'index.html': 'new shell', 'model.onnx': 'new weights' };
@@ -128,17 +143,19 @@ test('quota errors cannot be misreported as successfully saved offline', async (
   assert.equal((await status(w)).coreReady, false);
   await assert.rejects(download(w), /QuotaExceededError/);
 });
-test('production inventory discovers every tile, chunk, model and both runtime copies', async t => {
+test('production inventory classifies the external model/runtime package', async t => {
   const root = await mkdtemp(join(tmpdir(), 'mahjong-offline-build-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const files = { 'index.html': 'game', 'assets/worker-hash.js': 'worker', 'assets/riichi_bg-hash.wasm': 'engine',
     'tiles/Back.svg': '<svg/>', 'tiles/Haku.svg': '<svg>white</svg>', 'assets/white-dragon-hash.webp': 'dragon',
+    'tiles/matisse/approved/Man7.svg': '<svg>cut-out</svg>', 'tiles/matisse/placeholders/Haku.svg': '<svg>white dragon</svg>',
     'model.onnx': 'network', 'ort/ort-wasm-simd-threaded.wasm': 'wasm',
-    'ort/ort-wasm-simd-threaded.mjs': 'loader', 'assets/ort-wasm-simd-threaded-hash.wasm': 'wasm' };
+    'ort/ort-wasm-simd-threaded.mjs': 'loader' };
   for (const [path, body] of Object.entries(files)) { await mkdir(join(root, path, '..'), { recursive: true }); await writeFile(join(root, path), body); }
   const first = await buildOffline(root), second = await buildOffline(root);
   assert.deepEqual(first, second);
   assert.equal(first.entries.length, Object.keys(files).length);
-  assert.equal(first.entries.filter(e => e.group === 'ai').length, 4);
+  assert.equal(first.entries.filter(e => e.group === 'ai').length, 3);
+  assert.equal(first.entries.filter(e => e.url.startsWith('tiles/matisse/') && e.group === 'core').length, 2);
   assert.ok((await readFile(join(root, 'sw.js'), 'utf8')).includes(JSON.stringify(first)));
 });

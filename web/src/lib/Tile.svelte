@@ -1,10 +1,6 @@
 <script module>
   import dragonUrl from '../assets/white-dragon.webp';
-  const FACES = [
-    'Back', 'Front',
-    ...['Man', 'Pin', 'Sou'].flatMap(suit => [1,2,3,4,5,6,7,8,9].map(rank => suit + rank)),
-    'Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun',
-  ];
+  import { TILE_IMAGE_URLS } from './tile-faces.js';
   const images = [];
   let preloading = null;
   // Decode EVERY face before the first hand, including the hidden dragon art.
@@ -12,7 +8,7 @@
   // across reloads, new games and browser restarts, independently of HTTP cache.
   export function preloadTiles(onProgress = () => {}) {
     if (preloading) return preloading;
-    const urls = [...FACES.map(face => `tiles/${face}.svg`), dragonUrl];
+    const urls = [...TILE_IMAGE_URLS, dragonUrl];
     let next = 0, complete = 0;
     preloading = Promise.all(Array.from({ length: 6 }, async () => {
       while (next < urls.length) {
@@ -39,11 +35,16 @@
 </script>
 
 <script>
+  import { getContext } from 'svelte';
   import { tileWords } from './tiles.js';
+  import { TILE_FACE_CONTEXT, tileImage } from './tile-faces.js';
+
+  const currentFace = getContext(TILE_FACE_CONTEXT) ?? (() => 'classic');
+  let tileFace = $derived(currentFace());
 
   /**
-   * One tile. Faces are the public-domain drawings in /tiles; a face-down
-   * tile shows the back. Every tile carries its name for screen readers, so
+   * One tile, using the selected face set; a face-down tile shows the back.
+   * Every tile carries its name for screen readers, so
    * a hand can be read out without relying on the picture.
    *
    * A tile in the hand can carry marks, each a colour of ring around the
@@ -79,16 +80,6 @@
     ? discardShanten === 0 ? 'ready' : discardShanten === 1 ? 'one-away' : null
     : null);
 
-  const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
-  const HONOURS = ['Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun'];
-  function fileFor(name) {
-    if (!name) return 'Back';
-    const rank = Number(name[0]);
-    const suit = name[1];
-    if (suit === 'z') return HONOURS[rank - 1] ?? 'Blank';
-    return `${SUIT_FILES[suit] ?? 'Man'}${rank}`;
-  }
-
   const COLOURS = {
     ready: 'var(--gold, #d8a12a)',
     'one-away': '#c5cbd3',
@@ -109,7 +100,7 @@
             .join(', ')})`,
   );
 
-  let file = $derived(facedown ? 'Back' : fileFor(tile));
+  let imageUrl = $derived(tileImage(tile, tileFace, facedown));
   let words = $derived(
     facedown ? 'face-down tile' : [tileWords(tile), dora && 'dora',
       drawn && 'just drawn', selected && 'selected',
@@ -120,7 +111,7 @@
   );
   // The white dragon's face is blank, which reads as a missing picture.
   // Sets that do not leave it plain frame it in blue; so does this one.
-  let blank = $derived(!facedown && tile === '5z');
+  let blank = $derived(tileFace === 'classic' && !facedown && tile === '5z');
   let whiteDragonDora = $derived(blank && dora);
 </script>
 
@@ -144,11 +135,11 @@
     style:--ring={ring}
     {disabled}
     title={title || words}
-    aria-label={words}
+    aria-label={title || words}
     onclick={() => onclick(tile)}
   >
     <span class="face" class:haku={whiteDragonDora}>
-      <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
+      <img src={imageUrl} alt="" draggable="false" class:blank />
       {#if dora && !facedown}
         {#key whiteDragonDora}
           {#if whiteDragonDora}
@@ -168,11 +159,11 @@
     class:ringed={marks.length > 0}
     style:--ring={ring}
     role="img"
-    aria-label={words}
+    aria-label={title || words}
     title={title || words}
   >
     <span class="face" class:haku={whiteDragonDora}>
-      <img src="tiles/{file}.svg" alt="" draggable="false" class:blank />
+      <img src={imageUrl} alt="" draggable="false" class:blank />
       {#if dora && !facedown}
         {#key whiteDragonDora}
           {#if whiteDragonDora}

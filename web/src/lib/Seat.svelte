@@ -11,10 +11,10 @@
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
-  // These facts belong to the hand, so restoration/new deals cannot retain
-  // a stale announcement from a previous seat. Upgraded quads count too.
-  let announcement = $derived(seat.riichi ? 'Riichi' : seat.melds.length
-    ? (seat.melds.at(-1).kind.includes('kan') ? 'Kan' : seat.melds.at(-1).kind === 'pon' ? 'Pon' : 'Chii') : '');
+  // Riichi remains a live table state. Pon/Chii/Kan are already visible in
+  // the meld itself, so a transient call must not leave a stale badge for
+  // the rest of the hand.
+  let announcement = $derived(seat.riichi ? 'Riichi' : '');
 </script>
 
 <section class="seat {side}" class:turn={seat.turn} aria-label="{NAMES[seat.seat]} seat">
@@ -106,7 +106,7 @@
     border-radius: 50%;
   }
 
-  /* What was just called, said where it happened. */
+  /* Persistent riichi state, said where it happened. */
   .called {
     margin-left: auto;
     font-size: 0.75rem;
@@ -117,7 +117,7 @@
     animation: settle 0.5s ease-out forwards;
   }
 
-  /* It arrives with a little emphasis and then stays. */
+  /* It arrives with a little emphasis and then stays while riichi is live. */
   @keyframes settle {
     0% {
       opacity: 0;

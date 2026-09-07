@@ -1,4 +1,4 @@
-import { tileWords } from './tiles.js';
+import { sequenceWords, tileWords } from './tiles.js';
 
 export function heldSafeCount(view) {
   const me = view?.seats?.[0];
@@ -10,7 +10,7 @@ export function heldSafeCount(view) {
 export function callLabel(choice) {
   const tile = tileWords(choice.tile);
   switch (choice.kind) {
-    case 'chii': return `Chii — sequence from the ${tile}`;
+    case 'chii': return `Chii — ${sequenceWords(choice.tile)}`;
     case 'pon': return 'Pon — triplet';
     case 'kan': return 'Kan — quad';
     case 'ron': return 'Ron — win on discard';

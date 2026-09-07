@@ -64,6 +64,18 @@ async function prepare(group, progress = () => {}) {
   await task;
   return status();
 }
+async function pruneObsoleteContent() {
+  // Activation happens only after the old worker no longer owns live clients.
+  // Old version-specific bodies are then safe to remove. Metadata is retained,
+  // so a user who requested Trained once keeps that preference across upgrades.
+  const cache = await caches.open(CACHE);
+  const keep = new Set(CONFIG.entries.map(entry => keyFor(entry)));
+  const prefix = new URL('__offline_content__/', scope).pathname;
+  for (const request of await cache.keys()) {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith(prefix) && !keep.has(request.url)) await cache.delete(request);
+  }
+}
 self.addEventListener('install', event => {
   // Failed updates leave the active worker and every verified asset intact.
   // Normal waiting-worker lifecycle: no forced upgrade during a live match.
@@ -75,7 +87,12 @@ self.addEventListener('install', event => {
     if (CONFIG.hasModel && await cache.match(new URL('__offline_meta__/ai-requested', scope))) await prepare('ai');
   })());
 });
-self.addEventListener('activate', event => { event.waitUntil(self.clients.claim()); });
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    await pruneObsoleteContent();
+    await self.clients.claim();
+  })());
+});
 self.addEventListener('message', event => {
   const port = event.ports[0];
   if (!port || !['MAHJONG_STATUS', 'MAHJONG_PREPARE_AI', 'MAHJONG_PREPARE_CORE'].includes(event.data?.type)) return;
@@ -102,5 +119,5 @@ self.addEventListener('fetch', event => {
     ? new Response(null, { headers: response.headers }) : response)
     .catch(() => new Response('Not saved offline. Reconnect and finish the download.', { status: 503 })));
 });
-// Intentionally retain content-addressed bodies across upgrades. Unchanged tiles,
-// models and runtimes are never downloaded again just because the UI changed.
+// Content-addressing reuses unchanged bodies during installation; activation
+// removes only hashes the newly active build can no longer reference.

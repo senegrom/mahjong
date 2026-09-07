@@ -1,5 +1,5 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount, setContext, tick } from 'svelte';
   import init, { Game } from './wasm/riichi.js';
   import Tile, { preloadTiles } from './lib/Tile.svelte';
   import { startOffline, watchOffline, prepareOfflineAi, refreshOffline } from './lib/offline.js';
@@ -14,6 +14,7 @@
   import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { tileWords } from './lib/tiles.js';
+  import { TILE_FACE_CONTEXT } from './lib/tile-faces.js';
   import { normalizeOpponents, OPPONENT_LABELS, OPPONENT_TYPES, OPPONENT_POSITIONS } from './lib/opponents.js';
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
@@ -30,6 +31,8 @@
   let hints = $state(preferences.hints);
   let confirmDiscards = $state(preferences.confirmDiscards);
   let shortcuts = $state(preferences.shortcuts);
+  let tileFace = $state(preferences.tileFace);
+  setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
   let startupNote = $state('Preparing the game for offline play…');
   let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, persistent: false, updateReady: false });
@@ -78,7 +81,7 @@
   let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
 
   $effect(() => {
-    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts };
+    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace };
     try { storage?.setItem(SETTINGS_KEY, JSON.stringify(value)); } catch { /* Gameplay still works. */ }
   });
 
@@ -365,6 +368,12 @@
   <details class="options">
     <summary>Options</summary>
     <div class="option-fields">
+      <label>Tile face
+        <select bind:value={tileFace} aria-label="Tile face">
+          <option value="classic">Classic</option>
+          <option value="matisse">Matisse</option>
+        </select>
+      </label>
       <label><input type="checkbox" bind:checked={hints} /> Hints and markings</label>
       <label><input type="checkbox" bind:checked={confirmDiscards} onchange={() => selected = null} /> Select before discarding</label>
       <label><input type="checkbox" bind:checked={shortcuts} onchange={() => picked = null} /> Keyboard shortcuts in your hand</label>

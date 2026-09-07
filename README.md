@@ -4,7 +4,8 @@ Riichi mahjong in the browser, played by the **EMA Riichi Competition Rules,
 2025 edition** (in force since 1 January 2026), against opponents that learn
 the game from self-play on the very same engine.
 
-**[Play it](https://senegrom.github.io/mahjong/)** against three heuristic opponents.
+**[Play it](https://senegrom.github.io/mahjong/)** against Beginner, Club or
+Trained opponents, including a custom mix at one table.
 
 The rules live once, in Rust. That crate is compiled to WebAssembly for the
 browser and, later, to a Python extension for training, so the game a person
@@ -18,8 +19,9 @@ plays and the game the opponents were trained on cannot drift apart.
   full game with rounds, counters and uma.
 - **A heuristic opponent** that plays for speed, only opens a hand that can
   still be declared, and folds against a declared riichi.
-- **A browser game** against three of them, with the tile art, discard rows,
-  called sets and optional hints, on a desktop or a phone.
+- **A browser game** against three configurable opponents—Beginner, Club,
+  Trained, or a custom mix—with the tile art, discard rows, called sets and
+  optional hints, on a desktop or a phone.
 - **Played by keyboard or mouse.** Arrow keys move along the hand and Enter
   throws the marked tile, the numbers throw one directly, and every tile
   carries its name for a screen reader.
@@ -171,6 +173,14 @@ own checkpoint layout. The two lineages sit in a share of each other's
 games, so each is trained against the other. After thirty generations
 the fine-tuned Mortal beat the original at one table by +0.061 placement
 at 3.6 standard errors.
+
+A third player joins the two (`neural/combined.py`): a head over
+Mortal's encoder vector and Q values, our tower's features and our
+logits, with both legality masks, whose output is added to our logits and
+starts at zero, so it begins as our network and learns where to lean on
+Mortal. Beneath it both networks keep training in the same loop; each
+generation draws which of the two stays fixed, Mortal, ours or neither
+(`python -m neural.train_combined`).
 
 Still to come: replays in the browser. The plan is in
 [docs/PLAN.md](docs/PLAN.md).
