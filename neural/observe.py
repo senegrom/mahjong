@@ -243,6 +243,18 @@ def resident(
     return DevicePlanes(planes, device)
 
 
+def pad_rows(tensor: torch.Tensor, rows: int, value: float | bool = 0) -> torch.Tensor:
+    """`tensor` with rows of `value` appended to make `rows` of them. A
+    compiled graph is built for one shape, and the last chunk of a round
+    was a new shape every generation, which had the compiler rebuild the
+    graph now and then: minutes lost each time."""
+    short = rows - tensor.shape[0]
+    if short <= 0:
+        return tensor
+    filler = tensor.new_full((short, *tensor.shape[1:]), value)
+    return torch.cat([tensor, filler])
+
+
 class Observer:
     """Follows an arena's games through Mortal's engine and encodes what the
     deciding players see.

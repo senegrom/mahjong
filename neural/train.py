@@ -28,7 +28,7 @@ import torch
 from torch import nn
 
 from . import selfplay, zoo
-from .observe import resident
+from .observe import pad_rows, resident
 from .prefetch import Prefetcher
 from .model import (
     DEFAULT_BLOCKS,
@@ -475,11 +475,16 @@ def main() -> None:
                 else:
                     planes = observations.slice(start_index, start_index + 8192).dense(device)
                 seen = oracle[chunk].to(device).float()
+                # The last chunk padded to the others' size, so the compiled
+                # graph sees one shape all round.
+                rows = planes.shape[0]
+                planes = pad_rows(planes, 8192)
+                seen = pad_rows(seen, 8192)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     guessed_value, judged, criticised = values(planes, seen)
-                public_guess[chunk] = guessed_value.float()
-                oracle_guess[chunk] = judged.float()
-                critic_guess[chunk] = criticised.float()
+                public_guess[chunk] = guessed_value.float()[:rows]
+                oracle_guess[chunk] = judged.float()[:rows]
+                critic_guess[chunk] = criticised.float()[:rows]
         public_error = float(((normalised - public_guess) ** 2).mean())
         oracle_error = float(((normalised - oracle_guess) ** 2).mean())
         critic_error = float(((normalised - critic_guess) ** 2).mean())
@@ -532,7 +537,11 @@ def main() -> None:
                 order[start_index : start_index + args.batch]
                 for start_index in range(0, batch.decisions, args.batch)
             ]
-            slices = [drawn for drawn in slices if drawn.numel() >= 2]
+            # Whole minibatches only: the compiled step is built for one
+            # shape, and a remainder of a new size each generation had it
+            # rebuilt now and then, minutes each time. The few thousand rows
+            # left over differ every epoch.
+            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
 
             def prepare(drawn: torch.Tensor):
                 # Sparse on the host, dense float32 on the card: the

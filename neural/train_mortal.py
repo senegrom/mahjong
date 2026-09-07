@@ -23,7 +23,7 @@ import torch
 from torch import nn
 
 from . import mortal_learner, selfplay, zoo
-from .observe import resident
+from .observe import pad_rows, resident
 from .prefetch import Prefetcher
 
 SMOOTHING = 1 / 3
@@ -180,9 +180,14 @@ def main() -> None:
                     planes = on_card.slice(start_index, start_index + 4096)
                 else:
                     planes = observations.slice(start_index, start_index + 4096).dense(device)
+                # The last chunk padded to the others' size, so the compiled
+                # graph sees one shape all round.
+                rows = planes.shape[0]
+                planes = pad_rows(planes, 4096)
+                mask = pad_rows(legal[chunk], 4096, True)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    _logits, value = learn(planes, legal[chunk])
-                guess[chunk] = value.float()
+                    _logits, value = learn(planes, mask)
+                guess[chunk] = value.float()[:rows]
         value_error = float(((returns - guess) ** 2).mean())
         advantages = returns - guess
         advantage_spread = float(advantages.std())
@@ -199,7 +204,8 @@ def main() -> None:
                 order[start_index : start_index + args.batch]
                 for start_index in range(0, batch.decisions, args.batch)
             ]
-            slices = [drawn for drawn in slices if drawn.numel() >= 2]
+            # Whole minibatches only, so the compiled step sees one shape.
+            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
 
             def prepare(drawn: torch.Tensor):
                 # The gather on the host runs a few minibatches ahead of
