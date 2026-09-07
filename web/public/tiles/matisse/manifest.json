@@ -96,6 +96,23 @@
       "notes": "Dance B: two sweeping green bamboo forms on a pale mint field. All printed artwork stays green for All Green; multiple shades are intentional."
     },
     {
+      "name": "Sou4",
+      "tile": "4s",
+      "label": "4 bamboo",
+      "status": "approved",
+      "png": "approved/Sou4.png",
+      "svg": "approved/Sou4.svg",
+      "source": "docs/design/matisse/studies/four-bamboo-b-approved.png",
+      "sourceSha256": "457a11eb0fbbe2b368cd306e589a30f929a28f28a76c2bc18d85016f180623f6",
+      "crop": {
+        "x": 586,
+        "y": 119,
+        "width": 500,
+        "height": 700
+      },
+      "notes": "Chapel B: four pale-green sculptural bamboo cut-outs on a deep forest-green field. All artwork stays green for All Green. The flat face excludes the study labels and surround, with the shared full-face fit and rounded clipping."
+    },
+    {
       "name": "Sou5",
       "tile": "5s",
       "label": "5 bamboo",
@@ -377,12 +394,6 @@
       "name": "Sou3",
       "label": "3 bamboo",
       "svg": "placeholders/Sou3.svg"
-    },
-    {
-      "tile": "4s",
-      "name": "Sou4",
-      "label": "4 bamboo",
-      "svg": "placeholders/Sou4.svg"
     },
     {
       "tile": "2z",

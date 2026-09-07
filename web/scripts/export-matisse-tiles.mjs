@@ -20,6 +20,7 @@ const definitions = [
   ['Pin3', '3p', '3 dots', 'approved', '03-dots-and-bamboo.png', [77, 99, 604, 835], 'Blue, red and green rosettes on ivory.'],
   ['Pin5', '5p', '5 dots', 'approved', '02-five-dot-study.png', [77, 231, 410, 572], 'Five black and ivory rosettes on yellow.'],
   ['Sou2', '2s', '2 bamboo', 'approved', '08-two-bamboo-approved.png', [495, 174, 465, 769], 'Dance B: two sweeping green bamboo forms on a pale mint field. All printed artwork stays green for All Green; multiple shades are intentional.'],
+  ['Sou4', '4s', '4 bamboo', 'approved', 'four-bamboo-b-approved.png', [586, 119, 500, 700], 'Chapel B: four pale-green sculptural bamboo cut-outs on a deep forest-green field. All artwork stays green for All Green. The flat face excludes the study labels and surround, with the shared full-face fit and rounded clipping.'],
   ['Sou5', '5s', '5 bamboo', 'approved', '09-five-bamboo-approved.png', [963, 256, 448, 640], 'Fan C: four pale-green bamboo sprigs and a bold red centre on a deep forest-green field. Exactly five complete sprigs; the red accent distinguishes this tile from All Green tiles.'],
   ['Sou6', '6s', '6 bamboo', 'approved', 'six-bamboo-c-approved.png', [1036, 172, 472, 671], 'Approved C: six jointed cut-paper bamboo forms in three staggered pairs on pale sage. All printed artwork stays green for All Green; multiple shades are intentional.'],
   ['Sou7', '7s', '7 bamboo', 'approved', '09-seven-bamboo-approved.png', [1037, 115, 468, 719], 'Cut-out C: one coral and six green abstract forms circling an open centre on butter yellow. Seven separated silhouettes preserve the tile count.'],
@@ -105,7 +106,7 @@ const table=document.getElementById('table');
 function picture(tile){const image=document.createElement('img');image.src=tile.src;image.alt=tile.label;image.title=tile.label;image.width=300;image.height=400;return image}
 for(const tile of tiles){const card=document.createElement('div');card.className='card';card.append(picture(tile));const label=document.createElement('p');label.textContent=tile.label;card.append(label);const badge=document.createElement('span');badge.className='badge';badge.textContent='Approved';card.append(badge);document.getElementById('approved').append(card)}
 function updateSize(){const w=rack.firstElementChild?.getBoundingClientRect().width||0;document.getElementById('size').textContent=w.toFixed(1)+' × '+(w*4/3).toFixed(1)+' CSS px per tile · 14 tiles · scroll horizontally if needed; the preview is not scaled down.'}
-function draw(){const names=['Man7','Pin1','Pin2','Pin5','Haku','Sou1','Sou2','Sou5','Sou6','Sou7','Sou8','Sou9','Ton','Hatsu'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
+function draw(){const names=['Man7','Pin1','Pin2','Haku','Sou1','Sou2','Sou4','Sou5','Sou6','Sou7','Sou8','Sou9','Ton','Hatsu'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
 document.getElementById('width').addEventListener('change',draw);new ResizeObserver(updateSize).observe(rack);draw();
 </script></body></html>`;
 writeFileSync(path.join(out, 'preview.html'), html);
