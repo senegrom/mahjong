@@ -168,7 +168,9 @@ runs the same self-play loop with Mortal as the learner (its Q values are
 the policy's logits, a fresh value head on its features is the baseline,
 its batch-normalisation statistics stay frozen), and saves in Mortal's
 own checkpoint layout. The two lineages sit in a share of each other's
-games, so each is trained against the other.
+games, so each is trained against the other. After thirty generations
+the fine-tuned Mortal beat the original at one table by +0.061 placement
+at 3.6 standard errors.
 
 Still to come: replays in the browser. The plan is in
 [docs/PLAN.md](docs/PLAN.md).
