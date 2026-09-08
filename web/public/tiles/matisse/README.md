@@ -10,7 +10,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pin2.svg](approved/Pin2.svg) | 2 disks | B: yellow and magenta rosettes with contrasting petals on ultramarine |
 | [Pin3.svg](approved/Pin3.svg) | 3 disks | C: apricot, mint and carmine rosettes in a loose S on deep purple |
 | [Pin4.svg](approved/Pin4.svg) | 4 disks | Éclipse A: four irregular ultramarine rings with vermilion wedges on warm ivory |
-| [Pin5.svg](approved/Pin5.svg) | 5 dots | Five black and ivory rosettes on yellow |
+| [Pin5.svg](approved/Pin5.svg) | 5 disks | Five black disks with ivory rosettes on yellow that fills the entire face |
 | [Pin6.svg](approved/Pin6.svg) | 6 disks | C: six coral, chartreuse and orange rosettes with broad open cuts on forest green |
 | [Pin7.svg](approved/Pin7.svg) | 7 disks | Ivory Garden A: seven blue, vermilion and green rosettes in a loose 2-3-2 arrangement on ivory |
 | [Pin8.svg](approved/Pin8.svg) | 8 disks | Cut & Swap C: eight indigo and chartreuse disks across a sweeping divided field, with coral inserts |
@@ -47,6 +47,8 @@ Choose **Options → Tile face → Matisse**. All 33 approved faces, including t
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
 ## Next design directions
+
+The 5 disks tile uses `five-disks-full-bleed-yellow.png`: the five black disks and ivory rosettes retain their quincunx arrangement, with sunflower yellow extending to every edge. The former ivory rim, bevel and shadow have been removed. The full 1060 × 1484 flat source is exported without cropping the motifs, using the shared 3:4 face, bleed and rounded clipping. The original rimmed study remains in `02-five-dot-study.png` as a design reference.
 
 The 8 disks tile uses **Cut & Swap C** from `eight-disks-c-approved.png`: eight indigo and chartreuse disks in four pairs exchange colours across a sweeping divided field, with two coral accents inside the disks. The lossless export preserves all eight complete symbols and excludes the study label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping and completes the disk suit.
 

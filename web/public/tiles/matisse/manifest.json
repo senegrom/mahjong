@@ -81,19 +81,19 @@
     {
       "name": "Pin5",
       "tile": "5p",
-      "label": "5 dots",
+      "label": "5 disks",
       "status": "approved",
       "png": "approved/Pin5.png",
       "svg": "approved/Pin5.svg",
-      "source": "docs/design/matisse/studies/02-five-dot-study.png",
-      "sourceSha256": "491a299f3dc30c61b31cba6a134b1903d0927dbd55ea54b20385d909feecba95",
+      "source": "docs/design/matisse/studies/five-disks-full-bleed-yellow.png",
+      "sourceSha256": "8b8e64cf6a984dbcf8471114755d473eaec638d9879b9484f052401e4762142e",
       "crop": {
-        "x": 77,
-        "y": 231,
-        "width": 410,
-        "height": 572
+        "x": 0,
+        "y": 0,
+        "width": 1060,
+        "height": 1484
       },
-      "notes": "Five black and ivory rosettes on yellow."
+      "notes": "Five black disks with ivory cut-paper rosettes on a full-bleed sunflower-yellow field. Yellow reaches every edge of the face, with no ivory rim, bevel or surrounding shadow. The complete flat source is preserved with the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Pin6",
