@@ -9,6 +9,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pin1.svg](approved/Pin1.svg) | 1 dot | Black disk, ivory rosette, yellow field: direction B |
 | [Pin2.svg](approved/Pin2.svg) | 2 disks | B: yellow and magenta rosettes with contrasting petals on ultramarine |
 | [Pin3.svg](approved/Pin3.svg) | 3 disks | C: apricot, mint and carmine rosettes in a loose S on deep purple |
+| [Pin4.svg](approved/Pin4.svg) | 4 disks | C: magenta and yellow rosettes with exchanged colours on turquoise |
 | [Pin5.svg](approved/Pin5.svg) | 5 dots | Five black and ivory rosettes on yellow |
 | [Pin7.svg](approved/Pin7.svg) | 7 disks | Ivory Garden A: seven blue, vermilion and green rosettes in a loose 2-3-2 arrangement on ivory |
 | [Pin9.svg](approved/Pin9.svg) | 9 disks | Orbit B: eight yellow, mint and pink rosettes around a larger apricot centre on deep purple |
@@ -32,11 +33,13 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All 23 approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 11 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All twenty-four approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 10 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
 ## Next design directions
+
+The 4 disks tile uses **C** from `four-disks-c-approved.png`: four magenta and yellow rosettes with exchanged colours on turquoise. The export preserves the selected source pixels and excludes the study label and board, using the shared 3:4 face, bleed and rounded clipping.
 
 The 3 disks tile uses **C** from `three-disks-c-approved.png`: three separate apricot, mint and carmine rosettes on deep purple. It replaces the earlier ivory design, whose source remains in `03-dots-and-bamboo.png`. The export excludes the study label and surrounding board and uses the shared 3:4 face, bleed and rounded clipping.
 
@@ -78,4 +81,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 23 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The twenty-four approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.

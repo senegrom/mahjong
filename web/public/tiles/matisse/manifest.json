@@ -62,6 +62,23 @@
       "notes": "C: three apricot, mint and carmine cut-paper rosettes in a loose S on deep purple, with coloured centres."
     },
     {
+      "name": "Pin4",
+      "tile": "4p",
+      "label": "4 disks",
+      "status": "approved",
+      "png": "approved/Pin4.png",
+      "svg": "approved/Pin4.svg",
+      "source": "docs/design/matisse/studies/four-disks-c-approved.png",
+      "sourceSha256": "5e1bb7032f99c5cfb57f395c98f9b4e3692dd9dcdde0df6e32a2f07348386a30",
+      "crop": {
+        "x": 1281,
+        "y": 22,
+        "width": 563,
+        "height": 731
+      },
+      "notes": "C: four magenta and yellow cut-paper rosettes with exchanged colours and turquoise centres on a turquoise field."
+    },
+    {
       "name": "Pin5",
       "tile": "5p",
       "label": "5 dots",
@@ -448,12 +465,6 @@
       "name": "Man9",
       "label": "9 characters",
       "svg": "placeholders/Man9.svg"
-    },
-    {
-      "tile": "4p",
-      "name": "Pin4",
-      "label": "4 circles",
-      "svg": "placeholders/Pin4.svg"
     },
     {
       "tile": "6p",
