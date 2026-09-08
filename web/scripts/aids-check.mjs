@@ -61,7 +61,7 @@ try {
     page.evaluate(() => ({
       myTurn: [...document.querySelectorAll('.hand button.tile')].some((b) => !b.disabled),
       over: !!document.querySelector('[aria-label="how the hand ended"]'),
-      indicators: [...document.querySelectorAll('.dora .tile')].map((t) =>
+      indicators: [...document.querySelectorAll('.indicators .tile')].map((t) =>
         t.getAttribute('aria-label'),
       ),
       hand: [...document.querySelectorAll('.hand .tile')].map((t) => ({
@@ -88,10 +88,10 @@ try {
     // What the rules say the dora are, worked out here rather than asked of
     // the page. A tile several indicators point at is dora several times.
     const dora = now.indicators.map((words) => doraOf(fromWords(words))).filter(Boolean);
-    if (dora.length === now.indicators.length && now.hand.length) {
+    if (now.indicators.length && dora.length === now.indicators.length && now.hand.length) {
       let expected = 0;
       for (const tile of now.hand) {
-        const named = fromWords(tile.words.replace(', dora', ''));
+        const named = fromWords(tile.words.split(',')[0].trim());
         const times = dora.filter((each) => each === named).length;
         expected += times;
         if (times > 0 !== tile.marked) {

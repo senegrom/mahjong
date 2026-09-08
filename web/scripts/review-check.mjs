@@ -69,8 +69,11 @@ try {
   if (!ended.over) throw new Error(`the hand did not end within ${LIMIT / 1000}s`);
 
   const opened = await page.evaluate(() => {
+    // What the button says depends on whether the match is over, and the
+    // older wording is kept so this check reads either interface.
+    const words = ['Review final hand', 'View table / my hand', 'Look at my hand again'];
     const button = [...document.querySelectorAll('button')].find((b) =>
-      b.textContent.includes('Look at my hand again'),
+      words.some((said) => b.textContent.includes(said)),
     );
     if (!button) return false;
     button.click();

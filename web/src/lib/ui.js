@@ -119,3 +119,35 @@ export function unseenTileCounts(view) {
   for (const tile of view?.dora_indicators ?? []) see(tile);
   return left;
 }
+
+// What each kind of set is called when it is made. A quad is a Kan however
+// it came about: claimed from a discard, drawn concealed, or extended from
+// a triplet already on the table.
+const CALL_WORDS = {
+  chii: 'Chii',
+  pon: 'Pon',
+  'claimed-kan': 'Kan',
+  'extended-kan': 'Kan',
+  'concealed-kan': 'Kan',
+};
+
+/**
+ * The set a seat has just called, as the word said at the table, or `''`
+ * when nothing was. `before` and `after` are that seat's meld kinds,
+ * oldest first, either side of a change.
+ *
+ * A call is an event rather than a state: it is said when it happens and
+ * then goes quiet, because the meld itself goes on showing what was
+ * called. Sets that were already there when the seat came into view — a
+ * restored match, the next deal, a different person in the chair — were
+ * not called in front of anyone, so they say nothing. Extending a triplet
+ * into a quad changes a set in place without adding one, and that is a
+ * call too.
+ */
+export function calledSet(before, after) {
+  if (!Array.isArray(before) || !Array.isArray(after)) return '';
+  if (after.length < before.length) return '';
+  const changed = after.findIndex((kind, at) => kind !== before[at]);
+  if (changed === -1) return '';
+  return CALL_WORDS[after[changed]] ?? '';
+}

@@ -1,5 +1,8 @@
 <script>
+  import { onDestroy } from 'svelte';
+
   import { OPPONENT_LABELS } from './opponents.js';
+  import { calledSet } from './ui.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
 
@@ -11,10 +14,40 @@
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
-  // Riichi remains a live table state. Pon/Chii/Kan are already visible in
-  // the meld itself, so a transient call must not leave a stale badge for
-  // the rest of the hand.
-  let announcement = $derived(seat.riichi ? 'Riichi' : '');
+  // How long a call is said for: long enough to read from across the
+  // table, gone well before the next one is made.
+  const SAID_FOR = 2500;
+
+  // Riichi is a live state of the table, so it stays for as long as it
+  // lasts. A call is an event, so it is said as it happens and then goes
+  // quiet: the meld itself goes on showing what was called, and a badge
+  // that stayed would be announcing something ten turns old.
+  let called = $state('');
+  let melds = null;
+  let seated = null;
+  // The seat's view is a new object on every event, so this effect runs
+  // many times a turn. The timer is held here rather than returned as the
+  // effect's teardown, which each of those runs would cancel.
+  let timer;
+
+  $effect(() => {
+    const now = seat.melds.map((meld) => meld.kind);
+    const person = seat.player;
+    // Nobody remembered in this chair yet, or a different person in it,
+    // is the first look or the next deal, and neither is a call.
+    const was = seated === person ? melds : null;
+    melds = now;
+    seated = person;
+    const word = calledSet(was, now);
+    if (!word) return;
+    called = word;
+    clearTimeout(timer);
+    timer = setTimeout(() => { called = ''; }, SAID_FOR);
+  });
+
+  onDestroy(() => clearTimeout(timer));
+
+  let announcement = $derived(seat.riichi ? 'Riichi' : called);
   const shortScore = score => `${(score / 1000).toFixed(1)}k`;
 </script>
 
@@ -109,7 +142,7 @@
     border-radius: 50%;
   }
 
-  /* Persistent riichi state, said where it happened. */
+  /* Riichi while it lasts, and a call as it is made, said where it happened. */
   .called {
     margin-left: auto;
     font-size: 0.75rem;
@@ -120,7 +153,7 @@
     animation: settle 0.5s ease-out forwards;
   }
 
-  /* It arrives with a little emphasis and then stays while riichi is live. */
+  /* It arrives with a little emphasis, and a call fades again on its own. */
   @keyframes settle {
     0% {
       opacity: 0;

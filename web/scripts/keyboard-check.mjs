@@ -22,7 +22,30 @@ try {
       ),
       myTurn: (document.querySelector('.prompt')?.textContent ?? '').includes('Your turn'),
       discards: document.querySelectorAll('.mine .pool .tile').length,
+      over: !!document.querySelector('.screen h2'),
+      offered: [...document.querySelectorAll('.controls button')].length > 0,
     }));
+
+  // A call offered to the player holds the hand until it is answered, and
+  // this check is about discarding, so it declines and plays on.
+  const pass = () =>
+    page.evaluate(() => {
+      const button = [...document.querySelectorAll('.controls button')].find(
+        (each) => each.textContent.trim() === 'Pass',
+      );
+      button?.click();
+      return Boolean(button);
+    });
+
+  // A hand that is over gives nobody a turn, so the next one is dealt.
+  const nextHand = () =>
+    page.evaluate(() => {
+      const button = [...document.querySelectorAll('button')].find((each) =>
+        ['Next hand', 'Play again'].includes(each.textContent.trim()),
+      );
+      button?.click();
+      return Boolean(button);
+    });
 
   // Three ways in, all of which a person might use: the number keys, the
   // arrow keys with Enter, and zero for the tile just drawn. The numbers
@@ -31,8 +54,22 @@ try {
   const ways = ['1', 'arrows', '0'];
   let played = 0;
   let marked = 0;
-  for (let attempt = 0; attempt < 90 && played < ways.length; attempt += 1) {
+  // Waiting for the opponents to think is not an attempt at anything, and
+  // on a loaded machine they think for longer. Two minutes is many turns
+  // even then, and the failure it reports stays a real one.
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline && played < ways.length) {
     const before = await read();
+    if (before.over) {
+      await nextHand();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      continue;
+    }
+    if (before.offered) {
+      await pass();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      continue;
+    }
     if (!before.myTurn) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       continue;
@@ -56,7 +93,7 @@ try {
     }
     await new Promise((resolve) => setTimeout(resolve, 600));
     const after = await read();
-    if (after.discards > before.discards) played += 1;
+    if (after.discards > before.discards || after.over) played += 1;
     else throw new Error(`${way} did not discard anything`);
   }
 

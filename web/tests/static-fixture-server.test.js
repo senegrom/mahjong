@@ -15,7 +15,17 @@ test('fixture server reports real HTTP statuses without exposing other files', a
   await writeFile(join(root, 'app.js'), 'export const ready = true;');
   await writeFile(join(publicRoot, 'tiles', 'Back.svg'), '<svg/>');
   await writeFile(join(temp, 'outside.txt'), 'not public');
-  await symlink(join(temp, 'outside.txt'), join(root, 'escape.txt'));
+  // Making a symlink needs a right Windows does not grant by default. The
+  // link is the only part of this that needs it, so where it cannot be
+  // made, everything else is still checked.
+  let linked = true;
+  try {
+    await symlink(join(temp, 'outside.txt'), join(root, 'escape.txt'));
+  } catch (error) {
+    if (error.code !== 'EPERM') throw error;
+    linked = false;
+    t.diagnostic('symlinks are not permitted here, so the escaping link was not checked');
+  }
   const server = createServer(createFixtureHandler({ root, publicRoot }));
   t.after(async () => {
     await new Promise((done, reject) => server.close(error => error ? reject(error) : done()));
@@ -59,7 +69,9 @@ test('fixture server reports real HTTP statuses without exposing other files', a
     }
   });
   await t.test('encoded traversal and escaping symlinks return 403', async () => {
-    for (const path of ['/mahjong/..%2Foutside.txt', '/mahjong/%2Fetc/passwd', '/mahjong/escape.txt', '/mahjong/tiles/..%2F..%2Foutside.txt']) {
+    const escapes = ['/mahjong/..%2Foutside.txt', '/mahjong/%2Fetc/passwd', '/mahjong/tiles/..%2F..%2Foutside.txt'];
+    if (linked) escapes.push('/mahjong/escape.txt');
+    for (const path of escapes) {
       const result = await get(path);
       assert.equal(result.status, 403, path);
       assert.equal(result.body, '');
