@@ -23,6 +23,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Sou9.svg](approved/Sou9.svg) | 9 bamboo | Vestment B: three triads of green, ivory and chartreuse bamboo ribbons on ultramarine |
 | [Ton.svg](approved/Ton.svg) | East wind | Ribbon lettering B, blue with a red stroke on pale yellow |
 | [Shaa.svg](approved/Shaa.svg) | West wind | Cut-out C: ivory 西 and a cobalt-blue top stroke on vermilion |
+| [Pei.svg](approved/Pei.svg) | North wind | Ribbon Dance B: lemon and coral-pink 北 with a mint accent on ultramarine |
 | [Chun.svg](approved/Chun.svg) | Red dragon | Red cut-paper 中 on pink: direction B |
 | [Sou1.svg](approved/Sou1.svg) | 1 bamboo | Blue and green cut-paper bird on a bamboo perch |
 | [Hatsu.svg](approved/Hatsu.svg) | Green dragon | Ivory 發 cut out of emerald green: style C |
@@ -33,11 +34,13 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All twenty-four approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 10 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All 25 approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 9 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
 ## Next design directions
+
+North wind uses **Ribbon Dance B** from the corrected board `north-wind-b-approved.png`: lemon and coral-pink 北 with a mint accent on ultramarine. The complete character includes its diagonal right-hand arm. The crop preserves the approved source pixels, excludes the study label and surround, and uses the shared 3:4 face, bleed and rounded clipping.
 
 The 4 disks tile uses **Éclipse A** from `four-disks-a-eclipse-approved.png`: four irregular ultramarine rings with vermilion wedges on warm ivory, arranged in an asymmetric cut-paper dance. It replaces the earlier turquoise C design, whose source remains in `four-disks-c-approved.png`. The export preserves the newly selected source pixels and excludes the study label and board, using the shared 3:4 face, bleed and rounded clipping.
 
@@ -81,4 +84,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The twenty-four approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 25 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.

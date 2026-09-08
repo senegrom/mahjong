@@ -300,6 +300,23 @@
       "notes": "Cut-out C: sculptural ivory 西 with a cobalt-blue top stroke on vermilion. The flat crop excludes the study label and surround, using the shared full-face fit, bleed and rounded clipping."
     },
     {
+      "name": "Pei",
+      "tile": "4z",
+      "label": "North wind",
+      "status": "approved",
+      "png": "approved/Pei.png",
+      "svg": "approved/Pei.svg",
+      "source": "docs/design/matisse/studies/north-wind-b-approved.png",
+      "sourceSha256": "fc4d834b152c9a9d55b6154008afee3153b288a6228c66440618590b4789e2e0",
+      "crop": {
+        "x": 579,
+        "y": 85,
+        "width": 523,
+        "height": 700
+      },
+      "notes": "Ribbon Dance B: lemon and coral-pink 北 with a mint accent on ultramarine. The corrected five-stroke character includes the diagonal arm on the right. The flat crop preserves the selected artwork and excludes the label and surround, using the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Chun",
       "tile": "7z",
       "label": "Red dragon",
@@ -483,12 +500,6 @@
       "name": "Nan",
       "label": "south wind",
       "svg": "placeholders/Nan.svg"
-    },
-    {
-      "tile": "4z",
-      "name": "Pei",
-      "label": "north wind",
-      "svg": "placeholders/Pei.svg"
     }
   ]
 }
