@@ -187,15 +187,15 @@
       "status": "approved",
       "png": "approved/Sou3.png",
       "svg": "approved/Sou3.svg",
-      "source": "docs/design/matisse/studies/three-bamboo-rimless-approved.png",
-      "sourceSha256": "91bfeaa5b8537f7e8df258f0183e92a3d4660e1206ff72d72867ea8facbab974",
+      "source": "docs/design/matisse/studies/three-bamboo-b-chapel-windows-approved.png",
+      "sourceSha256": "3afacd21bcb6fcf2ece692d65c2f3380c7bbbf0a1e5fe6ee1b81fe0de1cfa6da",
       "crop": {
         "x": 0,
         "y": 0,
         "width": 1086,
         "height": 1448
       },
-      "notes": "Approved rim-free update of the original Chasuble B: three ivory jointed bamboo cut-outs, one above two, on edge-to-edge forest green. The complete flat 3:4 artwork has no ivory rim or physical bevel and uses the shared bleed and rounded clipping. Green and neutral ivory preserve the All Green palette."
+      "notes": "Chapel Windows B: three deep-forest bamboo silhouettes, one above two, cut through a flowing mint-green field on emerald. Every visible part of the face stays green for All Green. The complete approved 1086 × 1448 source is preserved losslessly, with colour reaching every edge and the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Sou4",

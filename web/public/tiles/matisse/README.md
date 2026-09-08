@@ -16,7 +16,7 @@ A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs an
 | [Pin8.svg](approved/Pin8.svg) | 8 disks | Cut & Swap C: eight indigo and chartreuse disks across a sweeping divided field, with coral inserts |
 | [Pin9.svg](approved/Pin9.svg) | 9 disks | Orbit B: eight yellow, mint and pink rosettes around a larger apricot centre on deep purple |
 | [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Cut & Swap C: two mint and forest-green bamboo cut-outs across a sweeping divided green field |
-| [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Rim-free Chasuble B: three ivory jointed cut-outs, one above two, on edge-to-edge forest green |
+| [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Chapel Windows B: three deep-forest bamboo silhouettes cut through a flowing mint-green field on emerald |
 | [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
 | [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Fan C: four pale-green sprigs and a red centre on deep forest green |
 | [Sou6.svg](approved/Sou6.svg) | 6 bamboo | Green Carnival D: six distinct abstract green cut-outs dance around an open centre on deep forest green |
@@ -51,7 +51,7 @@ White dragon uses the quiet and [lit](approved/Haku-foil.svg) **Dance B** export
 
 The 7 bamboo tile uses **Leap A**, the explicitly selected blue-background candidate, from `seven-bamboo-a-leap-approved.png`: one coral and six green cut-paper silhouettes leap and curl across electric blue. All seven forms remain separate and countable. The complete flat 1086 × 1448 source is exported losslessly, with colour reaching all four edges and corners, no white rim, and the shared 3:4 face, bleed and rounded clipping. The earlier yellow Cut-out C study remains in `09-seven-bamboo-approved.png` as a design reference.
 
-The rim-free 1 disk, 3 bamboo and 7 characters revisions use `one-disk-rimless-approved.png`, `three-bamboo-rimless-approved.png` and `seven-characters-rimless-approved.png`. Golden yellow, forest green and deep purple now reach every edge without ivory rims, photographed bevels or surrounding shadows. Each complete 1086 × 1448 source is preserved at native resolution and uses the shared 3:4 face, bleed and rounded clipping. The former source studies remain available in the same directory.
+The rim-free 1 disk and 7 characters revisions use `one-disk-rimless-approved.png` and `seven-characters-rimless-approved.png`. Golden yellow and deep purple now reach every edge without ivory rims, photographed bevels or surrounding shadows. Each complete 1086 × 1448 source is preserved at native resolution and uses the shared 3:4 face, bleed and rounded clipping. The former source studies remain available in the same directory.
 
 The 5 disks tile uses **Five Suns** from `five-disks-five-suns-approved.png`: five distinct cobalt, vermilion, raspberry and mint cut-paper disks surround an oversized centre on sunflower yellow. Hooked petals, a pinwheel, leaf forms and a crescent give each disk its own character. Yellow reaches every edge, with no ivory rim, bevel or shadow. The full approved 1086 × 1448 artwork is exported losslessly using the shared 3:4 face, bleed and rounded clipping. The earlier black-and-ivory full-bleed version and original rimmed study remain as design references.
 
@@ -81,7 +81,7 @@ The 1 bamboo tile uses **Carnival C** from `one-bamboo-c-green-background-approv
 
 The 2 bamboo tile uses **Cut & Swap C** from `two-bamboo-c-cut-and-swap-approved.png`: two jointed mint and forest-green bamboo cut-outs exchange foreground and background colours across a sweeping divided green field. Both complete forms remain distinct, and every visible part of the face stays green for All Green. The lossless crop preserves the exact selected artwork, excludes the presentation label and surrounding board, and uses the shared 3:4 face, bleed and rounded clipping with no inset rim. It replaces the earlier Dance B design, whose source remains in `08-two-bamboo-approved.png`.
 
-The 3 bamboo tile uses the approved rim-free update of the original **Chasuble B** in `three-bamboo-rimless-approved.png`: three ivory jointed bamboo cut-outs, one above two, on uninterrupted forest green. The complete flat source uses the shared 3:4 face, bleed and rounded clipping. Its green and neutral ivory palette remains appropriate for All Green. The original three-direction board is retained in `three-bamboo-original-b-approved.jpg`.
+The 3 bamboo tile uses **Chapel Windows B** from `three-bamboo-b-chapel-windows-approved.png`: three deep-forest bamboo silhouettes, one above two, cut through a flowing mint-green field on emerald. All artwork stays green for All Green. The exact selected 1086 × 1448 artwork is preserved in full, with colour reaching every edge and no ivory rim, bevel or shadow. The lossless export uses the shared 3:4 face, bleed and rounded clipping. It replaces Chasuble B; the earlier `three-bamboo-rimless-approved.png` and original `three-bamboo-original-b-approved.jpg` remain as design history.
 
 The 4 bamboo tile uses **Chapel B** from `four-bamboo-b-approved.png`: four pale-green sculptural cut-outs on a deep forest-green field. The lossless crop contains only the flat artwork, preserving the all-green palette. It uses the same 3:4 face, bleed and rounded clipping as the other approved tiles.
 
