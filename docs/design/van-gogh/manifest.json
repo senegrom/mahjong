@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "id": "van-gogh",
+  "name": "Van Gogh",
+  "status": "concept",
+  "created": "2026-09-08",
+  "basedOnMatisseCommit": "17a6cae320eb302da6adcd8bd8a899a103fbd278",
+  "presentation": {
+    "source": "studies/01-van-gogh-concepts.png",
+    "width": 1254,
+    "height": 1254,
+    "sha256": "d9293eeff896f948918a8539ccfffeb8a26e4176f22401ca227b7e636d69ed91",
+    "type": "concept-sheet",
+    "columns": 3,
+    "rows": 2,
+    "includesCaptions": true
+  },
+  "intendedFace": {
+    "width": 300,
+    "height": 400,
+    "radius": 26,
+    "bleed": 3,
+    "verticalBleed": 4,
+    "preserveAspectRatio": "none"
+  },
+  "productionReady": false,
+  "studies": [
+    {
+      "study": "A",
+      "tile": "1p",
+      "name": "Pin1",
+      "label": "1 disk",
+      "direction": "Sunflower",
+      "row": 1,
+      "column": 1,
+      "status": "concept"
+    },
+    {
+      "study": "B",
+      "tile": "5p",
+      "name": "Pin5",
+      "label": "5 disks",
+      "direction": "Five Stars",
+      "row": 1,
+      "column": 2,
+      "status": "concept"
+    },
+    {
+      "study": "C",
+      "tile": "3s",
+      "name": "Sou3",
+      "label": "3 bamboo",
+      "direction": "Mistral",
+      "row": 1,
+      "column": 3,
+      "status": "concept"
+    },
+    {
+      "study": "D",
+      "tile": "3m",
+      "name": "Man3",
+      "label": "3 characters",
+      "direction": "Painted Letters",
+      "row": 2,
+      "column": 1,
+      "status": "concept"
+    },
+    {
+      "study": "E",
+      "tile": "7z",
+      "name": "Chun",
+      "label": "Red dragon",
+      "direction": "Vermilion",
+      "row": 2,
+      "column": 2,
+      "status": "concept"
+    },
+    {
+      "study": "F",
+      "tile": "5z",
+      "name": "Haku",
+      "label": "White dragon",
+      "direction": "Cloud Dragon",
+      "row": 2,
+      "column": 3,
+      "status": "concept"
+    }
+  ]
+}
