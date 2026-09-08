@@ -131,7 +131,13 @@ try {
         assert.ok(await choices(page), 'the choice never appeared');
         await play(page, 8);
         await page.select('select[aria-label="Trained opponent"]', 'strong');
-        await play(page, 12);
+        // The larger network is tens of megabytes and answers in a couple of
+        // hundred milliseconds, so this waits for it to arrive rather than
+        // counting moves, which would call a slow download a missing one.
+        const arrives = Date.now() + 90000;
+        while (Date.now() < arrives && !page.asked.includes('model-strong.onnx')) {
+          await play(page, 4);
+        }
         assert.ok(page.asked.some((name) => name === 'model-strong.onnx'),
           'the stronger network was never fetched');
         const remembered = await page.evaluate(

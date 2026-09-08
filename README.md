@@ -296,12 +296,23 @@ python -m neural.duel runs/student/latest.pt w320-run/published.pt
 python -m neural.export runs/student/latest.pt web/public/model-strong.onnx
 ```
 
+The first such student, 320 by 20 and taught for sixty rounds by the
+joined player at generation 59, agreed with its teacher on 88% of its
+moves and beat the network the site had been playing by **+0.130
+placement at 7.3 standard errors** over a thousand deals a seating. It
+ships as `model-strong.onnx`, 12.7 MB of int8 weights, and answers in 203
+milliseconds at the median where the small network answers in 44.
+
 The game offers the **Trained** tier only when `web/public/model.onnx` is
 present, so a checkout without one simply shows the two heuristic tiers.
 A build that also carries `model-strong.onnx` offers a choice of trained
 opponent, quick or strong, and downloads only the one chosen: the small
 network is a couple of megabytes and the larger one is tens of them, which
-is a poor thing to spend on a phone that did not ask for it.
+is a poor thing to spend on a phone that did not ask for it. The runtime in
+`web/runtime` was built with only the operators the small network needs, so
+the export quantises to int8 and refuses anything asking for more; channel
+attention, whose `ReduceMax` and `Sigmoid` are not there, is why the
+student is built with `--no-attention`.
 
 `node scripts/play-check.mjs <url>` plays the game in a real browser and
 reports the console, the moves and any failure. It is the only way to test
