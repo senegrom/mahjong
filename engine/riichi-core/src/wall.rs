@@ -39,6 +39,28 @@ pub struct Wall {
 }
 
 impl Wall {
+    /// A read-only wall for analysing a physical position. Unknown tiles are
+    /// never drawn or exposed to the policy; only the public counters and
+    /// indicators are meaningful. This wall must not be used to simulate play.
+    pub fn for_analysis(remaining: usize, indicators: &[Tile], quads: usize) -> Option<Wall> {
+        if remaining > 70 || quads > MAX_QUADS || indicators.len() != quads + 1 {
+            return None;
+        }
+        let live_end = SET_SIZE - DEAD_WALL - quads;
+        let mut tiles = vec![Tile::new(0); SET_SIZE];
+        for (index, tile) in indicators.iter().enumerate() {
+            tiles[SET_SIZE - DEAD_WALL + REPLACEMENTS + index * 2] = *tile;
+        }
+        Some(Wall {
+            tiles,
+            next_draw: live_end - remaining,
+            live_end,
+            replacements_taken: quads,
+            indicators_revealed: indicators.len(),
+            dice: 0,
+        })
+    }
+
     /// Builds and shuffles a wall, then reveals the first dora indicator.
     pub fn shuffled(rng: &mut Rng) -> Wall {
         let mut tiles = Vec::with_capacity(SET_SIZE);

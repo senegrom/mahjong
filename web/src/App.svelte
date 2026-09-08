@@ -10,6 +10,8 @@
   import ScoreScreen from './lib/ScoreScreen.svelte';
   import Standings from './lib/Standings.svelte';
   import Review from './lib/Review.svelte';
+  import AgentWatch from './lib/AgentWatch.svelte';
+  import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import { chooseAction, chosenModel, modelIsAvailable, reportProgress, resetPolicy, useModel } from './lib/policy.js';
   import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
   import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards, unseenTileCounts } from './lib/ui.js';
@@ -19,12 +21,13 @@
   import { normalizeOpponents, OPPONENT_LABELS, OPPONENT_TYPES, OPPONENT_POSITIONS } from './lib/opponents.js';
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
-  let storage = null;
-  try { storage = window.localStorage; } catch { /* Private/restricted browsing. */ }
+  const storage = (() => { try { return window.localStorage; } catch { return null; } })();
   const storageAvailable = Boolean(storage);
   const touch = matchMedia('(pointer: coarse)').matches;
   const preferences = readSettings(storage, touch);
   const requested = new URLSearchParams(location.search).get('opponents');
+  const requestedMode = new URLSearchParams(location.search).get('mode');
+  let mode = $state(['watch', 'physical'].includes(requestedMode) ? requestedMode : 'play');
   let difficulty = $state(['beginner', 'club', 'neural'].includes(requested) ? requested : preferences.difficulty);
   let opponents = $state(normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty));
   let draftOpponents = $state(['club', 'club', 'club']);
@@ -99,7 +102,7 @@
   // brought into view when it appears, by the shortest scroll that does
   // it and none at all when it is already there.
   $effect(() => {
-    if (!callChoices.length || !callElement) return;
+    if (mode !== 'play' || !callChoices.length || !callElement) return;
     const buttons = callElement.querySelector('.call-options') ?? callElement;
     const box = buttons.getBoundingClientRect();
     if (box.bottom <= window.innerHeight && box.top >= 0) return;
@@ -111,7 +114,7 @@
   // it, so the arrows and Enter work at once: the shortcuts only run with
   // focus inside the hand, which keeps them off the controls.
   $effect(() => {
-    if (busy || failure || saveConflict || !myTurn || !handElement || !shortcuts || touch) return;
+    if (mode !== 'play' || busy || failure || saveConflict || !myTurn || !handElement || !shortcuts || touch) return;
     const active = document.activeElement;
     if (!active || active === document.body || handElement.contains(active)) {
       handElement.focus({ preventScroll: true });
@@ -307,7 +310,7 @@
   }
 
   async function onKey(event) {
-    if (!shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
+    if (mode !== 'play' || !shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
     if (event.key === 'Escape') { picked = null; selected = null; return; }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
@@ -384,7 +387,7 @@
 
 <main>
   <header class="bar">
-    <h1><span>Riichi</span>{#if view}<span class="header-round"> · {NAMES[view.round]} {view.kyoku}</span>{/if}</h1>
+    <h1><span>Riichi</span>{#if mode === 'play' && view}<span class="header-round"> · {NAMES[view.round]} {view.kyoku}</span>{/if}</h1>
     <div class="compact-status" aria-label="app status">
       <span class="status-dot" class:ready={offline.coreReady}
         title={offline.coreReady ? 'Game available offline' : 'Offline preparation incomplete'}
@@ -393,7 +396,7 @@
         title={storageAvailable && !storageWarning && !saveConflict ? 'Match saving available' : 'Match saving needs attention'}
         aria-label={storageAvailable && !storageWarning && !saveConflict ? 'Match saving available' : 'Match saving needs attention'}>✓</span>
     </div>
-    <label class="opponents">
+    {#if mode === 'play'}<label class="opponents">
       <span>Opponents</span>
       <select value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
         <option value="beginner">Beginner</option>
@@ -401,23 +404,29 @@
         {#if trainedAvailable || opponents.includes('neural')}<option value="neural">Trained</option>{/if}
         <option value="custom">Custom table</option>
       </select>
-    </label>
+    </label>{/if}
     <button class="settings-trigger" aria-label="Game settings" aria-expanded={settingsOpen}
       onclick={() => settingsOpen = !settingsOpen}>⚙</button>
-    <button class="restart" onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>
+    {#if mode === 'play'}<button class="restart" onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>{/if}
   </header>
+
+  <nav class="game-modes" aria-label="Game mode">
+    {#each [['play', 'Play'], ['watch', 'Agent watch'], ['physical', 'Physical agent play']] as [key, label] (key)}
+      <button aria-pressed={mode === key} disabled={!ready || (mode === 'play' && busy)} onclick={() => { mode = key; settingsOpen = false; }}>{label}</button>
+    {/each}
+  </nav>
 
   {#if settingsOpen}<button class="settings-backdrop" aria-label="Close game settings" onclick={() => settingsOpen = false}></button>{/if}
   <div class="preferences" class:mobile-open={settingsOpen}>
   <div class="mobile-preferences-head"><strong>Game settings</strong><button onclick={() => settingsOpen = false}>Done</button></div>
-  <button class="mobile-new-game" onclick={() => { if (startFresh()) settingsOpen = false; }} disabled={!ready || Boolean(saveConflict)}>New game</button>
-  {#if difficulty === 'custom'}
+  {#if mode === 'play'}<button class="mobile-new-game" onclick={() => { if (startFresh()) settingsOpen = false; }} disabled={!ready || Boolean(saveConflict)}>New game</button>{/if}
+  {#if mode === 'play' && difficulty === 'custom'}
     <button class="edit-table" onclick={configureTable} disabled={!ready || Boolean(saveConflict)}>Edit opponents</button>
   {/if}
   <details class="options">
     <summary>Options</summary>
     <div class="option-fields">
-      {#if strongAvailable}
+      {#if strongAvailable && mode === 'play'}
         <label>Trained opponent
           <select value={trainedModel} onchange={(event) => chooseModel(event.currentTarget.value)}
             aria-label="Trained opponent">
@@ -569,7 +578,7 @@
     </section>
   {/if}
 
-  {#if failure}
+  {#if failure && (mode === 'play' || !ready)}
     <section class="failure" aria-label="game recovery">
       <p role="alert">{failure}</p>
       {#if !ready}<button onclick={() => location.reload()}>Reload to retry</button>{/if}
@@ -590,7 +599,11 @@
 
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
-  {:else if view}
+  {:else if ready && mode === 'watch'}
+    <AgentWatch {ready} {trainedAvailable} {strongAvailable} {opponents} {trainedModel} />
+  {:else if ready && mode === 'physical'}
+    <PhysicalPlay {ready} {trainedAvailable} {strongAvailable} {storage} />
+  {:else if mode === 'play' && view}
     <div class="board">
       <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player} /></div>
       <div class="place left"><Seat seat={left} side="left" dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player} /></div>
@@ -742,6 +755,9 @@
 </main>
 
 <style>
+  .game-modes { display: flex; gap: 6px; grid-column: 1 / -1; }
+  .game-modes button { flex: 1; min-width: 0; padding: 8px 6px; font-size: .8rem; }
+  .game-modes button[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: #0005; }
   .custom-dialog { width: min(460px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); box-sizing: border-box; padding: 20px; border: 1px solid var(--gold); border-radius: 12px; background: var(--felt-deep); color: var(--ivory); }
   .custom-dialog::backdrop { background: #000a; }
   .custom-dialog h2 { margin: 0; font-size: 1.15rem; }

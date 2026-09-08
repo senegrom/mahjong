@@ -19,6 +19,8 @@ use riichi_core::Wind;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+mod analysis;
+
 /// One tile in a discard row, as the interface needs it.
 #[derive(Serialize)]
 pub struct DiscardView {
@@ -437,6 +439,31 @@ impl Game {
             encoding::legal_mask(&self.hand, seat, &mut mask);
         }
         mask.iter().map(|flag| u8::from(*flag)).collect()
+    }
+
+    /// Policy inputs for the followed player, using exactly their information.
+    pub fn agent_observation(&self) -> Vec<f32> {
+        analysis::observation(&self.hand, self.seat)
+    }
+
+    /// Legal encoded choices, including every kind of claim, for Watch mode.
+    pub fn agent_choices(&self) -> Result<JsValue, JsValue> {
+        analysis::choices_value(&self.hand, self.seat)
+    }
+
+    pub fn agent_mask(&self) -> Vec<u8> {
+        analysis::mask(&self.hand, self.seat)
+    }
+
+    /// Samples a built-in agent once. The page retains this exact choice until
+    /// it is played; displaying it never asks the bot to make another choice.
+    pub fn agent_pick(&mut self, kind: &str) -> Result<JsValue, JsValue> {
+        let style = Controller::parse(kind)
+            .filter(|controller| *controller != Controller::Neural)
+            .ok_or_else(|| JsValue::from_str("choose a built-in agent"))?
+            .style();
+        self.bots[self.player].style = style;
+        analysis::pick_value(&self.hand, self.seat, &mut self.bots[self.player])
     }
 
     /// Takes the page's answer for that opponent.

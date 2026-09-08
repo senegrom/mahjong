@@ -10,6 +10,7 @@
 // The plain WebAssembly build: the WebGPU one carries a runtime many
 // times larger, for a network this small to gain nothing from.
 import * as ort from 'onnxruntime-web/wasm';
+import { policyWeights } from './policy-weights.js';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.simd = true;
@@ -84,7 +85,7 @@ function pick(logits, mask, temperature) {
 }
 
 self.onmessage = async (event) => {
-  const { id, url, runtimeBase, planes, mask, temperature } = event.data;
+  const { id, url, runtimeBase, planes, mask, temperature, details } = event.data;
   try {
     self.postMessage({ id, progress: 'loading the network' });
     const model = await load(url, runtimeBase);
@@ -92,7 +93,8 @@ self.onmessage = async (event) => {
     const input = new ort.Tensor('float32', planes, [1, planes.length / POSITIONS, POSITIONS]);
     const output = await model.run({ planes: input });
     const logits = output.policy.data;
-    self.postMessage({ id, action: pick(logits, mask, temperature ?? 0) });
+    const analysis = policyWeights(logits, mask);
+    self.postMessage({ id, action: pick(logits, mask, temperature ?? 0), ...(details ? { analysis } : {}) });
   } catch (error) {
     self.postMessage({ id, error: String(error) });
   }

@@ -7,6 +7,23 @@ the game from self-play on the very same engine.
 **[Play it](https://senegrom.github.io/mahjong/)** against Beginner, Club or
 Trained opponents, including a custom mix at one table.
 
+Two more ways to use the game are available from the mode bar:
+
+- **Agent watch** follows one selected agent through a full game. Choose
+  Beginner, Club, Trained Quick or Trained Strong independently for all four
+  seats. Run automatically, or pause before each followed decision to inspect
+  its choice weights and play that exact choice.
+- **Physical agent play** analyses a table you enter yourself: concealed hands,
+  drawn tiles, discards and their order, calls, riichi, scores, winds, honba,
+  wall count and dora indicators. Unknown hands can stay empty. Choose the
+  seat and adviser, inspect legal choices, and record the actual move or edit
+  the position. The physical draft saves on this device and edits can be undone.
+
+Trained-agent percentages are the policy's normalized weights over legal
+moves, **not win probabilities**. Beginner and Club display their selected
+move because those agents have no learned policy percentages. See
+[the mode guide](docs/AGENT_MODES.md) for physical-table entry and call handling.
+
 The rules live once, in Rust. That crate is compiled to WebAssembly for the
 browser and, later, to a Python extension for training, so the game a person
 plays and the game the opponents were trained on cannot drift apart.

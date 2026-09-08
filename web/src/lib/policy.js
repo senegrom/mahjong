@@ -32,7 +32,7 @@ function ensureWorker() {
   worker = current;
   current.onmessage = ({ data }) => {
     if (worker !== current) return;
-    const { id, action, error, progress } = data;
+    const { id, action, analysis, error, progress } = data;
     const pending = waiting.get(id);
     if (!pending) return;
     if (progress) {
@@ -40,7 +40,7 @@ function ensureWorker() {
       return;
     }
     if (error) pending.reject(new Error(error));
-    else pending.resolve(action);
+    else pending.resolve(analysis ?? action);
   };
   current.onerror = (event) => {
     if (worker === current) resetPolicy(new Error(event.message || 'The opponent worker failed'));
@@ -71,11 +71,20 @@ export async function modelIsAvailable(which = chosen) {
   } catch { return false; }
 }
 
-export async function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal) {
+export function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal, model = chosen) {
+  return requestPolicy(planes, mask, temperature, timeout, signal, model, false);
+}
+
+export function analyzePolicy(planes, mask, signal, model = chosen) {
+  return requestPolicy(planes, mask, 0, 20000, signal, model, true);
+}
+
+async function requestPolicy(planes, mask, temperature, timeout, signal, model, details) {
+  if (!MODEL_CHOICES.includes(model)) throw new Error('Unknown trained agent');
   // Download and durably save the model AND runtime before the inference
   // timeout starts. Recreating a worker or reopening offline uses these bytes.
   if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
-  const preparation = prepareOfflineAi(chosen);
+  const preparation = prepareOfflineAi(model);
   if (signal) {
     await new Promise((resolve, reject) => {
       const abort = () => { signal.removeEventListener('abort', abort); reject(new DOMException('Match changed', 'AbortError')); };
@@ -101,7 +110,7 @@ export async function chooseAction(planes, mask, temperature = 0, timeout = 2000
     waiting.set(id, { resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error) });
     signal?.addEventListener('abort', abort, { once: true });
     try {
-      ensureWorker().postMessage({ id, url: MODEL_URLS[chosen], runtimeBase: RUNTIME_BASE, planes, mask, temperature }, [planes.buffer]);
+      ensureWorker().postMessage({ id, url: MODEL_URLS[model], runtimeBase: RUNTIME_BASE, planes, mask, temperature, details }, [planes.buffer]);
     } catch (error) {
       resetPolicy(error);
     }
