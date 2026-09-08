@@ -289,15 +289,15 @@
       "status": "approved",
       "png": "approved/Ton.png",
       "svg": "approved/Ton.svg",
-      "source": "docs/design/matisse/studies/04-wind-calligraphy.png",
-      "sourceSha256": "4c9fa5e95cdc6a4a88816786f1af0b763a649379f5d8eb8a3e4597297c9333de",
+      "source": "docs/design/matisse/studies/east-wind-c-chapel-stencil-approved.png",
+      "sourceSha256": "b5fe6ac1a6f194a546b92a7e0a3b3980f37c4fc47a630c44bdfa4d9bd5654fe8",
       "crop": {
-        "x": 518,
-        "y": 225,
-        "width": 411,
-        "height": 579
+        "x": 1028,
+        "y": 176,
+        "width": 469,
+        "height": 680
       },
-      "notes": "Ribbon lettering B: blue with one red stroke on pale yellow."
+      "notes": "Chapel Stencil C from the second, bolder board: a broad deep-forest-green 東 with four coral-pink cut-out windows and an ivory upper crossbar on coral pink. The lossless crop preserves the selected source pixels and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping with no inset border."
     },
     {
       "name": "Nan",

@@ -22,7 +22,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Cut-out C: one coral and six green forms circling an open centre on butter yellow |
 | [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Wild Growth C: eight mint and dark-forest fronds bursting around an open centre on emerald |
 | [Sou9.svg](approved/Sou9.svg) | 9 bamboo | Vestment B: three triads of green, ivory and chartreuse bamboo ribbons on ultramarine |
-| [Ton.svg](approved/Ton.svg) | East wind | Ribbon lettering B, blue with a red stroke on pale yellow |
+| [Ton.svg](approved/Ton.svg) | East wind | Chapel Stencil C: sculptural deep-forest-green 東 with an ivory crossbar on coral pink |
 | [Nan.svg](approved/Nan.svg) | South wind | Chapel C: aubergine 南 with a carmine upper interior bar on saffron yellow |
 | [Shaa.svg](approved/Shaa.svg) | West wind | Cut-out C: ivory 西 and a cobalt-blue top stroke on vermilion |
 | [Pei.svg](approved/Pei.svg) | North wind | Ribbon Dance B: lemon and coral-pink 北 with a mint accent on ultramarine |
@@ -93,7 +93,9 @@ The 5 characters tile uses **Dance** from `five-characters-dance-approved.png`: 
 
 The 9 characters tile uses **Jazz** from `nine-characters-jazz-approved.png`: the exact sixth alternative selected by Carl, with fragmented coral 九 on a tilted cobalt shape, ivory 萬 at lower left and a yellow wedge on deep purple. The complete 1086 × 1448 flat source is exported losslessly, with the shared 3:4 face, bleed and rounded clipping. The later seventh alternative is not the selected artwork. See the [approved design notes](../../../../docs/design/matisse/character-directions.md).
 
-East uses Ribbon B. West uses **Cut-out C** from `west-wind-c-approved.png`: ivory 西 with a cobalt-blue top stroke on a full vermilion field. The lossless export uses the same 3:4 face, bleed and rounded clipping as the other tiles, with no inset border. Keep the flowing black calligraphy of East A available for another tile. White dragon uses the approved abstract blend of C and C1 in `07-white-dragon-approved.png`; the earlier detailed dragon was rejected.
+East uses **Chapel Stencil C** from the second, bolder board `east-wind-c-chapel-stencil-approved.png`: a broad deep-forest-green 東 with four coral-pink cut-out windows and an ivory upper crossbar on coral pink. The lossless crop preserves the selected source pixels while excluding the study label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping with no inset border. The earlier Ribbon B remains in `04-wind-calligraphy.png` as a historical reference.
+
+West uses **Cut-out C** from `west-wind-c-approved.png`: ivory 西 with a cobalt-blue top stroke on a full vermilion field. The lossless export uses the same 3:4 face, bleed and rounded clipping as the other tiles, with no inset border. Keep the flowing black calligraphy of East A available for another tile. White dragon uses the approved abstract blend of C and C1 in `07-white-dragon-approved.png`; the earlier detailed dragon was rejected.
 
 ## Preview and exports
 
@@ -103,7 +105,7 @@ Every face has a lossless PNG crop at its native resolution and a self-contained
 
 The game clips the face and foil together and draws one outer shadow. Hint rings follow that same outline, including small and rotated tiles, so the artwork cannot sit inside a second tile-shaped frame. The manifest's `facePresentation` field records the shared radius, bleed and fitting rule.
 
-[manifest.json](manifest.json) records tile IDs, approval status, source paths, SHA-256 hashes and exact crop rectangles. The original boards are in [docs/design/matisse/studies](../../../../docs/design/matisse/studies). They preserve the alternative East styles A and C as references; only B is the approved East face. The earlier regular-grid bamboo in the five-dot board is superseded by the fan design.
+[manifest.json](manifest.json) records tile IDs, approval status, source paths, SHA-256 hashes and exact crop rectangles. The original boards are in [docs/design/matisse/studies](../../../../docs/design/matisse/studies). They preserve the earlier East studies and the new bolder alternatives; only Chapel Stencil C from the second board is the current approved East face. The earlier regular-grid bamboo in the five-dot board is superseded by the fan design.
 
 To reproduce the exports, install Node.js and ImageMagick (`convert`), then run from the repository root:
 
