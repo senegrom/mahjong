@@ -419,6 +419,23 @@
       "notes": "Jazz A: yellow, ivory and pink strokes form 三 above a vermilion-and-pink 萬 with an oversized kicking stroke on deep purple. The lossless left-tile crop preserves the approved artwork, excludes the label and surround, and uses the shared 3:4 face, bleed and rounded clipping."
     },
     {
+      "name": "Man4",
+      "tile": "4m",
+      "label": "4 characters",
+      "status": "approved",
+      "png": "approved/Man4.png",
+      "svg": "approved/Man4.svg",
+      "source": "docs/design/matisse/studies/four-characters-c-ivory-approved.png",
+      "sourceSha256": "da18abc49405e2777e8515fe134054fb5ef87b66609ef45399f81c8383d744af",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      },
+      "notes": "Interlock C, with the requested ivory-white outer enclosure of 四, two upright yellow interior strokes and a sweeping pink 萬 on deep purple. The former red section is ivory-white. The complete flat 3:4 artwork is preserved at native resolution, using the shared bleed and rounded clipping."
+    },
+    {
       "name": "Man5",
       "tile": "5m",
       "label": "5 characters",
@@ -549,12 +566,6 @@
     }
   ],
   "placeholders": [
-    {
-      "tile": "4m",
-      "name": "Man4",
-      "label": "4 characters",
-      "svg": "placeholders/Man4.svg"
-    },
     {
       "tile": "8m",
       "name": "Man8",
