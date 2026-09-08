@@ -125,6 +125,7 @@
     class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
     class:cubist={tileFace === 'cubist' && !facedown && CUBIST_APPROVED.includes(tile)}
     class:van-gogh={tileFace === 'van-gogh' && !facedown && VAN_GOGH_APPROVED.includes(tile)}
+    class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
     class:dimmed
     class:muted
@@ -163,6 +164,7 @@
     class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
     class:cubist={tileFace === 'cubist' && !facedown && CUBIST_APPROVED.includes(tile)}
     class:van-gogh={tileFace === 'van-gogh' && !facedown && VAN_GOGH_APPROVED.includes(tile)}
+    class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
     class:dimmed
     class:muted
@@ -207,7 +209,7 @@
     flex: none;
   }
 
-  .tile.matisse, .tile.cubist, .tile.van-gogh {
+  .tile.matisse, .tile.cubist, .tile.dali, .tile.van-gogh {
     /* Match the SVG's 26-unit corners at every tile size. */
     --face-radius: calc(var(--face-width) * 26 / 300);
   }

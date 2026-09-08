@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "canvas": {
+    "width": 300,
+    "height": 400
+  },
+  "facePresentation": {
+    "radius": 26,
+    "bleed": 3,
+    "preserveAspectRatio": "none"
+  },
+  "tiles": [
+    {
+      "name": "Pin1",
+      "tile": "1p",
+      "label": "1 disk",
+      "direction": "Soft Time",
+      "status": "approved",
+      "png": "approved/Pin1.png",
+      "svg": "approved/Pin1.svg",
+      "source": "docs/design/dali/studies/01-first-six-approved.png",
+      "sourceSha256": "2a1a78feab93db38967f93ba90368be8013907a9183b78b31c9e13d4657a4680",
+      "pngSha256": "0a2a30ab182462eba97c05ea2b776194edd47125a10410c28b7596e6cd6cb3c9",
+      "crop": {
+        "x": 36,
+        "y": 110,
+        "width": 372,
+        "height": 492
+      }
+    },
+    {
+      "name": "Pin3",
+      "tile": "3p",
+      "label": "3 disks",
+      "direction": "Time coming apart — B",
+      "status": "approved",
+      "png": "approved/Pin3.png",
+      "svg": "approved/Pin3.svg",
+      "source": "docs/design/dali/studies/three-disks-b-approved.png",
+      "sourceSha256": "22da0bd9cc94c405a1aa1862f9936b85b5e7ddd021fc7d8a8bf27a7d8f89fd78",
+      "pngSha256": "22da0bd9cc94c405a1aa1862f9936b85b5e7ddd021fc7d8a8bf27a7d8f89fd78",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
+      "name": "Pin5",
+      "tile": "5p",
+      "label": "5 disks",
+      "direction": "Levitation",
+      "status": "approved",
+      "png": "approved/Pin5.png",
+      "svg": "approved/Pin5.svg",
+      "source": "docs/design/dali/studies/01-first-six-approved.png",
+      "sourceSha256": "2a1a78feab93db38967f93ba90368be8013907a9183b78b31c9e13d4657a4680",
+      "pngSha256": "20733ad0e1d8e42a124098206509941670be6e1a76b18ffc2f77c99d90223aa0",
+      "crop": {
+        "x": 441,
+        "y": 110,
+        "width": 374,
+        "height": 492
+      }
+    },
+    {
+      "name": "Sou1",
+      "tile": "1s",
+      "label": "1 bamboo",
+      "direction": "Stilt Bird",
+      "status": "approved",
+      "png": "approved/Sou1.png",
+      "svg": "approved/Sou1.svg",
+      "source": "docs/design/dali/studies/01-first-six-approved.png",
+      "sourceSha256": "2a1a78feab93db38967f93ba90368be8013907a9183b78b31c9e13d4657a4680",
+      "pngSha256": "2c57be0d9d4186166b9e649b3b4dc2906950ac7878e36275566a31465a065c3e",
+      "crop": {
+        "x": 847,
+        "y": 110,
+        "width": 372,
+        "height": 492
+      }
+    },
+    {
+      "name": "Sou2",
+      "tile": "2s",
+      "label": "2 bamboo",
+      "direction": "Elastic Growth",
+      "status": "approved",
+      "png": "approved/Sou2.png",
+      "svg": "approved/Sou2.svg",
+      "source": "docs/design/dali/studies/01-first-six-approved.png",
+      "sourceSha256": "2a1a78feab93db38967f93ba90368be8013907a9183b78b31c9e13d4657a4680",
+      "pngSha256": "4de8498917426f06b16bed7ad94cf6b0c512c8fe354055c66496fe8e910e93ed",
+      "crop": {
+        "x": 36,
+        "y": 656,
+        "width": 372,
+        "height": 513
+      }
+    },
+    {
+      "name": "Man8",
+      "tile": "8m",
+      "label": "8 characters",
+      "direction": "Impossible Stone",
+      "status": "approved",
+      "png": "approved/Man8.png",
+      "svg": "approved/Man8.svg",
+      "source": "docs/design/dali/studies/01-first-six-approved.png",
+      "sourceSha256": "2a1a78feab93db38967f93ba90368be8013907a9183b78b31c9e13d4657a4680",
+      "pngSha256": "f000355bd79ea565eff55eef64dde9a23062e0c1ec709a5acf9b87f6df9a3c73",
+      "crop": {
+        "x": 441,
+        "y": 656,
+        "width": 374,
+        "height": 513
+      }
+    },
+    {
+      "name": "Chun",
+      "tile": "7z",
+      "label": "Red dragon",
+      "direction": "Molten Ruby",
+      "status": "approved",
+      "png": "approved/Chun.png",
+      "svg": "approved/Chun.svg",
+      "source": "docs/design/dali/studies/01-first-six-approved.png",
+      "sourceSha256": "2a1a78feab93db38967f93ba90368be8013907a9183b78b31c9e13d4657a4680",
+      "pngSha256": "3e161e060bb6a4a838ce9c3d0a6249e2a51f5d300195defbed8bd0d46098583b",
+      "crop": {
+        "x": 847,
+        "y": 656,
+        "width": 373,
+        "height": 513
+      }
+    }
+  ],
+  "placeholders": [
+    {
+      "tile": "1m",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "2m",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "3m",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "4m",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "5m",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "6m",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "7m",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "9m",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "2p",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "4p",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "6p",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "7p",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "8p",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "9p",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "3s",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "4s",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "5s",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "6s",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "7s",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "8s",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "9s",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "1z",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "2z",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "3z",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "4z",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "5z",
+      "svg": "placeholders/placeholder.svg"
+    },
+    {
+      "tile": "6z",
+      "svg": "placeholders/placeholder.svg"
+    }
+  ]
+}

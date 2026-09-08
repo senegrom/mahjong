@@ -2,6 +2,8 @@ import { TILE_TYPES, tileFile } from './tiles.js';
 import { MATISSE_APPROVED } from './matisse-faces.js';
 import { CUBIST_APPROVED } from './cubist-faces.js';
 import { VAN_GOGH_APPROVED } from './van-gogh-faces.js';
+import { DALI_APPROVED } from './dali-faces.js';
+export { DALI_APPROVED } from './dali-faces.js';
 
 export const TILE_FACE_CONTEXT = Symbol('tile-face');
 export const TILE_FACE_OPTIONS = Object.freeze([
@@ -13,7 +15,6 @@ export const TILE_FACE_OPTIONS = Object.freeze([
 ]);
 export const normalizeTileFace = value => TILE_FACE_OPTIONS.some(face => face.value === value) ? value : 'classic';
 export const MATISSE_DRAGON_URL = 'tiles/matisse/approved/Haku-foil.svg';
-export const DALI_APPROVED = Object.freeze(['1p', '5p', '1s', '2s', '8m', '7z']);
 
 export function tileImage(tile, face = 'classic', facedown = false) {
   const file = tileFile(facedown ? null : tile);
