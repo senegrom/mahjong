@@ -15,6 +15,7 @@
   let analyzedKey = '';
   let busy = $state(false);
   let failure = $state('');
+  let recorded = $state(null);
   let saveWarning = $state('');
   let history = $state([]);
   let eventSeat = $state(0);
@@ -44,7 +45,8 @@
       const result = change(next) ?? next;
       history = [...history.slice(-29), before];
       position = result;
-    } catch (error) { failure = error.message ?? String(error); }
+      return true;
+    } catch (error) { failure = error.message ?? String(error); return false; }
   }
   function appendPastDiscard(index, tile) {
     edit(p => {
@@ -77,7 +79,10 @@
   function record(choice) {
     if (!analysis || analyzedKey !== JSON.stringify(position) + agent) { failure = 'Analyse the current table before recording a choice.'; return; }
     const choices = analysis.choices;
-    edit(p => recordChoice(p, choice, choices));
+    if (edit(p => recordChoice(p, choice, choices))) {
+      analysis = null;
+      recorded = { key: JSON.stringify(position), message: `${WINDS[position.seat]}: ${choice.label}. Enter the next physical move or choose another seat to analyse.` };
+    }
   }
   function setDecision(event) {
     const value = event.currentTarget.value;
@@ -100,6 +105,7 @@
     <button class="primary" onclick={analyze} disabled={!ready || busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
   </div>
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
+  {#if recorded?.key === JSON.stringify(position)}<p role="status">{recorded.message}</p>{/if}
   {#if saveWarning}<p role="status">{saveWarning}</p>{/if}
   {#if analysis}
     <AgentWeights {analysis} />

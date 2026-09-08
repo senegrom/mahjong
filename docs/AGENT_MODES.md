@@ -1,5 +1,7 @@
 # Agent modes
 
+Use the mode bar, or **Game settings → Game mode** on the smallest phone screens.
+
 ## Watch
 
 Select **Agent watch**, choose the followed agent and each of the other three

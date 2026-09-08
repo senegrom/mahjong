@@ -419,6 +419,12 @@
   {#if settingsOpen}<button class="settings-backdrop" aria-label="Close game settings" onclick={() => settingsOpen = false}></button>{/if}
   <div class="preferences" class:mobile-open={settingsOpen}>
   <div class="mobile-preferences-head"><strong>Game settings</strong><button onclick={() => settingsOpen = false}>Done</button></div>
+  <label class="compact-mode-selector">Game mode
+    <select value={mode} aria-label="Game mode" disabled={!ready || (mode === 'play' && busy)}
+      onchange={event => { mode = event.currentTarget.value; settingsOpen = false; }}>
+      <option value="play">Play</option><option value="watch">Agent watch</option><option value="physical">Physical agent play</option>
+    </select>
+  </label>
   {#if mode === 'play'}<button class="mobile-new-game" onclick={() => { if (startFresh()) settingsOpen = false; }} disabled={!ready || Boolean(saveConflict)}>New game</button>{/if}
   {#if mode === 'play' && difficulty === 'custom'}
     <button class="edit-table" onclick={configureTable} disabled={!ready || Boolean(saveConflict)}>Edit opponents</button>
@@ -758,6 +764,12 @@
   .game-modes { display: flex; gap: 6px; grid-column: 1 / -1; }
   .game-modes button { flex: 1; min-width: 0; padding: 8px 6px; font-size: .8rem; }
   .game-modes button[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: #0005; }
+  .compact-mode-selector { display: none; }
+  @media (max-width: 360px) and (max-height: 640px) {
+    .game-modes { display: none; }
+    .compact-mode-selector { display: flex; flex-basis: 100%; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 8px; font-size: .8rem; }
+    .compact-mode-selector select { min-width: 0; max-width: 70%; }
+  }
   .custom-dialog { width: min(460px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); box-sizing: border-box; padding: 20px; border: 1px solid var(--gold); border-radius: 12px; background: var(--felt-deep); color: var(--ivory); }
   .custom-dialog::backdrop { background: #000a; }
   .custom-dialog h2 { margin: 0; font-size: 1.15rem; }
