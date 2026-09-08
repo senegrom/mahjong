@@ -419,6 +419,23 @@
       "notes": "Cut-out C: pink 萬 at upper left and oversized pale-yellow 七 below on deep purple."
     },
     {
+      "name": "Man9",
+      "tile": "9m",
+      "label": "9 characters",
+      "status": "approved",
+      "png": "approved/Man9.png",
+      "svg": "approved/Man9.svg",
+      "source": "docs/design/matisse/studies/nine-characters-jazz-approved.png",
+      "sourceSha256": "18d351535888e13de584d5c7b37e2b2346946248aad34201ce229236ffc28051",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      },
+      "notes": "Jazz: the exact sixth alternative selected by Carl, with fragmented coral 九 over a tilted cobalt field, ivory 萬 at lower left and a yellow wedge on deep purple. The complete flat source is preserved with the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Sou1",
       "tile": "1s",
       "label": "1 bamboo",
@@ -504,12 +521,6 @@
       "name": "Man8",
       "label": "8 characters",
       "svg": "placeholders/Man8.svg"
-    },
-    {
-      "tile": "9m",
-      "name": "Man9",
-      "label": "9 characters",
-      "svg": "placeholders/Man9.svg"
     },
     {
       "tile": "8p",
