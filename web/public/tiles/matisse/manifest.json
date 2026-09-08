@@ -527,15 +527,15 @@
       "status": "approved",
       "png": "approved/Hatsu.png",
       "svg": "approved/Hatsu.svg",
-      "source": "docs/design/matisse/studies/05-characters-bird-green-dragon.png",
-      "sourceSha256": "4398ecc6ba8e97e5a81103492c8e6f5b0ca7cf0dbeddb548971079be2d7d5948",
+      "source": "docs/design/matisse/studies/green-dragon-b-chapel-approved.png",
+      "sourceSha256": "c7631bc5872eb34a26a3057ce492e27293b6de73989a5c60c88a22f34425c6ee",
       "crop": {
-        "x": 964,
-        "y": 210,
-        "width": 433,
-        "height": 630
+        "x": 62,
+        "y": 24,
+        "width": 963,
+        "height": 1308
       },
-      "notes": "Ivory 發 cut out of emerald green, using style C."
+      "notes": "Chapel B: forest-green 發 cut through an organic mint-green silhouette, with an emerald accent on a forest-green field. Every visible part of the face stays in shades of green for All Green. The lossless crop preserves the selected source pixels, excludes the label and surround, and uses the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Haku",

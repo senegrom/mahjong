@@ -45,7 +45,7 @@ const definitions = [
   ['Man7', '7m', '7 characters', 'approved', '06-character-compositions.png', [965, 207, 432, 630], 'Cut-out C: pink 萬 at upper left and oversized pale-yellow 七 below on deep purple.'],
   ['Man9', '9m', '9 characters', 'approved', 'nine-characters-jazz-approved.png', [0, 0, 1086, 1448], 'Jazz: the exact sixth alternative selected by Carl, with fragmented coral 九 over a tilted cobalt field, ivory 萬 at lower left and a yellow wedge on deep purple. The complete flat source is preserved with the shared 3:4 face, bleed and rounded clipping.'],
   ['Sou1', '1s', '1 bamboo', 'approved', '05-characters-bird-green-dragon.png', [510, 210, 426, 630], 'Blue and green cut-paper bird on a bamboo perch.'],
-  ['Hatsu', '6z', 'Green dragon', 'approved', '05-characters-bird-green-dragon.png', [964, 210, 433, 630], 'Ivory 發 cut out of emerald green, using style C.'],
+  ['Hatsu', '6z', 'Green dragon', 'approved', 'green-dragon-b-chapel-approved.png', [62, 24, 963, 1308], 'Chapel B: forest-green 發 cut through an organic mint-green silhouette, with an emerald accent on a forest-green field. Every visible part of the face stays in shades of green for All Green. The lossless crop preserves the selected source pixels, excludes the label and surround, and uses the shared 3:4 face, bleed and rounded clipping.'],
   ['Haku', '5z', 'White dragon', 'approved', '07-white-dragon-approved.png', [158, 150, 540, 752], 'Approved blend of C and C1: a quiet ivory face with separated abstract dragon shapes, revealed in pearly silver for dora.'],
 ];
 

@@ -28,7 +28,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pei.svg](approved/Pei.svg) | North wind | Ribbon Dance B: lemon and coral-pink 北 with a mint accent on ultramarine |
 | [Chun.svg](approved/Chun.svg) | Red dragon | Chapel Flame C: pale-pink enclosure and a sweeping lemon-yellow ribbon form 中 on vermilion |
 | [Sou1.svg](approved/Sou1.svg) | 1 bamboo | Blue and green cut-paper bird on a bamboo perch |
-| [Hatsu.svg](approved/Hatsu.svg) | Green dragon | Ivory 發 cut out of emerald green: style C |
+| [Hatsu.svg](approved/Hatsu.svg) | Green dragon | Chapel B: forest-green 發 cut through an organic mint-green silhouette, with an emerald accent on forest green |
 | [Man1.svg](approved/Man1.svg) | 1 characters | Dance B: sweeping yellow 一 and sculptural vermilion 萬 on deep purple |
 | [Man2.svg](approved/Man2.svg) | 2 characters | Dance B: coral-pink 萬 above a sweeping ivory 二 on deep purple |
 | [Man3.svg](approved/Man3.svg) | 3 characters | Jazz A: yellow, ivory and pink 三 above a vermilion-and-pink 萬 with an oversized kicking stroke |
@@ -48,6 +48,8 @@ White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When
 ## Next design directions
 
 Red dragon uses **Chapel Flame C** from `red-dragon-c-chapel-flame-approved.png`: a pale-pink sculptural enclosure and a long, sweeping lemon-yellow central ribbon form 中 on a vermilion field. The two open counters preserve the character's identity. The lossless crop preserves the selected artwork, excludes the candidate label and surrounding board, and uses the shared 3:4 face, bleed and rounded clipping. It replaces the earlier red-on-pink direction B.
+
+The green dragon uses **Chapel B** from `green-dragon-b-chapel-approved.png`: forest-green 發 cut through an organic mint-green silhouette, with an emerald accent on a forest-green field. All parts of the visible face stay in shades of green, preserving the All Green palette. The lossless crop keeps the selected artwork exactly, excludes the study caption and surrounding board, and uses the shared 3:4 face, bleed and rounded clipping. It replaces the original ivory-on-emerald design, whose source remains in `05-characters-bird-green-dragon.png`.
 
 The 4 characters tile uses **Interlock C** from `four-characters-c-ivory-approved.png`, with the requested red section of the outer 四 stroke changed to matching ivory-white. The two upright interior strokes remain yellow, and the sweeping 萬 remains pink on deep purple. The complete flat 1086 × 1448 artwork is exported without cropping its motifs or changing its pixels, using the shared 3:4 face, bleed and rounded clipping.
 
