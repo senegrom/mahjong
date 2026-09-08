@@ -42,7 +42,7 @@ jobs:
           python3 .ui-polish/application.py
           python3 .ui-polish/fix-warnings.py
           python3 .ui-polish/fix-overflow.py
-          # Exercises real compact Options/Offline controls rather than hidden desktop controls.
+          # Exercises real compact Options/Offline controls, including closing the sheet before play resumes.
           python3 .ui-polish/fix-test-race.py
 
       - name: Build and verify every web path
