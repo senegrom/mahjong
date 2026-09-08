@@ -804,6 +804,7 @@ def distil(
     teacher_blocks: int = 10,
     channels: int = 320,
     blocks: int = 24,
+    student_planes: str = "mortal",
     run: str = DEFAULT_RUN,
     name: str = "distilled",
 ) -> str:
@@ -818,6 +819,11 @@ def distil(
     heuristic player that ships with the game. The student learns the
     teacher's whole distribution rather than its choice alone.
 
+    With `student_planes` set to `engine` the student reads the engine's
+    ninety-seven planes instead of Mortal's thousand, which is the only
+    kind of network the browser can run: a teacher of either lineage can
+    then be distilled into something the page can play.
+
     The result goes to the run's directory under `name`, so it can be
     duelled before anything decides to train on from it.
     """
@@ -829,6 +835,7 @@ def distil(
         sys.executable, "-m", "neural.imitate",
         "--rounds", str(rounds), "--games", str(games), "--lr", str(lr),
         "--channels", str(channels), "--blocks", str(blocks),
+        "--student", student_planes,
         "--measure-every", "10", "--measure-games", "512",
         "--out", str(out),
     ]

@@ -34,16 +34,17 @@ from torch import nn
 
 import riichi_py
 
-from . import selfplay
+from . import selfplay, zoo
 from .model import (
     DEFAULT_BLOCKS,
     DEFAULT_CHANNELS,
+    ENGINE_PLANES,
+    MORTAL_PLANES,
     PolicyValueNet,
-    from_payload,
     load_weights,
     shape_of,
 )
-from .observe import Planes, Views
+from .observe import FlatPlanes, Planes, Views
 
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
@@ -83,14 +84,26 @@ def parse_args() -> argparse.Namespace:
         help="how sharp the teacher's distribution is made before the "
         "student learns it. Above one keeps more of what it was unsure of",
     )
+    parser.add_argument(
+        "--student",
+        choices=("mortal", "engine"),
+        default="mortal",
+        help="which planes the student reads: Mortal's thousand, or the "
+        "engine's ninety-seven, which is what the browser can build",
+    )
     parser.add_argument("--seed", type=int, default=20260903)
     parser.add_argument("--out", type=Path, default=Path("E:/tmp-claude/mahjong/clone"))
     return parser.parse_args()
 
 
 def collect(
-    games: int, seed: int, teacher=None, device: str = "cpu", temperature: float = 1.0
-) -> tuple[Planes, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+    games: int,
+    seed: int,
+    teacher=None,
+    device: str = "cpu",
+    temperature: float = 1.0,
+    student: str = "mortal",
+) -> tuple[Planes | FlatPlanes, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
     """Plays a round with one teacher at every place, keeping every position
     it saw, as the student sees it, the move it made there, and what the
     other three were actually holding.
@@ -101,9 +114,9 @@ def collect(
     that is worth more to a student than the argmax alone.
     """
     arena = riichi_py.Arena(games=games, seed=seed)
-    kinds = {"mortal"} | ({teacher.kind} if teacher is not None else set())
+    kinds = {student} | ({teacher.kind} if teacher is not None else set())
     views = Views(arena, games, kinds)
-    observations: list[Planes] = []
+    observations: list[Planes | FlatPlanes] = []
     masks: list[np.ndarray] = []
     labels: list[int] = []
     held: list[np.ndarray] = []
@@ -143,7 +156,11 @@ def collect(
 
         # What the student will see at each of this step's decisions, in
         # the order the rows below are kept.
-        observations.append(views.sparse(rows, who))
+        observations.append(
+            views.sparse(rows, who)
+            if student == "mortal"
+            else FlatPlanes.of(views.engine()[rows])
+        )
         choice = np.zeros(games, dtype=np.int64)
         for index in rows:
             wanted = int(advice[index])
@@ -159,8 +176,9 @@ def collect(
             choice[index] = wanted
         arena.step(choice.tolist())
 
+    container = Planes if student == "mortal" else FlatPlanes
     return (
-        Planes.cat(observations),
+        container.cat(observations),
         np.stack(masks),
         np.array(labels, dtype=np.int64),
         np.stack(held),
@@ -185,19 +203,27 @@ def main() -> None:
             flush=True,
         )
     else:
-        net = PolicyValueNet(args.channels, args.blocks).to(device)
-    if net.kind != "mortal":
-        raise SystemExit("imitation teaches a network that sees Mortal's planes")
+        planes = MORTAL_PLANES if args.student == "mortal" else ENGINE_PLANES
+        net = PolicyValueNet(args.channels, args.blocks, planes).to(device)
+    if net.kind != args.student:
+        raise SystemExit(
+            f"--student {args.student} does not match the checkpoint, which "
+            f"reads {net.planes} planes"
+        )
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
 
     teacher = None
     if args.teacher is not None:
-        teacher = from_payload(
-            torch.load(args.teacher, map_location=device, weights_only=True),
-            device,
-            args.teacher_channels,
-            args.teacher_blocks,
+        # Whatever the checkpoint holds: one of ours, or a joined player,
+        # whose fusion head and Mortal are the point of naming it.
+        teacher = zoo.load_player(
+            args.teacher, device, args.teacher_channels, args.teacher_blocks
         )
+        if not callable(getattr(teacher, "forward", None)):
+            raise SystemExit(
+                f"{args.teacher} is not a teacher this can ask for a whole "
+                "distribution; give a network of ours or a joined player"
+            )
         teacher.eval()
         for parameter in teacher.parameters():
             parameter.requires_grad_(False)
@@ -208,7 +234,8 @@ def main() -> None:
         )
     print(
         f"device {device} | {net.channels}x{net.blocks} "
-        f"| {net.parameter_count() / 1e6:.2f}M parameters",
+        f"| {net.parameter_count() / 1e6:.2f}M parameters "
+        f"| student sees {net.planes} planes ({net.kind})",
         flush=True,
     )
 
@@ -220,6 +247,7 @@ def main() -> None:
             teacher=teacher,
             device=device,
             temperature=args.temperature,
+            student=args.student,
         )
         played = time.time() - began
         observations = planes

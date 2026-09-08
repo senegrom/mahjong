@@ -168,6 +168,47 @@ class Planes:
         return all((Path(root) / f"{stem}-{name}.npy").exists() for name in cls.ARRAYS)
 
 
+class FlatPlanes:
+    """A batch of dense observations, answering what `Planes` answers.
+
+    The engine's own planes are neither sparse nor large: a round of them
+    is tens of megabytes where Mortal's would be gigabytes. They are kept
+    half-width on the host and widened on the card, so a training loop can
+    hold either container without knowing which it has.
+    """
+
+    __slots__ = ("array",)
+
+    def __init__(self, array: np.ndarray) -> None:
+        self.array = array
+
+    def __len__(self) -> int:
+        return len(self.array)
+
+    def nbytes(self) -> int:
+        return self.array.nbytes
+
+    def rows(self, rows: np.ndarray) -> FlatPlanes:
+        return FlatPlanes(self.array[np.asarray(rows, dtype=np.int64)])
+
+    def slice(self, start: int, stop: int) -> FlatPlanes:
+        return FlatPlanes(self.array[start:stop])
+
+    def dense(self, device: str | torch.device) -> torch.Tensor:
+        return torch.from_numpy(np.ascontiguousarray(self.array)).to(device).float()
+
+    @staticmethod
+    def cat(blocks: list[FlatPlanes]) -> FlatPlanes:
+        if not blocks:
+            return FlatPlanes(np.zeros((0, riichi_py.PLANES, POSITIONS), dtype=np.float16))
+        return FlatPlanes(np.concatenate([block.array for block in blocks]))
+
+    @classmethod
+    def of(cls, dense: np.ndarray) -> FlatPlanes:
+        """From the engine's own float32 planes, halved for the host."""
+        return cls(np.asarray(dense, dtype=np.float16))
+
+
 class DevicePlanes:
     """A round's sparse planes resident on the card, gathered there.
 
