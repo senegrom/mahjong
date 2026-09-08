@@ -79,6 +79,23 @@
       "notes": "Five black and ivory rosettes on yellow."
     },
     {
+      "name": "Pin7",
+      "tile": "7p",
+      "label": "7 disks",
+      "status": "approved",
+      "png": "approved/Pin7.png",
+      "svg": "approved/Pin7.svg",
+      "source": "docs/design/matisse/studies/seven-disks-a-approved.png",
+      "sourceSha256": "8b99a874e34bf82eb2ec921ebc0d7a563e36ff30adb6c6c68006d29781663d46",
+      "crop": {
+        "x": 31,
+        "y": 80,
+        "width": 514,
+        "height": 742
+      },
+      "notes": "Ivory Garden A: seven blue, vermilion and green cut-paper rosettes in a loose 2-3-2 arrangement on ivory, with contrasting centres. The flat crop preserves the selected source pixels and excludes the study label and surround; it uses the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Pin9",
       "tile": "9p",
       "label": "9 disks",
@@ -443,12 +460,6 @@
       "name": "Pin6",
       "label": "6 circles",
       "svg": "placeholders/Pin6.svg"
-    },
-    {
-      "tile": "7p",
-      "name": "Pin7",
-      "label": "7 circles",
-      "svg": "placeholders/Pin7.svg"
     },
     {
       "tile": "8p",
