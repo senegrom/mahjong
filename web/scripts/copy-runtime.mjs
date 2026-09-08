@@ -28,3 +28,4 @@ for (const file of files) {
   const { size } = await stat(join(to, file));
   console.log(`copied reduced ${file} (${(size / 1e6).toFixed(2)} MB)`);
 }
+await copyFile(join(here, '..', 'src', 'lib', 'memory-budget.js'), join(to, 'memory-budget.mjs'));

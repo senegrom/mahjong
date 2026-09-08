@@ -86,6 +86,27 @@ test('watch pace reschedules with the newly selected delay', () => {
   assert.equal(state.speed, 700);
 });
 
+test('watch alternative confirmation pauses autoplay, cancels safely, and applies the requested choice once', () => {
+  const declaration = find(watch.ast.instance, node => node.type === 'FunctionDeclaration' && node.id?.name === 'chooseAlternative');
+  for (const accepted of [false, true]) {
+    const calls = [], choice = { kind: 'discard', tile: '1m', label: 'discards the 1 characters' }, analysis = {};
+    const owner = { analysis, autoplay: true, closed: false,
+      setAutoplay(value) { this.autoplay = value; calls.push(value); },
+      choose(actual, expected) { assert.equal(actual, choice); assert.equal(expected, analysis); calls.push('choose'); },
+    };
+    const state = { watch: owner, analysis, busy: false, confirm(message) {
+      assert.equal(owner.autoplay, false, 'pause before opening the dialog');
+      assert.match(message, /Play "discards the 1 characters"/); return accepted;
+    } };
+    const handler = vm.runInContext(`(${watch.source.slice(declaration.start, declaration.end)})`, vm.createContext(state));
+    handler(choice);
+    assert.deepEqual(calls, accepted ? [false, 'choose', true] : [false, true]);
+    state.confirm = () => { state.analysis = owner.analysis = {}; return true; };
+    calls.length = 0; handler(choice);
+    assert.deepEqual(calls, [false], 'a changed position invalidates the confirmation');
+  }
+});
+
 test('watch setup never selects a trained network absent from its available choices', () => {
   const effect = find(watch.ast.instance, node => node.type === 'CallExpression' && node.callee?.name === '$effect');
   const callback = effect.arguments[0];

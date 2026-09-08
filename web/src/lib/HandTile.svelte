@@ -4,6 +4,7 @@
 
   let {
     tile,
+    size = 'normal',
     remaining = null,
     showRemaining = false,
     handIndex = null,
@@ -18,8 +19,8 @@
   } = $props();
 </script>
 
-<span class="hand-tile" data-hand-drawn={drawn ? 'true' : undefined}>
-  <Tile {tile} {handIndex} {onclick} {disabled} {muted} {selected} {drawn}
+<span class="hand-tile" class:small={size === 'small'} data-hand-drawn={drawn ? 'true' : undefined}>
+  <Tile {tile} {size} {handIndex} {onclick} {disabled} {muted} {selected} {drawn}
     {discardShanten} {safe} {dora} />
   {#if showRemaining && remaining !== null}
     <span class="copy-count" class:dead={remaining === 0} class:thin={remaining === 1}
@@ -54,6 +55,7 @@
     line-height: 1;
     text-align: center;
   }
+  .hand-tile.small { width: calc(var(--tile-width) * 0.62); }
 
   .copy-count.thin {
     border-color: rgba(216, 161, 42, .62);

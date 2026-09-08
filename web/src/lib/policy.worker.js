@@ -11,11 +11,12 @@
 // times larger, for a network this small to gain nothing from.
 import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from './policy-weights.js';
+import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.simd = true;
 ort.env.logLevel = 'error';
-let configured = false;
+let runtimeMemory = null;
 
 // Positions in a plane: the 34 tile kinds. How many planes there are is
 // whatever the engine sent, so neither the worker nor the model has to be
@@ -31,13 +32,16 @@ const queued = new Map();
 let running = false;
 let failed = false;
 
-async function load(url, runtimeBase) {
-  if (!configured && runtimeBase) {
+async function load(url, runtimeBase, memoryLimitMiB) {
+  if (!runtimeMemory) {
     // The bundler renames the runtime's own WebAssembly, which its loader
     // then cannot find. It is served from a known folder instead.
     ort.env.wasm.wasmPaths = runtimeBase;
-    configured = true;
+    const controls = new URL('memory-budget.mjs', runtimeBase).href;
+    ({ memoryBudget: runtimeMemory } = await import(/* @vite-ignore */ controls));
+    runtimeMemory.configure(memoryLimitMiB);
   }
+  runtimeMemory.beginRequest();
   if (session && sessionUrl === url) return session;
   if (session) await session.release();
   session = null;
@@ -84,11 +88,11 @@ function pick(logits, mask, temperature) {
   return best;
 }
 
-async function infer({ id, url, runtimeBase, planes, mask, temperature, details }) {
+async function infer({ id, url, runtimeBase, planes, mask, temperature, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
   let input, output;
   try {
     self.postMessage({ id, progress: 'loading the network' });
-    const model = await load(url, runtimeBase);
+    const model = await load(url, runtimeBase, memoryLimitMiB);
     self.postMessage({ id, progress: 'network ready' });
     input = new ort.Tensor('float32', planes, [1, planes.length / POSITIONS, POSITIONS]);
     output = await model.run({ planes: input });
@@ -114,7 +118,10 @@ async function drain() {
         // The page discards it, even if this particular request was cancelled.
         failed = true;
         queued.clear();
-        self.postMessage({ id, error: String(error) });
+        self.postMessage({ id, error: String(error),
+          ...(isMemoryError(error) && runtimeMemory?.failure
+            ? { memory: { ...runtimeMemory.failure, limitMiB: runtimeMemory.limitMiB } } : {}),
+        });
         break;
       }
     }

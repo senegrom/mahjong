@@ -27,7 +27,7 @@ export async function buildOffline(root) {
   }
   const hasModel = entries.some(entry => entry.url === 'model.onnx');
   const hasStrongModel = entries.some(entry => entry.url === 'model-strong.onnx');
-  if (hasModel || hasStrongModel) for (const name of ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) {
+  if (hasModel || hasStrongModel) for (const name of ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs', 'memory-budget.mjs']) {
     if (!entries.some(entry => entry.url === `ort/${name}`)) throw new Error(`Missing AI runtime ${name}`);
   }
   // The stronger network runs on the same runtime as the quick one, which

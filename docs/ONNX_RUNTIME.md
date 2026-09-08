@@ -27,14 +27,25 @@ runtime. `copy-runtime.mjs` verifies `model.sha256` before copying the runtime;
 changing the network without rebuilding its operator set therefore fails the
 build instead of producing a broken Trained opponent.
 
-The generated loader limits shared WASM memory to **192 MiB**, starting at
+The generated loader initially limits shared WASM memory to **192 MiB**, starting at
 16 MiB and growing on demand. Its previous 4 GiB maximum could fail at runtime
 initialization on iPhones even for Quick's 2.4 MB model: the reservation limit,
 not the model download size, was too large. The loader's memory constructor,
 reported heap maximum and growth ceiling all use the same limit. The unchanged
-WASM binary accepts this smaller imported memory. Preserve this setting when
-rebuilding with `onnxruntime_EMSCRIPTEN_SETTINGS` / `MAXIMUM_MEMORY=201326592`.
+WASM binary accepts this smaller imported memory.
 See the [upstream iOS report](https://github.com/microsoft/onnxruntime/issues/22086).
+
+`memory-budget.js`, copied alongside the loader as `memory-budget.mjs`, supplies
+the constructor, heap maximum and growth hook. Preserve these hooks when
+rebuilding the loader. If an allocation exceeds the application's ceiling, the
+page releases the old worker and retries pending decisions in a fresh worker at
+**256 MiB**, then **384 MiB** if needed. These are maximum reservations; actual
+memory still starts at 16 MiB and grows on demand. Requests preserve their original
+observations, selected models and cancellation signals across retries. No larger
+reservation is attempted when the browser itself refuses memory, when the request
+exceeds 384 MiB, or for an unclassified runtime error. A manual retry starts back
+at 192 MiB. If normal heap growth's spare capacity is refused, the allocator tries
+only the exact pages needed before reporting failure.
 
 The worker serializes inference and releases the previous session before loading
 a different model. Switching agents preserves the model captured by every pending
@@ -46,6 +57,10 @@ ORT afresh in Play, Watch and Physical modes.
 runtime while rejecting shared-memory reservations above 192 MiB. It checks
 repeated inference and model switching for stable outputs and heap headroom;
 worker and client tests cover cancellation, session release and failure recovery.
+`memory-budget.test.js` also exercises an actual 200 MiB allocation through the
+shipped WASM: it reports the 192 MiB ceiling and succeeds in a fresh 256 MiB
+runtime, while a simulated browser reservation refusal stops expansion. Client
+tests verify transferred observation replay and bounded retries.
 
 The reduced-runtime verification ran the production model through the real
 browser suite and passed **93 unit/session/cache tests and 102 browser checks**.

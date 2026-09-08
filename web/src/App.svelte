@@ -209,7 +209,7 @@
     // Completed actions are already saved inside their writer transaction.
     // Never write an old snapshot during pagehide. A cached page must restore
     // the current record rather than resume a stale engine on Back navigation.
-    const leave = () => { session?.dispose(); matchStore.close(); };
+    const leave = () => { session?.dispose(); resetPolicy(); matchStore.close(); };
     const returnToPage = (event) => { if (event.persisted) location.reload(); };
     const storageChanged = (event) => { if (playStarted) matchStore.changed(event); };
     const checkOffline = () => { if (document.visibilityState === 'visible') void refreshOffline().catch(() => {}); };
@@ -229,6 +229,7 @@
       matchStore.close();
       session?.dispose();
       reportProgress(null);
+      resetPolicy();
     };
   });
 
@@ -606,7 +607,7 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {ready} {trainedAvailable} {strongAvailable} {opponents} {trainedModel} />
+    <AgentWatch {ready} {trainedAvailable} {strongAvailable} {opponents} {trainedModel} {hints} />
   {:else if ready && mode === 'physical'}
     <PhysicalPlay {ready} {trainedAvailable} {strongAvailable} {storage} />
   {:else if mode === 'play' && view}

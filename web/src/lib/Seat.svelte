@@ -106,6 +106,7 @@
   }
 
   .opponent-type { font-size: .66rem; line-height: 1.2; opacity: .9; }
+  .seat :global(.melds + .pool) { margin-block-start: 4px; }
 
   .wind {
     font-weight: 600;

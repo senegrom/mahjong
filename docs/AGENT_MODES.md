@@ -17,12 +17,24 @@ Your regular saved match remains separate; watched games start fresh.
 Opening Watch or Physical play directly leaves the regular match untouched
 until you select Play.
 
+The agent's choice has a **blue border** in the choice list and, for a discard or
+riichi, on its tile in the followed hand. Click another listed move (or a legal
+discard in the hand) to play it after confirmation. Cancelling leaves the position
+unchanged; either answer resumes auto play if it was running before the dialog.
+Confirmations apply only to the decision that was displayed when opened.
+
+**Hints and markings** applies to Watch too: red dora borders, gold borders for
+discards leaving a ready hand, silver borders for those leaving it one tile away,
+safe-tile markings, and unseen-copy counts below the hand. Blue combines with
+other markings on the same tile. Waits and their remaining counts reflect the
+recommended discard; visible dora are marked in all discards and called sets.
+
 The percentages sum to 100% over the trained policy's legal action space. The
 highest weight is the action played; a 70% weight is not a 70% chance of winning.
 Built-in agents have rules and random tie-breaks, rather than a learned policy,
 so their chosen move is marked **Selected**. The trained action space can name
 only the first legal kan of each kind. A second legal kan remains available to
-record in Physical play and is labelled **Unscored**.
+choose in Watch or record in Physical play and is labelled **Unscored**.
 
 ## Physical table
 

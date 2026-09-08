@@ -64,7 +64,14 @@ export class WatchSession {
     if (this.closed || this.busy || this.match.over) return Promise.resolve(false);
     if (this.match.view.phase === 'over') return this.prepare({ type: 'next' });
     if (!this.analysis) return this.prepare();
-    const { kind, tile } = this.analysis.choice;
+    return this.choose(this.analysis.choice, this.analysis);
+  }
+
+  choose(choice, expectedAnalysis) {
+    if (!choice || this.closed || this.busy || !this.analysis || this.analysis !== expectedAnalysis) return Promise.resolve(false);
+    const allowed = this.analysis.choices.find(entry => entry.kind === choice.kind && (entry.tile ?? null) === (choice.tile ?? null));
+    if (!allowed) return Promise.resolve(false);
+    const { kind, tile } = allowed;
     return this.prepare({ type: 'choose', kind, tile: tile ?? null });
   }
 

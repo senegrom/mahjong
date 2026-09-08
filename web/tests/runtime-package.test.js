@@ -19,6 +19,7 @@ test('production uses the reduced external ONNX runtime for the current model', 
     'Vite must not bundle the generic ONNX Runtime WASM');
   assert.ok(names.includes('ort/ort-wasm-simd-threaded.wasm'));
   assert.ok(names.includes('ort/ort-wasm-simd-threaded.mjs'));
+  assert.ok(names.includes('ort/memory-budget.mjs'));
 
   const reduced = (await stat(join(web, 'runtime', 'ort-wasm-simd-threaded.wasm'))).size;
   const generic = (await stat(join(web, 'node_modules', 'onnxruntime-web', 'dist', 'ort-wasm-simd-threaded.wasm'))).size;

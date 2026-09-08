@@ -6,16 +6,19 @@
   import { WatchSession } from './watch-session.js';
   import AgentWeights from './AgentWeights.svelte';
   import Tile from './Tile.svelte';
+  import HandTile from './HandTile.svelte';
+  import { analyzeDiscards, heldSafeCount, unseenTileCounts } from './ui.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
   import ScoreScreen from './ScoreScreen.svelte';
   import Standings from './Standings.svelte';
 
-  let { ready, trainedAvailable, strongAvailable, opponents, trainedModel } = $props();
+  let { ready, trainedAvailable, strongAvailable, opponents, trainedModel, hints = true } = $props();
   let lineup = $state(['club', 'club', 'club', 'club']);
   let watch = $state.raw(null);
   let view = $state(null);
-  let analysis = $state(null);
+  // Retain the session's exact decision identity while a confirmation is open.
+  let analysis = $state.raw(null);
   let busy = $state(false);
   let failure = $state('');
   let auto = $state(false);
@@ -25,6 +28,17 @@
   let log = $state([]);
   let configured = false;
   const positions = ['Followed agent', 'Right', 'Opposite', 'Left'];
+  let recommendedTile = $derived(!busy && ['discard', 'riichi'].includes(analysis?.choice.kind) ? analysis.choice.tile : null);
+  let discardChoices = $derived(new Map((analysis?.choices ?? []).filter(choice => choice.kind === 'discard').map(choice => [choice.tile, choice])));
+  let discardHints = $derived(hints && analysis && view?.phase === 'act' && view.seats[0].turn && !busy && !failure && !watch?.closed
+    ? analyzeDiscards(watch.match.engine, [...discardChoices.values()]) : new Map());
+  let shownDora = $derived(hints ? view?.dora_types ?? [] : []);
+  let remainingByTile = $derived(hints && view ? unseenTileCounts(view) : new Map());
+  let safeCount = $derived(heldSafeCount(view));
+  let recommendedHint = $derived(recommendedTile ? discardHints.get(recommendedTile) : null);
+  let displayWaits = $derived(recommendedHint?.waits ?? view?.waits ?? []);
+  let displayLeft = $derived(recommendedHint?.waits_left ?? view?.waits_left ?? []);
+  let hintShanten = $derived(recommendedHint?.shanten ?? view?.shanten);
   $effect(() => {
     if (!configured && ready) {
       configured = true;
@@ -51,6 +65,16 @@
     });
     watch.autoplay = auto;
     void watch.prepare();
+  }
+  function chooseAlternative(choice) {
+    const owner = watch, expected = analysis;
+    if (!choice || !owner || busy || !expected || owner.analysis !== expected) return;
+    const resume = owner.autoplay;
+    owner.setAutoplay(false);
+    const accepted = confirm(`Play "${choice.label}" for the followed agent?`);
+    if (watch !== owner || owner.closed || owner.analysis !== expected) return;
+    if (accepted) void owner.choose(choice, expected);
+    owner.setAutoplay(resume);
   }
   onDestroy(() => watch?.dispose());
 </script>
@@ -83,17 +107,36 @@
       {#each view.seats as seat, index (index)}
         <section class:followed={index === 0} class:turn={seat.turn}>
           <header><strong>{index === 0 ? 'Following' : positions[index]} · {WINDS[['east','south','west','north'].indexOf(seat.seat)]}</strong><span>{AGENTS[watch.lineup[index]]} · {seat.score.toLocaleString()}{seat.riichi ? ' · Riichi' : ''}</span></header>
-          {#if index === 0}<div class="tiles hand">{#each seat.hand as tile, slot (slot)}<Tile {tile} size="small" />{/each}{#if seat.drawn}<span class="drawn"><Tile tile={seat.drawn} size="small" /></span>{/if}</div>{/if}
-          <Discards discards={seat.discards} compact={index !== 0} />
-          {#if seat.melds.length}<Melds melds={seat.melds} size="small" />{/if}
+          {#if index === 0}
+            <div class="tiles hand" aria-label="Followed agent hand">
+              {#each [...seat.hand, ...(seat.drawn ? [seat.drawn] : [])] as tile, slot (slot)}
+                <HandTile {tile} size="small" handIndex={slot} drawn={Boolean(seat.drawn) && slot === seat.hand.length}
+                  onclick={() => chooseAlternative(discardChoices.get(tile))} disabled={busy || !discardChoices.has(tile)} muted={view.phase === 'over'}
+                  selected={Boolean(recommendedTile && tile === recommendedTile && (seat.drawn === recommendedTile ? slot === seat.hand.length : slot === seat.hand.indexOf(recommendedTile)))}
+                  discardShanten={discardHints.get(tile)?.shanten ?? null} remaining={remainingByTile.get(tile) ?? null} showRemaining={hints}
+                  safe={hints && view.phase !== 'over' && view.safe.includes(tile)} dora={shownDora.includes(tile)} />
+              {/each}
+            </div>
+            {#if hints}
+              <div class="hand-hints">
+                <span>{#if recommendedHint}After the recommended discard: {/if}{#if hintShanten < 0}Complete tile shape{:else if hintShanten === 0}Ready hand{:else}{hintShanten} tile{hintShanten === 1 ? '' : 's'} from a wait{/if}</span>
+                {#if displayWaits.length}<span class="waits">Waiting on {#each displayWaits as tile, slot (slot)}<span class="wait"><Tile {tile} size="tiny" dora={shownDora.includes(tile)} /><span aria-label={`${displayLeft[slot]} unseen`}>{displayLeft[slot]}</span></span>{/each}</span>{/if}
+                {#if view.dora.length}<span>{view.dora.length} dora han in hand</span>{/if}
+                {#if safeCount}<span>{safeCount} held tile{safeCount === 1 ? '' : 's'} safe against declared riichi</span>{/if}
+                {#if view.furiten}<span>Furiten — self-draw wins only</span>{/if}
+              </div>
+            {/if}
+          {/if}
+          <Discards discards={seat.discards} compact={index !== 0} dora={shownDora} />
+          {#if seat.melds.length}<Melds melds={seat.melds} size="small" dora={shownDora} />{/if}
         </section>
       {/each}
     </div>
     {#if busy}<p role="status">The agents are thinking…</p>{:else if analysis && !showWeights}<p role="status">{auto ? 'Auto play is running.' : 'Paused before the followed agent’s next choice.'}</p>{/if}
-    {#if showWeights}<AgentWeights {analysis} />{/if}
+    {#if showWeights}<AgentWeights {analysis} onchoose={chooseAlternative} disabled={busy || Boolean(standings)} dora={shownDora} />{/if}
     {#if standings}<Standings {standings} onagain={start} />{/if}
     {#if view.phase === 'over' && view.outcome}
-      <ScoreScreen outcome={view.outcome} seats={view.seats} gameOver={Boolean(standings)} finalHand={Boolean(standings)} {busy}
+      <ScoreScreen outcome={view.outcome} seats={view.seats} gameOver={Boolean(standings)} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
         onnext={() => watch.step()} ongame={start} reviewed={true} />
     {/if}
     <details><summary>Hand history · {log.length} events</summary>{#each log as line, index (index)}<p class="log-line">{line}</p>{/each}</details>
@@ -122,11 +165,14 @@
   .watch-table section { min-width: 0; padding: 10px; border-radius: 10px; border: 1px solid #ffffff22; background: #0003; }
   .watch-table .followed { grid-column: 1 / -1; border-color: #d8a12a88; }
   .watch-table .turn { box-shadow: inset 0 2px var(--gold); }
+  .watch-table section :global(.pool + .melds) { margin-block-start: 8px; }
   header { display: flex; flex-wrap: wrap; gap: 5px 14px; font-size: .82rem; margin-bottom: 12px; }
   header > span { opacity: .8; }
   .tiles { display: flex; align-items: end; flex-wrap: wrap; gap: 5px; }
   .hand { margin-bottom: 12px; }
-  .drawn { margin-left: 10px; }
+  .hand :global(.hand-tile[data-hand-drawn=true]) { margin-left: 10px; }
+  .hand-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: .78rem; margin: 8px 0 14px; }
+  .waits, .wait { display: inline-flex; align-items: center; gap: 5px; }
   .log-line { margin: 4px 0; font-size: .8rem; }
   @media (max-width: 640px) { .watch-table { grid-template-columns: 1fr; } .watch-table section { grid-column: 1; } .hand { --tile-width: 42px; } }
 </style>

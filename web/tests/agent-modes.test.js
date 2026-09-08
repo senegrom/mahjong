@@ -259,6 +259,25 @@ test('watch uses the retained choice, passes each trained opponent its own model
   } finally { w.dispose(); }
 });
 
+test('watch plays an explicitly chosen legal alternative and rejects stale or illegal choices', async () => {
+  const w = new WatchSession(Game, 31, ['club', 'club', 'club', 'club'], { evaluate: builtin });
+  try {
+    await w.prepare();
+    const analysis = w.analysis, before = w.match.commands.length;
+    const alternative = analysis.choices.find(c => c.kind === 'discard' && c.tile !== analysis.choice.tile);
+    assert.ok(alternative);
+    assert.equal(await w.choose(null, analysis), false);
+    assert.equal(await w.choose({ kind: 'tsumo' }, analysis), false);
+    assert.equal(await w.choose(alternative, { ...analysis }), false);
+    assert.equal(w.match.commands.length, before);
+    assert.equal(await w.choose(alternative, analysis), true, w.failure);
+    assert.deepEqual(w.match.commands[before], { type: 'choose', kind: alternative.kind, tile: alternative.tile });
+    const after = w.match.commands.length;
+    assert.equal(await w.choose(alternative, analysis), false, 'old confirmations cannot play the next turn');
+    assert.equal(w.match.commands.length, after);
+  } finally { w.dispose(); }
+});
+
 test('a disposed watcher cannot apply a late recommendation or run its autoplay timer', async () => {
   let resolve;
   const w = new WatchSession(Game, 1, ['club', 'club', 'club', 'club'], { evaluate: () => new Promise(done => { resolve = done; }) });
