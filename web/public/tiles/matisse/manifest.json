@@ -266,6 +266,23 @@
       "notes": "Red cut-paper 中 on pink; direction B."
     },
     {
+      "name": "Man1",
+      "tile": "1m",
+      "label": "1 characters",
+      "status": "approved",
+      "png": "approved/Man1.png",
+      "svg": "approved/Man1.svg",
+      "source": "docs/design/matisse/studies/one-characters-b-approved.png",
+      "sourceSha256": "89ffdbd00932e2c950e4ab991234b0ae20b75d7488f7fca326981667e7bba69a",
+      "crop": {
+        "x": 513,
+        "y": 205,
+        "width": 423,
+        "height": 630
+      },
+      "notes": "Dance B: a sweeping yellow 一 above sculptural vermilion 萬 on deep purple. The lossless centre-tile crop excludes the study label and surrounding board, with the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Man7",
       "tile": "7m",
       "label": "7 characters",
@@ -345,12 +362,6 @@
     }
   ],
   "placeholders": [
-    {
-      "tile": "1m",
-      "name": "Man1",
-      "label": "1 characters",
-      "svg": "placeholders/Man1.svg"
-    },
     {
       "tile": "2m",
       "name": "Man2",
