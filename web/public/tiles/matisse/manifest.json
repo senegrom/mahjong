@@ -221,15 +221,15 @@
       "status": "approved",
       "png": "approved/Sou6.png",
       "svg": "approved/Sou6.svg",
-      "source": "docs/design/matisse/studies/six-bamboo-c-approved.png",
-      "sourceSha256": "3f938f85215df4818a22625d0d9ec79fd84ca20d5d9116c33b9d6a6c7dbeb44c",
+      "source": "docs/design/matisse/studies/six-bamboo-d-green-carnival-approved.png",
+      "sourceSha256": "071df3fe1d70ca224455a5921029e1f9ab727029b7580dcb8906ec919d9b1c86",
       "crop": {
-        "x": 1036,
-        "y": 172,
-        "width": 472,
-        "height": 671
+        "x": 66,
+        "y": 70,
+        "width": 948,
+        "height": 1264
       },
-      "notes": "Approved C: six jointed cut-paper bamboo forms in three staggered pairs on pale sage. All printed artwork stays green for All Green; multiple shades are intentional."
+      "notes": "Green Carnival D: six distinct abstract green cut-outs dance around an open centre on deep forest green. The final crisp, glow-free artwork stays entirely green for All Green. The lossless 3:4 crop excludes the presentation label and surround, using the shared bleed and rounded clipping."
     },
     {
       "name": "Sou7",

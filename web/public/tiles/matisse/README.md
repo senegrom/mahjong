@@ -18,7 +18,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Original Chasuble B: three ivory jointed cut-outs, one above two, on green |
 | [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
 | [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Fan C: four pale-green sprigs and a red centre on deep forest green |
-| [Sou6.svg](approved/Sou6.svg) | 6 bamboo | C: six jointed bamboo forms in three staggered pairs, varied greens on pale sage |
+| [Sou6.svg](approved/Sou6.svg) | 6 bamboo | Green Carnival D: six distinct abstract green cut-outs dance around an open centre on deep forest green |
 | [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Cut-out C: one coral and six green forms circling an open centre on butter yellow |
 | [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Wild Growth C: eight mint and dark-forest fronds bursting around an open centre on emerald |
 | [Sou9.svg](approved/Sou9.svg) | 9 bamboo | Vestment B: three triads of green, ivory and chartreuse bamboo ribbons on ultramarine |
@@ -77,7 +77,7 @@ The 4 bamboo tile uses **Chapel B** from `four-bamboo-b-approved.png`: four pale
 
 The 5 bamboo tile uses **Fan C** from `09-five-bamboo-approved.png`: five complete sprigs, with four in pale green and one red centre, on a deep forest-green field. It uses the same full-face fit, bleed and rounded clipping as the other approved tiles. The study's labels and surrounding board are excluded from the export.
 
-The 6 bamboo tile uses **C** from `six-bamboo-c-approved.png`: three staggered pairs in forest, emerald and sage greens. The lossless crop excludes the study label and surrounding board, and uses the same full-face fitting, corner radius and bleed as the other approved tiles.
+The 6 bamboo tile uses **Green Carnival D** from `six-bamboo-d-green-carnival-approved.png`: six distinct abstract cut-paper silhouettes dance around an open centre on deep forest green. The selected source is the final crisp version with the glow removed. All artwork stays green for All Green. The lossless 3:4 crop preserves the six complete shapes and excludes the presentation label and surrounding board, using the shared full-face fitting, corner radius and bleed. It replaces the earlier staggered-pair C design, whose source remains in `six-bamboo-c-approved.png`.
 
 The 8 bamboo tile uses **Wild Growth C** from `eight-bamboo-c-wild-growth-approved.png`: eight separate jointed fronds, four mint and four dark forest, burst around an open centre on emerald green. The varied scale and all-green artwork preserve the tile count and All Green palette. The lossless crop preserves the selected source pixels, excludes the study label and surround, and uses the shared 3:4 face, 26-unit corners and 1% bleed. It replaces the earlier fan design, which remains in `03-dots-and-bamboo.png`.
 
