@@ -6,7 +6,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 
 | File | Tile | Selected treatment |
 | --- | --- | --- |
-| [Pin1.svg](approved/Pin1.svg) | 1 dot | Black disk, ivory rosette, yellow field: direction B |
+| [Pin1.svg](approved/Pin1.svg) | 1 dot | Rim-free B: black disk and ivory rosette on edge-to-edge golden yellow |
 | [Pin2.svg](approved/Pin2.svg) | 2 disks | B: yellow and magenta rosettes with contrasting petals on ultramarine |
 | [Pin3.svg](approved/Pin3.svg) | 3 disks | C: apricot, mint and carmine rosettes in a loose S on deep purple |
 | [Pin4.svg](approved/Pin4.svg) | 4 disks | Éclipse A: four irregular ultramarine rings with vermilion wedges on warm ivory |
@@ -16,7 +16,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pin8.svg](approved/Pin8.svg) | 8 disks | Cut & Swap C: eight indigo and chartreuse disks across a sweeping divided field, with coral inserts |
 | [Pin9.svg](approved/Pin9.svg) | 9 disks | Orbit B: eight yellow, mint and pink rosettes around a larger apricot centre on deep purple |
 | [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Dance B: two sweeping bamboo forms in green on pale mint |
-| [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Original Chasuble B: three ivory jointed cut-outs, one above two, on green |
+| [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Rim-free Chasuble B: three ivory jointed cut-outs, one above two, on edge-to-edge forest green |
 | [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
 | [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Fan C: four pale-green sprigs and a red centre on deep forest green |
 | [Sou6.svg](approved/Sou6.svg) | 6 bamboo | Green Carnival D: six distinct abstract green cut-outs dance around an open centre on deep forest green |
@@ -36,7 +36,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Man4.svg](approved/Man4.svg) | 4 characters | Interlock C: ivory-white 四 with yellow upright inner strokes and a sweeping pink 萬 on deep purple |
 | [Man5.svg](approved/Man5.svg) | 5 characters | Dance: mint and vermilion 五, yellow 萬 and a cobalt crescent on deep purple |
 | [Man6.svg](approved/Man6.svg) | 6 characters | Chasuble: purple 六 cut through yellow, with vermilion 萬 and teal offcuts |
-| [Man7.svg](approved/Man7.svg) | 7 characters | Cut-out C: pink 萬 and oversized pale-yellow 七 on deep purple |
+| [Man7.svg](approved/Man7.svg) | 7 characters | Rim-free Cut-out C: pink 萬, oversized pale-yellow 七 and a red accent on edge-to-edge deep purple |
 | [Man9.svg](approved/Man9.svg) | 9 characters | Jazz: fragmented coral 九 over cobalt, ivory 萬 and a yellow wedge on deep purple |
 | [Haku.svg](approved/Haku.svg) | White dragon | Approved C/C1 blend: quiet ivory with a pearly silver dora reveal |
 
@@ -47,6 +47,8 @@ Choose **Options → Tile face → Matisse**. All 33 approved faces, including t
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
 ## Next design directions
+
+The rim-free 1 disk, 3 bamboo and 7 characters revisions use `one-disk-rimless-approved.png`, `three-bamboo-rimless-approved.png` and `seven-characters-rimless-approved.png`. Golden yellow, forest green and deep purple now reach every edge without ivory rims, photographed bevels or surrounding shadows. Each complete 1086 × 1448 source is preserved at native resolution and uses the shared 3:4 face, bleed and rounded clipping. The former source studies remain available in the same directory.
 
 The 5 disks tile uses `five-disks-full-bleed-yellow.png`: the five black disks and ivory rosettes retain their quincunx arrangement, with sunflower yellow extending to every edge. The former ivory rim, bevel and shadow have been removed. The full 1060 × 1484 flat source is exported without cropping the motifs, using the shared 3:4 face, bleed and rounded clipping. The original rimmed study remains in `02-five-dot-study.png` as a design reference.
 
@@ -76,7 +78,7 @@ The 1 bamboo tile uses **Carnival C** from `one-bamboo-c-green-background-approv
 
 The 2 bamboo tile uses **Dance B** from `08-two-bamboo-approved.png`. Preserve the all-green appearance of tiles eligible for All Green: multiple shades of green are welcome, with neutral ivory for the tile substrate. The approved source pixels are kept exactly; no new colours are introduced when exporting.
 
-The 3 bamboo tile uses the original **Chasuble B** from `three-bamboo-original-b-approved.jpg`, selected again by Carl: three ivory jointed bamboo cut-outs, one above two, on green. The source is the original three-direction board. The crop preserves its pixels while excluding the photographed tile edge, labels and shadows. It uses the shared 3:4 face, bleed and rounded clipping, and completes the approved bamboo suit.
+The 3 bamboo tile uses the approved rim-free update of the original **Chasuble B** in `three-bamboo-rimless-approved.png`: three ivory jointed bamboo cut-outs, one above two, on uninterrupted forest green. The complete flat source uses the shared 3:4 face, bleed and rounded clipping. Its green and neutral ivory palette remains appropriate for All Green. The original three-direction board is retained in `three-bamboo-original-b-approved.jpg`.
 
 The 4 bamboo tile uses **Chapel B** from `four-bamboo-b-approved.png`: four pale-green sculptural cut-outs on a deep forest-green field. The lossless crop contains only the flat artwork, preserving the all-green palette. It uses the same 3:4 face, bleed and rounded clipping as the other approved tiles.
 
@@ -88,7 +90,7 @@ The 8 bamboo tile uses **Wild Growth C** from `eight-bamboo-c-wild-growth-approv
 
 The 9 bamboo tile uses **Vestment B** from `nine-bamboo-b-approved.png`: exactly nine jointed ribbons in three groups of three on ultramarine. It keeps the approved green, ivory and chartreuse artwork, with the shared 3:4 face, 26-unit corners and 1% bleed. Only the centre B tile is exported; study labels and surrounding board are excluded.
 
-The 1 characters tile uses **Dance B** from `one-characters-b-approved.png`: a sweeping yellow 一 and large vermilion 萬 on deep purple. Only the approved centre tile is exported, using the shared full-face fit, bleed and rounded clipping. The 7 characters tile uses **Cut-out C** from `06-character-compositions.png`. Continue varying the scale and placement of the number and 萬 for future character tiles.
+The 1 characters tile uses **Dance B** from `one-characters-b-approved.png`: a sweeping yellow 一 and large vermilion 萬 on deep purple. Only the approved centre tile is exported, using the shared full-face fit, bleed and rounded clipping. The 7 characters tile uses the approved rim-free **Cut-out C** from `seven-characters-rimless-approved.png`, with pink 萬, sweeping pale-yellow 七 and its red accent on uninterrupted deep purple. The original study remains in `06-character-compositions.png`. Continue varying the scale and placement of the number and 萬 for future character tiles.
 
 The 2 characters tile uses **Dance B** from `two-characters-b-approved.png`: coral-pink 萬 at upper right and an oversized ivory 二 below on deep purple. The two separate sweeping strokes remain clear. The lossless centre-tile export excludes the label and surrounding board, with the same full-face fit, bleed and rounded clipping as the other character tiles.
 

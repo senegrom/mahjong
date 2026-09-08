@@ -18,6 +18,6 @@ const table=document.getElementById('table');
 function picture(tile){const image=document.createElement('img');image.src=tile.src;image.alt=tile.label;image.title=tile.label;image.width=300;image.height=400;return image}
 for(const tile of tiles){const card=document.createElement('div');card.className='card';card.append(picture(tile));const label=document.createElement('p');label.textContent=tile.label;card.append(label);const badge=document.createElement('span');badge.className='badge';badge.textContent='Approved';card.append(badge);document.getElementById('approved').append(card)}
 function updateSize(){const w=rack.firstElementChild?.getBoundingClientRect().width||0;document.getElementById('size').textContent=w.toFixed(1)+' × '+(w*4/3).toFixed(1)+' CSS px per tile · 14 tiles · scroll horizontally if needed; the preview is not scaled down.'}
-function draw(){const names=['Pin8','Man2','Man3','Man4','Man5','Man6','Man7','Man9','Pin4','Pin6','Sou1','Ton','Nan','Pei'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
+function draw(){const names=['Pin8','Man2','Man3','Man4','Man5','Man6','Man7','Man9','Pin1','Sou3','Sou1','Ton','Nan','Pei'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
 document.getElementById('width').addEventListener('change',draw);new ResizeObserver(updateSize).observe(rack);draw();
 </script></body></html>
