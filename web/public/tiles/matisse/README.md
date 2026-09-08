@@ -14,7 +14,7 @@ A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs an
 | [Pin6.svg](approved/Pin6.svg) | 6 disks | C: six coral, chartreuse and orange rosettes with broad open cuts on forest green |
 | [Pin7.svg](approved/Pin7.svg) | 7 disks | Ivory Garden A: seven blue, vermilion and green rosettes in a loose 2-3-2 arrangement on ivory |
 | [Pin8.svg](approved/Pin8.svg) | 8 disks | Cut & Swap C: eight indigo and chartreuse disks across a sweeping divided field, with coral inserts |
-| [Pin9.svg](approved/Pin9.svg) | 9 disks | Orbit B: eight yellow, mint and pink rosettes around a larger apricot centre on deep purple |
+| [Pin9.svg](approved/Pin9.svg) | 9 disks | Red Rhythm C: eight lemon-yellow, ivory and mint disks around a larger cobalt disk with a curling mint frond on vermilion |
 | [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Cut & Swap C: two mint and forest-green bamboo cut-outs across a sweeping divided green field |
 | [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Chapel Windows B: three deep-forest bamboo silhouettes cut through a flowing mint-green field on emerald |
 | [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
@@ -75,7 +75,7 @@ The 3 disks tile uses **C** from `three-disks-c-approved.png`: three separate ap
 
 The 7 disks tile uses **Ivory Garden A** from `seven-disks-a-approved.png`: seven blue, vermilion and green rosettes with contrasting centres, arranged in a loose 2-3-2 dance on ivory. The crop contains exactly seven complete rosettes and excludes the study label and surround. It preserves the approved artwork and uses the shared 3:4 face, bleed and rounded clipping.
 
-The 9 disks tile uses **Orbit B** from `nine-disks-b-approved.png`: eight smaller yellow, mint and pink rosettes encircle one larger apricot rosette on deep purple. The lossless crop uses the refined flat artwork, retains all nine symbols and excludes the study label and surrounding board. It uses the same 3:4 face, bleed and rounded clipping as the other tiles.
+The 9 disks tile uses **Red Rhythm C** from `nine-disks-c-red-rhythm-approved.png`: eight smaller lemon-yellow, ivory and mint disks with varied botanical, spiral and lobed cut-outs encircle a larger cobalt-blue disk with a curling mint frond on vermilion. The complete approved 1086 × 1448 artwork is preserved losslessly; all nine disks remain complete and distinct, and vermilion reaches every edge without an ivory rim or physical bevel. It uses the shared 3:4 face, bleed and rounded clipping. The previous Orbit B source remains in `nine-disks-b-approved.png` as a design reference.
 
 The 1 bamboo tile uses **Carnival C** from `one-bamboo-c-green-background-approved.png`: one dancing pink bird with an oversized vermilion wing, curling purple tail and yellow accents on green. At Carl's request, the former red background and green wing colours have exchanged places; the bird's composition and other colours are retained. The lossless crop preserves the revised source pixels and excludes the presentation label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping. The previous colour arrangement remains in `one-bamboo-c-carnival-approved.png`, and the earlier blue-and-green bird remains in `05-characters-bird-green-dragon.png` as a design reference.
 

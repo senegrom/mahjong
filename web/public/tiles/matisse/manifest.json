@@ -153,15 +153,15 @@
       "status": "approved",
       "png": "approved/Pin9.png",
       "svg": "approved/Pin9.svg",
-      "source": "docs/design/matisse/studies/nine-disks-b-approved.png",
-      "sourceSha256": "049f9cab766abe01ba9f3bb8a09a679d03f37fa6e89b5fc18145b689000164f0",
+      "source": "docs/design/matisse/studies/nine-disks-c-red-rhythm-approved.png",
+      "sourceSha256": "c5db470d5e70b5866e06cc5bf5dbfa3c56064f87db5885443ba62c350d07ca13",
       "crop": {
-        "x": 670,
-        "y": 57,
-        "width": 541,
-        "height": 651
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Orbit B: eight yellow, mint and pink cut-paper rosettes surround one larger apricot centre on deep purple. Exactly nine separate disks, with the shared full-face fit, bleed and rounded clipping."
+      "notes": "Red Rhythm C: eight lemon-yellow, ivory and mint disks with varied botanical, spiral and lobed cut-outs surround one larger cobalt-blue disk with a curling mint frond on vermilion. Exactly nine complete disks remain distinct and countable. The complete approved 1086 × 1448 source is preserved losslessly, with colour reaching every edge and the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Sou2",
