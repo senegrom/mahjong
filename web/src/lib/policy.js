@@ -51,12 +51,12 @@ function ensureWorker() {
   return current;
 }
 
-/** Which network the opponents play with from here on. Changing it drops
- * the worker, since the one that is running has the other network loaded. */
+/** Default for subsequent decisions. Requests capture their own model and
+ * the worker retains a session per network, so switching does not interrupt
+ * an in-flight turn or the differently configured agents in Watch mode. */
 export function useModel(which) {
   if (!MODEL_CHOICES.includes(which) || which === chosen) return chosen;
   chosen = which;
-  resetPolicy(new DOMException('Opponent changed', 'AbortError'));
   return chosen;
 }
 

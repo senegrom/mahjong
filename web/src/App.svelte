@@ -228,8 +228,7 @@
 
   function downloadAi() { void prepareOfflineAi(trainedModel).catch(() => {}); }
 
-  // Changing the network drops the worker holding the other one, so a match
-  // in progress simply asks the new one for the next move.
+  // In-flight turns finish normally; subsequent requests use the new model.
   function chooseModel(which) {
     trainedModel = useModel(which);
     void prepareOfflineAi(trainedModel).catch(() => {});
