@@ -510,15 +510,15 @@
       "status": "approved",
       "png": "approved/Sou1.png",
       "svg": "approved/Sou1.svg",
-      "source": "docs/design/matisse/studies/05-characters-bird-green-dragon.png",
-      "sourceSha256": "4398ecc6ba8e97e5a81103492c8e6f5b0ca7cf0dbeddb548971079be2d7d5948",
+      "source": "docs/design/matisse/studies/one-bamboo-c-carnival-approved.png",
+      "sourceSha256": "84deb829d6c737c62d2252082d6d74eed22f453883949ec395a36a107fbe02be",
       "crop": {
-        "x": 510,
-        "y": 210,
-        "width": 426,
-        "height": 630
+        "x": 62,
+        "y": 28,
+        "width": 962,
+        "height": 1300
       },
-      "notes": "Blue and green cut-paper bird on a bamboo perch."
+      "notes": "Carnival C: one dancing pink bird with an oversized green wing, curling purple tail and yellow accents on vermilion. The lossless crop preserves the approved artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Hatsu",

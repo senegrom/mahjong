@@ -27,7 +27,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Shaa.svg](approved/Shaa.svg) | West wind | Cut-out C: ivory 西 and a cobalt-blue top stroke on vermilion |
 | [Pei.svg](approved/Pei.svg) | North wind | Ribbon Dance B: lemon and coral-pink 北 with a mint accent on ultramarine |
 | [Chun.svg](approved/Chun.svg) | Red dragon | Chapel Flame C: pale-pink enclosure and a sweeping lemon-yellow ribbon form 中 on vermilion |
-| [Sou1.svg](approved/Sou1.svg) | 1 bamboo | Blue and green cut-paper bird on a bamboo perch |
+| [Sou1.svg](approved/Sou1.svg) | 1 bamboo | Carnival C: pink bird with a green wing, curling purple tail and yellow accents on vermilion |
 | [Hatsu.svg](approved/Hatsu.svg) | Green dragon | Chapel B: forest-green 發 cut through an organic mint-green silhouette, with an emerald accent on forest green |
 | [Man1.svg](approved/Man1.svg) | 1 characters | Dance B: sweeping yellow 一 and sculptural vermilion 萬 on deep purple |
 | [Man2.svg](approved/Man2.svg) | 2 characters | Dance B: coral-pink 萬 above a sweeping ivory 二 on deep purple |
@@ -66,6 +66,8 @@ The 3 disks tile uses **C** from `three-disks-c-approved.png`: three separate ap
 The 7 disks tile uses **Ivory Garden A** from `seven-disks-a-approved.png`: seven blue, vermilion and green rosettes with contrasting centres, arranged in a loose 2-3-2 dance on ivory. The crop contains exactly seven complete rosettes and excludes the study label and surround. It preserves the approved artwork and uses the shared 3:4 face, bleed and rounded clipping.
 
 The 9 disks tile uses **Orbit B** from `nine-disks-b-approved.png`: eight smaller yellow, mint and pink rosettes encircle one larger apricot rosette on deep purple. The lossless crop uses the refined flat artwork, retains all nine symbols and excludes the study label and surrounding board. It uses the same 3:4 face, bleed and rounded clipping as the other tiles.
+
+The 1 bamboo tile uses **Carnival C** from `one-bamboo-c-carnival-approved.png`: one dancing pink bird with an oversized green wing, curling purple tail and yellow accents on vermilion. The lossless crop preserves the selected source pixels and excludes the presentation label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping. The earlier blue-and-green bird remains in `05-characters-bird-green-dragon.png` as a design reference.
 
 The 2 bamboo tile uses **Dance B** from `08-two-bamboo-approved.png`. Preserve the all-green appearance of tiles eligible for All Green: multiple shades of green are welcome, with neutral ivory for the tile substrate. The approved source pixels are kept exactly; no new colours are introduced when exporting.
 
