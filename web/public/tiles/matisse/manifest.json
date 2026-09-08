@@ -17,15 +17,15 @@
       "status": "approved",
       "png": "approved/Pin1.png",
       "svg": "approved/Pin1.svg",
-      "source": "docs/design/matisse/studies/01-disk-and-red-dragon.png",
-      "sourceSha256": "b26ebd1936bdb425582313b3fbf293e8f1f064ce5386ec5a49c1e5bb36c7db8a",
+      "source": "docs/design/matisse/studies/one-disk-rimless-approved.png",
+      "sourceSha256": "d332f6d80b096aae60ce7119b6cefdaba82ad2a6e932b0ad37af9e163e5736b6",
       "crop": {
-        "x": 77,
-        "y": 232,
-        "width": 410,
-        "height": 554
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Black disk and ivory rosette on yellow; direction B."
+      "notes": "Approved rim-free update of direction B: black disk and ivory cut-paper rosette on edge-to-edge golden yellow. The complete flat 3:4 artwork has no ivory rim, physical bevel or surrounding shadow and is preserved at native resolution with the shared bleed and rounded clipping."
     },
     {
       "name": "Pin2",
@@ -187,15 +187,15 @@
       "status": "approved",
       "png": "approved/Sou3.png",
       "svg": "approved/Sou3.svg",
-      "source": "docs/design/matisse/studies/three-bamboo-original-b-approved.jpg",
-      "sourceSha256": "39c432e9e830b1eeada2c6e67d5c8e924cc10e1060d62567b13bdc95978efa48",
+      "source": "docs/design/matisse/studies/three-bamboo-rimless-approved.png",
+      "sourceSha256": "91bfeaa5b8537f7e8df258f0183e92a3d4660e1206ff72d72867ea8facbab974",
       "crop": {
-        "x": 614,
-        "y": 413,
-        "width": 219,
-        "height": 271
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Original Chasuble B: three ivory jointed bamboo cut-outs, one above two, on a green cut-paper field. Selected from the original three-direction board. The crop excludes the photographed tile edge and uses the shared 3:4 face, bleed and rounded clipping. Green and neutral ivory preserve the All Green palette."
+      "notes": "Approved rim-free update of the original Chasuble B: three ivory jointed bamboo cut-outs, one above two, on edge-to-edge forest green. The complete flat 3:4 artwork has no ivory rim or physical bevel and uses the shared bleed and rounded clipping. Green and neutral ivory preserve the All Green palette."
     },
     {
       "name": "Sou4",
@@ -493,15 +493,15 @@
       "status": "approved",
       "png": "approved/Man7.png",
       "svg": "approved/Man7.svg",
-      "source": "docs/design/matisse/studies/06-character-compositions.png",
-      "sourceSha256": "825fdeed12e41171468d083a031b8e7ccdcadd0b6e681e19d2a905507a4ae658",
+      "source": "docs/design/matisse/studies/seven-characters-rimless-approved.png",
+      "sourceSha256": "563c686c686752c714e9d96ef4f8aed7cfc6076b374cc3c30891230847a67ab3",
       "crop": {
-        "x": 965,
-        "y": 207,
-        "width": 432,
-        "height": 630
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Cut-out C: pink 萬 at upper left and oversized pale-yellow 七 below on deep purple."
+      "notes": "Approved rim-free update of Cut-out C: pink 萬 at upper left, oversized pale-yellow 七 below and a red accent on edge-to-edge deep purple. The complete flat 3:4 artwork has no ivory rim, physical bevel or surrounding shadow and is preserved at native resolution with the shared bleed and rounded clipping."
     },
     {
       "name": "Man9",
