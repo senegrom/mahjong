@@ -96,6 +96,23 @@
       "notes": "Ivory Garden A: seven blue, vermilion and green cut-paper rosettes in a loose 2-3-2 arrangement on ivory, with contrasting centres. The flat crop preserves the selected source pixels and excludes the study label and surround; it uses the shared 3:4 face, bleed and rounded clipping."
     },
     {
+      "name": "Pin9",
+      "tile": "9p",
+      "label": "9 disks",
+      "status": "approved",
+      "png": "approved/Pin9.png",
+      "svg": "approved/Pin9.svg",
+      "source": "docs/design/matisse/studies/nine-disks-b-approved.png",
+      "sourceSha256": "049f9cab766abe01ba9f3bb8a09a679d03f37fa6e89b5fc18145b689000164f0",
+      "crop": {
+        "x": 670,
+        "y": 57,
+        "width": 541,
+        "height": 651
+      },
+      "notes": "Orbit B: eight yellow, mint and pink cut-paper rosettes surround one larger apricot centre on deep purple. Exactly nine separate disks, with the shared full-face fit, bleed and rounded clipping."
+    },
+    {
       "name": "Sou2",
       "tile": "2s",
       "label": "2 bamboo",
@@ -300,6 +317,23 @@
       "notes": "Dance B: a sweeping yellow 一 above sculptural vermilion 萬 on deep purple. The lossless centre-tile crop excludes the study label and surrounding board, with the shared 3:4 face, bleed and rounded clipping."
     },
     {
+      "name": "Man2",
+      "tile": "2m",
+      "label": "2 characters",
+      "status": "approved",
+      "png": "approved/Man2.png",
+      "svg": "approved/Man2.svg",
+      "source": "docs/design/matisse/studies/two-characters-b-approved.png",
+      "sourceSha256": "83f771884657d42a32b385e2d27972d291e7fde3a3e37451ec4aa8697e0a4e33",
+      "crop": {
+        "x": 510,
+        "y": 199,
+        "width": 429,
+        "height": 658
+      },
+      "notes": "Dance B: coral-pink 萬 at upper right above two sweeping ivory strokes forming 二 on deep purple. The reversed composition preserves the approved centre tile exactly, using the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Man7",
       "tile": "7m",
       "label": "7 characters",
@@ -380,12 +414,6 @@
   ],
   "placeholders": [
     {
-      "tile": "2m",
-      "name": "Man2",
-      "label": "2 characters",
-      "svg": "placeholders/Man2.svg"
-    },
-    {
       "tile": "3m",
       "name": "Man3",
       "label": "3 characters",
@@ -438,12 +466,6 @@
       "name": "Pin8",
       "label": "8 circles",
       "svg": "placeholders/Pin8.svg"
-    },
-    {
-      "tile": "9p",
-      "name": "Pin9",
-      "label": "9 circles",
-      "svg": "placeholders/Pin9.svg"
     },
     {
       "tile": "2z",

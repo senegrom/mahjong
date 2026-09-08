@@ -11,6 +11,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pin3.svg](approved/Pin3.svg) | 3 disks | C: apricot, mint and carmine rosettes in a loose S on deep purple |
 | [Pin5.svg](approved/Pin5.svg) | 5 dots | Five black and ivory rosettes on yellow |
 | [Pin7.svg](approved/Pin7.svg) | 7 disks | Ivory Garden A: seven blue, vermilion and green rosettes in a loose 2-3-2 arrangement on ivory |
+| [Pin9.svg](approved/Pin9.svg) | 9 disks | Orbit B: eight yellow, mint and pink rosettes around a larger apricot centre on deep purple |
 | [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Dance B: two sweeping bamboo forms in green on pale mint |
 | [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Original Chasuble B: three ivory jointed cut-outs, one above two, on green |
 | [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
@@ -25,12 +26,13 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Sou1.svg](approved/Sou1.svg) | 1 bamboo | Blue and green cut-paper bird on a bamboo perch |
 | [Hatsu.svg](approved/Hatsu.svg) | Green dragon | Ivory 發 cut out of emerald green: style C |
 | [Man1.svg](approved/Man1.svg) | 1 characters | Dance B: sweeping yellow 一 and sculptural vermilion 萬 on deep purple |
+| [Man2.svg](approved/Man2.svg) | 2 characters | Dance B: coral-pink 萬 above a sweeping ivory 二 on deep purple |
 | [Man7.svg](approved/Man7.svg) | 7 characters | Cut-out C: pink 萬 and oversized pale-yellow 七 on deep purple |
 | [Haku.svg](approved/Haku.svg) | White dragon | Approved C/C1 blend: quiet ivory with a pearly silver dora reveal |
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All twenty-one approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 13 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All 23 approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 11 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
@@ -39,6 +41,8 @@ White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When
 The 3 disks tile uses **C** from `three-disks-c-approved.png`: three separate apricot, mint and carmine rosettes on deep purple. It replaces the earlier ivory design, whose source remains in `03-dots-and-bamboo.png`. The export excludes the study label and surrounding board and uses the shared 3:4 face, bleed and rounded clipping.
 
 The 7 disks tile uses **Ivory Garden A** from `seven-disks-a-approved.png`: seven blue, vermilion and green rosettes with contrasting centres, arranged in a loose 2-3-2 dance on ivory. The crop contains exactly seven complete rosettes and excludes the study label and surround. It preserves the approved artwork and uses the shared 3:4 face, bleed and rounded clipping.
+
+The 9 disks tile uses **Orbit B** from `nine-disks-b-approved.png`: eight smaller yellow, mint and pink rosettes encircle one larger apricot rosette on deep purple. The lossless crop uses the refined flat artwork, retains all nine symbols and excludes the study label and surrounding board. It uses the same 3:4 face, bleed and rounded clipping as the other tiles.
 
 The 2 bamboo tile uses **Dance B** from `08-two-bamboo-approved.png`. Preserve the all-green appearance of tiles eligible for All Green: multiple shades of green are welcome, with neutral ivory for the tile substrate. The approved source pixels are kept exactly; no new colours are introduced when exporting.
 
@@ -53,6 +57,8 @@ The 6 bamboo tile uses **C** from `six-bamboo-c-approved.png`: three staggered p
 The 9 bamboo tile uses **Vestment B** from `nine-bamboo-b-approved.png`: exactly nine jointed ribbons in three groups of three on ultramarine. It keeps the approved green, ivory and chartreuse artwork, with the shared 3:4 face, 26-unit corners and 1% bleed. Only the centre B tile is exported; study labels and surrounding board are excluded.
 
 The 1 characters tile uses **Dance B** from `one-characters-b-approved.png`: a sweeping yellow 一 and large vermilion 萬 on deep purple. Only the approved centre tile is exported, using the shared full-face fit, bleed and rounded clipping. The 7 characters tile uses **Cut-out C** from `06-character-compositions.png`. Continue varying the scale and placement of the number and 萬 for future character tiles.
+
+The 2 characters tile uses **Dance B** from `two-characters-b-approved.png`: coral-pink 萬 at upper right and an oversized ivory 二 below on deep purple. The two separate sweeping strokes remain clear. The lossless centre-tile export excludes the label and surrounding board, with the same full-face fit, bleed and rounded clipping as the other character tiles.
 
 East uses Ribbon B. West uses **Cut-out C** from `west-wind-c-approved.png`: ivory 西 with a cobalt-blue top stroke on a full vermilion field. The lossless export uses the same 3:4 face, bleed and rounded clipping as the other tiles, with no inset border. Keep the flowing black calligraphy of East A available for another tile. White dragon uses the approved abstract blend of C and C1 in `07-white-dragon-approved.png`; the earlier detailed dragon was rejected.
 
@@ -72,4 +78,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The twenty-one approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 23 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
