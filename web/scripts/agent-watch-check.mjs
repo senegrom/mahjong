@@ -113,10 +113,10 @@ try {
       await assertHints(page, watch);
       assert.ok(await page.$('.followed .hand .dora'));
       for (let turn = 0; turn < 5; turn++) {
-        const history = await page.$eval('.agent-watch > details summary', el => el.textContent);
+        const history = await page.$eval('.agent-watch > details:last-child > summary', el => el.textContent);
         await page.click('.watch-controls > button');
         await watch.step();
-        await page.waitForFunction(previous => document.querySelector('.agent-watch > details summary').textContent !== previous
+        await page.waitForFunction(previous => document.querySelector('.agent-watch > details:last-child > summary').textContent !== previous
           && document.querySelector('.weight-row.best .choice-action:not(:disabled)'), {}, history);
       }
       await assertHints(page, watch);
