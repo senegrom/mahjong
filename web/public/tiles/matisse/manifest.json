@@ -170,15 +170,15 @@
       "status": "approved",
       "png": "approved/Sou2.png",
       "svg": "approved/Sou2.svg",
-      "source": "docs/design/matisse/studies/08-two-bamboo-approved.png",
-      "sourceSha256": "1a6f5202500390cb2ae6cf893de0beb377d25eeeb11d0006ec449f1f2a2378c0",
+      "source": "docs/design/matisse/studies/two-bamboo-c-cut-and-swap-approved.png",
+      "sourceSha256": "d8af52010994aa3ed658e18f4eeb39bff5e91d7fb2f8e6e5872a83b87554d1c2",
       "crop": {
-        "x": 495,
-        "y": 174,
-        "width": 465,
-        "height": 769
+        "x": 47,
+        "y": 28,
+        "width": 994,
+        "height": 1292
       },
-      "notes": "Dance B: two sweeping green bamboo forms on a pale mint field. All printed artwork stays green for All Green; multiple shades are intentional."
+      "notes": "Cut & Swap C: two mint and forest-green bamboo cut-outs exchange foreground and background colours across a sweeping divided green field. Every visible part of the face stays green for All Green. The lossless crop preserves both complete forms and excludes the presentation label and surround, using the shared 3:4 face, bleed and rounded clipping with no inset rim."
     },
     {
       "name": "Sou3",

@@ -15,7 +15,7 @@ A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs an
 | [Pin7.svg](approved/Pin7.svg) | 7 disks | Ivory Garden A: seven blue, vermilion and green rosettes in a loose 2-3-2 arrangement on ivory |
 | [Pin8.svg](approved/Pin8.svg) | 8 disks | Cut & Swap C: eight indigo and chartreuse disks across a sweeping divided field, with coral inserts |
 | [Pin9.svg](approved/Pin9.svg) | 9 disks | Orbit B: eight yellow, mint and pink rosettes around a larger apricot centre on deep purple |
-| [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Dance B: two sweeping bamboo forms in green on pale mint |
+| [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Cut & Swap C: two mint and forest-green bamboo cut-outs across a sweeping divided green field |
 | [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Rim-free Chasuble B: three ivory jointed cut-outs, one above two, on edge-to-edge forest green |
 | [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
 | [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Fan C: four pale-green sprigs and a red centre on deep forest green |
@@ -77,7 +77,7 @@ The 9 disks tile uses **Orbit B** from `nine-disks-b-approved.png`: eight smalle
 
 The 1 bamboo tile uses **Carnival C** from `one-bamboo-c-green-background-approved.png`: one dancing pink bird with an oversized vermilion wing, curling purple tail and yellow accents on green. At Carl's request, the former red background and green wing colours have exchanged places; the bird's composition and other colours are retained. The lossless crop preserves the revised source pixels and excludes the presentation label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping. The previous colour arrangement remains in `one-bamboo-c-carnival-approved.png`, and the earlier blue-and-green bird remains in `05-characters-bird-green-dragon.png` as a design reference.
 
-The 2 bamboo tile uses **Dance B** from `08-two-bamboo-approved.png`. Preserve the all-green appearance of tiles eligible for All Green: multiple shades of green are welcome, with neutral ivory for the tile substrate. The approved source pixels are kept exactly; no new colours are introduced when exporting.
+The 2 bamboo tile uses **Cut & Swap C** from `two-bamboo-c-cut-and-swap-approved.png`: two jointed mint and forest-green bamboo cut-outs exchange foreground and background colours across a sweeping divided green field. Both complete forms remain distinct, and every visible part of the face stays green for All Green. The lossless crop preserves the exact selected artwork, excludes the presentation label and surrounding board, and uses the shared 3:4 face, bleed and rounded clipping with no inset rim. It replaces the earlier Dance B design, whose source remains in `08-two-bamboo-approved.png`.
 
 The 3 bamboo tile uses the approved rim-free update of the original **Chasuble B** in `three-bamboo-rimless-approved.png`: three ivory jointed bamboo cut-outs, one above two, on uninterrupted forest green. The complete flat source uses the shared 3:4 face, bleed and rounded clipping. Its green and neutral ivory palette remains appropriate for All Green. The original three-direction board is retained in `three-bamboo-original-b-approved.jpg`.
 
