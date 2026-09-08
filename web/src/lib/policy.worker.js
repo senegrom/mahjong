@@ -21,8 +21,10 @@ let configured = false;
 // told when the observation grows.
 const POSITIONS = 34;
 
-let session = null;
-let loading = null;
+// One session per network, since the page offers two and a worker that
+// changed network mid-match would otherwise keep answering with the old one.
+const sessions = new Map();
+const loading = new Map();
 
 async function load(url, runtimeBase) {
   if (!configured && runtimeBase) {
@@ -31,18 +33,20 @@ async function load(url, runtimeBase) {
     ort.env.wasm.wasmPaths = runtimeBase;
     configured = true;
   }
-  if (!session && !loading) {
-    loading = ort.InferenceSession.create(url, {
+  const ready = sessions.get(url);
+  if (ready) return ready;
+  if (!loading.has(url)) {
+    loading.set(url, ort.InferenceSession.create(url, {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all',
     }).then((created) => {
-      session = created;
+      sessions.set(url, created);
       return created;
     }).finally(() => {
-      loading = null;
-    });
+      loading.delete(url);
+    }));
   }
-  return session ?? loading;
+  return loading.get(url);
 }
 
 /**

@@ -10,7 +10,7 @@
   import ScoreScreen from './lib/ScoreScreen.svelte';
   import Standings from './lib/Standings.svelte';
   import Review from './lib/Review.svelte';
-  import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
+  import { chooseAction, chosenModel, modelIsAvailable, reportProgress, resetPolicy, useModel } from './lib/policy.js';
   import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
   import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards, unseenTileCounts } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
@@ -34,6 +34,10 @@
   let confirmDiscards = $state(preferences.confirmDiscards);
   let shortcuts = $state(preferences.shortcuts);
   let tileFace = $state(preferences.tileFace);
+  // Which trained network the opponents play with, and whether this build
+  // carries the stronger one at all.
+  let trainedModel = $state(useModel(preferences.trainedModel) ?? chosenModel());
+  let strongAvailable = $state(false);
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
   let startupNote = $state('Preparing the game for offline play…');
@@ -85,7 +89,7 @@
   let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
 
   $effect(() => {
-    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace };
+    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, trainedModel };
     try { storage?.setItem(SETTINGS_KEY, JSON.stringify(value)); } catch { /* Gameplay still works. */ }
   });
 
@@ -160,7 +164,13 @@
   onMount(() => {
     let mounted = true;
     const unwatchOffline = watchOffline(value => { if (mounted) offline = value; });
-    modelIsAvailable().then((available) => { if (mounted) trainedAvailable = available; });
+    modelIsAvailable('quick').then((available) => { if (mounted) trainedAvailable = available; });
+    modelIsAvailable('strong').then((available) => {
+      if (!mounted) return;
+      strongAvailable = available;
+      // A saved choice of a network this build no longer carries falls back.
+      if (!available && trainedModel === 'strong') trainedModel = useModel('quick');
+    });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
     (async () => {
       await startOffline();
@@ -213,7 +223,14 @@
     };
   });
 
-  function downloadAi() { void prepareOfflineAi().catch(() => {}); }
+  function downloadAi() { void prepareOfflineAi(trainedModel).catch(() => {}); }
+
+  // Changing the network drops the worker holding the other one, so a match
+  // in progress simply asks the new one for the next move.
+  function chooseModel(which) {
+    trainedModel = useModel(which);
+    void prepareOfflineAi(trainedModel).catch(() => {});
+  }
 
   function start(strength = opponents) {
     if (saveConflict) return;
@@ -400,6 +417,15 @@
   <details class="options">
     <summary>Options</summary>
     <div class="option-fields">
+      {#if strongAvailable}
+        <label>Trained opponent
+          <select value={trainedModel} onchange={(event) => chooseModel(event.currentTarget.value)}
+            aria-label="Trained opponent">
+            <option value="quick">Quick · small download</option>
+            <option value="strong">Strong · larger download</option>
+          </select>
+        </label>
+      {/if}
       <label>Tile face
         <select bind:value={tileFace} aria-label="Tile face">
           <option value="classic">Classic</option>

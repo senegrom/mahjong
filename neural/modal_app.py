@@ -805,6 +805,7 @@ def distil(
     channels: int = 320,
     blocks: int = 24,
     student_planes: str = "mortal",
+    attention: bool = True,
     run: str = DEFAULT_RUN,
     name: str = "distilled",
 ) -> str:
@@ -839,6 +840,8 @@ def distil(
         "--measure-every", "10", "--measure-games", "512",
         "--out", str(out),
     ]
+    if not attention:
+        command.append("--no-attention")
     for label, which in (("--resume", student), ("--teacher", teacher)):
         if not which:
             continue

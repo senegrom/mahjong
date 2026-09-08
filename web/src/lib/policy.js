@@ -2,8 +2,15 @@
  * discarded; retry never reuses a rejected loading promise or a hung process. */
 import { startOffline, prepareOfflineAi } from './offline.js';
 
-const MODEL_URL = new URL('model.onnx', document.baseURI).href;
+/** The two trained opponents: the small network the game has always
+ * carried, and a larger one distilled from the lineage being trained now. */
+export const MODEL_URLS = Object.freeze({
+  quick: new URL('model.onnx', document.baseURI).href,
+  strong: new URL('model-strong.onnx', document.baseURI).href,
+});
+export const MODEL_CHOICES = Object.freeze(Object.keys(MODEL_URLS));
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
+let chosen = 'quick';
 let worker = null;
 let nextId = 1;
 const waiting = new Map();
@@ -44,11 +51,22 @@ function ensureWorker() {
   return current;
 }
 
-export async function modelIsAvailable() {
+/** Which network the opponents play with from here on. Changing it drops
+ * the worker, since the one that is running has the other network loaded. */
+export function useModel(which) {
+  if (!MODEL_CHOICES.includes(which) || which === chosen) return chosen;
+  chosen = which;
+  resetPolicy(new DOMException('Opponent changed', 'AbortError'));
+  return chosen;
+}
+
+export function chosenModel() { return chosen; }
+
+export async function modelIsAvailable(which = chosen) {
   try {
     const offline = await startOffline();
-    if (offline) return offline.hasModel;
-    const response = await fetch(MODEL_URL, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
+    if (offline) return which === 'strong' ? Boolean(offline.hasStrongModel) : Boolean(offline.hasModel);
+    const response = await fetch(MODEL_URLS[which], { method: 'HEAD', signal: AbortSignal.timeout(10000) });
     return response.ok;
   } catch { return false; }
 }
@@ -57,7 +75,7 @@ export async function chooseAction(planes, mask, temperature = 0, timeout = 2000
   // Download and durably save the model AND runtime before the inference
   // timeout starts. Recreating a worker or reopening offline uses these bytes.
   if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
-  const preparation = prepareOfflineAi();
+  const preparation = prepareOfflineAi(chosen);
   if (signal) {
     await new Promise((resolve, reject) => {
       const abort = () => { signal.removeEventListener('abort', abort); reject(new DOMException('Match changed', 'AbortError')); };
@@ -83,7 +101,7 @@ export async function chooseAction(planes, mask, temperature = 0, timeout = 2000
     waiting.set(id, { resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error) });
     signal?.addEventListener('abort', abort, { once: true });
     try {
-      ensureWorker().postMessage({ id, url: MODEL_URL, runtimeBase: RUNTIME_BASE, planes, mask, temperature }, [planes.buffer]);
+      ensureWorker().postMessage({ id, url: MODEL_URLS[chosen], runtimeBase: RUNTIME_BASE, planes, mask, temperature }, [planes.buffer]);
     } catch (error) {
       resetPolicy(error);
     }

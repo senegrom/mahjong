@@ -85,6 +85,13 @@ def parse_args() -> argparse.Namespace:
         "student learns it. Above one keeps more of what it was unsure of",
     )
     parser.add_argument(
+        "--no-attention",
+        dest="attention",
+        action="store_false",
+        help="build the student without channel attention, whose ReduceMax "
+        "and Sigmoid the browser's reduced ONNX runtime does not carry",
+    )
+    parser.add_argument(
         "--student",
         choices=("mortal", "engine"),
         default="mortal",
@@ -204,7 +211,7 @@ def main() -> None:
         )
     else:
         planes = MORTAL_PLANES if args.student == "mortal" else ENGINE_PLANES
-        net = PolicyValueNet(args.channels, args.blocks, planes).to(device)
+        net = PolicyValueNet(args.channels, args.blocks, planes, args.attention).to(device)
     if net.kind != args.student:
         raise SystemExit(
             f"--student {args.student} does not match the checkpoint, which "
@@ -235,7 +242,8 @@ def main() -> None:
     print(
         f"device {device} | {net.channels}x{net.blocks} "
         f"| {net.parameter_count() / 1e6:.2f}M parameters "
-        f"| student sees {net.planes} planes ({net.kind})",
+        f"| student sees {net.planes} planes ({net.kind})"
+        f"{'' if net.attention else ', without attention'}",
         flush=True,
     )
 

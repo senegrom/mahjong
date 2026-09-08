@@ -279,11 +279,29 @@ its own, so the new lineage is measured against the old at one table
 (`python -m neural.duel new.pt old.pt`). Its warm start, taught the
 published network's moves for 120 rounds, duelled level with its
 teacher; ten generations of self-play later it beat it by +0.087
-placement at five standard errors, and stood 0.34 behind Mortal. The
-browser keeps the older network until Mortal's encoder runs there.
+placement at five standard errors, and stood 0.34 behind Mortal.
+
+The browser builds the engine's ninety-seven planes and cannot build
+Mortal's thousand, so no network of the new lineage runs there as it is.
+Nothing of the old lineage is worth shipping either: its last network,
+generation 371, duelled 0.226 placement worse than the one the site
+already carries, at thirteen standard errors. What reaches the page is a
+student taught by the new lineage and reading the planes the page can
+make, both networks sitting at the same table while it learns:
+
+```bash
+python -m neural.imitate --student engine --teacher runs/joined/latest.pt \
+    --channels 320 --blocks 20 --rounds 60 --out runs/student
+python -m neural.duel runs/student/latest.pt w320-run/published.pt
+python -m neural.export runs/student/latest.pt web/public/model-strong.onnx
+```
 
 The game offers the **Trained** tier only when `web/public/model.onnx` is
 present, so a checkout without one simply shows the two heuristic tiers.
+A build that also carries `model-strong.onnx` offers a choice of trained
+opponent, quick or strong, and downloads only the one chosen: the small
+network is a couple of megabytes and the larger one is tens of them, which
+is a poor thing to spend on a phone that did not ask for it.
 
 `node scripts/play-check.mjs <url>` plays the game in a real browser and
 reports the console, the moves and any failure. It is the only way to test
