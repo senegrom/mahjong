@@ -29,7 +29,7 @@ function harness({ loadGate, runGate, invalidOutput = false, runError = false, m
     env: { wasm: {} }, Tensor,
     InferenceSession: { create: async url => {
       loads.push(url);
-      assert.equal(live++, 0, 'the previous model must be released before allocating another');
+      assert.ok(live++ < 2, 'at most the two networks the page carries may be resident');
       await loadGate?.promise;
       return {
         run: async () => {
@@ -60,7 +60,7 @@ function harness({ loadGate, runGate, invalidOutput = false, runError = false, m
   return { send, cancel: id => self.onmessage({ data: { cancel: id } }), loads, releases, runs, tensors, messages };
 }
 
-test('concurrent mixed agents share one session at a time and preserve their own model choices', async () => {
+test('concurrent mixed agents keep a session per network and preserve their own model choices', async () => {
   const loadGate = deferred(), runGate = deferred();
   const h = harness({ loadGate, runGate });
   const completed = h.send(1);
@@ -72,8 +72,9 @@ test('concurrent mixed agents share one session at a time and preserve their own
   assert.deepEqual(h.runs, ['quick']);
   runGate.resolve();
   await completed;
-  assert.deepEqual(h.loads, ['quick', 'strong', 'quick']);
-  assert.deepEqual(h.releases, ['quick', 'strong']);
+  // Both networks stay loaded, so the return to Quick is not another load.
+  assert.deepEqual(h.loads, ['quick', 'strong']);
+  assert.deepEqual(h.releases, []);
   assert.deepEqual(h.runs, ['quick', 'quick', 'strong', 'quick']);
   assert.deepEqual(h.messages.filter(message => message.analysis).map(({ id, action }) => [id, action]), [[1, 1], [2, 1], [3, 0], [4, 1]]);
   assert.ok(h.tensors.every(tensor => tensor.disposed), 'all input and output tensors must be disposed');

@@ -18,7 +18,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    host: '0.0.0.0',
+    // A phone on the same network can be given the server with
+    // `VITE_LAN=1 npm run dev`; by default it answers only this machine.
+    host: process.env.VITE_LAN ? '0.0.0.0' : '127.0.0.1',
     allowedHosts: ['terminal.local'],
   },
 });

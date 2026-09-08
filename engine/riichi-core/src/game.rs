@@ -759,8 +759,25 @@ impl Hand {
                 let mut completed = player.hand;
                 completed.add(tile);
                 shanten::shanten(&completed, player.melds.len()) == shanten::COMPLETE
+                    && self.could_rob_with(*seat, tile)
             })
             .collect()
+    }
+
+    /// Whether the tile on the table could be won by this seat as far as the
+    /// kind of window allows: a discard or an added kan by any complete
+    /// shape, a concealed kan only by thirteen orphans (EMA section 3.3.13).
+    /// Passing a tile that could not have been won leaves no furiten.
+    pub fn could_rob_with(&self, seat: Wind, tile: Tile) -> bool {
+        if !self.robbing_concealed {
+            return true;
+        }
+        let player = &self.players[seat.index()];
+        let mut completed = player.hand;
+        completed.add(tile);
+        crate::agari::readings(&completed, player.melds.len())
+            .iter()
+            .any(|reading| matches!(reading.shape, crate::agari::Shape::ThirteenOrphans))
     }
 
     /// What each other player may do with the discard on the table.
@@ -790,13 +807,8 @@ impl Hand {
             completed.add(tile);
             let complete_shape =
                 shanten::shanten(&completed, player.melds.len()) == shanten::COMPLETE;
-            let shape_allows = !self.robbing_concealed || {
-                crate::agari::readings(&completed, player.melds.len())
-                    .iter()
-                    .any(|reading| matches!(reading.shape, crate::agari::Shape::ThirteenOrphans))
-            };
             if complete_shape
-                && shape_allows
+                && self.could_rob_with(seat, tile)
                 && !player.is_furiten()
                 && self.would_win(seat, tile, WinBy::Discard).is_ok()
             {
@@ -1945,6 +1957,30 @@ mod tests {
         assert!(
             west.is_none() || !west.unwrap().1.contains(&Call::Ron),
             "an ordinary hand may not"
+        );
+    }
+
+    /// EMA 2025 sections 3.3.9 and 3.3.13: passing a concealed quad leaves
+    /// furiten only on a hand that could have robbed it, thirteen orphans.
+    #[test]
+    fn passing_a_concealed_quad_is_furiten_only_where_it_could_be_robbed() {
+        let mut hand = fresh();
+        hand.players[1].hand = "119m19p19s123456z".parse().unwrap();
+        hand.players[2].hand = "123m456m789m123p7z".parse().unwrap();
+        hand.players[0].hand = "7777z".parse().unwrap();
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+        hand.drawn = Some("7z".parse().unwrap());
+        hand.declare_quad("7z".parse().unwrap(), MeldKind::ConcealedKan);
+        assert!(matches!(hand.phase, Phase::CallWindow), "the quad is offered to be robbed");
+        hand.resolve_calls(&[]).unwrap();
+        assert!(
+            hand.players[1].temporary_furiten,
+            "thirteen orphans declined the win it could have taken"
+        );
+        assert!(
+            !hand.players[2].temporary_furiten,
+            "an ordinary hand could not have won, so it declined nothing"
         );
     }
 

@@ -1,5 +1,5 @@
 <script>
-  import { onMount, setContext, tick } from 'svelte';
+  import { onMount, setContext, tick, untrack } from 'svelte';
   import init, { Game } from './wasm/riichi.js';
   import Tile, { preloadTiles } from './lib/Tile.svelte';
   import HandTile from './lib/HandTile.svelte';
@@ -170,18 +170,22 @@
   $effect(() => {
     if (!ready || mode !== 'play' || playStarted) return;
     playStarted = true;
-    const saved = matchStore.read();
-    if (saved) {
-      try {
-        session = MatchSession.restore(Game, saved, callbacks);
-        update(session);
-        if (session.opponents.includes('neural')) downloadAi();
-        void session.run();
-      } catch (error) {
-        // Preserve the only saved copy until the user chooses New game.
-        failure = `The saved match could not be restored: ${error.message}. Choose New game to start again.`;
-      }
-    } else start();
+    // Only readiness and the mode decide this; what the restore reads on the
+    // way must not make it run again on every change of opponent or network.
+    untrack(() => {
+      const saved = matchStore.read();
+      if (saved) {
+        try {
+          session = MatchSession.restore(Game, saved, callbacks);
+          update(session);
+          if (session.opponents.includes('neural')) downloadAi();
+          void session.run();
+        } catch (error) {
+          // Preserve the only saved copy until the user chooses New game.
+          failure = `The saved match could not be restored: ${error.message}. Choose New game to start again.`;
+        }
+      } else start();
+    });
   });
 
   onMount(() => {

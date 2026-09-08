@@ -63,7 +63,8 @@ fn choices(hand: &Hand, seat: Wind) -> Vec<Choice> {
                 // scoring yaku. Use the engine's waits, not the Ron button.
                 causes_furiten: index == encoding::PASS
                     && hand.pending_discard.is_some_and(|(_, tile)| {
-                        hand.players[seat.index()].waits().count(tile) > 0
+                        let player = &hand.players[seat.index()];
+                        player.waits().count(tile) > 0 && hand.could_rob_with(seat, tile)
                     }),
             })
         })
@@ -111,8 +112,10 @@ fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
 
+// Unknown keys are dropped, not refused: the serde bridge to JavaScript does
+// not honour `deny_unknown_fields`, and a draft saved by an older page may
+// carry fields this version no longer reads.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Position {
     seat: usize,
     turn: usize,
@@ -136,7 +139,6 @@ struct Position {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Seat {
     hand: Vec<String>,
     melds: Vec<Set>,
@@ -148,7 +150,6 @@ struct Seat {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Set {
     kind: String,
     tile: String,
@@ -156,7 +157,6 @@ struct Set {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Thrown {
     tile: String,
     order: u32,
@@ -171,9 +171,7 @@ fn tile(value: &str) -> Result<Tile, String> {
 
 fn count_visible(seen: &mut TileSet, tile: Tile) -> Result<(), String> {
     if seen.count(tile) >= 4 {
-        return Err(format!(
-            "More than four copies of {tile}; mark claimed discards to avoid counting them twice"
-        ));
+        return Err(format!("More than four copies of {tile} are visible"));
     }
     seen.add(tile);
     Ok(())
@@ -299,6 +297,13 @@ impl Position {
                 quads += usize::from(kind.is_kan());
                 player.melds.push(meld);
             }
+            if input.riichi != "none"
+                && player.melds.iter().any(|m| m.kind != MeldKind::ConcealedKan)
+            {
+                return Err(
+                    "Riichi requires a closed hand: only concealed kans may stand beside it".into(),
+                );
+            }
             let expected = 13 - 3 * player.melds.len()
                 + usize::from(phase == Phase::Act && index == self.turn);
             if (index == self.seat || !input.hand.is_empty()) && player.hand.len() != expected {
@@ -361,7 +366,68 @@ impl Position {
             }
             player.furiten = waiting.furiten;
         }
+        // Every discard marked as claimed must be explained by a called set
+        // that took it from that seat; without this, marking extra copies of
+        // a tile as claimed put a fifth one on the table.
+        let mut takers: Vec<(usize, Vec<Tile>)> = Vec::new();
+        for (index, player) in hand.players.iter().enumerate() {
+            for meld in &player.melds {
+                let offset = match meld.from {
+                    ClaimedFrom::Right => 1,
+                    ClaimedFrom::Across => 2,
+                    ClaimedFrom::Left => 3,
+                    ClaimedFrom::SelfDrawn => continue,
+                };
+                let could_take: Vec<Tile> = match meld.kind {
+                    MeldKind::Chii => meld.tiles().into_iter().collect(),
+                    MeldKind::ConcealedKan => continue,
+                    _ => vec![meld.tile],
+                };
+                takers.push(((index + offset) % 4, could_take));
+            }
+        }
+        for (index, player) in hand.players.iter().enumerate() {
+            for discard in player.discards.iter().filter(|d| d.claimed) {
+                // A set that names exactly this tile first, so a sequence's
+                // three possible tiles stay for the discards only it explains.
+                let found = takers
+                    .iter()
+                    .position(|(who, tiles)| *who == index && tiles == &[discard.tile])
+                    .or_else(|| {
+                        takers
+                            .iter()
+                            .position(|(who, tiles)| *who == index && tiles.contains(&discard.tile))
+                    });
+                match found {
+                    Some(at) => {
+                        takers.swap_remove(at);
+                    }
+                    None => {
+                        return Err(format!(
+                            "{}'s claimed {} needs a called set that took it",
+                            ["East", "South", "West", "North"][index],
+                            discard.tile
+                        ))
+                    }
+                }
+            }
+        }
+        // The editor keeps the flag through the kan's robbery window, so the
+        // replacement that follows is known to be one; only a plain discard
+        // window cannot be waiting for a replacement.
+        if hand.after_quad && phase != Phase::Act && !robbing {
+            return Err("A replacement draw belongs to the seat that declared the kan".into());
+        }
         if phase == Phase::Act {
+            if hand.after_quad
+                && (hand.drawn.is_none()
+                    || !hand.current().melds.iter().any(|m| m.kind.is_kan()))
+            {
+                return Err(
+                    "A replacement draw needs a kan in the acting seat's sets and a drawn tile"
+                        .into(),
+                );
+            }
             if let Some(t) = hand.drawn {
                 if hand.current().hand.count(t) == 0 {
                     return Err("The drawn tile must be included in the acting hand".into());
@@ -413,9 +479,15 @@ impl Position {
         // exposed and no replacement tile has been taken.
         let completed_quads =
             quads.saturating_sub(usize::from(robbing && phase == Phase::CallWindow));
+        if self.wall + completed_quads > 69 {
+            return Err(
+                "The live wall holds at most 69 tiles once the dealer has drawn, one fewer for each kan"
+                    .into(),
+            );
+        }
         hand.wall =
             Wall::for_analysis(self.wall, &indicators, completed_quads).ok_or_else(|| {
-                "Enter 0–70 wall tiles and one dora indicator plus one per completed kan"
+                "Enter 0–69 wall tiles and one dora indicator plus one per completed kan"
                     .to_string()
             })?;
         for t in indicators {
@@ -461,5 +533,153 @@ impl PhysicalAnalysis {
             self.seat,
             &mut Bot::with_style(self.hand.discards_made as u64, style),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seat(hand: &str) -> Seat {
+        Seat {
+            hand: hand.split(' ').filter(|t| !t.is_empty()).map(String::from).collect(),
+            melds: Vec::new(),
+            discards: Vec::new(),
+            score: 30000,
+            riichi: "none".into(),
+            ippatsu: false,
+            furiten: false,
+        }
+    }
+
+    fn thrown(tile: &str, order: u32, claimed: bool) -> Thrown {
+        Thrown {
+            tile: tile.into(),
+            order,
+            drawn: false,
+            riichi: false,
+            claimed,
+        }
+    }
+
+    fn set(kind: &str, tile: &str, from: usize) -> Set {
+        Set {
+            kind: kind.into(),
+            tile: tile.into(),
+            from,
+        }
+    }
+
+    /// East to act after a draw, holding a plain hand with the drawn tile in it.
+    fn acting() -> Position {
+        Position {
+            seat: 0,
+            turn: 0,
+            phase: "act".into(),
+            round: 0,
+            kyoku: 1,
+            counters: 0,
+            riichi_sticks: 0,
+            wall: 60,
+            indicators: vec!["3s".into()],
+            players: [
+                seat("1m 2m 3m 4p 5p 6p 7s 8s 9s 1z 1z 2z 3z 5z"),
+                seat(""),
+                seat(""),
+                seat(""),
+            ],
+            drawn: Some("5z".into()),
+            pending: None,
+            pending_kind: "discard".into(),
+            just_claimed: None,
+            after_quad: false,
+            first_turns: false,
+        }
+    }
+
+    #[test]
+    fn a_claimed_discard_needs_a_set_that_took_it() {
+        let mut position = acting();
+        // Four in hand and a fifth on the table, hidden behind "claimed".
+        position.players[0] = seat("1m 1m 1m 1m 4p 5p 6p 7s 8s 9s 1z 2z 3z 5z");
+        position.players[1].discards.push(thrown("1m", 0, true));
+        let error = position.build().unwrap_err();
+        assert!(error.contains("claimed 1m"), "{error}");
+
+        // A pon that took it from South explains the claimed discard.
+        let mut position = acting();
+        position.players[0] = seat("4p 5p 6p 7s 8s 9s 1z 2z 3z 5z 5z");
+        position.players[0].melds.push(set("pon", "1m", 1));
+        position.players[1].discards.push(thrown("1m", 0, true));
+        position.build().expect("a claimed discard matched by a pon is fine");
+    }
+
+    #[test]
+    fn a_replacement_draw_needs_a_kan() {
+        let mut position = acting();
+        position.after_quad = true;
+        let error = position.build().unwrap_err();
+        assert!(error.contains("replacement draw"), "{error}");
+    }
+
+    #[test]
+    fn the_live_wall_cannot_exceed_what_a_decision_can_see() {
+        let mut position = acting();
+        position.wall = 70;
+        let error = position.build().unwrap_err();
+        assert!(error.contains("69"), "{error}");
+        position.wall = 69;
+        position.build().expect("69 is the most the dealer can see after drawing");
+    }
+
+    #[test]
+    fn riichi_beside_an_open_set_says_so() {
+        let mut position = acting();
+        position.players[0] = seat("4p 5p 6p 7s 8s 9s 1z 2z 3z 5z 5z");
+        position.players[0].melds.push(set("pon", "1m", 1));
+        position.players[0].riichi = "riichi".into();
+        position.players[1].discards.push(thrown("1m", 0, true));
+        let error = position.build().unwrap_err();
+        assert!(error.contains("closed hand"), "{error}");
+    }
+
+    /// South answers East's concealed kan. Only thirteen orphans could rob
+    /// it, so only that shape declines a win by passing.
+    fn passing_is_furiten(kan: &str, east: &str, south: &str) -> bool {
+        let mut position = acting();
+        position.seat = 1;
+        position.phase = "call".into();
+        position.drawn = None;
+        position.pending = Some(kan.into());
+        position.pending_kind = "concealed-kan".into();
+        position.players[0] = seat(east);
+        position.players[0].melds.push(set("concealed-kan", kan, 0));
+        position.players[1] = seat(south);
+        let (hand, seat) = position.build().expect("a valid robbery window");
+        choices(&hand, seat)
+            .into_iter()
+            .find(|choice| choice.kind == "pass")
+            .expect("passing is always offered")
+            .causes_furiten
+    }
+
+    #[test]
+    fn passing_a_concealed_kan_is_furiten_only_for_thirteen_orphans() {
+        assert!(
+            passing_is_furiten(
+                "1m",
+                "2m 3m 4m 4p 5p 6p 7s 8s 9s 1z",
+                "9m 9m 1p 9p 1s 9s 1z 2z 3z 4z 5z 6z 7z"
+            ),
+            "thirteen orphans waiting on the one of characters could have robbed it"
+        );
+        assert!(
+            !passing_is_furiten(
+                "5m",
+                "1m 2m 3m 4p 5p 6p 7s 8s 9s 1z",
+                "1p 2p 3p 4p 5p 6p 7p 8p 9p 1s 1s 3m 4m"
+            ),
+            "an ordinary shape waiting on the five could not, so it declined nothing"
+        );
     }
 }

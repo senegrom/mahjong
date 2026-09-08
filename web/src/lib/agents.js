@@ -19,5 +19,5 @@ export async function evaluateAgent(engine, agent, signal) {
   const choice = engine.agent_pick(agent);
   return { agent, choice, kind: 'selection', choices: choices.map(entry => ({ ...entry,
     weight: entry.kind === choice.kind && (entry.tile ?? null) === (choice.tile ?? null) ? 1 : 0,
-  })).sort((a, b) => b.weight - a.weight || a.index - b.index) };
+  })).sort((a, b) => b.weight - a.weight || (a.index ?? 99) - (b.index ?? 99)) };
 }

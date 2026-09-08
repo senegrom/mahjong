@@ -136,6 +136,8 @@ test('direct agent-mode entry leaves regular saves untouched until Play is opene
         return { opponents: ['neural'], run() { calls.push('run'); } };
       } },
       downloadAi() { calls.push('download'); }, session: null, notice: '', failure: '',
+      // Svelte's untrack, which the effect uses to keep its dependencies to readiness and the mode.
+      untrack: task => task(),
     };
     const context = vm.createContext(state);
     const run = vm.runInContext(`(${app.source.slice(callback.start, callback.end)})`, context);

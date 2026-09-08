@@ -1,4 +1,5 @@
 import { MatchSession } from './session.js';
+import { OPPONENT_POSITIONS } from './opponents.js';
 
 /** One followed player and three independent agents. A retained analysis is
  * also the command we play, so stochastic built-ins never reroll on Next. */
@@ -20,7 +21,8 @@ export class WatchSession {
     const opponents = lineup.slice(1).map(agent => ['quick', 'strong'].includes(agent) ? 'neural' : agent);
     this.match = new MatchSession(Game, seed, opponents, {
       ai: (planes, mask, signal) => {
-        const index = this.match.view.seats.findIndex(seat => seat.player === this.match.pendingOpponent?.player);
+        const pending = this.match.pendingOpponent;
+        const index = pending ? OPPONENT_POSITIONS.indexOf(pending.position) + 1 : -1;
         return ai(planes, mask, signal, this.lineup[index]);
       },
       onChange: () => this.notify(),

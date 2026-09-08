@@ -23,11 +23,14 @@ let runtimeMemory = null;
 // told when the observation grows.
 const POSITIONS = 34;
 
-// Only one model occupies the WASM heap at a time. Requests keep their chosen
-// URL and run in order, so mixed tables still use the correct network without
-// retaining the larger model after switching back to Quick.
-let session = null;
-let sessionUrl = null;
+// A session for each network the page carries, kept in order of last use,
+// so a table that mixes the two does not reload one on every change of
+// turn: measured, that cost a mixed table most of a second at the ninetieth
+// percentile on a desktop and far more on a phone. Two is what exists; a
+// runtime that cannot hold both fails the request and the page retries it
+// in a fresh worker with a larger reservation.
+const KEEP = 2;
+const sessions = new Map();
 const queued = new Map();
 let running = false;
 let failed = false;
@@ -42,15 +45,22 @@ async function load(url, runtimeBase, memoryLimitMiB) {
     runtimeMemory.configure(memoryLimitMiB);
   }
   runtimeMemory.beginRequest();
-  if (session && sessionUrl === url) return session;
-  if (session) await session.release();
-  session = null;
-  sessionUrl = null;
-  session = await ort.InferenceSession.create(url, {
+  const ready = sessions.get(url);
+  if (ready) {
+    sessions.delete(url);
+    sessions.set(url, ready);
+    return ready;
+  }
+  while (sessions.size >= KEEP) {
+    const [oldest, session] = sessions.entries().next().value;
+    sessions.delete(oldest);
+    await session.release();
+  }
+  const session = await ort.InferenceSession.create(url, {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });
-  sessionUrl = url;
+  sessions.set(url, session);
   return session;
 }
 

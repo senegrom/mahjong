@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { PhysicalAnalysis } from '../wasm/riichi.js';
   import { AGENTS, WINDS, evaluateAgent } from './agents.js';
-  import { TILES, emptyPosition, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+  import { TILES, emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { tileWords } from './tiles.js';
   import TileEntry from './TileEntry.svelte';
@@ -82,6 +82,8 @@
   }
   async function analyze() {
     if (!loaded || saveConflict || unreadable) return;
+    const missing = missingNumber(snapshot());
+    if (missing) { failure = missing; analysis = null; return; }
     request?.abort();
     const owner = new AbortController(); request = owner;
     const input = snapshot(), key = JSON.stringify(input) + agent;

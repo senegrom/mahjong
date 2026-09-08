@@ -249,7 +249,7 @@ cargo run -p riichi-cli --release -- dump --games 1000 # scored hands, for the c
 cd web
 npm install
 npm run wasm                    # build the engine for the browser
-npm run dev                     # play at the address printed
+npm run dev                     # play at the address printed; VITE_LAN=1 to reach it from a phone
 npm run check:all               # play it in a real browser and check what it did
 ```
 

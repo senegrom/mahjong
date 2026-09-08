@@ -24,7 +24,6 @@ export function resetPolicy(reason = new DOMException('Match changed', 'AbortErr
   const old = worker;
   worker = null;
   old?.terminate();
-  memoryLimitMiB = MEMORY_LIMITS_MIB[0];
   for (const pending of waiting.values()) pending.reject(reason);
   waiting.clear();
 }
@@ -50,7 +49,13 @@ function ensureWorker() {
         onProgress?.('retrying the agent with more memory');
         try { for (const request of waiting.values()) request.dispatch(); }
         catch (failure) { resetPolicy(failure); }
-      } else resetPolicy(new Error(error));
+      } else {
+        // A memory failure nothing larger can fix starts the next runtime
+        // small again; any other failure keeps the ceiling that was found to
+        // work, so a retry does not repeat the whole fail-and-grow cycle.
+        if (memory) memoryLimitMiB = MEMORY_LIMITS_MIB[0];
+        resetPolicy(new Error(error));
+      }
       return;
     }
     if (!pending) return;

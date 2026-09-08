@@ -129,7 +129,7 @@ function memoryClient(t) {
   });
   vm.runInContext(source + '\nglobalThis.api = { analyzePolicy, resetPolicy };', context);
   t.after(() => context.api.resetPolicy());
-  return { workers, ask: (model = 'quick', signal, planes = Float32Array.from({ length: 34 }, (_, i) => i / 2)) =>
+  return { workers, api: context.api, ask: (model = 'quick', signal, planes = Float32Array.from({ length: 34 }, (_, i) => i / 2)) =>
     context.api.analyzePolicy(planes, [1, 1], signal, model) };
 }
 
@@ -189,4 +189,22 @@ test('browser refusal and the final memory ceiling stop retries and allow a fres
     fresh.answer(fresh.messages[0].id, { analysis: { action: 1 } });
     await retry;
   }
+});
+
+test('a memory ceiling that was found to work survives an ordinary reset', async t => {
+  const { ask, workers, api } = memoryClient(t);
+  const first = ask(); await setImmediate();
+  workers[0].fail(workers[0].messages[0], 'limit', 200);
+  await setImmediate();
+  const grown = workers[1];
+  assert.equal(grown.messages[0].memoryLimitMiB, 256);
+  grown.answer(grown.messages[0].id, { analysis: { action: 1 } });
+  await first;
+  // A retry after some other failure keeps the size that worked, instead of
+  // failing at the small size and growing again.
+  api.resetPolicy(new Error('a timeout'));
+  const again = ask(); await setImmediate();
+  assert.equal(workers.at(-1).messages[0].memoryLimitMiB, 256);
+  workers.at(-1).answer(workers.at(-1).messages[0].id, { analysis: { action: 0 } });
+  await again;
 });

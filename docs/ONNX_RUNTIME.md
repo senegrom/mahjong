@@ -43,13 +43,18 @@ page releases the old worker and retries pending decisions in a fresh worker at
 memory still starts at 16 MiB and grows on demand. Requests preserve their original
 observations, selected models and cancellation signals across retries. No larger
 reservation is attempted when the browser itself refuses memory, when the request
-exceeds 384 MiB, or for an unclassified runtime error. A manual retry starts back
-at 192 MiB. If normal heap growth's spare capacity is refused, the allocator tries
-only the exact pages needed before reporting failure.
+exceeds 384 MiB, or for an unclassified runtime error. Those memory failures start
+the next runtime back at 192 MiB; any other failure, a timeout or a failed
+answer, keeps the ceiling that was found to work, so a retry does not repeat the
+whole fail-and-grow cycle. If normal heap growth's spare capacity is refused, the
+allocator tries only the exact pages needed before reporting failure.
 
-The worker serializes inference and releases the previous session before loading
-a different model. Switching agents preserves the model captured by every pending
-turn; cancelled queued requests are removed. Inputs and outputs are disposed after
+The worker serializes inference and keeps a session for each of the two networks
+the page carries, in order of last use, so a Watch table that mixes Quick and
+Strong does not reload a network on every change of turn: measured on a desktop,
+that reload cost a mixed table most of a second at the ninetieth percentile.
+Switching agents preserves the model captured by every pending turn; cancelled
+queued requests are removed. Inputs and outputs are disposed after
 every inference, and any runtime error discards the worker so Retry can initialize
 ORT afresh in Play, Watch and Physical modes.
 

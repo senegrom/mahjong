@@ -116,3 +116,19 @@ test('denied storage or locks never report a saved draft or replace its last cop
     store.close();
   }
 });
+
+test('a save stuck behind a lock does not keep the next editor from opening', async () => {
+  const env = environment(encoded(emptyPosition()));
+  const blocked = make(env);
+  await blocked.read();
+  // The lock is never granted: another window holds it and never lets go.
+  env.locks.request = () => new Promise(() => {});
+  const edited = emptyPosition(); edited.wall = 42;
+  void blocked.save(edited);
+  const warnings = [];
+  const next = make(env, { patience: 50, onWarning: warning => warnings.push(warning) });
+  const position = await next.read();
+  assert.equal(position.wall, 69, 'the draft on record, not the one still saving');
+  assert.match(warnings.at(-1), /still waiting for the browser lock/);
+  assert.equal(next.disabled, false, 'a stall is not a browser that cannot save');
+});

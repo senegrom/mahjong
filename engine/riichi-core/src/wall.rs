@@ -36,6 +36,9 @@ pub struct Wall {
     indicators_revealed: usize,
     /// The dice roll that broke the wall, kept for replays.
     dice: u8,
+    /// A wall built from a table entered by hand: the tiles under the
+    /// indicators are unknown, so it has no ura indicators to reveal.
+    ura_hidden: bool,
 }
 
 impl Wall {
@@ -58,6 +61,7 @@ impl Wall {
             replacements_taken: quads,
             indicators_revealed: indicators.len(),
             dice: 0,
+            ura_hidden: true,
         })
     }
 
@@ -78,6 +82,7 @@ impl Wall {
             replacements_taken: 0,
             indicators_revealed: 1,
             dice,
+            ura_hidden: false,
         }
     }
 
@@ -185,6 +190,9 @@ impl Wall {
     /// The ura dora indicators, which only a riichi winner may look at
     /// (EMA section 3.3.10).
     pub fn ura_indicators(&self) -> Vec<Tile> {
+        if self.ura_hidden {
+            return Vec::new();
+        }
         (0..self.indicators_revealed)
             .map(|index| self.tiles[SET_SIZE - DEAD_WALL + REPLACEMENTS + index * 2 + 1])
             .collect()

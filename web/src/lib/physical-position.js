@@ -48,6 +48,23 @@ export function parsePhysical(text) {
   return null;
 }
 
+const SEATS = ['East', 'South', 'West', 'North'];
+
+/** The first number a draft still lacks, as a sentence, or null when it has
+ * them all. A number field the person has emptied is null in the draft, and
+ * the engine's own answer to that is "invalid type: unit value". */
+export function missingNumber(position) {
+  const fields = [['wall', 'the live wall count'], ['kyoku', 'the hand number'], ['counters', 'the honba count'],
+    ['riichi_sticks', 'the riichi sticks'], ['round', 'the round wind']];
+  for (const [key, name] of fields) if (!Number.isInteger(position?.[key])) return `Enter ${name}`;
+  for (const [index, player] of (position?.players ?? []).entries()) {
+    if (!Number.isInteger(player?.score)) return `Enter ${SEATS[index]}'s points`;
+    if ((player.melds ?? []).some(m => !Number.isInteger(m?.from))) return `Choose who supplied each of ${SEATS[index]}'s called sets`;
+    if ((player.discards ?? []).some(d => !Number.isInteger(d?.order))) return `Give each of ${SEATS[index]}'s discards an order number`;
+  }
+  return null;
+}
+
 export function readPhysical(storage) {
   try { return parsePhysical(storage?.getItem(PHYSICAL_KEY)) ?? emptyPosition(); }
   catch { return emptyPosition(); }
