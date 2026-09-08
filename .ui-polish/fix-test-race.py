@@ -50,7 +50,7 @@ text = replace_once(
 text = replace_once(
     text,
     "    await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p);",
-    "    await p.click('.settings-trigger'); await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p);",
+    "    await p.click('.settings-trigger'); await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p); await p.click('.mobile-preferences-head button');",
     'interrupted AI retry settings',
 )
 path.write_text(text)
