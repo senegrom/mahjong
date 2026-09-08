@@ -89,6 +89,20 @@
     try { storage?.setItem(SETTINGS_KEY, JSON.stringify(value)); } catch { /* Gameplay still works. */ }
   });
 
+  // A call is offered under a table that fills the window, so the choices
+  // can sit below the fold on an ordinary screen. Being asked a question
+  // whose answers are off screen is no question at all, so the section is
+  // brought into view when it appears, by the shortest scroll that does
+  // it and none at all when it is already there.
+  $effect(() => {
+    if (!callChoices.length || !callElement) return;
+    const buttons = callElement.querySelector('.call-options') ?? callElement;
+    const box = buttons.getBoundingClientRect();
+    if (box.bottom <= window.innerHeight && box.top >= 0) return;
+    const gentle = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    buttons.scrollIntoView({ block: 'end', behavior: gentle ? 'auto' : 'smooth' });
+  });
+
   // When the turn comes to you and nothing else has focus, the hand takes
   // it, so the arrows and Enter work at once: the shortcuts only run with
   // focus inside the hand, which keeps them off the controls.
