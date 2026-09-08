@@ -11,7 +11,9 @@ permissions:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  # Let main finish its checks and publish even when newer commits arrive.
+  # Superseded pull-request checks can still be cancelled.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   engine:
