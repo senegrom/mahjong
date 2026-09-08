@@ -57,16 +57,20 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('Dali resolves six approved faces and placeholders for the rest', () => {
-  const approved = new Set(['1p', '5p', '1s', '2s', '8m', '7z']);
+test('Dali resolves seven approved images and placeholders for the rest', () => {
+  const approved = new Set(['1p', '3p', '5p', '1s', '2s', '8m', '7z']);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'dali');
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
     assert.match(svg, /viewBox="0 0 300 400"/);
-    if (approved.has(tile)) assert.match(url, /\/dali\/approved\//);
+    if (approved.has(tile)) {
+      assert.match(url, /\/dali\/approved\//);
+      assert.match(svg, /data:image\/png;base64,/);
+    }
     else assert.equal(url, 'tiles/dali/placeholders/placeholder.svg');
   }
   assert.equal(tileImage('1p', 'dali'), 'tiles/dali/approved/Pin1.svg');
+  assert.equal(tileImage('3p', 'dali'), 'tiles/dali/approved/Pin3.svg');
   assert.equal(tileImage('7z', 'dali'), 'tiles/dali/approved/Chun.svg');
 });
 
@@ -81,7 +85,7 @@ test('hidden tiles cannot reveal their identity through any face set', () => {
 });
 
 test('all selectable face sets are in the preload inventory with valid files', () => {
-  assert.equal(TILE_IMAGE_URLS.length, 83);
+  assert.equal(TILE_IMAGE_URLS.length, 84);
   assert.ok(TILE_IMAGE_URLS.includes('tiles/matisse/approved/Haku-foil.svg'));
   assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/approved/Pin1.svg'));
   assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/placeholders/placeholder.svg'));
