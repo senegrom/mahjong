@@ -14,6 +14,8 @@ advances the other players to the next decision. Auto play handles the next
 hand as well; the pace controls the pause between decisions. **Show choice
 weights** works with either setting. Leaving Watch stops its outstanding work.
 Your regular saved match remains separate; watched games start fresh.
+Opening Watch or Physical play directly leaves the regular match untouched
+until you select Play.
 
 The percentages sum to 100% over the trained policy's legal action space. The
 highest weight is the action played; a 70% weight is not a 70% chance of winning.
@@ -56,10 +58,15 @@ count to the actual table's count. **Add an earlier discard** only edits the
 history, without changing the concealed hand or current decision.
 
 Recording a pass leaves the tile available for the other seats' responses;
-passing ron marks furiten. It never invents the others' responses. Calls move
+passing a tile that completes the hand marks furiten even without a scoring
+yaku. Taking a call clears temporary furiten. It never invents the others'
+responses. Calls move
 the held tiles into a set and retain the claimed discard. After kan, enter the
 actual replacement tile and newly exposed indicator. No random tiles are
-drawn, no hidden hands are filled, and no opponents play automatically.
+drawn, no hidden hands are filled, and no opponents play automatically. A
+first-turn riichi is recorded as double riichi when the first turns are
+unbroken. Ippatsu remains active while an added/concealed kan can be robbed,
+then ends when the actual replacement draw is recorded.
 
 **Undo edit / move** restores the previous recorded edit or move. Direct field
 edits remain editable in place. **Clear table** starts an empty draft and can
@@ -73,3 +80,5 @@ marks the hand finished; settle the physical scores and enter the next hand.
 with the exact engine observations and legal masks; checks calls, furiten,
 riichi, quads and impossible inputs; and plays watched mixed tables across hand
 boundaries. It also checks masked softmax and cancellation of a disposed watch.
+`web/tests/agent-controls.test.js` exercises the actual selection handlers
+and verifies that the regular match starts only when Play is opened.

@@ -71,7 +71,7 @@
   <div class="watch-controls">
     <label><input type="checkbox" checked={auto} onchange={event => { auto = event.currentTarget.checked; watch?.setAutoplay(auto); }} /> Auto play</label>
     <label><input type="checkbox" bind:checked={showWeights} /> Show choice weights</label>
-    <label>Pace<select bind:value={speed} onchange={() => { if (watch) { watch.delay = speed; watch.schedule(); } }} aria-label="Watch pace"><option value={700}>Fast</option><option value={1400}>Normal</option><option value={3000}>Slow</option></select></label>
+    <label>Pace<select value={speed} onchange={event => { speed = Number(event.currentTarget.value); if (watch) { watch.delay = speed; watch.schedule(); } }} aria-label="Watch pace"><option value={700}>Fast</option><option value={1400}>Normal</option><option value={3000}>Slow</option></select></label>
     {#if view}<button onclick={() => watch.step()} disabled={busy || Boolean(standings)}>{view.phase === 'over' ? 'Next hand' : 'Play this choice'}</button>{/if}
   </div>
   {#if failure}<div role="alert">{failure} <button disabled={busy} onclick={() => watch.prepare()}>Retry agent</button></div>{/if}

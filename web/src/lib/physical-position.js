@@ -50,6 +50,9 @@ export function recordDraw(position, seat, tile) {
   if (player.hand.length !== 13 - 3 * player.melds.length) throw new Error('Enter the concealed hand before recording its draw');
   player.hand.push(tile);
   player.furiten = player.riichi !== 'none' && player.furiten;
+  p.after_quad = p.after_quad && p.turn === seat;
+  // Ippatsu survives the kan's robbery window, then ends when the kan stands.
+  if (p.after_quad) p.players.forEach(player => { player.ippatsu = false; });
   p.turn = seat; p.seat = seat; p.phase = 'act'; p.drawn = tile;
   p.pending = null; p.pending_kind = 'discard'; p.just_claimed = null;
   p.wall--;
@@ -67,13 +70,14 @@ export function recordDiscard(position, seat, tile, riichi = false) {
   }
   if (riichi && player.riichi !== 'none') throw new Error('This player has already declared riichi');
   if (riichi && player.score < 1000) throw new Error('Riichi needs 1,000 points');
+  const double = p.first_turns && player.discards.length === 0;
   const order = Math.max(-1, ...p.players.flatMap(player => player.discards.map(entry => entry.order))) + 1;
   player.discards.push({ tile, order, drawn: p.turn === seat && p.drawn === tile, riichi, claimed: false });
-  if (riichi) { player.riichi = 'riichi'; player.ippatsu = true; player.score -= 1000; p.riichi_sticks++; }
+  if (riichi) { player.riichi = double ? 'double' : 'riichi'; player.ippatsu = true; player.score -= 1000; p.riichi_sticks++; }
   else player.ippatsu = false;
-  if (order >= 3) p.first_turns = false;
+  if (p.players.every(player => player.discards.length > 0)) p.first_turns = false;
   // Unknown opponents' live draws are recorded together with their discards.
-  if (!known && !p.after_quad) p.wall = Math.max(0, p.wall - 1);
+  if (!known) p.wall = Math.max(0, p.wall - 1);
   p.turn = seat; p.phase = 'call'; p.pending = tile; p.pending_kind = 'discard';
   p.drawn = null; p.just_claimed = null; p.after_quad = false;
   return p;
@@ -88,14 +92,14 @@ export function recordChoice(position, choice, choices) {
   if (choice.kind === 'discard' || choice.kind === 'riichi') return recordDiscard(position, position.seat, choice.tile, choice.kind === 'riichi');
   const p = structuredClone(position), player = p.players[p.seat];
   if (choice.kind === 'pass') {
-    if (choices.some(entry => entry.kind === 'ron')) player.furiten = true;
+    if (choices.some(entry => entry.causes_furiten || entry.kind === 'ron')) player.furiten = true;
     // Keep the discard available for the other seats' real responses.
     return p;
   }
   if (choice.kind === 'ron' || choice.kind === 'tsumo') { p.phase = 'over'; return p; }
   if (['pon', 'chii', 'kan'].includes(choice.kind)) {
     const offered = p.pending;
-    const discard = p.players[p.turn].discards.at(-1);
+    const discard = p.players[p.turn].discards.reduce((last, entry) => !last || entry.order > last.order ? entry : last, null);
     if (!discard || discard.tile !== offered || discard.claimed) throw new Error('This discard is no longer available');
     const tiles = choice.kind === 'chii'
       ? [0, 1, 2].map(offset => `${Number(choice.tile[0]) + offset}${choice.tile[1]}`)
@@ -104,6 +108,7 @@ export function recordChoice(position, choice, choices) {
     for (const tile of tiles) remove(player.hand, tile);
     discard.claimed = true;
     player.melds.push({ kind: choice.kind, tile: choice.kind === 'chii' ? choice.tile : offered, from: (p.turn - p.seat + 4) % 4 });
+    player.furiten = false;
     p.just_claimed = choice.kind === 'kan' ? null : offered;
   } else if (choice.kind === 'concealed-kan') {
     for (let i = 0; i < 4; i++) remove(player.hand, choice.tile);
@@ -114,7 +119,7 @@ export function recordChoice(position, choice, choices) {
     remove(player.hand, choice.tile); meld.kind = choice.kind;
   } else throw new Error('Unknown choice');
   p.first_turns = false;
-  p.players.forEach(player => { player.ippatsu = false; });
+  if (['pon', 'chii', 'kan'].includes(choice.kind)) p.players.forEach(player => { player.ippatsu = false; });
   p.turn = p.seat; p.drawn = null; p.pending = null;
   p.after_quad = choice.kind.includes('kan');
   p.phase = p.after_quad ? 'draw' : 'act';

@@ -100,7 +100,7 @@
   <div class="physical-heading"><h2>Physical agent play</h2><button onclick={() => { if (history.length) { position = history.at(-1); history = history.slice(0, -1); } }} disabled={!history.length}>Undo edit / move</button><button onclick={() => edit(() => emptyPosition())}>Clear table</button></div>
   <p class="intro">Enter the table in front of you. Include the drawn tile in the concealed hand; leave unknown hands empty. Tap entered tiles to remove them. All draws and calls are recorded by you.</p>
   <div class="physical-toolbar">
-    <label>Analyse seat<select bind:value={position.seat} onchange={() => { if (position.phase === 'act') position.turn = position.seat; }} aria-label="Analyse seat">{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
+    <label>Analyse seat<select value={position.seat} onchange={event => edit(p => { p.seat = Number(event.currentTarget.value); if (p.phase === 'act') { p.turn = p.seat; p.drawn = null; p.just_claimed = null; } })} aria-label="Analyse seat">{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
     <label>Agent<select bind:value={agent} aria-label="Physical play agent">{#each Object.entries(AGENTS) as [key, label] (key)}{#if key !== 'strong' || strongAvailable}{#if key !== 'quick' || trainedAvailable}<option value={key}>{label}</option>{/if}{/if}{/each}</select></label>
     <button class="primary" onclick={analyze} disabled={!ready || busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
   </div>
@@ -127,7 +127,7 @@
         <label>Offered by<select bind:value={position.turn}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
         <label>Pending tile<select bind:value={position.pending}><option value={null}>Choose tile</option>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
       {:else if position.phase === 'act'}
-        <label>Drawn tile · already in hand<select bind:value={position.drawn} onchange={() => { if (position.drawn) position.just_claimed = null; }}><option value={null}>No draw · after calling a set</option>{#each [...new Set(position.players[position.seat].hand)] as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
+        <label>Drawn tile · already in hand<select value={position.drawn ?? ''} aria-label="Drawn tile" onchange={event => edit(p => { p.drawn = event.currentTarget.value || null; if (p.drawn) p.just_claimed = null; })}><option value="">No draw · after calling a set</option>{#each [...new Set(position.players[position.seat].hand)] as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
         {#if !position.drawn}<label>Tile just claimed<select bind:value={position.just_claimed}><option value={null}>Choose tile</option>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
       {/if}
     </div>
@@ -152,7 +152,7 @@
           <div class="meld-editor"><strong>Called sets and concealed kans</strong>
             {#each player.melds as meld, slot (slot)}
               <div class="meld-fields">
-                <label>Set<select bind:value={meld.kind} onchange={() => { if (meld.kind === 'chii') meld.from = 3; else if (meld.kind === 'concealed-kan') meld.from = 0; else if (meld.from === 0) meld.from = 3; }}>
+                <label>Set<select value={meld.kind} aria-label="Set kind" onchange={event => edit(p => { const set = p.players[index].melds[slot]; set.kind = event.currentTarget.value; if (set.kind === 'chii') set.from = 3; else if (set.kind === 'concealed-kan') set.from = 0; else if (set.from === 0) set.from = 3; })}>
                   <option value="chii">Chii</option><option value="pon">Pon</option><option value="kan">Open kan</option><option value="extended-kan">Added kan</option><option value="concealed-kan">Concealed kan</option>
                 </select></label>
                 <label>{meld.kind === 'chii' ? 'Lowest tile' : 'Tile'}<select bind:value={meld.tile}>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>

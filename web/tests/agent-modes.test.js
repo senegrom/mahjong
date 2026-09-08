@@ -97,6 +97,7 @@ test('manually entered starting positions have exactly the same observation and 
 
 test('a physical pon consumes only held tiles, preserves the claimed discard and offers legal follow-up discards', () => {
   const p = callPosition();
+  p.players[0].furiten = true;
   const choices = inspect(p, a => a.agent_choices());
   const pon = choices.find(c => c.kind === 'pon'); assert.ok(pon);
   const next = recordChoice(p, pon, choices);
@@ -104,6 +105,7 @@ test('a physical pon consumes only held tiles, preserves the claimed discard and
   assert.equal(next.players[3].discards[0].claimed, true);
   assert.equal(next.players[0].melds[0].from, 3);
   assert.equal(next.just_claimed, '5z'); assert.equal(next.drawn, null);
+  assert.equal(next.players[0].furiten, false, 'taking a call clears temporary furiten');
   inspect(next, a => { assert.ok(a.agent_choices().some(c => c.kind === 'discard')); assert.equal(a.agent_choices().some(c => c.kind === 'riichi'), false); });
   assert.equal(p.players[0].hand.length, 13, 'recording does not mutate the previous position');
 });
@@ -124,7 +126,59 @@ test('ron, pass, furiten, tsumo and riichi use the engine legality for a physica
   const riichi = options.find(c => c.kind === 'riichi'); assert.ok(riichi);
   const declared = recordChoice(ready, riichi, options);
   assert.equal(declared.riichi_sticks, 1); assert.equal(declared.players[0].score, 29000);
+  assert.equal(declared.players[0].riichi, 'double', 'an unbroken first-turn declaration is double riichi');
   assert.ok(declared.players[0].discards.at(-1).riichi);
+});
+
+test('passing a complete shape without yaku still marks temporary furiten', () => {
+  const p = callPosition('2245m456p789s', '6m');
+  p.players[0].melds = [{ kind: 'chii', tile: '1m', from: 3 }];
+  const choices = inspect(p, a => a.agent_choices());
+  assert.equal(choices.some(c => c.kind === 'ron'), false, 'the complete open hand has no yaku');
+  const pass = choices.find(c => c.kind === 'pass');
+  assert.equal(pass.causes_furiten, true);
+  const next = recordChoice(p, pass, choices);
+  assert.equal(next.players[0].furiten, true);
+  assert.equal(recordDraw(next, 0, '8p').players[0].furiten, false);
+});
+
+test('recording a call follows edited discard chronology rather than array order', () => {
+  const p = callPosition();
+  p.players[3].discards[0].order = 2;
+  p.players[3].discards.push({ tile: '9m', order: 0, drawn: true, riichi: false, claimed: false });
+  p.players[1].discards.push({ tile: '8m', order: 1, drawn: true, riichi: false, claimed: false });
+  const choices = inspect(p, a => a.agent_choices());
+  const next = recordChoice(p, choices.find(c => c.kind === 'pon'), choices);
+  assert.equal(next.players[3].discards[0].claimed, true);
+  assert.equal(next.players[3].discards[1].claimed, false);
+  inspect(next, a => assert.ok(a.agent_choices().some(c => c.kind === 'discard')));
+});
+
+test('kan robbery preserves ippatsu until the replacement and requires the correct kan kind', () => {
+  const p = basic(); p.players[0].hand = parseTiles('1111m456p789s1123z'); p.drawn = '1m';
+  p.players[1].riichi = 'riichi'; p.players[1].ippatsu = true;
+  p.players[1].discards.push({ tile: '8p', order: 0, drawn: false, riichi: true, claimed: false });
+  const choices = inspect(p, a => a.agent_choices());
+  const announced = recordChoice(p, choices.find(c => c.kind === 'concealed-kan'), choices);
+  assert.equal(announced.players[1].ippatsu, true);
+  const respondent = structuredClone(announced);
+  respondent.seat = 2; respondent.players[2].hand = parseTiles('234567m123p3456s');
+  inspect(respondent, a => assert.deepEqual(a.agent_choices().map(c => c.kind), ['pass']));
+  respondent.pending_kind = 'extended-kan';
+  assert.throws(() => new PhysicalAnalysis(respondent), /tile and kind/);
+  const fifth = callPosition('123456p789s1122z', '5m');
+  fifth.pending_kind = 'concealed-kan';
+  fifth.players[1].melds = ['1m', '2m', '3m', '4m'].map(tile => ({ kind: 'concealed-kan', tile, from: 0 }));
+  fifth.players[3].melds = [{ kind: 'concealed-kan', tile: '5m', from: 0 }];
+  fifth.players[3].discards = [];
+  fifth.indicators = ['5z', '6z', '7z', '8p', '9p'];
+  assert.throws(() => new PhysicalAnalysis(fifth), /At most four kans/);
+  const next = recordDraw(announced, 0, '4z');
+  assert.equal(next.players[1].ippatsu, false);
+  assert.equal(next.after_quad, true);
+  assert.equal(next.wall, p.wall - 1);
+  next.indicators.push('6z');
+  inspect(next, a => assert.ok(a.agent_choices().some(c => c.kind === 'discard')));
 });
 
 test('physical chii direction, completed kan indicators, and robbery windows are enforced', () => {

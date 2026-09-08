@@ -19,6 +19,7 @@ struct Choice {
     kind: String,
     tile: Option<String>,
     label: String,
+    causes_furiten: bool,
 }
 
 pub(super) fn observation(hand: &Hand, seat: Wind) -> Vec<f32> {
@@ -58,6 +59,12 @@ fn choices(hand: &Hand, seat: Wind) -> Vec<Choice> {
                 kind: action.kind,
                 tile: action.tile,
                 label: action.label,
+                // Passing a complete shape also causes furiten without a
+                // scoring yaku. Use the engine's waits, not the Ron button.
+                causes_furiten: index == encoding::PASS
+                    && hand.pending_discard.is_some_and(|(_, tile)| {
+                        hand.players[seat.index()].waits().count(tile) > 0
+                    }),
             })
         })
         .collect();
@@ -75,6 +82,7 @@ fn choices(hand: &Hand, seat: Wind) -> Vec<Choice> {
                     kind: action.kind,
                     tile: action.tile,
                     label: action.label,
+                    causes_furiten: false,
                 });
             }
         }
@@ -373,12 +381,17 @@ impl Position {
             }
         } else if let Some((_, t)) = hand.pending_discard {
             if robbing {
+                let expected_kind = if hand.robbing_concealed {
+                    MeldKind::ConcealedKan
+                } else {
+                    MeldKind::ExtendedKan
+                };
                 if !hand.players[self.turn]
                     .melds
                     .iter()
-                    .any(|m| m.kind.is_kan() && m.tile == t)
+                    .any(|m| m.kind == expected_kind && m.tile == t)
                 {
-                    return Err("Enter the pending kan in the declaring seat's called sets".into());
+                    return Err("The pending kan must match its tile and kind in the declaring seat's called sets".into());
                 }
             } else if !hand.players[self.turn]
                 .discards
@@ -393,6 +406,9 @@ impl Position {
             .iter()
             .map(|value| tile(value))
             .collect::<Result<Vec<_>, _>>()?;
+        if quads > 4 {
+            return Err("At most four kans can be declared in a hand".into());
+        }
         // Before a kan's robbery window closes, its new indicator is not yet
         // exposed and no replacement tile has been taken.
         let completed_quads =

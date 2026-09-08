@@ -164,6 +164,27 @@
     guard: (task) => matchStore.run(task),
   };
 
+  // Direct links to Watch or Physical play must not resume, create or save a
+  // regular match. Restore it once, when the user first enters Play.
+  let playStarted = false;
+  $effect(() => {
+    if (!ready || mode !== 'play' || playStarted) return;
+    playStarted = true;
+    const saved = matchStore.read();
+    if (saved) {
+      try {
+        session = MatchSession.restore(Game, saved, callbacks);
+        update(session);
+        if (session.opponents.includes('neural')) downloadAi();
+        notice = 'Saved match restored.';
+        void session.run();
+      } catch (error) {
+        // Preserve the only saved copy until the user chooses New game.
+        failure = `The saved match could not be restored: ${error.message}. Choose New game to start again.`;
+      }
+    } else start();
+  });
+
   onMount(() => {
     let mounted = true;
     const unwatchOffline = watchOffline(value => { if (mounted) offline = value; });
@@ -184,19 +205,6 @@
     })().then(() => {
       if (!mounted) return;
       ready = true;
-      const saved = matchStore.read();
-      if (saved) {
-        try {
-          session = MatchSession.restore(Game, saved, callbacks);
-          update(session);
-          if (session.opponents.includes('neural')) downloadAi();
-          notice = 'Saved match restored.';
-          void session.run();
-        } catch (error) {
-          // Do not overwrite the only saved copy without a deliberate New game.
-          failure = `The saved match could not be restored: ${error.message}. Choose New game to start again.`;
-        }
-      } else start();
     }).catch((error) => {
       failure = `The game could not finish loading: ${error.message ?? error}. Reconnect and reload to retry.`;
     });
@@ -205,7 +213,7 @@
     // the current record rather than resume a stale engine on Back navigation.
     const leave = () => { session?.dispose(); matchStore.close(); };
     const returnToPage = (event) => { if (event.persisted) location.reload(); };
-    const storageChanged = (event) => matchStore.changed(event);
+    const storageChanged = (event) => { if (playStarted) matchStore.changed(event); };
     const checkOffline = () => { if (document.visibilityState === 'visible') void refreshOffline().catch(() => {}); };
     document.addEventListener('visibilitychange', checkOffline);
     window.addEventListener('online', checkOffline);
