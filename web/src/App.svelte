@@ -22,7 +22,6 @@
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
-  const storageAvailable = Boolean(storage);
   const touch = matchMedia('(pointer: coarse)').matches;
   const preferences = readSettings(storage, touch);
   const requested = new URLSearchParams(location.search).get('opponents');
@@ -176,7 +175,6 @@
         session = MatchSession.restore(Game, saved, callbacks);
         update(session);
         if (session.opponents.includes('neural')) downloadAi();
-        notice = 'Saved match restored.';
         void session.run();
       } catch (error) {
         // Preserve the only saved copy until the user chooses New game.
@@ -394,15 +392,7 @@
 
 <main>
   <header class="bar">
-    <h1><span>Riichi</span>{#if mode === 'play' && view}<span class="header-round"> · {NAMES[view.round]} {view.kyoku}</span>{/if}</h1>
-    <div class="compact-status" aria-label="app status">
-      <span class="status-dot" class:ready={offline.coreReady}
-        title={offline.coreReady ? 'Game available offline' : 'Offline preparation incomplete'}
-        aria-label={offline.coreReady ? 'Game available offline' : 'Offline preparation incomplete'}>●</span>
-      <span class="save-mark" class:ready={storageAvailable && !storageWarning && !saveConflict}
-        title={storageAvailable && !storageWarning && !saveConflict ? 'Match saving available' : 'Match saving needs attention'}
-        aria-label={storageAvailable && !storageWarning && !saveConflict ? 'Match saving available' : 'Match saving needs attention'}>✓</span>
-    </div>
+    <h1>Riichi</h1>
     {#if mode === 'play'}<label class="opponents">
       <span>Opponents</span>
       <select value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
@@ -411,9 +401,12 @@
         {#if trainedAvailable || opponents.includes('neural')}<option value="neural">Trained</option>{/if}
         <option value="custom">Custom table</option>
       </select>
+      <svg class="select-chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
     </label>{/if}
-    <button class="settings-trigger" aria-label="Game settings" aria-expanded={settingsOpen}
-      onclick={() => settingsOpen = !settingsOpen}>⚙</button>
+    <button class="settings-trigger" aria-label="Game settings" aria-expanded={settingsOpen} aria-controls="game-preferences"
+      onclick={() => settingsOpen = !settingsOpen}>
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h3m4 0h9M4 17h9m4 0h3" /><circle cx="9" cy="7" r="2" /><circle cx="15" cy="17" r="2" /></svg>
+    </button>
     {#if mode === 'play'}<button class="restart" onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>{/if}
   </header>
 
@@ -424,7 +417,7 @@
   </nav>
 
   {#if settingsOpen}<button class="settings-backdrop" aria-label="Close game settings" onclick={() => settingsOpen = false}></button>{/if}
-  <div class="preferences" class:mobile-open={settingsOpen}>
+  <div id="game-preferences" class="preferences" class:mobile-open={settingsOpen}>
   <div class="mobile-preferences-head"><strong>Game settings</strong><button onclick={() => settingsOpen = false}>Done</button></div>
   <label class="compact-mode-selector">Game mode
     <select value={mode} aria-label="Game mode" disabled={!ready || (mode === 'play' && busy)}
@@ -621,8 +614,10 @@
       <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player} /></div>
       <div class="place left"><Seat seat={left} side="left" dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player} /></div>
       <div class="centre" aria-label="the table">
-        <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>round / hand</span></div>
-        <div class="wall"><strong>{view.wall}</strong><span>tiles left</span></div>
+        <div class="round-details">
+          <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>Round</span></div>
+          <div class="wall"><strong>{view.wall}</strong><span>tiles left</span></div>
+        </div>
         <div class="table-indicators">
           <div class="indicator-line"><span>Dora</span><div class="indicators" aria-label="dora indicators">
             {#each view.dora_indicators as indicator, slot (slot)}<Tile tile={indicator} size="small" />{/each}
@@ -639,7 +634,10 @@
             {#if view.riichi_sticks}<span>{view.riichi_sticks} riichi bet{view.riichi_sticks === 1 ? '' : 's'}</span>{/if}
           </div>
         {/if}
-        <button class="inspect" onclick={inspectTable} aria-label="Inspect all discards and called sets"><span aria-hidden="true">▦</span> Discards</button>
+        <button class="inspect" onclick={inspectTable} aria-label="Inspect all discards and called sets">
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="3" width="5" height="6" rx="1" /><rect x="12" y="3" width="5" height="6" rx="1" /><rect x="3" y="12" width="5" height="5" rx="1" /><rect x="12" y="12" width="5" height="5" rx="1" /></svg>
+          Discards
+        </button>
       </div>
       <div class="place right"><Seat seat={right} side="right" dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player} /></div>
     </div>
@@ -768,9 +766,9 @@
 </main>
 
 <style>
-  .game-modes { display: flex; gap: 6px; grid-column: 1 / -1; }
-  .game-modes button { flex: 1; min-width: 0; padding: 8px 6px; font-size: .8rem; }
-  .game-modes button[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: #0005; }
+  .game-modes { display: flex; gap: 4px; grid-column: 1 / -1; padding: 3px; border-radius: 12px; background: #0002; }
+  .game-modes button { flex: 1; min-width: 0; padding: 8px 6px; border-color: transparent; border-radius: 9px; background: transparent; color: color-mix(in srgb, var(--ivory) 72%, transparent); font-size: .8rem; }
+  .game-modes button[aria-pressed=true] { color: var(--ivory); background: #ffffff16; box-shadow: 0 1px 3px #0002; }
   .compact-mode-selector { display: none; }
   @media (max-width: 360px) and (max-height: 640px) {
     .game-modes { display: none; }
@@ -793,12 +791,14 @@
   main { width: 100%; max-width: 1100px; box-sizing: border-box; margin: 0 auto; grid-template-columns: minmax(0, 1fr); padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); display: grid; gap: 10px; }
   .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid #ffffff28; padding-bottom: 8px; }
   h1 { margin: 0; font-size: 1.1rem; letter-spacing: .16em; text-transform: uppercase; }
-  .opponents { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: .85rem; }
+  .opponents { position: relative; margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: .85rem; }
   select, button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 12px; font: inherit; }
   button { cursor: pointer; touch-action: manipulation; }
   button:hover:not(:disabled) { background: #0007; }
   button:disabled { opacity: .55; cursor: default; }
   select option { color: #17241f; background: #f7f2e4; }
+  .opponents select { appearance: none; padding-right: 34px; border-color: #ffffff24; border-radius: 12px; background: #ffffff09; }
+  .select-chevron { position: absolute; right: 12px; width: 14px; height: 14px; pointer-events: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: .7; }
   .restart { font-size: .85rem; }
   .preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-width: 0; }
   .preferences details[open] { flex-basis: 100%; order: 1; }
@@ -824,6 +824,7 @@
   .left { grid-area: 2 / 1; justify-self: start; }
   .right { grid-area: 2 / 3; justify-self: end; }
   .centre { grid-area: 2 / 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 18px; max-width: 350px; border-radius: 12px; padding: 12px; background: #0004; }
+  .round-details { display: contents; }
   .round, .wall { display: grid; text-align: center; }
   .round strong, .wall strong { font-size: 1.3rem; }
   .round span, .wall span { font-size: .7rem; }
@@ -832,7 +833,8 @@
   .ura-indicators { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
   .indicators { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
   .table-extras { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: .8rem; color: var(--gold); }
-  .inspect { font-size: .8rem; }
+  .inspect { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: .8rem; }
+  .inspect svg { width: 17px; height: 17px; flex: none; stroke: currentColor; stroke-width: 1.25; }
   .play-area { display: grid; gap: 10px; min-width: 0; }
   .mine { display: grid; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #0004; border: 1px solid #d8a12a60; min-width: 0; }
   .mine header { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: .9rem; }
@@ -944,7 +946,7 @@
 
 
   /* --- 2026 game-feel pass ------------------------------------------------ */
-  .header-round, .compact-status, .settings-trigger, .settings-backdrop,
+  .settings-trigger, .settings-backdrop,
   .mobile-preferences-head, .mobile-new-game { display: none; }
 
   .my-dealer {
@@ -1070,21 +1072,16 @@
       position: sticky;
       top: 0;
       z-index: 18;
-      min-height: 52px;
-      padding: 4px 0;
-      gap: 7px;
-      border-bottom-color: rgba(255,255,255,.12);
-      background: linear-gradient(180deg, color-mix(in srgb, var(--felt-deep) 96%, transparent), color-mix(in srgb, var(--felt-deep) 88%, transparent));
+      min-height: 56px;
+      padding: 4px 2px;
+      gap: 8px;
+      border-bottom: 0;
+      background: color-mix(in srgb, var(--felt) 92%, transparent);
       backdrop-filter: blur(12px);
     }
-    h1 { margin-right: auto; font-size: .91rem; letter-spacing: .10em; white-space: nowrap; }
-    .header-round { display: inline; font-size: .76rem; font-weight: 500; letter-spacing: 0; opacity: .68; text-transform: none; }
-    .compact-status { display: inline-flex; align-items: center; gap: 4px; }
-    .status-dot, .save-mark { color: #b07161; font-size: .7rem; line-height: 1; opacity: .8; }
-    .status-dot.ready, .save-mark.ready { color: #8bd6a7; opacity: 1; }
-    .save-mark { font-size: .8rem; font-weight: 800; }
+    h1 { margin-right: auto; font-size: 1rem; letter-spacing: .18em; white-space: nowrap; }
     .opponents { margin-left: 0; }
-    .opponents select { min-height: 44px; max-width: 116px; padding: 5px 8px; border-radius: 10px; font-size: .8rem; }
+    .opponents select { min-height: 44px; width: 128px; max-width: 128px; padding: 5px 30px 5px 12px; font-size: .82rem; }
     .settings-trigger {
       display: inline-flex;
       width: 44px;
@@ -1092,9 +1089,12 @@
       align-items: center;
       justify-content: center;
       padding: 0;
-      border-radius: 50%;
-      font-size: 1rem;
+      flex: none;
+      border-color: #ffffff24;
+      border-radius: 12px;
+      background: #ffffff09;
     }
+    .settings-trigger svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
     .restart { display: none; }
 
     .settings-backdrop {
@@ -1143,22 +1143,37 @@
     .mobile-new-game { display: block; flex-basis: 100%; margin-bottom: 5px; }
     .preferences .option-fields { background: rgba(0,0,0,.24); }
     .notice {
-      position: fixed;
-      top: max(54px, calc(env(safe-area-inset-top) + 48px));
-      right: 10px;
-      z-index: 17;
-      max-width: min(70vw, 260px);
-      padding: 5px 8px;
+      padding: 8px 12px;
       border: 1px solid rgba(255,255,255,.10);
-      border-radius: 999px;
-      background: rgba(8,35,24,.83);
-      box-shadow: 0 4px 14px rgba(0,0,0,.18);
-      font-size: .68rem;
-      pointer-events: none;
+      border-radius: 10px;
+      background: #0002;
+      font-size: .78rem;
     }
 
-    .board { margin-top: 1px; }
-    .centre { border: 1px solid rgba(216,161,42,.18); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); }
+    .board { margin-top: 3px; }
+    .centre {
+      display: grid;
+      grid-template-columns: minmax(78px, 1fr) minmax(0, auto) auto;
+      gap: 8px;
+      padding: 11px 12px;
+      border: 0;
+      border-radius: 14px;
+      background: #0002;
+      box-shadow: none;
+    }
+    .round-details { display: grid; grid-area: 1 / 1; gap: 1px; }
+    .round { text-align: left; }
+    .round strong { font-size: 1.18rem; font-weight: 650; line-height: 1.35; letter-spacing: -.02em; }
+    .round span { display: none; }
+    .wall { display: flex; gap: 4px; align-items: baseline; text-align: left; color: color-mix(in srgb, var(--ivory) 68%, transparent); }
+    .wall strong, .wall span { font-size: .73rem; font-weight: 400; line-height: 1.5; }
+    .wall strong { font-variant-numeric: tabular-nums; }
+    .table-indicators { grid-area: 1 / 2; max-width: 140px; }
+    .indicator-line { gap: 3px; font-size: .6rem; }
+    .indicator-line > span { color: color-mix(in srgb, var(--ivory) 68%, transparent); }
+    .indicators, .ura-indicators { --tile-width: 42px; gap: 3px; }
+    .table-extras { grid-column: 1 / -1; gap: 4px 12px; padding-top: 5px; border-top: 1px solid #ffffff14; font-size: .7rem; }
+    .inspect { grid-area: 1 / 3; padding: 8px 10px; border-color: transparent; border-radius: 10px; background: #ffffff0d; font-size: .76rem; }
     .mine { border-radius: 15px; background: rgba(3,29,19,.40); }
     .hand { --draw-gap: 14px; }
     .hand :global(.hand-tile) { width: 100%; }

@@ -22,7 +22,25 @@ async function open(snapshot=start.snapshot,width=390,height=844){const context=
 async function check(name,fn){try{await fn();results.push({name,passed:true});console.log('PASS '+name);}catch(e){results.push({name,passed:false,error:e.stack});console.error('FAIL '+name+'\n'+e.stack);}finally{while(contexts.length)await contexts.pop().close();}}
 const shot=(p,name)=>p.screenshot({path:resolve(output,name+'.png'),fullPage:true});
 try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0,'127.0.0.1',done));const chrome=process.env.CHROME_BIN||['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);assert.ok(chrome);browser=await puppeteer.launch({executablePath:chrome,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
- await check('phone chrome collapses settings while keeping round/opponent/status visible',async()=>{const p=await open();assert.match(await p.$eval('.bar h1',el=>el.textContent),/Riichi.*East 1/i);assert.equal(await p.$eval('.preferences',el=>getComputedStyle(el).display),'none');assert.notEqual(await p.$eval('.settings-trigger',el=>getComputedStyle(el).display),'none');assert.equal(await p.$eval('.restart',el=>getComputedStyle(el).display),'none');await p.click('.settings-trigger');assert.notEqual(await p.$eval('.preferences',el=>getComputedStyle(el).display),'none');assert.ok(await p.$('.mobile-new-game'));await shot(p,'polish-phone-settings');assert.deepEqual(p.errors,[]);});
+ await check('phone header keeps one round display and accessible game controls',async()=>{
+  const p=await open();
+  assert.equal(await p.$eval('.bar h1',el=>el.textContent),'Riichi');
+  assert.match(await p.$eval('.round-details',el=>el.textContent),/East 1[\s\S]*tiles left/);
+  assert.equal(await p.$('.notice'),null,'restoring a match should not cover the table with a toast');
+  assert.equal(await p.$eval('.opponents select',el=>el.disabled),false);
+  assert.equal(await p.$eval('.preferences',el=>getComputedStyle(el).display),'none');
+  assert.notEqual(await p.$eval('.settings-trigger',el=>getComputedStyle(el).display),'none');
+  assert.equal(await p.$eval('.restart',el=>getComputedStyle(el).display),'none');
+  await shot(p,'polish-phone-header');
+  await p.click('.inspect');
+  assert.ok(await p.$('.table-dialog[open]'));
+  await p.keyboard.press('Escape');
+  await p.click('.settings-trigger');
+  assert.notEqual(await p.$eval('.preferences',el=>getComputedStyle(el).display),'none');
+  assert.ok(await p.$('.mobile-new-game'));
+  await shot(p,'polish-phone-settings');
+  assert.deepEqual(p.errors,[]);
+ });
  await check('hint counts sit below every hand tile and exactly match public unseen copies',async()=>{const p=await open(),expected=unseenTileCounts(start.view);const rows=await p.$$eval('.hand .hand-tile',els=>els.map(el=>{const button=el.querySelector('button.tile'),tile=button.dataset.tile,count=el.querySelector('.copy-count'),a=button.getBoundingClientRect(),b=count.getBoundingClientRect();return{tile,count:Number(count.textContent.trim()),below:b.top>=a.bottom-0.5};}));assert.equal(rows.length,14);for(const row of rows){assert.equal(row.count,expected.get(row.tile));assert.equal(row.below,true,row.tile);}await p.click('.settings-trigger');await p.click('.options summary');await p.click('.option-fields input[type=checkbox]');await p.waitForFunction(()=>!document.querySelector('.copy-count'));assert.equal(await p.$('.copy-count'),null);await shot(p,'polish-phone-game');assert.deepEqual(p.errors,[]);});
  await check('desktop table uses the expanded table surface and larger opponent zones',async()=>{const p=await open(start.snapshot,1440,1000);const box=await p.$eval('.board',el=>{const r=el.getBoundingClientRect(),s=getComputedStyle(el);return{w:r.width,h:r.height,bg:s.backgroundImage,radius:s.borderRadius};});assert.ok(box.w>1000);assert.ok(box.h>=380);assert.notEqual(box.bg,'none');assert.ok(parseFloat(box.radius)>=20);await shot(p,'polish-desktop-table');assert.deepEqual(p.errors,[]);});
  await check('call window presents the discard as a staged event before choices',async()=>{const p=await open(call);await p.waitForSelector('.call-stage');assert.match(await p.$eval('.call-stage',el=>el.textContent),/discarded/i);const tile=await p.$eval('.call-stage .tile',el=>el.getBoundingClientRect().width);assert.ok(tile>=40);assert.ok(await p.$('.call-options'));await shot(p,'polish-phone-call');assert.deepEqual(p.errors,[]);});
