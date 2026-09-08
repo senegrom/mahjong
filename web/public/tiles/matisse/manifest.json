@@ -425,15 +425,15 @@
       "status": "approved",
       "png": "approved/Man3.png",
       "svg": "approved/Man3.svg",
-      "source": "docs/design/matisse/studies/three-characters-a-jazz-approved.png",
-      "sourceSha256": "883db58caa890ce6fd27a82cf5e26ea045b3b592c71828d560641b441dc95fe9",
+      "source": "docs/design/matisse/studies/three-characters-a-jazz-rimless-approved.png",
+      "sourceSha256": "123ff60df4bc5aaee0df078c0db5c66d8021519420ec0eafd069488400417e4a",
       "crop": {
-        "x": 35,
-        "y": 121,
-        "width": 459,
-        "height": 709
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Jazz A: yellow, ivory and pink strokes form 三 above a vermilion-and-pink 萬 with an oversized kicking stroke on deep purple. The lossless left-tile crop preserves the approved artwork, excludes the label and surround, and uses the shared 3:4 face, bleed and rounded clipping."
+      "notes": "Jazz A, approved rim-free revision: yellow, ivory and pink strokes form 三 above a vermilion-and-pink 萬 with an oversized kicking stroke. Deep purple reaches every edge with no ivory rim or physical bevel. The complete flat 1086 × 1448 artwork is preserved losslessly with the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Man4",
