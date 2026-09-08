@@ -96,6 +96,23 @@
       "notes": "Dance B: two sweeping green bamboo forms on a pale mint field. All printed artwork stays green for All Green; multiple shades are intentional."
     },
     {
+      "name": "Sou3",
+      "tile": "3s",
+      "label": "3 bamboo",
+      "status": "approved",
+      "png": "approved/Sou3.png",
+      "svg": "approved/Sou3.svg",
+      "source": "docs/design/matisse/studies/three-bamboo-original-b-approved.jpg",
+      "sourceSha256": "39c432e9e830b1eeada2c6e67d5c8e924cc10e1060d62567b13bdc95978efa48",
+      "crop": {
+        "x": 614,
+        "y": 413,
+        "width": 219,
+        "height": 271
+      },
+      "notes": "Original Chasuble B: three ivory jointed bamboo cut-outs, one above two, on a green cut-paper field. Selected from the original three-direction board. The crop excludes the photographed tile edge and uses the shared 3:4 face, bleed and rounded clipping. Green and neutral ivory preserve the All Green palette."
+    },
+    {
       "name": "Sou4",
       "tile": "4s",
       "label": "4 bamboo",
@@ -388,12 +405,6 @@
       "name": "Pin9",
       "label": "9 circles",
       "svg": "placeholders/Pin9.svg"
-    },
-    {
-      "tile": "3s",
-      "name": "Sou3",
-      "label": "3 bamboo",
-      "svg": "placeholders/Sou3.svg"
     },
     {
       "tile": "2z",
