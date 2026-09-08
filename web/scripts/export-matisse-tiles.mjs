@@ -32,6 +32,7 @@ const definitions = [
   ['Sou8', '8s', '8 bamboo', 'approved', '03-dots-and-bamboo.png', [755, 99, 612, 835], 'Two sweeping fans of four jointed fronds.'],
   ['Sou9', '9s', '9 bamboo', 'approved', 'nine-bamboo-b-approved.png', [531, 200, 477, 631], 'Vestment B: nine jointed bamboo ribbons in three staggered groups of three, green, ivory and chartreuse on an ultramarine cut-paper field.'],
   ['Ton', '1z', 'East wind', 'approved', '04-wind-calligraphy.png', [518, 225, 411, 579], 'Ribbon lettering B: blue with one red stroke on pale yellow.'],
+  ['Nan', '2z', 'South wind', 'approved', 'south-wind-c-approved.png', [975, 238, 395, 552], 'Chapel C: sculptural aubergine 南 with a carmine upper interior bar on saffron yellow. Both interior horizontal bars remain visible. The lossless crop excludes the study label, surround and photographed rim, using the shared 3:4 face, bleed and rounded clipping.'],
   ['Shaa', '3z', 'West wind', 'approved', 'west-wind-c-approved.png', [963, 213, 435, 602], 'Cut-out C: sculptural ivory 西 with a cobalt-blue top stroke on vermilion. The flat crop excludes the study label and surround, using the shared full-face fit, bleed and rounded clipping.'],
   ['Pei', '4z', 'North wind', 'approved', 'north-wind-b-approved.png', [579, 85, 523, 700], 'Ribbon Dance B: lemon and coral-pink 北 with a mint accent on ultramarine. The corrected five-stroke character includes the diagonal arm on the right. The flat crop preserves the selected artwork and excludes the label and surround, using the shared 3:4 face, bleed and rounded clipping.'],
   ['Chun', '7z', 'Red dragon', 'approved', '01-disk-and-red-dragon.png', [966, 232, 410, 554], 'Red cut-paper 中 on pink; direction B.'],
@@ -116,7 +117,7 @@ const table=document.getElementById('table');
 function picture(tile){const image=document.createElement('img');image.src=tile.src;image.alt=tile.label;image.title=tile.label;image.width=300;image.height=400;return image}
 for(const tile of tiles){const card=document.createElement('div');card.className='card';card.append(picture(tile));const label=document.createElement('p');label.textContent=tile.label;card.append(label);const badge=document.createElement('span');badge.className='badge';badge.textContent='Approved';card.append(badge);document.getElementById('approved').append(card)}
 function updateSize(){const w=rack.firstElementChild?.getBoundingClientRect().width||0;document.getElementById('size').textContent=w.toFixed(1)+' × '+(w*4/3).toFixed(1)+' CSS px per tile · 14 tiles · scroll horizontally if needed; the preview is not scaled down.'}
-function draw(){const names=['Man1','Man2','Man3','Man7','Pin2','Pin3','Pin4','Pin6','Pin7','Pin9','Sou1','Ton','Shaa','Pei'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
+function draw(){const names=['Man1','Man2','Man3','Man7','Pin3','Pin4','Pin6','Pin7','Pin9','Sou1','Ton','Nan','Shaa','Pei'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
 document.getElementById('width').addEventListener('change',draw);new ResizeObserver(updateSize).observe(rack);draw();
 </script></body></html>`;
 writeFileSync(path.join(out, 'preview.html'), html);

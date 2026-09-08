@@ -300,6 +300,23 @@
       "notes": "Ribbon lettering B: blue with one red stroke on pale yellow."
     },
     {
+      "name": "Nan",
+      "tile": "2z",
+      "label": "South wind",
+      "status": "approved",
+      "png": "approved/Nan.png",
+      "svg": "approved/Nan.svg",
+      "source": "docs/design/matisse/studies/south-wind-c-approved.png",
+      "sourceSha256": "6a52956488dc17d501915e0566a12e85e17388389ee0943cdfa30234c11c3ca5",
+      "crop": {
+        "x": 975,
+        "y": 238,
+        "width": 395,
+        "height": 552
+      },
+      "notes": "Chapel C: sculptural aubergine 南 with a carmine upper interior bar on saffron yellow. Both interior horizontal bars remain visible. The lossless crop excludes the study label, surround and photographed rim, using the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Shaa",
       "tile": "3z",
       "label": "West wind",
@@ -516,12 +533,6 @@
       "name": "Pin8",
       "label": "8 circles",
       "svg": "placeholders/Pin8.svg"
-    },
-    {
-      "tile": "2z",
-      "name": "Nan",
-      "label": "south wind",
-      "svg": "placeholders/Nan.svg"
     }
   ]
 }
