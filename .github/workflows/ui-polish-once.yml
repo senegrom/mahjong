@@ -42,7 +42,7 @@ jobs:
           python3 .ui-polish/application.py
           python3 .ui-polish/fix-warnings.py
           python3 .ui-polish/fix-overflow.py
-          # Opens the real Options disclosure before toggling Hints in the visual regression.
+          # Exercises real compact Options/Offline controls rather than hidden desktop controls.
           python3 .ui-polish/fix-test-race.py
 
       - name: Build and verify every web path
