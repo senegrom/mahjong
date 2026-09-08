@@ -96,6 +96,23 @@
       "notes": "Five black and ivory rosettes on yellow."
     },
     {
+      "name": "Pin6",
+      "tile": "6p",
+      "label": "6 disks",
+      "status": "approved",
+      "png": "approved/Pin6.png",
+      "svg": "approved/Pin6.svg",
+      "source": "docs/design/matisse/studies/six-disks-c-approved.png",
+      "sourceSha256": "5a83d54b4b6e9cabadaf80fb9bc95c268b2684b8e1e1c499083b9d68077d9e8e",
+      "crop": {
+        "x": 1181,
+        "y": 89,
+        "width": 548,
+        "height": 713
+      },
+      "notes": "C: six coral, chartreuse and orange cut-paper rosettes in three loose pairs on forest green, with broad open cuts and contrasting centres. The lossless crop excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Pin7",
       "tile": "7p",
       "label": "7 disks",
@@ -482,12 +499,6 @@
       "name": "Man9",
       "label": "9 characters",
       "svg": "placeholders/Man9.svg"
-    },
-    {
-      "tile": "6p",
-      "name": "Pin6",
-      "label": "6 circles",
-      "svg": "placeholders/Pin6.svg"
     },
     {
       "tile": "8p",
