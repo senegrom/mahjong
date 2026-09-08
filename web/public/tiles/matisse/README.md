@@ -30,12 +30,13 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Hatsu.svg](approved/Hatsu.svg) | Green dragon | Ivory 發 cut out of emerald green: style C |
 | [Man1.svg](approved/Man1.svg) | 1 characters | Dance B: sweeping yellow 一 and sculptural vermilion 萬 on deep purple |
 | [Man2.svg](approved/Man2.svg) | 2 characters | Dance B: coral-pink 萬 above a sweeping ivory 二 on deep purple |
+| [Man3.svg](approved/Man3.svg) | 3 characters | Jazz A: yellow, ivory and pink 三 above a vermilion-and-pink 萬 with an oversized kicking stroke |
 | [Man7.svg](approved/Man7.svg) | 7 characters | Cut-out C: pink 萬 and oversized pale-yellow 七 on deep purple |
 | [Haku.svg](approved/Haku.svg) | White dragon | Approved C/C1 blend: quiet ivory with a pearly silver dora reveal |
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All 25 approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 8 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All 27 approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 7 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
@@ -69,6 +70,8 @@ The 1 characters tile uses **Dance B** from `one-characters-b-approved.png`: a s
 
 The 2 characters tile uses **Dance B** from `two-characters-b-approved.png`: coral-pink 萬 at upper right and an oversized ivory 二 below on deep purple. The two separate sweeping strokes remain clear. The lossless centre-tile export excludes the label and surrounding board, with the same full-face fit, bleed and rounded clipping as the other character tiles.
 
+The 3 characters tile uses **Jazz A** from `three-characters-a-jazz-approved.png`: three separate yellow, ivory and pink strokes form 三 above a vermilion-and-pink 萬 with a large kicking stroke on deep purple. The left tile of the approved board is exported without redrawing, using the same full-face fit, bleed and rounded clipping as the other character tiles. The label and surrounding board are excluded.
+
 East uses Ribbon B. West uses **Cut-out C** from `west-wind-c-approved.png`: ivory 西 with a cobalt-blue top stroke on a full vermilion field. The lossless export uses the same 3:4 face, bleed and rounded clipping as the other tiles, with no inset border. Keep the flowing black calligraphy of East A available for another tile. White dragon uses the approved abstract blend of C and C1 in `07-white-dragon-approved.png`; the earlier detailed dragon was rejected.
 
 ## Preview and exports
@@ -87,4 +90,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 25 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 27 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
