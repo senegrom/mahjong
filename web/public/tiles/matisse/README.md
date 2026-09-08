@@ -10,7 +10,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pin2.svg](approved/Pin2.svg) | 2 disks | B: yellow and magenta rosettes with contrasting petals on ultramarine |
 | [Pin3.svg](approved/Pin3.svg) | 3 disks | C: apricot, mint and carmine rosettes in a loose S on deep purple |
 | [Pin4.svg](approved/Pin4.svg) | 4 disks | Éclipse A: four irregular ultramarine rings with vermilion wedges on warm ivory |
-| [Pin5.svg](approved/Pin5.svg) | 5 disks | Five black disks with ivory rosettes on yellow that fills the entire face |
+| [Pin5.svg](approved/Pin5.svg) | 5 disks | Five Suns: varied cobalt, vermilion, raspberry and mint cut-outs on full-face sunflower yellow |
 | [Pin6.svg](approved/Pin6.svg) | 6 disks | C: six coral, chartreuse and orange rosettes with broad open cuts on forest green |
 | [Pin7.svg](approved/Pin7.svg) | 7 disks | Ivory Garden A: seven blue, vermilion and green rosettes in a loose 2-3-2 arrangement on ivory |
 | [Pin8.svg](approved/Pin8.svg) | 8 disks | Cut & Swap C: eight indigo and chartreuse disks across a sweeping divided field, with coral inserts |
@@ -48,7 +48,7 @@ White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When
 
 ## Next design directions
 
-The 5 disks tile uses `five-disks-full-bleed-yellow.png`: the five black disks and ivory rosettes retain their quincunx arrangement, with sunflower yellow extending to every edge. The former ivory rim, bevel and shadow have been removed. The full 1060 × 1484 flat source is exported without cropping the motifs, using the shared 3:4 face, bleed and rounded clipping. The original rimmed study remains in `02-five-dot-study.png` as a design reference.
+The 5 disks tile uses **Five Suns** from `five-disks-five-suns-approved.png`: five distinct cobalt, vermilion, raspberry and mint cut-paper disks surround an oversized centre on sunflower yellow. Hooked petals, a pinwheel, leaf forms and a crescent give each disk its own character. Yellow reaches every edge, with no ivory rim, bevel or shadow. The full approved 1086 × 1448 artwork is exported losslessly using the shared 3:4 face, bleed and rounded clipping. The earlier black-and-ivory full-bleed version and original rimmed study remain as design references.
 
 The 8 disks tile uses **Cut & Swap C** from `eight-disks-c-approved.png`: eight indigo and chartreuse disks in four pairs exchange colours across a sweeping divided field, with two coral accents inside the disks. The lossless export preserves all eight complete symbols and excludes the study label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping and completes the disk suit.
 

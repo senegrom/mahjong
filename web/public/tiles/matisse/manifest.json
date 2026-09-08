@@ -85,15 +85,15 @@
       "status": "approved",
       "png": "approved/Pin5.png",
       "svg": "approved/Pin5.svg",
-      "source": "docs/design/matisse/studies/five-disks-full-bleed-yellow.png",
-      "sourceSha256": "8b8e64cf6a984dbcf8471114755d473eaec638d9879b9484f052401e4762142e",
+      "source": "docs/design/matisse/studies/five-disks-five-suns-approved.png",
+      "sourceSha256": "69c284c0daf6de455bd8994c2bc40fae887bcb62704a7e1e0e888401baa59403",
       "crop": {
         "x": 0,
         "y": 0,
-        "width": 1060,
-        "height": 1484
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Five black disks with ivory cut-paper rosettes on a full-bleed sunflower-yellow field. Yellow reaches every edge of the face, with no ivory rim, bevel or surrounding shadow. The complete flat source is preserved with the shared 3:4 face, bleed and rounded clipping."
+      "notes": "Five Suns: five distinct cobalt, vermilion, raspberry and mint cut-paper disks dance around an oversized centre on full-bleed sunflower yellow. Varied leaf, pinwheel and crescent counterforms keep all five disks separate and countable. The complete approved 3:4 artwork is preserved, with the shared bleed and rounded clipping and no ivory rim."
     },
     {
       "name": "Pin6",
