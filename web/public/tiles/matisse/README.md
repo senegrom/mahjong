@@ -38,13 +38,13 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Man6.svg](approved/Man6.svg) | 6 characters | Chasuble: purple 六 cut through yellow, with vermilion 萬 and teal offcuts |
 | [Man7.svg](approved/Man7.svg) | 7 characters | Cut-out C: pink 萬 and oversized pale-yellow 七 on deep purple |
 | [Man9.svg](approved/Man9.svg) | 9 characters | Jazz: fragmented coral 九 over cobalt, ivory 萬 and a yellow wedge on deep purple |
-| [Haku.svg](approved/Haku.svg) | White dragon | Approved C/C1 blend: quiet ivory with a pearly silver dora reveal |
+| [Haku.svg](approved/Haku.svg) | White dragon | Dance B: a flowing ivory ribbon dragon with a pale pearly silver dora reveal |
 
 ## In the game
 
 Choose **Options → Tile face → Matisse**. All 33 approved faces, including the complete bamboo and disk suits and all four winds, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 1 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
-White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
+White dragon uses the quiet and [lit](approved/Haku-foil.svg) **Dance B** exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved centre pair in `white-dragon-b-dance-approved.png`, with no redrawing of the motif.
 
 ## Next design directions
 
@@ -100,7 +100,9 @@ The 9 characters tile uses **Jazz** from `nine-characters-jazz-approved.png`: th
 
 East uses **Chapel Stencil C** from the second, bolder board `east-wind-c-chapel-stencil-approved.png`: a broad deep-forest-green 東 with four coral-pink cut-out windows and an ivory upper crossbar on coral pink. The lossless crop preserves the selected source pixels while excluding the study label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping with no inset border. The earlier Ribbon B remains in `04-wind-calligraphy.png` as a historical reference.
 
-West uses **Cut-out C** from `west-wind-c-approved.png`: ivory 西 with a cobalt-blue top stroke on a full vermilion field. The lossless export uses the same 3:4 face, bleed and rounded clipping as the other tiles, with no inset border. Keep the flowing black calligraphy of East A available for another tile. White dragon uses the approved abstract blend of C and C1 in `07-white-dragon-approved.png`; the earlier detailed dragon was rejected.
+West uses **Cut-out C** from `west-wind-c-approved.png`: ivory 西 with a cobalt-blue top stroke on a full vermilion field. The lossless export uses the same 3:4 face, bleed and rounded clipping as the other tiles, with no inset border. Keep the flowing black calligraphy of East A available for another tile.
+
+White dragon uses **Dance B** from `white-dragon-b-dance-approved.png`: an oversized flowing ribbon with separated horn and whisker cut-outs. The centre tile in the top row supplies the quiet ivory face; the centre tile in the bottom row supplies the pale pearly silver dora reveal. Both lossless crops exclude the study labels and surrounding board and use the shared 3:4 face, bleed and rounded clipping. The earlier C/C1 blend remains in `07-white-dragon-approved.png` as a historical reference.
 
 ## Preview and exports
 

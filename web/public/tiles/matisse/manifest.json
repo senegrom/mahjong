@@ -561,23 +561,23 @@
       "status": "approved",
       "png": "approved/Haku.png",
       "svg": "approved/Haku.svg",
-      "source": "docs/design/matisse/studies/07-white-dragon-approved.png",
-      "sourceSha256": "714549a653f1fbc0441780c5c1cae255113c36bccdf5addd86394da3b45a9d16",
+      "source": "docs/design/matisse/studies/white-dragon-b-dance-approved.png",
+      "sourceSha256": "5b72213ba2b65bf47868f59e42165178e7ec55d2c61d785b2de229300d6d944d",
       "crop": {
-        "x": 158,
-        "y": 150,
-        "width": 540,
-        "height": 752
+        "x": 500,
+        "y": 106,
+        "width": 334,
+        "height": 516
       },
-      "notes": "Approved blend of C and C1: a quiet ivory face with separated abstract dragon shapes, revealed in pearly silver for dora.",
+      "notes": "Dance B: an oversized flowing ribbon and separated horn and whisker cut-outs form an abstract dragon, quiet ivory at rest and pale pearly silver for dora. Both states are lossless crops of the approved centre pair, excluding the labels and surround, with the shared 3:4 face, bleed and rounded clipping.",
       "foil": {
         "png": "approved/Haku-foil.png",
         "svg": "approved/Haku-foil.svg",
         "crop": {
-          "x": 749,
-          "y": 150,
-          "width": 540,
-          "height": 752
+          "x": 500,
+          "y": 650,
+          "width": 334,
+          "height": 516
         }
       }
     }
