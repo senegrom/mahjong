@@ -24,7 +24,7 @@ A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs an
 | [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Wild Growth C: eight mint and dark-forest fronds bursting around an open centre on emerald |
 | [Sou9.svg](approved/Sou9.svg) | 9 bamboo | Vestment B: three triads of green, ivory and chartreuse bamboo ribbons on ultramarine |
 | [Ton.svg](approved/Ton.svg) | East wind | Chapel Stencil C: sculptural deep-forest-green 東 with an ivory crossbar on coral pink |
-| [Nan.svg](approved/Nan.svg) | South wind | Sirocco A: sweeping aubergine 南, an ivory top crossbar and two carmine interior bars on saffron yellow |
+| [Nan.svg](approved/Nan.svg) | South wind | Paper Window D: vermilion 南 through a lemon-yellow chasuble, with a blush-pink corner on vermilion |
 | [Shaa.svg](approved/Shaa.svg) | West wind | Cut-out C: ivory 西 and a cobalt-blue top stroke on vermilion |
 | [Pei.svg](approved/Pei.svg) | North wind | Ribbon Dance B: lemon and coral-pink 北 with a mint accent on ultramarine |
 | [Chun.svg](approved/Chun.svg) | Red dragon | Chapel Flame C: pale-pink enclosure and a sweeping lemon-yellow ribbon form 中 on vermilion |
@@ -65,7 +65,7 @@ The 4 characters tile uses **Interlock C** from `four-characters-c-ivory-approve
 
 The 6 disks tile uses **C** from `six-disks-c-approved.png`: six coral, chartreuse and orange rosettes in three loose pairs on forest green. The broad open cuts and contrasting centres preserve six distinct disks. The lossless export keeps the selected source pixels, excludes the study label and surround, and uses the shared 3:4 face, bleed and rounded clipping.
 
-South wind uses **Sirocco A** from `south-wind-a-sirocco-approved.png`: windblown aubergine ribbons form 南 on saffron yellow, with a sweeping ivory top crossbar, two distinct carmine interior bars and an asymmetrical enclosure ending in a curling right hook. The lossless crop preserves the selected artwork and excludes the presentation label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping, with no inset border. The earlier Chapel C source remains in `south-wind-c-approved.png` as a design reference.
+South wind uses **Paper Window D** from `south-wind-d-paper-window-approved.png`: vermilion 南 appears as negative space through a sweeping lemon-yellow chasuble, with a blush-pink shape at the lower left on a vermilion field. Both interior horizontal bars remain clear. The lossless crop preserves the selected source pixels and excludes the presentation label and surrounding board, with the shared 3:4 face, bleed and rounded clipping removing any inset rim. It replaces Sirocco A; both `south-wind-a-sirocco-approved.png` and the earlier `south-wind-c-approved.png` remain as design references.
 
 North wind uses **Ribbon Dance B** from the corrected board `north-wind-b-approved.png`: lemon and coral-pink 北 with a mint accent on ultramarine. The complete character includes its diagonal right-hand arm. The crop preserves the approved source pixels, excludes the study label and surround, and uses the shared 3:4 face, bleed and rounded clipping.
 
