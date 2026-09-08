@@ -9,13 +9,13 @@ def swap(path, old, new, label):
     file.write_text(text.replace(old, new, 1))
 
 
-# The page's horizontal padding must be included in its declared width. Without
-# border-box, width: auto plus the compact header's min-content width can make
-# the whole app 9px wider than a 320px viewport even though every child is
-# individually responsive.
+# Keep the app's single implicit grid column constrained to the viewport. The
+# compact 320px header has a larger min-content width than the available content
+# box; without minmax(0, 1fr) CSS Grid widens the whole column by about 9px and
+# every section appears to overflow even though each section is responsive.
 swap('web/src/App.svelte',
      '  main { max-width: 1100px; margin: 0 auto;',
-     '  main { width: 100%; max-width: 1100px; box-sizing: border-box; margin: 0 auto;',
+     '  main { width: 100%; max-width: 1100px; box-sizing: border-box; margin: 0 auto; grid-template-columns: minmax(0, 1fr);',
      'app root viewport containment')
 
 # A final match renders standings behind the fixed result sheet. Give the
