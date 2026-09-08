@@ -419,6 +419,40 @@
       "notes": "Jazz A: yellow, ivory and pink strokes form 三 above a vermilion-and-pink 萬 with an oversized kicking stroke on deep purple. The lossless left-tile crop preserves the approved artwork, excludes the label and surround, and uses the shared 3:4 face, bleed and rounded clipping."
     },
     {
+      "name": "Man5",
+      "tile": "5m",
+      "label": "5 characters",
+      "status": "approved",
+      "png": "approved/Man5.png",
+      "svg": "approved/Man5.svg",
+      "source": "docs/design/matisse/studies/five-characters-dance-approved.png",
+      "sourceSha256": "57502bb33206d5eb1710c375142bd7ba140bfbaf45c72806c014bebfd9bf0c51",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      },
+      "notes": "Dance: mint and vermilion cut-paper strokes form 五 with yellow 萬 and a cobalt crescent on deep purple. Reinterpreted from the selected fifth alternative and approved for play. The complete source is preserved with the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
+      "name": "Man6",
+      "tile": "6m",
+      "label": "6 characters",
+      "status": "approved",
+      "png": "approved/Man6.png",
+      "svg": "approved/Man6.svg",
+      "source": "docs/design/matisse/studies/six-characters-chasuble-approved.png",
+      "sourceSha256": "40ece198d6b6166127d958f0da43f1ff1ef7ecb160a5763303f3b6f15466f1b5",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      },
+      "notes": "Chasuble: purple 六 cut through a yellow silhouette, with vermilion 萬 and teal offcuts. Reinterpreted from the selected fourth alternative and approved for play. The complete source is preserved with the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Man7",
       "tile": "7m",
       "label": "7 characters",
@@ -520,18 +554,6 @@
       "name": "Man4",
       "label": "4 characters",
       "svg": "placeholders/Man4.svg"
-    },
-    {
-      "tile": "5m",
-      "name": "Man5",
-      "label": "5 characters",
-      "svg": "placeholders/Man5.svg"
-    },
-    {
-      "tile": "6m",
-      "name": "Man6",
-      "label": "6 characters",
-      "svg": "placeholders/Man6.svg"
     },
     {
       "tile": "8m",
