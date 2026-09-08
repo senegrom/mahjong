@@ -436,6 +436,40 @@
       "notes": "Interlock C, with the requested ivory-white outer enclosure of 四, two upright yellow interior strokes and a sweeping pink 萬 on deep purple. The former red section is ivory-white. The complete flat 3:4 artwork is preserved at native resolution, using the shared bleed and rounded clipping."
     },
     {
+      "name": "Man5",
+      "tile": "5m",
+      "label": "5 characters",
+      "status": "approved",
+      "png": "approved/Man5.png",
+      "svg": "approved/Man5.svg",
+      "source": "docs/design/matisse/studies/five-characters-dance-approved.png",
+      "sourceSha256": "57502bb33206d5eb1710c375142bd7ba140bfbaf45c72806c014bebfd9bf0c51",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      },
+      "notes": "Dance: mint and vermilion cut-paper strokes form 五 with yellow 萬 and a cobalt crescent on deep purple. Reinterpreted from the selected fifth alternative and approved for play. The complete source is preserved with the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
+      "name": "Man6",
+      "tile": "6m",
+      "label": "6 characters",
+      "status": "approved",
+      "png": "approved/Man6.png",
+      "svg": "approved/Man6.svg",
+      "source": "docs/design/matisse/studies/six-characters-chasuble-approved.png",
+      "sourceSha256": "40ece198d6b6166127d958f0da43f1ff1ef7ecb160a5763303f3b6f15466f1b5",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      },
+      "notes": "Chasuble: purple 六 cut through a yellow silhouette, with vermilion 萬 and teal offcuts. Reinterpreted from the selected fourth alternative and approved for play. The complete source is preserved with the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Man7",
       "tile": "7m",
       "label": "7 characters",
@@ -451,6 +485,23 @@
         "height": 630
       },
       "notes": "Cut-out C: pink 萬 at upper left and oversized pale-yellow 七 below on deep purple."
+    },
+    {
+      "name": "Man9",
+      "tile": "9m",
+      "label": "9 characters",
+      "status": "approved",
+      "png": "approved/Man9.png",
+      "svg": "approved/Man9.svg",
+      "source": "docs/design/matisse/studies/nine-characters-jazz-approved.png",
+      "sourceSha256": "18d351535888e13de584d5c7b37e2b2346946248aad34201ce229236ffc28051",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      },
+      "notes": "Jazz: the exact sixth alternative selected by Carl, with fragmented coral 九 over a tilted cobalt field, ivory 萬 at lower left and a yellow wedge on deep purple. The complete flat source is preserved with the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Sou1",
@@ -516,28 +567,10 @@
   ],
   "placeholders": [
     {
-      "tile": "5m",
-      "name": "Man5",
-      "label": "5 characters",
-      "svg": "placeholders/Man5.svg"
-    },
-    {
-      "tile": "6m",
-      "name": "Man6",
-      "label": "6 characters",
-      "svg": "placeholders/Man6.svg"
-    },
-    {
       "tile": "8m",
       "name": "Man8",
       "label": "8 characters",
       "svg": "placeholders/Man8.svg"
-    },
-    {
-      "tile": "9m",
-      "name": "Man9",
-      "label": "9 characters",
-      "svg": "placeholders/Man9.svg"
     },
     {
       "tile": "8p",
