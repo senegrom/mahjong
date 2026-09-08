@@ -232,6 +232,23 @@
       "notes": "Ribbon lettering B: blue with one red stroke on pale yellow."
     },
     {
+      "name": "Shaa",
+      "tile": "3z",
+      "label": "West wind",
+      "status": "approved",
+      "png": "approved/Shaa.png",
+      "svg": "approved/Shaa.svg",
+      "source": "docs/design/matisse/studies/west-wind-c-approved.png",
+      "sourceSha256": "6fa2010e2c384498473a87348c2fed7aa187ea29d1c96a524727c4bdb7e6fb95",
+      "crop": {
+        "x": 963,
+        "y": 213,
+        "width": 435,
+        "height": 602
+      },
+      "notes": "Cut-out C: sculptural ivory 西 with a cobalt-blue top stroke on vermilion. The flat crop excludes the study label and surround, using the shared full-face fit, bleed and rounded clipping."
+    },
+    {
       "name": "Chun",
       "tile": "7z",
       "label": "Red dragon",
@@ -411,12 +428,6 @@
       "name": "Nan",
       "label": "south wind",
       "svg": "placeholders/Nan.svg"
-    },
-    {
-      "tile": "3z",
-      "name": "Shaa",
-      "label": "west wind",
-      "svg": "placeholders/Shaa.svg"
     },
     {
       "tile": "4z",
