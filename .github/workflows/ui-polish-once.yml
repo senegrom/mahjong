@@ -40,8 +40,8 @@ jobs:
       - name: Apply scoped UI changes
         run: |
           python3 .ui-polish/application.py
+          # Aligns existing browser checks with compact settings and draw/count layout.
           python3 .ui-polish/fix-warnings.py
-          # Constrains the root grid's implicit track as well as the result panels.
           python3 .ui-polish/fix-overflow.py
 
       - name: Build and verify every web path
