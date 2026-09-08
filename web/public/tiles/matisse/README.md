@@ -13,6 +13,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pin5.svg](approved/Pin5.svg) | 5 dots | Five black and ivory rosettes on yellow |
 | [Pin6.svg](approved/Pin6.svg) | 6 disks | C: six coral, chartreuse and orange rosettes with broad open cuts on forest green |
 | [Pin7.svg](approved/Pin7.svg) | 7 disks | Ivory Garden A: seven blue, vermilion and green rosettes in a loose 2-3-2 arrangement on ivory |
+| [Pin8.svg](approved/Pin8.svg) | 8 disks | Cut & Swap C: eight indigo and chartreuse disks across a sweeping divided field, with coral inserts |
 | [Pin9.svg](approved/Pin9.svg) | 9 disks | Orbit B: eight yellow, mint and pink rosettes around a larger apricot centre on deep purple |
 | [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Dance B: two sweeping bamboo forms in green on pale mint |
 | [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Original Chasuble B: three ivory jointed cut-outs, one above two, on green |
@@ -41,11 +42,13 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All 32 approved faces, including the complete bamboo suit and all four winds, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 2 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All 33 approved faces, including the complete bamboo and disk suits and all four winds, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 1 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
 ## Next design directions
+
+The 8 disks tile uses **Cut & Swap C** from `eight-disks-c-approved.png`: eight indigo and chartreuse disks in four pairs exchange colours across a sweeping divided field, with two coral accents inside the disks. The lossless export preserves all eight complete symbols and excludes the study label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping and completes the disk suit.
 
 Red dragon uses **Chapel Flame C** from `red-dragon-c-chapel-flame-approved.png`: a pale-pink sculptural enclosure and a long, sweeping lemon-yellow central ribbon form 中 on a vermilion field. The two open counters preserve the character's identity. The lossless crop preserves the selected artwork, excludes the candidate label and surrounding board, and uses the shared 3:4 face, bleed and rounded clipping. It replaces the earlier red-on-pink direction B.
 
@@ -113,4 +116,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 32 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 33 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.

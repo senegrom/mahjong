@@ -130,6 +130,23 @@
       "notes": "Ivory Garden A: seven blue, vermilion and green cut-paper rosettes in a loose 2-3-2 arrangement on ivory, with contrasting centres. The flat crop preserves the selected source pixels and excludes the study label and surround; it uses the shared 3:4 face, bleed and rounded clipping."
     },
     {
+      "name": "Pin8",
+      "tile": "8p",
+      "label": "8 disks",
+      "status": "approved",
+      "png": "approved/Pin8.png",
+      "svg": "approved/Pin8.svg",
+      "source": "docs/design/matisse/studies/eight-disks-c-approved.png",
+      "sourceSha256": "c374c8f26c8bcf858dc59f3da1f126651081bed0c732c86869a7ff730c3da667",
+      "crop": {
+        "x": 1193,
+        "y": 77,
+        "width": 544,
+        "height": 729
+      },
+      "notes": "Cut & Swap C: eight indigo and chartreuse cut-paper disks in four pairs across a sweeping divided colour field, with coral inserts. The lossless crop preserves all eight complete disks and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Pin9",
       "tile": "9p",
       "label": "9 disks",
@@ -571,12 +588,6 @@
       "name": "Man8",
       "label": "8 characters",
       "svg": "placeholders/Man8.svg"
-    },
-    {
-      "tile": "8p",
-      "name": "Pin8",
-      "label": "8 circles",
-      "svg": "placeholders/Pin8.svg"
     }
   ]
 }
