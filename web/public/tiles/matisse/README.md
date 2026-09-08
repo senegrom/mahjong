@@ -9,7 +9,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Pin1.svg](approved/Pin1.svg) | 1 dot | Black disk, ivory rosette, yellow field: direction B |
 | [Pin2.svg](approved/Pin2.svg) | 2 disks | B: yellow and magenta rosettes with contrasting petals on ultramarine |
 | [Pin3.svg](approved/Pin3.svg) | 3 disks | C: apricot, mint and carmine rosettes in a loose S on deep purple |
-| [Pin4.svg](approved/Pin4.svg) | 4 disks | C: magenta and yellow rosettes with exchanged colours on turquoise |
+| [Pin4.svg](approved/Pin4.svg) | 4 disks | Éclipse A: four irregular ultramarine rings with vermilion wedges on warm ivory |
 | [Pin5.svg](approved/Pin5.svg) | 5 dots | Five black and ivory rosettes on yellow |
 | [Pin7.svg](approved/Pin7.svg) | 7 disks | Ivory Garden A: seven blue, vermilion and green rosettes in a loose 2-3-2 arrangement on ivory |
 | [Pin9.svg](approved/Pin9.svg) | 9 disks | Orbit B: eight yellow, mint and pink rosettes around a larger apricot centre on deep purple |
@@ -39,7 +39,7 @@ White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When
 
 ## Next design directions
 
-The 4 disks tile uses **C** from `four-disks-c-approved.png`: four magenta and yellow rosettes with exchanged colours on turquoise. The export preserves the selected source pixels and excludes the study label and board, using the shared 3:4 face, bleed and rounded clipping.
+The 4 disks tile uses **Éclipse A** from `four-disks-a-eclipse-approved.png`: four irregular ultramarine rings with vermilion wedges on warm ivory, arranged in an asymmetric cut-paper dance. It replaces the earlier turquoise C design, whose source remains in `four-disks-c-approved.png`. The export preserves the newly selected source pixels and excludes the study label and board, using the shared 3:4 face, bleed and rounded clipping.
 
 The 3 disks tile uses **C** from `three-disks-c-approved.png`: three separate apricot, mint and carmine rosettes on deep purple. It replaces the earlier ivory design, whose source remains in `03-dots-and-bamboo.png`. The export excludes the study label and surrounding board and uses the shared 3:4 face, bleed and rounded clipping.
 

@@ -68,15 +68,15 @@
       "status": "approved",
       "png": "approved/Pin4.png",
       "svg": "approved/Pin4.svg",
-      "source": "docs/design/matisse/studies/four-disks-c-approved.png",
-      "sourceSha256": "5e1bb7032f99c5cfb57f395c98f9b4e3692dd9dcdde0df6e32a2f07348386a30",
+      "source": "docs/design/matisse/studies/four-disks-a-eclipse-approved.png",
+      "sourceSha256": "64cfc2032cf266c553b60f219ef0c79635d61d1dda861ab7f6a583602331aa14",
       "crop": {
-        "x": 1281,
-        "y": 22,
-        "width": 563,
-        "height": 731
+        "x": 26,
+        "y": 198,
+        "width": 483,
+        "height": 623
       },
-      "notes": "C: four magenta and yellow cut-paper rosettes with exchanged colours and turquoise centres on a turquoise field."
+      "notes": "Éclipse A: four irregular ultramarine rings with vermilion wedges on warm ivory, in an asymmetric cut-paper dance. The lossless crop preserves the selected artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Pin5",
