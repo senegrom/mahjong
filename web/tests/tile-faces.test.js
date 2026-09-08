@@ -4,34 +4,25 @@ import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
-import { TILE_TYPES, tileWords } from '../src/lib/tiles.js';
+import { TILE_TYPES } from '../src/lib/tiles.js';
 import { TILE_FACE_CONTEXT, TILE_IMAGE_URLS, tileImage } from '../src/lib/tile-faces.js';
 import { readSettings } from '../src/lib/session.js';
 
 const publicRoot = new URL('../public/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', publicRoot), 'utf8'));
 
-test('all 34 Matisse faces resolve to approved art or a black text placeholder', () => {
-  const approved = ['1p', '2p', '3p', '4p', '5p', '6p', '7p', '8p', '9p', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '1z', '2z', '3z', '4z', '7z', '1m', '2m', '3m', '4m', '5m', '6m', '7m', '9m', '1s', '6z', '5z'];
+test('all 34 Matisse faces resolve to approved art with no placeholders', () => {
   assert.equal(TILE_TYPES.length, 34);
-  assert.deepEqual(manifest.tiles.map(tile => tile.tile).sort(), [...approved].sort());
-  assert.equal(manifest.placeholders.length, 1);
+  assert.deepEqual(manifest.tiles.map(tile => tile.tile).sort(), [...TILE_TYPES].sort());
+  assert.equal(manifest.placeholders.length, 0);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'matisse');
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
     assert.match(svg, /viewBox="0 0 300 400"/);
-    if (approved.includes(tile)) {
-      assert.match(url, /\/approved\//);
-      assert.match(svg, /data:image\/png;base64,/);
-    } else {
-      assert.match(url, /\/placeholders\//);
-      assert.ok(svg.includes(`<title id="title">${tileWords(tile)}</title>`));
-      assert.match(svg, /<text[^>]*fill="#000"/);
-      assert.doesNotMatch(svg, /<image|<path/);
-      assert.equal([...svg.matchAll(/<tspan[^>]*>(.*?)<\/tspan>/g)].map(match => match[1]).join(' '), tileWords(tile));
-    }
+    assert.match(url, /\/approved\//);
+    assert.match(svg, /data:image\/png;base64,/);
   }
-  assert.equal(tileImage('7m', 'matisse'), 'tiles/matisse/approved/Man7.svg');
+  assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
 test('hidden tiles cannot reveal their identity through either face set', () => {

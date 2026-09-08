@@ -504,6 +504,23 @@
       "notes": "Approved rim-free update of Cut-out C: pink 萬 at upper left, oversized pale-yellow 七 below and a red accent on edge-to-edge deep purple. The complete flat 3:4 artwork has no ivory rim, physical bevel or surrounding shadow and is preserved at native resolution with the shared bleed and rounded clipping."
     },
     {
+      "name": "Man8",
+      "tile": "8m",
+      "label": "8 characters",
+      "status": "approved",
+      "png": "approved/Man8.png",
+      "svg": "approved/Man8.svg",
+      "source": "docs/design/matisse/studies/eight-characters-d-open-wings-approved.png",
+      "sourceSha256": "4d6a9b4f50a52311d502a2439a85de1e3749d9b3ecc07261074f749648de032e",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      },
+      "notes": "Open wings D: two sweeping yellow and coral strokes form 八 below ivory 萬, with a broad cobalt cut-paper field on deep purple. The exact approved candidate is preserved as a complete flat 1086 × 1448 source, with the shared 3:4 face, bleed and rounded clipping and no inset rim. Completes all 34 Matisse tile faces."
+    },
+    {
       "name": "Man9",
       "tile": "9m",
       "label": "9 characters",
@@ -582,12 +599,5 @@
       }
     }
   ],
-  "placeholders": [
-    {
-      "tile": "8m",
-      "name": "Man8",
-      "label": "8 characters",
-      "svg": "placeholders/Man8.svg"
-    }
-  ]
+  "placeholders": []
 }

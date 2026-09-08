@@ -1,6 +1,6 @@
 # Matisse mahjong tile studies
 
-A partial tile set inspired by Henri Matisse's cut-paper designs and the mass vestments for the Chapelle du Rosaire. The artwork was generated and refined with Carl in ChatGPT on 7–8 September 2026.
+A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs and the mass vestments for the Chapelle du Rosaire. The artwork was generated and refined with Carl in ChatGPT on 7–8 September 2026.
 
 ## Approved faces
 
@@ -37,12 +37,13 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Man5.svg](approved/Man5.svg) | 5 characters | Dance: mint and vermilion 五, yellow 萬 and a cobalt crescent on deep purple |
 | [Man6.svg](approved/Man6.svg) | 6 characters | Chasuble: purple 六 cut through yellow, with vermilion 萬 and teal offcuts |
 | [Man7.svg](approved/Man7.svg) | 7 characters | Rim-free Cut-out C: pink 萬, oversized pale-yellow 七 and a red accent on edge-to-edge deep purple |
+| [Man8.svg](approved/Man8.svg) | 8 characters | Open wings D: sweeping yellow and coral 八 below ivory 萬, with cobalt on edge-to-edge deep purple |
 | [Man9.svg](approved/Man9.svg) | 9 characters | Jazz: fragmented coral 九 over cobalt, ivory 萬 and a yellow wedge on deep purple |
 | [Haku.svg](approved/Haku.svg) | White dragon | Dance B: a flowing ivory ribbon dragon with a pale pearly silver dora reveal |
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All 33 approved faces, including the complete bamboo and disk suits and all four winds, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 1 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All 34 approved faces, including every character, bamboo, disk, wind and dragon, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. Every tile type now has approved artwork. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses the quiet and [lit](approved/Haku-foil.svg) **Dance B** exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved centre pair in `white-dragon-b-dance-approved.png`, with no redrawing of the motif.
 
@@ -100,6 +101,8 @@ The 3 characters tile uses **Jazz A** from `three-characters-a-jazz-approved.png
 
 The 5 characters tile uses **Dance** from `five-characters-dance-approved.png`: mint and vermilion strokes form 五 above a yellow 萬, with a cobalt crescent on deep purple. The 6 characters tile uses **Chasuble** from `six-characters-chasuble-approved.png`: four purple openings form 六 through a yellow cut-paper silhouette, with vermilion 萬 and teal offcuts. Both complete 1086 × 1448 flat sources are preserved with the shared 3:4 face, bleed and rounded clipping.
 
+The 8 characters tile uses **Open wings D** from `eight-characters-d-open-wings-approved.png`: two separate sweeping yellow and coral strokes form 八 beneath ivory 萬, with a broad cobalt cut-paper field on deep purple. The exact approved candidate is preserved as a complete 1086 × 1448 flat source, using the shared 3:4 face, bleed and rounded clipping with no inset rim. It replaces the final placeholder and completes the full set.
+
 The 9 characters tile uses **Jazz** from `nine-characters-jazz-approved.png`: the exact sixth alternative selected by Carl, with fragmented coral 九 on a tilted cobalt shape, ivory 萬 at lower left and a yellow wedge on deep purple. The complete 1086 × 1448 flat source is exported losslessly, with the shared 3:4 face, bleed and rounded clipping. The later seventh alternative is not the selected artwork. See the [approved design notes](../../../../docs/design/matisse/character-directions.md).
 
 East uses **Chapel Stencil C** from the second, bolder board `east-wind-c-chapel-stencil-approved.png`: a broad deep-forest-green 東 with four coral-pink cut-out windows and an ivory upper crossbar on coral pink. The lossless crop preserves the selected source pixels while excluding the study label and surrounding board. It uses the shared 3:4 face, bleed and rounded clipping with no inset border. The earlier Ribbon B remains in `04-wind-calligraphy.png` as a historical reference.
@@ -112,7 +115,7 @@ White dragon uses **Dance B** from `white-dragon-b-dance-approved.png`: an overs
 
 Open [preview.html](preview.html) locally, or visit `/tiles/matisse/preview.html` when running the web project. It loads the approved SVG assets beside the page and includes a CSS-pixel hand preview at 390 or 844 pixels wide. The sample hand is for visual comparison only.
 
-Every face has a lossless PNG crop at its native resolution and a self-contained SVG wrapper on the game's 300 × 400 canvas. The SVGs contain raster artwork; they are not vector redrawings. The preview uses those same SVG files, keeping its HTML compact as the set grows. The study tile is fitted to the full 3:4 face with no ivory side padding. A 1% bleed hides the study's outside backdrop, and approved faces, placeholders and the foil overlay share 26-unit rounded corners. The raw PNGs and approved motifs remain unchanged. These exports do not yet constitute the full tile set.
+Every face has a lossless PNG crop at its native resolution and a self-contained SVG wrapper on the game's 300 × 400 canvas. The SVGs contain raster artwork; they are not vector redrawings. The preview uses those same SVG files, keeping its HTML compact as the set grows. The study tile is fitted to the full 3:4 face with no ivory side padding. A 1% bleed hides the study's outside backdrop, and approved faces and the foil overlay share 26-unit rounded corners. The raw PNGs and approved motifs remain unchanged. These exports cover the full tile set.
 
 The game clips the face and foil together and draws one outer shadow. Hint rings follow that same outline, including small and rotated tiles, so the artwork cannot sit inside a second tile-shaped frame. The manifest's `facePresentation` field records the shared radius, bleed and fitting rule.
 
@@ -124,4 +127,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 33 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 34 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
