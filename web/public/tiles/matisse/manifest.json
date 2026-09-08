@@ -85,15 +85,15 @@
       "status": "approved",
       "png": "approved/Pin5.png",
       "svg": "approved/Pin5.svg",
-      "source": "docs/design/matisse/studies/five-disks-full-bleed-yellow.png",
-      "sourceSha256": "8b8e64cf6a984dbcf8471114755d473eaec638d9879b9484f052401e4762142e",
+      "source": "docs/design/matisse/studies/five-disks-five-suns-approved.png",
+      "sourceSha256": "69c284c0daf6de455bd8994c2bc40fae887bcb62704a7e1e0e888401baa59403",
       "crop": {
         "x": 0,
         "y": 0,
-        "width": 1060,
-        "height": 1484
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Five black disks with ivory cut-paper rosettes on a full-bleed sunflower-yellow field. Yellow reaches every edge of the face, with no ivory rim, bevel or surrounding shadow. The complete flat source is preserved with the shared 3:4 face, bleed and rounded clipping."
+      "notes": "Five Suns: five distinct cobalt, vermilion, raspberry and mint cut-paper disks dance around an oversized centre on full-bleed sunflower yellow. Varied leaf, pinwheel and crescent counterforms keep all five disks separate and countable. The complete approved 3:4 artwork is preserved, with the shared bleed and rounded clipping and no ivory rim."
     },
     {
       "name": "Pin6",
@@ -391,15 +391,15 @@
       "status": "approved",
       "png": "approved/Man1.png",
       "svg": "approved/Man1.svg",
-      "source": "docs/design/matisse/studies/one-characters-b-approved.png",
-      "sourceSha256": "89ffdbd00932e2c950e4ab991234b0ae20b75d7488f7fca326981667e7bba69a",
+      "source": "docs/design/matisse/studies/one-characters-b-rimless-approved.png",
+      "sourceSha256": "dbfec27fb1c7542ab0f7a9a757da6480df3e5af2df89a0b06af8fc36c05adbaa",
       "crop": {
-        "x": 513,
-        "y": 205,
-        "width": 423,
-        "height": 630
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Dance B: a sweeping yellow 一 above sculptural vermilion 萬 on deep purple. The lossless centre-tile crop excludes the study label and surrounding board, with the shared 3:4 face, bleed and rounded clipping."
+      "notes": "Dance B, approved rimless revision: a sweeping yellow 一 above sculptural vermilion 萬 on deep purple. Purple fills the entire flat face after removal of the old ivory rim. The complete 1086 × 1448 source is exported losslessly with the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Man2",
