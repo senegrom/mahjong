@@ -17,7 +17,7 @@
   import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards, unseenTileCounts } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { tileWords } from './lib/tiles.js';
-  import { TILE_FACE_CONTEXT } from './lib/tile-faces.js';
+  import { TILE_FACE_CONTEXT, TILE_FACE_OPTIONS } from './lib/tile-faces.js';
   import { normalizeOpponents, OPPONENT_LABELS, OPPONENT_TYPES, OPPONENT_POSITIONS } from './lib/opponents.js';
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
@@ -444,8 +444,9 @@
       {/if}
       <label>Tile face
         <select bind:value={tileFace} aria-label="Tile face">
-          <option value="classic">Classic</option>
-          <option value="matisse">Matisse</option>
+          {#each TILE_FACE_OPTIONS as face}
+            <option value={face.value}>{face.label}</option>
+          {/each}
         </select>
       </label>
       <label><input type="checkbox" bind:checked={hints} /> Hints and markings</label>
