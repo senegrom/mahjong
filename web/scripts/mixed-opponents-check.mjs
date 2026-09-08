@@ -154,7 +154,10 @@ try {
     await check(`mixed table labels and custom controls fit ${width}x${height}`,async()=>{
       const p=await open(mixed,{width,height});assert.deepEqual(await labels(p),['neural','club','beginner']);
       assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-      await shot(p,`mixed-table-${width}x${height}`);await p.click('.edit-table');
+      await shot(p,`mixed-table-${width}x${height}`);
+      const compact=width<=760||(width>=640&&height<=500);
+      if(compact)await p.click('.settings-trigger');
+      await p.click('.edit-table');
       assert.ok(await p.$eval('.custom-dialog',el=>el.scrollWidth<=el.clientWidth+1));
       assert.ok(await p.$$eval('.custom-dialog select',els=>els.every(el=>el.getBoundingClientRect().height>=44)));
       await shot(p,`mixed-setup-${width}x${height}`);assert.deepEqual(p.errors,[]);

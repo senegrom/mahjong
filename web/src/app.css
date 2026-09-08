@@ -53,7 +53,8 @@ body {
 }
 
 body {
-  background: radial-gradient(circle at 50% 30%, var(--felt) 0%, var(--felt-deep) 78%);
+  background: radial-gradient(circle at 50% 18%, var(--felt) 0%, var(--felt-dark) 56%, var(--felt-deep) 100%);
+  background-attachment: fixed;
   color: var(--ivory);
   font-family: 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif;
   font-size: 15px;

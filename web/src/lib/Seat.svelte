@@ -7,7 +7,7 @@
    * One opponent, placed around the table. `side` is where they sit from the
    * player's chair, which decides whether their tiles run across or down.
    */
-  let { seat, side = 'across', dealer = false, dora = [] } = $props();
+  let { seat, side = 'across', dealer = false, dora = [], thinking = false } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
@@ -15,12 +15,15 @@
   // the meld itself, so a transient call must not leave a stale badge for
   // the rest of the hand.
   let announcement = $derived(seat.riichi ? 'Riichi' : '');
+  const shortScore = score => `${(score / 1000).toFixed(1)}k`;
 </script>
 
-<section class="seat {side}" class:turn={seat.turn} aria-label="{NAMES[seat.seat]} seat">
+<section class="seat {side}" class:turn={seat.turn} class:thinking aria-label="{NAMES[seat.seat]} seat">
   <header>
     <span class="wind" class:dealer>{NAMES[seat.seat]}</span>
-    <span class="score">{seat.score.toLocaleString()}</span>
+    {#if dealer}<span class="dealer-badge" aria-label="dealer">Dealer</span>{/if}
+    <span class="score score-full">{seat.score.toLocaleString()}</span>
+    <span class="score score-short" title={seat.score.toLocaleString()}>{shortScore(seat.score)}</span>
     {#if OPPONENT_LABELS[seat.controller]}
       <span class="opponent-type" data-controller={seat.controller} data-player={seat.player}
         aria-label={`${OPPONENT_LABELS[seat.controller]} opponent`}>{OPPONENT_LABELS[seat.controller]}</span>
@@ -157,4 +160,50 @@
     .back { width: 4px; height: 9px; }
     .called { font-size: .65rem; margin-left: 0; }
   }
+
+
+  .dealer::after { content: none; }
+  .dealer-badge {
+    padding: 1px 6px;
+    border: 1px solid rgba(216,161,42,.48);
+    border-radius: 999px;
+    color: var(--gold);
+    font-size: .56rem;
+    font-weight: 750;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+  }
+  .score-short { display: none; }
+  .opponent-type {
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.06);
+  }
+  .seat { position: relative; background: rgba(2,25,16,.32); box-shadow: inset 0 1px 0 rgba(255,255,255,.025); }
+  .turn {
+    border-color: rgba(216,161,42,.88);
+    background: rgba(3,31,20,.48);
+    box-shadow: 0 0 0 1px rgba(216,161,42,.12), 0 0 22px rgba(216,161,42,.13), inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .thinking::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    pointer-events: none;
+    border: 1px solid rgba(239,196,94,.72);
+    border-radius: 13px;
+    animation: thinking-pulse 1.35s ease-in-out infinite;
+  }
+  @keyframes thinking-pulse { 0%,100% { opacity: .22; transform: scale(.995); } 50% { opacity: .9; transform: scale(1.008); } }
+
+  @media (min-width: 761px) {
+    .seat { min-height: 150px; padding: 12px 14px; border-radius: 14px; }
+    .back { width: 8px; height: 17px; }
+  }
+  @media (max-width: 760px), (max-height: 500px) and (orientation: landscape) {
+    .score-full { display: none; }
+    .score-short { display: inline; }
+    .dealer-badge { padding-inline: 4px; font-size: .5rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { .thinking::before { animation: none; opacity: .7; } }
 </style>

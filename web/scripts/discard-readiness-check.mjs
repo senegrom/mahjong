@@ -130,11 +130,11 @@ try {
   });
   await check('drawn tiles have no special border and hints can be switched off', async () => {
     const p = await open(initial);
-    const drawn = await p.$eval('.hand [data-drawn=true]', el => ({ ringed:el.classList.contains('ringed'), label:el.getAttribute('aria-label') }));
+    const drawn = await p.$eval('.hand button[data-drawn=true]', el => ({ ringed:el.classList.contains('ringed'), label:el.getAttribute('aria-label') }));
     assert.equal(drawn.ringed, false); assert.match(drawn.label, /just drawn/);
     const c = await open(closed); await c.click('.options summary'); await c.click('.option-fields input');
     assert.equal(await c.$('[data-readiness]'), null); assert.equal(await c.$('.hint'), null);
-    assert.equal(await c.$eval('.hand [data-drawn=true]', el => getComputedStyle(el).marginInlineStart), '12px');
+    assert.equal(await c.$eval('.hand .hand-tile[data-hand-drawn=true]', el => getComputedStyle(el).marginInlineStart), '18px');
     await c.click('.option-fields input'); await assertRings(c, closed.expected);
   });
   await check('new decisions refresh all readiness hints rather than reusing the old hand', async () => {
@@ -149,11 +149,12 @@ try {
     await check(`separate drawn tile retains equal size and fits ${width}x${height}`, async () => {
       for (const f of [closed, openHand]) {
         const p = await open(f, width, height);
-        const boxes = await p.$$eval('.hand button', els => els.map(el => {
+        const boxes = await p.$$eval('.hand .hand-tile', els => els.map(el => {
           const r = el.getBoundingClientRect();
-          return { width:r.width, right:r.right, left:r.left, drawn:el.dataset.drawn, margin:parseFloat(getComputedStyle(el).marginInlineStart) };
+          return { width:r.width, right:r.right, left:r.left, drawn:el.dataset.handDrawn, margin:parseFloat(getComputedStyle(el).marginInlineStart) };
         }));
-        const drawn = boxes.find(b => b.drawn); assert.ok(drawn); assert.equal(drawn.margin, 12);
+        const expectedGap = width <= 760 || (width >= 640 && height <= 500) ? 14 : 18;
+        const drawn = boxes.find(b => b.drawn); assert.ok(drawn); assert.equal(drawn.margin, expectedGap);
         for (const box of boxes) { assert.ok(Math.abs(box.width - drawn.width) < .2); assert.ok(box.right <= width); }
         assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
         await assertRings(p, f.expected);

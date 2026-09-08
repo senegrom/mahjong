@@ -227,7 +227,7 @@ try {
   });
   await check('call decisions show the offered tile, discarder and meld previews',async()=>{
     const page=await open(callSave,{width:390,height:844}); const view=JSON.parse(callSave.state)[0];
-    const text=await page.$eval('.offered-tile',n=>n.textContent);
+    const text=await page.$eval('.call-stage',n=>n.textContent);
     assert.ok(text.toLowerCase().includes(view.pending_from));
     assert.ok(await page.$('.call-preview .tile'));
     const choice=JSON.parse(callSave.state)[1].find(c=>c.kind==='pon'||c.kind==='chii');
@@ -238,18 +238,22 @@ try {
     await check(`usable layout and no horizontal overflow at ${width}x${height}`,async()=>{
       const page=await open(initial,{width,height,confirm:width<500 || height<500});
       await page.evaluate(()=>window.scrollTo(0,0));
-      const layout=await page.evaluate(()=>{
+      const compact=width<=760||(width>=640&&height<=500);
+      const layout=await page.evaluate(compact=>{
         const rect=selector=>document.querySelector(selector).getBoundingClientRect().toJSON();
-        return {width:innerWidth,overflow:document.documentElement.scrollWidth,hand:rect('.hand'),controls:rect('.controls'),restart:rect('.restart')};
-      });
+        return {width:innerWidth,overflow:document.documentElement.scrollWidth,hand:rect('.hand'),controls:rect('.controls'),action:rect(compact?'.settings-trigger':'.restart')};
+      },compact);
       await shot(page,`layout-${width}x${height}`);
       assert.ok(layout.overflow<=width+1,JSON.stringify(layout));
       if(width<500) assert.ok(layout.hand.bottom<=height && layout.controls.bottom<=height,`Hand below fold: ${JSON.stringify(layout)}`);
       if(width===844) assert.ok(layout.hand.top<height && layout.controls.top<height,JSON.stringify(layout));
-      assert.ok(layout.restart.height>=44);
+      assert.ok(layout.action.height>=44);
+      if(compact) await page.click('.settings-trigger');
       await page.click('.guide summary');
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Expanded help overflows');
-      await page.click('.guide summary'); await page.click('.inspect');
+      await page.click('.guide summary');
+      if(compact) await page.click('.mobile-preferences-head button');
+      await page.click('.inspect');
       assert.equal(await page.$eval('.table-dialog',n=>n.open),true); assert.equal(await page.$$eval('.inspection-grid section',n=>n.length),4);
       await page.keyboard.press('Escape'); assert.equal(await page.$eval('.table-dialog',n=>n.open),false); noErrors(page);
     });

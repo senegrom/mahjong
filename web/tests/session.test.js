@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MatchSession, readSettings } from '../src/lib/session.js';
-import { heldSafeCount, callTiles, callLabel } from '../src/lib/ui.js';
+import { heldSafeCount, callTiles, callLabel, unseenTileCounts } from '../src/lib/ui.js';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 class FakeGame {
@@ -95,4 +95,24 @@ test('call previews use tile identity and explain mahjong terminology', () => {
   assert.deepEqual(callTiles({kind:'kan'},'1s'), ['1s','1s','1s','1s']);
   assert.match(callLabel({kind:'ron'}), /Ron.*win on discard/);
   assert.match(callLabel({kind:'tsumo'}), /Tsumo.*self-draw/);
+});
+
+
+test('remaining-copy hints count public information once, including claimed tiles via melds', () => {
+  const left = unseenTileCounts({
+    dora_indicators: ['1m'],
+    seats: [
+      { hand:['1m','2p'], drawn:'3s', discards:[], melds:[] },
+      { hand:[], drawn:null, discards:[{tile:'4m',claimed:true},{tile:'5p',claimed:false}], melds:[{tiles:['4m','4m','4m']}] },
+      { hand:[], drawn:null, discards:[{tile:'6z',claimed:false}], melds:[] },
+      { hand:[], drawn:null, discards:[], melds:[] },
+    ],
+  });
+  assert.equal(left.get('1m'), 2); // one held, one indicator
+  assert.equal(left.get('2p'), 3);
+  assert.equal(left.get('3s'), 3);
+  assert.equal(left.get('4m'), 1); // claimed pond tile is not counted twice
+  assert.equal(left.get('5p'), 3);
+  assert.equal(left.get('6z'), 3);
+  assert.equal(left.get('9s'), 4);
 });

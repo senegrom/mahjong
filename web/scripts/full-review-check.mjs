@@ -139,7 +139,9 @@ try{
  });
  for(const [width,height] of [[320,568],[390,844],[844,390]])await check(`ura and final-hand results fit ${width}x${height}`,async()=>{
   for(const [label,snapshot] of [['ura',wins[1]],['final',final.after]]){
-   const p=await open(snapshot,{width,height});assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+   const p=await open(snapshot,{width,height});
+   const overflow=await p.evaluate(()=>({viewport:innerWidth,document:document.documentElement.scrollWidth,wide:[...document.querySelectorAll('*')].map(el=>{const r=el.getBoundingClientRect();return{tag:el.tagName,cls:el.className?.toString?.()??'',left:r.left,right:r.right,width:r.width,scroll:el.scrollWidth,client:el.clientWidth};}).filter(x=>x.right>innerWidth+1||x.left<-1||x.scroll>x.client+1).sort((a,b)=>Math.max(b.right-innerWidth,b.scroll-b.client)-Math.max(a.right-innerWidth,a.scroll-a.client)).slice(0,12)}));
+   assert.ok(overflow.document<=overflow.viewport+1,JSON.stringify(overflow));
    assert.ok(await p.$$eval('.screen,.standings,.bonus-indicators',els=>els.every(el=>el.scrollWidth<=el.clientWidth+1)));
    await shot(p,`${label}-${width}x${height}`);noErrors(p);
   }

@@ -92,3 +92,30 @@ export function analyzeDiscards(engine, choices = []) {
   }
   return hints;
 }
+
+const ALL_TILES = [
+  ...['m', 'p', 's'].flatMap(suit => Array.from({ length: 9 }, (_, i) => `${i + 1}${suit}`)),
+  ...Array.from({ length: 7 }, (_, i) => `${i + 1}z`),
+];
+
+/** Copies of every tile kind nobody can currently see from the human seat.
+ * This is the same public information used for wait width: own concealed
+ * tiles, unclaimed discards, all called sets and the exposed dora indicators.
+ */
+export function unseenTileCounts(view) {
+  const left = new Map(ALL_TILES.map(tile => [tile, 4]));
+  const see = tile => {
+    if (!left.has(tile)) return;
+    left.set(tile, Math.max(0, left.get(tile) - 1));
+  };
+  for (const [index, seat] of (view?.seats ?? []).entries()) {
+    if (index === 0) {
+      for (const tile of seat.hand ?? []) see(tile);
+      if (seat.drawn) see(seat.drawn);
+    }
+    for (const discard of seat.discards ?? []) if (!discard.claimed) see(discard.tile);
+    for (const meld of seat.melds ?? []) for (const tile of meld.tiles ?? []) see(tile);
+  }
+  for (const tile of view?.dora_indicators ?? []) see(tile);
+  return left;
+}

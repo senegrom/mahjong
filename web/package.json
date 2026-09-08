@@ -19,7 +19,7 @@
     "check:speed": "node scripts/speed-check.mjs",
     "check:all": "npm run lint && npm run check && npm run check:play && npm run check:keyboard && npm run check:aids && npm run check:review && npm run check:log && npm run check:game && npm run check:speed",
     "test:unit": "node --test tests/*.test.js",
-    "test:browser": "node scripts/ui-regression.mjs && node scripts/tile-effects-check.mjs && node scripts/full-review-check.mjs && node scripts/discard-readiness-check.mjs && node scripts/mixed-opponents-check.mjs && npm run test:toolchain && npm run test:offline",
+    "test:browser": "node scripts/ui-regression.mjs && node scripts/tile-effects-check.mjs && node scripts/full-review-check.mjs && node scripts/discard-readiness-check.mjs && node scripts/mixed-opponents-check.mjs && node scripts/ui-polish-check.mjs && npm run test:toolchain && npm run test:offline",
     "check:play": "node scripts/play-check.mjs",
     "lint": "eslint . --max-warnings 0",
     "test:toolchain": "node scripts/toolchain-check.mjs",

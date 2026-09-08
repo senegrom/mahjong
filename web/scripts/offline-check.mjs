@@ -119,7 +119,7 @@ try {
     }, manifest.entries), 'Every core resource must be saved without interacting');
     for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0, entry.url);
     const beforeFaceChange = await saved(p);
-    await p.click('.options summary');
+    await p.click('.settings-trigger'); await p.click('.options summary');
     for (const face of ['matisse', 'classic', 'matisse']) {
       await p.select('select[aria-label="Tile face"]', face);
       await p.waitForFunction((key, face) => JSON.parse(localStorage.getItem(key)).tileFace === face
@@ -136,7 +136,7 @@ try {
     const before = await saved(cold);
     assert.ok(!before.commands.some(command => command.type === 'opponent'), 'Built-in game must not request the network');
     cold.on('dialog', dialog => void dialog.accept());
-    await cold.click('.restart'); await hand(cold); await play(cold, 3);
+    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game'); await hand(cold); await play(cold, 3);
     assert.notEqual((await saved(cold)).seed, before.seed);
     const art = manifest.entries.filter(e => e.url.endsWith('.svg') || e.url.includes('white-dragon')).map(e => e.url);
     assert.ok(await cold.evaluate(async urls => (await Promise.all(urls.map(async url => {
@@ -151,7 +151,7 @@ try {
     await hand(p); await p.waitForSelector('[data-core-ready=true]');
     const before = await saved(p), previous = new Map(count);
     assert.equal(count.get(modelPath) ?? 0, 0);
-    await p.click('.offline-settings summary');
+    await p.click('.settings-trigger'); await p.click('.offline-settings summary');
     assert.match(await p.$eval('[data-core-status]', el => el.textContent), /automatic/);
     assert.match(await p.$eval('[data-ai-status]', el => el.textContent), /optional/);
     assert.match(await p.$eval('[data-download-ai]', el => el.textContent), /Download trained AI/);
@@ -220,7 +220,7 @@ try {
     // Native SW update probes may occur; the game itself must not hit network.
     assert.deepEqual(refused.filter(name=>name!=='sw.js'), []);
     const beforeRestart = await saved(cold); cold.on('dialog', d=>void d.accept());
-    await cold.click('.restart'); await hand(cold); await play(cold, 3);
+    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game'); await hand(cold); await play(cold, 3);
     assert.notEqual((await saved(cold)).seed, beforeRestart.seed);
     assert.deepEqual(refused.filter(name=>name!=='sw.js'), []);
     await cold.screenshot({path:resolve(output,'offline-plane-real-ai.png'),fullPage:true});
@@ -240,7 +240,7 @@ try {
     await new Promise(done=>setTimeout(done,200));
     assert.equal(count.get(modelPath),1);
     failPath=null; overrides.clear();
-    await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p);
+    await p.click('.settings-trigger'); await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p); await p.click('.mobile-preferences-head button');
     assert.equal(count.get(modelPath),1); assert.ok(count.get(runtimePath)>=1);
     await play(p,4); assert.deepEqual(p.errors,[]);
   });

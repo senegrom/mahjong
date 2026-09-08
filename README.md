@@ -25,8 +25,8 @@ plays and the game the opponents were trained on cannot drift apart.
 - **Played by keyboard or mouse.** Arrow keys move along the hand and Enter
   throws the marked tile, the numbers throw one directly, and every tile
   carries its name for a screen reader.
-- **Learning aids**: how far the hand is from a wait, what it is waiting on
-  and how many of each are still unseen, the dora in hand, which tiles
+- **Learning aids**: how far the hand is from a wait, what it is waiting on,
+  the unseen-copy count directly below every hand tile, the dora in hand, which tiles
   cannot deal into a declared riichi, and a furiten warning. A panel under
   the header explains each of those to somebody meeting them for the first
   time.

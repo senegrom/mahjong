@@ -65,6 +65,9 @@
 <style>
   .standings {
     display: grid;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     gap: 14px;
     padding: 16px 18px;
     border-radius: 12px;
@@ -126,11 +129,11 @@
      the result column even when the document itself had no overflow. */
   @media (max-width: 600px) {
     .standings { padding: 12px 10px; }
-    table { width: 100%; font-size: .82rem; }
+    table { width: 100%; max-width: 100%; table-layout: fixed; font-size: .82rem; }
     th { font-size: .62rem; letter-spacing: .02em; }
     th, td { padding-right: 4px; }
     th:last-child, td:last-child { padding-right: 0; }
-    .number { white-space: nowrap; }
+    .number { min-width: 0; overflow: hidden; text-overflow: clip; white-space: nowrap; }
   }
 
   button {

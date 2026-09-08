@@ -2,6 +2,7 @@
   import { onMount, setContext, tick } from 'svelte';
   import init, { Game } from './wasm/riichi.js';
   import Tile, { preloadTiles } from './lib/Tile.svelte';
+  import HandTile from './lib/HandTile.svelte';
   import { startOffline, watchOffline, prepareOfflineAi, refreshOffline } from './lib/offline.js';
   import Seat from './lib/Seat.svelte';
   import Discards from './lib/Discards.svelte';
@@ -11,7 +12,7 @@
   import Review from './lib/Review.svelte';
   import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
-  import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards } from './lib/ui.js';
+  import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards, unseenTileCounts } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { tileWords } from './lib/tiles.js';
   import { TILE_FACE_CONTEXT } from './lib/tile-faces.js';
@@ -20,6 +21,7 @@
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
   let storage = null;
   try { storage = window.localStorage; } catch { /* Private/restricted browsing. */ }
+  const storageAvailable = Boolean(storage);
   const touch = matchMedia('(pointer: coarse)').matches;
   const preferences = readSettings(storage, touch);
   const requested = new URLSearchParams(location.search).get('opponents');
@@ -57,6 +59,7 @@
   let callElement = $state(null);
   let tableDialog = $state(null);
   let guideOpen = $state(false);
+  let settingsOpen = $state(false);
 
   let me = $derived(view?.seats[0]);
   let right = $derived(view?.seats[1]);
@@ -78,6 +81,7 @@
   let discardHint = $derived(previewTile ? discardHints.get(previewTile) ?? null : null);
   let displayWaits = $derived(discardHint?.waits ?? view?.waits ?? []);
   let displayLeft = $derived(discardHint?.waits_left ?? view?.waits_left ?? []);
+  let remainingByTile = $derived(hints && view ? unseenTileCounts(view) : new Map());
   let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
 
   $effect(() => {
@@ -219,6 +223,7 @@
   }
 
   function configureTable() {
+    settingsOpen = false;
     draftOpponents = [...opponents];
     customDialog?.showModal();
   }
@@ -348,7 +353,15 @@
 
 <main>
   <header class="bar">
-    <h1>Riichi</h1>
+    <h1><span>Riichi</span>{#if view}<span class="header-round"> · {NAMES[view.round]} {view.kyoku}</span>{/if}</h1>
+    <div class="compact-status" aria-label="app status">
+      <span class="status-dot" class:ready={offline.coreReady}
+        title={offline.coreReady ? 'Game available offline' : 'Offline preparation incomplete'}
+        aria-label={offline.coreReady ? 'Game available offline' : 'Offline preparation incomplete'}>●</span>
+      <span class="save-mark" class:ready={storageAvailable && !storageWarning && !saveConflict}
+        title={storageAvailable && !storageWarning && !saveConflict ? 'Match saving available' : 'Match saving needs attention'}
+        aria-label={storageAvailable && !storageWarning && !saveConflict ? 'Match saving available' : 'Match saving needs attention'}>✓</span>
+    </div>
     <label class="opponents">
       <span>Opponents</span>
       <select value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
@@ -358,10 +371,15 @@
         <option value="custom">Custom table</option>
       </select>
     </label>
+    <button class="settings-trigger" aria-label="Game settings" aria-expanded={settingsOpen}
+      onclick={() => settingsOpen = !settingsOpen}>⚙</button>
     <button class="restart" onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>
   </header>
 
-  <div class="preferences">
+  {#if settingsOpen}<button class="settings-backdrop" aria-label="Close game settings" onclick={() => settingsOpen = false}></button>{/if}
+  <div class="preferences" class:mobile-open={settingsOpen}>
+  <div class="mobile-preferences-head"><strong>Game settings</strong><button onclick={() => settingsOpen = false}>Done</button></div>
+  <button class="mobile-new-game" onclick={() => { if (startFresh()) settingsOpen = false; }} disabled={!ready || Boolean(saveConflict)}>New game</button>
   {#if difficulty === 'custom'}
     <button class="edit-table" onclick={configureTable} disabled={!ready || Boolean(saveConflict)}>Edit opponents</button>
   {/if}
@@ -399,6 +417,9 @@
           the preview does not play the move. Enable Select before discarding
           in Options to preview with a mouse or touch, or use the arrow keys.
         </dd>
+
+        <dt>The number below a tile</dt>
+        <dd>How many copies of that same tile nobody can see yet. Zero is red and one is gold, so thin tiles stand out without covering the artwork.</dd>
 
         <dt><span class="swatch dora"></span> a red ring, and a shine</dt>
         <dd>The tile is dora and adds a han to whatever your hand scores.</dd>
@@ -475,8 +496,8 @@
       {#if offline.updateReady}<p>A new version is downloaded. Close all Mahjong windows and reopen to use it; this match is saved.</p>{/if}
     </div>
   </details>
-  {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   </div>
+  {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
   <dialog class="custom-dialog" bind:this={customDialog} aria-labelledby="custom-table-title">
     <h2 id="custom-table-title">Custom table</h2>
@@ -531,8 +552,8 @@
     <p class="loading" role="status">{startupNote}</p>
   {:else if view}
     <div class="board">
-      <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} /></div>
-      <div class="place left"><Seat seat={left} side="left" dealer={left.seat === 'east'} dora={shownDora} /></div>
+      <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player} /></div>
+      <div class="place left"><Seat seat={left} side="left" dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player} /></div>
       <div class="centre" aria-label="the table">
         <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>round / hand</span></div>
         <div class="wall"><strong>{view.wall}</strong><span>tiles left</span></div>
@@ -552,16 +573,17 @@
             {#if view.riichi_sticks}<span>{view.riichi_sticks} riichi bet{view.riichi_sticks === 1 ? '' : 's'}</span>{/if}
           </div>
         {/if}
-        <button class="inspect" onclick={inspectTable} aria-label="Inspect all discards and called sets">All discards</button>
+        <button class="inspect" onclick={inspectTable} aria-label="Inspect all discards and called sets"><span aria-hidden="true">▦</span> Discards</button>
       </div>
-      <div class="place right"><Seat seat={right} side="right" dealer={right.seat === 'east'} dora={shownDora} /></div>
+      <div class="place right"><Seat seat={right} side="right" dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player} /></div>
     </div>
 
     <div class="play-area" class:ended={view.phase === 'over' || Boolean(standings)}>
-      <section class="mine" aria-label="your seat">
+      <section class="mine" class:turn={myTurn} aria-label="your seat">
         <header>
           <strong>You are {NAMES[me.seat]}</strong>
           <span class="score">{me.score.toLocaleString()}</span>
+          {#if me.seat === 'east'}<span class="my-dealer">Dealer</span>{/if}
           {#if me.riichi}<span class="riichi">Riichi</span>{/if}
           {#if hints}
             <span class="hint">
@@ -589,10 +611,11 @@
         {/if}
         <div class="hand" class:has-draw={Boolean(me.drawn)} role="group" aria-label="your tiles" aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
           {#each handTiles as tile, index (index)}
-            <Tile {tile} handIndex={index} onclick={() => selectTile(tile, index)}
+            <HandTile {tile} handIndex={index} onclick={() => selectTile(tile, index)}
               disabled={!canDiscard(tile)} muted={view.phase === 'over'} selected={myTurn && (picked === index || selected === index)}
               drawn={Boolean(me.drawn) && index === me.hand.length}
               discardShanten={discardHints.get(tile)?.shanten ?? null}
+              remaining={remainingByTile.get(tile) ?? null} showRemaining={hints}
               safe={hints && view.phase !== 'over' && view.safe.includes(tile)} dora={shownDora.includes(tile)} />
           {/each}
         </div>
@@ -624,8 +647,10 @@
             {:else}Choose a call, or pass.{/if}
           </p>
           {#if view.phase === 'call' && view.pending_discard && callChoices.length}
-            <div class="offered-tile"><Tile tile={view.pending_discard} size="small" dora={shownDora.includes(view.pending_discard)} />
-              <span><strong>{NAMES[view.pending_from] ?? 'An opponent'}</strong> offers the {tileWords(view.pending_discard)}</span>
+            <div class="call-stage" aria-live="polite">
+              <span class="call-kicker">Discard</span>
+              <Tile tile={view.pending_discard} dora={shownDora.includes(view.pending_discard)} />
+              <span class="call-message"><strong>{NAMES[view.pending_from] ?? 'An opponent'}</strong><span>discarded the {tileWords(view.pending_discard)}</span></span>
             </div>
           {/if}
           {#if selectedTile && myTurn && !busy}
@@ -638,7 +663,7 @@
           {#if callChoices.length}
             <div class="call-options">
               {#each callChoices as choice, index (index)}
-                <button class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
+                <button class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} class:win-call={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
                   aria-label={callLabel(choice)} disabled={busy || Boolean(failure)} onclick={() => choose(choice)}>
                   <span class="call-label">{callLabel(choice)}</span>
                   {#if callTiles(choice, view.pending_discard).length}
@@ -690,7 +715,7 @@
   .save-conflict { padding: 12px; border: 1px solid var(--gold); border-radius: 8px; background: var(--felt-deep); }
   .save-conflict p { margin: 0 0 8px; }
   .save-conflict button { min-height: 44px; padding: 8px 14px; }
-  main { max-width: 1100px; margin: 0 auto; padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); display: grid; gap: 10px; }
+  main { width: 100%; max-width: 1100px; box-sizing: border-box; margin: 0 auto; grid-template-columns: minmax(0, 1fr); padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); display: grid; gap: 10px; }
   .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid #ffffff28; padding-bottom: 8px; }
   h1 { margin: 0; font-size: 1.1rem; letter-spacing: .16em; text-transform: uppercase; }
   .opponents { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: .85rem; }
@@ -702,7 +727,6 @@
   .restart { font-size: .85rem; }
   .preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-width: 0; }
   .preferences details[open] { flex-basis: 100%; order: 1; }
-  .preferences .notice { margin-left: auto; }
   .options, .guide, .history, .offline-settings { font-size: .85rem; min-width: 0; }
   summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .option-fields { display: flex; gap: 4px 20px; flex-wrap: wrap; background: #0003; padding: 10px; border-radius: 8px; }
@@ -762,8 +786,7 @@
   .call-options { display: flex; flex-wrap: wrap; gap: 8px; }
   .call-options button { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; }
   .call-label { min-width: 0; overflow-wrap: anywhere; }
-  .call-preview, .offered-tile { display: inline-flex; align-items: center; gap: 4px; }
-  .offered-tile { gap: 12px; font-size: .9rem; padding: 4px; }
+  .call-preview { display: inline-flex; align-items: center; gap: 4px; }
   .confirm-discard { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .confirm-discard > span { font-size: .85rem; }
   button.primary { background: var(--button-accent); color: var(--button-text); border-color: var(--button-accent); font-weight: 600; }
@@ -843,4 +866,242 @@
     .hint { margin-left: 0; }
   }
   @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+
+
+  /* --- 2026 game-feel pass ------------------------------------------------ */
+  .header-round, .compact-status, .settings-trigger, .settings-backdrop,
+  .mobile-preferences-head, .mobile-new-game { display: none; }
+
+  .my-dealer {
+    padding: 1px 7px;
+    border: 1px solid rgba(216, 161, 42, .55);
+    border-radius: 999px;
+    color: var(--gold);
+    font-size: .66rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  .mine.turn {
+    border-color: rgba(216, 161, 42, .9);
+    box-shadow: 0 0 0 1px rgba(216, 161, 42, .16), 0 0 24px rgba(216, 161, 42, .10);
+  }
+
+  /* Counts sit below both hand tiles and wait tiles; never cover artwork. */
+  .wait {
+    position: static;
+    display: inline-grid;
+    justify-items: center;
+    align-items: end;
+    gap: 3px;
+    margin-right: 5px;
+  }
+  .remaining {
+    position: static;
+    min-width: 18px;
+    padding: 2px 3px 0;
+    border-top: 1px solid rgba(247, 242, 228, .26);
+    border-radius: 0;
+    background: none;
+    color: rgba(247, 242, 228, .75);
+    font-size: .62rem;
+    font-weight: 650;
+    line-height: 1;
+  }
+  .remaining.none {
+    border-color: rgba(255, 184, 164, .55);
+    background: none;
+    color: var(--warning-text);
+  }
+
+  .hand { --draw-gap: 18px; align-items: flex-end; }
+  .hand :global(button.tile[data-drawn=true]) { margin-inline-start: 0; }
+  .hand :global(.hand-tile[data-hand-drawn=true]) { margin-inline-start: var(--draw-gap); }
+
+  .call-stage {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    gap: 9px 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(216, 161, 42, .45);
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(216,161,42,.11), rgba(0,0,0,.23));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+    animation: offer-in .24s ease-out both;
+  }
+  .call-kicker {
+    grid-column: 1 / -1;
+    margin-bottom: -5px;
+    color: var(--gold);
+    font-size: .64rem;
+    font-weight: 750;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  .call-message { display: grid; min-width: 0; line-height: 1.25; }
+  .call-message span { opacity: .78; font-size: .82rem; }
+  .call-options { animation: choices-in .22s .06s ease-out both; }
+  .call-options button.win-call {
+    border-color: #efc45e;
+    background: linear-gradient(180deg, #b93b24, #8e2414);
+    box-shadow: 0 5px 16px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.16);
+  }
+  @keyframes offer-in { from { opacity: 0; transform: translateY(5px) scale(.985); } to { opacity: 1; transform: none; } }
+  @keyframes choices-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  @media (min-width: 761px) and (min-height: 501px) {
+    main { max-width: 1280px; padding-inline: 18px; gap: 14px; }
+    .board {
+      grid-template-columns: minmax(260px, 1fr) minmax(330px, .92fr) minmax(260px, 1fr);
+      min-height: 390px;
+      padding: 18px 20px;
+      gap: 14px 20px;
+      border: 1px solid rgba(247,242,228,.10);
+      border-radius: 28px;
+      background:
+        radial-gradient(ellipse at center, rgba(78,150,109,.18) 0 26%, transparent 57%),
+        linear-gradient(145deg, rgba(255,255,255,.025), rgba(0,0,0,.13));
+      box-shadow: inset 0 0 50px rgba(0,0,0,.13), 0 16px 34px rgba(0,0,0,.10);
+    }
+    .place { --tile-width: 54px; align-self: stretch; }
+    .across { width: min(450px, 100%); justify-self: center; }
+    .left, .right { width: min(340px, 100%); align-self: center; }
+    .centre {
+      width: min(340px, 100%);
+      min-height: 190px;
+      align-self: center;
+      justify-self: center;
+      padding: 18px;
+      border: 1px solid rgba(216,161,42,.28);
+      border-radius: 20px;
+      background: radial-gradient(circle at 50% 35%, rgba(47,111,80,.54), rgba(3,25,16,.48));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 12px 28px rgba(0,0,0,.14);
+    }
+    .mine {
+      --tile-width: 52px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(4, 30, 20, .43);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+    }
+    .inspect { border-radius: 999px; }
+  }
+
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    main { padding-top: max(5px, env(safe-area-inset-top)); gap: 5px; }
+    .bar {
+      position: sticky;
+      top: 0;
+      z-index: 18;
+      min-height: 52px;
+      padding: 4px 0;
+      gap: 7px;
+      border-bottom-color: rgba(255,255,255,.12);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--felt-deep) 96%, transparent), color-mix(in srgb, var(--felt-deep) 88%, transparent));
+      backdrop-filter: blur(12px);
+    }
+    h1 { margin-right: auto; font-size: .91rem; letter-spacing: .10em; white-space: nowrap; }
+    .header-round { display: inline; font-size: .76rem; font-weight: 500; letter-spacing: 0; opacity: .68; text-transform: none; }
+    .compact-status { display: inline-flex; align-items: center; gap: 4px; }
+    .status-dot, .save-mark { color: #b07161; font-size: .7rem; line-height: 1; opacity: .8; }
+    .status-dot.ready, .save-mark.ready { color: #8bd6a7; opacity: 1; }
+    .save-mark { font-size: .8rem; font-weight: 800; }
+    .opponents { margin-left: 0; }
+    .opponents select { min-height: 44px; max-width: 116px; padding: 5px 8px; border-radius: 10px; font-size: .8rem; }
+    .settings-trigger {
+      display: inline-flex;
+      width: 44px;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border-radius: 50%;
+      font-size: 1rem;
+    }
+    .restart { display: none; }
+
+    .settings-backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 38;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: rgba(0,0,0,.58);
+    }
+    .preferences { display: none; }
+    .preferences.mobile-open {
+      display: flex;
+      position: fixed;
+      left: 8px;
+      right: 8px;
+      bottom: max(8px, env(safe-area-inset-bottom));
+      z-index: 39;
+      max-height: min(82dvh, 680px);
+      overflow: auto;
+      align-content: flex-start;
+      align-items: stretch;
+      gap: 2px 12px;
+      padding: 14px;
+      border: 1px solid rgba(216,161,42,.45);
+      border-radius: 20px;
+      background: color-mix(in srgb, var(--felt-deep) 96%, black 4%);
+      box-shadow: 0 22px 70px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.05);
+    }
+    .preferences.mobile-open details, .preferences.mobile-open .edit-table { flex-basis: 100%; }
+    .mobile-preferences-head {
+      display: flex;
+      flex-basis: 100%;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 4px;
+      font-size: 1rem;
+    }
+    .mobile-preferences-head button { min-height: 44px; padding: 5px 11px; }
+    .mobile-new-game { display: block; flex-basis: 100%; margin-bottom: 5px; }
+    .preferences .option-fields { background: rgba(0,0,0,.24); }
+    .notice {
+      position: fixed;
+      top: max(54px, calc(env(safe-area-inset-top) + 48px));
+      right: 10px;
+      z-index: 17;
+      max-width: min(70vw, 260px);
+      padding: 5px 8px;
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 999px;
+      background: rgba(8,35,24,.83);
+      box-shadow: 0 4px 14px rgba(0,0,0,.18);
+      font-size: .68rem;
+      pointer-events: none;
+    }
+
+    .board { margin-top: 1px; }
+    .centre { border: 1px solid rgba(216,161,42,.18); box-shadow: inset 0 1px 0 rgba(255,255,255,.035); }
+    .mine { border-radius: 15px; background: rgba(3,29,19,.40); }
+    .hand { --draw-gap: 14px; }
+    .hand :global(.hand-tile) { width: 100%; }
+    .hand :global(.hand-tile[data-hand-drawn=true]) { margin-inline-start: var(--draw-gap); }
+    .hand.has-draw { padding-inline-end: calc(3px + var(--draw-gap)); }
+    .call-stage { grid-template-columns: auto auto minmax(0,1fr); padding: 9px 10px; }
+
+    .custom-dialog {
+      position: fixed;
+      inset: auto 0 0 0;
+      width: 100%;
+      max-width: none;
+      max-height: 86dvh;
+      margin: 0;
+      padding: 18px 16px max(18px, env(safe-area-inset-bottom));
+      overflow: auto;
+      border-radius: 22px 22px 0 0;
+      box-shadow: 0 -24px 80px rgba(0,0,0,.42);
+    }
+  }
 </style>
