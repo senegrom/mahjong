@@ -1,0 +1,242 @@
+{
+  "version": 1,
+  "id": "van-gogh",
+  "name": "Van Gogh",
+  "canvas": {
+    "width": 300,
+    "height": 400
+  },
+  "facePresentation": {
+    "radius": 26,
+    "bleed": 3,
+    "preserveAspectRatio": "none"
+  },
+  "approval": "Carl approved all except K and requested deployment. The later L is the active white dragon; F remains a study.",
+  "fallback": "classic",
+  "sources": [
+    {
+      "id": "first",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+      "sha256": "d9293eeff896f948918a8539ccfffeb8a26e4176f22401ca227b7e636d69ed91"
+    },
+    {
+      "id": "second",
+      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+      "sha256": "62821f5d99b1a849b25775f20fa32717f7b4a7986638958609b9d95e2f82abb8"
+    }
+  ],
+  "tiles": [
+    {
+      "candidate": "A",
+      "tile": "1p",
+      "name": "Pin1",
+      "label": "One disk",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Pin1.png",
+      "svg": "approved/Pin1.svg",
+      "crop": {
+        "x": 54,
+        "y": 122,
+        "width": 357,
+        "height": 462
+      },
+      "pngSha256": "75bc80080458de5255501619c0129320d39ce36825897981b8ec71236a2f9dc6"
+    },
+    {
+      "candidate": "B",
+      "tile": "5p",
+      "name": "Pin5",
+      "label": "Five disks",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Pin5.png",
+      "svg": "approved/Pin5.svg",
+      "crop": {
+        "x": 449,
+        "y": 122,
+        "width": 356,
+        "height": 463
+      },
+      "pngSha256": "b99cf6dfb27a48ba346d83006e9f3d536162063f79dd43c657efc6da0541288b"
+    },
+    {
+      "candidate": "C",
+      "tile": "3s",
+      "name": "Sou3",
+      "label": "Three bamboo",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Sou3.png",
+      "svg": "approved/Sou3.svg",
+      "crop": {
+        "x": 844,
+        "y": 122,
+        "width": 356,
+        "height": 463
+      },
+      "pngSha256": "dc023785e7e8afde9b8e044a8d58818f05b196ae8f1d1a2034bf4f25e36f9c4a"
+    },
+    {
+      "candidate": "D",
+      "tile": "3m",
+      "name": "Man3",
+      "label": "Three characters",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Man3.png",
+      "svg": "approved/Man3.svg",
+      "crop": {
+        "x": 54,
+        "y": 649,
+        "width": 357,
+        "height": 473
+      },
+      "pngSha256": "8d96326eda016abdfcf3e8c0c38c332edcd8f8c4785b02bc896443c895bb9bf4"
+    },
+    {
+      "candidate": "E",
+      "tile": "7z",
+      "name": "Chun",
+      "label": "Red dragon",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Chun.png",
+      "svg": "approved/Chun.svg",
+      "crop": {
+        "x": 449,
+        "y": 649,
+        "width": 356,
+        "height": 473
+      },
+      "pngSha256": "c7b04024a8ebed30e7ed5efb301567442aeab35f955554f65e71641d040c473c"
+    },
+    {
+      "candidate": "G",
+      "tile": "1s",
+      "name": "Sou1",
+      "label": "One bamboo",
+      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Sou1.png",
+      "svg": "approved/Sou1.svg",
+      "crop": {
+        "x": 38,
+        "y": 100,
+        "width": 380,
+        "height": 471
+      },
+      "pngSha256": "d4774125d19efc3c3cb30a513280dc768be2eafdc66f863108a574c888263b8d"
+    },
+    {
+      "candidate": "H",
+      "tile": "2p",
+      "name": "Pin2",
+      "label": "Two disks",
+      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Pin2.png",
+      "svg": "approved/Pin2.svg",
+      "crop": {
+        "x": 439,
+        "y": 100,
+        "width": 377,
+        "height": 471
+      },
+      "pngSha256": "4a5fcea9949f05dc9b786864ed64ac22c0d1b72b3d908b9bd06b355f88b65fca"
+    },
+    {
+      "candidate": "I",
+      "tile": "9p",
+      "name": "Pin9",
+      "label": "Nine disks",
+      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Pin9.png",
+      "svg": "approved/Pin9.svg",
+      "crop": {
+        "x": 838,
+        "y": 100,
+        "width": 380,
+        "height": 471
+      },
+      "pngSha256": "61eb9c2563a8039eb755315b1f5ef670a472fcff2e1facaef4b0e05e1af0267d"
+    },
+    {
+      "candidate": "J",
+      "tile": "6s",
+      "name": "Sou6",
+      "label": "Six bamboo",
+      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Sou6.png",
+      "svg": "approved/Sou6.svg",
+      "crop": {
+        "x": 38,
+        "y": 645,
+        "width": 380,
+        "height": 495
+      },
+      "pngSha256": "98282e530a5f32c20e7e51c11a504909ce88108a391ce556b3dd9d0dd801d81b"
+    },
+    {
+      "candidate": "L",
+      "tile": "5z",
+      "name": "Haku",
+      "label": "White dragon",
+      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Haku.png",
+      "svg": "approved/Haku.svg",
+      "crop": {
+        "x": 838,
+        "y": 645,
+        "width": 380,
+        "height": 495
+      },
+      "pngSha256": "00da99912d57e7e9704ae2ba8237118a202ebe1d9829cfbaba489b7bc8870994"
+    }
+  ],
+  "rejected": [
+    {
+      "candidate": "K",
+      "tile": "1z",
+      "label": "East wind",
+      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png"
+    }
+  ],
+  "superseded": [
+    {
+      "candidate": "F",
+      "tile": "5z",
+      "activeCandidate": "L",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png"
+    }
+  ],
+  "remaining": [
+    "1m",
+    "2m",
+    "4m",
+    "5m",
+    "6m",
+    "7m",
+    "8m",
+    "9m",
+    "3p",
+    "4p",
+    "6p",
+    "7p",
+    "8p",
+    "2s",
+    "4s",
+    "5s",
+    "7s",
+    "8s",
+    "9s",
+    "1z",
+    "2z",
+    "3z",
+    "4z",
+    "6z"
+  ]
+}
