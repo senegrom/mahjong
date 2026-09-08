@@ -1,15 +1,78 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { TILE_TYPES } from '../src/lib/tiles.js';
-import { TILE_FACE_CONTEXT, TILE_IMAGE_URLS, tileImage } from '../src/lib/tile-faces.js';
+import { TILE_FACE_CONTEXT, TILE_FACE_OPTIONS, TILE_IMAGE_URLS, tileImage } from '../src/lib/tile-faces.js';
+import { CUBIST_APPROVED } from '../src/lib/cubist-faces.js';
+import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { readSettings } from '../src/lib/session.js';
 
 const publicRoot = new URL('../public/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', publicRoot), 'utf8'));
+const faces = TILE_FACE_OPTIONS.map(face => face.value);
+
+test('Van Gogh preserves the selected artwork, excludes K and uses L for white dragon', () => {
+  const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z'];
+  assert.deepEqual(VAN_GOGH_APPROVED, approved);
+  const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
+  assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'C', 'D', 'E', 'G', 'H', 'I', 'J', 'L']);
+  assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
+  assert.equal(existsSync(new URL('tiles/van-gogh/approved/Ton.svg', publicRoot)), false);
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  for (const source of set.sources) {
+    assert.equal(hash(readFileSync(new URL(`../../${source.source}`, import.meta.url))), source.sha256);
+  }
+  for (const tile of TILE_TYPES) {
+    const entry = set.tiles.find(entry => entry.tile === tile);
+    const url = tileImage(tile, 'van-gogh');
+    if (!entry) {
+      assert.equal(url, tileImage(tile, 'classic'));
+      continue;
+    }
+    assert.equal(url, `tiles/van-gogh/${entry.svg}`);
+    const png = readFileSync(new URL(`tiles/van-gogh/${entry.png}`, publicRoot));
+    const svg = readFileSync(new URL(url, publicRoot), 'utf8');
+    assert.equal(hash(png), entry.pngSha256);
+    assert.match(svg, /viewBox="0 0 300 400"/);
+    assert.match(svg, /rx="26"/);
+    assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
+  }
+  assert.equal(tileImage('not-a-tile', 'van-gogh'), 'tiles/Front.svg');
+});
+
+test('Cubist deploys only study 02 A–E and keeps every other identity readable', () => {
+  const approved = ['3p', '5s', '9m', '1z', '5z'];
+  assert.deepEqual(CUBIST_APPROVED, approved);
+  const cubist = JSON.parse(readFileSync(new URL('tiles/cubist/manifest.json', publicRoot), 'utf8'));
+  assert.deepEqual(cubist.tiles.map(tile => tile.tile), approved);
+  assert.deepEqual(cubist.tiles.map(tile => tile.candidate), ['A', 'B', 'C', 'D', 'E']);
+  assert.equal(cubist.source, 'docs/design/cubist/studies/02-further-studies.png');
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  assert.equal(hash(readFileSync(new URL(`../../${cubist.source}`, import.meta.url))), cubist.sourceSha256);
+  assert.deepEqual(cubist.rejected.map(tile => tile.tile), ['6z']);
+  assert.equal(existsSync(new URL('tiles/cubist/approved/Hatsu.svg', publicRoot)), false);
+  for (const tile of TILE_TYPES) {
+    const entry = cubist.tiles.find(entry => entry.tile === tile);
+    const url = tileImage(tile, 'cubist');
+    if (!entry) {
+      assert.equal(url, tileImage(tile, 'classic'));
+      continue;
+    }
+    assert.equal(url, `tiles/cubist/${entry.svg}`);
+    const svg = readFileSync(new URL(url, publicRoot), 'utf8');
+    assert.match(svg, /viewBox="0 0 300 400"/);
+    assert.match(svg, /rx="26"/);
+    const png = readFileSync(new URL(`tiles/cubist/${entry.png}`, publicRoot));
+    assert.equal(hash(png), entry.pngSha256);
+    assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
+  }
+  assert.equal(tileImage('not-a-tile', 'cubist'), 'tiles/Front.svg');
+});
 
 test('all 34 Matisse faces resolve to approved art with no placeholders', () => {
   assert.equal(TILE_TYPES.length, 34);
@@ -25,42 +88,60 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('hidden tiles cannot reveal their identity through either face set', () => {
-  for (const face of ['classic', 'matisse']) {
+test('Dali resolves six approved faces and placeholders for the rest', () => {
+  const approved = new Set(['1p', '5p', '1s', '2s', '8m', '7z']);
+  for (const tile of TILE_TYPES) {
+    const url = tileImage(tile, 'dali');
+    const svg = readFileSync(new URL(url, publicRoot), 'utf8');
+    assert.match(svg, /viewBox="0 0 300 400"/);
+    if (approved.has(tile)) assert.match(url, /\/dali\/approved\//);
+    else assert.equal(url, 'tiles/dali/placeholders/placeholder.svg');
+  }
+  assert.equal(tileImage('1p', 'dali'), 'tiles/dali/approved/Pin1.svg');
+  assert.equal(tileImage('7z', 'dali'), 'tiles/dali/approved/Chun.svg');
+});
+
+test('hidden tiles cannot reveal their identity through any face set', () => {
+  for (const face of faces) {
     for (const tile of TILE_TYPES) assert.equal(tileImage(tile, face, true), 'tiles/Back.svg');
     assert.equal(tileImage(null, face), 'tiles/Back.svg');
   }
   assert.equal(tileImage('5z'), 'tiles/Haku.svg');
   assert.equal(tileImage('5z', 'matisse'), 'tiles/matisse/approved/Haku.svg');
-  assert.equal(tileImage('7m', 'unrecognized'), 'tiles/Man7.svg');
+  assert.equal(tileImage('7m', 'classic'), 'tiles/Man7.svg');
 });
 
-test('both complete face sets are in the preload inventory with valid files', () => {
-  assert.equal(TILE_IMAGE_URLS.length, 71);
+test('all selectable face sets are in the preload inventory with valid files', () => {
+  assert.equal(new Set(TILE_IMAGE_URLS).size, TILE_IMAGE_URLS.length);
   assert.ok(TILE_IMAGE_URLS.includes('tiles/matisse/approved/Haku-foil.svg'));
-  for (const face of ['classic', 'matisse']) {
+  assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/approved/Pin1.svg'));
+  assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/placeholders/placeholder.svg'));
+  assert.equal(TILE_IMAGE_URLS.filter(url => url.startsWith('tiles/cubist/')).length, 5);
+  assert.equal(TILE_IMAGE_URLS.filter(url => url.startsWith('tiles/van-gogh/')).length, 10);
+  for (const face of faces) {
     for (const tile of TILE_TYPES) assert.ok(TILE_IMAGE_URLS.includes(tileImage(tile, face)));
   }
   for (const url of TILE_IMAGE_URLS) assert.match(readFileSync(new URL(url, publicRoot), 'utf8'), /<svg/);
 });
 
-test('tile face survives preference restoration and old or invalid settings stay Classic', () => {
+test('tile face survives preference restoration and invalid settings stay Classic', () => {
   const read = value => readSettings({ getItem: () => JSON.stringify(value) });
   assert.equal(read({ version: 1, tileFace: 'matisse' }).tileFace, 'matisse');
+  assert.equal(read({ version: 1, tileFace: 'dali' }).tileFace, 'dali');
+  assert.equal(read({ version: 1, tileFace: 'cubist' }).tileFace, 'cubist');
+  assert.equal(read({ version: 1, tileFace: 'van-gogh' }).tileFace, 'van-gogh');
   for (const tileFace of [undefined, null, '', false, {}, 'other', '../other']) {
     assert.equal(read({ version: 1, tileFace }).tileFace, 'classic');
   }
-  assert.equal(read({ version: 2, tileFace: 'matisse' }).tileFace, 'classic');
+  assert.equal(read({ version: 2, tileFace: 'dali' }).tileFace, 'classic');
 });
 
-test('the real Tile component respects the selected face, foil and hidden state', async t => {
+test('the real Tile component respects the selected face and hidden state', async t => {
   const source = new URL('../src/lib/Tile.svelte', import.meta.url);
   const directory = mkdtempSync(fileURLToPath(new URL('../.tile-effects-unit-', import.meta.url)));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const compiled = compile(readFileSync(source, 'utf8'), { filename: fileURLToPath(source), generate: 'server' });
-  // Node needs a URL module for the image import; all component logic and
-  // shared modules are compiled from the production sources without changes.
-  const code = compiled.js.code.replace(/from (['"])(\.[^'"]+)\1/g, (_match, _quote, specifier) => {
+  const code = compiled.js.code.replace(/from (["'])(\.[^'"]+)\1/g, (_match, _quote, specifier) => {
     const url = new URL(specifier, source).href;
     return `from ${JSON.stringify(specifier.endsWith('.webp')
       ? `data:text/javascript,${encodeURIComponent(`export default ${JSON.stringify(url)}`)}` : url)}`;
@@ -75,9 +156,14 @@ test('the real Tile component respects the selected face, foil and hidden state'
     }).body;
     for (const tile of TILE_TYPES) {
       assert.ok(show(tile, 'matisse').includes(`src="${tileImage(tile, 'matisse')}"`));
-      const hidden = show(tile, 'matisse', { facedown: true, dora: true });
-      assert.match(hidden, /src="tiles\/Back.svg"/);
-      assert.doesNotMatch(hidden, /matisse\/|class="foil|haku-dragon-reveal/);
+      assert.ok(show(tile, 'dali').includes(`src="${tileImage(tile, 'dali')}"`));
+      assert.ok(show(tile, 'cubist').includes(`src="${tileImage(tile, 'cubist')}"`));
+      assert.ok(show(tile, 'van-gogh').includes(`src="${tileImage(tile, 'van-gogh')}"`));
+      for (const face of faces) {
+        const hidden = show(tile, face, { facedown: true, dora: true });
+        assert.match(hidden, /src="tiles\/Back.svg"/);
+        assert.doesNotMatch(hidden, /dali\/|matisse\/|cubist\/|van-gogh\/|class="foil|haku-dragon-reveal/);
+      }
     }
     const white = show('5z', 'matisse', { dora: true });
     assert.match(white, /approved\/Haku.svg/);
@@ -87,5 +173,19 @@ test('the real Tile component respects the selected face, foil and hidden state'
     assert.doesNotMatch(show('5z', 'matisse'), /haku-dragon-reveal/);
     assert.match(show('5z', 'classic', { dora: true }), /haku-dragon-reveal/);
     assert.match(show('7m', 'classic'), /src="tiles\/Man7.svg"/);
+    const cubistWhite = show('5z', 'cubist', { dora: true, rotated: true, size: 'small' });
+    assert.match(cubistWhite, /tiles\/cubist\/approved\/Haku.svg/);
+    assert.match(cubistWhite, /\bcubist\b/);
+    assert.match(cubistWhite, /\bringed\b/);
+    assert.match(cubistWhite, /class="foil/);
+    assert.doesNotMatch(cubistWhite, /haku-dragon-reveal|Haku-foil/);
+    assert.doesNotMatch(show('6z', 'cubist'), /\bcubist\b/);
+    const vanGoghWhite = show('5z', 'van-gogh', { dora: true, rotated: true, size: 'small' });
+    assert.match(vanGoghWhite, /tiles\/van-gogh\/approved\/Haku.svg/);
+    assert.match(vanGoghWhite, /\bvan-gogh\b/);
+    assert.match(vanGoghWhite, /\bringed\b/);
+    assert.match(vanGoghWhite, /class="foil/);
+    assert.doesNotMatch(vanGoghWhite, /haku-dragon-reveal|Haku-foil/);
+    assert.doesNotMatch(show('1z', 'van-gogh'), /\bvan-gogh\b/);
   }
 });
