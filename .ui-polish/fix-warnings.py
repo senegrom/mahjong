@@ -104,6 +104,23 @@ new_layout = '''      const compact=width<=760||(width>=640&&height<=500);
 reg_text = replace_once(reg_text, old_layout, new_layout, 'responsive layout regression')
 reg.write_text(reg_text)
 
+# Mixed-table configuration lives inside the compact settings sheet on phones.
+# Open that intentional sheet before clicking Edit opponents; desktop keeps the
+# directly visible control.
+mixed = Path('web/scripts/mixed-opponents-check.mjs')
+mixed_text = mixed.read_text()
+old_mixed = '''      const p=await open(mixed,{width,height});assert.deepEqual(await labels(p),['neural','club','beginner']);
+      assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+      await shot(p,`mixed-table-${width}x${height}`);await p.click('.edit-table');'''
+new_mixed = '''      const p=await open(mixed,{width,height});assert.deepEqual(await labels(p),['neural','club','beginner']);
+      assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+      await shot(p,`mixed-table-${width}x${height}`);
+      const compact=width<=760||(width>=640&&height<=500);
+      if(compact)await p.click('.settings-trigger');
+      await p.click('.edit-table');'''
+mixed_text = replace_once(mixed_text, old_mixed, new_mixed, 'mixed setup compact settings regression')
+mixed.write_text(mixed_text)
+
 # Readiness regression still verifies the draw gap, but the gap now belongs to
 # the HandTile stack so the number beneath it travels with the drawn face.
 readiness = Path('web/scripts/discard-readiness-check.mjs')
