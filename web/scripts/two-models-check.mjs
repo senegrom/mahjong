@@ -15,11 +15,18 @@
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { createFixtureHandler } from './static-fixture-server.mjs';
+import init, { Game } from '../src/wasm/riichi.js';
+import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
+
+await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
+const match = new MatchSession(Game, 81, 'neural');
+let initial;
+try { match.advance(false); initial = match.snapshot(); } finally { match.dispose(); }
 
 const web = fileURLToPath(new URL('../', import.meta.url));
 const dist = resolve(web, 'dist');
@@ -55,6 +62,10 @@ async function open(context, base) {
   page.on('pageerror', (error) => page.errors.push(error.message));
   await page.setViewport({ width: 1100, height: 900 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.evaluateOnNewDocument((saveKey, settingsKey, snapshot) => {
+    if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(snapshot));
+    localStorage.setItem(settingsKey, JSON.stringify({ version: 1, difficulty: 'neural', trainedModel: 'quick', confirmDiscards: false }));
+  }, SAVE_KEY, SETTINGS_KEY, initial);
   await page.goto(`${base}?opponents=neural`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.hand');
   return page;
@@ -79,7 +90,12 @@ async function choices(page, patience = 30000) {
 /** Plays whatever the table asks for, so the opponents have to answer. */
 async function play(page, moves) {
   for (let move = 0; move < moves; move += 1) {
+    assert.equal(await page.$eval('body', element => element.querySelector('.failure')?.textContent?.trim() ?? null), null);
     const acted = await page.evaluate(() => {
+      // A hand can end before the model switch. Keep playing so the new
+      // network actually gets a turn, even when the download came through SW.
+      const next = document.querySelector('.screen .primary:not([disabled])');
+      if (next) { next.click(); return true; }
       const pass = [...document.querySelectorAll('.call-options button')]
         .find((button) => button.textContent.trim() === 'Pass');
       if (pass) { pass.click(); return true; }
