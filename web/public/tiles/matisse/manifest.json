@@ -47,19 +47,19 @@
     {
       "name": "Pin3",
       "tile": "3p",
-      "label": "3 dots",
+      "label": "3 disks",
       "status": "approved",
       "png": "approved/Pin3.png",
       "svg": "approved/Pin3.svg",
-      "source": "docs/design/matisse/studies/03-dots-and-bamboo.png",
-      "sourceSha256": "654d4e069af72d7ea38b9848a778624cfb620949d6edd31c5634a90aa17e1ad0",
+      "source": "docs/design/matisse/studies/three-disks-c-approved.png",
+      "sourceSha256": "906e128468df96701c497053d1fba230c6193f6829e6fa69715fd9487765df8d",
       "crop": {
-        "x": 77,
-        "y": 99,
-        "width": 604,
-        "height": 835
+        "x": 1279,
+        "y": 80,
+        "width": 537,
+        "height": 636
       },
-      "notes": "Blue, red and green rosettes on ivory."
+      "notes": "C: three apricot, mint and carmine cut-paper rosettes in a loose S on deep purple, with coloured centres."
     },
     {
       "name": "Pin5",

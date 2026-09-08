@@ -1,6 +1,6 @@
 # Matisse mahjong tile studies
 
-A partial tile set inspired by Henri Matisse's cut-paper designs and the mass vestments for the Chapelle du Rosaire. The artwork was generated and refined with Carl in ChatGPT on 7 September 2026.
+A partial tile set inspired by Henri Matisse's cut-paper designs and the mass vestments for the Chapelle du Rosaire. The artwork was generated and refined with Carl in ChatGPT on 7–8 September 2026.
 
 ## Approved faces
 
@@ -8,7 +8,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | --- | --- | --- |
 | [Pin1.svg](approved/Pin1.svg) | 1 dot | Black disk, ivory rosette, yellow field: direction B |
 | [Pin2.svg](approved/Pin2.svg) | 2 disks | B: yellow and magenta rosettes with contrasting petals on ultramarine |
-| [Pin3.svg](approved/Pin3.svg) | 3 dots | Blue, red and green rosettes on ivory |
+| [Pin3.svg](approved/Pin3.svg) | 3 disks | C: apricot, mint and carmine rosettes in a loose S on deep purple |
 | [Pin5.svg](approved/Pin5.svg) | 5 dots | Five black and ivory rosettes on yellow |
 | [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Dance B: two sweeping bamboo forms in green on pale mint |
 | [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
@@ -31,6 +31,8 @@ Choose **Options → Tile face → Matisse**. All seventeen approved faces appea
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
 ## Next design directions
+
+The 3 disks tile uses **C** from `three-disks-c-approved.png`: three separate apricot, mint and carmine rosettes on deep purple. It replaces the earlier ivory design, whose source remains in `03-dots-and-bamboo.png`. The export excludes the study label and surrounding board and uses the shared 3:4 face, bleed and rounded clipping.
 
 The 2 bamboo tile uses **Dance B** from `08-two-bamboo-approved.png`. Preserve the all-green appearance of tiles eligible for All Green: multiple shades of green are welcome, with neutral ivory for the tile substrate. The approved source pixels are kept exactly; no new colours are introduced when exporting.
 
