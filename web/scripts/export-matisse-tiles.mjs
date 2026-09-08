@@ -31,6 +31,7 @@ const definitions = [
   ['Shaa', '3z', 'West wind', 'approved', 'west-wind-c-approved.png', [963, 213, 435, 602], 'Cut-out C: sculptural ivory 西 with a cobalt-blue top stroke on vermilion. The flat crop excludes the study label and surround, using the shared full-face fit, bleed and rounded clipping.'],
   ['Chun', '7z', 'Red dragon', 'approved', '01-disk-and-red-dragon.png', [966, 232, 410, 554], 'Red cut-paper 中 on pink; direction B.'],
   ['Man1', '1m', '1 characters', 'approved', 'one-characters-b-approved.png', [513, 205, 423, 630], 'Dance B: a sweeping yellow 一 above sculptural vermilion 萬 on deep purple. The lossless centre-tile crop excludes the study label and surrounding board, with the shared 3:4 face, bleed and rounded clipping.'],
+  ['Man2', '2m', '2 characters', 'approved', 'two-characters-b-approved.png', [510, 199, 429, 658], 'Dance B: coral-pink 萬 at upper right above two sweeping ivory strokes forming 二 on deep purple. The reversed composition preserves the approved centre tile exactly, using the shared 3:4 face, bleed and rounded clipping.'],
   ['Man7', '7m', '7 characters', 'approved', '06-character-compositions.png', [965, 207, 432, 630], 'Cut-out C: pink 萬 at upper left and oversized pale-yellow 七 below on deep purple.'],
   ['Sou1', '1s', '1 bamboo', 'approved', '05-characters-bird-green-dragon.png', [510, 210, 426, 630], 'Blue and green cut-paper bird on a bamboo perch.'],
   ['Hatsu', '6z', 'Green dragon', 'approved', '05-characters-bird-green-dragon.png', [964, 210, 433, 630], 'Ivory 發 cut out of emerald green, using style C.'],
@@ -100,7 +101,7 @@ const html = `<!doctype html>
 <h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label>
 <div class="scroll"><div class="table" id="table"><div class="rack" id="rack" aria-label="Fourteen-tile visual sample"></div></div></div><p class="size" id="size"></p>
 <h2>Approved faces</h2><div class="gallery" id="approved"></div>
-<footer>This hand is a visual sample. The approved character tiles use Dance B for 1 characters and Cut-out C for 7 characters, both on deep purple. White dragon uses the approved C/C1 blend, with a pearly reveal when it is dora. Raw PNG crops retain their source resolution; each SVG provides the game's 300 × 400 canvas.</footer>
+<footer>This hand is a visual sample. The approved character tiles use Dance B for 1 and 2 characters and Cut-out C for 7 characters, all on deep purple. White dragon uses the approved C/C1 blend, with a pearly reveal when it is dora. Raw PNG crops retain their source resolution; each SVG provides the game's 300 × 400 canvas.</footer>
 </main><script>
 const tiles=${JSON.stringify(previews)};
 const byName=Object.fromEntries(tiles.map(tile=>[tile.name,tile]));
@@ -109,7 +110,7 @@ const table=document.getElementById('table');
 function picture(tile){const image=document.createElement('img');image.src=tile.src;image.alt=tile.label;image.title=tile.label;image.width=300;image.height=400;return image}
 for(const tile of tiles){const card=document.createElement('div');card.className='card';card.append(picture(tile));const label=document.createElement('p');label.textContent=tile.label;card.append(label);const badge=document.createElement('span');badge.className='badge';badge.textContent='Approved';card.append(badge);document.getElementById('approved').append(card)}
 function updateSize(){const w=rack.firstElementChild?.getBoundingClientRect().width||0;document.getElementById('size').textContent=w.toFixed(1)+' × '+(w*4/3).toFixed(1)+' CSS px per tile · 14 tiles · scroll horizontally if needed; the preview is not scaled down.'}
-function draw(){const names=['Man1','Man7','Pin1','Pin2','Pin3','Sou1','Sou2','Sou3','Sou4','Sou5','Sou7','Sou9','Ton','Shaa'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
+function draw(){const names=['Man1','Man2','Man7','Pin1','Pin2','Pin3','Sou1','Sou2','Sou4','Sou5','Sou7','Sou9','Ton','Shaa'];rack.replaceChildren(...names.map(name=>picture(byName[name])));table.style.width=document.getElementById('width').value+'px';requestAnimationFrame(updateSize)}
 document.getElementById('width').addEventListener('change',draw);new ResizeObserver(updateSize).observe(rack);draw();
 </script></body></html>`;
 writeFileSync(path.join(out, 'preview.html'), html);

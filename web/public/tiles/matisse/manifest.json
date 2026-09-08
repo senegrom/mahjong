@@ -283,6 +283,23 @@
       "notes": "Dance B: a sweeping yellow 一 above sculptural vermilion 萬 on deep purple. The lossless centre-tile crop excludes the study label and surrounding board, with the shared 3:4 face, bleed and rounded clipping."
     },
     {
+      "name": "Man2",
+      "tile": "2m",
+      "label": "2 characters",
+      "status": "approved",
+      "png": "approved/Man2.png",
+      "svg": "approved/Man2.svg",
+      "source": "docs/design/matisse/studies/two-characters-b-approved.png",
+      "sourceSha256": "83f771884657d42a32b385e2d27972d291e7fde3a3e37451ec4aa8697e0a4e33",
+      "crop": {
+        "x": 510,
+        "y": 199,
+        "width": 429,
+        "height": 658
+      },
+      "notes": "Dance B: coral-pink 萬 at upper right above two sweeping ivory strokes forming 二 on deep purple. The reversed composition preserves the approved centre tile exactly, using the shared 3:4 face, bleed and rounded clipping."
+    },
+    {
       "name": "Man7",
       "tile": "7m",
       "label": "7 characters",
@@ -362,12 +379,6 @@
     }
   ],
   "placeholders": [
-    {
-      "tile": "2m",
-      "name": "Man2",
-      "label": "2 characters",
-      "svg": "placeholders/Man2.svg"
-    },
     {
       "tile": "3m",
       "name": "Man3",

@@ -24,12 +24,13 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Sou1.svg](approved/Sou1.svg) | 1 bamboo | Blue and green cut-paper bird on a bamboo perch |
 | [Hatsu.svg](approved/Hatsu.svg) | Green dragon | Ivory 發 cut out of emerald green: style C |
 | [Man1.svg](approved/Man1.svg) | 1 characters | Dance B: sweeping yellow 一 and sculptural vermilion 萬 on deep purple |
+| [Man2.svg](approved/Man2.svg) | 2 characters | Dance B: coral-pink 萬 above a sweeping ivory 二 on deep purple |
 | [Man7.svg](approved/Man7.svg) | 7 characters | Cut-out C: pink 萬 and oversized pale-yellow 七 on deep purple |
 | [Haku.svg](approved/Haku.svg) | White dragon | Approved C/C1 blend: quiet ivory with a pearly silver dora reveal |
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All twenty approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 14 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All twenty-one approved faces, including the complete bamboo suit, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 13 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
@@ -51,6 +52,8 @@ The 9 bamboo tile uses **Vestment B** from `nine-bamboo-b-approved.png`: exactly
 
 The 1 characters tile uses **Dance B** from `one-characters-b-approved.png`: a sweeping yellow 一 and large vermilion 萬 on deep purple. Only the approved centre tile is exported, using the shared full-face fit, bleed and rounded clipping. The 7 characters tile uses **Cut-out C** from `06-character-compositions.png`. Continue varying the scale and placement of the number and 萬 for future character tiles.
 
+The 2 characters tile uses **Dance B** from `two-characters-b-approved.png`: coral-pink 萬 at upper right and an oversized ivory 二 below on deep purple. The two separate sweeping strokes remain clear. The lossless centre-tile export excludes the label and surrounding board, with the same full-face fit, bleed and rounded clipping as the other character tiles.
+
 East uses Ribbon B. West uses **Cut-out C** from `west-wind-c-approved.png`: ivory 西 with a cobalt-blue top stroke on a full vermilion field. The lossless export uses the same 3:4 face, bleed and rounded clipping as the other tiles, with no inset border. Keep the flowing black calligraphy of East A available for another tile. White dragon uses the approved abstract blend of C and C1 in `07-white-dragon-approved.png`; the earlier detailed dragon was rejected.
 
 ## Preview and exports
@@ -69,4 +72,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The twenty approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The twenty-one approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
