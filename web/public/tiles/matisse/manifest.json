@@ -527,15 +527,15 @@
       "status": "approved",
       "png": "approved/Sou1.png",
       "svg": "approved/Sou1.svg",
-      "source": "docs/design/matisse/studies/one-bamboo-c-carnival-approved.png",
-      "sourceSha256": "84deb829d6c737c62d2252082d6d74eed22f453883949ec395a36a107fbe02be",
+      "source": "docs/design/matisse/studies/one-bamboo-c-green-background-approved.png",
+      "sourceSha256": "8ee18bd72b3d4e5e71561b41894cb587a38e42d7547538ded2001f06fea2872c",
       "crop": {
         "x": 62,
         "y": 28,
         "width": 962,
         "height": 1300
       },
-      "notes": "Carnival C: one dancing pink bird with an oversized green wing, curling purple tail and yellow accents on vermilion. The lossless crop preserves the approved artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
+      "notes": "Carnival C, with the requested colour swap: one dancing pink bird with an oversized vermilion wing, curling purple tail and yellow accents on green. The green wing and vermilion background colours have exchanged places. The lossless crop preserves the revised artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Hatsu",
