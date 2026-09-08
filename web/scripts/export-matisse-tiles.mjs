@@ -48,7 +48,7 @@ const definitions = [
   ['Man9', '9m', '9 characters', 'approved', 'nine-characters-jazz-approved.png', [0, 0, 1086, 1448], 'Jazz: the exact sixth alternative selected by Carl, with fragmented coral 九 over a tilted cobalt field, ivory 萬 at lower left and a yellow wedge on deep purple. The complete flat source is preserved with the shared 3:4 face, bleed and rounded clipping.'],
   ['Sou1', '1s', '1 bamboo', 'approved', 'one-bamboo-c-green-background-approved.png', [62, 28, 962, 1300], 'Carnival C, with the requested colour swap: one dancing pink bird with an oversized vermilion wing, curling purple tail and yellow accents on green. The green wing and vermilion background colours have exchanged places. The lossless crop preserves the revised artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping.'],
   ['Hatsu', '6z', 'Green dragon', 'approved', 'green-dragon-b-chapel-approved.png', [62, 24, 963, 1308], 'Chapel B: forest-green 發 cut through an organic mint-green silhouette, with an emerald accent on a forest-green field. Every visible part of the face stays in shades of green for All Green. The lossless crop preserves the selected source pixels, excludes the label and surround, and uses the shared 3:4 face, bleed and rounded clipping.'],
-  ['Haku', '5z', 'White dragon', 'approved', 'white-dragon-b-dance-approved.png', [500, 106, 334, 516], 'Dance B: an oversized flowing ribbon and separated horn and whisker cut-outs form an abstract dragon, quiet ivory at rest and pale pearly silver for dora. Both states are lossless crops of the approved centre pair, excluding the labels and surround, with the shared 3:4 face, bleed and rounded clipping.'],
+  ['Haku', '5z', 'White dragon', 'approved', 'white-dragon-a-tidal-approved.png', [0, 0, 1086, 1448], 'Tidal A: a full-bleed cobalt-blue surround with a loose asymmetric inner edge frames the quiet ivory ribbon dragon. The complete approved 3:4 artwork is preserved with the shared bleed and rounded clipping. The matching silver dora state uses the same full canvas and crop.'],
 ];
 
 function exportCrop(source, crop, png, svg, label) {
@@ -78,9 +78,10 @@ for (const [name, tile, label, status, sourceName, crop, notes] of definitions) 
   exportCrop(source, crop, png, svg, label);
   const entry = { name, tile, label, status, png, svg, source, sourceSha256: createHash('sha256').update(readFileSync(path.join(root, source))).digest('hex'), crop: { x, y, width, height }, notes };
   if (name === 'Haku') {
-    const foilCrop = [500, 650, 334, 516];
-    entry.foil = { png: 'approved/Haku-foil.png', svg: 'approved/Haku-foil.svg', crop: { x: foilCrop[0], y: foilCrop[1], width: foilCrop[2], height: foilCrop[3] } };
-    exportCrop(source, foilCrop, entry.foil.png, entry.foil.svg, 'White dragon in the light');
+    const foilSource = `${sourceDir}/white-dragon-a-tidal-silver.png`;
+    const foilCrop = [0, 0, 1086, 1448];
+    entry.foil = { png: 'approved/Haku-foil.png', svg: 'approved/Haku-foil.svg', source: foilSource, sourceSha256: createHash('sha256').update(readFileSync(path.join(root, foilSource))).digest('hex'), crop: { x: foilCrop[0], y: foilCrop[1], width: foilCrop[2], height: foilCrop[3] } };
+    exportCrop(foilSource, foilCrop, entry.foil.png, entry.foil.svg, 'White dragon in the light');
   }
   manifest.tiles.push(entry);
   // Reuse the shipped faces instead of duplicating every raster inside the HTML.
@@ -115,7 +116,7 @@ const html = `<!doctype html>
 <h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label>
 <div class="scroll"><div class="table" id="table"><div class="rack" id="rack" aria-label="Fourteen-tile visual sample"></div></div></div><p class="size" id="size"></p>
 <h2>Approved faces</h2><div class="gallery" id="approved"></div>
-<footer>This hand is a visual sample. The approved character tiles use rimless Dance B for 1 characters, Jazz Dance for 2, Jazz A for 3, Interlock C with an ivory-white 四 for 4, Dance for 5, Chasuble for 6, Cut-out C for 7, Open wings D for 8, and Jazz for 9, all on deep purple. White dragon uses Dance B, with a quiet ivory ribbon and a pale pearly silver reveal when it is dora. Raw PNG crops retain their source resolution; each SVG provides the game's 300 × 400 canvas.</footer>
+<footer>This hand is a visual sample. The approved character tiles use rimless Dance B for 1 characters, Jazz Dance for 2, Jazz A for 3, Interlock C with an ivory-white 四 for 4, Dance for 5, Chasuble for 6, Cut-out C for 7, Open wings D for 8, and Jazz for 9, all on deep purple. White dragon uses Tidal A, with an irregular cobalt-blue surround reaching every edge, a quiet ivory ribbon and a pale pearly silver reveal when it is dora. Raw PNG crops retain their source resolution; each SVG provides the game's 300 × 400 canvas.</footer>
 </main><script>
 const tiles=${JSON.stringify(previews)};
 const byName=Object.fromEntries(tiles.map(tile=>[tile.name,tile]));

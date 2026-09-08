@@ -578,23 +578,25 @@
       "status": "approved",
       "png": "approved/Haku.png",
       "svg": "approved/Haku.svg",
-      "source": "docs/design/matisse/studies/white-dragon-b-dance-approved.png",
-      "sourceSha256": "5b72213ba2b65bf47868f59e42165178e7ec55d2c61d785b2de229300d6d944d",
+      "source": "docs/design/matisse/studies/white-dragon-a-tidal-approved.png",
+      "sourceSha256": "524ad780e21d1fe458a13658c8e6dc1f9d9df48083461e18f7ad05447bee94db",
       "crop": {
-        "x": 500,
-        "y": 106,
-        "width": 334,
-        "height": 516
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Dance B: an oversized flowing ribbon and separated horn and whisker cut-outs form an abstract dragon, quiet ivory at rest and pale pearly silver for dora. Both states are lossless crops of the approved centre pair, excluding the labels and surround, with the shared 3:4 face, bleed and rounded clipping.",
+      "notes": "Tidal A: a full-bleed cobalt-blue surround with a loose asymmetric inner edge frames the quiet ivory ribbon dragon. The complete approved 3:4 artwork is preserved with the shared bleed and rounded clipping. The matching silver dora state uses the same full canvas and crop.",
       "foil": {
         "png": "approved/Haku-foil.png",
         "svg": "approved/Haku-foil.svg",
+        "source": "docs/design/matisse/studies/white-dragon-a-tidal-silver.png",
+        "sourceSha256": "e84e80c5b95020fd81e1ef144238a939f4897a6ec72c447ff2ddbe504af5f21d",
         "crop": {
-          "x": 500,
-          "y": 650,
-          "width": 334,
-          "height": 516
+          "x": 0,
+          "y": 0,
+          "width": 1086,
+          "height": 1448
         }
       }
     }

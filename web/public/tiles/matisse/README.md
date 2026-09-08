@@ -39,13 +39,13 @@ A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs an
 | [Man7.svg](approved/Man7.svg) | 7 characters | Rim-free Cut-out C: pink 萬, oversized pale-yellow 七 and a red accent on edge-to-edge deep purple |
 | [Man8.svg](approved/Man8.svg) | 8 characters | Open wings D: sweeping yellow and coral 八 below ivory 萬, with cobalt on edge-to-edge deep purple |
 | [Man9.svg](approved/Man9.svg) | 9 characters | Jazz: fragmented coral 九 over cobalt, ivory 萬 and a yellow wedge on deep purple |
-| [Haku.svg](approved/Haku.svg) | White dragon | Dance B: a flowing ivory ribbon dragon with a pale pearly silver dora reveal |
+| [Haku.svg](approved/Haku.svg) | White dragon | Tidal A: irregular cobalt-blue surround to every edge, with a quiet ivory dragon and matching silver dora reveal |
 
 ## In the game
 
 Choose **Options → Tile face → Matisse**. All 34 approved faces, including every character, bamboo, disk, wind and dragon, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. Every tile type now has approved artwork. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
-White dragon uses the quiet and [lit](approved/Haku-foil.svg) **Dance B** exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved centre pair in `white-dragon-b-dance-approved.png`, with no redrawing of the motif.
+White dragon uses the quiet and [lit](approved/Haku-foil.svg) **Tidal A** exports. When it is dora, the matching silver state appears beneath the moving shine. Both use the same full 1086 × 1448 canvas and crop, so the irregular cobalt border and dragon remain aligned. The approved quiet artwork is preserved exactly in `white-dragon-a-tidal-approved.png`; its silver counterpart is `white-dragon-a-tidal-silver.png`.
 
 ## Next design directions
 
@@ -111,7 +111,7 @@ East uses **Chapel Stencil C** from the second, bolder board `east-wind-c-chapel
 
 West uses **Cut-out C** from `west-wind-c-approved.png`: ivory 西 with a cobalt-blue top stroke on a full vermilion field. The lossless export uses the same 3:4 face, bleed and rounded clipping as the other tiles, with no inset border. Keep the flowing black calligraphy of East A available for another tile.
 
-White dragon uses **Dance B** from `white-dragon-b-dance-approved.png`: an oversized flowing ribbon with separated horn and whisker cut-outs. The centre tile in the top row supplies the quiet ivory face; the centre tile in the bottom row supplies the pale pearly silver dora reveal. Both lossless crops exclude the study labels and surrounding board and use the shared 3:4 face, bleed and rounded clipping. The earlier C/C1 blend remains in `07-white-dragon-approved.png` as a historical reference.
+White dragon uses **Tidal A** from `white-dragon-a-tidal-approved.png`: cobalt blue fills the entire outer edge, while its loose asymmetric inner contour surrounds a quiet ivory ribbon dragon. The full flat artwork is exported losslessly with the shared 3:4 face, bleed and rounded clipping. `white-dragon-a-tidal-silver.png` provides the matching pale pearly silver dora state at the same dimensions and crop. The previous Dance B pair remains in `white-dragon-b-dance-approved.png`, and the earlier C/C1 blend in `07-white-dragon-approved.png`, as historical references.
 
 ## Preview and exports
 
