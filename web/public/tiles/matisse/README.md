@@ -26,7 +26,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Nan.svg](approved/Nan.svg) | South wind | Chapel C: aubergine 南 with a carmine upper interior bar on saffron yellow |
 | [Shaa.svg](approved/Shaa.svg) | West wind | Cut-out C: ivory 西 and a cobalt-blue top stroke on vermilion |
 | [Pei.svg](approved/Pei.svg) | North wind | Ribbon Dance B: lemon and coral-pink 北 with a mint accent on ultramarine |
-| [Chun.svg](approved/Chun.svg) | Red dragon | Red cut-paper 中 on pink: direction B |
+| [Chun.svg](approved/Chun.svg) | Red dragon | Chapel Flame C: pale-pink enclosure and a sweeping lemon-yellow ribbon form 中 on vermilion |
 | [Sou1.svg](approved/Sou1.svg) | 1 bamboo | Blue and green cut-paper bird on a bamboo perch |
 | [Hatsu.svg](approved/Hatsu.svg) | Green dragon | Ivory 發 cut out of emerald green: style C |
 | [Man1.svg](approved/Man1.svg) | 1 characters | Dance B: sweeping yellow 一 and sculptural vermilion 萬 on deep purple |
@@ -46,6 +46,8 @@ Choose **Options → Tile face → Matisse**. All 32 approved faces, including t
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
 ## Next design directions
+
+Red dragon uses **Chapel Flame C** from `red-dragon-c-chapel-flame-approved.png`: a pale-pink sculptural enclosure and a long, sweeping lemon-yellow central ribbon form 中 on a vermilion field. The two open counters preserve the character's identity. The lossless crop preserves the selected artwork, excludes the candidate label and surrounding board, and uses the shared 3:4 face, bleed and rounded clipping. It replaces the earlier red-on-pink direction B.
 
 The 4 characters tile uses **Interlock C** from `four-characters-c-ivory-approved.png`, with the requested red section of the outer 四 stroke changed to matching ivory-white. The two upright interior strokes remain yellow, and the sweeping 萬 remains pink on deep purple. The complete flat 1086 × 1448 artwork is exported without cropping its motifs or changing its pixels, using the shared 3:4 face, bleed and rounded clipping.
 

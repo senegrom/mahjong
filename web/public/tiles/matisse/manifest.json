@@ -357,15 +357,15 @@
       "status": "approved",
       "png": "approved/Chun.png",
       "svg": "approved/Chun.svg",
-      "source": "docs/design/matisse/studies/01-disk-and-red-dragon.png",
-      "sourceSha256": "b26ebd1936bdb425582313b3fbf293e8f1f064ce5386ec5a49c1e5bb36c7db8a",
+      "source": "docs/design/matisse/studies/red-dragon-c-chapel-flame-approved.png",
+      "sourceSha256": "aaf0708d53b40950e36308ea5204d73a61ad20cf6283826815aaa97237f6552e",
       "crop": {
-        "x": 966,
-        "y": 232,
-        "width": 410,
-        "height": 554
+        "x": 115,
+        "y": 117,
+        "width": 857,
+        "height": 1253
       },
-      "notes": "Red cut-paper 中 on pink; direction B."
+      "notes": "Chapel Flame C: a pale-pink sculptural enclosure and a sweeping lemon-yellow central ribbon form 中 on vermilion. The lossless crop preserves the selected artwork, excludes the study label and surround, and uses the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Man1",
