@@ -18,7 +18,7 @@ A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs an
 | [Sou2.svg](approved/Sou2.svg) | 2 bamboo | Cut & Swap C: two mint and forest-green bamboo cut-outs across a sweeping divided green field |
 | [Sou3.svg](approved/Sou3.svg) | 3 bamboo | Chapel Windows B: three deep-forest bamboo silhouettes cut through a flowing mint-green field on emerald |
 | [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
-| [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Fan C: four pale-green sprigs and a red centre on deep forest green |
+| [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Cut & Swap C: two mint and two forest-green bamboo cut-outs across a sweeping divided green field, with a vermilion fifth stalk |
 | [Sou6.svg](approved/Sou6.svg) | 6 bamboo | Green Carnival D: six distinct abstract green cut-outs dance around an open centre on deep forest green |
 | [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Leap A: one coral and six green forms leaping and curling across edge-to-edge electric blue |
 | [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Wild Growth C: eight mint and dark-forest fronds bursting around an open centre on emerald |
@@ -85,7 +85,7 @@ The 3 bamboo tile uses **Chapel Windows B** from `three-bamboo-b-chapel-windows-
 
 The 4 bamboo tile uses **Chapel B** from `four-bamboo-b-approved.png`: four pale-green sculptural cut-outs on a deep forest-green field. The lossless crop contains only the flat artwork, preserving the all-green palette. It uses the same 3:4 face, bleed and rounded clipping as the other approved tiles.
 
-The 5 bamboo tile uses **Fan C** from `09-five-bamboo-approved.png`: five complete sprigs, with four in pale green and one red centre, on a deep forest-green field. It uses the same full-face fit, bleed and rounded clipping as the other approved tiles. The study's labels and surrounding board are excluded from the export.
+The 5 bamboo tile uses **Cut & Swap C** from `five-bamboo-c-cut-and-swap-approved.png`: two mint and two forest-green bamboo cut-outs exchange foreground and background colours across a sweeping divided green field, with a sinuous vermilion fifth stalk. All five plants remain separate and countable. The exact approved 1086 × 1448 source is exported losslessly, with green reaching every edge and corner and no ivory rim. It uses the shared 3:4 face, bleed and rounded clipping. The former Fan C study remains in `09-five-bamboo-approved.png` as a design reference.
 
 The 6 bamboo tile uses **Green Carnival D** from `six-bamboo-d-green-carnival-approved.png`: six distinct abstract cut-paper silhouettes dance around an open centre on deep forest green. The selected source is the final crisp version with the glow removed. All artwork stays green for All Green. The lossless 3:4 crop preserves the six complete shapes and excludes the presentation label and surrounding board, using the shared full-face fitting, corner radius and bleed. It replaces the earlier staggered-pair C design, whose source remains in `six-bamboo-c-approved.png`.
 

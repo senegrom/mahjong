@@ -221,15 +221,15 @@
       "status": "approved",
       "png": "approved/Sou5.png",
       "svg": "approved/Sou5.svg",
-      "source": "docs/design/matisse/studies/09-five-bamboo-approved.png",
-      "sourceSha256": "7ef71bb24fe032b9662021a3805c109ad2df8b1b2e2bd88a0f8bdda35df5c1f6",
+      "source": "docs/design/matisse/studies/five-bamboo-c-cut-and-swap-approved.png",
+      "sourceSha256": "a33252960f7938a94e715f1c56917b2342a26678230a64b3036b6760f03cdef2",
       "crop": {
-        "x": 963,
-        "y": 256,
-        "width": 448,
-        "height": 640
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Fan C: four pale-green bamboo sprigs and a bold red centre on a deep forest-green field. Exactly five complete sprigs; the red accent distinguishes this tile from All Green tiles."
+      "notes": "Cut & Swap C: two mint and two forest-green bamboo cut-outs exchange foreground and background colours across a sweeping divided green field, with a sinuous vermilion fifth stalk. Exactly five complete plants remain separate and countable. The complete approved 1086 × 1448 source is preserved losslessly, with colour reaching every edge and the shared 3:4 face, bleed and rounded clipping removing any ivory rim."
     },
     {
       "name": "Sou6",
