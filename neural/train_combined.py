@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clip", type=float, default=0.2)
     parser.add_argument("--batch", type=int, default=2048)
     parser.add_argument("--epochs", type=int, default=2)
-    parser.add_argument("--entropy", type=float, default=0.0)
+    parser.add_argument("--entropy", type=float, default=0.0005)
     parser.add_argument("--value-weight", type=float, default=0.5)
     parser.add_argument(
         "--fixed",

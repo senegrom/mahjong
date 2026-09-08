@@ -119,7 +119,7 @@
             </div>
             {#if hints}
               <div class="hand-hints">
-                <span>{#if recommendedHint}After the recommended discard: {/if}{#if hintShanten < 0}Complete tile shape{:else if hintShanten === 0}Ready hand{:else}{hintShanten} tile{hintShanten === 1 ? '' : 's'} from a wait{/if}</span>
+                <span>{#if recommendedHint}After the recommended discard:{' '}{/if}{#if hintShanten < 0}Complete tile shape{:else if hintShanten === 0}Ready hand{:else}{hintShanten} tile{hintShanten === 1 ? '' : 's'} from a wait{/if}</span>
                 {#if displayWaits.length}<span class="waits">Waiting on {#each displayWaits as tile, slot (slot)}<span class="wait"><Tile {tile} size="tiny" dora={shownDora.includes(tile)} /><span aria-label={`${displayLeft[slot]} unseen`}>{displayLeft[slot]}</span></span>{/each}</span>{/if}
                 {#if view.dora.length}<span>{view.dora.length} dora han in hand</span>{/if}
                 {#if safeCount}<span>{safeCount} held tile{safeCount === 1 ? '' : 's'} safe against declared riichi</span>{/if}

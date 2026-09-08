@@ -503,7 +503,7 @@ def train_combined(
     lr: float = 1e-4,
     lr_ours: float = 4e-5,
     lr_mortal: float = 3e-5,
-    entropy: float = 0.0,
+    entropy: float = 0.0005,
     fixed: list[str] | None = None,
     measure_every: int = 5,
     measure_games: int = 512,
