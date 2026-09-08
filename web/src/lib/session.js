@@ -18,12 +18,13 @@ function require(condition, message) {
 }
 
 export function readSettings(storage, touch = false) {
-  const defaults = { difficulty: 'club', hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', trainedModel: 'quick' };
+  const defaults = { difficulty: 'club', hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', trainedModel: 'quick', reviewAdviser: 'club' };
   try {
     const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
     if (value?.version !== VERSION) return defaults;
     defaults.tileFace = normalizeTileFace(value.tileFace);
     if (['quick', 'strong'].includes(value.trainedModel)) defaults.trainedModel = value.trainedModel;
+    if (['club', 'strong'].includes(value.reviewAdviser)) defaults.reviewAdviser = value.reviewAdviser;
     for (const key of ['hints', 'confirmDiscards', 'shortcuts']) {
       if (typeof value[key] === 'boolean') defaults[key] = value[key];
     }

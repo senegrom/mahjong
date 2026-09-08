@@ -93,6 +93,24 @@ explicitly choose **Clear table**. A storage warning means edits are only
 available in the current window. Pending edits finish saving before Physical
 play reopens in the same window.
 
+## Hand review
+
+After a played hand, select **View table / my hand** (or **Review final hand** at
+the end of a match), then choose the **Review adviser**:
+
+- **Club** explains hand readiness, improving tiles, danger and dora.
+- **Strong AI** evaluates each recorded decision using the information available
+  before that move. It shows the preferred move and its percentage; when your
+  move differs, it also shows your move's percentage when the policy scores it.
+
+These percentages express preference among legal moves, not the chance of
+winning. **Every decision** includes moves that agree with the adviser. The
+adviser choice is remembered independently of the opponents at your table.
+Strong is offered when its model is included in the build and downloads on
+demand. A failed review can be retried. Switching advisers or leaving the hand
+cancels pending analysis; a completed Strong review is reused while the same
+review remains open. Reviewing never changes the game or its saved history.
+
 ## Validation
 
 `web/tests/agent-modes.test.js` compares manually reconstructed live positions
@@ -103,3 +121,8 @@ boundaries. It also checks masked softmax and cancellation of a disposed watch.
 and verifies that the regular match starts only when Play is opened.
 `web/tests/physical-store.test.js` covers conflicting windows, unreadable
 drafts, queued undo, reopening, and unavailable storage.
+`web/tests/review-policy.test.js` compares historical review inputs with the
+original live decisions, including restored saves and hand boundaries, and
+checks sequential inference, cancellation and unscored choices.
+`web/scripts/adviser-review-check.mjs` checks adviser selection, real Strong
+percentages, retry, cached results, saved preferences and mobile layout in CI.

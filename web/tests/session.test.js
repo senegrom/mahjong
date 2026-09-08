@@ -77,10 +77,10 @@ test('restoration rejects invalid versions, illegal commands and changed state',
 });
 
 test('preferences tolerate inaccessible or malformed storage', () => {
-  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'club',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',trainedModel:'quick'});
+  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'club',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',trainedModel:'quick',reviewAdviser:'club'});
   assert.equal(readSettings({getItem(){return '{broken';}}).hints, true);
   const value = {version:1,difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false};
-  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic',trainedModel:'quick'});
+  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic',trainedModel:'quick',reviewAdviser:'club'});
 });
 
 test('the trained opponent chosen is remembered, and nonsense is not', () => {
@@ -89,6 +89,14 @@ test('the trained opponent chosen is remembered, and nonsense is not', () => {
   assert.equal(read({ version: 1, trainedModel: 'quick' }), 'quick');
   for (const trainedModel of [undefined, null, '', false, {}, 'huge', '../other']) {
     assert.equal(read({ version: 1, trainedModel }), 'quick');
+  }
+});
+
+test('the review adviser is remembered independently of the opponent network', () => {
+  for (const reviewAdviser of ['club', 'strong', 'quick', null, '../other']) {
+    const settings = readSettings({ getItem: () => JSON.stringify({ version: 1, trainedModel: 'quick', reviewAdviser }) });
+    assert.equal(settings.reviewAdviser, reviewAdviser === 'strong' ? 'strong' : 'club');
+    assert.equal(settings.trainedModel, 'quick');
   }
 });
 

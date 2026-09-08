@@ -39,6 +39,7 @@
   // Which trained network the opponents play with, and whether this build
   // carries the stronger one at all.
   let trainedModel = $state(useModel(preferences.trainedModel) ?? chosenModel());
+  let reviewAdviser = $state(preferences.reviewAdviser);
   let strongAvailable = $state(false);
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
@@ -91,7 +92,7 @@
   let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
 
   $effect(() => {
-    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, trainedModel };
+    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, trainedModel, reviewAdviser };
     try { storage?.setItem(SETTINGS_KEY, JSON.stringify(value)); } catch { /* Gameplay still works. */ }
   });
 
@@ -700,7 +701,7 @@
           <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
             bets={view.riichi_sticks ?? 0} gameOver={session?.over ?? false} onnext={nextHand}
             ongame={() => start()} onreview={showReview} reviewed={notes !== null} onlog={saveLog} finalHand={Boolean(standings)} />
-          {#if notes !== null}<Review {notes} {hints} />{/if}
+          {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {strongAvailable} bind:adviser={reviewAdviser} />{/if}
         {:else}
           <p id="hand-help" class="prompt" role="status">
             {#if saveConflict}Reload the latest match to continue here.

@@ -1,6 +1,8 @@
 <script>
   import Tile from './Tile.svelte';
   import { tileWords } from './tiles.js';
+  import { analyzePolicy } from './policy.js';
+  import { reviewWithStrong } from './review-policy.js';
 
   /**
    * What the hand looked like afterwards. A review that only marks moves
@@ -8,14 +10,46 @@
    * traded: how far the hand was left from complete, how many tiles would
    * have improved it, and whether the tile could have dealt in.
    */
-  let { notes = [], hints = true } = $props();
+  let { notes = [], hints = true, engine = null, strongAvailable = false, adviser = $bindable('club') } = $props();
+  let strongNotes = $state.raw(null);
+  let reviewing = $state(false);
+  let completed = $state(0);
+  let failure = $state('');
+  let retry = $state(0);
+  let cached = null;
+  let activeNotes = $derived(adviser === 'strong' ? strongNotes ?? [] : notes);
 
-  let disputed = $derived(notes.filter((note) => !note.agreed));
+  let disputed = $derived(activeNotes.filter((note) => !note.agreed));
   let shown = $state('disputed');
-  let listed = $derived(shown === 'all' ? notes : disputed);
 
   // A whole hand played the way the adviser would have is worth saying.
-  let clean = $derived(notes.length > 0 && disputed.length === 0);
+  let clean = $derived(activeNotes.length > 0 && disputed.length === 0);
+  let listed = $derived(shown === 'all' || clean ? activeNotes : disputed);
+  const percent = weight => weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
+
+  $effect(() => {
+    const source = notes, owner = engine;
+    void retry;
+    reviewing = false;
+    failure = '';
+    if (adviser !== 'strong' || !source.length || !strongAvailable) return;
+    if (!owner) { failure = 'The hand is no longer available for review.'; return; }
+    if (cached?.source === source && cached.engine === owner) { strongNotes = cached.rows; return; }
+    const abort = new AbortController();
+    strongNotes = null;
+    completed = 0;
+    reviewing = true;
+    void reviewWithStrong(owner, source, analyzePolicy, {
+      signal: abort.signal, onProgress: count => { if (!abort.signal.aborted) completed = count; },
+    }).then(rows => {
+      if (abort.signal.aborted) return;
+      cached = { source, engine: owner, rows };
+      strongNotes = rows;
+    }).catch(error => {
+      if (!abort.signal.aborted) failure = error?.message ?? String(error);
+    }).finally(() => { if (!abort.signal.aborted) reviewing = false; });
+    return () => abort.abort();
+  });
 
   function distance(value) {
     if (value < 0) return 'complete';
@@ -24,33 +58,48 @@
   }
 </script>
 
-<section class="review" aria-label="your decisions this hand">
+<section class="review" aria-label="your decisions this hand" aria-busy={reviewing}>
   <header>
     <h3>Your hand, looked at again</h3>
-    {#if notes.length}
+    <label class="adviser">Review adviser
+      <select bind:value={adviser} aria-label="Review adviser">
+        <option value="club">Club</option>
+        <option value="strong" disabled={!strongAvailable || !engine}>Strong AI</option>
+      </select>
+    </label>
+    {#if adviser === 'strong'}<p class="policy-help">Percentages show Strong's preference among the legal moves at the time.</p>{/if}
+    {#if activeNotes.length && !reviewing && !failure}
       <p class="summary">
-        {notes.length - disputed.length} of {notes.length}
-        {notes.length === 1 ? 'decision' : 'decisions'} matched the adviser.
+        {activeNotes.length - disputed.length} of {activeNotes.length}
+        {activeNotes.length === 1 ? 'decision' : 'decisions'} matched {adviser === 'strong' ? 'Strong AI' : 'Club'}.
       </p>
     {/if}
   </header>
 
   {#if !notes.length}
     <p class="empty">You made no decisions this hand.</p>
-  {:else if clean}
-    <p class="clean">Every move was the one the adviser would have made.</p>
+  {:else if adviser === 'strong' && !strongAvailable}
+    <p class="empty">Strong AI is unavailable in this build. Choose Club to review this hand.</p>
+  {:else if reviewing}
+    <p role="status">Strong AI is reviewing your decisions… {completed} of {notes.length}</p>
+  {:else if failure}
+    <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Strong review</button></p>
   {:else}
+    {#if clean}<p class="clean">Every move was the one the adviser would have made.</p>{/if}
+    {#if !clean}
     <div class="tabs" role="group" aria-label="which decisions to show">
       <button class:on={shown === 'disputed'} aria-pressed={shown === 'disputed'} onclick={() => (shown = 'disputed')}>
         Where it differs ({disputed.length})
       </button>
       <button class:on={shown === 'all'} aria-pressed={shown === 'all'} onclick={() => (shown = 'all')}>
-        Every decision ({notes.length})
+        Every decision ({activeNotes.length})
       </button>
     </div>
+    {/if}
 
+    {#if !clean || adviser === 'strong'}
     <ol>
-      {#each listed as note (note.turn + note.played)}
+      {#each listed as note, index (index)}
         <li class:agreed={note.agreed}>
           <div class="moves">
             <span class="turn">{note.turn}</span>
@@ -71,7 +120,11 @@
             {/if}
           </div>
 
-          {#if !note.agreed}
+          {#if adviser === 'strong'}
+            <p class="policy-preference">Strong preference: <strong>{percent(note.preferred_weight)}</strong>
+              {#if !note.agreed && note.played_weight !== null}<span> · Your move: {percent(note.played_weight)}</span>{/if}
+            </p>
+          {:else if !note.agreed}
             <p class="why">{note.reason}</p>
             <table class="numbers">
               <thead>
@@ -128,6 +181,7 @@
         </li>
       {/each}
     </ol>
+    {/if}
   {/if}
 </section>
 
@@ -147,6 +201,15 @@
     font-size: 1rem;
     font-weight: 600;
   }
+
+  .adviser { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; font-size: .85rem; }
+  select, .retry { min-height: 44px; padding: 8px 12px; background: #0004; color: inherit; border: 1px solid #ffffff55; border-radius: 8px; font: inherit; }
+  option { background: #17241f; color: var(--ivory); }
+  .retry { cursor: pointer; }
+  .policy-help { font-size: .8rem; opacity: .75; margin: 8px 0 0; }
+  .policy-preference { margin: 0; font-size: .85rem; font-variant-numeric: tabular-nums; }
+  .policy-preference strong { color: var(--gold); }
+  .policy-preference > span { opacity: .75; }
 
   .summary,
   .empty,

@@ -229,6 +229,8 @@ pub struct NoteView {
     pub turn: u32,
     /// What the player did, in words.
     pub played: String,
+    /// The structured action kind, for matching a trained policy choice.
+    pub played_kind: String,
     /// The tile it discarded, if it discarded one.
     pub played_tile: Option<String>,
     /// What the adviser would have done.
@@ -887,6 +889,7 @@ impl Game {
                 NoteView {
                     turn: note.turn + 1,
                     played: describe_action(note.played).label,
+                    played_kind: describe_action(note.played).kind,
                     played_tile: action_tile(note.played).map(|tile| tile.to_string()),
                     advised: describe_action(note.advised).label,
                     advised_tile: action_tile(note.advised).map(|tile| tile.to_string()),
@@ -907,6 +910,34 @@ impl Game {
             })
             .collect();
         serde_wasm_bindgen::to_value(&notes).map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    /// The acting player's observation before a recorded decision. Historical
+    /// advice sees only the information available when that move was played.
+    pub fn review_observation(&self, index: usize) -> Result<Vec<f32>, JsValue> {
+        let (position, _) = self
+            .decisions
+            .get(index)
+            .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
+        Ok(analysis::observation(position, position.turn))
+    }
+
+    /// The legal policy mask at the same recorded decision.
+    pub fn review_mask(&self, index: usize) -> Result<Vec<u8>, JsValue> {
+        let (position, _) = self
+            .decisions
+            .get(index)
+            .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
+        Ok(analysis::mask(position, position.turn))
+    }
+
+    /// Named legal moves at the same recorded decision, including unscored kans.
+    pub fn review_choices(&self, index: usize) -> Result<JsValue, JsValue> {
+        let (position, _) = self
+            .decisions
+            .get(index)
+            .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
+        analysis::choices_value(position, position.turn)
     }
 
     /// The hand as an mjai event log, one JSON object per line.
