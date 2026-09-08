@@ -28,7 +28,9 @@
   $effect(() => {
     if (!configured && ready) {
       configured = true;
-      lineup = [trainedAvailable ? trainedModel : 'club', ...opponents.map(value => value === 'neural' ? trainedModel : value)];
+      const available = trainedModel === 'strong' && strongAvailable ? 'strong'
+        : trainedAvailable ? 'quick' : strongAvailable ? 'strong' : 'club';
+      lineup = [available, ...opponents.map(value => value === 'neural' ? available : value)];
     }
   });
   function update(owner) {

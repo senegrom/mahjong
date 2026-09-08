@@ -220,6 +220,25 @@ test('a second legal kan stays recordable without inventing another trained-poli
   assert.equal(next.players[0].melds[0].tile, '2p');
 });
 
+test('a manually entered kan leads to a replacement win and ends ippatsu', () => {
+  const p = basic();
+  p.players[0].hand = parseTiles('345p456789s1z');
+  p.players[0].melds = [{ kind: 'extended-kan', tile: '2m', from: 3 }];
+  p.players[1].hand = parseTiles('456m123p123789s1z');
+  p.players[1].riichi = 'riichi'; p.players[1].ippatsu = true;
+  p.players[1].discards = [{ tile: '6z', order: 0, drawn: false, riichi: true, claimed: false }];
+  p.indicators = ['7z']; p.drawn = null; p.first_turns = false;
+  p.seat = 1; p.turn = 0; p.phase = 'call'; p.pending_kind = 'extended-kan'; p.pending = '2m';
+  inspect(p, a => assert.ok(a.agent_choices().some(choice => choice.kind === 'pass')));
+  const next = recordDraw(p, 0, '1z'); next.indicators.push('6z');
+  assert.equal(next.after_quad, true);
+  assert.equal(next.players[1].ippatsu, false);
+  inspect(next, a => assert.ok(a.agent_choices().some(choice => choice.kind === 'tsumo')));
+  next.after_quad = false;
+  inspect(next, a => assert.equal(a.agent_choices().some(choice => choice.kind === 'tsumo'), false,
+    'the open hand needs the replacement-draw yaku to win'));
+});
+
 test('watch uses the retained choice, passes each trained opponent its own model, and finishes hands', async () => {
   const models = new Set();
   const w = new WatchSession(Game, 287, ['beginner', 'quick', 'strong', 'club'], {

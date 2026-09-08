@@ -1,8 +1,9 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { PhysicalAnalysis } from '../wasm/riichi.js';
   import { AGENTS, WINDS, evaluateAgent } from './agents.js';
-  import { TILES, PHYSICAL_KEY, emptyPosition, readPhysical, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+  import { TILES, emptyPosition, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+  import { PhysicalStore } from './physical-store.js';
   import { tileWords } from './tiles.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
@@ -17,14 +18,37 @@
   let failure = $state('');
   let recorded = $state(null);
   let saveWarning = $state('');
+  let saveConflict = $state('');
+  let unreadable = $state(false);
   let history = $state([]);
   let eventSeat = $state(0);
   let eventKind = $state('draw');
   let request = null;
-  let loaded = false;
+  let loaded = $state(false);
+  let closed = false;
   let revision = '';
-  $effect(() => {
-    if (!loaded) { loaded = true; position = readPhysical(storage); if (trainedAvailable) agent = 'quick'; }
+  let store;
+  const createStore = () => new PhysicalStore(storage, navigator.locks, {
+    onWarning: message => { if (!closed) saveWarning = message; },
+    onConflict: message => {
+      if (closed) return;
+      saveConflict = message; request?.abort(); request = null; busy = false; analysis = null;
+    },
+  });
+  async function load() {
+    if (closed) return;
+    loaded = false;
+    const saved = await store.read();
+    if (closed) return;
+    position = saved; unreadable = store.unreadable; saveConflict = ''; history = []; recorded = null; loaded = true;
+  }
+  onMount(() => {
+    store = createStore();
+    if (trainedAvailable) agent = 'quick';
+    void load();
+    const changed = event => store.changed(event);
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
   });
   $effect(() => {
     const key = JSON.stringify(position) + agent;
@@ -32,13 +56,11 @@
       revision = key; request?.abort(); request = null; busy = false;
       analysis = null; failure = '';
     }
-    if (loaded) {
-      try { storage?.setItem(PHYSICAL_KEY, JSON.stringify({ version: 1, position })); }
-      catch { saveWarning = 'This device could not save the physical table.'; }
-    }
+    if (loaded && !unreadable && !saveConflict) void store.save(snapshot());
   });
   const snapshot = () => JSON.parse(JSON.stringify(position));
   function edit(change) {
+    if (!loaded || saveConflict || unreadable) return false;
     const before = snapshot();
     const next = structuredClone(before);
     try {
@@ -59,6 +81,7 @@
     edit(p => eventKind === 'draw' ? recordDraw(p, eventSeat, tile) : recordDiscard(p, eventSeat, tile, eventKind === 'riichi'));
   }
   async function analyze() {
+    if (!loaded || saveConflict || unreadable) return;
     request?.abort();
     const owner = new AbortController(); request = owner;
     const input = snapshot(), key = JSON.stringify(input) + agent;
@@ -93,11 +116,22 @@
       else { p.drawn = null; p.just_claimed = null; if (p.turn === p.seat) p.turn = (p.seat + 3) % 4; }
     });
   }
-  onDestroy(() => request?.abort());
+  async function clearTable() {
+    if (!loaded || saveConflict) return;
+    if (unreadable) {
+      if (await store.save(emptyPosition(), { clearUnreadable: true })) await load();
+    } else edit(() => emptyPosition());
+  }
+  onDestroy(() => { closed = true; request?.abort(); store?.close(); });
 </script>
 
 <section class="physical-play" aria-label="Physical agent play">
-  <div class="physical-heading"><h2>Physical agent play</h2><button onclick={() => { if (history.length) { position = history.at(-1); history = history.slice(0, -1); } }} disabled={!history.length}>Undo edit / move</button><button onclick={() => edit(() => emptyPosition())}>Clear table</button></div>
+  <div class="physical-heading"><h2>Physical agent play</h2><button onclick={() => { if (history.length) { position = history.at(-1); history = history.slice(0, -1); } }} disabled={!history.length || !loaded || Boolean(saveConflict) || unreadable}>Undo edit / move</button><button onclick={clearTable} disabled={!loaded || Boolean(saveConflict)}>Clear table</button></div>
+  {#if !loaded}<p role="status">Loading the saved physical table…</p>{/if}
+  {#if saveConflict}<p role="alert">{saveConflict} <button onclick={load}>Reload saved table</button></p>{/if}
+  {#if unreadable}<p role="alert">The saved physical table could not be read. It has been preserved. Use Clear table to start a new draft.</p>{/if}
+  {#if saveWarning}<p role="status">{saveWarning}</p>{/if}
+  <fieldset class="physical-editor" disabled={!loaded || Boolean(saveConflict) || unreadable}>
   <p class="intro">Enter the table in front of you. Include the drawn tile in the concealed hand; leave unknown hands empty. Tap entered tiles to remove them. All draws and calls are recorded by you.</p>
   <div class="physical-toolbar">
     <label>Analyse seat<select value={position.seat} onchange={event => edit(p => { p.seat = Number(event.currentTarget.value); if (p.phase === 'act') { p.turn = p.seat; p.drawn = null; p.just_claimed = null; } })} aria-label="Analyse seat">{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
@@ -106,7 +140,6 @@
   </div>
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   {#if recorded?.key === JSON.stringify(position)}<p role="status">{recorded.message}</p>{/if}
-  {#if saveWarning}<p role="status">{saveWarning}</p>{/if}
   {#if analysis}
     <AgentWeights {analysis} />
     <div class="record-choices"><span>Record what was played:</span>{#each analysis.choices as choice, index (index)}<button class:primary={choice.kind === analysis.choice.kind && choice.tile === analysis.choice.tile} onclick={() => record(choice)}>{choice.label}</button>{/each}</div>
@@ -179,10 +212,12 @@
       </details>
     {/each}
   </div>
+  </fieldset>
 </section>
 
 <style>
   .physical-play { display: grid; gap: 14px; grid-column: 1 / -1; min-width: 0; }
+  .physical-editor { display: grid; gap: 14px; min-width: 0; margin: 0; padding: 0; border: 0; }
   h2 { margin: 0; font-size: 1.15rem; margin-right: auto; }
   .physical-heading, .physical-toolbar, .flags, .record-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
   .intro, .help { font-size: .82rem; line-height: 1.5; opacity: .8; margin: 0; max-width: 85ch; }

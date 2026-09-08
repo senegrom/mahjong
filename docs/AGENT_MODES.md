@@ -67,12 +67,19 @@ drawn, no hidden hands are filled, and no opponents play automatically. A
 first-turn riichi is recorded as double riichi when the first turns are
 unbroken. Ippatsu remains active while an added/concealed kan can be robbed,
 then ends when the actual replacement draw is recorded.
+Recording a draw from a manually entered kan-robbery window also identifies
+it as a replacement draw automatically.
 
 **Undo edit / move** restores the previous recorded edit or move. Direct field
 edits remain editable in place. **Clear table** starts an empty draft and can
 also be undone. The latest physical draft is saved separately from the regular
 game on this device; it is restored when returning to the mode. A recorded win
 marks the hand finished; settle the physical scores and enter the next hand.
+If another window changes the saved physical table, this editor pauses and
+offers **Reload saved table**. Unreadable drafts are preserved until you
+explicitly choose **Clear table**. A storage warning means edits are only
+available in the current window. Pending edits finish saving before Physical
+play reopens in the same window.
 
 ## Validation
 
@@ -82,3 +89,5 @@ riichi, quads and impossible inputs; and plays watched mixed tables across hand
 boundaries. It also checks masked softmax and cancellation of a disposed watch.
 `web/tests/agent-controls.test.js` exercises the actual selection handlers
 and verifies that the regular match starts only when Play is opened.
+`web/tests/physical-store.test.js` covers conflicting windows, unreadable
+drafts, queued undo, reopening, and unavailable storage.

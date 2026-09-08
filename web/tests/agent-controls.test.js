@@ -86,6 +86,20 @@ test('watch pace reschedules with the newly selected delay', () => {
   assert.equal(state.speed, 700);
 });
 
+test('watch setup never selects a trained network absent from its available choices', () => {
+  const effect = find(watch.ast.instance, node => node.type === 'CallExpression' && node.callee?.name === '$effect');
+  const callback = effect.arguments[0];
+  for (const [trainedAvailable, strongAvailable, trainedModel, expected] of [
+    [false, false, 'strong', 'club'], [true, false, 'strong', 'quick'],
+    [false, true, 'quick', 'strong'], [true, true, 'strong', 'strong'],
+  ]) {
+    const state = { ready: true, configured: false, trainedAvailable, strongAvailable, trainedModel,
+      opponents: ['neural', 'beginner', 'club'], lineup: [] };
+    vm.runInContext(`(${watch.source.slice(callback.start, callback.end)})()`, vm.createContext(state));
+    assert.deepEqual(Array.from(state.lineup), [expected, expected, 'beginner', 'club']);
+  }
+});
+
 test('direct agent-mode entry leaves regular saves untouched until Play is opened', () => {
   const effect = find(app.ast.instance, node => node.type === 'CallExpression' && node.callee?.name === '$effect'
     && app.source.slice(node.start, node.end).includes('playStarted'));

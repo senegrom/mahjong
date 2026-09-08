@@ -20,20 +20,37 @@ export function emptyPosition() {
     players: Array.from({ length: 4 }, () => ({ hand: [], melds: [], discards: [], score: 30000, riichi: 'none', ippatsu: false, furiten: false })) };
 }
 
-export function readPhysical(storage) {
+export function parsePhysical(text) {
   try {
-    const value = JSON.parse(storage?.getItem(PHYSICAL_KEY));
+    if (typeof text !== 'string' || text.length > 100_000) return null;
+    const value = JSON.parse(text);
     const p = value?.position;
+    const number = value => value == null || Number.isFinite(value);
+    const flag = value => value == null || typeof value === 'boolean';
+    const optionalTile = value => value == null || TILES.includes(value);
     // This is a draft, possibly incomplete. Rust validates the full state
     // before it can ever reach the policy or produce a legal action.
     if (value?.version === 1 && p && JSON.stringify(p).length < 100_000
-      && Array.isArray(p.players) && p.players.length === 4 && Array.isArray(p.indicators)
+      && Array.isArray(p.players) && p.players.length === 4 && Array.isArray(p.indicators) && p.indicators.every(tile => TILES.includes(tile))
+      && ['act', 'call', 'draw', 'over'].includes(p.phase)
+      && ['', 'discard', 'extended-kan', 'concealed-kan'].includes(p.pending_kind ?? '')
+      && ['round', 'kyoku', 'counters', 'riichi_sticks', 'wall'].every(key => number(p[key]))
+      && ['drawn', 'pending', 'just_claimed'].every(key => optionalTile(p[key]))
+      && flag(p.first_turns) && flag(p.after_quad)
       && p.players.every(player => player && Array.isArray(player.hand) && Array.isArray(player.melds)
         && Array.isArray(player.discards) && player.hand.every(tile => TILES.includes(tile))
-        && player.melds.every(m => m && TILES.includes(m.tile)) && player.discards.every(d => d && TILES.includes(d.tile)))
+        && number(player.score) && ['none', 'riichi', 'double'].includes(player.riichi) && flag(player.ippatsu) && flag(player.furiten)
+        && player.melds.every(m => m && TILES.includes(m.tile) && number(m.from)
+          && ['chii', 'pon', 'kan', 'extended-kan', 'concealed-kan'].includes(m.kind))
+        && player.discards.every(d => d && TILES.includes(d.tile) && number(d.order) && flag(d.drawn) && flag(d.riichi) && flag(d.claimed)))
       && Number.isInteger(p.seat) && p.seat >= 0 && p.seat < 4 && Number.isInteger(p.turn) && p.turn >= 0 && p.turn < 4) return p;
   } catch { /* An unreadable draft must not stop the normal game. */ }
-  return emptyPosition();
+  return null;
+}
+
+export function readPhysical(storage) {
+  try { return parsePhysical(storage?.getItem(PHYSICAL_KEY)) ?? emptyPosition(); }
+  catch { return emptyPosition(); }
 }
 
 function remove(hand, tile, required = true) {
@@ -50,7 +67,8 @@ export function recordDraw(position, seat, tile) {
   if (player.hand.length !== 13 - 3 * player.melds.length) throw new Error('Enter the concealed hand before recording its draw');
   player.hand.push(tile);
   player.furiten = player.riichi !== 'none' && player.furiten;
-  p.after_quad = p.after_quad && p.turn === seat;
+  p.after_quad = p.turn === seat && (p.after_quad
+    || (p.phase === 'call' && ['extended-kan', 'concealed-kan'].includes(p.pending_kind)));
   // Ippatsu survives the kan's robbery window, then ends when the kan stands.
   if (p.after_quad) p.players.forEach(player => { player.ippatsu = false; });
   p.turn = seat; p.seat = seat; p.phase = 'act'; p.drawn = tile;
