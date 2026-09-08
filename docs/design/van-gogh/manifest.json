@@ -1,20 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "van-gogh",
   "name": "Van Gogh",
   "status": "concept",
   "created": "2026-09-08",
   "basedOnMatisseCommit": "17a6cae320eb302da6adcd8bd8a899a103fbd278",
-  "presentation": {
-    "source": "studies/01-van-gogh-concepts.png",
-    "width": 1254,
-    "height": 1254,
-    "sha256": "d9293eeff896f948918a8539ccfffeb8a26e4176f22401ca227b7e636d69ed91",
-    "type": "concept-sheet",
-    "columns": 3,
-    "rows": 2,
-    "includesCaptions": true
-  },
   "intendedFace": {
     "width": 300,
     "height": 400,
@@ -33,7 +23,8 @@
       "direction": "Sunflower",
       "row": 1,
       "column": 1,
-      "status": "concept"
+      "status": "concept",
+      "presentation": "first"
     },
     {
       "study": "B",
@@ -43,7 +34,8 @@
       "direction": "Five Stars",
       "row": 1,
       "column": 2,
-      "status": "concept"
+      "status": "concept",
+      "presentation": "first"
     },
     {
       "study": "C",
@@ -53,7 +45,8 @@
       "direction": "Mistral",
       "row": 1,
       "column": 3,
-      "status": "concept"
+      "status": "concept",
+      "presentation": "first"
     },
     {
       "study": "D",
@@ -63,7 +56,8 @@
       "direction": "Painted Letters",
       "row": 2,
       "column": 1,
-      "status": "concept"
+      "status": "concept",
+      "presentation": "first"
     },
     {
       "study": "E",
@@ -73,7 +67,8 @@
       "direction": "Vermilion",
       "row": 2,
       "column": 2,
-      "status": "concept"
+      "status": "concept",
+      "presentation": "first"
     },
     {
       "study": "F",
@@ -83,7 +78,100 @@
       "direction": "Cloud Dragon",
       "row": 2,
       "column": 3,
-      "status": "concept"
+      "status": "concept",
+      "presentation": "first"
+    },
+    {
+      "study": "G",
+      "tile": "1s",
+      "name": "Sou1",
+      "label": "1 bamboo",
+      "direction": "Wheatfield Bird",
+      "row": 1,
+      "column": 1,
+      "status": "concept",
+      "presentation": "second"
+    },
+    {
+      "study": "H",
+      "tile": "2p",
+      "name": "Pin2",
+      "label": "2 disks",
+      "direction": "Twin Suns",
+      "row": 1,
+      "column": 2,
+      "status": "concept",
+      "presentation": "second"
+    },
+    {
+      "study": "I",
+      "tile": "9p",
+      "name": "Pin9",
+      "label": "9 disks",
+      "direction": "Nine Stars",
+      "row": 1,
+      "column": 3,
+      "status": "concept",
+      "presentation": "second"
+    },
+    {
+      "study": "J",
+      "tile": "6s",
+      "name": "Sou6",
+      "label": "6 bamboo",
+      "direction": "Green Rhythm",
+      "row": 2,
+      "column": 1,
+      "status": "concept",
+      "presentation": "second"
+    },
+    {
+      "study": "K",
+      "tile": "1z",
+      "name": "Ton",
+      "label": "East wind",
+      "direction": "East at Dawn",
+      "row": 2,
+      "column": 2,
+      "status": "concept",
+      "presentation": "second"
+    },
+    {
+      "study": "L",
+      "tile": "5z",
+      "name": "Haku",
+      "label": "White dragon",
+      "direction": "Quiet Dragon",
+      "row": 2,
+      "column": 3,
+      "status": "concept",
+      "presentation": "second"
+    }
+  ],
+  "presentations": [
+    {
+      "source": "studies/01-van-gogh-concepts.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "d9293eeff896f948918a8539ccfffeb8a26e4176f22401ca227b7e636d69ed91",
+      "type": "concept-sheet",
+      "columns": 3,
+      "rows": 2,
+      "includesCaptions": true,
+      "id": "first",
+      "prompt": "prompt.md"
+    },
+    {
+      "id": "second",
+      "source": "studies/02-van-gogh-concepts.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "62821f5d99b1a849b25775f20fa32717f7b4a7986638958609b9d95e2f82abb8",
+      "type": "concept-sheet",
+      "columns": 3,
+      "rows": 2,
+      "includesCaptions": true,
+      "prompt": "prompt-02.md"
     }
   ]
 }

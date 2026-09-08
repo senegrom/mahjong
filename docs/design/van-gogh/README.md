@@ -4,7 +4,7 @@ First concepts for a new mahjong tile set, developed on 8 September 2026 after r
 
 ![Van Gogh — six first tile studies](studies/01-van-gogh-concepts.png)
 
-## Six examples
+## First six examples
 
 | Study | Tile | Direction |
 | --- | --- | --- |
@@ -15,7 +15,22 @@ First concepts for a new mahjong tile set, developed on 8 September 2026 after r
 | E — Vermilion | Red dragon (`7z`, `Chun`) | A large red 中 on ochre, with two open counters and a strong central vertical. |
 | F — Cloud Dragon | White dragon (`5z`, `Haku`) | A pale curling dragon in ivory cloud strokes, surrounded by expressive cobalt. |
 
-These are **concepts for review**, not approved production faces or a complete playable set. They are not registered in the game's tile-face selector. The sheet contains six examples; it does not supply the remaining 28 tile types or a white-dragon foil state.
+## Second studies
+
+![Van Gogh — second tile studies](studies/02-van-gogh-concepts.png)
+
+| Study | Tile | Direction |
+| --- | --- | --- |
+| G — Wheatfield Bird | 1 bamboo (`1s`, `Sou1`) | A large cobalt-and-copper bird on green bamboo against a golden field. |
+| H — Twin Suns | 2 disks (`2p`, `Pin2`) | Two distinct sunflower heads on a flowing teal and cobalt field. |
+| I — Nine Stars | 9 disks (`9p`, `Pin9`) | Nine luminous round star disks in a clear three-by-three arrangement. |
+| J — Green Rhythm | 6 bamboo (`6s`, `Sou6`) | Six separate jointed stalk motifs, in two columns of three, with green hues throughout. |
+| K — East at Dawn | East wind (`1z`, `Ton`) | Large cobalt 東 against peach, coral and golden brushstrokes. |
+| L — Quiet Dragon | White dragon (`5z`, `Haku`) | A simpler pale dragon with a broad curling body and fewer details within an ivory field. Alternative to F. |
+
+The second sheet was generated after Carl asked to continue and retry image generation. **G and H are the strongest new directions.** I keeps nine clearly separated disks; J keeps six clearly separated bamboo motifs. L removes much of F's filigree and gives the white dragon a simpler silhouette. K should receive a final glyph-structure check, and H's flower petals need more clearance at the edges, when these concepts become individual faces.
+
+These are **concepts for review**, not approved production faces or a complete playable set. They are not registered in the game's tile-face selector. The two sheets contain 12 studies covering 11 distinct tile types, including two alternatives for white dragon; they do not supply the remaining 23 tile types or a white-dragon foil state.
 
 ## Design language
 
@@ -30,11 +45,11 @@ The Matisse set establishes the practical constraints: full-face colour, a 3:4 p
 - **D and E read clearly at study scale.** Keep the open spaces inside the glyphs when refining the brushwork. Check every traditional character against the tile identity before approving a production face.
 - **F needs the most simplification for play.** Reduce whiskers and fine strokes, broaden the light central area and make the dragon quieter. A later silver dora state should use exactly the same composition and crop as the base face.
 
-Further ideas: a single bird above a wheat-coloured field for 1 bamboo; cypress-like motion in visibly segmented bamboo; large wind glyphs on distinct dawn, daylight, sunset and night palettes; and a green 發 formed from layered malachite and mint strokes. These are proposed directions, not additional generated examples.
+The second sheet explores the bird, further bamboo rhythms and the dawn wind palette. Further ideas include the remaining wind glyphs on distinct daylight, sunset and night palettes, and a green 發 formed from layered malachite and mint strokes. These remaining directions are not yet generated examples.
 
 ## Source and next production step
 
-The [concept sheet](studies/01-van-gogh-concepts.png) is the unmodified image-generation output. It contains captions and gutters outside the faces and is not a production atlas. The [manifest](manifest.json) records the study identities, source dimensions and hash. The [generation prompt](prompt.md) preserves the brief used with ChatGPT's built-in image generation tool.
+Both the [first concept sheet](studies/01-van-gogh-concepts.png) and [second concept sheet](studies/02-van-gogh-concepts.png) are unmodified image-generation outputs. They contain captions and gutters outside the faces and are not production atlases. The [manifest](manifest.json) records the study identities, source dimensions and hashes. The [first prompt](prompt.md) and [second prompt](prompt-02.md) preserve the briefs used with ChatGPT's built-in image generation tool.
 
 Once a direction is selected, refine it as a separate flat 3:4 source face. Preserve the selected pixels in later exports and follow the existing 300 × 400 canvas, 26-unit corner radius and 1% bleed conventions. Check the individual art at the same small and rotated sizes used for hands, discards and melds before registering any faces for play. Continue the set through all 34 tile types, with a matching white-dragon foil state.
 
