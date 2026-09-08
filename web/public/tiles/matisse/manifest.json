@@ -323,15 +323,15 @@
       "status": "approved",
       "png": "approved/Nan.png",
       "svg": "approved/Nan.svg",
-      "source": "docs/design/matisse/studies/south-wind-c-approved.png",
-      "sourceSha256": "6a52956488dc17d501915e0566a12e85e17388389ee0943cdfa30234c11c3ca5",
+      "source": "docs/design/matisse/studies/south-wind-a-sirocco-approved.png",
+      "sourceSha256": "9e3271ae81c6e9f3824c49e296bbfaaa7770f7e8e86c10c310c1ee882720264b",
       "crop": {
-        "x": 975,
-        "y": 238,
-        "width": 395,
-        "height": 552
+        "x": 8,
+        "y": 7,
+        "width": 1070,
+        "height": 1338
       },
-      "notes": "Chapel C: sculptural aubergine 南 with a carmine upper interior bar on saffron yellow. Both interior horizontal bars remain visible. The lossless crop excludes the study label, surround and photographed rim, using the shared 3:4 face, bleed and rounded clipping."
+      "notes": "Sirocco A: windblown aubergine ribbons form 南 on saffron yellow, with a sweeping ivory top crossbar and two distinct carmine interior bars. The asymmetrical enclosure and curling right hook preserve the character. The lossless crop preserves the selected artwork, excludes the presentation label and surround, and uses the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Shaa",
