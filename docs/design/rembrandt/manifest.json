@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "id": "rembrandt",
+  "name": "Rembrandt",
+  "status": "concept",
+  "created": "2026-09-08",
+  "selectedDirection": null,
+  "availableInGame": false,
+  "canvas": {
+    "width": 300,
+    "height": 400
+  },
+  "facePresentation": {
+    "radius": 26,
+    "bleed": 3,
+    "preserveAspectRatio": "none"
+  },
+  "allGreenTiles": [
+    "2s",
+    "3s",
+    "4s",
+    "6s",
+    "8s",
+    "6z"
+  ],
+  "directions": [
+    {
+      "id": "A",
+      "name": "Oil & Light",
+      "status": "concept",
+      "source": "studies/a-oil-and-light.png",
+      "medium": "Oil painting",
+      "recommended": true,
+      "width": 1254,
+      "height": 1254,
+      "sourceSha256": "b3a7be3186064949c85976932e40c270bd0c34393b2ba25e4eabe8fe781023f1"
+    },
+    {
+      "id": "B",
+      "name": "The Etching Room",
+      "status": "concept",
+      "source": "studies/b-the-etching-room.png",
+      "medium": "Etching and drypoint",
+      "width": 1254,
+      "height": 1254,
+      "sourceSha256": "e138b829f16d072d06acc2e1caeab9a7e462b218728610b0aa1a764675ded746"
+    }
+  ],
+  "examples": [
+    {
+      "tile": "1s",
+      "name": "Sou1",
+      "label": "1 bamboo",
+      "idea": "The Bird",
+      "row": 1,
+      "column": 1,
+      "status": "concept",
+      "directions": [
+        "A",
+        "B"
+      ]
+    },
+    {
+      "tile": "3s",
+      "name": "Sou3",
+      "label": "3 bamboo",
+      "idea": "Green Light",
+      "row": 1,
+      "column": 2,
+      "status": "concept",
+      "directions": [
+        "A",
+        "B"
+      ]
+    },
+    {
+      "tile": "5p",
+      "name": "Pin5",
+      "label": "5 disks",
+      "idea": "The Guild",
+      "row": 1,
+      "column": 3,
+      "status": "concept",
+      "directions": [
+        "A",
+        "B"
+      ]
+    },
+    {
+      "tile": "8m",
+      "name": "Man8",
+      "label": "8 characters",
+      "idea": "Vermilion",
+      "row": 2,
+      "column": 1,
+      "status": "concept",
+      "directions": [
+        "A",
+        "B"
+      ]
+    },
+    {
+      "tile": "1z",
+      "name": "Ton",
+      "label": "East wind",
+      "idea": "First Light",
+      "row": 2,
+      "column": 2,
+      "status": "concept",
+      "directions": [
+        "A",
+        "B"
+      ]
+    },
+    {
+      "tile": "7z",
+      "name": "Chun",
+      "label": "Red dragon",
+      "idea": "The Ember",
+      "row": 2,
+      "column": 3,
+      "status": "concept",
+      "directions": [
+        "A",
+        "B"
+      ]
+    }
+  ],
+  "plannedTiles": [
+    "1m",
+    "2m",
+    "3m",
+    "4m",
+    "5m",
+    "6m",
+    "7m",
+    "9m",
+    "1p",
+    "2p",
+    "3p",
+    "4p",
+    "6p",
+    "7p",
+    "8p",
+    "9p",
+    "2s",
+    "4s",
+    "5s",
+    "6s",
+    "7s",
+    "8s",
+    "9s",
+    "2z",
+    "3z",
+    "4z",
+    "5z",
+    "6z"
+  ],
+  "notes": [
+    "Both source boards show the same six tile identities. Board positions are 1-based.",
+    "No tile face has been selected or approved for play.",
+    "Refine each selected face as a separate full-resolution source before production export.",
+    "Board typography is descriptive presentation copy; the tile IDs and export names here define the intended identities."
+  ]
+}
