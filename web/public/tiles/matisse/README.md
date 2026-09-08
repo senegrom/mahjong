@@ -20,7 +20,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Fan C: four pale-green sprigs and a red centre on deep forest green |
 | [Sou6.svg](approved/Sou6.svg) | 6 bamboo | C: six jointed bamboo forms in three staggered pairs, varied greens on pale sage |
 | [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Cut-out C: one coral and six green forms circling an open centre on butter yellow |
-| [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Two sweeping fans of four jointed fronds |
+| [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Wild Growth C: eight mint and dark-forest fronds bursting around an open centre on emerald |
 | [Sou9.svg](approved/Sou9.svg) | 9 bamboo | Vestment B: three triads of green, ivory and chartreuse bamboo ribbons on ultramarine |
 | [Ton.svg](approved/Ton.svg) | East wind | Ribbon lettering B, blue with a red stroke on pale yellow |
 | [Nan.svg](approved/Nan.svg) | South wind | Chapel C: aubergine 南 with a carmine upper interior bar on saffron yellow |
@@ -75,6 +75,8 @@ The 5 bamboo tile uses **Fan C** from `09-five-bamboo-approved.png`: five comple
 
 The 6 bamboo tile uses **C** from `six-bamboo-c-approved.png`: three staggered pairs in forest, emerald and sage greens. The lossless crop excludes the study label and surrounding board, and uses the same full-face fitting, corner radius and bleed as the other approved tiles.
 
+The 8 bamboo tile uses **Wild Growth C** from `eight-bamboo-c-wild-growth-approved.png`: eight separate jointed fronds, four mint and four dark forest, burst around an open centre on emerald green. The varied scale and all-green artwork preserve the tile count and All Green palette. The lossless crop preserves the selected source pixels, excludes the study label and surround, and uses the shared 3:4 face, 26-unit corners and 1% bleed. It replaces the earlier fan design, which remains in `03-dots-and-bamboo.png`.
+
 The 9 bamboo tile uses **Vestment B** from `nine-bamboo-b-approved.png`: exactly nine jointed ribbons in three groups of three on ultramarine. It keeps the approved green, ivory and chartreuse artwork, with the shared 3:4 face, 26-unit corners and 1% bleed. Only the centre B tile is exported; study labels and surrounding board are excluded.
 
 The 1 characters tile uses **Dance B** from `one-characters-b-approved.png`: a sweeping yellow 一 and large vermilion 萬 on deep purple. Only the approved centre tile is exported, using the shared full-face fit, bleed and rounded clipping. The 7 characters tile uses **Cut-out C** from `06-character-compositions.png`. Continue varying the scale and placement of the number and 萬 for future character tiles.
@@ -91,15 +93,15 @@ East uses Ribbon B. West uses **Cut-out C** from `west-wind-c-approved.png`: ivo
 
 ## Preview and exports
 
-Open [preview.html](preview.html) locally, or visit `/tiles/matisse/preview.html` when running the web project. It is a standalone page with embedded artwork and a CSS-pixel hand preview at 390 or 844 pixels wide. The sample hand is for visual comparison only.
+Open [preview.html](preview.html) locally, or visit `/tiles/matisse/preview.html` when running the web project. It loads the approved SVG assets beside the page and includes a CSS-pixel hand preview at 390 or 844 pixels wide. The sample hand is for visual comparison only.
 
-Every face has a lossless PNG crop at its native resolution and a self-contained SVG wrapper on the game's 300 × 400 canvas. The SVGs contain raster artwork; they are not vector redrawings. The standalone preview embeds lossless WebP copies with identical pixels and the same SVG geometry to keep the complete page compact. The study tile is fitted to the full 3:4 face with no ivory side padding. A 1% bleed hides the study's outside backdrop, and approved faces, placeholders and the foil overlay share 26-unit rounded corners. The raw PNGs and approved motifs remain unchanged. These exports do not yet constitute the full tile set.
+Every face has a lossless PNG crop at its native resolution and a self-contained SVG wrapper on the game's 300 × 400 canvas. The SVGs contain raster artwork; they are not vector redrawings. The preview uses those same SVG files, keeping its HTML compact as the set grows. The study tile is fitted to the full 3:4 face with no ivory side padding. A 1% bleed hides the study's outside backdrop, and approved faces, placeholders and the foil overlay share 26-unit rounded corners. The raw PNGs and approved motifs remain unchanged. These exports do not yet constitute the full tile set.
 
 The game clips the face and foil together and draws one outer shadow. Hint rings follow that same outline, including small and rotated tiles, so the artwork cannot sit inside a second tile-shaped frame. The manifest's `facePresentation` field records the shared radius, bleed and fitting rule.
 
 [manifest.json](manifest.json) records tile IDs, approval status, source paths, SHA-256 hashes and exact crop rectangles. The original boards are in [docs/design/matisse/studies](../../../../docs/design/matisse/studies). They preserve the alternative East styles A and C as references; only B is the approved East face. The earlier regular-grid bamboo in the five-dot board is superseded by the fan design.
 
-To reproduce the exports, install Node.js and ImageMagick (`convert`, with WebP support), then run from the repository root:
+To reproduce the exports, install Node.js and ImageMagick (`convert`), then run from the repository root:
 
 ```sh
 node web/scripts/export-matisse-tiles.mjs

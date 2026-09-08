@@ -255,15 +255,15 @@
       "status": "approved",
       "png": "approved/Sou8.png",
       "svg": "approved/Sou8.svg",
-      "source": "docs/design/matisse/studies/03-dots-and-bamboo.png",
-      "sourceSha256": "654d4e069af72d7ea38b9848a778624cfb620949d6edd31c5634a90aa17e1ad0",
+      "source": "docs/design/matisse/studies/eight-bamboo-c-wild-growth-approved.png",
+      "sourceSha256": "82e79cd4b54e8e830b19bda8d380531f6c1ab68ccbff32aa6d193270bc3b7996",
       "crop": {
-        "x": 755,
-        "y": 99,
-        "width": 612,
-        "height": 835
+        "x": 60,
+        "y": 26,
+        "width": 967,
+        "height": 1281
       },
-      "notes": "Two sweeping fans of four jointed fronds."
+      "notes": "Wild Growth C: eight mint and dark-forest bamboo fronds burst around an open centre on emerald green. All artwork stays green for All Green. The lossless crop preserves the selected artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Sou9",
