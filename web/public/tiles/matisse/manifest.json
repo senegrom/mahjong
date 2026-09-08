@@ -79,6 +79,23 @@
       "notes": "Five black and ivory rosettes on yellow."
     },
     {
+      "name": "Pin9",
+      "tile": "9p",
+      "label": "9 disks",
+      "status": "approved",
+      "png": "approved/Pin9.png",
+      "svg": "approved/Pin9.svg",
+      "source": "docs/design/matisse/studies/nine-disks-b-approved.png",
+      "sourceSha256": "049f9cab766abe01ba9f3bb8a09a679d03f37fa6e89b5fc18145b689000164f0",
+      "crop": {
+        "x": 670,
+        "y": 57,
+        "width": 541,
+        "height": 651
+      },
+      "notes": "Orbit B: eight yellow, mint and pink cut-paper rosettes surround one larger apricot centre on deep purple. Exactly nine separate disks, with the shared full-face fit, bleed and rounded clipping."
+    },
+    {
       "name": "Sou2",
       "tile": "2s",
       "label": "2 bamboo",
@@ -438,12 +455,6 @@
       "name": "Pin8",
       "label": "8 circles",
       "svg": "placeholders/Pin8.svg"
-    },
-    {
-      "tile": "9p",
-      "name": "Pin9",
-      "label": "9 circles",
-      "svg": "placeholders/Pin9.svg"
     },
     {
       "tile": "2z",
