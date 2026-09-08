@@ -25,42 +25,56 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('hidden tiles cannot reveal their identity through either face set', () => {
-  for (const face of ['classic', 'matisse']) {
+test('Dali resolves six approved faces and placeholders for the rest', () => {
+  const approved = new Set(['1p', '5p', '1s', '2s', '8m', '7z']);
+  for (const tile of TILE_TYPES) {
+    const url = tileImage(tile, 'dali');
+    const svg = readFileSync(new URL(url, publicRoot), 'utf8');
+    assert.match(svg, /viewBox="0 0 300 400"/);
+    if (approved.has(tile)) assert.match(url, /\/dali\/approved\//);
+    else assert.equal(url, 'tiles/dali/placeholders/placeholder.svg');
+  }
+  assert.equal(tileImage('1p', 'dali'), 'tiles/dali/approved/Pin1.svg');
+  assert.equal(tileImage('7z', 'dali'), 'tiles/dali/approved/Chun.svg');
+});
+
+test('hidden tiles cannot reveal their identity through any face set', () => {
+  for (const face of ['classic', 'matisse', 'dali']) {
     for (const tile of TILE_TYPES) assert.equal(tileImage(tile, face, true), 'tiles/Back.svg');
     assert.equal(tileImage(null, face), 'tiles/Back.svg');
   }
   assert.equal(tileImage('5z'), 'tiles/Haku.svg');
   assert.equal(tileImage('5z', 'matisse'), 'tiles/matisse/approved/Haku.svg');
-  assert.equal(tileImage('7m', 'unrecognized'), 'tiles/Man7.svg');
+  assert.equal(tileImage('7m', 'classic'), 'tiles/Man7.svg');
 });
 
-test('both complete face sets are in the preload inventory with valid files', () => {
-  assert.equal(TILE_IMAGE_URLS.length, 71);
+test('all three face sets are in the preload inventory with valid files', () => {
+  assert.equal(TILE_IMAGE_URLS.length, 77);
   assert.ok(TILE_IMAGE_URLS.includes('tiles/matisse/approved/Haku-foil.svg'));
-  for (const face of ['classic', 'matisse']) {
+  assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/approved/Pin1.svg'));
+  assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/placeholders/placeholder.svg'));
+  for (const face of ['classic', 'matisse', 'dali']) {
     for (const tile of TILE_TYPES) assert.ok(TILE_IMAGE_URLS.includes(tileImage(tile, face)));
   }
   for (const url of TILE_IMAGE_URLS) assert.match(readFileSync(new URL(url, publicRoot), 'utf8'), /<svg/);
 });
 
-test('tile face survives preference restoration and old or invalid settings stay Classic', () => {
+test('tile face survives preference restoration and invalid settings stay Classic', () => {
   const read = value => readSettings({ getItem: () => JSON.stringify(value) });
   assert.equal(read({ version: 1, tileFace: 'matisse' }).tileFace, 'matisse');
+  assert.equal(read({ version: 1, tileFace: 'dali' }).tileFace, 'dali');
   for (const tileFace of [undefined, null, '', false, {}, 'other', '../other']) {
     assert.equal(read({ version: 1, tileFace }).tileFace, 'classic');
   }
-  assert.equal(read({ version: 2, tileFace: 'matisse' }).tileFace, 'classic');
+  assert.equal(read({ version: 2, tileFace: 'dali' }).tileFace, 'classic');
 });
 
-test('the real Tile component respects the selected face, foil and hidden state', async t => {
+test('the real Tile component respects the selected face and hidden state', async t => {
   const source = new URL('../src/lib/Tile.svelte', import.meta.url);
   const directory = mkdtempSync(fileURLToPath(new URL('../.tile-effects-unit-', import.meta.url)));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const compiled = compile(readFileSync(source, 'utf8'), { filename: fileURLToPath(source), generate: 'server' });
-  // Node needs a URL module for the image import; all component logic and
-  // shared modules are compiled from the production sources without changes.
-  const code = compiled.js.code.replace(/from (['"])(\.[^'"]+)\1/g, (_match, _quote, specifier) => {
+  const code = compiled.js.code.replace(/from (["'])(\.[^'"]+)\1/g, (_match, _quote, specifier) => {
     const url = new URL(specifier, source).href;
     return `from ${JSON.stringify(specifier.endsWith('.webp')
       ? `data:text/javascript,${encodeURIComponent(`export default ${JSON.stringify(url)}`)}` : url)}`;
@@ -75,9 +89,10 @@ test('the real Tile component respects the selected face, foil and hidden state'
     }).body;
     for (const tile of TILE_TYPES) {
       assert.ok(show(tile, 'matisse').includes(`src="${tileImage(tile, 'matisse')}"`));
-      const hidden = show(tile, 'matisse', { facedown: true, dora: true });
+      assert.ok(show(tile, 'dali').includes(`src="${tileImage(tile, 'dali')}"`));
+      const hidden = show(tile, 'dali', { facedown: true, dora: true });
       assert.match(hidden, /src="tiles\/Back.svg"/);
-      assert.doesNotMatch(hidden, /matisse\/|class="foil|haku-dragon-reveal/);
+      assert.doesNotMatch(hidden, /dali\/|matisse\/|class="foil|haku-dragon-reveal/);
     }
     const white = show('5z', 'matisse', { dora: true });
     assert.match(white, /approved\/Haku.svg/);
