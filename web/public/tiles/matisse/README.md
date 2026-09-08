@@ -32,16 +32,19 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Man1.svg](approved/Man1.svg) | 1 characters | Dance B: sweeping yellow 一 and sculptural vermilion 萬 on deep purple |
 | [Man2.svg](approved/Man2.svg) | 2 characters | Dance B: coral-pink 萬 above a sweeping ivory 二 on deep purple |
 | [Man3.svg](approved/Man3.svg) | 3 characters | Jazz A: yellow, ivory and pink 三 above a vermilion-and-pink 萬 with an oversized kicking stroke |
+| [Man4.svg](approved/Man4.svg) | 4 characters | Interlock C: ivory-white 四 with yellow upright inner strokes and a sweeping pink 萬 on deep purple |
 | [Man7.svg](approved/Man7.svg) | 7 characters | Cut-out C: pink 萬 and oversized pale-yellow 七 on deep purple |
 | [Haku.svg](approved/Haku.svg) | White dragon | Approved C/C1 blend: quiet ivory with a pearly silver dora reveal |
 
 ## In the game
 
-Choose **Options → Tile face → Matisse**. All 28 approved faces, including the complete bamboo suit and all four winds, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 6 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
+Choose **Options → Tile face → Matisse**. All 29 approved faces, including the complete bamboo suit and all four winds, appear throughout the game: hands, discards, melds, indicators, waits, reviews and scoring. The other 5 tile types use ivory placeholders showing only their names in black. Face-down tiles retain the shared back. The selection is saved on this device, and both sets are available offline after preparation completes.
 
 White dragon uses matching quiet and [lit](approved/Haku-foil.svg) exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved board, with no redrawing of the motif.
 
 ## Next design directions
+
+The 4 characters tile uses **Interlock C** from `four-characters-c-ivory-approved.png`, with the requested red section of the outer 四 stroke changed to matching ivory-white. The two upright interior strokes remain yellow, and the sweeping 萬 remains pink on deep purple. The complete flat 1086 × 1448 artwork is exported without cropping its motifs or changing its pixels, using the shared 3:4 face, bleed and rounded clipping.
 
 The 6 disks tile uses **C** from `six-disks-c-approved.png`: six coral, chartreuse and orange rosettes in three loose pairs on forest green. The broad open cuts and contrasting centres preserve six distinct disks. The lossless export keeps the selected source pixels, excludes the study label and surround, and uses the shared 3:4 face, bleed and rounded clipping.
 
@@ -93,4 +96,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 28 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 29 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
