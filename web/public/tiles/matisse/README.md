@@ -22,7 +22,7 @@ A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs an
 | [Sou6.svg](approved/Sou6.svg) | 6 bamboo | Green Carnival D: six distinct abstract green cut-outs dance around an open centre on deep forest green |
 | [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Leap A: one coral and six green forms leaping and curling across edge-to-edge electric blue |
 | [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Wild Growth C: eight mint and dark-forest fronds bursting around an open centre on emerald |
-| [Sou9.svg](approved/Sou9.svg) | 9 bamboo | Vestment B: three triads of green, ivory and chartreuse bamboo ribbons on ultramarine |
+| [Sou9.svg](approved/Sou9.svg) | 9 bamboo | Emerald surround: three triads of green, ivory and yellow ribbons on wavy ultramarine, with emerald to every outer edge |
 | [Ton.svg](approved/Ton.svg) | East wind | Chapel Stencil C: sculptural deep-forest-green 東 with an ivory crossbar on coral pink |
 | [Nan.svg](approved/Nan.svg) | South wind | Paper Window D: vermilion 南 through a lemon-yellow chasuble, with a blush-pink corner on vermilion |
 | [Shaa.svg](approved/Shaa.svg) | West wind | Cut-out C: ivory 西 and a cobalt-blue top stroke on vermilion |
@@ -91,7 +91,7 @@ The 6 bamboo tile uses **Green Carnival D** from `six-bamboo-d-green-carnival-ap
 
 The 8 bamboo tile uses **Wild Growth C** from `eight-bamboo-c-wild-growth-approved.png`: eight separate jointed fronds, four mint and four dark forest, burst around an open centre on emerald green. The varied scale and all-green artwork preserve the tile count and All Green palette. The lossless crop preserves the selected source pixels, excludes the study label and surround, and uses the shared 3:4 face, 26-unit corners and 1% bleed. It replaces the earlier fan design, which remains in `03-dots-and-bamboo.png`.
 
-The 9 bamboo tile uses **Vestment B** from `nine-bamboo-b-approved.png`: exactly nine jointed ribbons in three groups of three on ultramarine. It keeps the approved green, ivory and chartreuse artwork, with the shared 3:4 face, 26-unit corners and 1% bleed. Only the centre B tile is exported; study labels and surrounding board are excluded.
+The 9 bamboo tile uses **Emerald surround**, the explicitly selected green-border revision, from `nine-bamboo-emerald-surround-approved.png`. Nine green, ivory and yellow jointed ribbons remain in three staggered groups on the wavy ultramarine field. Emerald replaces the former ivory surround and reaches every outer edge and corner, with no physical rim or bevel. The complete approved 1090 × 1443 source is exported losslessly at native resolution and fitted to the shared 3:4 face, 26-unit corners and 1% bleed. The earlier Vestment B source remains in `nine-bamboo-b-approved.png` as a design reference.
 
 The 1 characters tile uses the approved **Dance B rimless revision** from `one-characters-b-rimless-approved.png`: a sweeping yellow 一 and large vermilion 萬 on deep purple. The purple background extends to every edge in place of the old ivory rim. The complete flat 1086 × 1448 source is exported losslessly using the shared full-face fit, bleed and rounded clipping. The earlier study is retained as design history.
 

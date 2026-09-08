@@ -289,15 +289,15 @@
       "status": "approved",
       "png": "approved/Sou9.png",
       "svg": "approved/Sou9.svg",
-      "source": "docs/design/matisse/studies/nine-bamboo-b-approved.png",
-      "sourceSha256": "850a5f024da1f9c9cc0821176febb993fa4291ce799041ea6ee3ef0f032e479f",
+      "source": "docs/design/matisse/studies/nine-bamboo-emerald-surround-approved.png",
+      "sourceSha256": "0eba0e3a93d9af5e06f5a3a89c44576c2f3eba024071cecdd178256e1b4b48f3",
       "crop": {
-        "x": 531,
-        "y": 200,
-        "width": 477,
-        "height": 631
+        "x": 0,
+        "y": 0,
+        "width": 1090,
+        "height": 1443
       },
-      "notes": "Vestment B: nine jointed bamboo ribbons in three staggered groups of three, green, ivory and chartreuse on an ultramarine cut-paper field."
+      "notes": "Emerald surround: the selected green-border revision keeps nine green, ivory and yellow jointed ribbons in three staggered groups on the wavy ultramarine field. Emerald replaces the former ivory surround and fills every outer edge and corner. The complete approved source is preserved at native resolution with the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Ton",
