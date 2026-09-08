@@ -31,7 +31,7 @@ A partial tile set inspired by Henri Matisse's cut-paper designs and the mass ve
 | [Sou1.svg](approved/Sou1.svg) | 1 bamboo | Carnival C: pink bird with a vermilion wing, curling purple tail and yellow accents on green |
 | [Hatsu.svg](approved/Hatsu.svg) | Green dragon | Chapel B: forest-green 發 cut through an organic mint-green silhouette, with an emerald accent on forest green |
 | [Man1.svg](approved/Man1.svg) | 1 characters | Dance B: sweeping yellow 一 and sculptural vermilion 萬 on deep purple |
-| [Man2.svg](approved/Man2.svg) | 2 characters | Dance B: coral-pink 萬 above a sweeping ivory 二 on deep purple |
+| [Man2.svg](approved/Man2.svg) | 2 characters | Jazz Dance: coral 萬 over cobalt, yellow and ivory 二, with a magenta accent on deep purple |
 | [Man3.svg](approved/Man3.svg) | 3 characters | Jazz A: yellow, ivory and pink 三 above a vermilion-and-pink 萬 with an oversized kicking stroke |
 | [Man4.svg](approved/Man4.svg) | 4 characters | Interlock C: ivory-white 四 with yellow upright inner strokes and a sweeping pink 萬 on deep purple |
 | [Man5.svg](approved/Man5.svg) | 5 characters | Dance: mint and vermilion 五, yellow 萬 and a cobalt crescent on deep purple |
@@ -90,7 +90,7 @@ The 9 bamboo tile uses **Vestment B** from `nine-bamboo-b-approved.png`: exactly
 
 The 1 characters tile uses the approved **Dance B rimless revision** from `one-characters-b-rimless-approved.png`: a sweeping yellow 一 and large vermilion 萬 on deep purple. The purple background extends to every edge in place of the old ivory rim. The complete flat 1086 × 1448 source is exported losslessly using the shared full-face fit, bleed and rounded clipping. The earlier study is retained as design history. The 7 characters tile uses **Cut-out C** from `06-character-compositions.png`. Continue varying the scale and placement of the number and 萬 for future character tiles.
 
-The 2 characters tile uses **Dance B** from `two-characters-b-approved.png`: coral-pink 萬 at upper right and an oversized ivory 二 below on deep purple. The two separate sweeping strokes remain clear. The lossless centre-tile export excludes the label and surrounding board, with the same full-face fit, bleed and rounded clipping as the other character tiles.
+The 2 characters tile uses the approved **Jazz Dance** revision from `two-characters-jazz-dance-approved.png`: vivid coral-vermilion 萬 interlocks with a cobalt sweep and a small magenta accent, above separate yellow and ivory strokes forming 二. Deep purple extends to every edge. The full flat 1086 × 1448 source is exported losslessly with the shared full-face fit, bleed and rounded clipping. The earlier Dance B study is retained as design history.
 
 The 3 characters tile uses **Jazz A** from `three-characters-a-jazz-approved.png`: three separate yellow, ivory and pink strokes form 三 above a vermilion-and-pink 萬 with a large kicking stroke on deep purple. The left tile of the approved board is exported without redrawing, using the same full-face fit, bleed and rounded clipping as the other character tiles. The label and surrounding board are excluded.
 
