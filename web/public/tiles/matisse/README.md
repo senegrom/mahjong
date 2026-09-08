@@ -20,7 +20,7 @@ A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs an
 | [Sou4.svg](approved/Sou4.svg) | 4 bamboo | Chapel B: four pale-green sculptural cut-outs on deep forest green |
 | [Sou5.svg](approved/Sou5.svg) | 5 bamboo | Fan C: four pale-green sprigs and a red centre on deep forest green |
 | [Sou6.svg](approved/Sou6.svg) | 6 bamboo | Green Carnival D: six distinct abstract green cut-outs dance around an open centre on deep forest green |
-| [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Cut-out C: one coral and six green forms circling an open centre on butter yellow |
+| [Sou7.svg](approved/Sou7.svg) | 7 bamboo | Leap A: one coral and six green forms leaping and curling across edge-to-edge electric blue |
 | [Sou8.svg](approved/Sou8.svg) | 8 bamboo | Wild Growth C: eight mint and dark-forest fronds bursting around an open centre on emerald |
 | [Sou9.svg](approved/Sou9.svg) | 9 bamboo | Vestment B: three triads of green, ivory and chartreuse bamboo ribbons on ultramarine |
 | [Ton.svg](approved/Ton.svg) | East wind | Chapel Stencil C: sculptural deep-forest-green 東 with an ivory crossbar on coral pink |
@@ -48,6 +48,8 @@ Choose **Options → Tile face → Matisse**. All 34 approved faces, including e
 White dragon uses the quiet and [lit](approved/Haku-foil.svg) **Dance B** exports. When it is dora, the lit state appears beneath the moving shine. Both come directly from the approved centre pair in `white-dragon-b-dance-approved.png`, with no redrawing of the motif.
 
 ## Next design directions
+
+The 7 bamboo tile uses **Leap A**, the explicitly selected blue-background candidate, from `seven-bamboo-a-leap-approved.png`: one coral and six green cut-paper silhouettes leap and curl across electric blue. All seven forms remain separate and countable. The complete flat 1086 × 1448 source is exported losslessly, with colour reaching all four edges and corners, no white rim, and the shared 3:4 face, bleed and rounded clipping. The earlier yellow Cut-out C study remains in `09-seven-bamboo-approved.png` as a design reference.
 
 The rim-free 1 disk, 3 bamboo and 7 characters revisions use `one-disk-rimless-approved.png`, `three-bamboo-rimless-approved.png` and `seven-characters-rimless-approved.png`. Golden yellow, forest green and deep purple now reach every edge without ivory rims, photographed bevels or surrounding shadows. Each complete 1086 × 1448 source is preserved at native resolution and uses the shared 3:4 face, bleed and rounded clipping. The former source studies remain available in the same directory.
 

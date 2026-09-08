@@ -255,15 +255,15 @@
       "status": "approved",
       "png": "approved/Sou7.png",
       "svg": "approved/Sou7.svg",
-      "source": "docs/design/matisse/studies/09-seven-bamboo-approved.png",
-      "sourceSha256": "06be8859cb4f07e33c4f9bc1d24fb0b143a30a8a61170db4bf4643d5d99f37c7",
+      "source": "docs/design/matisse/studies/seven-bamboo-a-leap-approved.png",
+      "sourceSha256": "218961ef997cccb8197472831f7a8dcbd06f7ef58ecd0c7d3dac1cd3799ec477",
       "crop": {
-        "x": 1037,
-        "y": 115,
-        "width": 468,
-        "height": 719
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Cut-out C: one coral and six green abstract forms circling an open centre on butter yellow. Seven separated silhouettes preserve the tile count."
+      "notes": "Leap A: one coral and six green cut-paper forms leap and curl across an electric-blue field. The exact approved blue-background candidate retains seven separate silhouettes. The complete flat 3:4 source is preserved at native resolution, with colour reaching every edge and the shared bleed and rounded clipping removing any white rim."
     },
     {
       "name": "Sou8",
