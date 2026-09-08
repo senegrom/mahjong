@@ -408,15 +408,15 @@
       "status": "approved",
       "png": "approved/Man2.png",
       "svg": "approved/Man2.svg",
-      "source": "docs/design/matisse/studies/two-characters-b-approved.png",
-      "sourceSha256": "83f771884657d42a32b385e2d27972d291e7fde3a3e37451ec4aa8697e0a4e33",
+      "source": "docs/design/matisse/studies/two-characters-jazz-dance-approved.png",
+      "sourceSha256": "86d2eae2600a86f8e6ecdffa594642516f145f8db9f7dccf63423000d4b8c6c6",
       "crop": {
-        "x": 510,
-        "y": 199,
-        "width": 429,
-        "height": 658
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       },
-      "notes": "Dance B: coral-pink 萬 at upper right above two sweeping ivory strokes forming 二 on deep purple. The reversed composition preserves the approved centre tile exactly, using the shared 3:4 face, bleed and rounded clipping."
+      "notes": "Jazz Dance: vivid coral-vermilion 萬 interlocks with a cobalt sweep and a small magenta accent above two separate yellow and ivory strokes forming 二 on deep purple. The complete flat 1086 × 1448 approved source fills the face without an ivory rim and is exported losslessly with the shared 3:4 face, bleed and rounded clipping."
     },
     {
       "name": "Man3",
