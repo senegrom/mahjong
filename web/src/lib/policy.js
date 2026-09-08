@@ -33,14 +33,16 @@ function ensureWorker() {
   current.onmessage = ({ data }) => {
     if (worker !== current) return;
     const { id, action, analysis, error, progress } = data;
+    // Initialization and memory failures poison ORT inside this worker. All
+    // modes need a fresh runtime on retry, including after a cancelled call.
+    if (error) { resetPolicy(new Error(error)); return; }
     const pending = waiting.get(id);
     if (!pending) return;
     if (progress) {
       onProgress?.(progress);
       return;
     }
-    if (error) pending.reject(new Error(error));
-    else pending.resolve(analysis ?? action);
+    pending.resolve(analysis ?? action);
   };
   current.onerror = (event) => {
     if (worker === current) resetPolicy(new Error(event.message || 'The opponent worker failed'));
@@ -52,8 +54,8 @@ function ensureWorker() {
 }
 
 /** Default for subsequent decisions. Requests capture their own model and
- * the worker retains a session per network, so switching does not interrupt
- * an in-flight turn or the differently configured agents in Watch mode. */
+ * the worker finishes each turn before changing its loaded network, so this
+ * does not interrupt in-flight turns or differently configured Watch agents. */
 export function useModel(which) {
   if (!MODEL_CHOICES.includes(which) || which === chosen) return chosen;
   chosen = which;
@@ -99,7 +101,12 @@ async function requestPolicy(planes, mask, temperature, timeout, signal, model, 
     const id = nextId++;
     // A match that ends drops its own request and no more: the worker,
     // with the runtime and the model loaded, stays for the next match.
-    const abort = () => finish(reject, new DOMException('Match changed', 'AbortError'));
+    const abort = () => {
+      finish(reject, new DOMException('Match changed', 'AbortError'));
+      // Drop queued work for an edited physical position or a closed match.
+      // Active inference can finish; its tensors are still disposed normally.
+      try { worker?.postMessage({ cancel: id }); } catch { /* A failed worker is handled by its error event. */ }
+    };
     const timer = setTimeout(() => resetPolicy(new Error('The trained opponent did not answer in time')), timeout);
     const finish = (callback, value) => {
       clearTimeout(timer);

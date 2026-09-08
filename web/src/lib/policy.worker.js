@@ -22,10 +22,14 @@ let configured = false;
 // told when the observation grows.
 const POSITIONS = 34;
 
-// One session per network, since the page offers two and a worker that
-// changed network mid-match would otherwise keep answering with the old one.
-const sessions = new Map();
-const loading = new Map();
+// Only one model occupies the WASM heap at a time. Requests keep their chosen
+// URL and run in order, so mixed tables still use the correct network without
+// retaining the larger model after switching back to Quick.
+let session = null;
+let sessionUrl = null;
+const queued = new Map();
+let running = false;
+let failed = false;
 
 async function load(url, runtimeBase) {
   if (!configured && runtimeBase) {
@@ -34,20 +38,16 @@ async function load(url, runtimeBase) {
     ort.env.wasm.wasmPaths = runtimeBase;
     configured = true;
   }
-  const ready = sessions.get(url);
-  if (ready) return ready;
-  if (!loading.has(url)) {
-    loading.set(url, ort.InferenceSession.create(url, {
-      executionProviders: ['wasm'],
-      graphOptimizationLevel: 'all',
-    }).then((created) => {
-      sessions.set(url, created);
-      return created;
-    }).finally(() => {
-      loading.delete(url);
-    }));
-  }
-  return loading.get(url);
+  if (session && sessionUrl === url) return session;
+  if (session) await session.release();
+  session = null;
+  sessionUrl = null;
+  session = await ort.InferenceSession.create(url, {
+    executionProviders: ['wasm'],
+    graphOptimizationLevel: 'all',
+  });
+  sessionUrl = url;
+  return session;
 }
 
 /**
@@ -84,18 +84,45 @@ function pick(logits, mask, temperature) {
   return best;
 }
 
-self.onmessage = async (event) => {
-  const { id, url, runtimeBase, planes, mask, temperature, details } = event.data;
+async function infer({ id, url, runtimeBase, planes, mask, temperature, details }) {
+  let input, output;
   try {
     self.postMessage({ id, progress: 'loading the network' });
     const model = await load(url, runtimeBase);
     self.postMessage({ id, progress: 'network ready' });
-    const input = new ort.Tensor('float32', planes, [1, planes.length / POSITIONS, POSITIONS]);
-    const output = await model.run({ planes: input });
+    input = new ort.Tensor('float32', planes, [1, planes.length / POSITIONS, POSITIONS]);
+    output = await model.run({ planes: input });
     const logits = output.policy.data;
     const analysis = policyWeights(logits, mask);
     self.postMessage({ id, action: pick(logits, mask, temperature ?? 0), ...(details ? { analysis } : {}) });
-  } catch (error) {
-    self.postMessage({ id, error: String(error) });
+  } finally {
+    input?.dispose();
+    for (const tensor of Object.values(output ?? {})) tensor.dispose();
   }
+}
+
+async function drain() {
+  if (running || failed) return;
+  running = true;
+  try {
+    while (queued.size) {
+      const [id, request] = queued.entries().next().value;
+      queued.delete(id);
+      try { await infer(request); }
+      catch (error) {
+        // An aborted ORT runtime cannot be initialized again in this worker.
+        // The page discards it, even if this particular request was cancelled.
+        failed = true;
+        queued.clear();
+        self.postMessage({ id, error: String(error) });
+        break;
+      }
+    }
+  } finally { running = false; }
+}
+
+self.onmessage = ({ data }) => {
+  if (data.cancel != null) { queued.delete(data.cancel); return; }
+  queued.set(data.id, data);
+  return drain();
 };
