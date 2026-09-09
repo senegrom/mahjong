@@ -12,6 +12,7 @@
   import Review from './lib/Review.svelte';
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
+  import GuidedPlay from './lib/GuidedPlay.svelte';
   import { chooseAction, chosenModel, modelIsAvailable, reportProgress, resetPolicy, useModel } from './lib/policy.js';
   import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
   import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards, unseenTileCounts } from './lib/ui.js';
@@ -26,7 +27,7 @@
   const preferences = readSettings(storage, touch);
   const requested = new URLSearchParams(location.search).get('opponents');
   const requestedMode = new URLSearchParams(location.search).get('mode');
-  let mode = $state(['watch', 'physical'].includes(requestedMode) ? requestedMode : 'play');
+  let mode = $state(['watch', 'physical', 'guided'].includes(requestedMode) ? requestedMode : 'play');
   let difficulty = $state(['beginner', 'club', 'neural'].includes(requested) ? requested : preferences.difficulty);
   let opponents = $state(normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty));
   let draftOpponents = $state(['club', 'club', 'club']);
@@ -417,7 +418,7 @@
   </header>
 
   <nav class="game-modes" aria-label="Game mode">
-    {#each [['play', 'Play'], ['watch', 'Agent watch'], ['physical', 'Physical agent play']] as [key, label] (key)}
+    {#each [['play', 'Play'], ['watch', 'Agent watch'], ['physical', 'Physical agent play'], ['guided', 'Guided physical game']] as [key, label] (key)}
       <button aria-pressed={mode === key} disabled={!ready || (mode === 'play' && busy)} onclick={() => { mode = key; settingsOpen = false; }}>{label}</button>
     {/each}
   </nav>
@@ -428,7 +429,7 @@
   <label class="compact-mode-selector">Game mode
     <select value={mode} aria-label="Game mode" disabled={!ready || (mode === 'play' && busy)}
       onchange={event => { mode = event.currentTarget.value; settingsOpen = false; }}>
-      <option value="play">Play</option><option value="watch">Agent watch</option><option value="physical">Physical agent play</option>
+      <option value="play">Play</option><option value="watch">Agent watch</option><option value="physical">Physical agent play</option><option value="guided">Guided physical game</option>
     </select>
   </label>
   {#if mode === 'play'}<button class="mobile-new-game" onclick={() => { if (startFresh()) settingsOpen = false; }} disabled={!ready || Boolean(saveConflict)}>New game</button>{/if}
@@ -614,6 +615,8 @@
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
     <AgentWatch {ready} {trainedAvailable} {strongAvailable} {opponents} {trainedModel} {hints} />
+  {:else if ready && mode === 'guided'}
+    <GuidedPlay {ready} {trainedAvailable} {strongAvailable} {storage} {hints} />
   {:else if ready && mode === 'physical'}
     <PhysicalPlay {ready} {trainedAvailable} {strongAvailable} {storage} />
   {:else if mode === 'play' && view}

@@ -298,7 +298,10 @@ impl Position {
                 player.melds.push(meld);
             }
             if input.riichi != "none"
-                && player.melds.iter().any(|m| m.kind != MeldKind::ConcealedKan)
+                && player
+                    .melds
+                    .iter()
+                    .any(|m| m.kind != MeldKind::ConcealedKan)
             {
                 return Err(
                     "Riichi requires a closed hand: only concealed kans may stand beside it".into(),
@@ -420,8 +423,7 @@ impl Position {
         }
         if phase == Phase::Act {
             if hand.after_quad
-                && (hand.drawn.is_none()
-                    || !hand.current().melds.iter().any(|m| m.kind.is_kan()))
+                && (hand.drawn.is_none() || !hand.current().melds.iter().any(|m| m.kind.is_kan()))
             {
                 return Err(
                     "A replacement draw needs a kan in the acting seat's sets and a drawn tile"
@@ -542,7 +544,11 @@ mod tests {
 
     fn seat(hand: &str) -> Seat {
         Seat {
-            hand: hand.split(' ').filter(|t| !t.is_empty()).map(String::from).collect(),
+            hand: hand
+                .split(' ')
+                .filter(|t| !t.is_empty())
+                .map(String::from)
+                .collect(),
             melds: Vec::new(),
             discards: Vec::new(),
             score: 30000,
@@ -611,7 +617,9 @@ mod tests {
         position.players[0] = seat("4p 5p 6p 7s 8s 9s 1z 2z 3z 5z 5z");
         position.players[0].melds.push(set("pon", "1m", 1));
         position.players[1].discards.push(thrown("1m", 0, true));
-        position.build().expect("a claimed discard matched by a pon is fine");
+        position
+            .build()
+            .expect("a claimed discard matched by a pon is fine");
     }
 
     #[test]
@@ -629,7 +637,9 @@ mod tests {
         let error = position.build().unwrap_err();
         assert!(error.contains("69"), "{error}");
         position.wall = 69;
-        position.build().expect("69 is the most the dealer can see after drawing");
+        position
+            .build()
+            .expect("69 is the most the dealer can see after drawing");
     }
 
     #[test]

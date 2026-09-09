@@ -10,9 +10,14 @@ const STALLED = 'A previous save is still waiting for the browser lock. Edits ma
 // A save normally finishes in milliseconds. One stuck behind a lock another
 // window never gives back must not leave the editor loading for ever.
 const PATIENCE = 5000;
+const FORMAT = {
+  key: PHYSICAL_KEY, lock: LOCK, empty: emptyPosition, parse: parsePhysical,
+  encode: position => JSON.stringify({ version: 1, position }),
+};
 
 export class PhysicalStore {
-  constructor(storage, locks, { onConflict = () => {}, onWarning = () => {}, patience = PATIENCE } = {}) {
+  constructor(storage, locks, { onConflict = () => {}, onWarning = () => {}, patience = PATIENCE, format = FORMAT } = {}) {
+    this.format = format;
     this.storage = storage;
     this.locks = locks;
     this.patience = patience;
@@ -30,23 +35,23 @@ export class PhysicalStore {
 
   async read() {
     const stalled = await this.settled();
-    if (this.closing) return emptyPosition();
+    if (this.closing) return this.format.empty();
     this.conflicted = false;
     this.disabled = !this.storage || !this.locks?.request;
     try {
-      this.expected = this.storage?.getItem(PHYSICAL_KEY) ?? null;
-      const position = parsePhysical(this.expected);
+      this.expected = this.storage?.getItem(this.format.key) ?? null;
+      const position = this.format.parse(this.expected);
       this.unreadable = this.expected !== null && !position;
-      this.queuedKey = JSON.stringify(position ?? emptyPosition());
+      this.queuedKey = JSON.stringify(position ?? this.format.empty());
       this.lastSave = Promise.resolve(true);
       this.opened = true;
       this.onWarning(this.disabled ? WARNING : stalled ? STALLED : '');
-      return position ?? emptyPosition();
+      return position ?? this.format.empty();
     } catch {
       this.disabled = true;
       this.opened = true;
       this.onWarning(WARNING);
-      return emptyPosition();
+      return this.format.empty();
     }
   }
 
@@ -60,7 +65,7 @@ export class PhysicalStore {
   }
 
   assertCurrent() {
-    if (this.storage.getItem(PHYSICAL_KEY) === this.expected) return true;
+    if (this.storage.getItem(this.format.key) === this.expected) return true;
     this.conflicted = true;
     if (!this.closing) this.onConflict(CONFLICT);
     return false;
@@ -71,7 +76,7 @@ export class PhysicalStore {
     const positionKey = JSON.stringify(position);
     if (!clearUnreadable && positionKey === this.queuedKey) return this.lastSave;
     this.queuedKey = positionKey;
-    const text = JSON.stringify({ version: 1, position });
+    const text = this.format.encode(position);
     const write = async () => {
       if (this.conflicted) return false;
       if (this.disabled) { if (!this.closing) this.onWarning(WARNING); return false; }
@@ -81,9 +86,9 @@ export class PhysicalStore {
       const signal = typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(this.patience) : null;
       if (signal) options.signal = signal;
       try {
-        return await this.locks.request(LOCK, options, () => {
+        return await this.locks.request(this.format.lock, options, () => {
           if (this.conflicted || !this.assertCurrent()) return false;
-          this.storage.setItem(PHYSICAL_KEY, text);
+          this.storage.setItem(this.format.key, text);
           this.expected = text;
           this.unreadable = false;
           if (!this.closing) this.onWarning('');
@@ -111,7 +116,7 @@ export class PhysicalStore {
   changed(event) {
     if (!this.opened || this.closing || this.disabled || this.conflicted
       || (event.storageArea && event.storageArea !== this.storage)
-      || (event.key !== null && event.key !== PHYSICAL_KEY)) return;
+      || (event.key !== null && event.key !== this.format.key)) return;
     try { this.assertCurrent(); }
     catch { this.disabled = true; this.onWarning(WARNING); }
   }

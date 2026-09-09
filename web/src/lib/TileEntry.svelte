@@ -1,7 +1,7 @@
 <script>
   import Tile from './Tile.svelte';
   import { TILES, parseTiles } from './physical-position.js';
-  let { label, tiles = [], onchange = null, onadd = null, limit = 14, notation = true } = $props();
+  let { label, tiles = [], onchange = null, onadd = null, limit = 14, notation = true, expanded = false } = $props();
   let text = $state('');
   let error = $state('');
   function add(values) {
@@ -21,7 +21,7 @@
 <div class="tile-entry">
   <span class="entry-label">{label}</span>
   {#if tiles.length}<div class="entered">{#each tiles as tile, index (index)}<Tile {tile} size="small" title={`Remove ${tile}`} onclick={onchange ? () => onchange(tiles.filter((_, i) => i !== index)) : null} />{/each}</div>{/if}
-  <details>
+  <details open={expanded}>
     <summary>{onadd ? 'Choose a tile' : `Add tiles · ${tiles.length}/${limit}`}</summary>
     <div class="palette" aria-label={label}>
       {#each TILES as tile (tile)}<Tile {tile} size="small" title={`Add ${tile} to ${label}`} onclick={() => add([tile])} disabled={!onadd && tiles.length >= limit} muted={false} />{/each}

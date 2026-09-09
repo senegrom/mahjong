@@ -93,6 +93,55 @@ explicitly choose **Clear table**. A storage warning means edits are only
 available in the current window. Pending edits finish saving before Physical
 play reopens in the same window.
 
+## Guided physical game
+
+Select **Guided physical game** (or open `?mode=guided`) to follow a real game
+from the start of a hand. The guide asks for one thing at a time:
+
+1. Your points and seat wind. The default is 30,000 each, East 1. Expand
+   **Round, other scores and sticks** for different scores, honba or riichi
+   deposits.
+2. Your first **13 tiles**, using the palette or tile notation. East also
+   enters 13 here and supplies the extra dealer tile at the first draw prompt.
+3. The actual face-up **dora indicator**, rather than the dora tile it names.
+4. Each opponent's discard in East–South–West–North order, or your actual draw
+   when your turn comes. An opponent's hidden draw is counted together with
+   their discard; their concealed tiles stay unknown. Mark riichi or a discard
+   from the draw when appropriate.
+5. Advice appears automatically at your discard and response decisions.
+   Choose Beginner, Club, Quick or Strong as adviser. **Record suggested move** applies
+   the displayed suggestion. Click any other legal choice (or a discard in
+   your hand) to record it after confirmation. The blue border marks the
+   suggestion. Trained percentages describe policy preference.
+6. After a discard or your pass, report any other player's call, or choose
+   **No other calls · continue**. A chii asks for its lowest tile. Calls change
+   turn order and move the claimed tile into the called set. A pon/chii is
+   followed by the caller's discard, without another draw.
+
+For an opponent's concealed or added kan, expand the kan entry under their
+turn prompt. The guide offers your robbery decision before asking whether
+anyone else won, then requests the new indicator and the replacement event.
+Your own kan follows the same sequence. Replacement draws count once; a
+chained kan starts another indicator/replacement sequence. Invalid tile counts,
+chii directions and incomplete starting hands are rejected without changing
+the saved game. Only your known hand is checked for scoring/legal moves;
+you report the calls and wins that actually happened at the physical table.
+
+**Someone won / hand ended** records another player's win or other hand end.
+After a hand, enter the settled scores and remaining riichi sticks, then choose
+whether the dealer moves or repeats. Seat winds and scores rotate together.
+The next setup lets you correct honba and round details before entering the
+next hand's tiles. The guide does not calculate payments from unseen winning
+hands or ura indicators.
+
+Your table, current prompt, adviser, game history and last **30 steps of undo**
+are saved on this device independently of the position editor and normal game.
+**Undo last step** also restores the prompt and works after a reload. Tap an
+entered starting tile to correct it; use Undo for a mistaken live event.
+**New guided game** asks before replacing saved progress. A conflicting tab
+pauses the guide and offers a reload; an unreadable save is preserved until
+you explicitly start again. Keep the window open if a storage warning appears.
+
 ## Hand review
 
 After a played hand, select **View table / my hand** (or **Review final hand** at
@@ -126,3 +175,9 @@ original live decisions, including restored saves and hand boundaries, and
 checks sequential inference, cancellation and unscored choices.
 `web/scripts/adviser-review-check.mjs` checks adviser selection, real Strong
 percentages, retry, cached results, saved preferences and mobile layout in CI.
+
+`web/tests/guided-game.test.js` checks the guided turn sequence against the real
+rules engine, including calls, kans, furiten, wall counts, settlement, undo and
+conflicting saves. `web/scripts/guided-game-check.mjs` runs the North-seat
+walkthrough, alternative confirmation, reload, opponent calls, real Strong
+weights and mobile layout against the production build.

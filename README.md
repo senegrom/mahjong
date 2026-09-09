@@ -7,7 +7,7 @@ the game from self-play on the very same engine.
 **[Play it](https://senegrom.github.io/mahjong/)** against Beginner, Club or
 Trained opponents, including a custom mix at one table.
 
-Two more ways to use the game are available from the mode bar:
+Three more ways to use the game are available from the mode bar:
 
 - **Agent watch** follows one selected agent through a full game. Choose
   Beginner, Club, Trained Quick or Trained Strong independently for all four
@@ -18,6 +18,11 @@ Two more ways to use the game are available from the mode bar:
   wall count and dora indicators. Unknown hands can stay empty. Choose the
   seat and adviser, inspect legal choices, and record the actual move or edit
   the position. The physical draft saves on this device and edits can be undone.
+- **Guided physical game** walks through a real game one event at a time: points
+  and seat, 13 starting tiles, dora, opponent discards and your actual draws.
+  It asks for the next event or shows agent suggestions automatically, records
+  the move you choose, and remembers the table, turn order and history.
+  Undo and resume also work after reloading; continue through successive hands.
 
 Trained-agent percentages are the policy's normalized weights over legal
 moves, **not win probabilities**. Beginner and Club display their selected
