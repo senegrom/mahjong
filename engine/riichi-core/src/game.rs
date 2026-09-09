@@ -1972,7 +1972,10 @@ mod tests {
         hand.phase = Phase::Act;
         hand.drawn = Some("7z".parse().unwrap());
         hand.declare_quad("7z".parse().unwrap(), MeldKind::ConcealedKan);
-        assert!(matches!(hand.phase, Phase::CallWindow), "the quad is offered to be robbed");
+        assert!(
+            matches!(hand.phase, Phase::CallWindow),
+            "the quad is offered to be robbed"
+        );
         hand.resolve_calls(&[]).unwrap();
         assert!(
             hand.players[1].temporary_furiten,
