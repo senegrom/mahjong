@@ -1,5 +1,6 @@
 import { TILES, emptyPosition, parsePhysical, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
 import { tileWords } from './tiles.js';
+import { rememberEnding, applySettlement, validEndingState, verifySettlement } from './guided-settlement.js';
 
 export const GUIDED_KEY = 'riichi.guided.v1';
 const WINDS = ['East', 'South', 'West', 'North'];
@@ -65,6 +66,7 @@ function requireTile(tile) {
 
 function startTurn(state, seat, needsDraw = true, replacement = false) {
   const p = state.position;
+  if (needsDraw && p.wall === 0) rememberEnding(state, 'draw');
   state.nextSeat = seat; state.needsDraw = needsDraw; state.stage = 'turn';
   p.turn = seat; p.phase = 'draw'; p.pending = null; p.pending_kind = 'discard';
   p.drawn = null; p.just_claimed = null; p.after_quad = replacement;
@@ -89,13 +91,14 @@ function checkKan(p) {
 
 /** One table event at a time. validateDecision is the real rules engine in the UI.
  * Unknown opponents' hands remain empty throughout; no wall is simulated. */
-export function guidedEvent(game, event, validateDecision = () => {}) {
+export function guidedEvent(game, event, validateDecision = () => {}, scoreSettlement) {
   const state = structuredClone(game.state);
   let p = state.position, label;
   const actor = () => WINDS[state.nextSeat];
   switch (event.type) {
     case 'setup':
       requireStage(state, 'setup'); numbers(p);
+      state.opening = p.players.map(player => player.score);
       state.stage = 'hand';
       label = `${WINDS[p.round]} ${p.kyoku} · You are ${WINDS[p.seat]} · ${p.players[p.seat].score.toLocaleString()} points`;
       break;
@@ -123,8 +126,8 @@ export function guidedEvent(game, event, validateDecision = () => {}) {
       if (state.nextSeat === p.seat) throw new Error('Choose one of your legal moves');
       if (state.needsDraw && p.wall <= 0) throw new Error('The live wall is empty');
       const player = p.players[state.nextSeat];
-      if (event.riichi && (!state.needsDraw || p.wall < 5 || player.melds.some(m => m.kind !== 'concealed-kan'))) {
-        throw new Error('Riichi requires a closed hand, a draw, and at least four live tiles after it');
+      if (event.riichi && (!state.needsDraw || p.wall < 2 || player.melds.some(m => m.kind !== 'concealed-kan'))) {
+        throw new Error('Riichi requires a closed hand, a draw, and at least one live tile after it');
       }
       const wall = p.wall;
       p = state.position = recordDiscard(p, state.nextSeat, event.tile, Boolean(event.riichi));
@@ -140,6 +143,7 @@ export function guidedEvent(game, event, validateDecision = () => {}) {
       requireStage(state, 'decision');
       const { choice, choices } = event;
       if (!choice || !Array.isArray(choices) || !choices.some(c => sameChoice(c, choice))) throw new Error('Analyse this decision again');
+      if (choice.kind === 'ron' || choice.kind === 'tsumo') rememberEnding(state, choice.kind, [p.seat]);
       p = state.position = recordChoice(p, choice, choices);
       label = `You: ${choice.label ?? choice.kind}`;
       if (choice.kind === 'pass') state.stage = p.pending_kind === 'discard' ? 'responses' : 'kan-response';
@@ -203,13 +207,30 @@ export function guidedEvent(game, event, validateDecision = () => {}) {
       label = `${actor()}: ${event.kind} · ${tileWords(event.tile)}`;
       break;
     }
-    case 'finish':
+    case 'finish': {
       requireStage(state, 'turn', 'decision', 'responses', 'kan-response', 'indicator');
       if (typeof event.result !== 'string' || !event.result.trim() || event.result.length > 120) throw new Error('Choose the hand result');
+      const kind = event.kind ?? (event.result === 'Exhaustive draw' ? 'draw' : 'manual');
+      const winners = ['ron', 'tsumo'].includes(kind) ? [event.winner] : [];
+      if (kind === 'ron' && (p.phase !== 'call' || event.winner === p.turn)) throw new Error('Ron needs another player’s pending discard or kan');
+      if (kind === 'tsumo' && !((state.stage === 'turn' && state.needsDraw && event.winner === state.nextSeat)
+        || (p.phase === 'act' && p.drawn && event.winner === p.turn))) throw new Error('Tsumo needs the current player’s actual draw');
+      if (kind === 'draw' && (p.wall !== 0 || p.phase !== 'call' || p.pending_kind !== 'discard')) throw new Error('An exhaustive draw needs the final discard and an empty live wall');
+      rememberEnding(state, kind, winners);
       state.stage = 'over'; p.phase = 'over'; state.result = event.result; label = event.result;
+      break;
+    }
+    case 'settle':
+      requireStage(state, 'over');
+      label = applySettlement(state, event.input ?? {}, scoreSettlement);
       break;
     case 'next-hand': {
       requireStage(state, 'over'); numbers(p);
+      if (state.ending && state.ending.kind !== 'manual') {
+        if (!state.settlement) throw new Error('Calculate and apply the hand settlement first');
+        if (event.repeat !== state.settlement.repeat) throw new Error('Dealer continuation is determined by the settled result');
+      }
+      const nextCounters = state.settlement?.next_counters;
       const old = p;
       p = state.position = emptyPosition(); p.wall = 70; p.phase = 'draw';
       const shift = event.repeat ? 0 : 1;
@@ -217,10 +238,11 @@ export function guidedEvent(game, event, validateDecision = () => {}) {
       p.round = old.round + (shift && old.kyoku === 4 ? 1 : 0);
       if (p.round > 3) throw new Error('North 4 has finished. Start a new game.');
       p.kyoku = event.repeat ? old.kyoku : old.kyoku % 4 + 1;
-      p.counters = event.repeat || state.result === 'Exhaustive draw' ? old.counters + 1 : 0;
+      p.counters = nextCounters ?? (event.repeat || state.result === 'Exhaustive draw' ? old.counters + 1 : 0);
       p.riichi_sticks = old.riichi_sticks;
       p.players.forEach((player, i) => { player.score = old.players[(i + shift) % 4].score; });
       state.stage = 'setup'; state.nextSeat = 0; state.needsDraw = true; state.result = '';
+      delete state.ending; delete state.settlement; delete state.opening;
       label = event.repeat ? 'Next hand · dealer repeats' : 'Next hand · dealer moves';
       break;
     }
@@ -235,6 +257,10 @@ export function guidedEvent(game, event, validateDecision = () => {}) {
 export function editGuided(game, edit) {
   const next = structuredClone(game);
   edit(next.state);
+  if (game.state.ending && game.state.ending.kind !== 'manual'
+    && JSON.stringify({ ...next.state, agent: game.state.agent }) !== JSON.stringify(game.state)) {
+    throw new Error('Undo the hand result before changing the scored table');
+  }
   visibleCounts(next.state.position);
   return next;
 }
@@ -244,7 +270,7 @@ export function undoGuided(game) {
   return previous ? { state: structuredClone(previous.state), past: game.past.slice(0, -1), log: game.log.slice(0, previous.logLength) } : game;
 }
 
-export function parseGuided(text) {
+export function parseGuided(text, scoreSettlement) {
   try {
     if (typeof text !== 'string' || text.length > 2_000_000) return null;
     const value = JSON.parse(text), game = value?.game;
@@ -254,7 +280,8 @@ export function parseGuided(text) {
       && parsePhysical(JSON.stringify({ version: 1, position: state.position }))
       && state.position.indicators.length <= 5
       && state.position.players.every(p => p.hand.length <= 14 && p.melds.length <= 4 && p.discards.length <= 100)
-      && visibleCounts(state.position);
+      && visibleCounts(state.position) && validEndingState(state)
+      && (!scoreSettlement || verifySettlement(state, scoreSettlement));
     if (value?.version !== 1 || !game || !validState(game.state) || !Array.isArray(game.past) || game.past.length > 30
       || !Array.isArray(game.log) || game.log.length > 10000 || game.log.some(line => typeof line !== 'string' || line.length > 500)
       || game.past.some(entry => !validState(entry.state) || !Number.isInteger(entry.logLength) || entry.logLength < 0 || entry.logLength > game.log.length)) return null;

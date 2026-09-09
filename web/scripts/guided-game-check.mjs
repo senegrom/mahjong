@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { parseTiles, PHYSICAL_KEY } from '../src/lib/physical-position.js';
-import { GUIDED_KEY } from '../src/lib/guided-game.js';
+import { GUIDED_KEY, GUIDED_FORMAT, emptyGuided, guidedEvent } from '../src/lib/guided-game.js';
 import { SETTINGS_KEY, SAVE_KEY } from '../src/lib/session.js';
 
 const root = resolve(import.meta.dirname, '..'), output = resolve(root, 'test-results');
@@ -59,6 +59,25 @@ async function passAndContinue(page) {
   await choice(page); await page.click('.record-best'); await stage(page, 'responses');
   await page.click('.no-calls'); await stage(page, 'turn');
 }
+async function loadScoringFixture(page, riichi = false) {
+  let game = emptyGuided();
+  const p = game.state.position;
+  Object.assign(p, { seat: 3, turn: 0, phase: 'call', wall: 50, first_turns: false, indicators: ['7z'], pending: '2z' });
+  p.players[3].hand = parseTiles('123m456p789s1112z');
+  p.players[0].discards = [{ tile: '2z', order: riichi ? 1 : 0, riichi: false, drawn: false, claimed: false }];
+  if (riichi) {
+    p.players[3].score = 29000; p.players[3].riichi = 'riichi'; p.riichi_sticks = 1;
+    p.players[3].discards = [{ tile: '9p', order: 0, riichi: true, drawn: false, claimed: false }];
+  }
+  game.state.stage = 'decision'; game.state.opening = [30000,30000,30000,30000];
+  game = guidedEvent(game, { type: 'choice', choice: { kind: 'ron' }, choices: [{ kind: 'ron' }] });
+  await page.evaluate(({ key, text, settings }) => {
+    localStorage.setItem(key, text);
+    localStorage.setItem(settings, JSON.stringify({ version: 1, difficulty: 'club', hints: false }));
+  }, { key: GUIDED_KEY, text: GUIDED_FORMAT.encode(game), settings: SETTINGS_KEY });
+  await page.reload({ waitUntil: 'networkidle0' });
+  await page.waitForSelector('.guided-controls:not(:disabled)'); await stage(page, 'over');
+}
 try {
   await mkdir(output, { recursive: true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
@@ -104,6 +123,7 @@ try {
     await tile(page, '6z'); await choice(page);
     assert.equal((await saved(page)).state.position.wall, 66, 'pon discard has no draw');
     await page.click('.end-hand summary');
+    await page.select('.end-hand select', 'Other hand end'); // Explicit manual adjudication, not a fabricated tsumo.
     page.once('dialog', dialog => dialog.accept()); await button(page, 'Record hand result');
     await stage(page, 'over'); await button(page, 'Next hand · dealer moves'); await stage(page, 'setup');
     game = await saved(page);
@@ -142,6 +162,56 @@ try {
     await button(b, 'Reload saved game'); await choice(b);
     assert.equal((await saved(b)).state.position.players[0].discards[0].tile, '9m');
     assert.deepEqual(b.problems, []);
+  });
+  await check('scored ron preview, apply, reload, undo and next hand preserve exact balances', async context => {
+    const page = await open(context);
+    await loadScoringFixture(page);
+    await button(page, 'Calculate hand settlement');
+    await page.waitForSelector('[aria-label="North scored hand"]');
+    assert.match(await page.$eval('[aria-label="North scored hand"]', el => el.textContent), /1 han · 40 fu/);
+    assert.match(await page.$eval('[aria-label="North scored hand"]', el => el.textContent), /Round Wind Triplet/);
+    assert.deepEqual((await saved(page)).state.position.players.map(p => p.score), [30000,30000,30000,30000], 'preview does not pay');
+    await button(page, 'Apply settlement');
+    await page.waitForFunction(key => Boolean(JSON.parse(localStorage.getItem(key)).game.state.settlement), {}, GUIDED_KEY);
+    const paid = (await saved(page)).state;
+    assert.deepEqual(paid.settlement.deltas, [-1300,0,0,1300]);
+    assert.deepEqual(paid.position.players.map(p => p.score), [28700,30000,30000,31300]);
+    await page.reload({ waitUntil: 'networkidle0' }); await stage(page, 'over');
+    await page.waitForSelector('.guided-controls:not(:disabled)');
+    assert.deepEqual((await saved(page)).state, paid, 'reload verifies without paying twice');
+    assert.equal(await page.$$eval('.guided-result button', buttons => buttons.some(b => b.textContent === 'Apply settlement')), false);
+    await button(page, 'Undo last step');
+    assert.deepEqual((await saved(page)).state.position.players.map(p => p.score), [30000,30000,30000,30000]);
+    await button(page, 'Calculate hand settlement'); await button(page, 'Apply settlement');
+    await page.waitForFunction(key => Boolean(JSON.parse(localStorage.getItem(key)).game.state.settlement), {}, GUIDED_KEY);
+    await page.screenshot({ path: resolve(output, 'guided-scoring-desktop.png'), fullPage: true });
+    await button(page, 'Next hand · dealer moves'); await stage(page, 'setup');
+    assert.deepEqual((await saved(page)).state.position.players.map(p => p.score), [30000,30000,31300,28700]);
+    assert.deepEqual(page.problems, []);
+  });
+  await check('mobile riichi settlement requires ura and displays it with hints off', async context => {
+    const page = await open(context, 360);
+    await loadScoringFixture(page, true);
+    await button(page, 'Calculate hand settlement');
+    await page.waitForFunction(() => document.querySelector('.guided-result [role="alert"]')?.textContent.includes('ura'));
+    assert.equal((await saved(page)).state.settlement, undefined);
+    await page.click('[aria-label="Revealed ura-dora indicators"] button[data-tile="6z"]');
+    await button(page, 'Calculate hand settlement');
+    await page.waitForSelector('[aria-label="North ura-dora indicators"]');
+    assert.equal(await page.$$eval('[aria-label="North ura-dora indicators"] .tile', nodes => nodes.length), 1);
+    assert.match(await page.$eval('[aria-label="North scored hand"]', el => el.textContent), /Ura-dora: 0 han/);
+    await button(page, 'Apply settlement');
+    await page.waitForFunction(key => Boolean(JSON.parse(localStorage.getItem(key)).game.state.settlement), {}, GUIDED_KEY);
+    const paid = (await saved(page)).state;
+    assert.deepEqual(paid.settlement.hand_deltas, [-2600,0,0,2600]);
+    assert.equal(paid.position.players[3].score, 32600);
+    assert.equal(paid.position.riichi_sticks, 0);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
+    await page.screenshot({ path: resolve(output, 'guided-scoring-mobile.png'), fullPage: true });
+    await page.reload({ waitUntil: 'networkidle0' }); await stage(page, 'over');
+    await page.waitForSelector('[aria-label="North ura-dora indicators"]');
+    assert.deepEqual((await saved(page)).state, paid);
+    assert.deepEqual(page.problems, []);
   });
 } finally {
   await writeFile(resolve(output, 'guided-game.json'), JSON.stringify(results, null, 2));

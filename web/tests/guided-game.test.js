@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import init, { PhysicalAnalysis } from '../src/wasm/riichi.js';
+import init, { PhysicalAnalysis, settle_physical } from '../src/wasm/riichi.js';
 import { parseTiles, PHYSICAL_KEY } from '../src/lib/physical-position.js';
 import { emptyGuided, editGuided, guidedEvent, undoGuided, parseGuided, GUIDED_FORMAT, GUIDED_KEY, doraTiles } from '../src/lib/guided-game.js';
 import { PhysicalStore } from '../src/lib/physical-store.js';
@@ -12,7 +12,7 @@ const inspect = (game, read = e => e.agent_choices()) => {
   try { return read(engine); } finally { engine.free(); }
 };
 const validate = position => { const engine = new PhysicalAnalysis(position); engine.free(); };
-const act = (g, e) => guidedEvent(g, e, validate);
+const act = (g, e) => guidedEvent(g, e, validate, settle_physical);
 function start(seat = 3, tiles = '123m456p789s1123z', indicator = '7z') {
   let g = emptyGuided();
   g = editGuided(g, s => { s.position.seat = seat; });
@@ -188,11 +188,11 @@ test('exhaustion waits for last-discard calls, then next hand rotates scores and
   g = discard(g, '2z');
   assert.equal(g.state.position.wall, 0); assert.ok(inspect(g).some(c => c.kind === 'ron'));
   g = next(pass(g)); assert.equal(g.state.stage, 'over');
-  g = editGuided(g, s => { s.position.players.forEach((p, i) => { p.score = 25000 + i * 1000; }); });
+  g = act(g, { type: 'settle', input: { tenpai: [false, false, false, true] } });
   const finished = structuredClone(g);
   g = act(g, { type: 'next-hand', repeat: false });
   assert.equal(g.state.position.seat, 2);
-  assert.deepEqual(g.state.position.players.map(p => p.score), [26000,27000,28000,25000]);
+  assert.deepEqual(g.state.position.players.map(p => p.score), [29000,29000,33000,29000]);
   assert.equal(g.state.position.kyoku, 2); assert.equal(g.state.position.counters, 1);
   assert.equal(g.state.position.wall, 70);
   assert.ok(g.state.position.players.every(p => !p.hand.length && !p.melds.length && !p.discards.length));

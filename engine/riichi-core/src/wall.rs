@@ -65,6 +65,21 @@ impl Wall {
         })
     }
 
+    /// Supplies the actual ura indicators revealed at a physical hand's end.
+    /// The original analysis wall stays hidden. No unknown tile is drawn;
+    /// the returned wall is only for scoring the completed physical hand.
+    pub fn with_revealed_ura(&self, indicators: &[Tile]) -> Option<Wall> {
+        if !self.ura_hidden || indicators.len() != self.indicators_revealed {
+            return None;
+        }
+        let mut wall = self.clone();
+        for (index, tile) in indicators.iter().enumerate() {
+            wall.tiles[SET_SIZE - DEAD_WALL + REPLACEMENTS + index * 2 + 1] = *tile;
+        }
+        wall.ura_hidden = false;
+        Some(wall)
+    }
+
     /// Builds and shuffles a wall, then reveals the first dora indicator.
     pub fn shuffled(rng: &mut Rng) -> Wall {
         let mut tiles = Vec::with_capacity(SET_SIZE);
@@ -298,5 +313,25 @@ mod tests {
         let second = Wall::shuffled(&mut Rng::from_seed(5));
         assert_eq!(first.tiles(), second.tiles());
         assert_eq!(first.dice(), second.dice());
+    }
+}
+
+#[cfg(test)]
+mod physical_result_tests {
+    use super::*;
+
+    #[test]
+    fn revealed_ura_is_complete_explicit_and_does_not_leak_to_advice() {
+        let dora = [Tile::new(0), Tile::new(1)];
+        let ura = [Tile::new(2), Tile::new(2)];
+        let wall = Wall::for_analysis(10, &dora, 1).unwrap();
+        assert!(wall.with_revealed_ura(&[]).is_none());
+        assert!(wall.with_revealed_ura(&ura[..1]).is_none());
+        let result = wall.with_revealed_ura(&ura).unwrap();
+        assert_eq!(result.ura_indicators(), ura);
+        assert_eq!(result.dora_indicators(), dora);
+        assert_eq!(result.remaining(), 10);
+        assert!(wall.ura_indicators().is_empty());
+        assert!(result.with_revealed_ura(&ura).is_none());
     }
 }
