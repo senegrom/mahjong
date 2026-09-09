@@ -7,6 +7,16 @@
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
 
+  /** Physical facts consumed by the Rust settlement adapter.
+   * @typedef {object} PhysicalSettlementInput
+   * @property {boolean} confirmed_no_furiten
+   * @property {number[]} winners
+   * @property {string[][]} hands
+   * @property {string | null} winning_tile
+   * @property {string[]} ura
+   * @property {boolean[]} tenpai
+   */
+
   let { state, onsettle, onnext } = $props();
   let ending = $derived(state.ending);
   let p = $derived(ending.position);
@@ -19,6 +29,7 @@
   let preview = $state(null), failure = $state('');
   let draw = $derived(ending.kind === 'draw');
   let needsUra = $derived(!draw && p.players.some((player, i) => selected[i] && player.riichi !== 'none'));
+  /** @type {PhysicalSettlementInput} */
   let input = $derived({
     confirmed_no_furiten: confirmedNoFuriten,
     winners: draw ? [] : selected.flatMap((yes, i) => yes ? [i] : []),
@@ -87,8 +98,8 @@
         <ul>{#each winner.yaku as yaku, i (i)}<li>{yaku.name} · {yaku.yakuman ? 'yakuman' : `${yaku.han} han`}</li>{/each}</ul>
         <p>Dora: {winner.dora} han · Ura-dora: {winner.ura_dora} han · Total: {winner.han} han</p>
         {#if winner.limit === 'yakuman'}<p>Dora do not increase this yakuman payment.</p>{/if}
-        <div class="tiles" aria-label={`${WINDS[winner.seat]} dora indicators`}><span>Dora indicators</span>{#each winner.indicators as tile, i (i)}<Tile {tile} size="tiny" />{/each}</div>
-        {#if winner.ura_indicators.length}<div class="tiles" aria-label={`${WINDS[winner.seat]} ura-dora indicators`}><span>Ura-dora indicators</span>{#each winner.ura_indicators as tile, i (i)}<Tile {tile} size="tiny" />{/each}</div>{/if}
+        <div class="tiles" role="group" aria-label={`${WINDS[winner.seat]} dora indicators`}><span>Dora indicators</span>{#each winner.indicators as tile, i (i)}<Tile {tile} size="tiny" />{/each}</div>
+        {#if winner.ura_indicators.length}<div class="tiles" role="group" aria-label={`${WINDS[winner.seat]} ura-dora indicators`}><span>Ura-dora indicators</span>{#each winner.ura_indicators as tile, i (i)}<Tile {tile} size="tiny" />{/each}</div>{/if}
         {#if winner.fu_detail.length}<details><summary>Fu calculation · {winner.fu} fu</summary><ul>{#each winner.fu_detail as [reason, fu], i (i)}<li>{reason}: {fu}</li>{/each}</ul></details>{/if}
       </article>
     {/each}

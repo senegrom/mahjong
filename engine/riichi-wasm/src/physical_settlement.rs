@@ -221,12 +221,14 @@ fn settle(ending: Ending, input: Input) -> Result<Settlement, String> {
 
     let reveal_ura = !draw && winners.iter().any(|i| riichi_before[*i]);
     if input.ura.len() != if reveal_ura { p.indicators.len() } else { 0 } {
-        return Err(if reveal_ura {
-            "Enter every revealed ura indicator, one for each dora indicator"
-        } else {
-            "Ura indicators are only revealed for a riichi winner"
-        }
-        .into());
+        return Err(
+            if reveal_ura {
+                "Enter every revealed ura indicator, one for each dora indicator"
+            } else {
+                "Ura indicators are only revealed for a riichi winner"
+            }
+            .into(),
+        );
     }
     if reveal_ura {
         let ura = input
