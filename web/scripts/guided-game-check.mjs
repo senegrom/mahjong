@@ -132,7 +132,11 @@ try {
   await check('two windows stop conflicting edits and reload the newer guided prompt', async context => {
     const a = await open(context); await setup(a);
     const b = await open(context); await stage(b, 'turn');
+    // Chrome may suspend animation-frame work in the background tab. Clicks
+    // and waitForFunction must run in the tab a real user has activated.
+    await a.bringToFront();
     await tile(a, '9m'); await choice(a);
+    await b.bringToFront();
     await b.waitForFunction(() => document.querySelector('.guided-play [role="alert"]')?.textContent.includes('Another window'));
     assert.equal(await b.$eval('.guided-controls', el => el.disabled), true);
     await button(b, 'Reload saved game'); await choice(b);
