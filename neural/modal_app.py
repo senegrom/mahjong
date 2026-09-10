@@ -408,7 +408,7 @@ def train_mortal(
     the published Mortal named otherwise. Its own function, so it runs
     beside the other lineage's training rather than queueing behind it.
     """
-    where = Path("/scratch/mortal-run")
+    where = Path("/scratch") / run
     where.mkdir(parents=True, exist_ok=True)
     volume.reload()
     source = _checkpoint(run, resume)
@@ -425,6 +425,8 @@ def train_mortal(
         history = VOLUME / run / "log.jsonl"
         if history.exists():
             shutil.copyfile(history, where / "log.jsonl")
+        else:
+            (where / "log.jsonl").unlink(missing_ok=True)
         command += ["--resume", str(where / "latest.pt")]
         print(f"resuming from {source}", flush=True)
     else:
@@ -521,7 +523,9 @@ def train_combined(
     in the run when it is there, and otherwise joins the two checkpoints
     named, which may be any run's.
     """
-    where = Path("/scratch/joined-run")
+    # Named after the run: a container that has already trained another
+    # must not leave its log where this one will append to it.
+    where = Path("/scratch") / run
     where.mkdir(parents=True, exist_ok=True)
     volume.reload()
     source = _checkpoint(run, resume)
@@ -546,6 +550,8 @@ def train_combined(
         history = VOLUME / run / "log.jsonl"
         if history.exists():
             shutil.copyfile(history, where / "log.jsonl")
+        else:
+            (where / "log.jsonl").unlink(missing_ok=True)
         command += ["--resume", str(where / "latest.pt")]
         print(f"resuming from {source}", flush=True)
     else:
