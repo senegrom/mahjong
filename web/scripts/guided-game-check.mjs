@@ -22,9 +22,12 @@ async function stage(page, value) {
 async function tile(page, value) { await page.click(`.guide-prompt .palette button[data-tile="${value}"]`); }
 async function choice(page) { await page.waitForSelector('.record-best'); await stage(page, 'decision'); }
 async function button(page, text) {
+  // A preceding action may still be rendering its next enabled control.
+  await page.waitForFunction(text => [...document.querySelectorAll('.guided-play button')]
+    .some(button => button.textContent.trim() === text && !button.matches(':disabled')), {}, text);
   await page.evaluate(text => {
     const button = [...document.querySelectorAll('.guided-play button')].find(b => b.textContent.trim() === text);
-    if (!button || button.disabled) throw new Error(`Missing enabled button: ${text}`);
+    if (!button || button.matches(':disabled')) throw new Error(`Missing enabled button: ${text}`);
     button.click();
   }, text);
 }
@@ -166,6 +169,7 @@ try {
   await check('scored ron preview, apply, reload, undo and next hand preserve exact balances', async context => {
     const page = await open(context);
     await loadScoringFixture(page);
+    const unpaid = (await saved(page)).state;
     await button(page, 'Calculate hand settlement');
     await page.waitForSelector('[aria-label="North scored hand"]');
     assert.match(await page.$eval('[aria-label="North scored hand"]', el => el.textContent), /1 han · 40 fu/);
@@ -181,9 +185,17 @@ try {
     assert.deepEqual((await saved(page)).state, paid, 'reload verifies without paying twice');
     assert.equal(await page.$$eval('.guided-result button', buttons => buttons.some(b => b.textContent === 'Apply settlement')), false);
     await button(page, 'Undo last step');
+    // Undo stays on the over stage. Wait for its asynchronous, locked save,
+    // not just the click or the already-present stage, before reading balances.
+    await page.waitForFunction(key => {
+      const state = JSON.parse(localStorage.getItem(key))?.game.state;
+      return state?.stage === 'over' && state.ending && !state.settlement;
+    }, {}, GUIDED_KEY);
     assert.deepEqual((await saved(page)).state.position.players.map(p => p.score), [30000,30000,30000,30000]);
+    assert.deepEqual((await saved(page)).state, unpaid, 'undo restores the entire unpaid state, including the pot');
     await button(page, 'Calculate hand settlement'); await button(page, 'Apply settlement');
     await page.waitForFunction(key => Boolean(JSON.parse(localStorage.getItem(key)).game.state.settlement), {}, GUIDED_KEY);
+    assert.deepEqual((await saved(page)).state, paid, 'reapplying after undo produces the same settlement exactly once');
     await page.screenshot({ path: resolve(output, 'guided-scoring-desktop.png'), fullPage: true });
     await button(page, 'Next hand · dealer moves'); await stage(page, 'setup');
     assert.deepEqual((await saved(page)).state.position.players.map(p => p.score), [30000,30000,31300,28700]);
