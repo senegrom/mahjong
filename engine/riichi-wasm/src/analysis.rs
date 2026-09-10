@@ -1,5 +1,8 @@
 //! Read-only analysis of a manually entered, partially observed table.
 //! Unknown opponents' hands stay empty; only the selected hand is required.
+#[path = "physical_settlement.rs"]
+mod settlement;
+
 use super::{describe_action, describe_call};
 use riichi_core::bot::{Bot, Style};
 use riichi_core::encoding::{self, ACTIONS, OBSERVATION};
@@ -186,6 +189,13 @@ fn wind(value: usize) -> Result<Wind, String> {
 
 impl Position {
     fn build(&self) -> Result<(Hand, Wind), String> {
+        self.build_selected(true)
+    }
+
+    // Settlement may select an unknown seat to validate the final discard.
+    // Every supplied hand is still checked; winning/tenpai hands are required
+    // separately by the settlement adapter. Advice always requires its hand.
+    fn build_selected(&self, require_selected_hand: bool) -> Result<(Hand, Wind), String> {
         let seat = wind(self.seat)?;
         let turn = wind(self.turn)?;
         let round = wind(self.round)?;
@@ -309,7 +319,9 @@ impl Position {
             }
             let expected = 13 - 3 * player.melds.len()
                 + usize::from(phase == Phase::Act && index == self.turn);
-            if (index == self.seat || !input.hand.is_empty()) && player.hand.len() != expected {
+            if ((index == self.seat && require_selected_hand) || !input.hand.is_empty())
+                && player.hand.len() != expected
+            {
                 return Err(format!(
                     "{} needs {expected} concealed tiles, including any drawn tile",
                     ["East", "South", "West", "North"][index]

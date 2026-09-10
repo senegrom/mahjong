@@ -1,10 +1,10 @@
 <script>
   import { onMount, onDestroy, untrack } from 'svelte';
-  import { PhysicalAnalysis } from '../wasm/riichi.js';
+  import { PhysicalAnalysis, settle_physical } from '../wasm/riichi.js';
   import { AGENTS, WINDS, evaluateAgent } from './agents.js';
   import { TILES } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
-  import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, visibleCounts, doraTiles, setTiles } from './guided-game.js';
+  import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, setTiles } from './guided-game.js';
   import { tileWords } from './tiles.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
@@ -12,6 +12,7 @@
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
   import AgentWeights from './AgentWeights.svelte';
+  import GuidedResult from './GuidedResult.svelte';
 
   let { ready, trainedAvailable, strongAvailable, storage, hints = true } = $props();
   let game = $state(emptyGuided());
@@ -21,6 +22,7 @@
   let dora = $derived(hints ? doraTiles(position) : []);
   let counts = $derived(visibleCounts(position));
   let hand = $derived([...mine.hand].sort((a, b) => TILES.indexOf(a) - TILES.indexOf(b)));
+  let mounted = $state(false);
   let loaded = $state(false), unreadable = $state(false), conflict = $state(''), warning = $state('');
   let failure = $state(''), busy = $state(false), analysis = $state(null);
   let discardRiichi = $state(false), discardDrawn = $state(false);
@@ -45,14 +47,17 @@
   }
   onMount(() => {
     loadedStore = new PhysicalStore(storage, navigator.locks, {
-      format: GUIDED_FORMAT,
+      format: { ...GUIDED_FORMAT, parse: text => parseGuided(text, settle_physical) },
       onWarning: message => { if (!closed) warning = message.replaceAll('physical table', 'guided game'); },
       onConflict: message => { if (!closed) { conflict = message.replaceAll('physical table', 'guided game'); request?.abort(); analysis = null; busy = false; } },
     });
-    void load();
+    mounted = true;
     const changed = event => loadedStore.changed(event);
     window.addEventListener('storage', changed);
     return () => window.removeEventListener('storage', changed);
+  });
+  $effect(() => {
+    if (ready && mounted) untrack(() => { void load(); });
   });
   $effect(() => {
     if (loaded && !unreadable && !conflict) void loadedStore.save(snapshot());
@@ -73,7 +78,7 @@
   function validate(p) { const engine = new PhysicalAnalysis(p); engine.free(); }
   function act(event) {
     if (blocked) return false;
-    try { game = guidedEvent(snapshot(), event, validate); failure = ''; return true; }
+    try { game = guidedEvent(snapshot(), event, validate, settle_physical); failure = ''; return true; }
     catch (error) { failure = error.message ?? String(error); return false; }
   }
   async function analyze(key = decisionKey()) {
@@ -113,7 +118,8 @@
   }
   function finish() {
     const result = resultKind === 'Exhaustive draw' || resultKind === 'Other hand end' ? resultKind : `${WINDS[resultSeat]}: ${resultKind}`;
-    if (window.confirm(`Finish this hand: ${result}?`)) act({ type: 'finish', result });
+    if (window.confirm(`Finish this hand: ${result}?`)) act({ type: 'finish', result,
+      kind: resultKind === 'Exhaustive draw' ? 'draw' : resultKind === 'Other hand end' ? 'manual' : resultKind.toLowerCase(), winner: resultSeat });
   }
   const viewMelds = player => player.melds.map(m => ({ kind: m.kind, tiles: setTiles(m), from: ['self', 'right', 'across', 'left'][m.from] }));
   onDestroy(() => { closed = true; request?.abort(); loadedStore?.close(); });
@@ -199,10 +205,15 @@
         <p>If someone won, record the hand result below.</p>
       {:else if state.stage === 'over'}
         <p class="eyebrow">Hand complete</p><h3>{state.result || 'Hand finished'}</h3>
+        {#if state.ending && state.ending.kind !== 'manual'}
+          {#key JSON.stringify(state.ending)}<GuidedResult {state} onsettle={input => act({ type: 'settle', input })} onnext={repeat => act({ type: 'next-hand', repeat })} />{/key}
+        {:else}
+          <p>This is a legacy or manually adjudicated hand end. Automatic scoring has not been applied.</p>
         <p>Settle points at the physical table, then enter the resulting scores and remaining riichi sticks.</p>
         <div class="fields">{#each position.players as player, i (i)}<label>{WINDS[i]} points<input aria-label={`${WINDS[i]} settled points`} type="number" step="100" value={player.score} oninput={e => edit(s => { s.position.players[i].score = e.currentTarget.value === '' ? null : Number(e.currentTarget.value); })} /></label>{/each}
           <label>Riichi sticks remaining<input aria-label="Riichi sticks remaining" type="number" min="0" max="100" value={position.riichi_sticks} oninput={e => edit(s => { s.position.riichi_sticks = e.currentTarget.value === '' ? null : Number(e.currentTarget.value); })} /></label>
         </div><div class="buttons"><button class="primary" onclick={() => act({ type: 'next-hand', repeat: false })}>Next hand · dealer moves</button><button onclick={() => act({ type: 'next-hand', repeat: true })}>Next hand · dealer repeats</button></div>
+        {/if}
       {/if}
       {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
     </div>
