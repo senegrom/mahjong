@@ -511,7 +511,10 @@ def train_combined(
     measure_every: int = 5,
     measure_games: int = 512,
     resume: str = "latest",
-    ours: str = "w1012-run/latest",
+    # The re-headed checkpoint, which answers over Mortal's forty-six moves.
+    # `w1012-run/latest` is the same trunk with our old seventy-eight, and
+    # joining that one refuses rather than quietly mistranslating.
+    ours: str = "w1012-run/mortal-space",
     mortal: str = "mortal-run/latest",
     opponents: list[str] | None = None,
     opponent_share: float = 0.0,

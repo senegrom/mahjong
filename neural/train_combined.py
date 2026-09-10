@@ -46,6 +46,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--entropy", type=float, default=0.0005)
     parser.add_argument("--value-weight", type=float, default=0.5)
     parser.add_argument(
+        "--hands-weight",
+        type=float,
+        default=1.0,
+        help="how much to weigh reading the opponents' hands, which is a "
+        "free and dense label where the game's result is neither, and what "
+        "a search would deal the unseen tiles from",
+    )
+    parser.add_argument(
         "--leash",
         type=float,
         default=0.0,
@@ -121,11 +129,27 @@ def main() -> None:
     # parameters are fixed this generation gets no gradients and is left
     # alone by it.
     net.set_mode("none")
+
+    def hands_loss_of(guessed, wanted):
+        """Cross-entropy against the distribution each opponent's hand
+        actually was, over the 34 kinds, and how much of the hand the guess
+        covers, which is readable where a cross-entropy is not. Positions
+        where nobody was holding anything are rows of zeros, and skipped."""
+        holding = wanted.sum(dim=2) > 0
+        log_guess = torch.log_softmax(guessed, dim=2)
+        loss = -(wanted * log_guess).sum(dim=2)
+        loss = (loss * holding).sum() / holding.sum().clamp(min=1)
+        with torch.no_grad():
+            overlap = torch.minimum(log_guess.exp(), wanted).sum(dim=2)
+            covered = (overlap * holding).sum() / holding.sum().clamp(min=1)
+        return loss, covered
+
     optimiser = torch.optim.AdamW(
         [
-            # The head and the critic share a rate; what a generation holds
-            # still is decided by `set_mode`, not by leaving it out here.
-            {"params": list(net.fuse.parameters()) + net.always_trained(), "lr": args.lr},
+            # The head and the two things that always train share a rate;
+            # what a generation holds still is decided by `set_mode`, not by
+            # leaving it out here.
+            {"params": net.head_trained() + net.always_trained(), "lr": args.lr},
             {"params": net.ours_trained(), "lr": args.lr_ours},
             {"params": net.mortal_trained(), "lr": args.lr_mortal, "weight_decay": 0.01},
         ],
@@ -201,6 +225,10 @@ def main() -> None:
         actions = batch.actions.to(device)
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
+        # What the three opponents were really holding at each decision: the
+        # label the reading of the hands is trained against, which self-play
+        # knows for free and which is far denser than the game's result.
+        held = batch.held.to(device)
         on_card = resident(observations, device)
         loaded = time.time() - began - played
 
@@ -230,7 +258,7 @@ def main() -> None:
         zero = lambda: torch.zeros((), device=device)
         total_policy, total_value, total_entropy = zero(), zero(), zero()
         total_clipped, total_kl, total_grad = zero(), zero(), zero()
-        total_leash = zero()
+        total_leash, total_hands, total_covered = zero(), zero(), zero()
         steps = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(batch.decisions)
@@ -256,9 +284,10 @@ def main() -> None:
             for picks, planes in minibatches:
                 optimiser.zero_grad(set_to_none=True)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    logits, value, _guessed = learn(planes, legal[picks])
+                    logits, value, guessed = learn(planes, legal[picks])
                 logits = logits.float()
                 value = value.float()
+                hands_loss, covered = hands_loss_of(guessed.float(), held[picks])
                 distribution = torch.distributions.Categorical(logits=logits)
                 log_prob = distribution.log_prob(actions[picks])
                 advantage = advantages[picks]
@@ -267,7 +296,12 @@ def main() -> None:
                 policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
                 value_loss = nn.functional.mse_loss(value, returns[picks])
                 entropy = distribution.entropy().mean()
-                loss = policy_loss + args.value_weight * value_loss - args.entropy * entropy
+                loss = (
+                    policy_loss
+                    + args.value_weight * value_loss
+                    + args.hands_weight * hands_loss
+                    - args.entropy * entropy
+                )
                 # How far this has come from the policy the run began with,
                 # counted the way that punishes abandoning a move the
                 # starting policy liked, which is the drift that cost us.
@@ -304,20 +338,27 @@ def main() -> None:
                     total_kl += (old_log_probs[picks] - log_prob).mean()
                     total_grad += grad_norm
                     total_leash += leash
+                    total_hands += hands_loss
+                    total_covered += covered
                 steps += 1
 
         # What the head is leaning on, on the last minibatch: how far it
         # moved our own logits, and the weight it puts on each of the three
         # answers it weighs, its own, Mortal's and ours.
         head_shift = 0.0
-        with torch.no_grad():
-            net.eval()
-            phi, q, features, a1, _value, _guessed = net.backbones(planes, legal[picks])
-            joined = net.fuse(phi.float(), q.float(), features.float(), a1.float(), legal[picks])
-            allowed = legal[picks]
-            shift = (joined - a1).abs().masked_fill(~allowed, 0.0)
-            head_shift = float(shift.sum() / allowed.sum().clamp(min=1))
-            weights = net.fuse.weights.mean(dim=1).tolist()
+        weights = net.fuse.weights.mean(dim=1).tolist()
+        # A round that gathered fewer decisions than one minibatch trains on
+        # none of them, and there is then no last minibatch to read. Only the
+        # weights can be reported, which are the network's rather than the
+        # round's.
+        if steps:
+            with torch.no_grad():
+                net.eval()
+                phi, q, features, a1, _value, _guessed = net.backbones(planes, legal[picks])
+                joined = net.fuse(phi.float(), q.float(), features.float(), a1.float(), legal[picks])
+                allowed = legal[picks]
+                shift = (joined - a1).abs().masked_fill(~allowed, 0.0)
+                head_shift = float(shift.sum() / allowed.sum().clamp(min=1))
             net.train()
 
         denom = max(steps, 1)
@@ -342,6 +383,8 @@ def main() -> None:
             "advantage_spread": round(advantage_spread, 4),
             "entropy": round(float(total_entropy / denom), 4),
             "leash_kl": round(float(total_leash / denom), 5),
+            "hands_loss": round(float(total_hands / denom), 4),
+            "hands_covered": round(float(total_covered / denom), 4),
             "clipped": round(float(total_clipped / denom), 3),
             "approx_kl": round(float(total_kl / denom), 5),
             "grad_norm": round(float(total_grad / denom), 3),

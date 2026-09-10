@@ -250,6 +250,11 @@ def play(
             record_actions = records.actions
             record_log_probs = records.log_probs
             record_slots = records.slots
+            # What the three opponents were really holding, one row for each
+            # decision recorded rather than one for each row of the table: a
+            # riichi is two decisions from the one position, and the reading
+            # of the hands is trained on both.
+            held.append(truth[index][record_slots].copy())
             began = clock()
         else:
             if recording:

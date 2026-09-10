@@ -29,7 +29,7 @@ from torch import nn
 from libriichi.consts import ACTION_SPACE as ACTIONS
 
 from . import mortal_learner, mortal_model, zoo
-from .model import GROUPS, POSITIONS, PolicyValueNet, from_payload, load_weights
+from .model import GROUPS, OPPONENTS, POSITIONS, PolicyValueNet, from_payload, load_weights
 
 
 class Fuse(nn.Module):
@@ -64,6 +64,13 @@ class Fuse(nn.Module):
         self.correction = nn.Sequential(
             nn.Linear(4 * ACTIONS, 256), nn.ReLU(), nn.Linear(256, ACTIONS)
         )
+        # What a position is worth, and what the other three are holding,
+        # with Mortal's vector added to what our network alone could see.
+        # Both start silent, so the fusion begins by judging and reading
+        # exactly as our network did and is never worse for the change.
+        self.value_fix = nn.Sequential(nn.Linear(phi, 256), nn.ReLU(), nn.Linear(256, 1))
+        self.hands_fix = nn.Sequential(nn.Linear(phi, width), nn.ReLU())
+        self.hands_out = nn.Conv1d(width, OPPONENTS, 1)
         # F1 starts silent, not absent: its last layers are zero, so it
         # adds nothing to the first move played, while its weight below is
         # small and not zero, so a gradient reaches F2 from the first step.
@@ -83,6 +90,21 @@ class Fuse(nn.Module):
             self.weights[2].fill_(0.02)
         nn.init.zeros_(self.correction[-1].weight)
         nn.init.zeros_(self.correction[-1].bias)
+        nn.init.zeros_(self.value_fix[-1].weight)
+        nn.init.zeros_(self.value_fix[-1].bias)
+        nn.init.zeros_(self.hands_out.weight)
+        nn.init.zeros_(self.hands_out.bias)
+
+    def judge(self, phi: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
+        """What the position is worth to the fusion: our network's answer
+        with what Mortal sees added to it."""
+        return value + self.value_fix(phi).squeeze(1)
+
+    def read_hands(self, phi: torch.Tensor, guessed: torch.Tensor) -> torch.Tensor:
+        """What the three opponents are holding, likewise: our network's
+        reading, corrected by Mortal's vector spread over the tiles."""
+        spread = self.hands_fix(phi).unsqueeze(2).expand(-1, -1, guessed.shape[2])
+        return guessed + self.hands_out(spread)
 
     def hidden(self, phi: torch.Tensor, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """F2, per tile and pooled, from Mortal's vector and our features."""
@@ -147,14 +169,34 @@ class Combined(nn.Module):
         self.backbones_forward = self.backbones
 
     def always_trained(self) -> list[nn.Parameter]:
-        """Our value head, the baseline the advantages are measured
-        against, which every generation needs whatever else is held."""
-        return list(self.ours.value.parameters())
+        """The critic and the reading of the hands, both halves of each.
+
+        The critic is the baseline the advantages are measured against and
+        the value a search would judge a leaf by; the reading is what a
+        search would deal the unseen tiles from. Neither is a policy, so
+        holding the policy still is no reason to stop either learning, and
+        both train every generation whatever else is held."""
+        parts = [
+            self.ours.value,
+            self.ours.belief_stem,
+            self.ours.belief_tower,
+            self.ours.belief_tail,
+            self.ours.hands,
+            self.fuse.value_fix,
+            self.fuse.hands_fix,
+            self.fuse.hands_out,
+        ]
+        return [parameter for part in parts for parameter in part.parameters()]
 
     def ours_trained(self) -> list[nn.Parameter]:
-        """Our network beneath F, apart from its value head."""
-        value = {id(p) for p in self.ours.value.parameters()}
-        return [p for p in self.ours.parameters() if id(p) not in value]
+        """Our network beneath F, apart from what always trains."""
+        apart = {id(parameter) for parameter in self.always_trained()}
+        return [p for p in self.ours.parameters() if id(p) not in apart]
+
+    def head_trained(self) -> list[nn.Parameter]:
+        """The fusion's own weights, apart from what always trains."""
+        apart = {id(parameter) for parameter in self.always_trained()}
+        return [p for p in self.fuse.parameters() if id(p) not in apart]
 
     def mortal_trained(self) -> list[nn.Parameter]:
         return list(self.mortal.parameters())
@@ -170,7 +212,7 @@ class Combined(nn.Module):
             parameter.requires_grad_("ours" not in held)
         for parameter in self.mortal_trained():
             parameter.requires_grad_("mortal" not in held)
-        for parameter in self.fuse.parameters():
+        for parameter in self.head_trained():
             parameter.requires_grad_("head" not in held)
         for parameter in self.always_trained():
             parameter.requires_grad_(True)
@@ -218,8 +260,13 @@ class Combined(nn.Module):
         self, planes: torch.Tensor, legal: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal)
-        logits = self.fuse(phi.float(), q.float(), features.float(), a1.float(), legal)
-        return logits, value, guessed
+        phi = phi.float()
+        logits = self.fuse(phi, q.float(), features.float(), a1.float(), legal)
+        return (
+            logits,
+            self.fuse.judge(phi, value.float()),
+            self.fuse.read_hands(phi, guessed.float()),
+        )
 
     def forward(self, planes: torch.Tensor, legal: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         logits, value, _guessed = self.everything(planes, legal)
@@ -323,7 +370,11 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
     mortal.dqn.load_state_dict(state["current_dqn"])
     net = Combined(ours, mortal.to(device)).to(device)
     net.mortal_config = state["config"]
-    net.fuse.load_state_dict(state["combined"])
+    # A head saved before it judged positions and read hands keeps
+    # everything it had and starts those at nothing, which is where they
+    # begin anyway: the fusion then judges and reads as our network does
+    # and learns from there.
+    net.fuse.load_state_dict(state["combined"], strict=False)
     return net, state
 
 
