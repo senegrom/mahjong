@@ -18,13 +18,13 @@ import json
 import time
 from pathlib import Path
 
-import numpy as np
 import torch
 from torch import nn
 
 from . import combined, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
+from .training_state import capture_random_state, restore_random_state
 
 SMOOTHING = 1 / 3
 
@@ -97,12 +97,14 @@ def main() -> None:
     best_placement = float("inf")
     smoothed = None
     optimiser_state = None
+    random_state = None
     if args.resume is not None and args.resume.exists():
         net, payload = combined.load(args.resume, device)
         start = int(payload.get("generation", 0))
         smoothed = payload.get("smoothed")
         best_placement = float(payload.get("best_placement", float("inf")))
         optimiser_state = payload.get("optimizer_state")
+        random_state = payload.get("random_state")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.ours is not None and args.mortal is not None:
         net, _config = combined.build(args.ours, args.mortal, device)
@@ -189,7 +191,11 @@ def main() -> None:
         f"{net.parameter_count() / 1e6:.2f}M parameters | fixed by turns: {args.fixed}",
         flush=True,
     )
-    drawer = np.random.default_rng(args.seed + 99)
+    # Constructors above consume Torch randomness. Restore only now, so the
+    # next self-play decision and minibatch continue exactly where we saved.
+    drawer = restore_random_state(
+        random_state, seed=args.seed, generation=start, modes=args.fixed
+    )
 
     def checkpoint_payload(generation: int) -> dict:
         return {
@@ -199,6 +205,7 @@ def main() -> None:
             "smoothed": smoothed,
             "best_placement": best_placement,
             "optimizer_state": optimiser.state_dict(),
+            "random_state": capture_random_state(drawer),
         }
 
     end = start + args.rounds if args.rounds else args.generations

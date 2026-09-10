@@ -2,14 +2,17 @@
 
 The browser game and the Python training extension share a repository but have
 separate dependency graphs. An npm audit alone does not cover the PyO3 crates
-used by the training extension.
+used by the training extension. `engine/libriichi` is also a standalone Cargo
+workspace: the root audit is not a substitute for auditing its own lockfile.
 
 ## Reproduce the checks
 
 From the repository root, run `cargo fmt --all --check`,
 `cargo clippy --locked --workspace --all-targets -- -D warnings`,
-`cargo test --locked --workspace`, and `cargo audit`.
-The CI audit tool is pinned to cargo-audit 0.22.2.
+`cargo test --locked --workspace`, `cargo audit`, and
+`(cd engine/libriichi && cargo audit)`.
+The CI audit tool is pinned to cargo-audit 0.22.2. The neural workflow audits
+both graphs on relevant changes and weekly, with no advisory exemptions.
 
 On the Linux CI runner, build the training extension with
 `cargo build --locked -p riichi-py` and run
@@ -40,12 +43,11 @@ handwritten application source.
 
 ## Dependency and workflow policy
 
-Dependabot checks the Cargo workspace at `/`, npm at `/web`, and GitHub
-Actions at `/`. PyO3 is upgraded from 0.23.5 to the patched 0.29.2 series;
-the bindings explicitly retain the previous GIL requirement. This avoids
-remaining on a vulnerable release or upgrading into another affected release.
-Relevant upstream advisories are RUSTSEC-2025-0020, RUSTSEC-2026-0176 and
-RUSTSEC-2026-0177.
+Dependabot checks both Cargo workspaces, at `/` and `/engine/libriichi`, npm
+at `/web`, and GitHub Actions at `/`. The root Python binding uses PyO3
+0.29.2 and explicitly retains the previous GIL requirement. The vendored
+observation engine has its own dependency versions and must pass its own
+audit; a clean root audit makes no claim about that separate lockfile.
 
 Actions are pinned to full upstream commit IDs. The JavaScript actions use
 Node 24 internally; the application build still uses Node 22. wasm-pack is
@@ -60,7 +62,39 @@ a Node 20 uploader. Keep the artifact named `github-pages` with an
 Build jobs have only `contents: read`, and checkouts do not persist credentials.
 Only the deployment job receives Pages and OIDC write permissions. Deployment
 requires the Rust and browser verification jobs, including dependency audits,
-to succeed.
+to succeed. The standalone training audit is reported by the separate neural
+workflow; it is not a cross-workflow Pages deployment dependency.
+
+## Training and browser-export regressions
+
+After installing both native Python engines and the CPU training/export
+dependencies from `.github/workflows/neural.yml`, run:
+
+```sh
+python -m unittest discover -s neural/tests -v
+```
+
+Combined checkpoints include the freeze-mode generator, CPU Torch state and
+available CUDA states. Restore happens after model, optimizer and opponent
+construction. Legacy checkpoints advance the freeze schedule to their absolute
+generation using the supplied seed and mode list, but warn that their missing
+Torch stream cannot be reproduced. CPU tests compare uninterrupted training
+with serialized, resumed training, including AdamW state and resulting weights.
+
+The browser export contract is Mortal version 4: 1,012 observation planes,
+34 tile positions and 46 actions, with named policy, value and hands outputs.
+Engine-plane students, mismatched action heads and fusion checkpoints are
+rejected before touching the destination. The exporter checks real positions
+from deterministic native-engine play rather than random binary inputs.
+All three heads must be finite, have the expected shape and have mean absolute
+error at most 10% of the reference standard deviation (with a 0.01 scale floor).
+Best legal actions must agree on at least 90% of non-forced test decisions.
+These are export acceptance thresholds, not playing-strength measurements.
+Missing runtime-operator metadata fails closed unless the explicit
+`--allow-any-operator` development option is supplied; that option never bypasses
+the observation/action contract or numerical checks. A validated graph replaces
+the destination atomically. Tests cover failed-export preservation, successful
+replacement, every non-finite head, legal masks, and real ONNX export/inference.
 
 ## Test-server regression coverage
 
