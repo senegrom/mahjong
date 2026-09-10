@@ -1,0 +1,155 @@
+name: reduced ONNX runtime
+
+# Builds the browser's ONNX Runtime with only the operators our networks
+# need, and commits the result. Run it after widening
+# web/runtime/reduced-ops.config, which is kept by hand so that adding an
+# operator and shipping the network that needs it can happen in either order.
+#
+# The loader beside the binary carries three edits of ours that bound the
+# heap for phones, so this build refuses to overwrite it blindly: it
+# compares what the build emits against the unpatched loader kept as
+# ort-wasm-simd-threaded.stock.mjs and stops if they differ, leaving both
+# for someone to re-apply the edits knowingly.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reduced-onnx-runtime
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+
+      - name: Check every shipped model against the operator list
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m pip install --user onnx
+          python3 web/scripts/check-model-operators.py
+
+      - name: Build the runtime from that operator list
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m pip install --user ninja onnx flatbuffers
+          ORT="$RUNNER_TEMP/onnxruntime"
+          git clone --depth 1 --branch v1.29.0 --recurse-submodules --shallow-submodules https://github.com/microsoft/onnxruntime.git "$ORT"
+          echo 'Building for these operators:'
+          cat web/runtime/reduced-ops.config
+          "$ORT/build.sh" \
+            --config MinSizeRel \
+            --build_wasm \
+            --target onnxruntime_webassembly \
+            --enable_wasm_simd \
+            --enable_wasm_threads \
+            --skip_tests \
+            --compile_no_warning_as_error \
+            --disable_wasm_exception_catching \
+            --disable_rtti \
+            --disable_ml_ops \
+            --disable_contrib_ops \
+            --disable_generation_ops \
+            --include_ops_by_config "$GITHUB_WORKSPACE/web/runtime/reduced-ops.config" \
+            --parallel \
+            --skip_submodule_sync
+          wasm=$(find "$ORT/build" -type f -name 'ort-wasm-simd-threaded.wasm' | head -n1)
+          loader=$(find "$ORT/build" -type f -name 'ort-wasm-simd-threaded.mjs' | head -n1)
+          test -n "$wasm" && test -f "$wasm"
+          test -n "$loader" && test -f "$loader"
+          cp "$wasm" "$RUNNER_TEMP/built.wasm"
+          cp "$loader" "$RUNNER_TEMP/built.mjs"
+
+      - name: Take the binary, and the loader only if it is unchanged
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp "$RUNNER_TEMP/built.wasm" web/runtime/ort-wasm-simd-threaded.wasm
+          # The loader we ship is the stock one with three edits that bound
+          # the heap. If the build emits the same stock loader as last time,
+          # our edited copy still applies and is left alone.
+          if cmp -s "$RUNNER_TEMP/built.mjs" web/runtime/ort-wasm-simd-threaded.stock.mjs; then
+            echo 'loader unchanged; keeping the edited one'
+          else
+            cp "$RUNNER_TEMP/built.mjs" "$RUNNER_TEMP/loader-emitted.mjs"
+            diff -u web/runtime/ort-wasm-simd-threaded.stock.mjs "$RUNNER_TEMP/built.mjs" > "$RUNNER_TEMP/loader.diff" || true
+            echo 'The build emitted a different loader. Our heap edits must be'
+            echo 're-applied by hand to it before it can ship. Both files are'
+            echo 'in the artefact.' >&2
+            exit 1
+          fi
+          generic=$(stat -c %s web/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm 2>/dev/null || echo 0)
+          reduced=$(stat -c %s web/runtime/ort-wasm-simd-threaded.wasm)
+          echo "reduced_bytes=$reduced" | tee /tmp/runtime-size.txt
+          echo "generic_bytes=$generic" | tee -a /tmp/runtime-size.txt
+
+      - name: Build and run every web regression
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if ! command -v wasm-pack >/dev/null || [ "$(wasm-pack --version)" != "wasm-pack 0.15.0" ]; then
+            cargo install wasm-pack --version 0.15.0 --locked
+          fi
+          cd web
+          npm ci
+          npm run wasm
+          npm run build
+          npm run test:unit 2>&1 | tee /tmp/runtime-unit.txt
+          npm run test:browser 2>&1 | tee /tmp/runtime-browser.txt
+
+      - name: Commit the tested build to main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          git add web/runtime
+          if git diff --cached --quiet; then
+            echo 'nothing changed'
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'Rebuild the browser runtime with the wider operator list'
+          git fetch origin main
+          git rebase origin/main
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:main
+          git rev-parse HEAD | tee /tmp/runtime-commit.txt
+
+      - name: Upload the evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: reduced-onnx-runtime
+          path: |
+            /tmp/runtime-size.txt
+            /tmp/runtime-unit.txt
+            /tmp/runtime-browser.txt
+            /tmp/runtime-commit.txt
+            ${{ runner.temp }}/loader-emitted.mjs
+            ${{ runner.temp }}/loader.diff
+            web/runtime/reduced-ops.config
+            web/runtime/ort-wasm-simd-threaded.wasm
+            web/runtime/ort-wasm-simd-threaded.mjs
+          if-no-files-found: ignore
+          retention-days: 14

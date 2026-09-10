@@ -87,8 +87,14 @@ def quantise(source: Path, destination: Path) -> None:
         onnx.save(model, str(destination))
 
 
-def check_operators(destination: Path) -> None:
-    """Refuses a graph the browser's runtime could not load."""
+def check_operators(destination: Path, insist: bool = True) -> None:
+    """Refuses a graph the browser's runtime could not load.
+
+    With `insist` off it only says what is missing. That is for the hour
+    between exporting a network the runtime cannot yet carry and building
+    a runtime that can: the operator list is read out of the graph, so the
+    graph has to be written first.
+    """
     import onnx
 
     allowed = runtime_operators()
@@ -98,6 +104,12 @@ def check_operators(destination: Path) -> None:
         print("no runtime operator list found; the browser's build was not checked")
         return
     missing = sorted(needed - allowed)
+    if missing and not insist:
+        print(
+            f"the browser's runtime does not carry {', '.join(missing)}; "
+            f"widen web/runtime/reduced-ops.config and rebuild it before shipping this"
+        )
+        return
     if missing:
         raise SystemExit(
             f"the browser's runtime does not carry {', '.join(missing)}, so it "
@@ -135,21 +147,24 @@ def main() -> None:
     # Float32 is for measuring the exported graph, not for the page: the
     # runtime there has no kernels for it.
     as_float = "--float32" in sys.argv[1:]
+    # For widening the runtime: write the graph, and only report what the
+    # browser could not yet run.
+    insist = "--allow-any-operator" not in sys.argv[1:]
     checkpoint = Path(arguments[0])
     destination = Path(arguments[1])
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
     net = from_payload(payload, "cpu", 192, 10)
-    if net.kind != "engine":
-        raise SystemExit(
-            "the browser encodes the engine's planes, and this network sees "
-            "Mortal's; it cannot be exported until Mortal's encoder runs there"
-        )
     net.eval()
+    if net.kind != "engine":
+        print(
+            f"this network reads Mortal's {net.planes} planes, not our engine's "
+            f"{riichi_py.PLANES}; the page must run Mortal's encoder to play it"
+        )
 
     wrapped = PolicyOnly(net).eval()
-    example = torch.zeros(1, riichi_py.PLANES, riichi_py.POSITIONS)
+    example = torch.zeros(1, net.planes, riichi_py.POSITIONS)
     with torch.no_grad():
         reference = wrapped(example)
 
@@ -170,7 +185,7 @@ def main() -> None:
         made = full if as_float else Path(scratch) / "int8.onnx"
         if not as_float:
             quantise(full, made)
-        check_operators(made)
+        check_operators(made, insist)
         shutil.copyfile(made, destination)
 
     size = destination.stat().st_size
