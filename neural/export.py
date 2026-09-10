@@ -6,7 +6,7 @@ are refused rather than silently replacing the playable model. The policy,
 value and opponent-hand heads are exported; training-only heads stay out.
 
 Usage:
-  python -m neural.export network.pt web/public/model.onnx
+  python -m neural.export network.pt web/public/model-full.onnx
   python -m neural.export network.pt measured.onnx --float32 --allow-any-operator
 """
 

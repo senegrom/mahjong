@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 
-# Its own workspace: the crate keeps its own PyO3, a major version behind
-# the one the rest of the engine binds with, and is built on its own as
-# the `libriichi` Python module.
+# Built and audited as a separate workspace for the `libriichi` Python module.
+# Keep its Python bindings on the patched dependency family used by riichi-py.
 [workspace]
 
 [profile.release]
@@ -52,22 +51,22 @@ tinyvec = { version = "1", features = ["alloc", "serde", "rustc_1_57"] }
 serde = { version = "1", features = ["derive"] }
 
 # Python- and native-only: self-play, dataset building, statistics, agents.
-pyo3-log = { version = "0.12", optional = true }
+pyo3-log = { version = "0.13.4", optional = true }
 rayon = { version = "1", optional = true }
-numpy = { version = "0.25", optional = true }
+numpy = { version = "0.29", optional = true }
 rand = { version = "0.9", optional = true }
 rand_chacha = { version = "0.9", optional = true }
 sha3 = { version = "0.10", optional = true }
 glob = { version = "0.3", optional = true }
 parking_lot = { version = "0.12", optional = true }
 crossbeam = { version = "0.8", optional = true }
-pyo3 = { version = "0.25", features = ["auto-initialize", "multiple-pymethods", "anyhow"], optional = true }
+pyo3 = { version = "0.29.2", features = ["auto-initialize", "multiple-pymethods", "anyhow"], optional = true }
 indicatif = { version = "0.17", features = ["rayon"], optional = true }
 derive_more = { version = "2", features = ["add", "add_assign", "sum"], optional = true }
 mimalloc = { version = "0.1", default-features = false, optional = true }
 
 [build-dependencies]
-pyo3-build-config = { version = "0.25", optional = true }
+pyo3-build-config = { version = "0.29.2", optional = true }
 
 [features]
 default = ["pymod", "mimalloc"]

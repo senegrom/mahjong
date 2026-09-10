@@ -16,7 +16,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 
 pub struct MortalBatchAgent {
-    engine: PyObject,
+    engine: Py<PyAny>,
     is_oracle: bool,
     version: u32,
     enable_quick_eval: bool,
@@ -47,11 +47,11 @@ struct SyncFields {
 }
 
 impl MortalBatchAgent {
-    pub fn new(engine: PyObject, player_ids: &[u8]) -> Result<Self> {
+    pub fn new(engine: Py<PyAny>, player_ids: &[u8]) -> Result<Self> {
         ensure!(player_ids.iter().all(|&id| matches!(id, 0..=3)));
 
         let (name, is_oracle, version, enable_quick_eval, enable_rule_based_agari_guard) =
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let obj = engine.bind_borrowed(py);
                 ensure!(
                     obj.getattr("react_batch")?.is_callable(),
@@ -123,7 +123,7 @@ impl MortalBatchAgent {
         let start = Instant::now();
         self.last_batch_size = sync_fields.states.len();
 
-        (self.actions, self.q_values, self.masks_recv, self.is_greedy) = Python::with_gil(|py| {
+        (self.actions, self.q_values, self.masks_recv, self.is_greedy) = Python::attach(|py| {
             let states: Vec<_> = sync_fields
                 .states
                 .drain(..)

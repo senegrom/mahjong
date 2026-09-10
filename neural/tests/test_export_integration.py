@@ -1,7 +1,6 @@
 """Real native encoders and ONNX Runtime; CI must install these dependencies."""
 
 import contextlib
-import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,6 +41,15 @@ class ExportIntegrationTests(unittest.TestCase):
             net.policy_tiles.bias.zero_()
             net.policy_pooled[-1].weight.zero_()
             net.policy_pooled[-1].bias.copy_(torch.arange(ACTION_SPACE - 34).float() + 1)
+            # Random pooled values can be nearly constant on this tiny sample.
+            # Keep the value a well-conditioned, deterministic function of the
+            # tower. The production guard stays unchanged.
+            net.value[0].weight.zero_()
+            net.value[0].bias.zero_()
+            net.value[0].weight[:8, :8].copy_(torch.eye(8))
+            net.value[-1].weight.zero_()
+            net.value[-1].bias.zero_()
+            net.value[-1].weight[0, :8].copy_(torch.arange(1, 9).float())
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)
             checkpoint = root / "network.pt"
@@ -52,8 +60,7 @@ class ExportIntegrationTests(unittest.TestCase):
                     argv = ["export", str(checkpoint), str(destination)]
                     if floating:
                         argv += ["--float32", "--allow-any-operator"]
-                    with patch("sys.argv", argv), contextlib.redirect_stdout(io.StringIO()), \
-                         patch.object(export, "validation_positions", return_value=(self.positions, self.legal)):
+                    with patch("sys.argv", argv), patch.object(export, "validation_positions", return_value=(self.positions, self.legal)):
                         export.main()
                     graph = onnx.load(str(destination))
                     onnx.checker.check_model(graph)

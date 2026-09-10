@@ -1,15 +1,16 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
 import { startOffline, prepareOfflineAi } from './offline.js';
+import { MODEL_FILES } from './model-package.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
 
 /** The trained opponent: the network itself, not a small copy taught to
  * imitate it. It reads Mortal's 1012 planes, which the engine in this page
  * builds, and answers in Mortal's forty-six moves, which the engine turns
  * back into moves it can play. */
-export const MODEL_URLS = Object.freeze({
-  full: new URL('model-full.onnx', document.baseURI).href,
-});
+export const MODEL_URLS = Object.freeze(Object.fromEntries(
+  Object.entries(MODEL_FILES).map(([name, file]) => [name, new URL(file, document.baseURI).href]),
+));
 export const MODEL_CHOICES = Object.freeze(Object.keys(MODEL_URLS));
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
 let chosen = 'full';

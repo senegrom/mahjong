@@ -156,6 +156,14 @@ test('production inventory classifies the external model/runtime package', async
   assert.deepEqual(first, second);
   assert.equal(first.entries.length, Object.keys(files).length);
   assert.equal(first.entries.filter(e => e.group === 'ai').length, 4);
+  assert.equal(first.hasModel, true);
+  assert.equal(first.entries.find(e => e.url === 'model-full.onnx').group, 'ai');
+  // Feed the generated inventory to the worker, not a hand-written approximation.
+  const generated = worker({ files, config: first });
+  await generated.install();
+  assert.equal(generated.counts.has('model-full.onnx'), false);
+  await download(generated);
+  assert.equal((await status(generated)).aiReady, true);
   assert.equal(first.entries.filter(e => e.url.startsWith('tiles/matisse/') && e.group === 'core').length, 2);
   assert.ok((await readFile(join(root, 'sw.js'), 'utf8')).includes(JSON.stringify(first)));
 });

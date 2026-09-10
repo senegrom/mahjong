@@ -145,7 +145,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// - Statistical works on mjai logs (via `stat.Stat`).
 /// - mjai interface (via `mjai.Bot`).
 #[cfg(feature = "pymod")]
-#[pymodule]
+#[pymodule(gil_used = true)]
 fn libriichi(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
     algo::shanten::ensure_init();

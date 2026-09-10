@@ -21,8 +21,8 @@ impl FromStr for EngineType {
     }
 }
 
-pub fn new_py_agent(engine: PyObject, player_ids: &[u8]) -> Result<Box<dyn BatchAgent>> {
-    let engine_type = Python::with_gil(|py| {
+pub fn new_py_agent(engine: Py<PyAny>, player_ids: &[u8]) -> Result<Box<dyn BatchAgent>> {
+    let engine_type = Python::attach(|py| {
         engine
             .bind_borrowed(py)
             .getattr("engine_type")?

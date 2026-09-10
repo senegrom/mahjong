@@ -287,16 +287,16 @@ class Combined(nn.Module):
         """Its best move per row, in our engine's actions. The same two
         steps as `decide`, with nothing recorded."""
         return zoo.choose_in_mortal_space(
-            lambda who, fresh: self._ask(views, who, fresh), views, rows, players, legal
+            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal
         )
 
     @torch.no_grad()
-    def _ask(self, views, who: list[tuple[int, int]], fresh: bool = False):
+    def _ask(self, views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray):
         rows = np.array([game for game, _player in who], dtype=np.int64)
         players = np.array([player for _game, player in who], dtype=np.int64)
         sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
         device = str(next(self.parameters()).device)
-        mask = torch.from_numpy(masks).to(device)
+        mask = torch.from_numpy(allowed).to(device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.startswith("cuda")):
             logits, _value = self.forward(sparse.dense(device), mask)
         return logits.float().cpu().numpy(), masks

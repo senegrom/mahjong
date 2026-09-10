@@ -35,8 +35,8 @@ impl OneVsThree {
     /// Returns the rankings of the challenger.
     pub fn py_vs_py(
         &self,
-        challenger: PyObject,
-        champion: PyObject,
+        challenger: Py<PyAny>,
+        champion: Py<PyAny>,
         seed_start: (u64, u64),
         seed_count: u64,
         py: Python<'_>,
@@ -44,7 +44,7 @@ impl OneVsThree {
         // `allow_threads` is required, otherwise it will block python GC to
         // run, leading to memory leaks, since this function is doing long
         // tasks.
-        py.allow_threads(move || {
+        py.detach(move || {
             let results = self.run_batch(
                 |player_ids| new_py_agent(challenger, player_ids),
                 |player_ids| new_py_agent(champion, player_ids),
@@ -64,12 +64,12 @@ impl OneVsThree {
     /// Returns the rankings of the challenger (akochan in this case).
     pub fn ako_vs_py(
         &self,
-        engine: PyObject,
+        engine: Py<PyAny>,
         seed_start: (u64, u64),
         seed_count: u64,
         py: Python<'_>,
     ) -> Result<[i32; 4]> {
-        py.allow_threads(move || {
+        py.detach(move || {
             let results = self.run_batch(
                 |player_ids| AkochanAgent::new_batched(player_ids).map(|a| Box::new(a) as _),
                 |player_ids| new_py_agent(engine, player_ids),
@@ -89,12 +89,12 @@ impl OneVsThree {
     /// Returns the rankings of the challenger (python agent in this case).
     pub fn py_vs_ako(
         &self,
-        engine: PyObject,
+        engine: Py<PyAny>,
         seed_start: (u64, u64),
         seed_count: u64,
         py: Python<'_>,
     ) -> Result<[i32; 4]> {
-        py.allow_threads(move || {
+        py.detach(move || {
             let results = self.run_batch(
                 |player_ids| new_py_agent(engine, player_ids),
                 |player_ids| AkochanAgent::new_batched(player_ids).map(|a| Box::new(a) as _),

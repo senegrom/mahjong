@@ -34,8 +34,8 @@ impl TwoVsTwo {
 
     pub fn py_vs_py(
         &self,
-        challenger: PyObject,
-        champion: PyObject,
+        challenger: Py<PyAny>,
+        champion: Py<PyAny>,
         seed_start: (u64, u64),
         seed_count: u64,
         py: Python<'_>,
@@ -43,7 +43,7 @@ impl TwoVsTwo {
         // `allow_threads` is required, otherwise it will block python GC to
         // run, leading to memory leaks, since this function is doing long
         // tasks.
-        py.allow_threads(move || {
+        py.detach(move || {
             self.run_batch(
                 |player_ids| new_py_agent(challenger, player_ids),
                 |player_ids| new_py_agent(champion, player_ids),
@@ -56,12 +56,12 @@ impl TwoVsTwo {
 
     pub fn ako_vs_py(
         &self,
-        engine: PyObject,
+        engine: Py<PyAny>,
         seed_start: (u64, u64),
         seed_count: u64,
         py: Python<'_>,
     ) -> Result<()> {
-        py.allow_threads(move || {
+        py.detach(move || {
             self.run_batch(
                 |player_ids| AkochanAgent::new_batched(player_ids).map(|a| Box::new(a) as _),
                 |player_ids| new_py_agent(engine, player_ids),
@@ -74,12 +74,12 @@ impl TwoVsTwo {
 
     pub fn py_vs_ako(
         &self,
-        engine: PyObject,
+        engine: Py<PyAny>,
         seed_start: (u64, u64),
         seed_count: u64,
         py: Python<'_>,
     ) -> Result<()> {
-        py.allow_threads(move || {
+        py.detach(move || {
             self.run_batch(
                 |player_ids| new_py_agent(engine, player_ids),
                 |player_ids| AkochanAgent::new_batched(player_ids).map(|a| Box::new(a) as _),
@@ -92,12 +92,12 @@ impl TwoVsTwo {
 
     pub fn py_vs_ako_one(
         &self,
-        engine: PyObject,
+        engine: Py<PyAny>,
         seed: (u64, u64),
         split: usize,
         py: Python<'_>,
     ) -> Result<()> {
-        py.allow_threads(move || {
+        py.detach(move || {
             self.run_one(
                 |player_ids| new_py_agent(engine, player_ids),
                 |player_ids| AkochanAgent::new_batched(player_ids).map(|a| Box::new(a) as _),
