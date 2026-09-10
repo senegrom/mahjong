@@ -5,7 +5,7 @@ import { OPPONENT_POSITIONS } from './opponents.js';
  * also the command we play, so stochastic built-ins never reroll on Next. */
 export class WatchSession {
   constructor(Game, seed, lineup, { ai, evaluate, onChange = () => {}, delay = 1400 } = {}) {
-    if (!Array.isArray(lineup) || lineup.length !== 4 || !lineup.every(value => ['beginner', 'club', 'quick', 'strong'].includes(value))) {
+    if (!Array.isArray(lineup) || lineup.length !== 4 || !lineup.every(value => ['beginner', 'club', 'full'].includes(value))) {
       throw new Error('Choose four agents');
     }
     this.lineup = [...lineup];
@@ -18,7 +18,7 @@ export class WatchSession {
     this.autoplay = false;
     this.closed = false;
     this.timer = null;
-    const opponents = lineup.slice(1).map(agent => ['quick', 'strong'].includes(agent) ? 'neural' : agent);
+    const opponents = lineup.slice(1).map(agent => agent === 'full' ? 'neural' : agent);
     this.match = new MatchSession(Game, seed, opponents, {
       ai: (planes, mask, signal) => {
         const pending = this.match.pendingOpponent;

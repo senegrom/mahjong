@@ -10,13 +10,16 @@ mod update;
 #[cfg(test)]
 mod test;
 
+#[cfg(feature = "pymod")]
 use crate::py_helper::add_submodule;
 pub use action::ActionCandidate;
 pub use player_state::PlayerState;
 pub use sp_tables::SinglePlayerTables;
 
+#[cfg(feature = "pymod")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "pymod")]
 pub(crate) fn register_module(
     py: Python<'_>,
     prefix: &str,

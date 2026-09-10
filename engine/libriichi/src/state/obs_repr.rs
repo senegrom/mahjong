@@ -8,7 +8,9 @@ use crate::{tu8, tuz};
 use std::num::NonZeroUsize;
 
 use ndarray::prelude::*;
+#[cfg(feature = "pymod")]
 use numpy::{PyArray1, PyArray2};
+#[cfg(feature = "pymod")]
 use pyo3::prelude::*;
 
 const SELF_KAWA_ITEM_CHANNELS: usize = 4;
@@ -773,6 +775,7 @@ impl<'a> ObsEncoderContext<'a> {
     }
 }
 
+#[cfg(feature = "pymod")]
 #[pymethods]
 impl PlayerState {
     /// Returns `(obs, mask)`

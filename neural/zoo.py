@@ -144,7 +144,12 @@ def choose_in_mortal_space(
     who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
     legal = np.atleast_2d(legal)
     values, own = ask(who, False)
-    allowed = own & translatable(legal)
+    # What our engine allows, named in Mortal's moves, and not what the two
+    # rule sets agree on: Mortal will not reach with fewer than four tiles
+    # left in the wall, and EMA 2025 section 3.3.10 allows it down to one.
+    # `own` is still read below, to say how often Mortal would have chosen
+    # otherwise.
+    allowed = translatable(legal)
     orphan = ~allowed.any(axis=1)
     allowed[orphan, MORTAL_PASS] = True
     ranked = np.where(allowed, values, -np.inf)

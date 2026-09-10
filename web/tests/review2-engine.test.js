@@ -21,8 +21,10 @@ test('shared neural call asks the other player after human Pass and can be resto
   step(m,{kind:'pass'});
   assert.equal(m.view.phase,'call');assert.ok(m.engine.needs_opponent_move());assert.deepEqual(m.choices,[]);
   restored=MatchSession.restore(Game,JSON.stringify(m.snapshot()));assert.equal(restored.stateKey(),m.stateKey());
-  const mask=m.engine.opponent_mask();assert.ok(mask[73],'The 2-3-4 characters Chii remains offered to South');
-  const action=73;
+  // Mortal's low chi claims the lowest tile of the sequence, which is the
+  // one our own numbering calls high.
+  const mask=m.engine.opponent_mask_mortal();assert.ok(mask[38],'The 2-3-4 characters Chii remains offered to South');
+  const action=38;
   assert.ok(action>=0);m.apply({type:'opponent',action});m.advance(false);
   const events=m.engine.log().split('\n').map(JSON.parse);assert.ok(events.some(e=>e.type==='chi'&&e.pai==='2m'));
  } finally {m.dispose();restored?.dispose();}
@@ -77,12 +79,14 @@ test('sequence layout handles claims on every position and leaves concealed quad
  assert.deepEqual(meldTiles({kind:'concealed-kan',from:'self',claimed_tile:null,tiles:['1p','1p','1p','1p']}),['1p','1p','1p','1p']);
 });
 
-test('a legacy neural call save migrates its historical implicit Pass without replaying AI',()=>{
+test('a legacy neural call save is refused rather than replayed in another numbering',()=>{
  const text=readFileSync(new URL('./fixtures/legacy-neural-call.json',import.meta.url),'utf8');
- const old=JSON.parse(text);assert.equal(old.format,undefined);assert.equal(old.commands.length,2);
- const m=MatchSession.restore(Game,text,{ai(){throw new Error('Do not rerun past neural choices');}});
- try {
-  assert.equal(m.commands.length,3);assert.deepEqual(m.commands.at(-1),{type:'opponent',action:70});
-  const r=MatchSession.restore(Game,JSON.stringify(m.snapshot()));assert.equal(r.stateKey(),m.stateKey());r.dispose();
- }finally{m.dispose();}
+ const old=JSON.parse(text);assert.equal(old.format,undefined);
+ assert.deepEqual(old.commands.map(c=>c.type),['opponent','choose']);
+ // The trained opponent's answer was written down in our own seventy-eight
+ // moves. It is Mortal's forty-six now, and the same number means a
+ // different move, so the save is refused rather than replayed into a game
+ // nobody played — and the network is never asked to rewrite the past.
+ assert.throws(()=>MatchSession.restore(Game,text,{ai(){throw new Error('Do not rerun past neural choices');}}),
+  /Unsupported legacy opponent moves/);
 });

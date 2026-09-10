@@ -11,6 +11,7 @@ const source = (await readFile(new URL('../src/lib/policy.worker.js', import.met
   .replace("import { policyWeights } from './policy-weights.js';", '')
   .replace("import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';", '')
   .replace('import(/* @vite-ignore */ controls)', 'loadMemoryControls(controls)');
+const MODEL = 'model-full.onnx';
 const deferred = () => {
   let resolve;
   const promise = new Promise(done => { resolve = done; });
@@ -29,7 +30,7 @@ function harness({ loadGate, runGate, invalidOutput = false, runError = false, m
     env: { wasm: {} }, Tensor,
     InferenceSession: { create: async url => {
       loads.push(url);
-      assert.ok(live++ < 2, 'at most the two networks the page carries may be resident');
+      assert.ok(live++ < 1, 'only the one network the page carries may be resident');
       await loadGate?.promise;
       return {
         run: async () => {
@@ -39,7 +40,7 @@ function harness({ loadGate, runGate, invalidOutput = false, runError = false, m
           active--;
           if (runError) { memoryBudget.failure = memoryFailure; throw new RangeError('Out of memory'); }
           return {
-            policy: new Tensor('float32', invalidOutput ? [NaN, 2] : url === 'quick' ? [1, 3] : [4, 2]),
+            policy: new Tensor('float32', invalidOutput ? [NaN, 2] : [1, 3]),
             auxiliary: new Tensor('float32', [0]),
           };
         },
@@ -54,43 +55,43 @@ function harness({ loadGate, runGate, invalidOutput = false, runError = false, m
       return { memoryBudget };
     },
   });
-  const send = (id, url = 'quick') => self.onmessage({ data: {
+  const send = (id, url = MODEL) => self.onmessage({ data: {
     id, url, runtimeBase: 'https://test.invalid/ort/', planes: new Float32Array(34), mask: [1, 1], details: true,
   } });
   return { send, cancel: id => self.onmessage({ data: { cancel: id } }), loads, releases, runs, tensors, messages };
 }
 
-test('concurrent mixed agents keep a session per network and preserve their own model choices', async () => {
+test('queued decisions load the network once, run one at a time and answer in order', async () => {
   const loadGate = deferred(), runGate = deferred();
   const h = harness({ loadGate, runGate });
   const completed = h.send(1);
-  h.send(2); h.send(3, 'strong'); h.send(4);
+  h.send(2); h.send(3); h.send(4);
   await setImmediate();
-  assert.deepEqual(h.loads, ['quick']);
+  assert.deepEqual(h.loads, [MODEL]);
   loadGate.resolve();
   await setImmediate();
-  assert.deepEqual(h.runs, ['quick']);
+  assert.deepEqual(h.runs, [MODEL]);
   runGate.resolve();
   await completed;
-  // Both networks stay loaded, so the return to Quick is not another load.
-  assert.deepEqual(h.loads, ['quick', 'strong']);
+  // The network stays loaded, so the later turns are not another load.
+  assert.deepEqual(h.loads, [MODEL]);
   assert.deepEqual(h.releases, []);
-  assert.deepEqual(h.runs, ['quick', 'quick', 'strong', 'quick']);
-  assert.deepEqual(h.messages.filter(message => message.analysis).map(({ id, action }) => [id, action]), [[1, 1], [2, 1], [3, 0], [4, 1]]);
+  assert.deepEqual(h.runs, [MODEL, MODEL, MODEL, MODEL]);
+  assert.deepEqual(h.messages.filter(message => message.analysis).map(({ id, action }) => [id, action]), [[1, 1], [2, 1], [3, 1], [4, 1]]);
   assert.ok(h.tensors.every(tensor => tensor.disposed), 'all input and output tensors must be disposed');
 });
 
-test('cancelled queued analysis never loads an unwanted model', async () => {
+test('a cancelled queued decision is dropped before it reaches the network', async () => {
   const loadGate = deferred();
   const h = harness({ loadGate });
   const completed = h.send(1);
-  h.send(2, 'strong');
+  h.send(2);
   h.cancel(2);
   h.send(3);
   loadGate.resolve();
   await completed;
-  assert.deepEqual(h.loads, ['quick']);
-  assert.deepEqual(h.runs, ['quick', 'quick']);
+  assert.deepEqual(h.loads, [MODEL]);
+  assert.deepEqual(h.runs, [MODEL, MODEL]);
   assert.deepEqual(h.messages.filter(message => message.analysis).map(message => message.id), [1, 3]);
 });
 
@@ -99,11 +100,11 @@ test('inference and invalid-output failures dispose tensors and stop work on the
     const loadGate = deferred();
     const h = harness({ ...options, loadGate });
     const completed = h.send(1);
-    h.send(2, 'strong');
+    h.send(2);
     loadGate.resolve();
     await completed;
-    assert.deepEqual(h.loads, ['quick']);
-    assert.deepEqual(h.runs, ['quick']);
+    assert.deepEqual(h.loads, [MODEL]);
+    assert.deepEqual(h.runs, [MODEL]);
     assert.equal(h.messages.filter(message => message.error).length, 1);
     assert.equal(h.messages.filter(message => message.analysis).length, 0);
     assert.ok(h.tensors.every(tensor => tensor.disposed));

@@ -319,6 +319,19 @@ test('saved guide is separate from the position editor and conflicting tabs pres
   a.close(); b.close();
 });
 
+test('a guide saved with one of the retired trained networks reopens on the trained adviser', () => {
+  const base = emptyGuided();
+  const saved = agent => GUIDED_FORMAT.encode({ state: { ...base.state, agent },
+    past: [{ state: { ...base.state, agent }, logLength: 0 }], log: [] });
+  assert.equal(parseGuided(saved('club')).state.agent, 'club');
+  for (const retired of ['quick', 'strong']) {
+    const loaded = parseGuided(saved(retired));
+    assert.equal(loaded.state.agent, 'full');
+    assert.equal(loaded.past[0].state.agent, 'full', 'undo steps must name an adviser this build has');
+  }
+  assert.equal(parseGuided(saved('nonsense')), null);
+});
+
 test('unreadable guides are rejected and dora cycles use winds and dragons separately', () => {
   for (const text of ['{broken', '{}', JSON.stringify({ version: 9, game: emptyGuided() }),
     GUIDED_FORMAT.encode({ ...emptyGuided(), state: { ...emptyGuided().state, stage: 'unknown' } })]) assert.equal(parseGuided(text), null);

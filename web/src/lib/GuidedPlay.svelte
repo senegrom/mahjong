@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, untrack } from 'svelte';
   import { PhysicalAnalysis, settle_physical } from '../wasm/riichi.js';
-  import { AGENTS, WINDS, evaluateAgent } from './agents.js';
+  import { AGENTS, WINDS, evaluateAgent, isTrained } from './agents.js';
   import { TILES } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, setTiles } from './guided-game.js';
@@ -14,7 +14,7 @@
   import AgentWeights from './AgentWeights.svelte';
   import GuidedResult from './GuidedResult.svelte';
 
-  let { ready, trainedAvailable, strongAvailable, storage, hints = true } = $props();
+  let { ready, trainedAvailable, storage, hints = true } = $props();
   let game = $state(emptyGuided());
   let state = $derived(game.state);
   let position = $derived(state.position);
@@ -135,7 +135,7 @@
     <div class="guide-meta">
       <span>{WINDS[position.round]} {position.kyoku} · You: {WINDS[position.seat]} · {mine.score?.toLocaleString()} points</span>
       <label>Adviser<select aria-label="Guided game adviser" value={state.agent} onchange={e => edit(s => { s.agent = e.currentTarget.value; })}>
-        {#each Object.entries(AGENTS) as [key, name] (key)}{#if (key !== 'quick' || trainedAvailable || state.agent === key) && (key !== 'strong' || strongAvailable || state.agent === key)}<option value={key}>{name}</option>{/if}{/each}
+        {#each Object.entries(AGENTS) as [key, name] (key)}{#if !isTrained(key) || trainedAvailable || state.agent === key}<option value={key}>{name}</option>{/if}{/each}
       </select></label>
     </div>
     {#if !['setup', 'hand', 'dora'].includes(state.stage)}

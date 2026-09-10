@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { PhysicalAnalysis } from '../wasm/riichi.js';
-  import { AGENTS, WINDS, evaluateAgent } from './agents.js';
+  import { AGENTS, WINDS, evaluateAgent, isTrained } from './agents.js';
   import { TILES, emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { tileWords } from './tiles.js';
@@ -9,7 +9,7 @@
   import Tile from './Tile.svelte';
   import AgentWeights from './AgentWeights.svelte';
 
-  let { ready, trainedAvailable, strongAvailable, storage } = $props();
+  let { ready, trainedAvailable, storage } = $props();
   let position = $state(emptyPosition());
   let agent = $state('club');
   let analysis = $state(null);
@@ -44,7 +44,7 @@
   }
   onMount(() => {
     store = createStore();
-    if (trainedAvailable) agent = 'quick';
+    if (trainedAvailable) agent = 'full';
     void load();
     const changed = event => store.changed(event);
     window.addEventListener('storage', changed);
@@ -137,7 +137,7 @@
   <p class="intro">Enter the table in front of you. Include the drawn tile in the concealed hand; leave unknown hands empty. Tap entered tiles to remove them. All draws and calls are recorded by you.</p>
   <div class="physical-toolbar">
     <label>Analyse seat<select value={position.seat} onchange={event => edit(p => { p.seat = Number(event.currentTarget.value); if (p.phase === 'act') { p.turn = p.seat; p.drawn = null; p.just_claimed = null; } })} aria-label="Analyse seat">{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
-    <label>Agent<select bind:value={agent} aria-label="Physical play agent">{#each Object.entries(AGENTS) as [key, label] (key)}{#if key !== 'strong' || strongAvailable}{#if key !== 'quick' || trainedAvailable}<option value={key}>{label}</option>{/if}{/if}{/each}</select></label>
+    <label>Agent<select bind:value={agent} aria-label="Physical play agent">{#each Object.entries(AGENTS) as [key, label] (key)}{#if !isTrained(key) || trainedAvailable}<option value={key}>{label}</option>{/if}{/each}</select></label>
     <button class="primary" onclick={analyze} disabled={!ready || busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
   </div>
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}

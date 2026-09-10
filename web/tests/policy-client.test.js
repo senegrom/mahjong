@@ -12,8 +12,8 @@ const source = (await readFile(new URL('../src/lib/policy.js', import.meta.url),
   .replaceAll('export ', '');
 
 // Run the real request coordinator with controllable downloads and responses.
-// Switching models may happen during either stage of an opponent's turn.
-test('model changes preserve pending turns and explicitly configured agent requests', async (t) => {
+// One trained network ships, so every request names the same one.
+test('concurrent decisions share one worker and preserve a pending turn', async (t) => {
   const downloads = [], workers = [];
   class Worker {
     constructor() { this.messages = []; this.terminated = false; workers.push(this); }
@@ -36,34 +36,38 @@ test('model changes preserve pending turns and explicitly configured agent reque
   const first = api.chooseAction(planes(), mask);
   // Observe rejection immediately, including when exercising the old bug.
   const firstResult = first.then(value => ({ value }), error => ({ error }));
-  api.useModel('strong');
-  assert.equal(downloads[0].model, 'quick');
+  assert.equal(downloads[0].model, 'full');
   downloads[0].resolve();
   await setImmediate();
   const worker = workers[0], initial = worker.messages[0];
-  assert.match(initial.url, /\/model\.onnx$/);
+  assert.match(initial.url, /\/model-full\.onnx$/);
 
-  api.useModel('quick');
-  api.useModel('strong');
-  assert.equal(worker.terminated, false, 'changing the default must not abort an in-flight turn');
+  // The shipped network is the only choice, so reselecting it changes nothing.
+  assert.equal(api.useModel('full'), 'full');
+  assert.equal(worker.terminated, false, 'reselecting the network must not abort an in-flight turn');
   worker.answer(initial, { action: 1 });
   assert.deepEqual(await firstResult, { value: 1 });
 
   const next = api.chooseAction(planes(), mask);
-  const analysis = api.analyzePolicy(planes(), mask, undefined, 'quick');
+  const analysis = api.analyzePolicy(planes(), mask, undefined, 'full');
   const results = Promise.all([next, analysis]);
-  assert.deepEqual(downloads.slice(1).map(download => download.model), ['strong', 'quick']);
+  assert.deepEqual(downloads.slice(1).map(download => download.model), ['full', 'full']);
   for (const download of downloads.slice(1)) download.resolve();
   await setImmediate();
-  assert.equal(workers.length, 1, 'mixed agents share one worker without interrupting each other');
-  const [strong, quick] = worker.messages.slice(1);
-  assert.match(strong.url, /\/model-strong\.onnx$/);
-  assert.match(quick.url, /\/model\.onnx$/);
-  assert.equal(quick.details, true);
-  worker.answer(strong, { action: 0 });
-  worker.answer(quick, { analysis: { action: 1, weights: [0.2, 0.8] } });
+  assert.equal(workers.length, 1, 'a move and a review share one worker without interrupting each other');
+  const [move, detailed] = worker.messages.slice(1);
+  assert.match(move.url, /\/model-full\.onnx$/);
+  assert.match(detailed.url, /\/model-full\.onnx$/);
+  assert.equal(move.details, false);
+  assert.equal(detailed.details, true);
+  worker.answer(move, { action: 0 });
+  worker.answer(detailed, { analysis: { action: 1, weights: [0.2, 0.8] } });
   assert.deepEqual(await results, [0, { action: 1, weights: [0.2, 0.8] }]);
-  assert.equal(api.chosenModel(), 'strong');
+  assert.equal(api.chosenModel(), 'full');
+  // Networks earlier builds carried are not agents this one can run.
+  for (const retired of ['quick', 'strong']) {
+    await assert.rejects(api.analyzePolicy(planes(), mask, undefined, retired), /Unknown trained agent/);
+  }
 });
 
 test('memory errors discard the worker even after cancellation, and retry starts a fresh runtime', async (t) => {
@@ -82,7 +86,7 @@ test('memory errors discard the worker even after cancellation, and retry starts
   vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, resetPolicy };', context);
   const { api } = context;
   t.after(() => api.resetPolicy());
-  const ask = signal => api.analyzePolicy(new Float32Array(34), [1, 1], signal, 'quick');
+  const ask = signal => api.analyzePolicy(new Float32Array(34), [1, 1], signal, 'full');
   const owner = new AbortController();
   const cancelled = ask(owner.signal);
   const aborted = assert.rejects(cancelled, { name: 'AbortError' });
@@ -103,7 +107,7 @@ test('memory errors discard the worker even after cancellation, and retry starts
   await setImmediate();
   const fresh = workers[1];
   assert.ok(fresh, 'physical/watch retries must create a fresh worker automatically');
-  assert.match(fresh.messages[0].url, /\/model\.onnx$/);
+  assert.match(fresh.messages[0].url, /\/model-full\.onnx$/);
   first.answer(originalId, { error: 'late old failure' });
   assert.equal(fresh.terminated, false);
   fresh.answer(fresh.messages[0].id, { analysis: { action: 1, weights: [0.2, 0.8] } });
@@ -129,44 +133,44 @@ function memoryClient(t) {
   });
   vm.runInContext(source + '\nglobalThis.api = { analyzePolicy, resetPolicy };', context);
   t.after(() => context.api.resetPolicy());
-  return { workers, api: context.api, ask: (model = 'quick', signal, planes = Float32Array.from({ length: 34 }, (_, i) => i / 2)) =>
+  return { workers, api: context.api, ask: (model = 'full', signal, planes = Float32Array.from({ length: 34 }, (_, i) => i / 2)) =>
     context.api.analyzePolicy(planes, [1, 1], signal, model) };
 }
 
-test('memory-limit retries replay only unresolved choices with original observations and models', async t => {
+test('memory-limit retries replay only unresolved choices with their original observations', async t => {
   const { ask, workers } = memoryClient(t);
   const planes = Float32Array.from({ length: 34 }, (_, i) => i / 2), expected = Array.from(planes);
-  const first = ask('quick', undefined, planes);
+  const first = ask('full', undefined, planes);
   planes.fill(99); // Changes in the caller must not change a retained decision.
   await setImmediate();
-  const original = workers[0], quick = original.messages.at(-1);
-  const queued = ask('strong');
+  const original = workers[0], pending = original.messages.at(-1);
+  const queued = ask();
   await setImmediate();
-  const strong = original.messages.at(-1);
+  const behind = original.messages.at(-1);
   const completed = ask();
   await setImmediate();
   const done = original.messages.at(-1);
-  const abort = new AbortController(), cancelled = ask('strong', abort.signal);
+  const abort = new AbortController(), cancelled = ask('full', abort.signal);
   const cancellation = assert.rejects(cancelled, { name: 'AbortError' });
   await setImmediate();
   original.answer(done.id, { analysis: { action: 1 } });
   await completed;
   abort.abort(); await cancellation;
-  original.fail(quick, 'limit', 200);
+  original.fail(pending, 'limit', 200);
   assert.equal(original.terminated, true);
   const larger = workers[1];
-  assert.deepEqual(larger.messages.map(m => m.id), [quick.id, strong.id]);
+  assert.deepEqual(larger.messages.map(m => m.id), [pending.id, behind.id]);
   assert.ok(larger.messages.every(m => m.memoryLimitMiB === 256));
   assert.deepEqual(Array.from(larger.messages[0].planes), expected, 'transferred buffers remain replayable');
-  assert.match(larger.messages[1].url, /model-strong\.onnx$/);
-  original.answer(quick.id, { analysis: { action: 99 } }); // Old-worker results are ignored.
+  assert.match(larger.messages[1].url, /model-full\.onnx$/);
+  original.answer(pending.id, { analysis: { action: 99 } }); // Old-worker results are ignored.
   larger.fail(larger.messages[0], 'limit', 300);
   assert.equal(larger.terminated, true);
   const final = workers[2];
   assert.ok(final.messages.every(m => m.memoryLimitMiB === 384));
   assert.deepEqual(Array.from(final.messages[0].planes), expected);
-  final.answer(quick.id, { analysis: { action: 0 } });
-  final.answer(strong.id, { analysis: { action: 1 } });
+  final.answer(pending.id, { analysis: { action: 0 } });
+  final.answer(behind.id, { analysis: { action: 1 } });
   assert.deepEqual(await Promise.all([first, queued]), [{ action: 0 }, { action: 1 }]);
   assert.equal(workers.length, 3);
 });

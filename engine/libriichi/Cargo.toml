@@ -18,39 +18,79 @@ codegen-units = 1
 name = "riichi"
 crate-type = ["cdylib", "rlib"]
 
+# The bins are tools for mjai logs on disk; they need the Python-only half of
+# the crate and its native-only dependencies.
+[[bin]]
+name = "stat"
+path = "src/bin/stat.rs"
+required-features = ["pymod"]
+
+[[bin]]
+name = "validate_logs"
+path = "src/bin/validate_logs.rs"
+required-features = ["pymod"]
+
+# Everything the observation encoder needs, and nothing else: this set has to
+# build for wasm32-unknown-unknown so the browser can encode the same planes.
 [dependencies]
 anyhow = "1"
 log = "0.4"
-pyo3-log = "0.12"
 serde_json = "1"
 boomphf = "0.6"
 byteorder = "1"
-rayon = "1"
 ndarray = "0.16"
-numpy = "0.25"
 serde_with = "3"
-rand = "0.9"
-rand_chacha = "0.9"
 flate2 = "1"
-sha3 = "0.10"
-glob = "0.3"
 derivative = "2"
-ahash = "0.8"
-parking_lot = "0.12"
-crossbeam = "0.8"
-pyo3 = { version = "0.25", features = ["auto-initialize", "multiple-pymethods", "anyhow"] }
-indicatif = { version = "0.17", features = ["rayon"] }
+# default features would pull in `runtime-rng` -> getrandom, which has no
+# backend on wasm32-unknown-unknown. `no-rng` only unlocks `Default` for
+# `RandomState`; without a rng feature ahash seeds itself from constants, which
+# is just as fast and does not change any lookup. `pymod` turns `runtime-rng`
+# back on (it wins over `no-rng`), so the Python build hashes as it does today.
+ahash = { version = "0.8", default-features = false, features = ["std", "no-rng"] }
 tinyvec = { version = "1", features = ["alloc", "serde", "rustc_1_57"] }
 serde = { version = "1", features = ["derive"] }
-derive_more = { version = "2", features = ["add", "add_assign", "sum"] }
+
+# Python- and native-only: self-play, dataset building, statistics, agents.
+pyo3-log = { version = "0.12", optional = true }
+rayon = { version = "1", optional = true }
+numpy = { version = "0.25", optional = true }
+rand = { version = "0.9", optional = true }
+rand_chacha = { version = "0.9", optional = true }
+sha3 = { version = "0.10", optional = true }
+glob = { version = "0.3", optional = true }
+parking_lot = { version = "0.12", optional = true }
+crossbeam = { version = "0.8", optional = true }
+pyo3 = { version = "0.25", features = ["auto-initialize", "multiple-pymethods", "anyhow"], optional = true }
+indicatif = { version = "0.17", features = ["rayon"], optional = true }
+derive_more = { version = "2", features = ["add", "add_assign", "sum"], optional = true }
 mimalloc = { version = "0.1", default-features = false, optional = true }
 
 [build-dependencies]
-pyo3-build-config = "0.25"
+pyo3-build-config = { version = "0.25", optional = true }
 
 [features]
 default = ["pymod", "mimalloc"]
 mimalloc = ["dep:mimalloc"]
-pymod = ["pyo3/extension-module"]
-abi3 = ["pyo3/abi3"]
+# The full crate as the `libriichi` Python extension module. Without it the
+# crate is a plain Rust library holding the state machine, the mahjong
+# algorithms and the observation encoder -- the half that builds for wasm.
+pymod = [
+    "dep:pyo3",
+    "dep:pyo3-log",
+    "dep:pyo3-build-config",
+    "dep:numpy",
+    "dep:rayon",
+    "dep:rand",
+    "dep:rand_chacha",
+    "dep:sha3",
+    "dep:glob",
+    "dep:parking_lot",
+    "dep:crossbeam",
+    "dep:indicatif",
+    "dep:derive_more",
+    "pyo3/extension-module",
+    "ahash/runtime-rng",
+]
+abi3 = ["pyo3?/abi3"]
 sp_reproduce_cpp_ver = []

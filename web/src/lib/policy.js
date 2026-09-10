@@ -3,15 +3,16 @@
 import { startOffline, prepareOfflineAi } from './offline.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
 
-/** The two trained opponents: the small network the game has always
- * carried, and a larger one distilled from the lineage being trained now. */
+/** The trained opponent: the network itself, not a small copy taught to
+ * imitate it. It reads Mortal's 1012 planes, which the engine in this page
+ * builds, and answers in Mortal's forty-six moves, which the engine turns
+ * back into moves it can play. */
 export const MODEL_URLS = Object.freeze({
-  quick: new URL('model.onnx', document.baseURI).href,
-  strong: new URL('model-strong.onnx', document.baseURI).href,
+  full: new URL('model-full.onnx', document.baseURI).href,
 });
 export const MODEL_CHOICES = Object.freeze(Object.keys(MODEL_URLS));
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
-let chosen = 'quick';
+let chosen = 'full';
 let worker = null;
 let memoryLimitMiB = MEMORY_LIMITS_MIB[0];
 let nextId = 1;
@@ -88,7 +89,7 @@ export function chosenModel() { return chosen; }
 export async function modelIsAvailable(which = chosen) {
   try {
     const offline = await startOffline();
-    if (offline) return which === 'strong' ? Boolean(offline.hasStrongModel) : Boolean(offline.hasModel);
+    if (offline) return Boolean(offline.hasModel);
     const response = await fetch(MODEL_URLS[which], { method: 'HEAD', signal: AbortSignal.timeout(10000) });
     return response.ok;
   } catch { return false; }

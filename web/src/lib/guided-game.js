@@ -5,7 +5,11 @@ import { rememberEnding, applySettlement, validEndingState, verifySettlement } f
 export const GUIDED_KEY = 'riichi.guided.v1';
 const WINDS = ['East', 'South', 'West', 'North'];
 const STAGES = ['setup', 'hand', 'dora', 'turn', 'decision', 'responses', 'claim-response', 'kan-response', 'indicator', 'over'];
-const AGENTS = ['beginner', 'club', 'quick', 'strong'];
+const AGENTS = ['beginner', 'club', 'full'];
+// Saved games from the two-network builds name an adviser this one no longer
+// has. Both were the trained network, so both become the trained network
+// rather than throwing the whole saved game away as unreadable.
+const RETIRED_AGENTS = Object.freeze({ quick: 'full', strong: 'full' });
 const sameChoice = (a, b) => a.kind === b.kind && (a.tile ?? null) === (b.tile ?? null);
 
 export function emptyGuided() {
@@ -330,6 +334,9 @@ export function parseGuided(text, scoreSettlement) {
   try {
     if (typeof text !== 'string' || text.length > 2_000_000) return null;
     const value = JSON.parse(text), game = value?.game;
+    const carryOver = state => { if (state && Object.hasOwn(RETIRED_AGENTS, state.agent)) state.agent = RETIRED_AGENTS[state.agent]; };
+    carryOver(game?.state);
+    if (Array.isArray(game?.past)) for (const entry of game.past) carryOver(entry?.state);
     const validState = state => state && STAGES.includes(state.stage) && AGENTS.includes(state.agent)
       && Number.isInteger(state.nextSeat) && state.nextSeat >= 0 && state.nextSeat < 4
       && typeof state.needsDraw === 'boolean' && typeof state.result === 'string' && state.result.length <= 120

@@ -8,6 +8,7 @@ use std::iter;
 
 use anyhow::Result;
 use derivative::Derivative;
+#[cfg(feature = "pymod")]
 use pyo3::prelude::*;
 use serde_json as json;
 use tinyvec::{ArrayVec, TinyVec};
@@ -18,7 +19,7 @@ use tinyvec::{ArrayVec, TinyVec};
 /// mjai event, along with some helper functions to build an actual agent.
 /// Notably, `PlayerState` encodes observation features into numpy arrays which
 /// serve as inputs for deep learning model.
-#[pyclass]
+#[cfg_attr(feature = "pymod", pyclass)]
 #[derive(Clone, Derivative)]
 #[derivative(Default)]
 pub struct PlayerState {
@@ -139,10 +140,40 @@ pub struct PlayerState {
     pub(super) has_next_shanten_discard: bool,
 }
 
+/// The Python surface of `PlayerState`. It only forwards to the plain Rust
+/// methods below, which are what a non-Python build (wasm) sees.
+#[cfg(feature = "pymod")]
 #[pymethods]
 impl PlayerState {
     /// Panics if `player_id` is outside of range [0, 3].
     #[new]
+    fn new_py(player_id: u8) -> Self {
+        Self::new(player_id)
+    }
+
+    /// Returns an `ActionCandidate`.
+    #[pyo3(name = "update")]
+    fn update_json_py(&mut self, mjai_json: &str) -> Result<ActionCandidate> {
+        self.update_json(mjai_json)
+    }
+
+    /// Raises an exception if the action is not valid.
+    #[pyo3(name = "validate_reaction")]
+    fn validate_reaction_json_py(&self, mjai_json: &str) -> Result<()> {
+        self.validate_reaction_json(mjai_json)
+    }
+
+    /// For debug only.
+    ///
+    /// Return a human readable description of the current state.
+    #[pyo3(name = "brief_info")]
+    fn brief_info_py(&self) -> String {
+        self.brief_info()
+    }
+}
+
+impl PlayerState {
+    /// Panics if `player_id` is outside of range [0, 3].
     #[must_use]
     pub fn new(player_id: u8) -> Self {
         assert!(player_id < 4, "{player_id} is not in range [0, 3]");
@@ -153,14 +184,12 @@ impl PlayerState {
     }
 
     /// Returns an `ActionCandidate`.
-    #[pyo3(name = "update")]
     pub(super) fn update_json(&mut self, mjai_json: &str) -> Result<ActionCandidate> {
         let event = json::from_str(mjai_json)?;
         self.update(&event)
     }
 
     /// Raises an exception if the action is not valid.
-    #[pyo3(name = "validate_reaction")]
     pub(super) fn validate_reaction_json(&self, mjai_json: &str) -> Result<()> {
         let action = json::from_str(mjai_json)?;
         self.validate_reaction(&action)

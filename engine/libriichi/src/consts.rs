@@ -1,5 +1,7 @@
+#[cfg(feature = "pymod")]
 use crate::py_helper::add_submodule;
 
+#[cfg(feature = "pymod")]
 use pyo3::prelude::*;
 
 pub const MAX_VERSION: u32 = 4;
@@ -15,7 +17,7 @@ pub const ACTION_SPACE: usize = 37 // discard | kan (choice)
 // = 46
 pub const GRP_SIZE: usize = 7;
 
-#[pyfunction]
+#[cfg_attr(feature = "pymod", pyfunction)]
 #[inline]
 pub const fn obs_shape(version: u32) -> (usize, usize) {
     match version {
@@ -27,7 +29,7 @@ pub const fn obs_shape(version: u32) -> (usize, usize) {
     }
 }
 
-#[pyfunction]
+#[cfg_attr(feature = "pymod", pyfunction)]
 #[inline]
 pub const fn oracle_obs_shape(version: u32) -> (usize, usize) {
     match version {
@@ -37,6 +39,7 @@ pub const fn oracle_obs_shape(version: u32) -> (usize, usize) {
     }
 }
 
+#[cfg(feature = "pymod")]
 pub(crate) fn register_module(
     py: Python<'_>,
     prefix: &str,

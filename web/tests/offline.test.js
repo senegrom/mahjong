@@ -11,10 +11,10 @@ const template = await readFile(new URL('../src/offline/service-worker.js', impo
 const sha = body => createHash('sha256').update(body).digest('hex');
 const base = 'https://test.invalid/mahjong/';
 const bodies = { 'index.html': '<html>Game</html>', 'app.js': 'game', 'tiles/Haku.svg': '<svg>dragon</svg>',
-  'model.onnx': 'weights', 'ort/runtime.wasm': 'wasm', 'ort/runtime.mjs': 'runtime' };
+  'model-full.onnx': 'weights', 'ort/runtime.wasm': 'wasm', 'ort/runtime.mjs': 'runtime' };
 const manifest = (files = bodies) => ({ version: sha(JSON.stringify(files)), hasModel: true,
   entries: Object.entries(files).map(([url, body]) => ({ url, hash: sha(body), bytes: Buffer.byteLength(body),
-    group: url === 'model.onnx' || url.startsWith('ort/') ? 'ai' : 'core' })) });
+    group: url === 'model-full.onnx' || url.startsWith('ort/') ? 'ai' : 'core' })) });
 function storage() {
   const stores = new Map();
   return { stores, async open(name) {
@@ -62,7 +62,7 @@ test('offline install saves the shell and all graphics, with AI explicitly incom
   const w = worker(); await w.install();
   assert.equal((await status(w)).coreReady, true);
   assert.equal((await status(w)).aiReady, false);
-  assert.equal(w.counts.has('model.onnx'), false);
+  assert.equal(w.counts.has('model-full.onnx'), false);
   assert.equal(await (await w.get('?opponents=neural')).text(), bodies['index.html']);
   assert.equal(await (await w.get('tiles/Haku.svg')).text(), bodies['tiles/Haku.svg']);
 });
@@ -72,7 +72,7 @@ test('all AI bytes are durable before ready; simultaneous requests share downloa
   await Promise.all([download(w), download(w), download(w)]);
   assert.equal((await status(w)).aiReady, true);
   const sum = [...w.counts].filter(([name]) => /model|ort\//.test(name)).reduce((n, [, count]) => n + count, 0);
-  assert.equal(sum, 3, 'model, runtime module and one copy of the WASM');
+  assert.equal(sum, 3, 'the network, the runtime module and one copy of the WASM');
   await download(w); assert.equal([...w.counts.values()].reduce((a, b) => a + b), 6);
 });
 test('a cold worker serves navigation, tiles, model and runtime without ANY network, including HEAD', async () => {
@@ -80,14 +80,14 @@ test('a cold worker serves navigation, tiles, model and runtime without ANY netw
   const cold = worker({ caches: original.caches, network() { throw new Error('plane'); } });
   assert.equal((await status(cold)).aiReady, true);
   for (const [path, body] of Object.entries(bodies)) assert.equal(await (await cold.get(path)).text(), body);
-  assert.equal(await (await cold.get('model.onnx', 'HEAD')).text(), '');
+  assert.equal(await (await cold.get('model-full.onnx', 'HEAD')).text(), '');
   assert.equal(await (await cold.get('?launched=home-screen')).text(), bodies['index.html']);
   assert.equal(cold.counts.size, 0);
 });
 test('truncated or captive-portal downloads never count as AI ready and retry reuses good files', async () => {
   for (const bad of ['', 'portal!']) {
     let corrupt = true;
-    const w = worker({ network: name => new Response(corrupt && name === 'model.onnx' ? bad : bodies[name]) });
+    const w = worker({ network: name => new Response(corrupt && name === 'model-full.onnx' ? bad : bodies[name]) });
     await w.install(); await assert.rejects(download(w), /Incomplete or outdated/);
     assert.equal((await status(w)).aiReady, false);
     assert.equal((await status(w)).coreReady, true);
@@ -95,7 +95,7 @@ test('truncated or captive-portal downloads never count as AI ready and retry re
     await new Promise(done => setTimeout(done, 10));
     corrupt = false; await download(w);
     assert.equal((await status(w)).aiReady, true);
-    assert.equal(w.counts.get('model.onnx'), 2);
+    assert.equal(w.counts.get('model-full.onnx'), 2);
     assert.equal(w.counts.get('ort/runtime.wasm'), 1);
   }
 });
@@ -109,10 +109,10 @@ test('an app-only upgrade reuses every tile and all trained weights/runtime byte
 });
 test('activation removes obsolete Mahjong bodies but keeps current content and metadata', async () => {
   const old = worker(); await old.install(); await download(old);
-  const files = { ...bodies, 'index.html': 'new shell', 'tiles/Haku.svg': '<svg>new dragon</svg>', 'model.onnx': 'new weights' };
+  const files = { ...bodies, 'index.html': 'new shell', 'tiles/Haku.svg': '<svg>new dragon</svg>', 'model-full.onnx': 'new weights' };
   const update = worker({ files, caches: old.caches }); await update.install();
   const store = update.caches.stores.get('mahjong-offline-v1:/mahjong/');
-  const oldHashes = [bodies['index.html'], bodies['tiles/Haku.svg'], bodies['model.onnx']].map(sha);
+  const oldHashes = [bodies['index.html'], bodies['tiles/Haku.svg'], bodies['model-full.onnx']].map(sha);
   for (const hash of oldHashes) assert.equal(store.has(base + '__offline_content__/' + hash), true);
   await update.activate();
   for (const hash of oldHashes) assert.equal(store.has(base + '__offline_content__/' + hash), false);
@@ -121,17 +121,17 @@ test('activation removes obsolete Mahjong bodies but keeps current content and m
 });
 test('an interrupted AI upgrade cannot install or destroy the working offline version', async () => {
   const old = worker(); await old.install(); await download(old);
-  const files = { ...bodies, 'index.html': 'new shell', 'model.onnx': 'new weights' };
-  const update = worker({ files, caches: old.caches, network: name => new Response(name === 'model.onnx' ? '' : files[name], { status: name === 'model.onnx' ? 503 : 200 }) });
+  const files = { ...bodies, 'index.html': 'new shell', 'model-full.onnx': 'new weights' };
+  const update = worker({ files, caches: old.caches, network: name => new Response(name === 'model-full.onnx' ? '' : files[name], { status: name === 'model-full.onnx' ? 503 : 200 }) });
   await assert.rejects(update.install(), /Download failed/);
   assert.equal((await status(old)).aiReady, true);
-  assert.equal(await (await old.get('model.onnx')).text(), bodies['model.onnx']);
+  assert.equal(await (await old.get('model-full.onnx')).text(), bodies['model-full.onnx']);
 });
 test('cache eviction is detected and unrelated apps and unknown assets are untouched', async () => {
   const w = worker(); await w.install(); await download(w);
   const other = await w.caches.open('plateloader'); await other.put(base + 'sentinel', new Response('keep'));
   const store = w.caches.stores.get('mahjong-offline-v1:/mahjong/');
-  store.delete(base + '__offline_content__/' + sha(bodies['model.onnx']));
+  store.delete(base + '__offline_content__/' + sha(bodies['model-full.onnx']));
   assert.equal((await status(w)).aiReady, false);
   assert.equal(await (await other.match(base + 'sentinel')).text(), 'keep');
   assert.equal(await w.get('../plateloader/'), undefined);
@@ -149,7 +149,7 @@ test('production inventory classifies the external model/runtime package', async
   const files = { 'index.html': 'game', 'assets/worker-hash.js': 'worker', 'assets/riichi_bg-hash.wasm': 'engine',
     'tiles/Back.svg': '<svg/>', 'tiles/Haku.svg': '<svg>white</svg>', 'assets/white-dragon-hash.webp': 'dragon',
     'tiles/matisse/approved/Man7.svg': '<svg>cut-out</svg>', 'tiles/matisse/placeholders/Haku.svg': '<svg>white dragon</svg>',
-    'model.onnx': 'network', 'ort/ort-wasm-simd-threaded.wasm': 'wasm',
+    'model-full.onnx': 'network', 'ort/ort-wasm-simd-threaded.wasm': 'wasm',
     'ort/ort-wasm-simd-threaded.mjs': 'loader', 'ort/memory-budget.mjs': 'memory controls' };
   for (const [path, body] of Object.entries(files)) { await mkdir(join(root, path, '..'), { recursive: true }); await writeFile(join(root, path), body); }
   const first = await buildOffline(root), second = await buildOffline(root);

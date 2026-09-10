@@ -13,7 +13,7 @@
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
-  import { chooseAction, chosenModel, modelIsAvailable, reportProgress, resetPolicy, useModel } from './lib/policy.js';
+  import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
   import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards, unseenTileCounts } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
@@ -37,17 +37,13 @@
   let confirmDiscards = $state(preferences.confirmDiscards);
   let shortcuts = $state(preferences.shortcuts);
   let tileFace = $state(preferences.tileFace);
-  // Which trained network the opponents play with, and whether this build
-  // carries the stronger one at all.
-  let trainedModel = $state(useModel(preferences.trainedModel) ?? chosenModel());
   let reviewAdviser = $state(preferences.reviewAdviser);
-  let strongAvailable = $state(false);
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
   let startupNote = $state('Preparing the game for offline play…');
-  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, strongReady: false, hasStrongModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, persistent: false, updateReady: false });
-  let selectedAiReady = $derived(trainedModel === 'strong' ? offline.strongReady : offline.aiReady);
-  let selectedAiAvailable = $derived(trainedModel === 'strong' ? offline.hasStrongModel : offline.hasModel);
+  // One trained network ships with the game, so its download is the only
+  // optional one: readiness and availability are read straight from offline.
+  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, persistent: false, updateReady: false });
   let failure = $state('');
   let storageWarning = $state('');
   let saveConflict = $state('');
@@ -95,7 +91,7 @@
   let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
 
   $effect(() => {
-    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, trainedModel, reviewAdviser };
+    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser };
     try { storage?.setItem(SETTINGS_KEY, JSON.stringify(value)); } catch { /* Gameplay still works. */ }
   });
 
@@ -194,13 +190,7 @@
   onMount(() => {
     let mounted = true;
     const unwatchOffline = watchOffline(value => { if (mounted) offline = value; });
-    modelIsAvailable('quick').then((available) => { if (mounted) trainedAvailable = available; });
-    modelIsAvailable('strong').then((available) => {
-      if (!mounted) return;
-      strongAvailable = available;
-      // A saved choice of a network this build no longer carries falls back.
-      if (!available && trainedModel === 'strong') trainedModel = useModel('quick');
-    });
+    modelIsAvailable().then((available) => { if (mounted) trainedAvailable = available; });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
     (async () => {
       await startOffline();
@@ -241,13 +231,7 @@
     };
   });
 
-  function downloadAi() { void prepareOfflineAi(trainedModel).catch(() => {}); }
-
-  // In-flight turns finish normally; subsequent requests use the new model.
-  function chooseModel(which) {
-    trainedModel = useModel(which);
-    void prepareOfflineAi(trainedModel).catch(() => {});
-  }
+  function downloadAi() { void prepareOfflineAi().catch(() => {}); }
 
   function start(strength = opponents) {
     if (saveConflict) return;
@@ -441,15 +425,6 @@
   <details class="options">
     <summary>Options</summary>
     <div class="option-fields">
-      {#if strongAvailable && mode === 'play'}
-        <label>Trained opponent
-          <select value={trainedModel} onchange={(event) => chooseModel(event.currentTarget.value)}
-            aria-label="Trained opponent">
-            <option value="quick">Quick · small download</option>
-            <option value="strong">Strong · larger download</option>
-          </select>
-        </label>
-      {/if}
       <label>Tile face
         <select bind:value={tileFace} aria-label="Tile face">
           {#each TILE_FACE_OPTIONS as face}
@@ -542,7 +517,7 @@
     </div>
   </details>
   <details class="offline-settings">
-    <summary data-offline-status>{selectedAiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? `Saving AI… ${offline.progress}%` : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
+    <summary data-offline-status>{offline.aiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? `Saving AI… ${offline.progress}%` : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
     <div class="option-fields">
       <p data-core-status data-core-ready={offline.coreReady} role="status"><strong>Game and all tile graphics — automatic.</strong>
         {offline.coreWarning || (offline.coreReady
@@ -550,11 +525,11 @@
           : offline.supported === false ? 'Offline storage is unavailable here, but all tile graphics still load before play.'
           : 'Downloading the complete game and every tile graphic automatically. Stay connected until ready.')}</p>
       <p data-ai-status role="status"><strong>Trained AI — optional.</strong>
-        {(offline.phase === 'incomplete' && offline.warning) || (selectedAiReady
+        {(offline.phase === 'incomplete' && offline.warning) || (offline.aiReady
           ? 'The network and its runtime are saved too.'
           : offline.phase === 'ai' ? `Saving the trained network and runtime… ${offline.progress}%`
           : 'Only the trained network and its runtime need this extra download. Selecting a Trained opponent also starts it automatically.')}</p>
-      {#if selectedAiAvailable && !selectedAiReady}
+      {#if offline.hasModel && !offline.aiReady}
         <button data-download-ai onclick={downloadAi} disabled={!offline.coreReady || offline.phase === 'ai'}>{offline.phase === 'incomplete' ? 'Retry trained AI download' : 'Download trained AI for offline play'}</button>
       {/if}
       <p class="offline-detail">{offline.persistent ? 'Persistent storage granted.' : 'Your browser can remove website downloads when storage is low.'} Clearing website data removes downloads. On iPhone, check this status inside the Home Screen app before flying.</p>
@@ -616,11 +591,11 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {ready} {trainedAvailable} {strongAvailable} {opponents} {trainedModel} {hints} />
+    <AgentWatch {ready} {trainedAvailable} {opponents} {hints} />
   {:else if ready && mode === 'guided'}
-    <GuidedPlay {ready} {trainedAvailable} {strongAvailable} {storage} {hints} />
+    <GuidedPlay {ready} {trainedAvailable} {storage} {hints} />
   {:else if ready && mode === 'physical'}
-    <PhysicalPlay {ready} {trainedAvailable} {strongAvailable} {storage} />
+    <PhysicalPlay {ready} {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
     <div class="board">
       <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player} /></div>
@@ -710,7 +685,7 @@
           <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
             bets={view.riichi_sticks ?? 0} gameOver={session?.over ?? false} onnext={nextHand}
             ongame={() => start()} onreview={showReview} reviewed={notes !== null} onlog={saveLog} finalHand={Boolean(standings)} />
-          {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {strongAvailable} bind:adviser={reviewAdviser} />{/if}
+          {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} bind:adviser={reviewAdviser} />{/if}
         {:else}
           <p id="hand-help" class="prompt" role="status">
             {#if saveConflict}Reload the latest match to continue here.

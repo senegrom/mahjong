@@ -107,14 +107,11 @@ test('watch alternative confirmation pauses autoplay, cancels safely, and applie
   }
 });
 
-test('watch setup never selects a trained network absent from its available choices', () => {
+test('watch setup never selects the trained network when it is absent from this build', () => {
   const effect = find(watch.ast.instance, node => node.type === 'CallExpression' && node.callee?.name === '$effect');
   const callback = effect.arguments[0];
-  for (const [trainedAvailable, strongAvailable, trainedModel, expected] of [
-    [false, false, 'strong', 'club'], [true, false, 'strong', 'quick'],
-    [false, true, 'quick', 'strong'], [true, true, 'strong', 'strong'],
-  ]) {
-    const state = { ready: true, configured: false, trainedAvailable, strongAvailable, trainedModel,
+  for (const [trainedAvailable, expected] of [[false, 'club'], [true, 'full']]) {
+    const state = { ready: true, configured: false, trainedAvailable,
       opponents: ['neural', 'beginner', 'club'], lineup: [] };
     vm.runInContext(`(${watch.source.slice(callback.start, callback.end)})()`, vm.createContext(state));
     assert.deepEqual(Array.from(state.lineup), [expected, expected, 'beginner', 'club']);

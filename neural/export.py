@@ -135,13 +135,21 @@ def check_runs(graph: Path, wrapped: torch.nn.Module, example: torch.Tensor) -> 
     torch.manual_seed(4)
     trial = torch.rand_like(example.repeat(4, 1, 1)).round()
     with torch.no_grad():
-        expected = wrapped(trial).float()
-    answered = torch.from_numpy(session.run(None, {name: trial.numpy()})[0]).float()
-    if answered.shape != expected.shape:
+        expected = [answer.float() for answer in wrapped(trial)]
+    given = session.run(None, {name: trial.numpy()})
+    if len(given) != len(expected):
         raise SystemExit(
-            f"the exported graph answers {tuple(answered.shape)} where the "
-            f"network answers {tuple(expected.shape)}"
+            f"the exported graph answers {len(given)} things where the network "
+            f"answers {len(expected)}"
         )
+    for index, (theirs, ours) in enumerate(zip(given, expected)):
+        if tuple(theirs.shape) != tuple(ours.shape):
+            raise SystemExit(
+                f"output {index} of the graph is {tuple(theirs.shape)} where the "
+                f"network's is {tuple(ours.shape)}"
+            )
+    answered = torch.from_numpy(given[0]).float()
+    expected = expected[0]
     apart = float((answered - expected).abs().mean())
     spread = float(expected.std())
     agreed = float((answered.argmax(dim=1) == expected.argmax(dim=1)).float().mean())
@@ -156,25 +164,35 @@ def check_runs(graph: Path, wrapped: torch.nn.Module, example: torch.Tensor) -> 
         )
 
 
-class PolicyOnly(torch.nn.Module):
-    """The network with the value head trimmed away.
+class Playable(torch.nn.Module):
+    """What the page needs to play and to search: the policy, the value,
+    and what the three opponents are holding.
 
     The mask is applied in the browser rather than here: an exported graph
     that fills masked entries with negative infinity is awkward to run, and
     the caller has the mask anyway.
+
+    Left behind are the oracle critic, which sees what a player cannot and
+    belongs to training alone, and the reader, which scores hands that have
+    already been imagined.
     """
 
     def __init__(self, net: PolicyValueNet) -> None:
         super().__init__()
         self.net = net
 
-    def forward(self, planes: torch.Tensor) -> torch.Tensor:
+    def forward(self, planes: torch.Tensor) -> tuple[torch.Tensor, ...]:
         features = self.net.tail(self.net.tower(self.net.stem(planes)))
         pooled = features.mean(dim=2)
         tiles = self.net.policy_tiles(features)
         tiles = tiles.reshape(tiles.shape[0], -1)
-        rest = self.net.policy_pooled(pooled)
-        return torch.cat([tiles, rest], dim=1)
+        policy = torch.cat([tiles, self.net.policy_pooled(pooled)], dim=1)
+        # One value a row, kept as a column rather than squeezed flat:
+        # squeezing costs an operator the browser's runtime is not built
+        # with, and the page can read the first entry as easily.
+        value = self.net.value(pooled)
+        hands = self.net.hands_from(planes, features)
+        return policy, value, hands
 
 
 def main() -> None:
@@ -200,10 +218,10 @@ def main() -> None:
             f"{riichi_py.PLANES}; the page must run Mortal's encoder to play it"
         )
 
-    wrapped = PolicyOnly(net).eval()
+    wrapped = Playable(net).eval()
     example = torch.zeros(1, net.planes, riichi_py.POSITIONS)
     with torch.no_grad():
-        reference = wrapped(example)
+        reference = wrapped(example)[0]
 
     # Written where it is asked for only once it has been checked, so a
     # refusal never leaves a file behind that someone could ship.
@@ -214,8 +232,13 @@ def main() -> None:
             (example,),
             str(full),
             input_names=["planes"],
-            output_names=["policy"],
-            dynamic_axes={"planes": {0: "batch"}, "policy": {0: "batch"}},
+            output_names=["policy", "value", "hands"],
+            dynamic_axes={
+                "planes": {0: "batch"},
+                "policy": {0: "batch"},
+                "value": {0: "batch"},
+                "hands": {0: "batch"},
+            },
             opset_version=17,
             dynamo=False,
         )

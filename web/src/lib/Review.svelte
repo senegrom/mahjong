@@ -10,14 +10,14 @@
    * traded: how far the hand was left from complete, how many tiles would
    * have improved it, and whether the tile could have dealt in.
    */
-  let { notes = [], hints = true, engine = null, strongAvailable = false, adviser = $bindable('club') } = $props();
-  let strongNotes = $state.raw(null);
+  let { notes = [], hints = true, engine = null, trainedAvailable = false, adviser = $bindable('club') } = $props();
+  let trainedNotes = $state.raw(null);
   let reviewing = $state(false);
   let completed = $state(0);
   let failure = $state('');
   let retry = $state(0);
   let cached = null;
-  let activeNotes = $derived(adviser === 'strong' ? strongNotes ?? [] : notes);
+  let activeNotes = $derived(adviser === 'strong' ? trainedNotes ?? [] : notes);
 
   let disputed = $derived(activeNotes.filter((note) => !note.agreed));
   let shown = $state('disputed');
@@ -32,11 +32,11 @@
     void retry;
     reviewing = false;
     failure = '';
-    if (adviser !== 'strong' || !source.length || !strongAvailable) return;
+    if (adviser !== 'strong' || !source.length || !trainedAvailable) return;
     if (!owner) { failure = 'The hand is no longer available for review.'; return; }
-    if (cached?.source === source && cached.engine === owner) { strongNotes = cached.rows; return; }
+    if (cached?.source === source && cached.engine === owner) { trainedNotes = cached.rows; return; }
     const abort = new AbortController();
-    strongNotes = null;
+    trainedNotes = null;
     completed = 0;
     reviewing = true;
     void reviewWithStrong(owner, source, analyzePolicy, {
@@ -44,7 +44,7 @@
     }).then(rows => {
       if (abort.signal.aborted) return;
       cached = { source, engine: owner, rows };
-      strongNotes = rows;
+      trainedNotes = rows;
     }).catch(error => {
       if (!abort.signal.aborted) failure = error?.message ?? String(error);
     }).finally(() => { if (!abort.signal.aborted) reviewing = false; });
@@ -64,26 +64,26 @@
     <label class="adviser">Review adviser
       <select bind:value={adviser} aria-label="Review adviser">
         <option value="club">Club</option>
-        <option value="strong" disabled={!strongAvailable || !engine}>Strong AI</option>
+        <option value="strong" disabled={!trainedAvailable || !engine}>Trained AI</option>
       </select>
     </label>
-    {#if adviser === 'strong'}<p class="policy-help">Percentages show Strong's preference among the legal moves at the time.</p>{/if}
+    {#if adviser === 'strong'}<p class="policy-help">Percentages show the trained network's preference among the legal moves at the time.</p>{/if}
     {#if activeNotes.length && !reviewing && !failure}
       <p class="summary">
         {activeNotes.length - disputed.length} of {activeNotes.length}
-        {activeNotes.length === 1 ? 'decision' : 'decisions'} matched {adviser === 'strong' ? 'Strong AI' : 'Club'}.
+        {activeNotes.length === 1 ? 'decision' : 'decisions'} matched {adviser === 'strong' ? 'Trained AI' : 'Club'}.
       </p>
     {/if}
   </header>
 
   {#if !notes.length}
     <p class="empty">You made no decisions this hand.</p>
-  {:else if adviser === 'strong' && !strongAvailable}
-    <p class="empty">Strong AI is unavailable in this build. Choose Club to review this hand.</p>
+  {:else if adviser === 'strong' && !trainedAvailable}
+    <p class="empty">The trained network is unavailable in this build. Choose Club to review this hand.</p>
   {:else if reviewing}
-    <p role="status">Strong AI is reviewing your decisions… {completed} of {notes.length}</p>
+    <p role="status">Trained AI is reviewing your decisions… {completed} of {notes.length}</p>
   {:else if failure}
-    <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Strong review</button></p>
+    <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Trained review</button></p>
   {:else}
     {#if clean}<p class="clean">Every move was the one the adviser would have made.</p>{/if}
     {#if !clean}
@@ -122,7 +122,7 @@
           </div>
 
           {#if adviser === 'strong'}
-            <p class="policy-preference">Strong preference: <strong>{percent(note.preferred_weight)}</strong>
+            <p class="policy-preference">Trained preference: <strong>{percent(note.preferred_weight)}</strong>
               {#if !note.agreed && note.played_weight !== null}<span> · Your move: {percent(note.played_weight)}</span>{/if}
             </p>
           {:else if !note.agreed}

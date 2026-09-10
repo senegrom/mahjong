@@ -74,11 +74,18 @@ def decide_in_mortal_space(
     who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
     legal = np.atleast_2d(legal)
     began = clock()
-    planes, own = views.sparse_and_masks(rows, players)
+    planes, _own = views.sparse_and_masks(rows, players)
     timing["encode"] = timing.get("encode", 0.0) + clock() - began
     began = clock()
-    # The policy is over what Mortal may do here that our engine allows.
-    allowed = own & zoo.translatable(legal)
+    # The policy is over what our engine allows, named in Mortal's moves.
+    #
+    # Not what both allow. Mortal will not declare a reach with fewer than
+    # four tiles left in the wall; EMA 2025 section 3.3.10 allows it down to
+    # one, and that is the game being played. Keeping only what the two
+    # agree on drops a legal riichi at the end of every hand, quietly, in
+    # self-play and in the browser alike. Mortal's own mask is read from the
+    # encoder and left unused for that reason.
+    allowed = zoo.translatable(legal)
     # A row where nothing agrees is decided by our engine's first legal
     # move and not recorded; it does not happen in practice.
     decidable = allowed.any(axis=1)

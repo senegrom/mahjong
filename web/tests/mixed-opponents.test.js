@@ -10,13 +10,18 @@ const make = (seed, config) => new MatchSession(Game, seed, config);
 const pick = choices => choices.find(c => c.kind === 'ron' || c.kind === 'tsumo')
   ?? choices.find(c => c.kind === 'riichi') ?? choices.find(c => c.kind === 'pass')
   ?? choices.find(c => c.kind === 'discard') ?? choices[0];
-const neuralChoice = mask => mask[69] ? 69 : mask[68] ? 68 : mask[70] ? 70 : mask.findIndex(Boolean);
+// Mortal's forty-six moves, which is what a trained opponent now answers in:
+// 43 is the win, whether by draw or on a discard, and 45 the pass. Anything
+// else falls back to the lowest legal move, which is a discard.
+const neuralChoice = mask => mask[43] ? 43 : mask[45] ? 45 : mask.findIndex(Boolean);
+// The same preference in our own seventy-eight, for the engine itself.
+const enginePick = mask => mask[69] ? 69 : mask[68] ? 68 : mask[70] ? 70 : mask.findIndex(Boolean);
 function turn(m) {
   if (m.engine.needs_opponent_move()) {
     const player = m.engine.opponent_player();
     const seat = m.view.seats.find(s => s.player === player);
     assert.equal(seat.controller, 'neural', 'Only a trained player may ask the network');
-    m.apply({ type: 'opponent', action: neuralChoice(m.engine.opponent_mask()) });
+    m.apply({ type: 'opponent', action: neuralChoice(m.engine.opponent_mask_mortal()) });
     return player;
   }
   if (m.view.phase === 'over') m.apply({ type: 'next' });
@@ -77,7 +82,7 @@ test('uniform custom engine construction produces identical decisions to the ori
         assert.deepEqual(b.view(), a.view()); assert.deepEqual(b.choices(), a.choices());
         if (a.needs_opponent_move()) {
           assert.equal(b.opponent_player(), a.opponent_player());
-          const action = neuralChoice(a.opponent_mask()); a.play_opponent(action); b.play_opponent(action);
+          const action = enginePick(a.opponent_mask()); a.play_opponent(action); b.play_opponent(action);
         } else { const c = pick(a.choices()); a.choose(c.kind,c.tile??undefined); b.choose(c.kind,c.tile??undefined); }
         a.advance(); b.advance();
       }
@@ -137,6 +142,7 @@ test('fallback-all changes only trained opponents and rejects wrong-player comma
 });
 
 test('old format-3 saves migrate only additive opponent identity metadata', () => {
+  let migrated=0,refused=0;
   for(const difficulty of OPPONENT_TYPES) {
     const m=make(81,difficulty);
     try {
@@ -144,13 +150,22 @@ test('old format-3 saves migrate only additive opponent identity metadata', () =
       const old=m.snapshot(); old.format=3; delete old.opponents;
       const data=JSON.parse(old.state); for(const seat of data[0].seats){delete seat.player;delete seat.controller;}
       old.state=JSON.stringify(data);
+      // Before format 5 a trained opponent's answer was written down in our
+      // own seventy-eight moves. Replaying one as Mortal's forty-six would
+      // play a different game, so such a save is refused, not migrated.
+      if(old.commands.some(c=>c.type==='opponent')) {
+        assert.throws(()=>MatchSession.restore(Game,JSON.stringify(old)),/Unsupported legacy opponent moves/);
+        refused++; continue;
+      }
       const r=MatchSession.restore(Game,JSON.stringify(old));
       try {assert.deepEqual(r.opponents,normalizeOpponents(difficulty));assert.equal(r.stateKey(),m.stateKey());}
       finally {r.dispose();}
       data[0].seats[0].score+=1000; old.state=JSON.stringify(data);
       assert.throws(()=>MatchSession.restore(Game,JSON.stringify(old)),/does not match/);
+      migrated++;
     } finally {m.dispose();}
   }
+  assert.ok(migrated>0&&refused>0,'Exercised both an old save that still migrates and one that cannot');
 });
 
 test('a complete mixed hanchan keeps player identity, settings and final restoration', () => {

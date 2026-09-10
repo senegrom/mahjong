@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import { Game } from '../wasm/riichi.js';
   import { chooseAction } from './policy.js';
-  import { AGENTS, WINDS, evaluateAgent } from './agents.js';
+  import { AGENTS, WINDS, evaluateAgent, isTrained } from './agents.js';
   import { WatchSession } from './watch-session.js';
   import AgentWeights from './AgentWeights.svelte';
   import Tile from './Tile.svelte';
@@ -13,7 +13,7 @@
   import ScoreScreen from './ScoreScreen.svelte';
   import Standings from './Standings.svelte';
 
-  let { ready, trainedAvailable, strongAvailable, opponents, trainedModel, hints = true } = $props();
+  let { ready, trainedAvailable, opponents, hints = true } = $props();
   let lineup = $state(['club', 'club', 'club', 'club']);
   let watch = $state.raw(null);
   let view = $state(null);
@@ -42,8 +42,7 @@
   $effect(() => {
     if (!configured && ready) {
       configured = true;
-      const available = trainedModel === 'strong' && strongAvailable ? 'strong'
-        : trainedAvailable ? 'quick' : strongAvailable ? 'strong' : 'club';
+      const available = trainedAvailable ? 'full' : 'club';
       lineup = [available, ...opponents.map(value => value === 'neural' ? available : value)];
     }
   });
@@ -87,7 +86,7 @@
       {#each positions as position, index (index)}
         <label>{position}<select bind:value={lineup[index]} aria-label={position}>
           {#each Object.entries(AGENTS) as [key, label] (key)}
-            {#if key !== 'strong' || strongAvailable}{#if key !== 'quick' || trainedAvailable}<option value={key}>{label}</option>{/if}{/if}
+            {#if !isTrained(key) || trainedAvailable}<option value={key}>{label}</option>{/if}
           {/each}
         </select></label>
       {/each}

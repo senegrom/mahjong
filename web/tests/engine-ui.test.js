@@ -55,7 +55,7 @@ test('real neural decisions replay without running inference again', () => {
   const match = make(1,'neural');
   for (let n=0; n<25 && match.view.phase !== 'over'; n++) {
     if (match.engine.needs_opponent_move()) {
-      match.apply({type:'opponent',action:match.engine.opponent_mask().findIndex(Boolean)});
+      match.apply({type:'opponent',action:match.engine.opponent_mask_mortal().findIndex(Boolean)});
       match.advance(false);
     } else step(match, match.choices.find(c=>c.kind==='discard') ?? match.choices[0]);
   }
@@ -98,7 +98,7 @@ test('Club recovery resolves a pending opponent claim and restores exactly', () 
         restored.dispose(); found = true; break;
       }
       if (match.engine.needs_opponent_move()) {
-        match.apply({type:'opponent',action:match.engine.opponent_mask().findIndex(Boolean)});
+        match.apply({type:'opponent',action:match.engine.opponent_mask_mortal().findIndex(Boolean)});
         match.advance(false);
       } else step(match, match.choices.find(c=>c.kind==='pass') ?? match.choices.find(c=>c.kind==='discard') ?? match.choices[0]);
     }

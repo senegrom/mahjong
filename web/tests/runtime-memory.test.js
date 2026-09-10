@@ -28,7 +28,7 @@ test('both published models infer repeatedly within a phone-sized WASM reservati
   };
 
   const baselines = new Map();
-  for (const name of Array(3).fill(['model.onnx', 'model-strong.onnx']).flat()) {
+  for (const name of Array(3).fill('model-full.onnx')) {
     let session, input;
     try {
       const bytes = new Uint8Array(await readFile(new URL(`../dist/${name}`, import.meta.url)));

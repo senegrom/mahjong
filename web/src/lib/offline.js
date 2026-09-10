@@ -4,10 +4,9 @@ const base = new URL('./', document.baseURI);
 const script = new URL('sw.js', base).href;
 let worker = null;
 let boot = null;
-const aiJobs = new Map();
+let aiJob = null;
 let coreJob = null;
 let state = { supported: null, coreReady: false, aiReady: false, hasModel: false,
-  strongReady: false, hasStrongModel: false,
   phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false,
   persistent: false, updateReady: false };
 const listeners = new Set();
@@ -140,34 +139,29 @@ export async function refreshOffline() {
   if (!worker) return null;
   return prepareCore(await request('MAHJONG_STATUS'));
 }
-/** Saves the trained opponent the player asked for: `quick`, the small
- * network the game has always carried, or `strong`, the larger one. Each is
- * downloaded only when it is chosen, and one job runs per network. */
-export function prepareOfflineAi(which = 'quick') {
-  const strong = which === 'strong';
-  const running = aiJobs.get(which);
-  if (running) return running;
-  const job = (async () => {
+/** Saves the one trained network the game carries, with its runtime. It is
+ * downloaded only when a Trained player is chosen, and one job runs at a time. */
+export function prepareOfflineAi() {
+  if (aiJob) return aiJob;
+  aiJob = (async () => {
     if (!(await startOffline())) return null; // Online-only browsers still work, with a visible warning.
     // This action adds only the trained network/runtime. Core preparation has
     // its own automatic startup/reconnect path and is not opt-in.
     const info = await request('MAHJONG_STATUS');
     update(info);
-    if (strong ? info.strongReady : info.aiReady) return info;
+    if (info.aiReady) return info;
     update({ phase: 'ai', progress: 0, warning: '' });
     try {
-      const ready = await request(strong ? 'MAHJONG_PREPARE_STRONG' : 'MAHJONG_PREPARE_AI', ({ bytes, total }) => {
+      const ready = await request('MAHJONG_PREPARE_AI', ({ bytes, total }) => {
         update({ progress: total ? Math.floor(100 * bytes / total) : 0 });
       });
       update({ ...ready, phase: 'ready', progress: 100, warning: '' });
       void persistentStorage();
       return ready;
     } catch (error) {
-      update({ ...(strong ? { strongReady: false } : { aiReady: false }),
-        phase: 'incomplete', warning: `AI download incomplete: ${error.message}` });
+      update({ aiReady: false, phase: 'incomplete', warning: `AI download incomplete: ${error.message}` });
       throw error;
     }
-  })().finally(() => { aiJobs.delete(which); });
-  aiJobs.set(which, job);
-  return job;
+  })().finally(() => { aiJob = null; });
+  return aiJob;
 }

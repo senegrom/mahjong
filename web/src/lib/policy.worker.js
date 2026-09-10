@@ -23,13 +23,12 @@ let runtimeMemory = null;
 // told when the observation grows.
 const POSITIONS = 34;
 
-// A session for each network the page carries, kept in order of last use,
-// so a table that mixes the two does not reload one on every change of
-// turn: measured, that cost a mixed table most of a second at the ninetieth
-// percentile on a desktop and far more on a phone. Two is what exists; a
-// runtime that cannot hold both fails the request and the page retries it
-// in a fresh worker with a larger reservation.
-const KEEP = 2;
+// The page carries one trained network, and its session is kept loaded
+// between decisions: reloading it every turn cost a table most of a second
+// at the ninetieth percentile on a desktop and far more on a phone. A
+// runtime that cannot hold it fails the request and the page retries it in
+// a fresh worker with a larger reservation.
+const KEEP = 1;
 const sessions = new Map();
 const queued = new Map();
 let running = false;

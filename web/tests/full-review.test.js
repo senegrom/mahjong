@@ -59,7 +59,7 @@ test('old format-2 hints migrate without relaxing tile, score or action validati
   assert.deepEqual(JSON.parse(original.state)[0].waits,['4z','6z']);
   const m=MatchSession.restore(Game,JSON.stringify(original));
   try {
-    assert.deepEqual(m.view.waits,['6z']);assert.equal(m.snapshot().format,4);
+    assert.deepEqual(m.view.waits,['6z']);assert.equal(m.snapshot().format,5);
     const restored=MatchSession.restore(Game,JSON.stringify(m.snapshot()));
     assert.equal(restored.stateKey(),m.stateKey());restored.dispose();
   } finally {m.dispose();}

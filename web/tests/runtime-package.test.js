@@ -25,7 +25,14 @@ test('production uses the reduced external ONNX runtime for the current model', 
   const generic = (await stat(join(web, 'node_modules', 'onnxruntime-web', 'dist', 'ort-wasm-simd-threaded.wasm'))).size;
   assert.ok(reduced < generic, `reduced runtime ${reduced} must be smaller than generic ${generic}`);
 
-  const expected = (await readFile(join(web, 'runtime', 'model.sha256'), 'utf8')).trim();
-  const actual = createHash('sha256').update(await readFile(join(web, 'public', 'model.onnx'))).digest('hex');
-  assert.equal(expected, actual, 'reduced runtime must be rebuilt when model.onnx changes');
+  const checked = new Map((await readFile(join(web, 'runtime', 'models.sha256'), 'utf8'))
+    .split('\n').map(line => line.trim()).filter(Boolean)
+    .map(line => { const [hash, name] = line.split(/\s+/); return [name, hash]; }));
+  const shipped = (await readdir(join(web, 'public'))).filter(name => name.endsWith('.onnx')).sort();
+  assert.deepEqual(shipped, [...checked.keys()].sort(),
+    'every shipped network must have been checked against the reduced runtime');
+  for (const name of shipped) {
+    const actual = createHash('sha256').update(await readFile(join(web, 'public', name))).digest('hex');
+    assert.equal(checked.get(name), actual, `reduced runtime must be rebuilt when ${name} changes`);
+  }
 });

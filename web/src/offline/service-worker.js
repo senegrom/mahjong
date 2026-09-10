@@ -42,20 +42,13 @@ async function ensure(entry) {
 }
 async function status() {
   const cache = await caches.open(CACHE);
-  const complete = { core: true, ai: CONFIG.hasModel, 'ai-strong': Boolean(CONFIG.hasStrongModel) };
+  const complete = { core: true, ai: CONFIG.hasModel };
   for (const entry of CONFIG.entries) if (!(await cached(cache, entry))) complete[entry.group] = false;
   return { coreReady: complete.core, aiReady: complete.ai,
-    // The stronger network plays on the quick one's runtime, so it is ready
-    // only when both groups are.
-    strongReady: Boolean(complete.ai && complete['ai-strong']),
-    hasModel: CONFIG.hasModel, hasStrongModel: Boolean(CONFIG.hasStrongModel), version: CONFIG.version };
+    hasModel: CONFIG.hasModel, version: CONFIG.version };
 }
 async function prepare(group, progress = () => {}) {
   if (group === 'ai' && !CONFIG.hasModel) throw new Error('No trained model is included in this version.');
-  if (group === 'ai-strong') {
-    if (!CONFIG.hasStrongModel) throw new Error('No stronger model is included in this version.');
-    await prepare('ai', progress);
-  }
   if (groups.has(group)) { await groups.get(group); return status(); }
   // Deduplicate the public runtime and the bundler's identical copy.
   const list = [...new Map(CONFIG.entries.filter(entry => entry.group === group).map(entry => [entry.hash, entry])).values()];
@@ -94,7 +87,6 @@ self.addEventListener('install', event => {
     // An upgrade must not strand an offline Trained match on a new runtime
     // whose bytes have not finished downloading. Keep the old worker instead.
     if (CONFIG.hasModel && await cache.match(new URL('__offline_meta__/ai-requested', scope))) await prepare('ai');
-    if (CONFIG.hasStrongModel && await cache.match(new URL('__offline_meta__/strong-requested', scope))) await prepare('ai-strong');
   })());
 });
 self.addEventListener('activate', event => {
@@ -105,17 +97,14 @@ self.addEventListener('activate', event => {
 });
 self.addEventListener('message', event => {
   const port = event.ports[0];
-  const groupOf = { MAHJONG_PREPARE_AI: 'ai', MAHJONG_PREPARE_STRONG: 'ai-strong', MAHJONG_PREPARE_CORE: 'core' };
+  const groupOf = { MAHJONG_PREPARE_AI: 'ai', MAHJONG_PREPARE_CORE: 'core' };
   if (!port || !['MAHJONG_STATUS', ...Object.keys(groupOf)].includes(event.data?.type)) return;
   const progress = value => port.postMessage({ progress: value });
   const work = (async () => {
     if (event.data.type === 'MAHJONG_STATUS') return status();
-    if (event.data.type !== 'MAHJONG_PREPARE_CORE') {
+    if (event.data.type === 'MAHJONG_PREPARE_AI') {
       const cache = await caches.open(CACHE);
       await cache.put(new URL('__offline_meta__/ai-requested', scope), new Response('requested'));
-      if (event.data.type === 'MAHJONG_PREPARE_STRONG') {
-        await cache.put(new URL('__offline_meta__/strong-requested', scope), new Response('requested'));
-      }
     }
     return prepare(groupOf[event.data.type], progress);
   })();

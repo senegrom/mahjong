@@ -84,18 +84,24 @@ export class MatchSession {
   stateKey() { return JSON.stringify([this.view, this.choices, this.over]); }
 
   snapshot() {
-    return { version: VERSION, format: 4, seed: this.seed, difficulty: this.initialDifficulty, opponents: [...this.initialOpponents],
+    return { version: VERSION, format: 5, seed: this.seed, difficulty: this.initialDifficulty, opponents: [...this.initialOpponents],
       commands: this.commands.map((command) => ({ ...command })), state: this.stateKey() };
   }
 
   static restore(Game, text, options) {
     require(typeof text === 'string' && text.length <= MAX_SAVE_BYTES, 'Saved match is too large');
     const saved = JSON.parse(text);
-    require(saved?.version === VERSION && (saved.format === undefined || saved.format === 2 || saved.format === 3 || saved.format === 4) && Array.isArray(saved.commands), 'Unsupported saved match');
+    const format = saved?.format ?? 0;
+    require(saved?.version === VERSION && [0, 2, 3, 4, 5].includes(format) && Array.isArray(saved.commands), 'Unsupported saved match');
     require(saved.commands.length <= MAX_COMMANDS && typeof saved.state === 'string', 'Invalid saved match');
-    require(saved.format === 4 || !saved.commands.some(command => command?.type === 'opponent-club'), 'Unsupported legacy controller change');
-    const opponents = saved.format === 4 ? normalizeOpponents(saved.opponents) : normalizeOpponents(saved.difficulty);
-    require(saved.format !== 4 || saved.difficulty === opponentPreset(opponents), 'Saved opponents disagree with their preset');
+    require(format >= 4 || !saved.commands.some(command => command?.type === 'opponent-club'), 'Unsupported legacy controller change');
+    // Up to format 4 a trained opponent's move was recorded in our own
+    // seventy-eight actions. It is Mortal's forty-six now, and the two
+    // numberings mean different moves, so replaying an older one would play
+    // a different game rather than the one that was saved.
+    require(format >= 5 || !saved.commands.some(command => command?.type === 'opponent'), 'Unsupported legacy opponent moves');
+    const opponents = format >= 4 ? normalizeOpponents(saved.opponents) : normalizeOpponents(saved.difficulty);
+    require(format < 4 || saved.difficulty === opponentPreset(opponents), 'Saved opponents disagree with their preset');
     const session = new MatchSession(Game, saved.seed, opponents, options);
     try {
       session.advance(false);
@@ -118,7 +124,7 @@ export class MatchSession {
       // Divergent rules/commands still fail closed and leave the save untouched.
       const state = session.stateKey();
       const comparable = (value) => {
-        if (saved.format === 4) return value;
+        if (format >= 4) return value;
         const data = JSON.parse(value);
         // Only new identity/controller metadata is ignored for old saves. The
         // original uniform controllers are replayed, never inferred from UI.
@@ -160,9 +166,15 @@ export class MatchSession {
       }
       case 'opponent': {
         require(this.engine.needs_opponent_move(), 'No opponent decision is pending');
-        const mask = this.engine.opponent_mask();
+        // The trained opponents answer in Mortal's forty-six moves, which is
+        // the space the network they run was trained in. Our own rules still
+        // decide what may be done; the engine turns the answer back into a
+        // move it can play.
+        const mask = this.engine.opponent_mask_mortal();
         require(Number.isInteger(command.action) && command.action >= 0 && command.action < mask.length && mask[command.action], 'Invalid opponent action');
-        this.engine.play_opponent(command.action);
+        // A declared reach plays nothing yet: the engine asks again which
+        // tile it discards, and the loop above comes round to answer.
+        this.engine.play_opponent_mortal(command.action);
         recorded = { type: 'opponent', action: command.action };
         break;
       }
@@ -218,7 +230,7 @@ export class MatchSession {
           require(moves++ < 400, 'The opponent sequence did not settle');
           this.thinking = true;
           this.notify();
-          const action = await this.ai(this.engine.opponent_observation(), this.engine.opponent_mask(), this.abort.signal);
+          const action = await this.ai(this.engine.opponent_observation_mortal(), this.engine.opponent_mask_mortal(), this.abort.signal);
           if (this.closed) return false;
           this.apply({ type: 'opponent', action });
           this.advance();

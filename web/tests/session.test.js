@@ -5,14 +5,21 @@ import { heldSafeCount, callTiles, callLabel, unseenTileCounts } from '../src/li
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 class FakeGame {
-  constructor(seed, difficulty) { this.seed = seed; this.external = difficulty === 'neural'; this.pending = this.external; this.moves = 0; this.applied = 0; this.freed = false; }
+  constructor(seed, difficulty) { this.seed = seed; this.external = difficulty === 'neural'; this.pending = this.external; this.moves = 0; this.applied = 0; this.declared = 0; this.awaitingTile = false; this.freed = false; }
   view() { assert.ok(!this.freed); return { phase: 'act', hands_played: 0, seats: [{discards: Array(this.moves).fill('1m'), melds: [], riichi: false}], moves: this.moves, pending: this.pending }; }
   choices() { return this.pending ? [] : [{ kind: 'discard', tile: '1m' }]; }
   advance() { return []; }
   needs_opponent_move() { return this.pending; }
-  opponent_mask() { return new Uint8Array([1, 0]); }
-  opponent_observation() { return new Float32Array([0]); }
-  play_opponent(action) { assert.ok(!this.freed); assert.equal(action, 0); this.applied++; this.pending = false; }
+  /** Mortal's forty-six moves, which is what a trained opponent answers in.
+   * Move 0 discards; move 37 declares a reach, which plays nothing until a
+   * second answer names the tile it discards. */
+  opponent_mask_mortal() { const mask = new Uint8Array(46); mask[0] = 1; if (!this.awaitingTile) mask[37] = 1; return mask; }
+  opponent_observation_mortal() { return new Float32Array([this.awaitingTile ? 1 : 0]); }
+  play_opponent_mortal(action) {
+    assert.ok(!this.freed);
+    if (action === 37) { this.declared++; this.awaitingTile = true; return true; }
+    assert.equal(action, 0); this.applied++; this.awaitingTile = false; this.pending = false; return false;
+  }
   continue_with_club() { this.external = false; this.pending = false; }
   choose() { this.moves++; this.pending = this.external; }
   game_is_over() { return false; }
@@ -65,6 +72,18 @@ test('busy sessions ignore additional player choices', async () => {
 test('illegal neural output is rejected rather than used as a fallback move', async () => {
   const match = new MatchSession(FakeGame, 1, 'neural', {ai: async () => 1});
   await match.run(); assert.match(match.failure, /Invalid opponent/); assert.equal(match.engine.applied, 0); match.dispose();
+});
+
+test('a declared reach is answered twice and replays without asking again', async () => {
+  const match = new MatchSession(FakeGame, 1, 'neural', {ai: async (_planes, mask) => mask[37] ? 37 : 0});
+  assert.equal(await match.run(), true);
+  assert.deepEqual(match.commands, [{type:'opponent',action:37},{type:'opponent',action:0}]);
+  assert.equal(match.engine.declared, 1); assert.equal(match.engine.applied, 1); assert.equal(match.failure, '');
+  const restored = MatchSession.restore(FakeGame, JSON.stringify(match.snapshot()),
+    {ai(){throw new Error('A saved reach must not be put to the network again');}});
+  assert.equal(restored.stateKey(), match.stateKey());
+  assert.equal(restored.engine.declared, 1); assert.equal(restored.engine.applied, 1);
+  match.dispose(); restored.dispose();
 });
 
 test('restoration rejects invalid versions, illegal commands and changed state', async () => {

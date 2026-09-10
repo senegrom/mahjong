@@ -92,12 +92,20 @@
     clippy::useless_let_if_seq
 )]
 
+// Everything gated on `pymod` is the Python half of the crate: self-play,
+// dataset building, statistics and the agents. What is left -- the state
+// machine, the mahjong algorithms and the observation encoder -- is plain
+// Rust and builds for wasm32-unknown-unknown.
+#[cfg(feature = "pymod")]
 mod arena;
 mod array;
-mod consts;
+pub mod consts;
+#[cfg(feature = "pymod")]
 mod dataset;
+#[cfg(feature = "pymod")]
 mod follow;
 mod macros;
+#[cfg(feature = "pymod")]
 mod py_helper;
 mod rankings;
 mod vec_ops;
@@ -105,10 +113,12 @@ mod vec_ops;
 // pub for bins
 pub mod chi_type;
 pub mod mjai;
+#[cfg(feature = "pymod")]
 pub mod stat;
 pub mod state;
 
 // pub for non-cfg(test) tests
+#[cfg(feature = "pymod")]
 pub mod agent;
 pub mod tile;
 
@@ -116,6 +126,7 @@ pub mod tile;
 pub mod algo;
 pub mod hand;
 
+#[cfg(feature = "pymod")]
 use pyo3::prelude::*;
 
 #[cfg(feature = "mimalloc")]
@@ -133,6 +144,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// - Definitions of observation and action space for Mortal (via `consts`).
 /// - Statistical works on mjai logs (via `stat.Stat`).
 /// - mjai interface (via `mjai.Bot`).
+#[cfg(feature = "pymod")]
 #[pymodule]
 fn libriichi(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();

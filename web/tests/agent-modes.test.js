@@ -239,9 +239,9 @@ test('a manually entered kan leads to a replacement win and ends ippatsu', () =>
     'the open hand needs the replacement-draw yaku to win'));
 });
 
-test('watch uses the retained choice, passes each trained opponent its own model, and finishes hands', async () => {
+test('watch uses the retained choice, names the trained network for each of its seats, and finishes hands', async () => {
   const models = new Set();
-  const w = new WatchSession(Game, 287, ['beginner', 'quick', 'strong', 'club'], {
+  const w = new WatchSession(Game, 287, ['beginner', 'full', 'full', 'club'], {
     ai: async (_planes, mask, _signal, model) => { models.add(model); return pick(mask); }, evaluate: builtin,
   });
   try {
@@ -255,7 +255,7 @@ test('watch uses the retained choice, passes each trained opponent its own model
       assert.deepEqual(w.match.commands[before], { type: 'choose', kind: choice.kind, tile: choice.tile ?? null });
     }
     assert.ok(decisions < 500 && decisions > 1); assert.ok(calls > 0);
-    assert.deepEqual([...models].sort(), ['quick', 'strong']);
+    assert.deepEqual([...models], ['full']);
   } finally { w.dispose(); }
 });
 
