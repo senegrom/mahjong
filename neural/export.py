@@ -119,6 +119,43 @@ def check_operators(destination: Path, insist: bool = True) -> None:
         )
 
 
+def check_runs(graph: Path, wrapped: torch.nn.Module, example: torch.Tensor) -> None:
+    """Loads the exported graph and asks it what the network was asked.
+
+    An operator list says what a graph wants, not whether it works. This
+    is the part that catches a graph the runtime refuses, and a quantised
+    one that loads but answers something else.
+    """
+    import onnxruntime
+
+    session = onnxruntime.InferenceSession(str(graph), providers=["CPUExecutionProvider"])
+    name = session.get_inputs()[0].name
+    # Ordinary positions, not zeros: a graph can be right about an empty
+    # board and wrong about a hand.
+    torch.manual_seed(4)
+    trial = torch.rand_like(example.repeat(4, 1, 1)).round()
+    with torch.no_grad():
+        expected = wrapped(trial).float()
+    answered = torch.from_numpy(session.run(None, {name: trial.numpy()})[0]).float()
+    if answered.shape != expected.shape:
+        raise SystemExit(
+            f"the exported graph answers {tuple(answered.shape)} where the "
+            f"network answers {tuple(expected.shape)}"
+        )
+    apart = float((answered - expected).abs().mean())
+    spread = float(expected.std())
+    agreed = float((answered.argmax(dim=1) == expected.argmax(dim=1)).float().mean())
+    print(
+        f"the graph runs: {apart:.4f} from the network on average, against a "
+        f"spread of {spread:.4f}, same best move on {agreed:.0%} of the trials"
+    )
+    if apart > spread:
+        raise SystemExit(
+            "the exported graph does not answer what the network answers; "
+            "quantising has broken it"
+        )
+
+
 class PolicyOnly(torch.nn.Module):
     """The network with the value head trimmed away.
 
@@ -186,6 +223,7 @@ def main() -> None:
         if not as_float:
             quantise(full, made)
         check_operators(made, insist)
+        check_runs(made, wrapped, example)
         shutil.copyfile(made, destination)
 
     size = destination.stat().st_size

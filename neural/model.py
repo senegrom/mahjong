@@ -98,7 +98,12 @@ class Attention(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        gate = torch.sigmoid(self.mlp(x.mean(dim=2)) + self.mlp(x.amax(dim=2)))
+        # Both poolings go through in one pass. Read separately, the same
+        # weight is multiplied twice in the exported graph, and quantising
+        # that writes a matrix the runtime cannot load.
+        pooled = torch.stack([x.mean(dim=2), x.amax(dim=2)])
+        read = self.mlp(pooled)
+        gate = torch.sigmoid(read[0] + read[1])
         return x * gate.unsqueeze(2)
 
 
