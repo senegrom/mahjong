@@ -10,9 +10,10 @@ Trained opponents, including a custom mix at one table.
 Three more ways to use the game are available from the mode bar:
 
 - **Agent watch** follows one selected agent through a full game. Choose
-  Beginner, Club, Trained Quick or Trained Strong independently for all four
-  seats. Run automatically, or pause before each followed decision to inspect
-  its choice weights and play that exact choice.
+  Beginner, Club or Trained independently for all four seats. Run
+  automatically, or pause before each followed decision to inspect its choice
+  weights, what the network makes the hand worth, what it reads the other
+  three as holding, and play that exact choice.
 - **Physical agent play** analyses a table you enter yourself: concealed hands,
   drawn tiles, discards and their order, calls, riichi, scores, winds, honba,
   wall count and dora indicators. Unknown hands can stay empty. Choose the
@@ -166,14 +167,12 @@ level, 2.4288 against 2.4247. At one table the published network wins by
 about 0.23 every thirty-five generations by that measure, so the gap is
 small and closing.
 
-It reaches the browser as 2.4 MB of int8 weights in a worker beside the
-rules in WebAssembly, so a whole game runs offline. That published network
-is 192 channels by 10 blocks; the one training now is 320 by 20, 12.6M
-parameters and about fifty megabytes, far too big for a phone and meant to
-be distilled down once it is worth distilling. Quantising left the
-best move unchanged on every position tested. It answers in 38 milliseconds
-at the median and 41 at the ninetieth percentile, where the plan asks for
-under 200.
+It reaches the browser as 17.6 MB of int8 weights in a worker beside the
+rules in WebAssembly, so a whole game runs offline. Nothing is distilled:
+the network the browser runs is the network that was trained, 320 channels
+by 24 blocks with channel attention, and it answers the page in the same
+forty-six moves it answers the trainer in. Quantising left the best move
+unchanged on every position tested.
 
 Mortal itself can sit at these tables. A published Mortal (its network is
 vendored in `neural/mortal_model.py`; its weights are not part of the
@@ -282,7 +281,7 @@ licence; its encoder is what the network sees, see
 ```bash
 python -m neural.imitate --rounds 400 --out runs/clone
 python -m neural.train --generations 4000 --resume runs/clone/latest.pt --out runs/play
-python -m neural.export runs/play/best.pt web/public/model.onnx
+python -m neural.export runs/play/best.pt web/public/model-full.onnx
 ```
 
 The warm start teaches the network the heuristic player's moves, which saves
@@ -303,38 +302,47 @@ published network's moves for 120 rounds, duelled level with its
 teacher; ten generations of self-play later it beat it by +0.087
 placement at five standard errors, and stood 0.34 behind Mortal.
 
-The browser builds the engine's ninety-seven planes and cannot build
-Mortal's thousand, so no network of the new lineage runs there as it is.
-Nothing of the old lineage is worth shipping either: its last network,
-generation 371, duelled 0.226 placement worse than the one the site
-already carries, at thirteen standard errors. What reaches the page is a
-student taught by the new lineage and reading the planes the page can
-make, both networks sitting at the same table while it learns:
+The browser builds Mortal's thousand and twelve planes itself: libriichi
+compiles to WebAssembly beside our own engine, the page keeps one of its
+`PlayerState`s per seat and feeds them the events our engine writes, and
+the planes that come out are identical to training's on every value of
+every position tested. So the network the page runs is the network that
+was trained — no student, no distillation:
 
 ```bash
-python -m neural.imitate --student engine --teacher runs/joined/latest.pt \
-    --channels 320 --blocks 20 --rounds 60 --out runs/student
-python -m neural.duel runs/student/latest.pt w320-run/published.pt
-python -m neural.export runs/student/latest.pt web/public/model-strong.onnx
+python -m neural.export leashed-run/latest.pt web/public/model-full.onnx
 ```
 
-The first such student, 320 by 20 and taught for sixty rounds by the
-joined player at generation 59, agreed with its teacher on 88% of its
-moves and beat the network the site had been playing by **+0.130
-placement at 7.3 standard errors** over a thousand deals a seating. It
-ships as `model-strong.onnx`, 12.7 MB of int8 weights, and answers in 203
-milliseconds at the median where the small network answers in 44.
+The export writes all three of the network's answers, not just the move:
 
-The game offers the **Trained** tier only when `web/public/model.onnx` is
-present, so a checkout without one simply shows the two heuristic tiers.
-A build that also carries `model-strong.onnx` offers a choice of trained
-opponent, quick or strong, and downloads only the one chosen: the small
-network is a couple of megabytes and the larger one is tens of them, which
-is a poor thing to spend on a phone that did not ask for it. The runtime in
-`web/runtime` was built with only the operators the small network needs, so
-the export quantises to int8 and refuses anything asking for more; channel
-attention, whose `ReduceMax` and `Sigmoid` are not there, is why the
-student is built with `--no-attention`.
+- `policy`, forty-six weights in Mortal's action space, which
+  `web/src/lib/mortal-space.js` gathers back into weights over ours (a red
+  five and its plain tile are two of Mortal's moves and one of ours; a
+  reach names no tile, so its weight is spread over the tiles by the
+  second question a declaration asks);
+- `value`, what the critic makes of the hand for the seat that was asked,
+  in places at the table;
+- `hands`, three rows of thirty-four: what the network takes each opponent
+  to be holding, as the chance that a tile drawn at random from that hand
+  is of each kind. Against the hands themselves its guess covers 0.449 of
+  a hand where a flat guess covers 0.316.
+
+`neural.export` loads the graph it just wrote and compares it against the
+network before it will keep it, so an export that quantises into something
+the runtime cannot load fails at the export rather than in the browser.
+
+The **Trained** agent is offered wherever `web/public/model-full.onnx` is
+present, including on a position typed into Guided or Physical play:
+`engine/riichi-wasm/src/mortal_log.rs` replays such a position into the
+events Mortal's encoder wants, dealing the three hands nobody has shown
+face down. The replay is checked against real games, and reproduces the
+observation exactly for every seat that has not declared riichi; a seat
+that has differs in two planes libriichi freezes at the declaration, which
+no decision reads.
+
+The runtime in `web/runtime` was built with only the operators this
+network needs — seventeen of them, channel attention's `ReduceMax` and
+`Sigmoid` among them — and the export refuses anything asking for more.
 
 `node scripts/play-check.mjs <url>` plays the game in a real browser and
 reports the console, the moves and any failure. It is the only way to test

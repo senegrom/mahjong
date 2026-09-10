@@ -107,7 +107,15 @@ async function infer({ id, url, runtimeBase, planes, mask, temperature, details,
     output = await model.run({ planes: input });
     const logits = output.policy.data;
     const analysis = policyWeights(logits, mask);
-    self.postMessage({ id, action: pick(logits, mask, temperature ?? 0), ...(details ? { analysis } : {}) });
+    // The network answers all three questions in one pass, so the value and
+    // the belief cost nothing beyond copying them out. They are copied
+    // because the tensors are disposed below.
+    const read = {
+      value: output.value ? output.value.data[0] : null,
+      hands: output.hands ? Float32Array.from(output.hands.data) : null,
+    };
+    self.postMessage({ id, action: pick(logits, mask, temperature ?? 0), ...read,
+      ...(details ? { analysis: { ...analysis, ...read } } : {}) });
   } finally {
     input?.dispose();
     for (const tensor of Object.values(output ?? {})) tensor.dispose();

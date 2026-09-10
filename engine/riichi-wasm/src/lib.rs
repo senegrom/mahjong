@@ -71,6 +71,80 @@ fn meanings(action: usize) -> Vec<usize> {
 }
 
 mod analysis;
+#[path = "mortal_log.rs"]
+mod mortal_log;
+
+/// Which of Mortal's moves our rules allow that seat, and, once a reach is
+/// declared, only the tiles it may discard.
+///
+/// Our rules decide, not Mortal's: the two do not agree about a late reach,
+/// and the game being played is ours.
+pub(crate) fn mortal_mask_of(hand: &Hand, seat: Wind, after_reach: bool) -> Vec<bool> {
+    let mut ours = vec![false; ACTIONS];
+    encoding::legal_mask(hand, seat, &mut ours);
+    let mut theirs = vec![false; MORTAL_ACTIONS];
+    if after_reach {
+        for tile in 0..34 {
+            theirs[tile] = ours[encoding::RIICHI_DISCARD + tile];
+        }
+        return theirs;
+    }
+    for (action, allowed) in theirs.iter_mut().enumerate() {
+        *allowed = meanings(action).into_iter().any(|index| ours[index]);
+    }
+    theirs
+}
+
+/// Our move that one of Mortal's means for that seat, or -1 where it means
+/// nothing the seat may do. With `after_reach` the answer is the tile a
+/// declaration discards, which is a riichi rather than a plain discard.
+pub(crate) fn action_from_mortal(hand: &Hand, seat: Wind, action: usize, after_reach: bool) -> i32 {
+    if action >= MORTAL_ACTIONS {
+        return -1;
+    }
+    let mut ours = vec![false; ACTIONS];
+    encoding::legal_mask(hand, seat, &mut ours);
+    if after_reach {
+        let tile = match action {
+            tile if tile < 34 => tile,
+            red if MORTAL_RED_FIVES.contains(&red) => {
+                [4, 13, 22][MORTAL_RED_FIVES.iter().position(|x| *x == red).unwrap()]
+            }
+            _ => return -1,
+        };
+        let index = encoding::RIICHI_DISCARD + tile;
+        return if ours[index] { index as i32 } else { -1 };
+    }
+    meanings(action)
+        .into_iter()
+        .find(|index| ours[*index])
+        .map_or(-1, |index| index as i32)
+}
+
+/// The other way: which of Mortal's moves one of ours is, so a page showing
+/// weights against our choices can find the right one. Every riichi discard
+/// is the one reach.
+pub(crate) fn mortal_action_for(ours: usize) -> i32 {
+    if ours >= ACTIONS {
+        return -1;
+    }
+    (0..MORTAL_ACTIONS)
+        .find(|action| meanings(*action).contains(&ours))
+        .map_or(-1, |action| action as i32)
+}
+
+/// Whether that seat may declare a reach at all.
+///
+/// Asked before one is put to Mortal's state: telling it about a reach that
+/// is not legal there does not return an error, it panics, and a panic
+/// leaves the whole game unusable behind it.
+pub(crate) fn may_reach_from(hand: &Hand, seat: Wind) -> bool {
+    let mut ours = vec![false; ACTIONS];
+    encoding::legal_mask(hand, seat, &mut ours);
+    ours[encoding::RIICHI_DISCARD..encoding::TSUMO]
+        .iter()
+        .any(|allowed| *allowed)
+}
 
 /// One tile in a discard row, as the interface needs it.
 #[derive(Serialize)]
@@ -408,19 +482,7 @@ impl Game {
     /// Which of Mortal's moves our rules allow that seat, and, once a reach
     /// is declared, only the tiles it may discard.
     fn mortal_mask_for(&self, seat: Wind, after_reach: bool) -> Vec<bool> {
-        let mut ours = vec![false; ACTIONS];
-        encoding::legal_mask(&self.hand, seat, &mut ours);
-        let mut theirs = vec![false; MORTAL_ACTIONS];
-        if after_reach {
-            for tile in 0..34 {
-                theirs[tile] = ours[encoding::RIICHI_DISCARD + tile];
-            }
-            return theirs;
-        }
-        for (action, allowed) in theirs.iter_mut().enumerate() {
-            *allowed = meanings(action).into_iter().any(|index| ours[index]);
-        }
-        theirs
+        mortal_mask_of(&self.hand, seat, after_reach)
     }
 
     /// Everything that has happened since the last telling, to all four of
@@ -478,16 +540,8 @@ impl Game {
     }
 
     /// Whether that seat may declare a reach at all.
-    ///
-    /// Asked before one is put to Mortal's state: telling it about a reach
-    /// that is not legal there does not return an error, it panics, and a
-    /// panic leaves the whole game unusable behind it.
     fn may_reach(&self, hand: &Hand, seat: Wind) -> bool {
-        let mut ours = vec![false; ACTIONS];
-        encoding::legal_mask(hand, seat, &mut ours);
-        ours[encoding::RIICHI_DISCARD..encoding::TSUMO]
-            .iter()
-            .any(|allowed| *allowed)
+        may_reach_from(hand, seat)
     }
 }
 
@@ -709,6 +763,13 @@ impl Game {
         self.mortal_planes(self.hand_seating[self.seat.index()], false)
     }
 
+    /// How many concealed tiles each of the three other seats holds, in the
+    /// order the belief head answers in: the next player, the one across,
+    /// then the previous. A guessed hand is a share of these.
+    pub fn concealed_counts(&self) -> Vec<u32> {
+        analysis::concealed_counts(&self.hand, self.seat)
+    }
+
     /// Which of Mortal's moves the followed player may make, by our rules.
     pub fn agent_mask_mortal(&self) -> Vec<u8> {
         self.mortal_mask_for(self.seat, false)
@@ -739,38 +800,14 @@ impl Game {
     /// With `after_reach` the answer is the tile a declaration discards,
     /// which is a riichi rather than a plain discard.
     pub fn agent_action_from_mortal(&self, action: usize, after_reach: bool) -> i32 {
-        if action >= MORTAL_ACTIONS {
-            return -1;
-        }
-        let mut ours = vec![false; ACTIONS];
-        encoding::legal_mask(&self.hand, self.seat, &mut ours);
-        if after_reach {
-            let tile = match action {
-                tile if tile < 34 => tile,
-                red if MORTAL_RED_FIVES.contains(&red) => {
-                    [4, 13, 22][MORTAL_RED_FIVES.iter().position(|x| *x == red).unwrap()]
-                }
-                _ => return -1,
-            };
-            let index = encoding::RIICHI_DISCARD + tile;
-            return if ours[index] { index as i32 } else { -1 };
-        }
-        meanings(action)
-            .into_iter()
-            .find(|index| ours[*index])
-            .map_or(-1, |index| index as i32)
+        action_from_mortal(&self.hand, self.seat, action, after_reach)
     }
 
     /// The other way: which of Mortal's moves one of ours is, so a page
     /// showing weights against our choices can find the right one. Every
     /// riichi discard is the one reach.
     pub fn mortal_action_of(&self, ours: usize) -> i32 {
-        if ours >= ACTIONS {
-            return -1;
-        }
-        (0..MORTAL_ACTIONS)
-            .find(|action| meanings(*action).contains(&ours))
-            .map_or(-1, |action| action as i32)
+        mortal_action_for(ours)
     }
 
     /// Which entries of the action space that seat may choose.

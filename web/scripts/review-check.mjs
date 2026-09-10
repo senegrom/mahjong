@@ -104,11 +104,11 @@ try {
   if (review.numbers.length) {
     console.log(`first numbers: ${review.numbers.slice(0, 6).join(' | ')}`);
   }
-  // The trained model is optional by design: the page offers that tier only
-  // when the file is there, and none is published while the arena says the
-  // network is no better than the heuristic bots. Its absence is the
-  // intended state, not a broken deployment.
-  const unexpected = missing.filter((url) => !url.endsWith('model.onnx'));
+  // The trained network is optional by design: the page offers that tier only
+  // when the file is there, and a checkout without it still plays the built-in
+  // bots. Its absence is a build that carries no network, not a broken
+  // deployment.
+  const unexpected = missing.filter((url) => !url.endsWith('model-full.onnx'));
   console.log(`page errors: ${problems.length ? problems.join('; ') : 'none'}`);
   console.log(
     `missing files: ${missing.length ? missing.map((u) => u.split('/').pop()).join(', ') : 'none'}`,

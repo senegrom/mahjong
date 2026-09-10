@@ -5,7 +5,8 @@ Use the mode bar, or **Game settings → Game mode** on the smallest phone scree
 ## Watch
 
 Select **Agent watch**, choose the followed agent and each of the other three
-players, then **Start watching**. Quick and Strong can sit at the same table.
+players, then **Start watching**. Beginner, Club and Trained can sit at the
+same table.
 Agent assignments stay with the same players as their seat winds change.
 
 With **Auto play** off, the table pauses at each followed player's decision,
@@ -109,10 +110,12 @@ from the start of a hand. The guide asks for one thing at a time:
    their discard; their concealed tiles stay unknown. Mark riichi or a discard
    from the draw when appropriate.
 5. Advice appears automatically at your discard and response decisions.
-   Choose Beginner, Club, Quick or Strong as adviser. **Record suggested move** applies
-   the displayed suggestion. Click any other legal choice (or a discard in
-   your hand) to record it after confirmation. The blue border marks the
-   suggestion. Trained percentages describe policy preference.
+   Choose Beginner, Club or Trained as adviser. **Record suggested move**
+   applies the displayed suggestion. Click any other legal choice (or a
+   discard in your hand) to record it after confirmation. The blue border
+   marks the suggestion. Trained percentages describe policy preference; the
+   Trained adviser also shows what it makes the hand worth and what it reads
+   each of the other three as holding.
 6. After a discard or your pass, report any other player's call, or choose
    **No other calls · continue**. A chii asks for its lowest tile. Calls change
    turn order and move the claimed tile into the called set. A pon/chii is
@@ -149,7 +152,7 @@ the end of a match), then choose the **Review adviser**:
 
 - **Club** explains hand readiness, improving tiles, danger and dora for turn
   actions, and explains whether it would accept or pass on a call.
-- **Strong AI** evaluates each recorded decision using the information available
+- **Trained** evaluates each recorded decision using the information available
   before that move. It shows the preferred move and its percentage; when your
   move differs, it also shows your move's percentage when the policy scores it.
 
@@ -161,10 +164,11 @@ calls because the next discard or replacement draw has not happened yet.
 These percentages express preference among legal moves, not the chance of
 winning. **Every decision** includes moves that agree with the adviser. The
 adviser choice is remembered independently of the opponents at your table.
-Strong is offered when its model is included in the build and downloads on
-demand. A failed review can be retried. Switching advisers or leaving the hand
-cancels pending analysis; a completed Strong review is reused while the same
-review remains open. Reviewing never changes the game or its saved history.
+The Trained adviser is offered when the network is included in the build and
+downloads on demand. A failed review can be retried. Switching advisers or
+leaving the hand cancels pending analysis; a completed Trained review is
+reused while the same review remains open. Reviewing never changes the game
+or its saved history.
 
 ## Validation
 
@@ -179,11 +183,11 @@ drafts, queued undo, reopening, and unavailable storage.
 `web/tests/review-policy.test.js` compares historical review inputs with the
 original live decisions, including restored saves and hand boundaries, and
 checks sequential inference, cancellation and unscored choices.
-`web/scripts/adviser-review-check.mjs` checks adviser selection, real Strong
+`web/scripts/adviser-review-check.mjs` checks adviser selection, a real Trained
 percentages, retry, cached results, saved preferences and mobile layout in CI.
 
 `web/tests/guided-game.test.js` checks the guided turn sequence against the real
 rules engine, including calls, kans, furiten, wall counts, settlement, undo and
 conflicting saves. `web/scripts/guided-game-check.mjs` runs the North-seat
-walkthrough, alternative confirmation, reload, opponent calls, real Strong
+walkthrough, alternative confirmation, reload, opponent calls, a real Trained
 weights and mobile layout against the production build.

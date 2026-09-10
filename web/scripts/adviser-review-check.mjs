@@ -1,4 +1,4 @@
-/** Review a restored hand with the actual production UI and Strong worker. */
+/** Review a restored hand with the actual production UI and trained worker. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
@@ -12,9 +12,11 @@ import { createFixtureHandler } from './static-fixture-server.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
-const strongShipped = existsSync(resolve(dist, 'model-strong.onnx'));
+const trainedShipped = existsSync(resolve(dist, 'model-full.onnx'));
+/** Mortal's forty-six moves, and the reach that names no tile of its own. */
+const MORTAL_ACTIONS = 46, MORTAL_REACH = 37;
 const match = new MatchSession(Game, 1, 'club');
-let snapshot, notes, first, choices;
+let snapshot, notes, first, choices, ours;
 try {
   match.advance(false);
   for (let n = 0; n < 250 && match.view.phase !== 'over'; n++) {
@@ -25,8 +27,16 @@ try {
   assert.equal(match.view.phase, 'over');
   snapshot = match.snapshot(); notes = match.engine.review();
   assert.ok(notes.length > 1);
-  first = { planes: Array.from(match.engine.review_observation(0)), mask: Array.from(match.engine.review_mask(0)) };
+  // The network reads Mortal's planes and answers in Mortal's moves, so this
+  // is what the page must send and what its answers have to be read against.
+  first = { planes: Array.from(match.engine.review_observation_mortal(0)), mask: Array.from(match.engine.review_mask_mortal(0)) };
   choices = notes.map((_, index) => match.engine.review_choices(index));
+  // Which of our own choices each of Mortal's moves means, for both questions
+  // a decision can ask: the move itself, and the tile a declared reach plays.
+  ours = notes.map((_, index) => ({
+    plain: Array.from({ length: MORTAL_ACTIONS }, (_, action) => match.engine.review_action_from_mortal(index, action, false)),
+    afterReach: Array.from({ length: MORTAL_ACTIONS }, (_, action) => match.engine.review_action_from_mortal(index, action, true)),
+  }));
 } finally { match.dispose(); }
 
 const server = createServer(createFixtureHandler({ root: dist, publicRoot: dist }));
@@ -42,7 +52,7 @@ async function openReview(page) {
   await page.waitForSelector(select);
 }
 
-async function strongResults(page) {
+async function trainedResults(page) {
   await page.waitForFunction(() => document.querySelector('.review[aria-busy="false"] .policy-preference'), { timeout: 90000 });
   await page.evaluate(() => [...document.querySelectorAll('.review .tabs button')]
     .find(button => button.textContent.includes('Every decision'))?.click());
@@ -54,20 +64,32 @@ async function strongResults(page) {
     agreed: el.classList.contains('agreed'),
   })));
   const inference = await page.evaluate(() => window.reviewAnswers);
-  assert.equal(inference.length, notes.length, 'one real Strong answer per historical decision');
+  // A reach is two questions: the declaration, then which tile it discards.
+  // Pair the answers back up with the decision each of them belongs to.
+  const answers = [];
+  for (let n = 0; n < inference.length; n++) {
+    const declaration = inference[n];
+    answers.push({ declaration, tile: declaration.action === MORTAL_REACH ? inference[++n] : null });
+  }
+  assert.equal(answers.length, notes.length, 'one real trained answer per historical decision');
+  assert.ok(answers.every(answer => answer.declaration.action !== MORTAL_REACH || answer.tile),
+    'a declared reach must be asked which tile it plays');
   for (let index = 0; index < notes.length; index++) {
-    const answer = inference[index], preferred = choices[index].find(c => c.index === answer.action);
+    const { declaration, tile } = answers[index], afterReach = tile !== null;
+    const action = afterReach ? tile.action : declaration.action;
+    const preferred = choices[index].find(c => c.index === ours[index][afterReach ? 'afterReach' : 'plain'][action]);
     assert.ok(preferred);
     assert.equal(actual[index].played, notes[index].played);
     assert.equal(actual[index].advised, actual[index].agreed ? notes[index].played : preferred.label);
-    assert.equal(actual[index].weight, percent(answer.weights[answer.action]));
+    // The weight belongs to the declaration, never to the tile it then names.
+    assert.equal(actual[index].weight, percent(declaration.weights[afterReach ? MORTAL_REACH : action]));
     assert.equal(actual[index].agreed, preferred.kind === notes[index].played_kind
       && (preferred.tile ?? null) === (notes[index].played_tile ?? null));
   }
   assert.equal(await page.$('.review .numbers'), null);
   const requests = await page.evaluate(() => window.reviewRequests);
-  assert.equal(requests.length, notes.length);
-  assert.ok(requests.every(request => request.url.endsWith('/model-strong.onnx')));
+  assert.equal(requests.length, inference.length, 'every answer came from a request this page made');
+  assert.ok(requests.every(request => request.url.endsWith('/model-full.onnx')));
   assert.deepEqual({ planes: requests[0].planes, mask: requests[0].mask }, first);
   assert.deepEqual(await saved(page), snapshot);
 }
@@ -79,7 +101,7 @@ try {
   assert.ok(executablePath, 'Set CHROME_BIN to Chrome/Chromium');
   browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const context = await browser.createBrowserContext();
-  const name = 'Club and Strong review: real percentages, retry, cached results and remembered choice on mobile';
+  const name = 'Club and Trained review: real percentages, retry, cached results and remembered choice on mobile';
   try {
     const page = await context.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -88,7 +110,7 @@ try {
     await page.evaluateOnNewDocument((saveKey, settingsKey, initial) => {
       if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(initial));
       if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify({
-        version: 1, difficulty: 'club', trainedModel: 'quick', reviewAdviser: 'club', hints: true,
+        version: 1, difficulty: 'club', reviewAdviser: 'club', hints: true,
       }));
       window.reviewRequests = []; window.reviewAnswers = [];
       const NativeWorker = window.Worker;
@@ -121,26 +143,26 @@ try {
     assert.equal(await page.$eval(select, el => el.value), 'club');
     assert.match(await page.$eval('.review .summary', el => el.textContent), /matched Club/);
     if (notes.some(note => !note.agreed)) assert.ok(await page.$('.review .numbers'));
-    if (strongShipped) {
+    if (trainedShipped) {
       await page.waitForFunction(() => !document.querySelector('select[aria-label="Review adviser"] option[value="strong"]').disabled);
       await page.select(select, 'strong');
       await page.waitForSelector('.review .retry', { timeout: 90000 });
       assert.match(await page.$eval('.review [role="alert"]', el => el.textContent), /Review connection interrupted/);
       await page.click('.review .retry');
-      await strongResults(page);
+      await trainedResults(page);
       await page.screenshot({ path: resolve(output, 'adviser-review-desktop.png'), fullPage: true });
       await page.select(select, 'club');
       await page.waitForFunction(() => document.querySelector('.review .summary')?.textContent.includes('matched Club'));
       assert.equal(await page.$('.policy-preference'), null);
       await page.select(select, 'strong');
-      await strongResults(page); // No additional worker requests for a cached hand.
+      await trainedResults(page); // No additional worker requests for a cached hand.
       const preferences = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SETTINGS_KEY);
-      assert.equal(preferences.reviewAdviser, 'strong'); assert.equal(preferences.trainedModel, 'quick');
+      assert.equal(preferences.reviewAdviser, 'strong');
       await page.setViewport({ width: 360, height: 800, hasTouch: true });
       await page.reload({ waitUntil: 'networkidle0' });
       await openReview(page);
       assert.equal(await page.$eval(select, el => el.value), 'strong');
-      await strongResults(page);
+      await trainedResults(page);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
       await page.screenshot({ path: resolve(output, 'adviser-review-mobile.png'), fullPage: true });
     } else assert.equal(await page.$eval(`${select} option[value="strong"]`, el => el.disabled), true);

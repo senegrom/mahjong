@@ -3,7 +3,8 @@
 #[path = "physical_settlement.rs"]
 mod settlement;
 
-use super::{describe_action, describe_call};
+use super::{describe_action, describe_call, mortal_log};
+use riichi::mjai::Event as MortalEvent;
 use riichi_core::bot::{Bot, Style};
 use riichi_core::encoding::{self, ACTIONS, OBSERVATION};
 use riichi_core::game::{Call, Discard, Hand, Phase};
@@ -548,6 +549,78 @@ impl PhysicalAnalysis {
             &mut Bot::with_style(self.hand.discards_made as u64, style),
         )
     }
+
+    /// This seat's observation as Mortal builds it, rebuilt from the
+    /// position by replaying what it says happened.
+    pub fn agent_observation_mortal(&self) -> Result<Vec<f32>, JsValue> {
+        self.planes(false)
+    }
+
+    /// The same seat once a reach is declared, for the second question a
+    /// declaration asks. Nothing is declared: it is put to a copy.
+    pub fn agent_observation_after_reach(&self) -> Result<Vec<f32>, JsValue> {
+        self.planes(true)
+    }
+
+    /// Which of Mortal's moves this seat may make, by our rules.
+    pub fn agent_mask_mortal(&self) -> Vec<u8> {
+        super::mortal_mask_of(&self.hand, self.seat, false)
+            .iter()
+            .map(|flag| u8::from(*flag))
+            .collect()
+    }
+
+    /// Which tiles a declaration may discard, in Mortal's numbering.
+    pub fn agent_mask_after_reach(&self) -> Vec<u8> {
+        super::mortal_mask_of(&self.hand, self.seat, true)
+            .iter()
+            .map(|flag| u8::from(*flag))
+            .collect()
+    }
+
+    pub fn agent_action_from_mortal(&self, action: usize, after_reach: bool) -> i32 {
+        super::action_from_mortal(&self.hand, self.seat, action, after_reach)
+    }
+
+    pub fn mortal_action_of(&self, ours: usize) -> i32 {
+        super::mortal_action_for(ours)
+    }
+
+    /// How many concealed tiles each of the three other seats holds, in the
+    /// order the belief head answers in: the next player, the one across,
+    /// then the previous. A guessed hand is a share of these.
+    pub fn concealed_counts(&self) -> Vec<u32> {
+        concealed_counts(&self.hand, self.seat)
+    }
+}
+
+impl PhysicalAnalysis {
+    fn planes(&self, after_reach: bool) -> Result<Vec<f32>, JsValue> {
+        let mut state = mortal_log::state_for(&self.hand, self.seat).ok_or_else(|| {
+            JsValue::from_str(
+                "This position cannot be replayed as a hand: check the discard order numbers, the called sets and the wall count",
+            )
+        })?;
+        if after_reach && super::may_reach_from(&self.hand, self.seat) {
+            // Put to a copy of the state, never to a game: the declaration
+            // itself is recorded only when the move is actually made.
+            let _ = state.update(&MortalEvent::Reach {
+                actor: self.seat.index() as u8,
+            });
+        }
+        let (observation, _mask) = state.encode_obs(super::MORTAL_VERSION, false);
+        Ok(observation.iter().copied().collect())
+    }
+}
+
+/// The three other seats' concealed tile counts, from the seat asked
+/// outwards. The drawn tile counts: it is in the hand until it is let go,
+/// and that is how the hands the belief head was trained against were
+/// counted too.
+pub(super) fn concealed_counts(hand: &Hand, seat: Wind) -> Vec<u32> {
+    (1..4)
+        .map(|offset| hand.players[seat.plus(offset).index()].hand.len() as u32)
+        .collect()
 }
 
 #[cfg(test)]

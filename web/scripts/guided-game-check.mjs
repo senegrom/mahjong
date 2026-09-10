@@ -138,20 +138,20 @@ try {
     assert.deepEqual(await page.evaluate(({ physical, match }) => [localStorage.getItem(physical), localStorage.getItem(match)], { physical: PHYSICAL_KEY, match: SAVE_KEY }), ['existing position editor draft', 'existing regular match']);
     assert.deepEqual(page.problems, []);
   });
-  await check('mobile guided play shows real Strong percentages and resumes the pending decision', async context => {
+  await check('mobile guided play shows the real trained percentages and resumes the pending decision', async context => {
     const page = await open(context, 360);
     await setup(page, '0');
     await tile(page, '4z'); await choice(page);
-    await page.waitForSelector('[aria-label="Guided game adviser"] option[value="strong"]');
-    await page.select('[aria-label="Guided game adviser"]', 'strong');
-    await page.waitForFunction(() => document.querySelector('.recommendation strong')?.textContent.includes('Strong') && document.querySelector('.weight-row meter'), { timeout: 120000 });
+    await page.waitForSelector('[aria-label="Guided game adviser"] option[value="full"]');
+    await page.select('[aria-label="Guided game adviser"]', 'full');
+    await page.waitForFunction(() => document.querySelector('.recommendation strong')?.textContent.includes('Trained') && document.querySelector('.weight-row meter'), { timeout: 120000 });
     const weights = await page.$$eval('.weight-row meter', meters => meters.map(m => Number(m.value)));
     assert.ok(Math.abs(weights.reduce((a, b) => a + b, 0) - 1) < 1e-5);
     assert.equal(await page.$$eval('.held-tiles .copy-count', nodes => nodes.length), 14);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
     await page.screenshot({ path: resolve(output, 'guided-game-mobile.png'), fullPage: true });
     await page.reload({ waitUntil: 'networkidle0' }); await choice(page);
-    assert.equal(await page.$eval('[aria-label="Guided game adviser"]', el => el.value), 'strong');
+    assert.equal(await page.$eval('[aria-label="Guided game adviser"]', el => el.value), 'full');
     assert.equal((await saved(page)).state.position.players[0].hand.length, 14);
     assert.deepEqual(page.problems, []);
   });

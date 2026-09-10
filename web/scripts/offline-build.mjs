@@ -15,26 +15,23 @@ export async function buildOffline(root) {
     const data = await readFile(file), url = relative(root, file).split('\\').join('/');
     // ORT may emit a second, hashed copy of its WASM. Equal hashes share one
     // stored body and one download, including across application upgrades.
-    // The stronger network is a group of its own: a player who wants the
-    // quick opponent must not be made to download it to get one.
-    const strong = url === 'model-strong.onnx';
-    const ai = url === 'model.onnx' || url.startsWith('ort/') || /ort-.*\.wasm$/.test(url);
-    const group = strong ? 'ai-strong' : ai ? 'ai' : 'core';
-    return { url, hash: createHash('sha256').update(data).digest('hex'), bytes: data.length, group };
+    // The network and its runtime are a group of their own, so a player who
+    // only wants to play the rules is never made to download them.
+    const ai = url.endsWith('.onnx') || url.startsWith('ort/') || /ort-.*\.wasm$/.test(url);
+    return {
+      url, hash: createHash('sha256').update(data).digest('hex'), bytes: data.length,
+      group: ai ? 'ai' : 'core',
+    };
   }));
   for (const required of ['index.html', 'tiles/Back.svg', 'tiles/Haku.svg']) {
     if (!entries.some(entry => entry.url === required)) throw new Error(`Offline build is missing ${required}`);
   }
-  const hasModel = entries.some(entry => entry.url === 'model.onnx');
-  const hasStrongModel = entries.some(entry => entry.url === 'model-strong.onnx');
-  if (hasModel || hasStrongModel) for (const name of ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs', 'memory-budget.mjs']) {
+  const hasModel = entries.some(entry => entry.url.endsWith('.onnx'));
+  if (hasModel) for (const name of ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs', 'memory-budget.mjs']) {
     if (!entries.some(entry => entry.url === `ort/${name}`)) throw new Error(`Missing AI runtime ${name}`);
   }
-  // The stronger network runs on the same runtime as the quick one, which
-  // travels with the quick group, so it cannot be shipped on its own.
-  if (hasStrongModel && !hasModel) throw new Error('model-strong.onnx needs model.onnx beside it');
   const version = createHash('sha256').update(JSON.stringify(entries)).digest('hex').slice(0, 20);
-  const manifest = { version, hasModel, hasStrongModel, entries };
+  const manifest = { version, hasModel, entries };
   const template = await readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8');
   await writeFile(resolve(root, 'sw.js'), template.replace('/* OFFLINE_CONFIG */ null', JSON.stringify(manifest)));
   await writeFile(resolve(root, 'offline-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');

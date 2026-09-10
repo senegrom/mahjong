@@ -12,6 +12,7 @@ With no arguments it checks every `.onnx` in `web/public`.
 """
 
 import sys
+from hashlib import sha256
 from pathlib import Path
 
 import onnx
@@ -64,6 +65,17 @@ def main() -> None:
             + f". Widen {CONFIG.name} and rebuild the runtime."
         )
     print(f"every network fits the {len(allowed)} operators the runtime carries")
+
+    # What was checked, so the site's own build can refuse to publish a
+    # network nobody has checked. Written only over the whole folder, since
+    # a partial list would say the rest is fine.
+    if not named:
+        record = HERE / "runtime" / "models.sha256"
+        lines = [
+            f"{sha256(model.read_bytes()).hexdigest()}  {model.name}" for model in models
+        ]
+        record.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"wrote {record.name} for {len(lines)} networks")
 
 
 if __name__ == "__main__":
