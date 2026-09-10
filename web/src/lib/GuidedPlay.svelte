@@ -37,7 +37,7 @@
   let inputPrompt = $derived(ownTurn
     ? position.after_quad ? 'What is your replacement tile?' : 'What did you draw?'
     : `${WINDS[state.nextSeat]} discard?`);
-  let candidates = $derived(WINDS.map((name, seat) => ({ name, seat })).filter(s => s.seat !== position.turn && s.seat !== position.seat));
+  let candidates = $derived(WINDS.map((name, seat) => ({ name, seat })).filter(s => s.seat !== position.turn && s.seat !== position.seat && s.seat !== state.claim?.seat));
 
   async function load() {
     request?.abort(); analysis = null; busy = false; loaded = false;
@@ -191,14 +191,15 @@
           <button class="primary record-best" onclick={() => choose(analysis.choice, false)}>Record suggested move</button>
         {:else if !busy}<button onclick={() => analyze()}>Retry advice</button>{/if}
         <p>Record the move you play at the table. The hand, calls and discards update together.</p>
-      {:else if state.stage === 'responses'}
-        <p class="eyebrow">Other players’ responses</p><h3>Did anyone call {tileWords(position.pending)}?</h3>
-        <button class="primary no-calls" onclick={() => act({ type: 'continue' })}>No other calls · continue</button>
-        <details><summary>Record an opponent’s chii, pon or kan</summary><div class="fields">
+      {:else if state.stage === 'responses' || state.stage === 'claim-response'}
+        <p class="eyebrow">Other players’ responses</p><h3>{state.claim ? `${WINDS[state.claim.seat]} called ${state.claim.kind}. Did anyone call ron?` : `Did anyone call ${tileWords(position.pending)}?`}</h3>
+        {#if state.claim}<p>Ron takes precedence. Record a win below, or confirm that the set stands.{state.claim.kind === 'chii' ? ' A simultaneous pon or open kan also takes precedence over chii.' : ''}</p>{/if}
+        <button class="primary no-calls" onclick={() => act({ type: 'continue' })}>{state.claim ? 'No higher-priority calls · confirm set' : 'No other calls · continue'}</button>
+        {#if !state.claim || state.claim.kind === 'chii'}<details><summary>{state.claim ? 'Record a simultaneous opponent pon or kan' : 'Record an opponent’s chii, pon or kan'}</summary><div class="fields">
           <label>Who called?<select aria-label="Who called?" bind:value={caller}><option value={-1}>Choose opponent</option>{#each candidates as candidate (candidate.seat)}<option value={candidate.seat}>{candidate.name}</option>{/each}</select></label>
-          <label>Call<select aria-label="Opponent call" bind:value={callKind}><option value="pon">Pon</option><option value="chii">Chii</option><option value="kan">Open kan</option></select></label>
+          <label>Call<select aria-label="Opponent call" bind:value={callKind}><option value="pon">Pon</option><option value="chii" disabled={Boolean(state.claim)}>Chii</option><option value="kan">Open kan</option></select></label>
           {#if callKind === 'chii'}<label>Lowest tile in sequence<select aria-label="Lowest tile in sequence" bind:value={callTile}><option value="">Choose tile</option>{#each TILES.filter(t => /^[1-7][mps]$/.test(t)) as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
-        </div><button disabled={caller === -1 || (callKind === 'chii' && !callTile)} onclick={() => act({ type: 'call', seat: caller, kind: callKind, tile: callTile })}>Record opponent call</button></details>
+        </div><button disabled={caller === -1 || (callKind === 'chii' && (!callTile || Boolean(state.claim)))} onclick={() => act({ type: 'call', seat: caller, kind: callKind, tile: callTile })}>Record opponent call</button></details>{/if}
       {:else if state.stage === 'kan-response'}
         <p class="eyebrow">Kan response</p><h3>Did anyone win by robbing the kan?</h3>
         <button class="primary" onclick={() => act({ type: 'continue' })}>No ron · enter new indicator</button>

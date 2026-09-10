@@ -169,11 +169,16 @@ impl Follower {
     /// and for each row the flat plane-times-34-plus-position `indices`
     /// and `values` between `indptr[row]` and `indptr[row + 1]`; and the
     /// rows' action masks in Mortal's own action space, dense.
+    /// `after_reach` previews the player's own declaration on a clone. A
+    /// teacher can describe every riichi discard without changing the
+    /// follower when the table ultimately chooses an ordinary discard.
     #[allow(clippy::type_complexity)]
+    #[pyo3(signature = (who, after_reach = false))]
     fn encode<'py>(
         &self,
         py: Python<'py>,
         who: Vec<(usize, usize)>,
+        after_reach: bool,
     ) -> PyResult<(
         Bound<'py, PyArray1<i32>>,
         Bound<'py, PyArray1<u16>>,
@@ -191,8 +196,19 @@ impl Follower {
         let tables = &self.tables;
         let rows: Vec<Sparse> = py.allow_threads(|| {
             who.par_iter()
-                .map(|&(game, player)| {
-                    let (obs, mask) = tables[game].states[player].encode_obs(version, false);
+                .map(|&(game, player)| -> Result<Sparse> {
+                    let original = &tables[game].states[player];
+                    let preview = if after_reach {
+                        let mut state = original.clone();
+                        state.update(&Event::Reach {
+                            actor: player as u8,
+                        })?;
+                        Some(state)
+                    } else {
+                        None
+                    };
+                    let state = preview.as_ref().unwrap_or(original);
+                    let (obs, mask) = state.encode_obs(version, false);
                     let mut indices = Vec::with_capacity(2048);
                     let mut values = Vec::with_capacity(2048);
                     for (index, &value) in obs.iter().enumerate() {
@@ -201,14 +217,14 @@ impl Follower {
                             values.push(value);
                         }
                     }
-                    Sparse {
+                    Ok(Sparse {
                         indices,
                         values,
                         mask: mask.to_vec(),
-                    }
+                    })
                 })
-                .collect()
-        });
+                .collect::<Result<Vec<_>>>()
+        })?;
 
         let total: usize = rows.iter().map(|row| row.indices.len()).sum();
         let width = rows.first().map_or(0, |row| row.mask.len());

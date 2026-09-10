@@ -1148,10 +1148,12 @@ impl Hand {
         let dragons = called(|tile| tile.is_dragon());
         let winds = called(|tile| tile.is_wind());
         let player = self.player_mut(seat);
-        if dragons == 3 {
+        // A later call for the fourth, unrelated set must not replace the
+        // player who fed the third dragon set.
+        if dragons == 3 && player.liable_for_dragons.is_none() {
             player.liable_for_dragons = Some(from);
         }
-        if winds == 4 {
+        if winds == 4 && player.liable_for_winds.is_none() {
             player.liable_for_winds = Some(from);
         }
     }
@@ -2077,6 +2079,60 @@ mod tests {
             before.iter().sum::<i32>(),
             "points are only moved"
         );
+    }
+
+    #[test]
+    fn a_later_call_does_not_move_dragon_liability() {
+        for self_draw in [false, true] {
+            let mut hand = fresh();
+            hand.players[0].melds = vec![
+                Meld::pon("5z".parse().unwrap(), ClaimedFrom::Left),
+                Meld::pon("6z".parse().unwrap(), ClaimedFrom::Across),
+            ];
+            hand.players[0].hand = "77z44z89m1p".parse().unwrap();
+            let before: Vec<i32> = hand.players.iter().map(|player| player.score).collect();
+
+            // South supplies the third dragon; West later supplies an
+            // unrelated wind pon and, in the ron case, the winning tile.
+            for (from, offered, discarded) in [(Wind::South, "7z", "1p"), (Wind::West, "4z", "8m")] {
+                hand.players[from.index()].hand = offered.parse().unwrap();
+                hand.turn = from;
+                hand.phase = Phase::Act;
+                hand.drawn = None;
+                hand.discard(offered.parse().unwrap(), false);
+                hand.resolve_calls(&[(Wind::East, Call::Pon)]).unwrap();
+                hand.act(Action::Discard(discarded.parse().unwrap())).unwrap();
+            }
+            assert_eq!(hand.players[0].liable_for_dragons, Some(Wind::South));
+
+            if self_draw {
+                hand.turn = Wind::East;
+                hand.phase = Phase::Act;
+                hand.players[0].hand.add("9m".parse().unwrap());
+                hand.drawn = Some("9m".parse().unwrap());
+                hand.act(Action::Tsumo).unwrap();
+            } else {
+                hand.turn = Wind::West;
+                hand.phase = Phase::Act;
+                hand.players[2].hand = "9m".parse().unwrap();
+                hand.discard("9m".parse().unwrap(), false);
+                hand.resolve_calls(&[(Wind::East, Call::Ron)]).unwrap();
+            }
+            let deltas: Vec<i32> = hand
+                .players
+                .iter()
+                .zip(before)
+                .map(|(player, score)| player.score - score)
+                .collect();
+            assert_eq!(
+                deltas,
+                if self_draw {
+                    vec![48000, -48000, 0, 0]
+                } else {
+                    vec![48000, -24000, -24000, 0]
+                }
+            );
+        }
     }
 
     #[test]

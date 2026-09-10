@@ -4,7 +4,7 @@ import { rememberEnding, applySettlement, validEndingState, verifySettlement } f
 
 export const GUIDED_KEY = 'riichi.guided.v1';
 const WINDS = ['East', 'South', 'West', 'North'];
-const STAGES = ['setup', 'hand', 'dora', 'turn', 'decision', 'responses', 'kan-response', 'indicator', 'over'];
+const STAGES = ['setup', 'hand', 'dora', 'turn', 'decision', 'responses', 'claim-response', 'kan-response', 'indicator', 'over'];
 const AGENTS = ['beginner', 'club', 'quick', 'strong'];
 const sameChoice = (a, b) => a.kind === b.kind && (a.tile ?? null) === (b.tile ?? null);
 
@@ -89,6 +89,60 @@ function checkKan(p) {
   }
 }
 
+/** Commit a set only after the table has resolved higher-priority calls. */
+function applyClaim(state, claim) {
+  const p = state.position, { seat, kind, tile } = claim;
+  if (p.phase !== 'call' || p.pending_kind !== 'discard') throw new Error('A set needs a pending discard');
+  if (!Number.isInteger(seat) || seat < 0 || seat > 3 || seat === p.turn) throw new Error('Choose the player who called');
+  if (!['chii', 'pon', 'kan'].includes(kind)) throw new Error('Choose chii, pon or open kan');
+  const player = p.players[seat], offered = p.pending;
+  if (player.riichi !== 'none' || player.melds.length >= 4 || p.wall <= 0) throw new Error('This player cannot call this discard');
+  if (kind === 'kan') checkKan(p);
+  const meld = { kind, tile: kind === 'chii' ? tile : offered, from: (p.turn - seat + 4) % 4 };
+  if (kind === 'chii' && (!/^[1-7][mps]$/.test(tile ?? '') || meld.from !== 3 || !setTiles(meld).includes(offered))) {
+    throw new Error('Chii must include the discard in a sequence from the left');
+  }
+  if (seat === p.seat) {
+    state.position = recordChoice(p, claim, [claim]);
+    state.stage = 'decision'; state.nextSeat = seat; state.needsDraw = false;
+  } else {
+    const discard = p.players[p.turn].discards.at(-1);
+    if (!discard || discard.claimed || discard.tile !== offered) throw new Error('That discard is no longer available');
+    discard.claimed = true; player.melds.push(meld); player.furiten = false;
+    p.first_turns = false; p.players.forEach(player => { player.ippatsu = false; });
+    startTurn(state, seat, kind === 'kan', kind === 'kan');
+    if (kind !== 'kan') p.just_claimed = offered;
+  }
+  if (kind === 'kan') completeKan(state);
+}
+
+function queueClaim(state, claim) {
+  // Validate the eventual move now, but keep its tiles at their original
+  // positions so ron can still cancel the set and be scored correctly.
+  const preview = structuredClone(state);
+  applyClaim(preview, claim); visibleCounts(preview.position);
+  state.claim = claim; state.stage = 'claim-response';
+}
+
+function validClaim(state) {
+  if (state.stage !== 'claim-response') return state.claim == null;
+  if (!state.claim) return false;
+  const preview = structuredClone(state);
+  applyClaim(preview, state.claim); visibleCounts(preview.position);
+  return true;
+}
+
+function forbiddenAfterCall(p, player) {
+  if (!p.just_claimed) return [];
+  const forbidden = [p.just_claimed], meld = player.melds.at(-1);
+  if (meld?.kind === 'chii') {
+    const low = Number(meld.tile[0]), called = Number(p.just_claimed[0]);
+    if (called === low && low <= 6) forbidden.push(`${low + 3}${meld.tile[1]}`);
+    if (called === low + 2 && low >= 2) forbidden.push(`${low - 1}${meld.tile[1]}`);
+  }
+  return forbidden;
+}
+
 /** One table event at a time. validateDecision is the real rules engine in the UI.
  * Unknown opponents' hands remain empty throughout; no wall is simulated. */
 export function guidedEvent(game, event, validateDecision = () => {}, scoreSettlement) {
@@ -126,6 +180,9 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       if (state.nextSeat === p.seat) throw new Error('Choose one of your legal moves');
       if (state.needsDraw && p.wall <= 0) throw new Error('The live wall is empty');
       const player = p.players[state.nextSeat];
+      if (!state.needsDraw && forbiddenAfterCall(p, player).includes(event.tile)) {
+        throw new Error('Swap-calling is not allowed: choose a different discard after the call');
+      }
       // EMA 2025 permits one live tile after the draw. This prompt still
       // includes the opponent's hidden draw, which recordDiscard counts below.
       if (event.riichi && (!state.needsDraw || p.wall < 2 || player.melds.some(m => m.kind !== 'concealed-kan'))) {
@@ -145,43 +202,39 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       requireStage(state, 'decision');
       const { choice, choices } = event;
       if (!choice || !Array.isArray(choices) || !choices.some(c => sameChoice(c, choice))) throw new Error('Analyse this decision again');
+      if (['pon', 'chii', 'kan'].includes(choice.kind)) {
+        queueClaim(state, { seat: p.seat, kind: choice.kind, tile: choice.tile ?? null });
+        if (choices.some(c => c.kind === 'ron' || c.causes_furiten)) p.players[p.seat].furiten = true;
+        label = `You call ${choice.label ?? choice.kind} · awaiting other responses`;
+        break;
+      }
       if (choice.kind === 'ron' || choice.kind === 'tsumo') rememberEnding(state, choice.kind, [p.seat]);
       p = state.position = recordChoice(p, choice, choices);
       label = `You: ${choice.label ?? choice.kind}`;
       if (choice.kind === 'pass') state.stage = p.pending_kind === 'discard' ? 'responses' : 'kan-response';
       else if (choice.kind === 'ron' || choice.kind === 'tsumo') { state.stage = 'over'; state.result = `You: ${choice.kind}`; }
       else if (choice.kind === 'discard' || choice.kind === 'riichi') state.stage = 'responses';
-      else if (choice.kind === 'kan') completeKan(state);
       else if (choice.kind.includes('kan')) state.stage = 'kan-response';
-      // Chii and pon lead straight to the next discard decision, without a draw.
-      else { state.stage = 'decision'; state.nextSeat = p.seat; state.needsDraw = false; }
       break;
     }
     case 'continue':
-      requireStage(state, 'responses', 'kan-response');
-      if (state.stage === 'kan-response') { completeKan(state); label = 'Kan stands · no ron'; }
+      requireStage(state, 'responses', 'claim-response', 'kan-response');
+      if (state.stage === 'claim-response') {
+        const claim = state.claim;
+        applyClaim(state, claim); p = state.position; delete state.claim;
+        label = `${WINDS[claim.seat]}: ${claim.kind} stands · no higher-priority calls`;
+      } else if (state.stage === 'kan-response') { completeKan(state); label = 'Kan stands · no ron'; }
       else { startTurn(state, (p.turn + 1) % 4); label = state.stage === 'over' ? 'Exhaustive draw' : 'No other calls'; }
       break;
     case 'call': {
-      requireStage(state, 'responses');
+      requireStage(state, 'responses', 'claim-response');
       const seat = event.seat, kind = event.kind;
       if (!Number.isInteger(seat) || seat < 0 || seat > 3 || seat === p.turn || seat === p.seat) throw new Error('Choose the opponent who called');
-      if (!['chii', 'pon', 'kan'].includes(kind)) throw new Error('Choose chii, pon or open kan');
-      const player = p.players[seat];
-      if (player.riichi !== 'none' || player.melds.length >= 4 || p.wall <= 0) throw new Error('This opponent cannot call this discard');
-      const offered = p.pending;
-      if (kind === 'kan') checkKan(p);
-      const meld = { kind, tile: kind === 'chii' ? event.tile : offered, from: (p.turn - seat + 4) % 4 };
-      if (kind === 'chii' && (!/^[1-7][mps]$/.test(event.tile ?? '') || meld.from !== 3 || !setTiles(meld).includes(offered))) {
-        throw new Error('Chii must include the discard in a sequence from the left');
+      if (state.claim && (state.claim.kind !== 'chii' || !['pon', 'kan'].includes(kind) || seat === state.claim.seat)) {
+        throw new Error('Only a simultaneous pon or kan takes precedence over chii; otherwise record ron or confirm the call');
       }
-      const discard = p.players[p.turn].discards.at(-1);
-      if (!discard || discard.claimed || discard.tile !== offered) throw new Error('That discard is no longer available');
-      discard.claimed = true; player.melds.push(meld); player.furiten = false;
-      p.first_turns = false; p.players.forEach(player => { player.ippatsu = false; });
-      label = `${WINDS[seat]}: ${kind} · ${setTiles(meld).map(tileWords).join(', ')}`;
-      startTurn(state, seat, kind === 'kan', kind === 'kan');
-      if (kind === 'kan') completeKan(state);
+      queueClaim(state, { seat, kind, tile: event.tile ?? null });
+      label = `${WINDS[seat]} calls ${kind} · awaiting other responses`;
       break;
     }
     case 'kan': {
@@ -210,7 +263,7 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       break;
     }
     case 'finish': {
-      requireStage(state, 'turn', 'decision', 'responses', 'kan-response', 'indicator');
+      requireStage(state, 'turn', 'decision', 'responses', 'claim-response', 'kan-response', 'indicator');
       if (typeof event.result !== 'string' || !event.result.trim() || event.result.length > 120) throw new Error('Choose the hand result');
       const kind = event.kind ?? (event.result === 'Exhaustive draw' ? 'draw' : 'manual');
       const winners = ['ron', 'tsumo'].includes(kind) ? [event.winner] : [];
@@ -219,6 +272,7 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
         || (p.phase === 'act' && p.drawn && event.winner === p.turn))) throw new Error('Tsumo needs the current player’s actual draw');
       if (kind === 'draw' && (p.wall !== 0 || p.phase !== 'call' || p.pending_kind !== 'discard')) throw new Error('An exhaustive draw needs the final discard and an empty live wall');
       rememberEnding(state, kind, winners);
+      delete state.claim;
       state.stage = 'over'; p.phase = 'over'; state.result = event.result; label = event.result;
       break;
     }
@@ -282,7 +336,7 @@ export function parseGuided(text, scoreSettlement) {
       && parsePhysical(JSON.stringify({ version: 1, position: state.position }))
       && state.position.indicators.length <= 5
       && state.position.players.every(p => p.hand.length <= 14 && p.melds.length <= 4 && p.discards.length <= 100)
-      && visibleCounts(state.position) && validEndingState(state)
+      && visibleCounts(state.position) && validClaim(state) && validEndingState(state)
       && (!scoreSettlement || verifySettlement(state, scoreSettlement));
     if (value?.version !== 1 || !game || !validState(game.state) || !Array.isArray(game.past) || game.past.length > 30
       || !Array.isArray(game.log) || game.log.length > 10000 || game.log.some(line => typeof line !== 'string' || line.length > 500)

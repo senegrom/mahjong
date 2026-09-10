@@ -67,11 +67,14 @@ test('dealer starts with 13 tiles and explicitly enters the extra tile before an
   assert.ok(inspect(g).some(c => c.kind === 'discard'));
 });
 
-test('my pon consumes held tiles and goes straight to legal discards without a draw', () => {
+test('my confirmed pon consumes held tiles and allows discards without a draw', () => {
   let g = start(3, '123m456p789s1155z');
   g = discard(g, '5z');
   const before = g;
   g = choose(g, 'pon');
+  assert.equal(g.state.stage, 'claim-response');
+  assert.equal(g.state.position.players[3].hand.length, 13);
+  g = next(g);
   assert.equal(g.state.stage, 'decision');
   assert.equal(g.state.position.players[3].hand.length, 11);
   assert.equal(g.state.position.players[0].discards[0].claimed, true);
@@ -80,12 +83,12 @@ test('my pon consumes held tiles and goes straight to legal discards without a d
   g = choose(g, 'discard', '1z');
   assert.equal(g.state.position.wall, 69);
   assert.equal(next(g).state.nextSeat, 0);
-  assert.deepEqual(undoGuided(undoGuided(g)), before);
+  assert.deepEqual(undoGuided(undoGuided(undoGuided(g))), before);
 });
 
 test('opponent pon skips seats and their next discard does not consume another wall tile', () => {
   let g = pass(discard(start(), '5z'));
-  g = act(g, { type: 'call', seat: 2, kind: 'pon' });
+  g = next(act(g, { type: 'call', seat: 2, kind: 'pon' }));
   assert.equal(g.state.nextSeat, 2); assert.equal(g.state.needsDraw, false);
   assert.equal(g.state.position.players[0].discards[0].claimed, true);
   assert.equal(g.state.position.players[2].melds[0].from, 2);
@@ -100,7 +103,7 @@ test('opponent chii enforces the left-hand source, sequence and available copies
   const g = pass(discard(start(), '3m'));
   assert.throws(() => act(g, { type: 'call', seat: 2, kind: 'chii', tile: '1m' }), /from the left/);
   assert.throws(() => act(g, { type: 'call', seat: 1, kind: 'chii', tile: '4m' }), /sequence/);
-  const called = act(g, { type: 'call', seat: 1, kind: 'chii', tile: '1m' });
+  const called = next(act(g, { type: 'call', seat: 1, kind: 'chii', tile: '1m' }));
   assert.equal(called.state.nextSeat, 1);
   assert.equal(discard(called, '8p').state.position.wall, 69);
   assert.equal(g.state.position.players[1].melds.length, 0, 'failed entries do not mutate their source');
@@ -108,7 +111,7 @@ test('opponent chii enforces the left-hand source, sequence and available copies
 
 test('opponent open kan prompts for dora and counts the replacement once', () => {
   let g = pass(discard(start(), '5z'));
-  g = act(g, { type: 'call', seat: 2, kind: 'kan' });
+  g = next(act(g, { type: 'call', seat: 2, kind: 'kan' }));
   assert.equal(g.state.stage, 'indicator'); assert.equal(g.state.position.wall, 69);
   g = act(g, { type: 'indicator', tile: '6z' });
   assert.equal(g.state.nextSeat, 2); assert.equal(g.state.position.after_quad, true);
@@ -129,7 +132,7 @@ test('opponent concealed and added kans have a robbery decision before the indic
   g = discard(g, '8p');
   assert.equal(g.state.position.wall, 68);
   let added = pass(discard(start(), '5z'));
-  added = act(added, { type: 'call', seat: 2, kind: 'pon' });
+  added = next(act(added, { type: 'call', seat: 2, kind: 'pon' }));
   added = next(pass(discard(added, '6z')));
   added = choose(act(added, { type: 'draw', tile: '4z' }), 'discard', '4z');
   added = next(added);
@@ -139,6 +142,83 @@ test('opponent concealed and added kans have a robbery decision before the indic
   assert.equal(added.state.position.players[2].melds.length, 1);
   assert.equal(added.state.position.players[2].melds[0].kind, 'extended-kan');
   assert.equal(next(pass(added)).state.stage, 'indicator');
+});
+
+test('ron cancels a pending own or opponent pon, including after save and reload', () => {
+  for (const own of [true, false]) {
+    const before = discard(start(3, '123m456p789s1155z'), '5z');
+    // An unknown opponent cannot also pon the two copies in our hand.
+    const offered = own ? before : discard(start(), '5z');
+    let g = own ? choose(offered, 'pon') : act(pass(offered), { type: 'call', seat: 2, kind: 'pon' });
+    assert.equal(g.state.stage, 'claim-response');
+    assert.equal(g.state.position.players[0].discards[0].claimed, false);
+    assert.ok(g.state.position.players.every(p => p.melds.length === 0));
+    const resumed = parseGuided(GUIDED_FORMAT.encode(g), settle_physical);
+    assert.deepEqual(resumed, g);
+    assert.deepEqual(undoGuided(resumed), own ? offered : pass(offered));
+    g = act(resumed, { type: 'finish', kind: 'ron', winner: 1, result: 'South: Ron' });
+    assert.equal(g.state.claim, undefined);
+    g = act(g, { type: 'settle', input: {
+      winners: [1], hands: [[], parseTiles('234m567p234s6665z'), [], []], confirmed_no_furiten: true,
+    } });
+    assert.deepEqual(g.state.settlement.deltas, [-8000,8000,0,0]);
+  }
+});
+
+test('ron cancels a pending open kan before any tiles or indicators are consumed', () => {
+  let g = choose(discard(start(3, '123m456p789s1555z'), '5z'), 'kan');
+  assert.equal(g.state.stage, 'claim-response');
+  assert.equal(g.state.position.indicators.length, 1);
+  assert.throws(() => act(g, { type: 'indicator', tile: '6z' }), /next step/);
+  g = act(g, { type: 'finish', kind: 'ron', winner: 1, result: 'South: Ron' });
+  g = act(g, { type: 'settle', input: {
+    winners: [1], hands: [[], parseTiles('19m19p19s1123467z'), [], []], confirmed_no_furiten: true,
+  } });
+  assert.deepEqual(g.state.settlement.deltas, [-32000,32000,0,0]);
+  assert.equal(g.state.position.players[3].hand.length, 13);
+  assert.equal(g.state.position.players[3].melds.length, 0);
+});
+
+test('a simultaneous opponent pon supersedes my chii without consuming my tiles', () => {
+  let g = start(3, '12m456p789s22556z');
+  for (const tile of ['9m', '8m']) g = next(pass(discard(g, tile)));
+  const offered = discard(g, '3m');
+  g = choose(offered, 'chii', '1m');
+  assert.equal(g.state.stage, 'claim-response');
+  assert.throws(() => act(g, { type: 'call', seat: 1, kind: 'chii', tile: '1m' }), /precedence/);
+  g = act(g, { type: 'call', seat: 1, kind: 'pon' });
+  assert.equal(g.state.claim.seat, 1);
+  assert.throws(() => act(g, { type: 'call', seat: 0, kind: 'pon' }), /precedence/);
+  g = next(g);
+  assert.equal(g.state.nextSeat, 1);
+  assert.equal(g.state.position.players[1].melds[0].tile, '3m');
+  assert.deepEqual(g.state.position.players[3].hand, offered.state.position.players[3].hand);
+  assert.equal(g.state.position.players[3].melds.length, 0);
+});
+
+test('opponent swap-calling is refused for pon, chii and either end of a sequence', () => {
+  for (const [offered, kind, tile, forbidden] of [
+    ['5z', 'pon', null, '5z'], ['3m', 'chii', '2m', '3m'],
+    ['3m', 'chii', '3m', '6m'], ['4m', 'chii', '2m', '1m'],
+  ]) {
+    let g = act(pass(discard(start(), offered)), { type: 'call', seat: 1, kind, tile });
+    g = next(g);
+    const resumed = parseGuided(GUIDED_FORMAT.encode(g));
+    assert.deepEqual(resumed, g);
+    assert.throws(() => discard(resumed, forbidden), /Swap-calling/);
+    const accepted = discard(resumed, '8p');
+    assert.equal(accepted.state.position.wall, 69);
+    assert.equal(accepted.state.position.just_claimed, null);
+  }
+});
+
+test('saved pending claims must match an available discard and a valid caller', () => {
+  const g = choose(discard(start(3, '123m456p789s1155z'), '5z'), 'pon');
+  for (const edit of [s => { delete s.claim; }, s => { s.claim.seat = 0; },
+    s => { s.claim.kind = 'ron'; }, s => { s.position.players[0].discards[0].claimed = true; }]) {
+    const bad = structuredClone(g); edit(bad.state);
+    assert.equal(parseGuided(GUIDED_FORMAT.encode(bad)), null);
+  }
 });
 
 test('my concealed kan records the new indicator and real replacement before the next advice', () => {

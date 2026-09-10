@@ -179,6 +179,8 @@ class MortalSpacePlayer:
     network is asked.
     """
 
+    actions = MORTAL_ACTIONS
+
     def __init__(self, net, device: str = "cuda", compile: bool = False) -> None:
         self.net = net.eval()
         self.forward = torch.compile(net, dynamic=True) if compile else net
@@ -193,6 +195,18 @@ class MortalSpacePlayer:
 
     def parameters(self):
         return self.net.parameters()
+
+    @property
+    def channels(self) -> int:
+        return self.net.channels
+
+    @property
+    def blocks(self) -> int:
+        return self.net.blocks
+
+    @property
+    def planes(self) -> int:
+        return self.net.planes
 
     @torch.no_grad()
     def _ask(

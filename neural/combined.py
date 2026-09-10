@@ -113,6 +113,7 @@ class Combined(nn.Module):
     """Our network and a Mortal beneath one fusion head."""
 
     kind = "mortal"
+    actions = ACTIONS
 
     #: What a generation may hold still: either network beneath the head,
     #: the head itself, or any combination of them written with a plus.

@@ -121,7 +121,9 @@ try {
     await page.click('.guide-prompt details summary');
     await page.select('[aria-label="Who called?"]', '0');
     await page.select('[aria-label="Opponent call"]', 'pon');
-    await button(page, 'Record opponent call'); await stage(page, 'turn');
+    await button(page, 'Record opponent call'); await stage(page, 'claim-response');
+    await page.reload({ waitUntil: 'networkidle0' }); await stage(page, 'claim-response');
+    await page.click('.no-calls'); await stage(page, 'turn');
     assert.equal((await saved(page)).state.nextSeat, 0);
     await tile(page, '6z'); await choice(page);
     assert.equal((await saved(page)).state.position.wall, 66, 'pon discard has no draw');

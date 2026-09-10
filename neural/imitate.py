@@ -103,6 +103,68 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+@torch.no_grad()
+def teacher_distribution(
+    teacher,
+    views: Views,
+    rows: np.ndarray,
+    players: np.ndarray,
+    legal: np.ndarray,
+    device: str = "cpu",
+    temperature: float = 1.0,
+) -> np.ndarray:
+    """A teacher's probabilities over the engine's 78 legal actions.
+
+    A Mortal-space teacher is asked with a 46-action mask. Its reach mass
+    is distributed over the second decision's tiles, from a hypothetical
+    reach that never changes the live follower or the student's view.
+    """
+    if not np.isfinite(temperature) or temperature <= 0:
+        raise ValueError("temperature must be finite and positive")
+    legal = np.asarray(legal, dtype=bool)
+    if legal.shape != (len(rows), ACTIONS) or not legal.any(axis=1).all():
+        raise ValueError("each teacher row needs an engine legal-action mask")
+    if len(rows) == 0:
+        return np.zeros((0, ACTIONS), dtype=np.float32)
+
+    def probabilities(planes, mask):
+        logits, _value = teacher.forward(planes, torch.from_numpy(mask).to(device))
+        return torch.softmax(logits.float() / temperature, dim=1).cpu().numpy()
+
+    actions = getattr(teacher, "actions", ACTIONS)
+    if actions == ACTIONS:
+        return probabilities(views.dense(teacher.kind, rows, players, device), legal)
+    if actions != zoo.MORTAL_ACTIONS:
+        raise ValueError(f"unsupported teacher action space: {actions}")
+
+    planes, own = views.sparse_and_masks(rows, players)
+    allowed = own & zoo.translatable(legal)
+    orphan = ~allowed.any(axis=1)
+    allowed[orphan, zoo.MORTAL_PASS] = True
+    first = probabilities(planes.dense(device), allowed)
+    odds = np.zeros((len(rows), ACTIONS), dtype=np.float32)
+    for action in range(zoo.MORTAL_ACTIONS):
+        if action == zoo.MORTAL_RIICHI:
+            continue
+        targets = zoo.first_meaning(np.full(len(rows), action), legal)
+        found = np.nonzero(targets >= 0)[0]
+        odds[found, targets[found]] += first[found, action]
+
+    second = np.nonzero((first[:, zoo.MORTAL_RIICHI] > 0) & ~orphan)[0]
+    if len(second):
+        who = [(int(rows[i]), int(players[i])) for i in second]
+        indptr, indices, values, _masks = views.observer.follower.encode(who, after_reach=True)
+        after = Planes.from_follower(indptr, indices, values)
+        allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
+        allowed_after[:, :POSITIONS] = legal[second, zoo.RIICHI_DISCARD:zoo.TSUMO]
+        tiles = probabilities(after.dense(device), allowed_after)[:, :POSITIONS]
+        odds[second, zoo.RIICHI_DISCARD:zoo.TSUMO] = first[second, zoo.MORTAL_RIICHI, None] * tiles
+
+    odds[orphan] = 0
+    odds[np.nonzero(orphan)[0], legal[orphan].argmax(axis=1)] = 1
+    return odds
+
+
 def collect(
     games: int,
     seed: int,
@@ -150,12 +212,7 @@ def collect(
 
         odds = None
         if teacher is not None:
-            with torch.no_grad():
-                logits, _value = teacher(
-                    views.dense(teacher.kind, rows, who, device),
-                    torch.from_numpy(mask[rows]).to(device),
-                )
-                soft = torch.softmax(logits.float() / temperature, dim=1).cpu().numpy()
+            soft = teacher_distribution(teacher, views, rows, who, mask[rows], device, temperature)
             odds = np.zeros((games, ACTIONS), dtype=np.float32)
             odds[rows] = soft
             advice = np.zeros(games, dtype=np.int64)
@@ -217,6 +274,8 @@ def main() -> None:
             f"--student {args.student} does not match the checkpoint, which "
             f"reads {net.planes} planes"
         )
+    if net.actions != ACTIONS:
+        raise SystemExit("the distillation student needs a 78-action head; re-head it after distilling")
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
 
     teacher = None
@@ -226,7 +285,7 @@ def main() -> None:
         teacher = zoo.load_player(
             args.teacher, device, args.teacher_channels, args.teacher_blocks
         )
-        if not callable(getattr(teacher, "forward", None)):
+        if not all(callable(getattr(teacher, name, None)) for name in ("forward", "parameters")):
             raise SystemExit(
                 f"{args.teacher} is not a teacher this can ask for a whole "
                 "distribution; give a network of ours or a joined player"
