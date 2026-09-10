@@ -147,10 +147,16 @@ you explicitly start again. Keep the window open if a storage warning appears.
 After a played hand, select **View table / my hand** (or **Review final hand** at
 the end of a match), then choose the **Review adviser**:
 
-- **Club** explains hand readiness, improving tiles, danger and dora.
+- **Club** explains hand readiness, improving tiles, danger and dora for turn
+  actions, and explains whether it would accept or pass on a call.
 - **Strong AI** evaluates each recorded decision using the information available
   before that move. It shows the preferred move and its percentage; when your
   move differs, it also shows your move's percentage when the policy scores it.
+
+Recorded decisions include ron, pass, pon, chii and open kan responses. Call
+advice uses the responding player's hand before any claims resolve, with the
+offered tile and its source shown in the review. Club omits discard metrics for
+calls because the next discard or replacement draw has not happened yet.
 
 These percentages express preference among legal moves, not the chance of
 winning. **Every decision** includes moves that agree with the adviser. The

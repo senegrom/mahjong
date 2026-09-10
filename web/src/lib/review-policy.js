@@ -30,6 +30,7 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
     if (!played) throw new Error('The recorded move is missing from this decision');
     reviewed.push({
       turn: note.turn, played: note.played, played_kind: note.played_kind, played_tile: note.played_tile,
+      call_tile: note.call_tile, call_from: note.call_from,
       dora_types: note.dora_types, advised: preferred.label, advised_tile: preferred.tile,
       agreed: played.kind === preferred.kind && (played.tile ?? null) === (preferred.tile ?? null),
       preferred_weight: weight, played_weight: played.index == null ? null : weights[played.index],

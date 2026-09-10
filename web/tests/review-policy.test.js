@@ -14,7 +14,7 @@ function finishHand(match) {
     const choice = choices.find(c => ['ron', 'tsumo', 'riichi'].includes(c.kind))
       ?? choices.find(c => c.kind === 'pass') ?? choices.find(c => c.kind === 'discard') ?? choices[0];
     assert.ok(choice);
-    if (match.view.phase === 'act') decisions.push({
+    decisions.push({
       planes: match.engine.agent_observation(), mask: match.engine.agent_mask(), choices: match.engine.agent_choices(), choice,
     });
     match.apply({ type: 'choose', kind: choice.kind, tile: choice.tile ?? null }); match.advance(false);
@@ -62,6 +62,7 @@ test('Strong review sends historical positions sequentially and matches moves by
   try {
     match.advance(false); const expected = finishHand(match), notes = match.engine.review();
     const before = match.snapshot(), progress = [];
+    assert.ok(notes.some(note => note.call_tile), 'call responses must be included');
     const abort = new AbortController();
     let calls = 0, running = false;
     const results = await reviewWithStrong(match.engine, notes, async (planes, mask, signal, model) => {
@@ -83,6 +84,8 @@ test('Strong review sends historical positions sequentially and matches moves by
     assert.equal(progress.at(-1), notes.length);
     for (let index = 0; index < notes.length; index++) {
       assert.equal(results[index].played, notes[index].played);
+      assert.equal(results[index].call_tile, notes[index].call_tile);
+      assert.equal(results[index].call_from, notes[index].call_from);
       assert.ok(results[index].preferred_weight >= .9);
       assert.equal('shanten_advised' in results[index], false, 'Club metrics do not explain a neural choice');
     }

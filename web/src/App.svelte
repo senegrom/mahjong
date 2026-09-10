@@ -45,7 +45,9 @@
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
   let startupNote = $state('Preparing the game for offline play…');
-  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, persistent: false, updateReady: false });
+  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, strongReady: false, hasStrongModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, persistent: false, updateReady: false });
+  let selectedAiReady = $derived(trainedModel === 'strong' ? offline.strongReady : offline.aiReady);
+  let selectedAiAvailable = $derived(trainedModel === 'strong' ? offline.hasStrongModel : offline.hasModel);
   let failure = $state('');
   let storageWarning = $state('');
   let saveConflict = $state('');
@@ -540,7 +542,7 @@
     </div>
   </details>
   <details class="offline-settings">
-    <summary data-offline-status>{offline.aiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? `Saving AI… ${offline.progress}%` : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
+    <summary data-offline-status>{selectedAiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? `Saving AI… ${offline.progress}%` : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
     <div class="option-fields">
       <p data-core-status data-core-ready={offline.coreReady} role="status"><strong>Game and all tile graphics — automatic.</strong>
         {offline.coreWarning || (offline.coreReady
@@ -548,11 +550,11 @@
           : offline.supported === false ? 'Offline storage is unavailable here, but all tile graphics still load before play.'
           : 'Downloading the complete game and every tile graphic automatically. Stay connected until ready.')}</p>
       <p data-ai-status role="status"><strong>Trained AI — optional.</strong>
-        {(offline.phase === 'incomplete' && offline.warning) || (offline.aiReady
+        {(offline.phase === 'incomplete' && offline.warning) || (selectedAiReady
           ? 'The network and its runtime are saved too.'
           : offline.phase === 'ai' ? `Saving the trained network and runtime… ${offline.progress}%`
           : 'Only the trained network and its runtime need this extra download. Selecting a Trained opponent also starts it automatically.')}</p>
-      {#if offline.hasModel && !offline.aiReady}
+      {#if selectedAiAvailable && !selectedAiReady}
         <button data-download-ai onclick={downloadAi} disabled={!offline.coreReady || offline.phase === 'ai'}>{offline.phase === 'incomplete' ? 'Retry trained AI download' : 'Download trained AI for offline play'}</button>
       {/if}
       <p class="offline-detail">{offline.persistent ? 'Persistent storage granted.' : 'Your browser can remove website downloads when storage is low.'} Clearing website data removes downloads. On iPhone, check this status inside the Home Screen app before flying.</p>

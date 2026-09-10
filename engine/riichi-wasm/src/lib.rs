@@ -231,22 +231,25 @@ pub struct NoteView {
     pub played: String,
     /// The structured action kind, for matching a trained policy choice.
     pub played_kind: String,
-    /// The tile it discarded, if it discarded one.
+    /// The move's tile, including a sequence's lowest tile for chii.
     pub played_tile: Option<String>,
+    /// The offered tile and its source for a response decision.
+    pub call_tile: Option<String>,
+    pub call_from: Option<String>,
     /// What the adviser would have done.
     pub advised: String,
     /// The tile that would have discarded.
     pub advised_tile: Option<String>,
     /// Whether the two are the same.
     pub agreed: bool,
-    /// Distance to a complete hand after the move played.
-    pub shanten_played: i32,
+    /// Distance after a turn action; absent for calls awaiting a discard/draw.
+    pub shanten_played: Option<i32>,
     /// The same after the advised move.
-    pub shanten_advised: i32,
+    pub shanten_advised: Option<i32>,
     /// Tiles still out there that would improve the hand, after each move.
-    pub acceptance_played: u32,
+    pub acceptance_played: Option<u32>,
     /// The same after the advised move.
-    pub acceptance_advised: u32,
+    pub acceptance_advised: Option<u32>,
     /// How exposed each tile was: `quiet`, `safe` or `live`.
     pub danger_played: String,
     /// The same for the advised tile.
@@ -312,6 +315,18 @@ impl Controller {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ReviewedMove {
+    Action(Action),
+    Call(Call),
+}
+
+struct RecordedDecision {
+    position: Hand,
+    seat: Wind,
+    played: ReviewedMove,
+}
+
 /// A game against three independently assigned opponents.
 #[wasm_bindgen]
 pub struct Game {
@@ -331,7 +346,7 @@ pub struct Game {
     opening: [i32; 4],
     /// The position before each of the player's own decisions, with what
     /// they did from it, which is all a review needs.
-    decisions: Vec<(Hand, Action)>,
+    decisions: Vec<RecordedDecision>,
     /// Whether the opponents are answered from outside, which is what a
     /// trained network needs: it runs in the page, not in the engine.
     external: bool,
@@ -829,7 +844,11 @@ impl Game {
                 let before = self.hand.clone();
                 self.hand.act(action).map_err(refused)?;
                 self.note(self.seat, &describe_action(action).label);
-                self.decisions.push((before, action));
+                self.decisions.push(RecordedDecision {
+                    position: before,
+                    seat: self.seat,
+                    played: ReviewedMove::Action(action),
+                });
                 Ok(())
             }
             Phase::CallWindow => {
@@ -853,23 +872,33 @@ impl Game {
                         "this player has already answered the claim",
                     ));
                 }
+                let before = self.hand.clone();
                 if self.external {
-                    return self.begin_mixed_calls(&offered, Some(call));
-                }
-                let mut answers: Vec<(Wind, Call)> = vec![(self.seat, call)];
-                for (seat, calls) in &offered {
-                    if *seat == self.seat {
-                        continue;
+                    self.begin_mixed_calls(&offered, Some(call))?;
+                } else {
+                    let mut answers: Vec<(Wind, Call)> = vec![(self.seat, call)];
+                    for (seat, calls) in &offered {
+                        if *seat == self.seat {
+                            continue;
+                        }
+                        let who = self.table.player_at(*seat);
+                        answers.push((*seat, self.bots[who].call(&self.hand, *seat, calls)));
                     }
-                    let who = self.table.player_at(*seat);
-                    answers.push((*seat, self.bots[who].call(&self.hand, *seat, calls)));
+                    self.asking.clear();
+                    self.gathered.clear();
+                    if !matches!(call, Call::Pass) {
+                        self.note(self.seat, &describe_call(call).label);
+                    }
+                    self.hand.resolve_calls(&answers).map_err(refused)?;
                 }
-                self.asking.clear();
-                self.gathered.clear();
-                if !matches!(call, Call::Pass) {
-                    self.note(self.seat, &describe_call(call).label);
-                }
-                self.hand.resolve_calls(&answers).map_err(refused)
+                // Retain the decision once, before other claims resolve it.
+                // Even a pass or a pon superseded by ron belongs in the review.
+                self.decisions.push(RecordedDecision {
+                    position: before,
+                    seat: self.seat,
+                    played: ReviewedMove::Call(call),
+                });
+                Ok(())
             }
             _ => Err(JsValue::from_str("there is nothing to choose now")),
         }
@@ -878,26 +907,39 @@ impl Game {
     /// Every decision the player made this hand, judged against what the
     /// adviser would have done. Meant to be read once the hand is over.
     pub fn review(&self) -> Result<JsValue, JsValue> {
+        serde_wasm_bindgen::to_value(&self.review_notes())
+            .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    fn review_notes(&self) -> Vec<NoteView> {
         // A fresh adviser, so the review does not depend on what the bots
         // happened to roll while they were playing.
         let mut adviser = Bot::with_style(0x5eed_5eed, Style::club());
-        let notes: Vec<NoteView> = self
-            .decisions
+        self.decisions
             .iter()
-            .map(|(position, played)| {
-                let note = review::judge(position, *played, &mut adviser);
+            .map(|decision| {
+                let position = &decision.position;
+                let played = match decision.played {
+                    ReviewedMove::Action(action) => action,
+                    ReviewedMove::Call(call) => {
+                        return describe_call_review(position, decision.seat, call, &mut adviser);
+                    }
+                };
+                let note = review::judge(position, played, &mut adviser);
                 NoteView {
                     turn: note.turn + 1,
                     played: describe_action(note.played).label,
                     played_kind: describe_action(note.played).kind,
                     played_tile: action_tile(note.played).map(|tile| tile.to_string()),
+                    call_tile: None,
+                    call_from: None,
                     advised: describe_action(note.advised).label,
                     advised_tile: action_tile(note.advised).map(|tile| tile.to_string()),
                     agreed: note.agreed(),
-                    shanten_played: note.shanten_played,
-                    shanten_advised: note.shanten_advised,
-                    acceptance_played: note.acceptance_played,
-                    acceptance_advised: note.acceptance_advised,
+                    shanten_played: Some(note.shanten_played),
+                    shanten_advised: Some(note.shanten_advised),
+                    acceptance_played: Some(note.acceptance_played),
+                    acceptance_advised: Some(note.acceptance_advised),
                     danger_played: danger_name(note.danger_played).to_string(),
                     danger_advised: danger_name(note.danger_advised).to_string(),
                     dora_played: note.dora_played,
@@ -908,36 +950,35 @@ impl Game {
                     cost: note.cost(),
                 }
             })
-            .collect();
-        serde_wasm_bindgen::to_value(&notes).map_err(|error| JsValue::from_str(&error.to_string()))
+            .collect()
     }
 
-    /// The acting player's observation before a recorded decision. Historical
+    /// The deciding player's observation before a recorded decision. Historical
     /// advice sees only the information available when that move was played.
     pub fn review_observation(&self, index: usize) -> Result<Vec<f32>, JsValue> {
-        let (position, _) = self
+        let decision = self
             .decisions
             .get(index)
             .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        Ok(analysis::observation(position, position.turn))
+        Ok(analysis::observation(&decision.position, decision.seat))
     }
 
     /// The legal policy mask at the same recorded decision.
     pub fn review_mask(&self, index: usize) -> Result<Vec<u8>, JsValue> {
-        let (position, _) = self
+        let decision = self
             .decisions
             .get(index)
             .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        Ok(analysis::mask(position, position.turn))
+        Ok(analysis::mask(&decision.position, decision.seat))
     }
 
     /// Named legal moves at the same recorded decision, including unscored kans.
     pub fn review_choices(&self, index: usize) -> Result<JsValue, JsValue> {
-        let (position, _) = self
+        let decision = self
             .decisions
             .get(index)
             .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        analysis::choices_value(position, position.turn)
+        analysis::choices_value(&decision.position, decision.seat)
     }
 
     /// The hand as an mjai event log, one JSON object per line.
@@ -1289,6 +1330,61 @@ impl Game {
     }
 }
 
+/// A call is judged from the responder's information before any answers are
+/// resolved. Do not invent a subsequent discard or a hidden kan replacement
+/// merely to fill in the turn-action metrics.
+fn describe_call_review(hand: &Hand, seat: Wind, played: Call, adviser: &mut Bot) -> NoteView {
+    let offered = hand
+        .legal_calls()
+        .into_iter()
+        .find(|(who, _)| *who == seat)
+        .map(|(_, calls)| calls)
+        .expect("a recorded response was offered to its player");
+    let advised = adviser.call(hand, seat, &offered);
+    let agreed = played == advised;
+    let reason = if agreed {
+        "the call the adviser would have made"
+    } else if advised == Call::Ron {
+        "the adviser would take the available win"
+    } else if advised == Call::Pass {
+        if Wind::ALL
+            .iter()
+            .any(|other| *other != seat && hand.players[other.index()].has_riichi())
+        {
+            "the adviser avoids calling while an opponent has declared riichi"
+        } else {
+            "the adviser finds no call that improves readiness and preserves a route to a yaku"
+        }
+    } else {
+        "the advised call improves readiness and preserves a route to a yaku"
+    };
+    let played = describe_call(played);
+    let advised = describe_call(advised);
+    NoteView {
+        turn: hand.discards_made.max(1),
+        played: played.label,
+        played_kind: played.kind,
+        played_tile: played.tile,
+        call_tile: hand.pending_discard.map(|(_, tile)| tile.to_string()),
+        call_from: hand.pending_discard.map(|(from, _)| seat_title(from).into()),
+        advised: advised.label,
+        advised_tile: advised.tile,
+        agreed,
+        shanten_played: None,
+        shanten_advised: None,
+        acceptance_played: None,
+        acceptance_advised: None,
+        danger_played: "quiet".into(),
+        danger_advised: "quiet".into(),
+        dora_played: 0,
+        dora_advised: 0,
+        dora_types: dora_types(hand),
+        reason: reason.into(),
+        kind: if agreed { "agreed" } else { "call" }.into(),
+        cost: 0,
+    }
+}
+
 fn refused(error: riichi_core::game::Error) -> JsValue {
     JsValue::from_str(&format!("the engine refused that: {error:?}"))
 }
@@ -1561,6 +1657,74 @@ mod ui_review_tests {
             .iter()
             .any(|(seat, calls)| *seat == Wind::South && calls.contains(&Call::Ron)));
         game
+    }
+
+    #[test]
+    fn reviews_keep_every_call_from_the_responders_original_position() {
+        for external in [false, true] {
+            for call in [
+                Call::Pass,
+                Call::Ron,
+                Call::Pon,
+                Call::Kan,
+                Call::Chii("1m".parse().unwrap()),
+            ] {
+                let mut game = shared_window(matches!(call, Call::Pass | Call::Ron));
+                game.external = external;
+                match call {
+                    Call::Kan => {
+                        game.hand.players[Wind::West.index()].hand =
+                            "333m123456s1155z".parse().unwrap();
+                    }
+                    Call::Chii(_) => {
+                        game.player = 1;
+                        game.seat = Wind::South;
+                    }
+                    _ => {}
+                }
+                let before = game.hand.clone();
+                let seat = game.seat;
+                let choice = describe_call(call);
+                game.choose(&choice.kind, choice.tile.clone()).unwrap();
+                assert_eq!(game.decisions.len(), 1, "{external}: {call:?}");
+                let decision = &game.decisions[0];
+                assert_eq!(decision.position, before);
+                assert_eq!(decision.seat, seat);
+                assert_eq!(decision.played, ReviewedMove::Call(call));
+                assert_eq!(
+                    game.review_observation(0).unwrap(),
+                    analysis::observation(&before, seat)
+                );
+                assert_eq!(game.review_mask(0).unwrap(), analysis::mask(&before, seat));
+                assert_ne!(
+                    game.review_mask(0).unwrap(),
+                    analysis::mask(&before, before.turn)
+                );
+
+                while !game.asking.is_empty() {
+                    game.play_opponent(encoding::PASS).unwrap();
+                }
+                assert_eq!(game.decisions.len(), 1, "resolution must not record twice");
+                let after = game.hand.clone();
+                let notes = game.review_notes();
+                assert_eq!(notes.len(), 1);
+                let note = &notes[0];
+                assert_eq!(note.played_kind, choice.kind);
+                assert_eq!(note.played_tile, choice.tile);
+                assert_eq!(note.call_tile.as_deref(), Some("3m"));
+                assert_eq!(note.call_from.as_deref(), Some("East"));
+                assert_eq!(note.shanten_played, None);
+                assert_eq!(note.shanten_advised, None);
+                assert_eq!(note.acceptance_played, None);
+                assert_eq!(note.acceptance_advised, None);
+                if call == Call::Pass {
+                    assert!(!note.agreed);
+                    assert_eq!(note.advised, "wins on the discard");
+                    assert_eq!(note.reason, "the adviser would take the available win");
+                }
+                assert_eq!(game.hand, after, "reviewing must not change the game");
+            }
+        }
     }
 
     #[test]

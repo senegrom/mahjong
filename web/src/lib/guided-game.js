@@ -126,6 +126,8 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       if (state.nextSeat === p.seat) throw new Error('Choose one of your legal moves');
       if (state.needsDraw && p.wall <= 0) throw new Error('The live wall is empty');
       const player = p.players[state.nextSeat];
+      // EMA 2025 permits one live tile after the draw. This prompt still
+      // includes the opponent's hidden draw, which recordDiscard counts below.
       if (event.riichi && (!state.needsDraw || p.wall < 2 || player.melds.some(m => m.kind !== 'concealed-kan'))) {
         throw new Error('Riichi requires a closed hand, a draw, and at least one live tile after it');
       }

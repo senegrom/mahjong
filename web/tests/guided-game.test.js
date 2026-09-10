@@ -169,6 +169,28 @@ test('passing ron keeps furiten until my real draw and riichi pays exactly one s
   assert.equal(g.state.stage, 'over');
 });
 
+test('EMA 2025: guided riichi and the real engine agree at one remaining live tile', () => {
+  for (const remaining of [0, 1, 2, 3]) {
+    let own = start(0, '123m456p789s1112z');
+    own.state.position.wall = remaining + 1;
+    own.state.position.first_turns = false;
+    own = act(own, { type: 'draw', tile: '9m' });
+    const riichi = inspect(own).find(c => c.kind === 'riichi' && c.tile === '9m');
+    assert.equal(Boolean(riichi), remaining > 0);
+    let other = start();
+    other.state.position.wall = remaining + 1;
+    other.state.position.first_turns = false;
+    if (remaining === 0) assert.throws(() => discard(other, '9m', { riichi: true }), /one live tile/);
+    else {
+      own = choose(own, 'riichi', '9m');
+      other = discard(other, '9m', { riichi: true });
+      assert.equal(other.state.position.wall, own.state.position.wall);
+      assert.equal(other.state.position.riichi_sticks, own.state.position.riichi_sticks);
+      assert.equal(other.state.position.players[0].score, own.state.position.players[0].score);
+    }
+  }
+});
+
 test('rejects fifth copies, incomplete setup, stale events and rolls back invalid decisions', () => {
   let g = start(0, '1111m456p789s123z');
   assert.throws(() => act(g, { type: 'draw', tile: '1m' }), /four copies/);

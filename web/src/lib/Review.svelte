@@ -101,6 +101,7 @@
     <ol>
       {#each listed as note, index (index)}
         <li class:agreed={note.agreed}>
+          {#if note.call_tile}<p class="call-context">Response to <Tile tile={note.call_tile} size="tiny" dora={hints && (note.dora_types ?? []).includes(note.call_tile)} /> from {note.call_from}</p>{/if}
           <div class="moves">
             <span class="turn">{note.turn}</span>
             <span class="played">
@@ -126,6 +127,7 @@
             </p>
           {:else if !note.agreed}
             <p class="why">{note.reason}</p>
+            {#if note.shanten_played != null && note.shanten_advised != null}
             <table class="numbers">
               <thead>
                 <tr>
@@ -175,6 +177,7 @@
                 {/if}
               </tbody>
             </table>
+            {/if}
           {:else}
             <p class="why quiet">{note.reason}</p>
           {/if}
@@ -210,6 +213,7 @@
   .policy-preference { margin: 0; font-size: .85rem; font-variant-numeric: tabular-nums; }
   .policy-preference strong { color: var(--gold); }
   .policy-preference > span { opacity: .75; }
+  .call-context { display: flex; align-items: center; gap: 6px; margin: 0; font-size: .8rem; }
 
   .summary,
   .empty,
