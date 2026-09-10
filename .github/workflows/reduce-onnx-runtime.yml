@@ -80,24 +80,21 @@ jobs:
           cp "$wasm" "$RUNNER_TEMP/built.wasm"
           cp "$loader" "$RUNNER_TEMP/built.mjs"
 
-      - name: Take the binary, and the loader only if it is unchanged
+      - name: Take the binary, and bound the loader's memory again
         shell: bash
         run: |
           set -euxo pipefail
           cp "$RUNNER_TEMP/built.wasm" web/runtime/ort-wasm-simd-threaded.wasm
-          # The loader we ship is the stock one with three edits that bound
-          # the heap. If the build emits the same stock loader as last time,
-          # our edited copy still applies and is left alone.
-          if cmp -s "$RUNNER_TEMP/built.mjs" web/runtime/ort-wasm-simd-threaded.stock.mjs; then
-            echo 'loader unchanged; keeping the edited one'
-          else
-            cp "$RUNNER_TEMP/built.mjs" "$RUNNER_TEMP/loader-emitted.mjs"
-            diff -u web/runtime/ort-wasm-simd-threaded.stock.mjs "$RUNNER_TEMP/built.mjs" > "$RUNNER_TEMP/loader.diff" || true
-            echo 'The build emitted a different loader. Our heap edits must be'
-            echo 're-applied by hand to it before it can ship. Both files are'
-            echo 'in the artefact.' >&2
-            exit 1
-          fi
+          # The loader we ship is the emitted one with three edits that bound
+          # the heap, without which phones refuse the reservation and the tab
+          # dies. The script makes them again by pattern and stops if the
+          # loader has changed shape, so a rebuild cannot quietly drop them.
+          cp "$RUNNER_TEMP/built.mjs" "$RUNNER_TEMP/loader-emitted.mjs"
+          diff -u web/runtime/ort-wasm-simd-threaded.stock.mjs "$RUNNER_TEMP/built.mjs" > "$RUNNER_TEMP/loader.diff" || true
+          cp "$RUNNER_TEMP/built.mjs" web/runtime/ort-wasm-simd-threaded.stock.mjs
+          python3 web/scripts/patch-ort-loader.py \
+            web/runtime/ort-wasm-simd-threaded.stock.mjs \
+            web/runtime/ort-wasm-simd-threaded.mjs
           generic=$(stat -c %s web/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm 2>/dev/null || echo 0)
           reduced=$(stat -c %s web/runtime/ort-wasm-simd-threaded.wasm)
           echo "reduced_bytes=$reduced" | tee /tmp/runtime-size.txt
