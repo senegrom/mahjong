@@ -50,6 +50,117 @@ class Records:
     slots: np.ndarray
 
 
+def decide_in_mortal_space(
+    score,
+    views: Views,
+    rows: np.ndarray,
+    players: np.ndarray,
+    legal: np.ndarray,
+    greedy: bool = False,
+    device: str = "cuda",
+    timing: dict | None = None,
+) -> tuple[np.ndarray, Records]:
+    """One of our engine's actions per row, and the records of everything
+    the policy decided to get there, in Mortal's action space.
+
+    `score(planes, mask)` gives the logits over those forty-six moves. A
+    riichi names no tile there, so when one is chosen the reach is told to
+    the follower and the same question asked again from the state in which
+    it stands; both answers are recorded, because the policy made both.
+    """
+    clock = time.perf_counter
+    timing = timing if timing is not None else {}
+    follower = views.observer.follower
+    who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
+    legal = np.atleast_2d(legal)
+    began = clock()
+    planes, own = views.sparse_and_masks(rows, players)
+    timing["encode"] = timing.get("encode", 0.0) + clock() - began
+    began = clock()
+    # The policy is over what Mortal may do here that our engine allows.
+    allowed = own & zoo.translatable(legal)
+    # A row where nothing agrees is decided by our engine's first legal
+    # move and not recorded; it does not happen in practice.
+    decidable = allowed.any(axis=1)
+    allowed[~decidable, zoo.MORTAL_PASS] = True
+    timing["translate"] = timing.get("translate", 0.0) + clock() - began
+    began = clock()
+    mask = torch.from_numpy(allowed).to(device)
+    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=str(device).startswith("cuda")):
+        logits = score(planes.dense(device), mask)
+    logits = logits.float()
+    distribution = torch.distributions.Categorical(logits=logits)
+    picked = logits.argmax(dim=1) if greedy else distribution.sample()
+    log_prob = distribution.log_prob(picked).cpu().numpy()
+    picked = picked.cpu().numpy()
+    timing["network"] = timing.get("network", 0.0) + clock() - began
+
+    choice = zoo.first_meaning(picked, legal)
+    choice = np.where(decidable & (choice >= 0), choice, legal.argmax(axis=1)).astype(np.int64)
+    record_planes = [planes]
+    record_masks = [allowed]
+    record_actions = [picked]
+    record_log_probs = [log_prob]
+    record_slots = [np.arange(len(who))]
+    second = np.nonzero(decidable & (picked == zoo.MORTAL_RIICHI))[0].tolist()
+    if not decidable.all():
+        keep = decidable
+        record_planes = [planes.rows(np.nonzero(keep)[0])]
+        record_masks = [allowed[keep]]
+        record_actions = [picked[keep]]
+        record_log_probs = [log_prob[keep]]
+        record_slots = [np.nonzero(keep)[0]]
+
+    if second:
+        # The reach declared ahead of the table; then the tile, from the
+        # state in which it is declared.
+        for i in second:
+            game, player = who[i]
+            follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+        indptr, indices, values, masks = follower.encode([who[i] for i in second])
+        after = Planes.from_follower(indptr, indices, values)
+        allowed_after = np.asarray(masks, dtype=bool)
+        for slot, i in enumerate(second):
+            tiles = legal[i][zoo.RIICHI_DISCARD : zoo.TSUMO]
+            allowed_after[slot, :34] &= tiles
+            allowed_after[slot, 34:] = False
+            if not allowed_after[slot].any():
+                allowed_after[slot, :34] = tiles
+        mask_after = torch.from_numpy(allowed_after).to(device)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=str(device).startswith("cuda")):
+            logits_after = score(after.dense(device), mask_after)
+        logits_after = logits_after.float()
+        distribution_after = torch.distributions.Categorical(logits=logits_after)
+        tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()
+        log_prob_after = distribution_after.log_prob(tile).cpu().numpy()
+        tile = tile.cpu().numpy()
+        for slot, i in enumerate(second):
+            choice[i] = zoo.RIICHI_DISCARD + int(tile[slot])
+        record_planes.append(after)
+        record_masks.append(allowed_after)
+        record_actions.append(tile)
+        record_log_probs.append(log_prob_after)
+        record_slots.append(np.array(second, dtype=np.int64))
+
+    if len(record_planes) == 1:
+        records = Records(
+            planes=record_planes[0],
+            masks=record_masks[0],
+            actions=record_actions[0].astype(np.int64),
+            log_probs=record_log_probs[0].astype(np.float32),
+            slots=record_slots[0].astype(np.int64),
+        )
+    else:
+        records = Records(
+            planes=Planes.cat(record_planes),
+            masks=np.concatenate(record_masks),
+            actions=np.concatenate(record_actions).astype(np.int64),
+            log_probs=np.concatenate(record_log_probs).astype(np.float32),
+            slots=np.concatenate(record_slots).astype(np.int64),
+        )
+    return choice, records
+
+
 class MortalLearner(nn.Module):
     """A Mortal that plays in our loop and learns from it."""
 
@@ -111,98 +222,16 @@ class MortalLearner(nn.Module):
     ) -> tuple[np.ndarray, Records]:
         """One of our actions per row, and the records of the decisions
         made, in Mortal's action space, that produced them."""
-        clock = time.perf_counter
-        follower = views.observer.follower
-        who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
-        legal = np.atleast_2d(legal)
-        began = clock()
-        planes, own = views.sparse_and_masks(rows, players)
-        self.timing["encode"] += clock() - began
-        began = clock()
-        # The policy is over what Mortal may do here that our engine allows.
-        allowed = own & zoo.translatable(legal)
-        # A row where nothing agrees is decided by our engine's first legal
-        # move and not recorded; it does not happen in practice.
-        decidable = allowed.any(axis=1)
-        allowed[~decidable, zoo.MORTAL_PASS] = True
-        self.timing["translate"] += clock() - began
-        began = clock()
-        mask = torch.from_numpy(allowed).to(self.device)
-        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=self.device.startswith("cuda")):
-            logits, _value = self.inference(planes.dense(self.device), mask)
-        logits = logits.float()
-        distribution = torch.distributions.Categorical(logits=logits)
-        picked = logits.argmax(dim=1) if greedy else distribution.sample()
-        log_prob = distribution.log_prob(picked).cpu().numpy()
-        picked = picked.cpu().numpy()
-        self.timing["network"] += clock() - began
-
-        choice = zoo.first_meaning(picked, legal)
-        choice = np.where(decidable & (choice >= 0), choice, legal.argmax(axis=1)).astype(np.int64)
-        record_planes = [planes]
-        record_masks = [allowed]
-        record_actions = [picked]
-        record_log_probs = [log_prob]
-        record_slots = [np.arange(len(who))]
-        second = np.nonzero(decidable & (picked == zoo.MORTAL_RIICHI))[0].tolist()
-        if not decidable.all():
-            keep = decidable
-            record_planes = [planes.rows(np.nonzero(keep)[0])]
-            record_masks = [allowed[keep]]
-            record_actions = [picked[keep]]
-            record_log_probs = [log_prob[keep]]
-            record_slots = [np.nonzero(keep)[0]]
-
-        if second:
-            # The reach declared ahead of the table; then the tile, from the
-            # state in which it is declared.
-            for i in second:
-                game, player = who[i]
-                follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
-            indptr, indices, values, masks = follower.encode([who[i] for i in second])
-            after = Planes.from_follower(indptr, indices, values)
-            allowed_after = np.asarray(masks, dtype=bool)
-            for slot, i in enumerate(second):
-                tiles = legal[i][zoo.RIICHI_DISCARD : zoo.TSUMO]
-                allowed_after[slot, :34] &= tiles
-                allowed_after[slot, 34:] = False
-                if not allowed_after[slot].any():
-                    allowed_after[slot, :34] = tiles
-            mask_after = torch.from_numpy(allowed_after).to(self.device)
-            with torch.autocast(
-                "cuda", dtype=torch.bfloat16, enabled=self.device.startswith("cuda")
-            ):
-                logits_after, _ = self.inference(after.dense(self.device), mask_after)
-            logits_after = logits_after.float()
-            distribution_after = torch.distributions.Categorical(logits=logits_after)
-            tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()
-            log_prob_after = distribution_after.log_prob(tile).cpu().numpy()
-            tile = tile.cpu().numpy()
-            for slot, i in enumerate(second):
-                choice[i] = zoo.RIICHI_DISCARD + int(tile[slot])
-            record_planes.append(after)
-            record_masks.append(allowed_after)
-            record_actions.append(tile)
-            record_log_probs.append(log_prob_after)
-            record_slots.append(np.array(second, dtype=np.int64))
-
-        if len(record_planes) == 1:
-            records = Records(
-                planes=record_planes[0],
-                masks=record_masks[0],
-                actions=record_actions[0].astype(np.int64),
-                log_probs=record_log_probs[0].astype(np.float32),
-                slots=record_slots[0].astype(np.int64),
-            )
-        else:
-            records = Records(
-                planes=Planes.cat(record_planes),
-                masks=np.concatenate(record_masks),
-                actions=np.concatenate(record_actions).astype(np.int64),
-                log_probs=np.concatenate(record_log_probs).astype(np.float32),
-                slots=np.concatenate(record_slots).astype(np.int64),
-            )
-        return choice, records
+        return decide_in_mortal_space(
+            lambda planes, mask: self.inference(planes, mask)[0],
+            views,
+            rows,
+            players,
+            legal,
+            greedy,
+            self.device,
+            self.timing,
+        )
 
     def choose(
         self, views: Views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray

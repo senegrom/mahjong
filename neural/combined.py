@@ -26,83 +26,87 @@ import numpy as np
 import torch
 from torch import nn
 
-from libriichi.consts import ACTION_SPACE as MORTAL_ACTIONS
+from libriichi.consts import ACTION_SPACE as ACTIONS
 
-from . import mortal_model, zoo
-from .model import ACTIONS, PolicyValueNet, from_payload, load_weights
-
-# For each of our actions, the one of Mortal's that means it.
-OURS_TO_MORTAL = np.full(ACTIONS, zoo.MORTAL_PASS, dtype=np.int64)
-for _mortal_action in range(MORTAL_ACTIONS):
-    for _ours in zoo.meanings(_mortal_action):
-        OURS_TO_MORTAL[_ours] = _mortal_action
-
-# Mortal's Q values are rank points, a few units; scaled to about one for F.
-Q_SCALE = 0.25
+from . import mortal_learner, mortal_model, zoo
+from .model import GROUPS, POSITIONS, PolicyValueNet, from_payload, load_weights
 
 
 class Fuse(nn.Module):
-    """The layer over both players' last layers."""
+    """The three layers over both players' last two.
 
-    def __init__(self, channels: int, phi: int = 1024, hidden: int = 512) -> None:
+    `width` is F2's, and the head that reads it mirrors ours: one value a
+    tile for the discards, the remaining twelve from the pooled part.
+    """
+
+    def __init__(self, channels: int, phi: int = 1024, width: int = 256) -> None:
         super().__init__()
-        width = phi + 2 * MORTAL_ACTIONS + 2 * ACTIONS + channels + 2 * ACTIONS
-        self.mlp = nn.Sequential(
-            nn.Linear(width, hidden),
+        self.width = width
+        # F2: Mortal's vector meets our per-tile features.
+        self.phi_proj = nn.Sequential(nn.Linear(phi, width), nn.ReLU())
+        self.tiles = nn.Sequential(
+            nn.Conv1d(channels + width, width, 1, bias=False),
+            nn.GroupNorm(GROUPS, width),
             nn.ReLU(),
-            nn.Linear(hidden, hidden),
+            nn.Conv1d(width, width, 1, bias=False),
+            nn.GroupNorm(GROUPS, width),
             nn.ReLU(),
-            nn.Linear(hidden, ACTIONS),
         )
-        # Two per tile, discard it or discard it with riichi, from our
-        # per-tile features, which is where the thirty-four discards live.
-        self.tile = nn.Conv1d(channels, 2, 1)
-        # One number that adds Mortal's value of each of our moves straight
-        # to our logits: the shortest road to Mortal's judgement, which the
-        # network above can learn but a single weight finds in a few
-        # updates. Zero at first, like the rest.
-        self.mix = nn.Parameter(torch.zeros(()))
-        # Nothing added at first: the joined player starts as our network.
-        nn.init.zeros_(self.mlp[-1].weight)
-        nn.init.zeros_(self.mlp[-1].bias)
-        nn.init.zeros_(self.tile.weight)
-        nn.init.zeros_(self.tile.bias)
+        # F1: its own answer over the same moves.
+        self.own_tiles = nn.Conv1d(width, 1, 1)
+        self.own_pooled = nn.Sequential(
+            nn.Linear(width, 256), nn.ReLU(), nn.Linear(256, ACTIONS - POSITIONS)
+        )
+        # F0: what is played, weighed action by action across the three,
+        # with a correction the alignment alone cannot make.
+        self.weights = nn.Parameter(torch.zeros(3, ACTIONS))
+        self.bias = nn.Parameter(torch.zeros(ACTIONS))
+        self.correction = nn.Sequential(
+            nn.Linear(4 * ACTIONS, 256), nn.ReLU(), nn.Linear(256, ACTIONS)
+        )
+        with torch.no_grad():
+            # Mortal alone, with our own logits only loud enough to order
+            # what its values leave tied.
+            self.weights[0].fill_(0.0)
+            self.weights[1].fill_(1.0)
+            self.weights[2].fill_(0.02)
+        nn.init.zeros_(self.correction[-1].weight)
+        nn.init.zeros_(self.correction[-1].bias)
+
+    def hidden(self, phi: torch.Tensor, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """F2, per tile and pooled, from Mortal's vector and our features."""
+        spread = self.phi_proj(phi).unsqueeze(2).expand(-1, -1, features.shape[2])
+        tiles = self.tiles(torch.cat([features, spread], dim=1))
+        return tiles, tiles.mean(dim=2)
+
+    def own(self, tiles: torch.Tensor, pooled: torch.Tensor) -> torch.Tensor:
+        """F1: the fusion's own logits, read from F2."""
+        per_tile = self.own_tiles(tiles)
+        per_tile = per_tile.reshape(per_tile.shape[0], -1)
+        return torch.cat([per_tile, self.own_pooled(pooled)], dim=1)
 
     def forward(
         self,
         phi: torch.Tensor,
         q: torch.Tensor,
-        q_mask: torch.Tensor,
-        pooled: torch.Tensor,
         features: torch.Tensor,
         a1: torch.Tensor,
         legal: torch.Tensor,
     ) -> torch.Tensor:
-        """Our seventy-eight logits, from A1 plus what F adds."""
-        q_here = q[:, torch.from_numpy(OURS_TO_MORTAL).to(q.device)]
-        mask_here = q_mask[:, torch.from_numpy(OURS_TO_MORTAL).to(q.device)] & legal
-        finite_q = torch.where(q_mask, q, torch.zeros_like(q)) * Q_SCALE
-        finite_here = torch.where(mask_here, q_here, torch.zeros_like(q_here)) * Q_SCALE
-        finite_a1 = torch.where(legal, a1, torch.zeros_like(a1))
-        inputs = torch.cat(
-            [
-                phi,
-                finite_q,
-                q_mask.float(),
-                finite_here,
-                mask_here.float(),
-                pooled,
-                finite_a1,
-                legal.float(),
-            ],
-            dim=1,
+        """The logits played, masked. `q` and `a1` are already over the same
+        forty-six moves as everything else."""
+        tiles, pooled = self.hidden(phi, features)
+        f1 = self.own(tiles, pooled)
+        # A value for a move that cannot be made says nothing; zero rather
+        # than an infinity, which would poison the sum.
+        mortal = torch.where(legal, q, torch.zeros_like(q))
+        ours = torch.where(legal, a1, torch.zeros_like(a1))
+        stacked = torch.stack([f1, mortal, ours], dim=1)
+        joined = (stacked * self.weights.unsqueeze(0)).sum(dim=1) + self.bias
+        joined = joined + self.correction(
+            torch.cat([f1, mortal, ours, legal.float()], dim=1)
         )
-        delta = self.mlp(inputs)
-        tiles = self.tile(features).reshape(features.shape[0], -1)
-        delta = torch.cat([delta[:, : tiles.shape[1]] + tiles, delta[:, tiles.shape[1] :]], dim=1)
-        # Mortal's value of a move it does not allow here adds nothing.
-        straight = torch.where(mask_here, q_here, torch.zeros_like(q_here)) * self.mix
-        return (finite_a1 + delta + straight).masked_fill(~legal, float("-inf"))
+        return joined.masked_fill(~legal, float("-inf"))
 
 
 class Combined(nn.Module):
@@ -181,37 +185,76 @@ class Combined(nn.Module):
         return self
 
     def backbones(self, planes: torch.Tensor, legal: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Both players' last layers, from the planes: phi and Q with
-        Mortal's mask made from ours, and our features, pooled features,
-        logits, value and reading of the opponents' hands."""
+        """Both players' last two layers, from the planes: Mortal's vector
+        and its move values, our features and our logits over the same
+        moves, with our value and our reading of the opponents' hands."""
         ours = self.ours
         features = ours.tail(ours.tower(ours.stem(planes)))
         pooled = features.mean(dim=2)
         tiles = ours.policy_tiles(features)
         tiles = tiles.reshape(tiles.shape[0], -1)
-        a1 = torch.cat([tiles, ours.policy_pooled(pooled)], dim=1).masked_fill(
-            ~legal, float("-inf")
-        )
+        # Z1, over the same moves Mortal answers: left unmasked, since the
+        # head above weighs it and masks once at the end.
+        a1 = torch.cat([tiles, ours.policy_pooled(pooled)], dim=1)
         value = ours.value(pooled).squeeze(1)
         guessed = ours.hands_from(planes, features)
-        # Mortal's mask, made from ours: what it may do here that our
-        # engine allows, which is what the zoo defines its policy over.
-        means = torch.from_numpy(zoo.MEANS_BY_OURS).to(legal.device)
-        q_mask = (legal.float() @ means) > 0.5
         phi = self.mortal.features(planes)
-        q = self.mortal.dqn(phi, q_mask)
-        return phi, q, q_mask, pooled, features, a1, value, guessed
+        q = self.mortal.dqn(phi, legal)
+        return phi, q, features, a1, value, guessed
 
     def everything(
         self, planes: torch.Tensor, legal: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        phi, q, q_mask, pooled, features, a1, value, guessed = self.backbones_forward(planes, legal)
-        logits = self.fuse(phi.float(), q.float(), q_mask, pooled.float(), features.float(), a1.float(), legal)
+        phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal)
+        logits = self.fuse(phi.float(), q.float(), features.float(), a1.float(), legal)
         return logits, value, guessed
 
     def forward(self, planes: torch.Tensor, legal: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         logits, value, _guessed = self.everything(planes, legal)
         return logits, value
+
+    @torch.no_grad()
+    def choose(
+        self, views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray
+    ) -> np.ndarray:
+        """Its best move per row, in our engine's actions. The same two
+        steps as `decide`, with nothing recorded."""
+        return zoo.choose_in_mortal_space(
+            lambda who, fresh: self._ask(views, who, fresh), views, rows, players, legal
+        )
+
+    @torch.no_grad()
+    def _ask(self, views, who: list[tuple[int, int]], fresh: bool = False):
+        rows = np.array([game for game, _player in who], dtype=np.int64)
+        players = np.array([player for _game, player in who], dtype=np.int64)
+        sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
+        device = str(next(self.parameters()).device)
+        mask = torch.from_numpy(masks).to(device)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.startswith("cuda")):
+            logits, _value = self.forward(sparse.dense(device), mask)
+        return logits.float().cpu().numpy(), masks
+
+    @torch.no_grad()
+    def decide(
+        self,
+        views,
+        rows: np.ndarray,
+        players: np.ndarray,
+        legal: np.ndarray,
+        greedy: bool = False,
+    ):
+        """One of our engine's actions per row, and what the policy decided
+        to get there. Its moves are Mortal's, so a riichi is answered in two
+        steps and both are recorded."""
+        return mortal_learner.decide_in_mortal_space(
+            lambda planes, mask: self.forward(planes, mask)[0],
+            views,
+            rows,
+            players,
+            legal,
+            greedy,
+            str(next(self.parameters()).device),
+        )
 
     def parameter_count(self) -> int:
         return sum(p.numel() for p in self.parameters())
@@ -222,11 +265,8 @@ class Combined(nn.Module):
         return {
             "combined": self.fuse.state_dict(),
             "model": self.ours.state_dict(),
-            "planes": self.ours.planes,
-            "attention": self.ours.attention,
-            "channels": self.ours.channels,
-            "blocks": self.ours.blocks,
             "config": self.mortal_config,
+            **self.ours.payload_fields(),
             **self.mortal.state(),
         }
 
@@ -236,6 +276,11 @@ def build(ours_path: Path | str, mortal_path: Path | str, device: str) -> tuple[
     Returns it with Mortal's config, which its checkpoints carry."""
     payload = torch.load(ours_path, map_location="cpu", weights_only=True)
     ours = from_payload(payload, device)
+    if not ours.speaks_mortal:
+        raise SystemExit(
+            f"{ours_path} answers over {ours.actions} moves and Mortal over "
+            f"{ACTIONS}; re-head it first with neural.rehead"
+        )
     state = torch.load(mortal_path, map_location="cpu", weights_only=False)
     mortal = mortal_model.build(**mortal_model.shape_of(state))
     mortal.brain.load_state_dict(state["mortal"])
@@ -248,8 +293,17 @@ def build(ours_path: Path | str, mortal_path: Path | str, device: str) -> tuple[
 def load(path: Path | str, device: str) -> tuple[Combined, dict]:
     """A joined player from a checkpoint this module wrote."""
     state = torch.load(path, map_location="cpu", weights_only=False)
+    if "mix" in state.get("combined", {}):
+        raise SystemExit(
+            f"{path} carries the old fusion, which mapped one action space onto "
+            "the other; those lineages are not resumable here"
+        )
     ours = PolicyValueNet(
-        state["channels"], state["blocks"], state["planes"], state["attention"]
+        state["channels"],
+        state["blocks"],
+        state["planes"],
+        state["attention"],
+        state.get("actions", ACTIONS),
     ).to(device)
     load_weights(ours, state["model"])
     mortal = mortal_model.build(**mortal_model.shape_of(state))
@@ -257,9 +311,7 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
     mortal.dqn.load_state_dict(state["current_dqn"])
     net = Combined(ours, mortal.to(device)).to(device)
     net.mortal_config = state["config"]
-    # A head saved before it had the straight road keeps its other weights
-    # and starts that one at zero.
-    net.fuse.load_state_dict(state["combined"], strict=False)
+    net.fuse.load_state_dict(state["combined"])
     return net, state
 
 
