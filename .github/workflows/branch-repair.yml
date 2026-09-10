@@ -1,0 +1,250 @@
+name: prepare adviser capability fixes
+on:
+  push:
+    branches: [fix/review-repairs-20260910]
+    paths: ['.github/workflows/branch-repair.yml']
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.repository == 'senegrom/mahjong' && github.ref == 'refs/heads/fix/review-repairs-20260910'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Apply locally validated capability fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          original = {
+              'web/src/lib/agents.js': '41b545394b2bc9e304e2edb636af7a9f0f7ec725',
+              'web/src/lib/GuidedPlay.svelte': 'd864af02938a26b8e14fe62120730c56f2b6ac34',
+              'web/src/lib/PhysicalPlay.svelte': 'aa48ec14e5e6bfff703cb85cbebb7e5bfad2fcc8',
+              'web/scripts/guided-game-check.mjs': '0e19e981d7abd07a5695839bf875375ebd88740b',
+              'docs/AGENT_MODES.md': '3f41b07b9c5521a606010d9255a2fb21abee0392',
+          }
+          for path, expected in original.items():
+              assert subprocess.check_output(['git', 'hash-object', path], text=True).strip() == expected, path
+          def edit(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              assert s.count(old) == 1, (path, old[:60], s.count(old))
+              p.write_text(s.replace(old, new))
+          edit('web/src/lib/agents.js', 'const MORTAL_REACH = 37;', '''const MORTAL_REACH = 37;
+          
+          /** Model availability is not encoder availability. Position-only engines
+           * cannot reproduce the complete history required by the trained policy. */
+          export function supportsTrainedAgent(engine) {
+            return ['agent_observation_mortal', 'agent_mask_mortal',
+              'agent_observation_after_reach', 'agent_mask_after_reach',
+              'agent_action_from_mortal', 'mortal_action_of']
+              .every(name => typeof engine?.[name] === 'function');
+          }
+          export const TRAINED_HISTORY_REQUIRED = 'Trained advice requires a complete in-app game history. '
+            + 'For manually entered tables, choose Beginner or Club. Trained play remains available in Play, Watch and hand review.';''')
+          edit('web/src/lib/agents.js', "if (typeof engine.agent_observation_mortal !== 'function') {\n      throw new Error('The trained network needs a game in progress, not a position on its own');\n    }", "if (!supportsTrainedAgent(engine)) {\n      throw new Error(TRAINED_HISTORY_REQUIRED);\n    }")
+          for path in ('web/src/lib/GuidedPlay.svelte', 'web/src/lib/PhysicalPlay.svelte'):
+              edit(path, "import { AGENTS, WINDS, evaluateAgent, isTrained } from './agents.js';", "import { AGENTS, WINDS, evaluateAgent, isTrained, supportsTrainedAgent, TRAINED_HISTORY_REQUIRED } from './agents.js';")
+              state = '  let game = $state(emptyGuided());' if 'Guided' in path else '  let position = $state(emptyPosition());'
+              edit(path, state, '  const trainedSupported = supportsTrainedAgent(PhysicalAnalysis.prototype);\n' + state)
+          edit('web/src/lib/GuidedPlay.svelte', "    if (blocked || state.stage !== 'decision') return;", "    if (blocked || state.stage !== 'decision' || (isTrained(state.agent) && !trainedSupported)) return;")
+          edit('web/src/lib/GuidedPlay.svelte', '<option value={key}>{name}</option>', '<option value={key} disabled={isTrained(key) && (!trainedSupported || !trainedAvailable)}>{name}</option>')
+          edit('web/src/lib/GuidedPlay.svelte', "    </div>\n    {#if !['setup', 'hand', 'dora'].includes(state.stage)}", '''    </div>
+              {#if !trainedSupported}
+                <p class="adviser-availability" role="status">{TRAINED_HISTORY_REQUIRED}
+                  {#if isTrained(state.agent)}Your saved adviser is unavailable; select Beginner or Club to continue. Your saved position is unchanged.{/if}
+                </p>
+              {/if}
+              {#if !['setup', 'hand', 'dora'].includes(state.stage)}''')
+          edit('web/src/lib/PhysicalPlay.svelte', "    if (trainedAvailable) agent = 'full';", "    if (trainedAvailable && trainedSupported) agent = 'full';")
+          edit('web/src/lib/PhysicalPlay.svelte', '<option value={key}>{label}</option>', '<option value={key} disabled={isTrained(key) && (!trainedSupported || !trainedAvailable)}>{label}</option>')
+          edit('web/src/lib/PhysicalPlay.svelte', '  {#if failure}<p class="failure" role="alert">{failure}</p>{/if}', '''  {#if !trainedSupported}<p class="adviser-availability" role="status">{TRAINED_HISTORY_REQUIRED}</p>{/if}
+            {#if failure}<p class="failure" role="alert">{failure}</p>{/if}''')
+          p = Path('web/scripts/guided-game-check.mjs')
+          s = p.read_text().replace('import { parseTiles, PHYSICAL_KEY }', 'import { emptyPosition, parseTiles, PHYSICAL_KEY }')
+          a = s.index("  await check('mobile guided play shows real trained percentages")
+          b = s.index("  await check('two windows", a)
+          s = s[:a] + '''  await check('mobile guided play offers only supported advisers and preserves a saved trained decision', async context => {
+              const page = await open(context, 360), modelRequests = [];
+              page.on('request', request => { if (new URL(request.url()).pathname.endsWith('.onnx') && request.method() === 'GET') modelRequests.push(request.url()); });
+              await setup(page, '0');
+              await tile(page, '4z'); await choice(page);
+              const selector = '[aria-label="Guided game adviser"]';
+              assert.deepEqual(await page.$$eval(`${selector} option:not(:disabled)`, options => options.map(o => o.value)), ['beginner', 'club']);
+              assert.match(await page.$eval('.adviser-availability', el => el.textContent), /complete in-app game history/);
+              assert.equal(await page.$('.weight-row meter'), null, 'Club selection is not a trained percentage');
+              assert.equal(await page.$$eval('.held-tiles .copy-count', nodes => nodes.length), 14);
+              assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
+              const before = await saved(page);
+              // Keep an old trained preference as a preference, not an implicit request
+              // to rewrite the game or silently choose a different controller.
+              before.state.agent = 'full';
+              await page.evaluate(({ key, text }) => localStorage.setItem(key, text), { key: GUIDED_KEY, text: GUIDED_FORMAT.encode(before) });
+              await page.reload({ waitUntil: 'networkidle0' }); await stage(page, 'decision');
+              await page.waitForSelector('.guided-controls:not(:disabled)');
+              assert.equal(await page.$eval(selector, el => el.value), 'full');
+              assert.equal(await page.$eval(`${selector} option[value="full"]`, el => el.disabled), true);
+              assert.equal(await page.$('.record-best'), null);
+              assert.equal(await page.$('.failure'), null);
+              assert.deepEqual(await saved(page), before, 'loading must preserve the entire saved game');
+              await page.select(selector, 'club'); await choice(page);
+              const resumed = await saved(page);
+              assert.deepEqual(resumed.state.position, before.state.position);
+              assert.deepEqual(resumed.log, before.log); assert.deepEqual(resumed.past, before.past);
+              assert.equal(resumed.state.agent, 'club');
+              assert.deepEqual(modelRequests, [], 'unsupported advice must not start inference');
+              await page.screenshot({ path: resolve(output, 'guided-game-mobile.png'), fullPage: true });
+              await page.reload({ waitUntil: 'networkidle0' }); await choice(page);
+              assert.equal(await page.$eval(selector, el => el.value), 'club');
+              assert.equal((await saved(page)).state.position.players[0].hand.length, 14);
+              assert.deepEqual(page.problems, []);
+            });
+            await check('physical editor starts on Club and preserves the table when trained advice is unsupported', async context => {
+              const page = await open(context, 360), position = emptyPosition();
+              position.players[0].hand = parseTiles('123m456p789s11234z');
+              position.drawn = '4z'; position.indicators = ['5z'];
+              await page.evaluate(({ key, position }) => localStorage.setItem(key, JSON.stringify({ version: 1, position })), { key: PHYSICAL_KEY, position });
+              await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=physical`, { waitUntil: 'networkidle0' });
+              await page.waitForSelector('.physical-editor:not(:disabled)');
+              const selector = '[aria-label="Physical play agent"]';
+              assert.equal(await page.$eval(selector, el => el.value), 'club');
+              assert.deepEqual(await page.$$eval(`${selector} option:not(:disabled)`, options => options.map(o => o.value)), ['beginner', 'club']);
+              assert.match(await page.$eval('.adviser-availability', el => el.textContent), /complete in-app game history/);
+              await page.click('.physical-toolbar .primary');
+              await page.waitForSelector('.recommendation');
+              assert.equal(await page.$eval('.recommendation strong', el => el.textContent), 'Club');
+              assert.equal(await page.$('.weight-row meter'), null);
+              assert.equal(await page.$('.physical-play .failure'), null);
+              const restored = await page.evaluate(key => JSON.parse(localStorage.getItem(key)).position, PHYSICAL_KEY);
+              assert.deepEqual(restored, position);
+              assert.deepEqual(page.problems, []);
+            });
+          ''' + s[b:]
+          p.write_text(s)
+          p = Path('docs/AGENT_MODES.md')
+          s = p.read_text().replace('players, then **Start watching**. Quick and Strong can sit at the same table.', 'players, then **Start watching**. Beginner, Club and Trained can sit at the same table.')
+          s = s.replace('## Physical table\n', '''## Physical table
+          
+          **Beginner and Club are supported for manually entered positions.** Trained
+          advice requires the complete in-app event history, which the position-only
+          adapter cannot reconstruct. Its option is disabled even when the model is
+          installed; the editor starts on Club. No hidden history or trained percentages
+          are invented. Trained opponents, Watch and in-app hand review remain available.
+          ''')
+          s = s.replace('   Choose Beginner, Club, Quick or Strong as adviser. **Record suggested move** applies', '   Choose Beginner or Club as adviser. **Record suggested move** applies')
+          s = s.replace('   suggestion. Trained percentages describe policy preference.', '   suggestion; **Selected** is a built-in choice, not a trained probability.')
+          s = s.replace('from the start of a hand. The guide asks for one thing at a time:', '''from the start of a hand. Like the position editor, this mode currently uses
+          the position-only adapter, so Beginner and Club are the available advisers.
+          A saved Trained preference is preserved but disabled, with an explanation:
+          select Beginner or Club explicitly to resume advice without changing the
+          position, move log or undo history. The guide does not silently substitute an
+          agent or attempt unsupported inference.
+          
+          The guide asks for one thing at a time:''')
+          s = s.replace('**Strong AI**', '**Trained AI**').replace('Strong is offered when its model', 'Trained AI is offered when its model').replace('a completed Strong review', 'a completed trained review').replace('real Strong\npercentages', 'real trained\npercentages')
+          s = s.replace('walkthrough, alternative confirmation, reload, opponent calls, real Strong\nweights and mobile layout against the production build.', '''walkthrough, alternative confirmation, reload, opponent calls, adviser
+          capability gating, explicit recovery of saved Trained preferences, and mobile
+          layout against the production build. `web/tests/trained-capability.test.js`
+          checks the real live and position-only WASM adapters, both riichi stages, and
+          rejection of unsupported inference without falling back to another agent.''')
+          p.write_text(s)
+          PY
+          cat > web/tests/trained-capability.test.js <<'JS'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import init, { Game, PhysicalAnalysis } from '../src/wasm/riichi.js';
+          import { emptyPosition, parseTiles } from '../src/lib/physical-position.js';
+          
+          // Loading policy.js resolves URLs, but an unsupported adapter must never
+          // construct a worker or download the trained model.
+          globalThis.document = { baseURI: 'https://example.invalid/mahjong/' };
+          const { evaluateAgent, supportsTrainedAgent, TRAINED_HISTORY_REQUIRED } = await import('../src/lib/agents.js');
+          await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
+          
+          test('trained capability distinguishes the actual live and position-only adapters', () => {
+            assert.equal(supportsTrainedAgent(Game.prototype), true);
+            assert.equal(supportsTrainedAgent(PhysicalAnalysis.prototype), false);
+            assert.equal(supportsTrainedAgent(null), false);
+            assert.equal(supportsTrainedAgent({}), false);
+          });
+          
+          test('trained capability requires both riichi stages and action translation', () => {
+            const names = ['agent_observation_mortal', 'agent_mask_mortal',
+              'agent_observation_after_reach', 'agent_mask_after_reach',
+              'agent_action_from_mortal', 'mortal_action_of'];
+            const complete = Object.fromEntries(names.map(name => [name, () => {}]));
+            assert.equal(supportsTrainedAgent(complete), true);
+            for (const name of names) {
+              assert.equal(supportsTrainedAgent({ ...complete, [name]: undefined }), false, name);
+              assert.equal(supportsTrainedAgent({ ...complete, [name]: true }), false, name);
+            }
+          });
+          
+          test('a physical position rejects trained inference without falling back or changing legal choices', async () => {
+            const position = emptyPosition();
+            position.players[0].hand = parseTiles('123m456p789s11234z');
+            position.drawn = '4z'; position.indicators = ['5z'];
+            const original = structuredClone(position), engine = new PhysicalAnalysis(position);
+            try {
+              const choices = engine.agent_choices();
+              await assert.rejects(evaluateAgent(engine, 'full'), { message: TRAINED_HISTORY_REQUIRED });
+              assert.deepEqual(engine.agent_choices(), choices);
+              for (const agent of ['beginner', 'club']) {
+                const answer = await evaluateAgent(engine, agent);
+                assert.equal(answer.agent, agent);
+                assert.equal(answer.kind, 'selection');
+                assert.ok(choices.some(choice => choice.kind === answer.choice.kind && choice.tile === answer.choice.tile));
+              }
+              assert.deepEqual(position, original);
+            } finally { engine.free(); }
+          });
+          JS
+          python - <<'PY'
+          import subprocess
+          expected = {
+              'docs/AGENT_MODES.md': 'dd7386974e19b8402147d3b2b845d3def1ad0a50',
+              'web/scripts/guided-game-check.mjs': '04bfdc68e5546719da5abee720d9663c7fab2c75',
+              'web/src/lib/GuidedPlay.svelte': '0a0409def68462339ac25c285610c0c8cf13d362',
+              'web/src/lib/PhysicalPlay.svelte': '44ecc4c287bd2b7b0cf4e51f3070ffc7fcc3866d',
+              'web/src/lib/agents.js': '8b7347c1a45d2fa5ecfac0c1a3d11e55cd20cfed',
+              'web/tests/trained-capability.test.js': '763e70bce2c0eadcafa030f374cfe1d12c5fd17d',
+          }
+          for path, sha in expected.items():
+              actual = subprocess.check_output(['git', 'hash-object', path], text=True).strip()
+              assert actual == sha, (path, actual, sha)
+              if path.endswith(('.js', '.mjs')):
+                  subprocess.run(['node', '--check', path], check=True)
+          subprocess.run(['git', 'add', '--'] + list(expected), check=True)
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          PY
+      - name: Create reviewed commit without changing branch references
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess, urllib.request
+          assert os.environ['GITHUB_REPOSITORY'] == 'senegrom/mahjong'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/fix/review-repairs-20260910'
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert git('rev-parse', 'HEAD') == os.environ['GITHUB_SHA']
+          names = git('diff', '--cached', '--name-only').splitlines()
+          assert set(names) == {'docs/AGENT_MODES.md', 'web/scripts/guided-game-check.mjs', 'web/src/lib/GuidedPlay.svelte', 'web/src/lib/PhysicalPlay.svelte', 'web/src/lib/agents.js', 'web/tests/trained-capability.test.js'}
+          entries = [dict(path=n, mode='100644', type='blob', content=pathlib.Path(n).read_text()) for n in names]
+          entries.append(dict(path='.github/workflows/branch-repair.yml', mode='100644', type='blob', sha=None))
+          def post(kind, payload):
+              request = urllib.request.Request('https://api.github.com/repos/senegrom/mahjong/git/' + kind, data=json.dumps(payload).encode(), headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'}, method='POST')
+              with urllib.request.urlopen(request) as response:
+                  return json.load(response)
+          tree = post('trees', dict(base_tree=git('rev-parse', 'HEAD^{tree}'), tree=entries))
+          commit = post('commits', dict(message='Gate physical advisers by encoder capability and preserve saved trained preferences', tree=tree['sha'], parents=[os.environ['GITHUB_SHA']]))
+          print('REVIEW_CANDIDATE=' + commit['sha'])
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('Candidate commit (no branch moved): `' + commit['sha'] + '`\n')
+          PY
