@@ -97,13 +97,21 @@ class Fuse(nn.Module):
 
     def judge(self, phi: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
         """What the position is worth to the fusion: our network's answer
-        with what Mortal sees added to it."""
-        return value + self.value_fix(phi).squeeze(1)
+        with what Mortal sees added to it.
+
+        Mortal's vector is read, not trained: judging a position and reading
+        a hand are worth doing well, but not at the price of reshaping the
+        encoder that nearly all of the play comes from. Our own network
+        holds its per-tile features back from its reader for the same
+        reason.
+        """
+        return value + self.value_fix(phi.detach()).squeeze(1)
 
     def read_hands(self, phi: torch.Tensor, guessed: torch.Tensor) -> torch.Tensor:
         """What the three opponents are holding, likewise: our network's
-        reading, corrected by Mortal's vector spread over the tiles."""
-        spread = self.hands_fix(phi).unsqueeze(2).expand(-1, -1, guessed.shape[2])
+        reading, corrected by Mortal's vector spread over the tiles, and
+        likewise without training it."""
+        spread = self.hands_fix(phi.detach()).unsqueeze(2).expand(-1, -1, guessed.shape[2])
         return guessed + self.hands_out(spread)
 
     def hidden(self, phi: torch.Tensor, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
