@@ -109,7 +109,7 @@ async function open(saved=initial, {width=1100,height=850,dark=false,confirm=fal
     await page.setRequestInterception(true);
     page.on('request',request=>{
       if(request.url().includes('/assets/policy.worker-')) {
-        const text=mock.sharedCall ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[73]?73:d.mask.findIndex(Boolean)});'
+        const text=mock.sharedCall ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[38]?38:d.mask.findIndex(Boolean)});'
           : mock.delay ? `self.onmessage=({data:d})=>setTimeout(()=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)}),${mock.delay});`
           : mock.fail ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,error:"Simulated network failure"});'
           : 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)});';
@@ -295,7 +295,7 @@ try {
   });
   await check('human Pass in the browser still lets the trained opponent claim Chii',async()=>{
     const page=await open(sharedCallSave,{mock:{sharedCall:true}});await page.click('[data-choice=pass]');
-    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.some(c=>c.type==='opponent'&&c.action===73),{},SAVE_KEY);
+    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.some(c=>c.type==='opponent'&&c.action===38),{},SAVE_KEY);
     const snapshot=await saved(page);assert.ok(snapshot.commands.some(c=>c.type==='choose'&&c.kind==='pass'));
     const south=JSON.parse(snapshot.state)[0].seats.find(s=>s.seat==='south');
     assert.ok(south.melds.some(m=>m.kind==='chii'&&m.claimed_tile==='2m'));noErrors(page);
