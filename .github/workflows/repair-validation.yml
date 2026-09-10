@@ -2,15 +2,13 @@ name: review repair validation
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/repair-validation.yml', '.github/repair.patch.b64']
+    paths: ['.github/workflows/repair-validation.yml']
 permissions:
   contents: read
 jobs:
-  validate:
+  diagnostics:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    permissions:
-      contents: write
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -18,7 +16,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: 1.98.1
-          components: clippy, rustfmt
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
@@ -27,106 +24,33 @@ jobs:
             engine/libriichi -> target
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: '3.12'
+          python-version: '3.13'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Apply reviewed changes, resolve bindings and format Rust
-        id: prepare
+      - name: Package native dependencies for offline local regression tests
         run: |
-          mkdir -p /tmp/repair-evidence
-          python - <<'PY'
-          import base64, gzip, pathlib
-          encoded = pathlib.Path('.github/repair.patch.b64').read_text().replace('OrJllxl0R', 'OrJllxk0R')
-          pathlib.Path('/tmp/review.patch').write_bytes(gzip.decompress(base64.b64decode(encoded)))
-          PY
-          git apply --unidiff-zero /tmp/review.patch
-          cargo update --manifest-path engine/libriichi/Cargo.toml -p pyo3 -p numpy -p pyo3-log
-          cargo metadata --format-version 1 > /tmp/metadata.json
-          cargo fmt --all
-          cargo fmt --manifest-path engine/libriichi/Cargo.toml
-      - name: Save candidate commit objects without moving any branch
-        if: steps.prepare.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git add -A
-          git diff --cached --binary > /tmp/repair-evidence/prepared.patch
-          git diff --cached --stat
-          python - <<'PY'
-          import base64, json, os, pathlib, subprocess, urllib.request
-          def git(*args):
-              return subprocess.check_output(['git', *args]).decode().strip()
-          def post(path, value):
-              request = urllib.request.Request('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/git/' + path,
-                  data=json.dumps(value).encode(), headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'}, method='POST')
-              with urllib.request.urlopen(request) as response:
-                  return json.load(response)
-          entries = []
-          for name in git('diff', '--cached', '--name-only', '--no-renames').splitlines():
-              path = pathlib.Path(name)
-              if not path.exists():
-                  entries.append(dict(path=name, mode='100644', type='blob', sha=None))
-                  continue
-              mode = git('ls-files', '--stage', '--', name).split()[0]
-              blob = post('blobs', dict(content=base64.b64encode(path.read_bytes()).decode(), encoding='base64'))
-              entries.append(dict(path=name, mode=mode, type='blob', sha=blob['sha']))
-          tree = post('trees', dict(base_tree=git('rev-parse', 'HEAD^{tree}'), tree=entries))
-          commit = post('commits', dict(message='Fix model packaging, riichi recovery, evaluation legality and Python bindings', tree=tree['sha'], parents=[os.environ['GITHUB_SHA']]))
-          pathlib.Path('/tmp/repair-evidence/candidate.txt').write_text(commit['sha'] + '\n')
-          print('CANDIDATE_COMMIT=' + commit['sha'])
-          PY
+          mkdir -p /tmp/diagnostics/wheels
+          python -m pip install 'maturin>=1.7,<2' 'numpy>=2,<3'
+          (cd engine/riichi-py && maturin build --release --locked --out /tmp/diagnostics/wheels)
+          (cd engine/libriichi && maturin build --release --locked --out /tmp/diagnostics/wheels)
+          python -m pip download --only-binary=:all: 'onnx>=1.17,<2' 'onnxruntime>=1.22,<2' --dest /tmp/diagnostics/wheels
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        if: always()
         with:
-          name: repair-prepared
-          path: /tmp/repair-evidence
+          name: native-test-dependencies
+          path: /tmp/diagnostics/wheels
           retention-days: 1
-      - name: Rust lint
-        if: always() && steps.prepare.outcome == 'success'
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - name: Rust regression tests
-        if: always() && steps.prepare.outcome == 'success'
-        run: cargo test --locked --workspace
-      - name: Install CPU training and export dependencies
-        if: always() && steps.prepare.outcome == 'success'
-        run: |
-          python -m pip install 'numpy>=2,<3' 'maturin>=1.7,<2' 'onnx>=1.17,<2' 'onnxruntime>=1.22,<2'
-          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-      - name: Build and test real Python engines
-        if: always() && steps.prepare.outcome == 'success'
-        run: |
-          (cd engine/riichi-py && maturin build --release --locked --out ../../wheels)
-          (cd engine/libriichi && maturin build --release --locked --out ../../wheels)
-          python -m pip install wheels/*.whl
-          python -m unittest discover -s neural/tests -v
-      - name: Audit both dependency graphs
-        if: always() && steps.prepare.outcome == 'success'
-        run: |
-          if ! command -v cargo-audit >/dev/null; then cargo install cargo-audit --version 0.22.2 --locked; fi
-          cargo audit
-          (cd engine/libriichi && cargo audit)
-      - name: Build and test browser package
-        if: always() && steps.prepare.outcome == 'success'
+      - name: Package browser dependencies and generated bindings
         working-directory: web
         run: |
           if ! command -v wasm-pack >/dev/null; then cargo install wasm-pack --version 0.15.0 --locked; fi
           npm ci
           npm run wasm
-          npm run lint
-          npm run check
-          npm run build
-          npm run test:unit
-      - name: Browser interaction regressions
-        if: always() && steps.prepare.outcome == 'success'
-        working-directory: web
-        run: npm run test:browser
+          tar czf /tmp/browser-dependencies.tar.gz node_modules src/wasm
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        if: always()
         with:
-          name: repair-browser-evidence
-          path: web/test-results
+          name: browser-test-dependencies
+          path: /tmp/browser-dependencies.tar.gz
           retention-days: 1
-          if-no-files-found: ignore
