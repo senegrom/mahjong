@@ -9,6 +9,17 @@ export const controller = agent => isTrained(agent) ? 'neural' : agent;
  * tile it discards, from a position that already knows about it. */
 const MORTAL_REACH = 37;
 
+/** Model availability is not encoder availability. Position-only engines
+ * cannot reproduce the complete history required by the trained policy. */
+export function supportsTrainedAgent(engine) {
+  return ['agent_observation_mortal', 'agent_mask_mortal',
+    'agent_observation_after_reach', 'agent_mask_after_reach',
+    'agent_action_from_mortal', 'mortal_action_of']
+    .every(name => typeof engine?.[name] === 'function');
+}
+export const TRAINED_HISTORY_REQUIRED = 'Trained advice requires a complete in-app game history. '
+  + 'For manually entered tables, choose Beginner or Club. Trained play remains available in Play, Watch and hand review.';
+
 /** Weights over Mortal's moves, read against our own choices. Every riichi
  * discard is the one reach, so they all show the weight it was given. */
 function weightsByChoice(engine, choices, weights) {
@@ -26,8 +37,8 @@ export async function evaluateAgent(engine, agent, signal) {
     // The network reads Mortal's planes, which are built from everything
     // that has happened. A table reconstructed from a position alone has no
     // history to build them from, so it cannot be asked.
-    if (typeof engine.agent_observation_mortal !== 'function') {
-      throw new Error('The trained network needs a game in progress, not a position on its own');
+    if (!supportsTrainedAgent(engine)) {
+      throw new Error(TRAINED_HISTORY_REQUIRED);
     }
     let { action, weights } = await analyzePolicy(
       engine.agent_observation_mortal(), engine.agent_mask_mortal(), signal, agent,
