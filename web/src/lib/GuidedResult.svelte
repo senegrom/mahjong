@@ -17,8 +17,9 @@
    * @property {boolean[]} tenpai
    */
 
-  let { state, onsettle, onnext } = $props();
-  let ending = $derived(state.ending);
+  // Keep the public `state` prop without shadowing Svelte's $state rune.
+  let { state: gameState, onsettle, onnext } = $props();
+  let ending = $derived(gameState.ending);
   let p = $derived(ending.position);
   let selected = $state(untrack(() => WINDS.map((_, i) => ending.winners.includes(i))));
   let tenpai = $state(untrack(() => p.players.map(player => player.riichi !== 'none')));
@@ -39,7 +40,7 @@
     tenpai: draw ? tenpai : [false, false, false, false],
   });
   let inputKey = $derived(JSON.stringify(input));
-  let result = $derived(state.settlement ?? preview);
+  let result = $derived(gameState.settlement ?? preview);
   $effect(() => { inputKey; preview = null; failure = ''; });
   function calculate() {
     try { preview = settle_physical(JSON.parse(JSON.stringify(ending)), JSON.parse(inputKey)); failure = ''; }
@@ -50,7 +51,7 @@
 </script>
 
 <section class="guided-result" aria-label="Guided hand settlement">
-  {#if !state.settlement}
+  {#if !gameState.settlement}
     <h4>{draw ? 'Confirm revealed tenpai hands' : 'Confirm the winning hand'} </h4>
     <p>The Rust rules engine calculates yaku, han, fu and payments. Enter only tiles revealed at the table; called sets are already recorded.</p>
     {#if ending.kind === 'ron'}
@@ -88,7 +89,7 @@
   {/if}
 
   {#if result}
-    <h4>{state.settlement ? 'Points applied' : 'Settlement preview'}</h4>
+    <h4>{gameState.settlement ? 'Points applied' : 'Settlement preview'}</h4>
     {#each result.winners as winner (winner.seat)}
       <article aria-label={`${WINDS[winner.seat]} scored hand`}>
         <h4>{WINDS[winner.seat]} · {winner.limit ?? `${winner.han} han · ${winner.fu} fu`}</h4>
@@ -104,13 +105,13 @@
       </article>
     {/each}
     {#if draw}<p>Tenpai: {result.tenpai.length ? result.tenpai.map(i => WINDS[i]).join(', ') : 'none'}.</p>{/if}
-    <div class="ledger"><table aria-label="Guided score changes"><thead><tr><th>Seat</th><th>Settlement</th>{#if state.opening}<th>Whole hand</th>{/if}<th>New score</th></tr></thead><tbody>
-      {#each WINDS as wind, i (wind)}<tr><th>{wind}</th><td>{signed(result.deltas[i])}</td>{#if state.opening}<td>{signed(result.after[i] - state.opening[i])}</td>{/if}<td>{result.after[i].toLocaleString()}</td></tr>{/each}
+    <div class="ledger"><table aria-label="Guided score changes"><thead><tr><th>Seat</th><th>Settlement</th>{#if gameState.opening}<th>Whole hand</th>{/if}<th>New score</th></tr></thead><tbody>
+      {#each WINDS as wind, i (wind)}<tr><th>{wind}</th><td>{signed(result.deltas[i])}</td>{#if gameState.opening}<td>{signed(result.after[i] - gameState.opening[i])}</td>{/if}<td>{result.after[i].toLocaleString()}</td></tr>{/each}
     </tbody></table></div>
     <p>Settlement includes honba and the riichi pot. Riichi bets were deducted when declared; whole-hand changes include those earlier deductions.</p>
     <p>Riichi sticks: {result.sticks_before} → {result.sticks_after}. Dealer {result.repeat ? 'repeats' : 'moves'}; next hand has {result.next_counters} honba.</p>
     {#if result.refunded_riichi != null}<p>{WINDS[result.refunded_riichi]}’s 1,000-point declaration bet is refunded because the declaration discard was won on.</p>{/if}
-    {#if state.settlement}<button class="primary" onclick={() => onnext(result.repeat)}>Next hand · dealer {result.repeat ? 'repeats' : 'moves'}</button>
+    {#if gameState.settlement}<button class="primary" onclick={() => onnext(result.repeat)}>Next hand · dealer {result.repeat ? 'repeats' : 'moves'}</button>
     {:else}<button class="primary" onclick={() => onsettle(JSON.parse(inputKey))}>Apply settlement</button>{/if}
   {/if}
 </section>
