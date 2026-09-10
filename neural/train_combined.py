@@ -46,6 +46,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--entropy", type=float, default=0.0005)
     parser.add_argument("--value-weight", type=float, default=0.5)
     parser.add_argument(
+        "--leash",
+        type=float,
+        default=0.0,
+        help="what a nat of distance from the policy the run started with "
+        "costs. PPO's clip holds one step near the last; this holds the "
+        "run near its beginning, which is what stopped a good policy "
+        "drifting away over twenty generations",
+    )
+    parser.add_argument(
         "--fixed",
         nargs="*",
         default=list(combined.Combined.MODES),
@@ -92,6 +101,21 @@ def main() -> None:
         print(f"joined {args.ours} and {args.mortal}", flush=True)
     else:
         raise SystemExit("give --ours and --mortal to start, or --resume")
+
+    # The policy the run began with, kept beside the checkpoints so every
+    # block of it leashes to the same place. Written once, on the first
+    # block; a later block reads it rather than making a new one, or the
+    # leash would only ever hold the run to where it last stopped.
+    reference = None
+    if args.leash > 0:
+        kept = args.out / "reference.pt"
+        if not kept.exists():
+            torch.save(net.state(), kept)
+            print(f"kept the starting policy at {kept}", flush=True)
+        reference, _reference_state = combined.load(kept, device)
+        reference.eval()
+        reference.requires_grad_(False)
+        print(f"leashed to {kept} at {args.leash} a nat", flush=True)
 
     # One optimiser over everything, in three groups; a group whose
     # parameters are fixed this generation gets no gradients and is left
@@ -206,6 +230,7 @@ def main() -> None:
         zero = lambda: torch.zeros((), device=device)
         total_policy, total_value, total_entropy = zero(), zero(), zero()
         total_clipped, total_kl, total_grad = zero(), zero(), zero()
+        total_leash = zero()
         steps = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(batch.decisions)
@@ -243,6 +268,29 @@ def main() -> None:
                 value_loss = nn.functional.mse_loss(value, returns[picks])
                 entropy = distribution.entropy().mean()
                 loss = policy_loss + args.value_weight * value_loss - args.entropy * entropy
+                # How far this has come from the policy the run began with,
+                # counted the way that punishes abandoning a move the
+                # starting policy liked, which is the drift that cost us.
+                leash = torch.zeros((), device=device)
+                if reference is not None:
+                    with torch.no_grad(), torch.autocast(
+                        "cuda", dtype=torch.bfloat16, enabled=amp_enabled
+                    ):
+                        before, _before_value, _before_hands = reference.everything(
+                            planes, legal[picks]
+                        )
+                    allowed = legal[picks]
+                    before = torch.log_softmax(before.float(), dim=1)
+                    now = torch.log_softmax(logits, dim=1)
+                    # A move outside the mask holds minus infinity in both,
+                    # and one infinity less another is not a number, so it
+                    # is taken out by value; a zero weight does not cancel
+                    # it, it only spreads the NaN.
+                    weight = torch.where(allowed, before.exp(), torch.zeros_like(before))
+                    before = torch.where(allowed, before, torch.zeros_like(before))
+                    now = torch.where(allowed, now, torch.zeros_like(now))
+                    leash = (weight * (before - now)).sum(dim=1).mean()
+                    loss = loss + args.leash * leash
                 loss.backward()
                 grad_norm = nn.utils.clip_grad_norm_(
                     [p for p in net.parameters() if p.requires_grad], 1.0
@@ -255,6 +303,7 @@ def main() -> None:
                     total_clipped += (ratio != clipped).float().mean()
                     total_kl += (old_log_probs[picks] - log_prob).mean()
                     total_grad += grad_norm
+                    total_leash += leash
                 steps += 1
 
         # What the head is leaning on, on the last minibatch: how far it
@@ -292,6 +341,7 @@ def main() -> None:
             "return_variance": round(float(returns.var()), 4),
             "advantage_spread": round(advantage_spread, 4),
             "entropy": round(float(total_entropy / denom), 4),
+            "leash_kl": round(float(total_leash / denom), 5),
             "clipped": round(float(total_clipped / denom), 3),
             "approx_kl": round(float(total_kl / denom), 5),
             "grad_norm": round(float(total_grad / denom), 3),

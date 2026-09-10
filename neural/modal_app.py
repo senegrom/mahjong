@@ -95,7 +95,7 @@ def _publish(run: Path, generation: int, target_run: str) -> None:
     # `log.jsonl` is the record the loop writes itself, one line a
     # generation. `train.log` is only what the desktop's shell redirect
     # captured, and nothing on this side appends to it.
-    for name in ("latest.pt", "best.pt", "log.jsonl"):
+    for name in ("latest.pt", "best.pt", "log.jsonl", "reference.pt"):
         source = run / name
         if not source.exists():
             continue
@@ -506,6 +506,7 @@ def train_combined(
     lr_ours: float = 4e-5,
     lr_mortal: float = 3e-5,
     entropy: float = 0.0005,
+    leash: float = 0.0,
     fixed: list[str] | None = None,
     measure_every: int = 5,
     measure_games: int = 512,
@@ -534,7 +535,7 @@ def train_combined(
         "--rounds", str(generations), "--generations", "1000000",
         "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
         "--lr", str(lr), "--lr-ours", str(lr_ours), "--lr-mortal", str(lr_mortal),
-        "--entropy", str(entropy),
+        "--entropy", str(entropy), "--leash", str(leash),
         "--measure-every", str(measure_every), "--measure-games", str(measure_games),
         "--amp", "--out", str(where),
     ]
@@ -552,6 +553,11 @@ def train_combined(
             shutil.copyfile(history, where / "log.jsonl")
         else:
             (where / "log.jsonl").unlink(missing_ok=True)
+        # The policy this run began with, so a later block is held to the
+        # same starting point and not to wherever the last block stopped.
+        began = VOLUME / run / "reference.pt"
+        if began.exists():
+            shutil.copyfile(began, where / "reference.pt")
         command += ["--resume", str(where / "latest.pt")]
         print(f"resuming from {source}", flush=True)
     else:

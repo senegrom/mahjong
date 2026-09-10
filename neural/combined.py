@@ -64,10 +64,21 @@ class Fuse(nn.Module):
         self.correction = nn.Sequential(
             nn.Linear(4 * ACTIONS, 256), nn.ReLU(), nn.Linear(256, ACTIONS)
         )
+        # F1 starts silent, not absent: its last layers are zero, so it
+        # adds nothing to the first move played, while its weight below is
+        # small and not zero, so a gradient reaches F2 from the first step.
+        # Born the other way round, a live layer under a zero weight, it
+        # can never learn: the zero weight passes nothing back, and a
+        # random layer under a rising weight is only noise, which is why
+        # the weight on it sat at 0.0003 for twenty generations.
+        nn.init.zeros_(self.own_tiles.weight)
+        nn.init.zeros_(self.own_tiles.bias)
+        nn.init.zeros_(self.own_pooled[-1].weight)
+        nn.init.zeros_(self.own_pooled[-1].bias)
         with torch.no_grad():
             # Mortal alone, with our own logits only loud enough to order
             # what its values leave tied.
-            self.weights[0].fill_(0.0)
+            self.weights[0].fill_(0.05)
             self.weights[1].fill_(1.0)
             self.weights[2].fill_(0.02)
         nn.init.zeros_(self.correction[-1].weight)
