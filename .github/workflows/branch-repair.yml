@@ -1,0 +1,237 @@
+name: prepare browser contract repairs
+on:
+  push:
+    branches: [fix/review-repairs-20260910]
+    paths: ['.github/workflows/branch-repair.yml']
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.repository == 'senegrom/mahjong' && github.ref == 'refs/heads/fix/review-repairs-20260910'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Apply reviewed browser contract changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root = Path('web/scripts')
+          for name in ('offline-check.mjs', 'mixed-opponents-check.mjs', 'adviser-review-check.mjs'):
+              p = root / name
+              s = p.read_text()
+              needle = "import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';"
+              assert s.count(needle) == 1
+              s = s.replace(needle, needle + "\nimport { MODEL_FILES } from '../src/lib/model-package.js';")
+              if name == 'offline-check.mjs':
+                  s = s.replace("const modelPath = 'model.onnx',", 'const modelPath = MODEL_FILES.full,')
+              elif name == 'mixed-opponents-check.mjs':
+                  s = s.replace("req.url==='/mahjong/model.onnx'", 'req.url===`/mahjong/${MODEL_FILES.full}`')
+                  s = s.replace("req.url().endsWith('/model.onnx')", 'req.url().endsWith(`/${MODEL_FILES.full}`)')
+                  s = s.replace('d.mask[69]?69:d.mask[68]?68:d.mask[70]?70:', 'd.mask[43]?43:d.mask[45]?45:')
+              else:
+                  s = s.replace('actual production UI and Strong worker.', 'actual production UI and trained worker.')
+                  s = s.replace("const strongShipped = existsSync(resolve(dist, 'model-strong.onnx'));", 'const trainedShipped = existsSync(resolve(dist, MODEL_FILES.full));')
+                  s = s.replace('let snapshot, notes, first, choices;', 'let snapshot, notes, first, choices, translations, reachTranslations;')
+                  s = s.replace('match.engine.review_observation(0)', 'match.engine.review_observation_mortal(0)')
+                  s = s.replace('match.engine.review_mask(0)', 'match.engine.review_mask_mortal(0)')
+                  needle = '  choices = notes.map((_, index) => match.engine.review_choices(index));'
+                  assert s.count(needle) == 1
+                  s = s.replace(needle, needle + '''
+            translations = notes.map((_, index) => Array.from({ length: 46 }, (_, action) =>
+              match.engine.review_action_from_mortal(index, action, false)));
+            reachTranslations = notes.map((_, index) => Array.from({ length: 34 }, (_, action) =>
+              match.engine.review_action_from_mortal(index, action, true)));''')
+                  s = s.replace("  assert.equal(inference.length, notes.length, 'one real Strong answer per historical decision');", '  let cursor = 0;')
+                  needle = '    const answer = inference[index], preferred = choices[index].find(c => c.index === answer.action);'
+                  assert s.count(needle) == 1
+                  s = s.replace(needle, '''    const answer = inference[cursor++];
+              assert.ok(answer, 'each historical decision needs a real trained answer');
+              const afterReach = answer.action === 37;
+              const action = afterReach ? inference[cursor++]?.action : answer.action;
+              assert.ok(Number.isInteger(action), 'a reach must also answer which tile is discarded');
+              const chosen = (afterReach ? reachTranslations : translations)[index][action];
+              const preferred = choices[index].find(c => c.index === chosen);''')
+                  s = s.replace("  assert.equal(await page.$('.review .numbers'), null);", "  assert.equal(cursor, inference.length, 'no extra or missing review answers');\n  assert.equal(await page.$('.review .numbers'), null);")
+                  s = s.replace('  assert.equal(requests.length, notes.length);', '  assert.equal(requests.length, cursor);')
+                  s = s.replace("request.url.endsWith('/model-strong.onnx')", 'request.url.endsWith(`/${MODEL_FILES.full}`)')
+                  s = s.replace('if (strongShipped)', 'if (trainedShipped)')
+                  s = s.replace("trainedModel: 'quick'", "trainedModel: 'full'")
+                  s = s.replace("assert.equal(preferences.reviewAdviser, 'strong'); assert.equal(preferences.trainedModel, 'quick');", "assert.equal(preferences.reviewAdviser, 'strong'); assert.equal(preferences.difficulty, 'club');\n      assert.equal(Object.hasOwn(preferences, 'trainedModel'), false, 'retired network preferences are no longer persisted');")
+                  s = s.replace('Club and Strong review:', 'Club and Trained AI review:')
+              p.write_text(s)
+          p = root / 'review-check.mjs'
+          s = p.read_text().replace("import puppeteer from 'puppeteer-core';", "import puppeteer from 'puppeteer-core';\nimport { MODEL_FILES } from '../src/lib/model-package.js';")
+          a = s.index('  // The trained model is optional by design:')
+          b = s.index('  console.log(`page errors:', a)
+          s = s[:a] + '''  // Only configured model availability probes may be absent. Never exempt
+            // a retired model filename or a missing application/runtime asset.
+            const unexpected = missing.filter(url => !Object.values(MODEL_FILES).some(file => url.endsWith(`/${file}`)));
+          ''' + s[b:]
+          p.write_text(s)
+          p = root / 'guided-game-check.mjs'
+          s = p.read_text().replace('real Strong percentages', 'real trained percentages').replace('option[value="strong"]', 'option[value="full"]')
+          s = s.replace("'[aria-label=\"Guided game adviser\"]', 'strong'", "'[aria-label=\"Guided game adviser\"]', 'full'")
+          s = s.replace("textContent.includes('Strong')", "textContent.includes('Trained')").replace("el => el.value), 'strong'", "el => el.value), 'full'")
+          p.write_text(s)
+          PY
+          cat > web/scripts/two-models-check.mjs <<'JS'
+          /** The shipped trained network, including preferences saved by older builds.
+           * Model requests must use the shared inventory, never retired model filenames.
+           * Exercise real inference and replay; a missing network cannot silently pass.
+           */
+          import assert from 'node:assert/strict';
+          import { createServer } from 'node:http';
+          import { existsSync, readFileSync } from 'node:fs';
+          import { resolve } from 'node:path';
+          import { fileURLToPath } from 'node:url';
+          import puppeteer from 'puppeteer-core';
+          import { createFixtureHandler } from './static-fixture-server.mjs';
+          import init, { Game } from '../src/wasm/riichi.js';
+          import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
+          import { MODEL_FILES } from '../src/lib/model-package.js';
+          
+          await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
+          const match = new MatchSession(Game, 81, 'neural');
+          let initial;
+          try { match.advance(false); initial = match.snapshot(); } finally { match.dispose(); }
+          const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist');
+          for (const file of Object.values(MODEL_FILES)) assert.ok(existsSync(resolve(dist, file)), `Missing trained network ${file}`);
+          const handler = createFixtureHandler({ root: dist, publicRoot: dist });
+          const downloads = [];
+          const server = createServer((request, response) => {
+            const name = new URL(request.url, 'http://localhost').pathname.split('/').pop();
+            if (request.method === 'GET' && name.endsWith('.onnx')) downloads.push(name);
+            void handler(request, response);
+          });
+          const results = [];
+          const wait = ms => new Promise(done => setTimeout(done, ms));
+          let browser;
+          
+          async function check(name, body) {
+            try { await body(); results.push(true); console.log('PASS ' + name); }
+            catch (error) { results.push(false); console.error('FAIL ' + name + '\n' + error.stack); }
+          }
+          
+          async function open(context, base, storedModel) {
+            const page = await context.newPage();
+            page.errors = [];
+            page.on('pageerror', error => page.errors.push(error.message));
+            await page.setViewport({ width: 1100, height: 900 });
+            await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+            await page.evaluateOnNewDocument((saveKey, settingsKey, snapshot, trainedModel) => {
+              if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(snapshot));
+              localStorage.setItem(settingsKey, JSON.stringify({ version: 1, difficulty: 'neural', trainedModel, confirmDiscards: false }));
+            }, SAVE_KEY, SETTINGS_KEY, initial, storedModel);
+            await page.goto(`${base}?opponents=neural`, { waitUntil: 'networkidle0' });
+            await page.waitForSelector('.hand');
+            await page.waitForFunction(() => {
+              const option = document.querySelector('select[aria-label="opponent strength"] option[value="neural"]');
+              return option && !option.disabled;
+            });
+            return page;
+          }
+          
+          async function play(page, moves) {
+            for (let move = 0; move < moves; move++) {
+              await page.waitForFunction(() => document.querySelector('.failure, .screen, .standings, .hand button.tile:not(:disabled), .call-options button:not(:disabled)'), { timeout: 45000 });
+              assert.equal(await page.$('.failure'), null, 'The actual trained worker must answer');
+              const acted = await page.evaluate(() => {
+                const next = document.querySelector('.screen .primary:not([disabled])');
+                if (next) { next.click(); return true; }
+                const call = document.querySelector('.call-options button[data-choice="ron"], .call-options button[data-choice="tsumo"], .call-options button[data-choice="pass"]');
+                if (call) { call.click(); return true; }
+                const tile = document.querySelector('.hand button.tile:not([disabled])');
+                if (tile) { tile.click(); return true; }
+                return false;
+              });
+              if (!acted) break;
+              await wait(200);
+            }
+            await page.waitForFunction(() => document.querySelector('.failure, .screen, .standings, .hand button.tile:not(:disabled), .call-options button:not(:disabled)'), { timeout: 45000 });
+            assert.equal(await page.$('.failure'), null);
+          }
+          
+          try {
+            await new Promise(done => server.listen(0, '127.0.0.1', done));
+            const base = `http://127.0.0.1:${server.address().port}/mahjong/`;
+            const chrome = process.env.CHROME_BIN
+              || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
+            assert.ok(chrome, 'Set CHROME_BIN to a Chromium/Chrome executable');
+            browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+          
+            // Old preference IDs are migration inputs, not additional shipped networks.
+            for (const storedModel of ['full', 'quick', 'strong']) {
+              await check(`${storedModel} preference uses only the shipped trained network and preserves replay`, async () => {
+                const context = await browser.createBrowserContext(), before = downloads.length;
+                try {
+                  const page = await open(context, base, storedModel);
+                  assert.equal(await page.$('select[aria-label="Trained opponent"]'), null,
+                    'One shipped network must not offer the retired network selector');
+                  await play(page, 12);
+                  const fetched = downloads.slice(before);
+                  assert.ok(fetched.includes(MODEL_FILES.full), 'The actual trained network was never fetched');
+                  assert.ok(fetched.every(name => Object.values(MODEL_FILES).includes(name)), 'A retired or unknown network was fetched');
+                  assert.deepEqual(page.errors, []);
+                  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
+                  assert.ok(saved.commands.filter(command => command.type === 'opponent').length >= 2,
+                    'The trained worker must complete real decisions, not only download');
+                  const restored = MatchSession.restore(Game, JSON.stringify(saved));
+                  try { assert.equal(restored.stateKey(), saved.state); } finally { restored.dispose(); }
+                } finally { await context.close(); }
+              });
+            }
+          } finally {
+            await browser?.close();
+            if (server.listening) await new Promise(done => server.close(done));
+          }
+          console.log(`${results.filter(Boolean).length}/${results.length} trained-model browser checks passed`);
+          if (results.some(passed => !passed)) process.exitCode = 1;
+          JS
+          python - <<'PY'
+          import subprocess
+          hashes = {
+              'adviser-review-check.mjs': '02ec9b038ef6b8218f2fcb7e7675694b1eb2e65d',
+              'guided-game-check.mjs': '0e19e981d7abd07a5695839bf875375ebd88740b',
+              'mixed-opponents-check.mjs': '613751989ffc220637b040b98b1221e11e660206',
+              'offline-check.mjs': '0546536c0a5eedc0533db1cd097c316b3c6c618f',
+              'review-check.mjs': 'a1246fcce346897178656279bdc1c75951e48c46',
+              'two-models-check.mjs': 'be7b636cdaed15a178001e39f7652ad56b2d6fda',
+          }
+          for name, expected in hashes.items():
+              path = 'web/scripts/' + name
+              actual = subprocess.check_output(['git', 'hash-object', path], text=True).strip()
+              assert actual == expected, (name, actual, expected)
+              subprocess.run(['node', '--check', path], check=True)
+          PY
+          git diff --check
+      - name: Create candidate commit objects without moving any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess, urllib.request
+          assert os.environ['GITHUB_REPOSITORY'] == 'senegrom/mahjong'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/fix/review-repairs-20260910'
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert git('rev-parse', 'HEAD') == os.environ['GITHUB_SHA']
+          names = git('diff', '--name-only').splitlines()
+          assert len(names) == 6 and all(n.startswith('web/scripts/') and n.endswith('.mjs') for n in names)
+          entries = [dict(path=n, mode='100644', type='blob', content=pathlib.Path(n).read_text()) for n in names]
+          entries.append(dict(path='.github/workflows/branch-repair.yml', mode='100644', type='blob', sha=None))
+          def post(kind, payload):
+              request = urllib.request.Request('https://api.github.com/repos/senegrom/mahjong/git/' + kind,
+                  data=json.dumps(payload).encode(), headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'}, method='POST')
+              with urllib.request.urlopen(request) as response:
+                  return json.load(response)
+          tree = post('trees', dict(base_tree=git('rev-parse', 'HEAD^{tree}'), tree=entries))
+          commit = post('commits', dict(message='Align browser regressions with the shipped trained model and two-stage riichi', tree=tree['sha'], parents=[os.environ['GITHUB_SHA']]))
+          print('REVIEW_CANDIDATE=' + commit['sha'])
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('Candidate commit (no branch moved): `' + commit['sha'] + '`\n')
+          PY
