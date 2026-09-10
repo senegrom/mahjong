@@ -2094,14 +2094,16 @@ mod tests {
 
             // South supplies the third dragon; West later supplies an
             // unrelated wind pon and, in the ron case, the winning tile.
-            for (from, offered, discarded) in [(Wind::South, "7z", "1p"), (Wind::West, "4z", "8m")] {
+            for (from, offered, discarded) in [(Wind::South, "7z", "1p"), (Wind::West, "4z", "8m")]
+            {
                 hand.players[from.index()].hand = offered.parse().unwrap();
                 hand.turn = from;
                 hand.phase = Phase::Act;
                 hand.drawn = None;
                 hand.discard(offered.parse().unwrap(), false);
                 hand.resolve_calls(&[(Wind::East, Call::Pon)]).unwrap();
-                hand.act(Action::Discard(discarded.parse().unwrap())).unwrap();
+                hand.act(Action::Discard(discarded.parse().unwrap()))
+                    .unwrap();
             }
             assert_eq!(hand.players[0].liable_for_dragons, Some(Wind::South));
 
