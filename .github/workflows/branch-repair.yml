@@ -1,0 +1,178 @@
+name: prepare reviewed branch repairs
+on:
+  push:
+    branches: [fix/review-repairs-20260910]
+    paths: ['.github/workflows/branch-repair.yml']
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.repository == 'senegrom/mahjong' && github.ref == 'refs/heads/fix/review-repairs-20260910'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: rustfmt
+      - name: Apply and format the locally tested repairs
+        run: |
+          cat > /tmp/review-repairs.patch <<'PATCH'
+          diff --git a/engine/riichi-wasm/src/lib.rs b/engine/riichi-wasm/src/lib.rs
+          index addd862..4a24b6c 100644
+          --- a/engine/riichi-wasm/src/lib.rs
+          +++ b/engine/riichi-wasm/src/lib.rs
+          @@ -420,9 +420,8 @@ impl Game {
+                   encoding::legal_mask(&self.hand, seat, &mut ours);
+                   let mut theirs = vec![false; MORTAL_ACTIONS];
+                   if after_reach {
+          -            for tile in 0..34 {
+          -                theirs[tile] = ours[encoding::RIICHI_DISCARD + tile];
+          -            }
+          +            theirs[..34]
+          +                .copy_from_slice(&ours[encoding::RIICHI_DISCARD..encoding::RIICHI_DISCARD + 34]);
+                       return theirs;
+                   }
+                   for (action, allowed) in theirs.iter_mut().enumerate() {
+          diff --git a/neural/export.py b/neural/export.py
+          index 6a7eaf9..3a19172 100644
+          --- a/neural/export.py
+          +++ b/neural/export.py
+          @@ -70,6 +70,10 @@ def quantise(source: Path, destination: Path) -> None:
+           
+               quantize_dynamic(
+                   str(source), str(destination), weight_type=QuantType.QInt8,
+          +        # U8S8 kernels on AVX2/non-VNNI AVX512 saturate pairwise products
+          +        # to int16. Seven-bit weights keep 2 * 255 * 64 within that range.
+          +        # Keep the same browser operators and the strict check_runs guard.
+          +        reduce_range=True,
+                   extra_options={"DefaultTensorType": onnx.TensorProto.FLOAT},
+               )
+               model = onnx.load(str(destination))
+          diff --git a/neural/tests/test_quantization.py b/neural/tests/test_quantization.py
+          new file mode 100644
+          index 0000000..8d38ef7
+          --- /dev/null
+          +++ b/neural/tests/test_quantization.py
+          @@ -0,0 +1,50 @@
+          +"""Quantised exports must remain accurate on non-VNNI x86 as well as Arm."""
+          +
+          +import tempfile
+          +import unittest
+          +from pathlib import Path
+          +
+          +import numpy as np
+          +import onnx
+          +import onnxruntime
+          +from onnx import TensorProto, helper, numpy_helper
+          +
+          +from neural.export import quantise
+          +
+          +
+          +class QuantizationTests(unittest.TestCase):
+          +    def test_dense_weights_cannot_saturate_pairwise_int16_products(self):
+          +        # Full-range U8S8 weights produce 2 * 255 * 127 per pair here,
+          +        # exceeding int16 on AVX2/non-VNNI AVX512. Check the stored weights
+          +        # and emulate that accumulator so this regression also runs on VNNI.
+          +        weights = np.tile(np.array([[1., -1.]], dtype=np.float32), (8, 1))
+          +        graph = helper.make_graph(
+          +            [helper.make_node('MatMul', ['planes', 'weights'], ['value'])],
+          +            'saturation-regression',
+          +            [helper.make_tensor_value_info('planes', TensorProto.FLOAT, ['batch', 8])],
+          +            [helper.make_tensor_value_info('value', TensorProto.FLOAT, ['batch', 2])],
+          +            [numpy_helper.from_array(weights, name='weights')],
+          +        )
+          +        model = helper.make_model(graph, opset_imports=[helper.make_opsetid('', 17)], ir_version=8)
+          +        with tempfile.TemporaryDirectory() as root:
+          +            source, destination = Path(root) / 'float.onnx', Path(root) / 'int8.onnx'
+          +            onnx.save(model, source)
+          +            quantise(source, destination)
+          +            made = onnx.load(destination)
+          +            onnx.checker.check_model(made)
+          +            initializers = {value.name: numpy_helper.to_array(value) for value in made.graph.initializer}
+          +            node = next(node for node in made.graph.node if node.op_type == 'MatMulInteger')
+          +            quantized = initializers[node.input[1]].astype(np.int32)
+          +            self.assertLessEqual(int(np.abs(quantized).max()), 64)
+          +            products = 255 * quantized
+          +            pairs = products.reshape(4, 2, 2).sum(axis=1)
+          +            np.testing.assert_array_equal(np.clip(pairs, -32768, 32767).sum(axis=0),
+          +                                          products.sum(axis=0))
+          +            session = onnxruntime.InferenceSession(str(destination), providers=['CPUExecutionProvider'])
+          +            values = np.array([[1.] * 8, [0., .25, .5, .75, 1., .75, .5, .25]], dtype=np.float32)
+          +            result, = session.run(['value'], {'planes': values})
+          +            np.testing.assert_allclose(result, values @ weights, rtol=.01, atol=.01)
+          +
+          +
+          +if __name__ == '__main__':
+          +    unittest.main()
+          diff --git a/web/tests/policy-client.test.js b/web/tests/policy-client.test.js
+          index c0d2fe4..ad5c6ce 100644
+          --- a/web/tests/policy-client.test.js
+          +++ b/web/tests/policy-client.test.js
+          @@ -4,10 +4,12 @@ import { readFile } from 'node:fs/promises';
+           import vm from 'node:vm';
+           import { setImmediate } from 'node:timers/promises';
+           import { MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
+          +import { MODEL_FILES } from '../src/lib/model-package.js';
+           
+           const source = (await readFile(new URL('../src/lib/policy.js', import.meta.url), 'utf8'))
+             .replace("import { startOffline, prepareOfflineAi } from './offline.js';", '')
+             .replace("import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';", '')
+          +  .replace("import { MODEL_FILES } from './model-package.js';", '')
+             .replaceAll('import.meta.url', "'https://test.invalid/mahjong/policy.js'")
+             .replaceAll('export ', '');
+           
+          @@ -23,7 +25,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async
+             }
+             const context = vm.createContext({
+               document: { baseURI: 'https://test.invalid/mahjong/' },
+          -    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit,
+          +    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, MODEL_FILES,
+               startOffline: async () => null,
+               prepareOfflineAi: (model) => new Promise(resolve => downloads.push({ model, resolve })),
+             });
+          @@ -80,7 +82,7 @@ test('memory errors discard the worker even after cancellation, and retry starts
+             }
+             const context = vm.createContext({
+               document: { baseURI: 'https://test.invalid/mahjong/' },
+          -    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit,
+          +    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, MODEL_FILES,
+               startOffline: async () => null, prepareOfflineAi: async () => null,
+             });
+             vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, resetPolicy };', context);
+          @@ -128,7 +130,7 @@ function memoryClient(t) {
+             }
+             const context = vm.createContext({
+               document: { baseURI: 'https://test.invalid/mahjong/' },
+          -    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit,
+          +    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, MODEL_FILES,
+               startOffline: async () => null, prepareOfflineAi: async () => null,
+             });
+             vm.runInContext(source + '\nglobalThis.api = { analyzePolicy, resetPolicy };', context);
+          PATCH
+          git apply --check /tmp/review-repairs.patch
+          git apply /tmp/review-repairs.patch
+          cargo fmt --all
+          cargo fmt --all --check
+          node --test web/tests/policy-client.test.js
+          python -m compileall -q neural
+          git rm .github/workflows/repair-validation.yml .github/repair.patch.b64 .github/workflows/branch-repair.yml
+          git add engine/riichi-wasm/src/lib.rs neural/export.py neural/tests/test_quantization.py web/tests/policy-client.test.js
+          git diff --cached --check
+          git diff --cached --stat
+      - name: Commit only to the requested repair branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/fix/review-repairs-20260910
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Fix quantized export saturation and review test failures; remove repair scaffolding"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" push origin HEAD:refs/heads/fix/review-repairs-20260910
+          echo "Repair commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
