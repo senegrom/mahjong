@@ -110,7 +110,12 @@ class Combined(nn.Module):
 
     kind = "mortal"
 
-    MODES = ("mortal", "ours", "none")
+    #: What a generation may hold still: either network beneath the head,
+    #: the head itself, or any combination of them written with a plus.
+    #: Freezing a network without its head lets the head move the policy
+    #: anyway, which is not what holding something still is for.
+    PARTS = ("mortal", "ours", "head")
+    MODES = ("none", "mortal", "ours", "head", "mortal+head", "ours+head")
 
     def __init__(self, ours: PolicyValueNet, mortal: mortal_model.Mortal) -> None:
         super().__init__()
@@ -126,8 +131,9 @@ class Combined(nn.Module):
         self.backbones_forward = self.backbones
 
     def always_trained(self) -> list[nn.Parameter]:
-        """F and our value head, the baseline: trained every generation."""
-        return list(self.fuse.parameters()) + list(self.ours.value.parameters())
+        """Our value head, the baseline the advantages are measured
+        against, which every generation needs whatever else is held."""
+        return list(self.ours.value.parameters())
 
     def ours_trained(self) -> list[nn.Parameter]:
         """Our network beneath F, apart from its value head."""
@@ -138,15 +144,18 @@ class Combined(nn.Module):
         return list(self.mortal.parameters())
 
     def set_mode(self, mode: str) -> None:
-        """Which network beneath F stays fixed this generation: `mortal`,
-        `ours`, or `none`, meaning both train."""
-        if mode not in self.MODES:
+        """What stays fixed this generation, named by its parts joined with
+        a plus: `mortal`, `ours`, `head`, `mortal+head`, or `none`."""
+        held = set() if mode == "none" else set(mode.split("+"))
+        if not held <= set(self.PARTS):
             raise ValueError(f"no such mode: {mode}")
         self.mode = mode
         for parameter in self.ours_trained():
-            parameter.requires_grad_(mode != "ours")
+            parameter.requires_grad_("ours" not in held)
         for parameter in self.mortal_trained():
-            parameter.requires_grad_(mode != "mortal")
+            parameter.requires_grad_("mortal" not in held)
+        for parameter in self.fuse.parameters():
+            parameter.requires_grad_("head" not in held)
         for parameter in self.always_trained():
             parameter.requires_grad_(True)
 

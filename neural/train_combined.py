@@ -49,8 +49,10 @@ def parse_args() -> argparse.Namespace:
         "--fixed",
         nargs="*",
         default=list(combined.Combined.MODES),
-        help="which of Mortal, ours or none stays fixed, drawn evenly each "
-        "generation from these",
+        help="what stays fixed, drawn evenly each generation from these: "
+        "none, mortal, ours, head, or a pair joined with a plus such as "
+        "mortal+head. Freezing a network without its head lets the head "
+        "move the policy anyway",
     )
     parser.add_argument("--opponents", type=Path, nargs="*", default=[])
     parser.add_argument("--opponent-share", type=float, default=0.0)
@@ -97,7 +99,9 @@ def main() -> None:
     net.set_mode("none")
     optimiser = torch.optim.AdamW(
         [
-            {"params": net.always_trained(), "lr": args.lr},
+            # The head and the critic share a rate; what a generation holds
+            # still is decided by `set_mode`, not by leaving it out here.
+            {"params": list(net.fuse.parameters()) + net.always_trained(), "lr": args.lr},
             {"params": net.ours_trained(), "lr": args.lr_ours},
             {"params": net.mortal_trained(), "lr": args.lr_mortal, "weight_decay": 0.01},
         ],
