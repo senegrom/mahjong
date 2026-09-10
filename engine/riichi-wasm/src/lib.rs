@@ -1366,7 +1366,9 @@ fn describe_call_review(hand: &Hand, seat: Wind, played: Call, adviser: &mut Bot
         played_kind: played.kind,
         played_tile: played.tile,
         call_tile: hand.pending_discard.map(|(_, tile)| tile.to_string()),
-        call_from: hand.pending_discard.map(|(from, _)| seat_title(from).into()),
+        call_from: hand
+            .pending_discard
+            .map(|(from, _)| seat_title(from).into()),
         advised: advised.label,
         advised_tile: advised.tile,
         agreed,
