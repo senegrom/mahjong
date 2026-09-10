@@ -124,6 +124,103 @@ def translate(action: int, legal: np.ndarray) -> list[int]:
     return [index for index in meanings(action) if legal[index]]
 
 
+def choose_in_mortal_space(
+    ask,
+    views: Views,
+    rows: np.ndarray,
+    players: np.ndarray,
+    legal: np.ndarray,
+    stats: dict | None = None,
+) -> np.ndarray:
+    """One of our engine's actions per row, from values in Mortal's own
+    action space.
+
+    `ask(who, fresh)` answers with those values and Mortal's mask for the
+    positions named. A riichi there names no tile, so when one is chosen
+    the reach is told to the follower and the same question asked again,
+    from the state in which it is declared, and the tile is decided by the
+    discards of that second answer.
+    """
+    who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
+    legal = np.atleast_2d(legal)
+    values, own = ask(who, False)
+    allowed = own & translatable(legal)
+    orphan = ~allowed.any(axis=1)
+    allowed[orphan, MORTAL_PASS] = True
+    ranked = np.where(allowed, values, -np.inf)
+    best = ranked.argmax(axis=1)
+    if stats is not None:
+        stats["orphans"] = stats.get("orphans", 0) + int(orphan.sum())
+        # A fallback is its own first choice not being a move here.
+        stats["fallbacks"] = stats.get("fallbacks", 0) + int(
+            ((np.where(own, values, -np.inf).argmax(axis=1) != best) & ~orphan).sum()
+        )
+    choice = first_meaning(best, legal)
+    choice = np.where(orphan | (choice < 0), legal.argmax(axis=1), choice)
+
+    second = np.nonzero((best == MORTAL_RIICHI) & ~orphan)[0]
+    if len(second):
+        follower = views.observer.follower
+        for i in second:
+            game, player = who[i]
+            follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+        after, _own_after = ask([who[i] for i in second], True)
+        tiles = legal[second, RIICHI_DISCARD:TSUMO]
+        ranked_tiles = np.where(tiles, after[:, :riichi_py.POSITIONS], -np.inf)
+        choice[second] = RIICHI_DISCARD + ranked_tiles.argmax(axis=1)
+    return choice.astype(np.int64)
+
+
+class MortalSpacePlayer:
+    """One of ours whose moves are Mortal's, played the same way.
+
+    It reads the same planes and answers over the same forty-six actions,
+    so nothing is translated: the only difference from a Mortal is which
+    network is asked.
+    """
+
+    def __init__(self, net, device: str = "cuda", compile: bool = False) -> None:
+        self.net = net.eval()
+        self.forward = torch.compile(net, dynamic=True) if compile else net
+        self.device = device
+        self.kind = net.kind
+        self.fallbacks = 0
+        self.orphans = 0
+
+    def eval(self) -> MortalSpacePlayer:
+        self.net.eval()
+        return self
+
+    def parameters(self):
+        return self.net.parameters()
+
+    @torch.no_grad()
+    def _ask(
+        self, views: Views, who: list[tuple[int, int]], fresh: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
+        rows = np.array([game for game, _player in who], dtype=np.int64)
+        players = np.array([player for _game, player in who], dtype=np.int64)
+        sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
+        mask = torch.from_numpy(masks).to(self.device)
+        with torch.no_grad(), torch.autocast(
+            "cuda", dtype=torch.bfloat16, enabled=str(self.device).startswith("cuda")
+        ):
+            logits, _value = self.forward(sparse.dense(self.device), mask)
+        return logits.float().cpu().numpy(), masks
+
+    @torch.no_grad()
+    def choose(
+        self, views: Views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray
+    ) -> np.ndarray:
+        stats: dict = {}
+        choice = choose_in_mortal_space(
+            lambda who, fresh: self._ask(views, who, fresh), views, rows, players, legal, stats
+        )
+        self.orphans += stats.get("orphans", 0)
+        self.fallbacks += stats.get("fallbacks", 0)
+        return choice
+
+
 class MortalPlayer:
     """A published Mortal, choosing moves in our action space."""
 
@@ -169,33 +266,13 @@ class MortalPlayer:
         """One of our actions per row, for `players[i]` in game `rows[i]`,
         given our engine's legal mask for each: the best of Mortal's
         actions that our engine allows, translated."""
-        who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
-        legal = np.atleast_2d(legal)
-        q, own = self._ask(views, who)
-        allowed = own & translatable(legal)
-        orphan = ~allowed.any(axis=1)
-        self.orphans += int(orphan.sum())
-        allowed[orphan, MORTAL_PASS] = True
-        ranked = np.where(allowed, q, -np.inf)
-        best = ranked.argmax(axis=1)
-        # A fallback is Mortal's own first choice not being a move here.
-        self.fallbacks += int(((np.where(own, q, -np.inf).argmax(axis=1) != best) & ~orphan).sum())
-        choice = first_meaning(best, legal)
-        choice = np.where(orphan | (choice < 0), legal.argmax(axis=1), choice)
-
-        second = np.nonzero((best == MORTAL_RIICHI) & ~orphan)[0]
-        if len(second):
-            # The reach declared ahead of the table, then the tile.
-            follower = views.observer.follower
-            for i in second:
-                game, player = who[i]
-                follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
-            after, _own_after = self._ask(views, [who[i] for i in second], fresh=True)
-            tiles = legal[second, RIICHI_DISCARD:TSUMO]
-            ranked_tiles = np.where(tiles, after[:, :34], -np.inf)
-            tile = ranked_tiles.argmax(axis=1)
-            choice[second] = RIICHI_DISCARD + tile
-        return choice.astype(np.int64)
+        stats: dict = {}
+        choice = choose_in_mortal_space(
+            lambda who, fresh: self._ask(views, who, fresh), views, rows, players, legal, stats
+        )
+        self.orphans += stats.get("orphans", 0)
+        self.fallbacks += stats.get("fallbacks", 0)
+        return choice
 
 
 def choose(
@@ -251,6 +328,9 @@ def load_player(
     if payload is not None and "model" in payload:
         net = from_payload(payload, device, channels, blocks)
         net.eval()
+        if getattr(net, "speaks_mortal", False):
+            # Its moves are Mortal's, so it is asked for them Mortal's way.
+            return MortalSpacePlayer(net, device, compile=compile)
         if compile:
             net.forward = torch.compile(net.forward, dynamic=True)
         return net

@@ -31,6 +31,8 @@ from torch import nn
 
 import riichi_py
 
+from libriichi.consts import ACTION_SPACE as MORTAL_ACTIONS
+
 from . import observe
 
 # The engine's own planes, which the older networks see.
@@ -129,12 +131,14 @@ class PolicyValueNet(nn.Module):
         blocks: int = DEFAULT_BLOCKS,
         planes: int = MORTAL_PLANES,
         attention: bool = True,
+        actions: int = ACTIONS,
     ) -> None:
         super().__init__()
         self.channels = channels
         self.blocks = blocks
         self.planes = planes
         self.attention = attention
+        self.actions = actions
         self.stem = nn.Sequential(
             nn.Conv1d(planes, channels, 3, padding=1, bias=False),
             nn.GroupNorm(GROUPS, channels),
@@ -144,13 +148,16 @@ class PolicyValueNet(nn.Module):
         self.tail = nn.Sequential(nn.GroupNorm(GROUPS, channels), nn.ReLU())
 
         # The policy reads both the per-tile features, which is where the
-        # thirty-four discards live, and the pooled position, which is where
-        # the calls and declarations live.
-        self.policy_tiles = nn.Conv1d(channels, 2, 1)
+        # discards live, and the pooled position, which is where the calls
+        # and declarations live. Our own space keeps two per tile, the
+        # discard and the discard that declares riichi; Mortal's keeps one,
+        # because there the declaration is a move of its own.
+        per_tile = 2 if actions == ACTIONS else 1
+        self.policy_tiles = nn.Conv1d(channels, per_tile, 1)
         self.policy_pooled = nn.Sequential(
             nn.Linear(channels, 256),
             nn.ReLU(),
-            nn.Linear(256, ACTIONS - 2 * POSITIONS),
+            nn.Linear(256, actions - per_tile * POSITIONS),
         )
         self.value = nn.Sequential(
             nn.Linear(channels, 256),
@@ -257,6 +264,12 @@ class PolicyValueNet(nn.Module):
             nn.ReLU(),
             nn.Linear(256, 1),
         )
+
+    @property
+    def speaks_mortal(self) -> bool:
+        """Whether its moves are Mortal's, which decides how it is asked
+        for one: a riichi there names no tile until it is asked again."""
+        return self.actions == MORTAL_ACTIONS
 
     @property
     def kind(self) -> str:
@@ -394,6 +407,7 @@ class PolicyValueNet(nn.Module):
             "blocks": self.blocks,
             "planes": self.planes,
             "attention": self.attention,
+            "actions": self.actions,
         }
 
 
@@ -403,8 +417,9 @@ def build(
     device: str = "cuda",
     planes: int = MORTAL_PLANES,
     attention: bool = True,
+    actions: int = ACTIONS,
 ) -> PolicyValueNet:
-    return PolicyValueNet(channels, blocks, planes, attention).to(device)
+    return PolicyValueNet(channels, blocks, planes, attention, actions).to(device)
 
 
 def shape_of(payload: dict, channels: int | None = None, blocks: int | None = None) -> dict:
@@ -430,11 +445,19 @@ def shape_of(payload: dict, channels: int | None = None, blocks: int | None = No
         found_blocks = blocks or (
             1 + max(int(key.split(".")[1]) for key in weights if key.startswith("tower."))
         )
+    found_actions = payload.get("actions")
+    if found_actions is None:
+        # Older checkpoints predate the choice and are all of our own space;
+        # the heads say so anyway, so read them rather than assume.
+        per_tile = int(weights["policy_tiles.weight"].shape[0])
+        rest = int(weights["policy_pooled.2.weight"].shape[0])
+        found_actions = per_tile * POSITIONS + rest
     return {
         "channels": int(found_channels),
         "blocks": int(found_blocks),
         "planes": int(planes),
         "attention": bool(attention),
+        "actions": int(found_actions),
     }
 
 

@@ -883,6 +883,78 @@ def distil(
 
 
 @app.function(
+    gpu=["H100", "A100-80GB"],
+    cpu=16.0,
+    memory=65536,
+    timeout=6 * 60 * 60,
+    volumes={str(VOLUME): volume},
+    max_containers=1,
+)
+def rehead(
+    teacher: str = "w1012-run/latest",
+    resume: str = "",
+    rounds: int = 40,
+    games: int = 64,
+    lr: float = 1e-3,
+    batch: int = 2048,
+    epochs: int = 2,
+    temperature: float = 1.0,
+    run: str = DEFAULT_RUN,
+    name: str = "mortal-space",
+) -> str:
+    """Teaches one of our networks to answer in Mortal's action space.
+
+    The trunk is the teacher's and does not move; only the last layer is
+    replaced, by one over Mortal's forty-six moves, and taught to say what
+    the old head said. See `neural/rehead.py`. The result goes to the run's
+    directory under `name`, to be duelled against the teacher before
+    anything is built on it.
+    """
+    volume.reload()
+    where = Path("/scratch") / f"{run}-rehead"
+    where.mkdir(parents=True, exist_ok=True)
+    out = where / "out"
+    source = _checkpoint(run, teacher)
+    if not source.exists():
+        return f"no checkpoint at {source}"
+    local = where / "teacher.pt"
+    shutil.copyfile(source, local)
+    command = [
+        sys.executable, "-m", "neural.rehead",
+        "--teacher", str(local),
+        "--rounds", str(rounds), "--games", str(games), "--lr", str(lr),
+        "--batch", str(batch), "--epochs", str(epochs),
+        "--temperature", str(temperature),
+        "--out", str(out),
+    ]
+    if resume:
+        found = _checkpoint(run, resume)
+        if not found.exists():
+            return f"no checkpoint at {found}"
+        carried = where / "student.pt"
+        shutil.copyfile(found, carried)
+        command += ["--resume", str(carried)]
+    print(" ".join(command), flush=True)
+
+    result = subprocess.run(
+        command,
+        cwd="/src",
+        env=_environment(),
+        capture_output=True,
+        text=True,
+    )
+    answer = (result.stdout or "")[-4000:] + (result.stderr or "" if result.returncode else "")
+    if (out / "latest.pt").exists():
+        target = VOLUME / run
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(out / "latest.pt", target / f"{name}.pt")
+        volume.commit()
+        answer += f"\nwrote {run}/{name}.pt"
+    print(answer, flush=True)
+    return answer
+
+
+@app.function(
     gpu="L4",
     cpu=8.0,
     memory=32768,
