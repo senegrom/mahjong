@@ -25,15 +25,18 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import riichi_py
+
+from .checkpoints import atomic_save
+from .training_safety import (
+    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
+)
+from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
 from . import selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
-from .checkpoint import atomic_save
-from .training_safety import (
-    TRAINING_API_VERSION, minibatch_indices, require_training_engine, validate_training_options,
-)
 from .model import (
     DEFAULT_BLOCKS,
     DEFAULT_CHANNELS,
@@ -173,6 +176,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_learning(args.batch, args.epochs)
     validate_training_options(args)
     require_training_engine()
     # The environment runs on this thread and the network on the GPU, so a
@@ -212,8 +216,7 @@ def main() -> None:
         net = PolicyValueNet(**shape).to(device)
         load_weights(net, resume_payload["model"])
         start = int(resume_payload.get("generation", 0))
-        smoothed = resume_payload.get("smoothed")
-        best_placement = float(resume_payload.get("best_placement", float("inf")))
+        smoothed, best_placement = benchmark_history(resume_payload)
         if smoothed is not None:
             print(
                 f"carrying a smoothed placement of {smoothed:.3f}, "
@@ -223,8 +226,8 @@ def main() -> None:
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     else:
         net = PolicyValueNet(args.channels, args.blocks).to(device)
-    if net.actions != selfplay.ACTIONS:
-        raise SystemExit("neural.train requires the 78-action learner; use the appropriate Mortal-space trainer")
+    if getattr(net, "actions", riichi_py.ACTIONS) != riichi_py.ACTIONS:
+        raise SystemExit("neural.train requires a 78-action learner; use the Mortal-space trainer")
     if net.kind != "mortal":
         raise SystemExit("training needs a network that sees Mortal's planes")
 
@@ -407,13 +410,6 @@ def main() -> None:
     # names below are cleared before the next round is played, so the
     # machine carries one round rather than two.
     batch = observations = oracle = imagined = on_card = None
-    # Old evaluation scores used a different environment/RNG contract.
-    # Carry model/optimizer weights, but remeasure rather than compare stale best scores.
-    if start and resume_payload.get("training_api_version") != TRAINING_API_VERSION:
-        smoothed = None
-        best_placement = float("inf")
-        print("environment contract changed: reset benchmark history; remeasure checkpoints", flush=True)
-
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
@@ -427,6 +423,7 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
         )
+        require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
         # Each phase of the learning half is timed and said in the record:
         # a generation stalled by a near-constant five minutes now and
@@ -548,7 +545,16 @@ def main() -> None:
             # there too. The old GPU permutation had to copy every minibatch
             # of indices back to the CPU before the observations could be
             # gathered, forcing one device synchronisation per step.
-            slices = minibatch_indices(batch.decisions, args.batch, compiled=args.compile)
+            order = torch.randperm(batch.decisions)
+            slices = [
+                order[start_index : start_index + args.batch]
+                for start_index in range(0, batch.decisions, args.batch)
+            ]
+            # Whole minibatches only: the compiled step is built for one
+            # shape, and a remainder of a new size each generation had it
+            # rebuilt now and then, minutes each time. The few thousand rows
+            # left over differ every epoch.
+            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
 
             def prepare(drawn: torch.Tensor):
                 # Sparse on the host, dense float32 on the card: the
@@ -719,13 +725,15 @@ def main() -> None:
         # synchronisations above. Once the first scalar is read, the rest are
         # already complete.
         replay_seconds = time.time() - phase
-        denom = max(steps, 1)
+        require_updates(steps)
+        denom = steps
         confidence_total = (sure_count + likely_count + unlikely_count).clamp(min=1)
         record = {
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
+            "checkpoint_generation": generation + 1,
+            "optimizer_updates": steps,
             "decisions": batch.decisions,
-            "optimizer_steps": steps,
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),
@@ -760,6 +768,7 @@ def main() -> None:
             "share_unlikely": round(float(unlikely_count / confidence_total), 3),
             # The same heads on the ring of past rounds, which is where
             # they must not learn a round by heart.
+            "replay_optimizer_updates": replay_steps,
             "replay_rounds": len(ring),
             "replay_critic_loss": round(float(replay_critic / max(replay_steps, 1)), 4),
             "replay_oracle_loss": round(float(replay_oracle / max(replay_steps, 1)), 4),

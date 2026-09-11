@@ -21,7 +21,6 @@ everything, so it loads wherever a player of ours does.
 from __future__ import annotations
 
 from pathlib import Path
-import warnings
 
 import numpy as np
 import torch
@@ -96,21 +95,6 @@ class Fuse(nn.Module):
         nn.init.zeros_(self.hands_out.weight)
         nn.init.zeros_(self.hands_out.bias)
 
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
-                              missing_keys, unexpected_keys, error_msgs):
-        # The old 1x1 convolution broadcast one constant per opponent. Repeat
-        # its rows into the new tile-specific projection: initial predictions
-        # are unchanged, but each tile now has its own trainable parameters.
-        key = prefix + "hands_out.weight"
-        weight = state_dict.get(key)
-        if weight is not None and tuple(weight.shape) == (OPPONENTS, self.width, 1):
-            state_dict[key] = weight.squeeze(-1).repeat_interleave(POSITIONS, dim=0)
-            bias_key = prefix + "hands_out.bias"
-            if bias_key in state_dict:
-                state_dict[bias_key] = state_dict[bias_key].repeat_interleave(POSITIONS)
-        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
-                                      missing_keys, unexpected_keys, error_msgs)
-
     def judge(self, phi: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
         """What the position is worth to the fusion: our network's answer
         with what Mortal sees added to it.
@@ -125,10 +109,19 @@ class Fuse(nn.Module):
 
     def read_hands(self, phi: torch.Tensor, guessed: torch.Tensor) -> torch.Tensor:
         """What the three opponents are holding, likewise: our network's
-        reading, corrected by Mortal's vector spread over the tiles, and
-        likewise without training it."""
+        reading, corrected by a tile-dependent projection of Mortal's vector,
+        likewise without training its encoder."""
         correction = self.hands_out(self.hands_fix(phi.detach()))
-        return guessed + correction.reshape_as(guessed)
+        return guessed + correction.reshape(-1, OPPONENTS, POSITIONS)
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        weight, bias = prefix + "hands_out.weight", prefix + "hands_out.bias"
+        if weight in state_dict and state_dict[weight].ndim == 3:
+            # Old Conv1d added one constant per opponent. Replicate that same
+            # constant over tile-specific rows, preserving its probabilities.
+            state_dict[weight] = state_dict[weight].squeeze(-1).repeat_interleave(POSITIONS, dim=0)
+            state_dict[bias] = state_dict[bias].repeat_interleave(POSITIONS, dim=0)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
     def hidden(self, phi: torch.Tensor, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """F2, per tile and pooled, from Mortal's vector and our features."""
@@ -342,31 +335,10 @@ class Combined(nn.Module):
     def parameter_count(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
-    def reset_legacy_belief_optimizer_state(self, optimiser) -> int:
-        """Only the two resized projection moments need a fresh optimizer state."""
-        reset = 0
-        expected = ((OPPONENTS, self.fuse.width, 1), (OPPONENTS,))
-        for parameter, old_shape in zip(self.fuse.hands_out.parameters(), expected):
-            state = optimiser.state.get(parameter, {})
-            mismatched = [value for key, value in state.items()
-                          if key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq")
-                          and tuple(value.shape) != tuple(parameter.shape)]
-            if not mismatched:
-                continue
-            if any(tuple(value.shape) != old_shape for value in mismatched):
-                raise ValueError("Unexpected optimizer shape in the belief projection")
-            del optimiser.state[parameter]
-            reset += 1
-        if reset:
-            warnings.warn("Reset legacy belief projection optimizer moments; all other state retained",
-                          RuntimeWarning, stacklevel=2)
-        return reset
-
     def state(self) -> dict:
         """A checkpoint that carries everything beneath F as well as F,
         Mortal's config included, which names its shape."""
         return {
-            "belief_projection_version": 2,
             "combined": self.fuse.state_dict(),
             "model": self.ours.state_dict(),
             "config": self.mortal_config,
@@ -425,3 +397,30 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
 
 def is_combined(payload: dict) -> bool:
     return isinstance(payload, dict) and "combined" in payload
+
+
+def migrate_belief_optimizer(saved: dict, optimiser, net: Combined) -> dict:
+    """Expand legacy Adam moments alongside the equivalent model conversion.
+
+    The number/order of parameters is unchanged (Linear replaces Conv1d).
+    Only these two tensors changed shape; never reset unrelated optimizer state.
+    """
+    result = {**saved, "state": dict(saved["state"])}
+    targets = {id(net.fuse.hands_out.weight): "weight", id(net.fuse.hands_out.bias): "bias"}
+    for old_group, group in zip(saved["param_groups"], optimiser.param_groups):
+        for key, parameter in zip(old_group["params"], group["params"]):
+            kind = targets.get(id(parameter))
+            if kind is None or key not in result["state"]:
+                continue
+            state = dict(result["state"][key])
+            for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                value = state.get(name)
+                if value is None or value.shape == parameter.shape:
+                    continue
+                old_shape = ((OPPONENTS, net.fuse.width, 1) if kind == "weight"
+                             else (OPPONENTS,))
+                if tuple(value.shape) != old_shape:
+                    raise ValueError("Unexpected fusion belief optimizer tensor shape")
+                state[name] = (value.squeeze(-1) if kind == "weight" else value).repeat_interleave(POSITIONS, dim=0)
+            result["state"][key] = state
+    return result

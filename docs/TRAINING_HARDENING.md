@@ -1,131 +1,106 @@
-# Training hardening: publication, gradients and environment contracts
+# Training hardening reconciled after PR #40
 
-This change builds on PR #40 at `087cf7d915274dc17f5e390e37aed1b46a4d22c8`.
-It fixes additional training correctness failures; it does **not** claim that
-search now improves the policy or that an AlphaZero loop has been completed.
+This follow-up is built from `main` at
+`09b800ce71247a6cfdfc1fb60228d2943ee20fd8`, which includes the final PR #40
+repairs. It supersedes the earlier stacked #41 implementation, not those
+newer main-branch fixes. The reconciliation retains both histories without
+force-pushing or reverting the merged safety work.
 
-## Checkpoints
+## Conflict-resolution decisions
 
-`neural.checkpoint.atomic_save` is used by the standalone, combined and Mortal
-PPO trainers and the imitation/search-distillation trainers. It serializes to
-a unique temporary file in the destination directory, flushes it, preserves
-the old bytes at `<filename>.previous`, and atomically replaces the live path.
-POSIX parent directories are synced. No checkpoint is unpickled as part of
-publication. There must be one writer per destination.
+- Keep `neural.checkpoints` as the single checkpoint implementation, including
+  staged CPU validation and the newer cloud snapshot publication logic. Do not
+  reintroduce the competing `neural.checkpoint` module.
+- Keep the tile-specific fusion belief head and **main's exact migration of
+  Adam moments and step counts**. Do not replace that migration with #41's
+  earlier moment-reset implementation.
+- Keep main's cloud invocation isolation, replay validation/recovery, current
+  observation adapters, terminal tie rewards, and Mortal RNG resume ordering.
+- Keep main's fixed-size minibatch contract and `optimizer_updates` /
+  `checkpoint_generation` log fields. A short rollout still fails explicitly;
+  the earlier #41 eager-remainder alternative is intentionally not carried over.
+- Keep current-model network-only search baselines; only actual native search
+  needs the engine-only layout restriction. No search-history approximation is
+  introduced.
 
-Failure before replacement leaves the live checkpoint unchanged. Failure or
-interruption just after replacement can expose the complete new checkpoint;
-cleanup never deletes the destination or the previous snapshot. Uncatchable
-process exits may leave harmless temporary files. Windows guarantees here are
-about process interruption, not every possible power loss or filesystem error.
-Existing checkpoints are not retroactively validated or repaired.
+## Remaining changes carried forward
 
-Recovery is explicit: investigate the error and resume from the chosen valid
-snapshot. There is no silent fallback to an older generation. The redundant
-end-of-run overwrite was removed from PPO trainers so `latest.pt.previous`
-remains the preceding saved generation rather than a second copy of the last
-one. Old output directories and user checkpoints are not deleted by this PR.
+### Strict native actions and independent simulation randomness
 
-## Combined belief projection
+`Arena.step` now validates every live action before changing any table. An
+invalid later batch row cannot leave earlier games advanced. Illegal moves
+raise `ValueError` rather than silently substituting a pass or first legal
+move. Finished rows remain ignored; `strict=False` explicitly opts into legacy
+lenient behavior and is not used by the trainers or evaluators.
 
-The old `hands_fix -> broadcast -> shared 1x1 hands_out` added one constant per
-opponent to every tile logit. Softmax cancels that constant, so this additional
-Mortal-conditioned head could not change its tile distribution.
+Hypothetical sampling uses a separate per-table RNG from real dealing. The
+benchmark no longer samples unused hands just to reproduce an old RNG side
+effect. Extra simulation work alone must not change subsequent real hands.
+This does not make policy-dependent game trajectories identical.
 
-`hands_out` now projects the hidden vector to three independent 34-tile rows.
-It starts at zero, preserving fresh-model behaviour. Loading an older 1x1
-projection repeats its weights and biases over the tile positions. This
-preserves its predictions while allowing tile-specific gradients thereafter.
-Only the two resized projection parameters' old optimizer moments are reset,
-with a warning; other model, optimizer and random state is retained. New-format
-checkpoints round-trip normally. Unexpected optimizer shapes remain errors.
+Rebuild and reinstall `riichi_py`: the affected Python entry points require
+`TRAINING_API_VERSION == 2`. PPO logs/checkpoints record that version. Resuming
+an older environment resets only smoothed/best benchmark history, keeping the
+model, optimizer, generation and sampling state. Remeasure competing models
+under the same version; old same-seed measurements are not interchangeable.
+Existing checkpoint or replay files are not relabelled or deleted.
 
-The combined value baseline now also reads detached policy-tower features,
-consistent with the standalone trainer's separation. Auxiliary losses train
-their heads, not either policy backbone. This is an explicit training change,
-not evidence by itself of increased playing strength.
+### Previous checkpoints without losing validation
 
-## Training steps and resume
+The existing `checkpoints.atomic_save` still serializes, flushes, and safely
+validates the new staged checkpoint before publishing. It additionally copies
+the old live bytes into `<filename>.previous` using a separate atomic rename.
+The backup is single-writer and local; it is not a distributed transaction or
+a guarantee that an already-corrupt old checkpoint is valid. Recovery remains
+an explicit operator choice, not silent rollback. `keep_previous=False` omits
+the backup where a caller deliberately does not need it.
 
-Eager PPO learning now includes the final incomplete minibatch, including a
-round smaller than `--batch`. The optional compiled path keeps fixed-size
-batches and drops only a shuffled remainder, as before. A compiled round
-smaller than one batch fails explicitly: reduce `--batch` or omit `--compile`.
-It cannot masquerade as a successful training generation with zero updates.
+An interruption after either rename must not delete its destination. POSIX
+directory fsync requests durability; Windows does not have the same portable
+power-loss guarantee. Hard exits may leave harmless uniquely named partial
+files. Cloud publication retains its existing independently validated copies,
+archives and run-isolation behavior; local `.previous` files are not implicitly
+restored from or published to the volume.
 
-Each PPO log records `optimizer_steps`. Advantage normalization uses population
-standard deviation so a singleton batch does not create NaNs. Nonfinite
-optimizer gradients are rejected before the update. Batch, epoch, game and
-measurement counts are validated; nonexistent resume/opponent checkpoints do
-not silently change the experiment. Mutually exclusive freeze flags are
-rejected. The standalone trainer explicitly rejects a 46-action learner rather
-than feeding it the 78-action collection mask.
+Redundant final PPO saves are removed, so a normal completed run keeps the
+preceding saved generation rather than overwriting its backup with a duplicate
+of the last one. A no-work invocation does not create a new learned checkpoint.
 
-The Mortal trainer now saves and restores Torch/CUDA random streams using the
-same helper as the combined trainer. Restoration happens after all network
-constructors. Legacy checkpoints cannot recreate random state they did not
-save; the existing warning remains intentional.
+### Learner and legacy-distillation guards
 
-## Native API version 2
+The combined value baseline reads detached policy features; auxiliary losses
+train their heads without reshaping either policy backbone. The belief head
+and its checkpoint/optimizer migration remain main's implementation.
 
-Rebuild and reinstall **riichi_py** before running the updated collectors or
-benchmarks. They check `TRAINING_API_VERSION == 2` and reject older extensions
-with a rebuild diagnostic rather than silently using the old semantics.
+PPO entry points reject missing requested input checkpoints, invalid game or
+measurement counts, malformed opponent/freeze configuration, and nonfinite
+optimizer gradients. Singleton statistics remain finite. The standalone
+78-action trainer rejects an incompatible 46-action learner before collection.
 
-`Arena.step` validates every live row before advancing any game. Illegal actions
-raise a Python ValueError with the game/action identifier, leaving the whole
-batch unadvanced. Finished rows remain ignored. Explicit `strict=False` is a
-legacy lenient escape hatch; training and evaluation never request it.
+Legacy `distil.collect` now has a checked step budget and refuses unfinished
+games. It shares the existing native-search layout guard, rejects partial
+loading of combined/Mortal checkpoints, and uses the correct CPU device for
+measurement. This script still trains action/hand labels, **not completed-game
+value targets**; its documentation no longer implies otherwise.
 
-Imagined-world sampling has its own per-table random generator. It no longer
-consumes the generator that deals subsequent real hands. The benchmark no
-longer generates unused proposal hands merely to reproduce the old side
-effect. Same-seed historical benchmark numbers therefore are not interchangeable
-with this environment version. Remeasure competing checkpoints under the same
-version. The PPO checkpoints/logs record that version, and resumed runs discard
-an older version's smoothed/best benchmark history while retaining learned
-weights and optimizer state.
+## Validation and remaining work
 
-This does not make policy-dependent game trajectories identical. Choices still
-affect real play; the isolation prevents *simulation effort alone* from changing
-the deals. Separate policy sampling, opponent selection and freeze RNG state
-remain part of reproducibility.
+Run unfiltered workspace tests/Clippy and the complete neural regression suite
+with both native engines freshly built. Added regressions cover strict actions,
+claim-window preservation, unchanged real deals despite extra imaginary-world
+calls, checkpoint interruption on both sides of both renames, staged validation,
+configuration/environment metadata, auxiliary gradients, and real small-model
+training/resume with controlled collected batches. Keep every existing #40 test.
 
-## Search remains an experiment
+This follow-up does not claim stronger play or completion of AlphaZero-style
+training. Modern information-consistent search, sound world weighting, search
+improvement measurements, policy-distribution plus outcome learning, and a
+candidate/champion opponent-population gate remain separate work. Regenerate
+replay data known to contain prior incorrect rewards; preserve diagnostic copies.
 
-`searched.py` and `distil.py` now reject incompatible modern checkpoints rather
-than silently treating a combined player as its standalone subnetwork. Supported
-legacy search still uses the 97-plane/78-action layout. `distil.collect` rejects
-unfinished games and exposes `--max-steps`; CPU measurement gets the correct
-device argument.
-
-The remaining work from the handoff is still required:
-
-- Build modern observation/action adapters for simulated continuations while
-  respecting each player's information.
-- Correct top-k world truncation and validate action-ranking quality.
-- Demonstrate search improvement over the same frozen policy before using it
-  as a teacher.
-- Collect search distributions and completed-game outcomes, and train the
-  evaluator as well as the policy on those data.
-- Replace heuristic-only `best.pt` selection with candidate/champion evaluation
-  and an opponent population. An improved heuristic score is not a promotion
-  certificate.
-
-Keep old replay data for diagnosis when needed, but regenerate reward data
-known to have been affected by earlier collector errors. Do not relabel old
-labels or benchmark measurements as corrected by this code change.
-
-## Regression coverage
-
-The added tests exercise interrupted checkpoint writes/publication (including
-hard subprocess exit), legacy projection prediction parity and useful gradients,
-auxiliary gradient isolation, per-parameter optimizer migration, small eager
-rounds, explicit compiled no-op rejection, actual combined/Mortal optimizer
-updates, serialized combined resume parity, native batch-atomic illegal-action
-rejection, claim-window preservation, and complete native games with extra
-imaginary-world calls but unchanged real deals/outcomes.
-
-Run `python -m unittest discover -s neural/tests -v` with both freshly built
-native engines, plus unfiltered workspace tests and Clippy. Validation results
-belong to the specific commit/run, not merely this coverage description.
+The existing post-publication SIGINT regression now targets the live checkpoint
+rename explicitly rather than the first rename (now the backup). Its assertion
+that the new live generation survives is retained, and it additionally checks
+the preceding generation and the exact set of surviving files. No regression
+test is removed or skipped. Checkpoint validation retains main's generation-
+returning API; Mortal resume retains its sampling_state payload field.

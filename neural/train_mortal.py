@@ -20,16 +20,18 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from .checkpoints import atomic_save
+from .training_safety import (
+    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
+)
+from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
 from . import mortal_learner, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
-from .training_state import capture_random_state, restore_random_state
-from .checkpoint import atomic_save
-from .training_safety import (
-    TRAINING_API_VERSION, minibatch_indices, require_training_engine, validate_training_options,
-)
+from .training_state import capture_sampling_state, restore_sampling_state
 
 SMOOTHING = 1 / 3
 
@@ -73,6 +75,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_learning(args.batch, args.epochs)
     validate_training_options(args)
     require_training_engine()
     torch.set_num_threads(2)
@@ -88,12 +91,13 @@ def main() -> None:
     best_placement = float("inf")
     smoothed = None
     optimiser_state = None
+    sampling_state = None
     if args.resume is not None and args.resume.exists():
         net, payload = mortal_learner.load(args.resume, device, args.temperature)
         start = int(payload.get("generation", 0))
-        smoothed = payload.get("smoothed")
-        best_placement = float(payload.get("best_placement", float("inf")))
+        smoothed, best_placement = benchmark_history(payload)
         optimiser_state = payload.get("optimizer_state")
+        sampling_state = payload.get("sampling_state")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.mortal is not None and args.mortal.exists():
         net = mortal_learner.from_mortal(args.mortal, device, args.temperature)
@@ -139,10 +143,7 @@ def main() -> None:
         flush=True,
     )
 
-    # Restore after all module construction, which consumes Torch randomness.
-    # Mortal has no freeze schedule; the shared snapshot's drawer is unused.
-    drawer = restore_random_state(source_state.get("random_state"), seed=args.seed,
-                                  generation=start, modes=["none"])
+    restore_sampling_state(sampling_state, generation=start)
 
     def checkpoint_payload(generation: int) -> dict:
         return {
@@ -155,15 +156,8 @@ def main() -> None:
             "best_placement": best_placement,
             "temperature": args.temperature,
             "optimizer_state": optimiser.state_dict(),
-            "random_state": capture_random_state(drawer),
+            "sampling_state": capture_sampling_state(),
         }
-
-    # Old evaluation scores used a different environment/RNG contract.
-    # Carry model/optimizer weights, but remeasure rather than compare stale best scores.
-    if start and payload.get("training_api_version") != TRAINING_API_VERSION:
-        smoothed = None
-        best_placement = float("inf")
-        print("environment contract changed: reset benchmark history; remeasure checkpoints", flush=True)
 
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
@@ -180,6 +174,7 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
         )
+        require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
         observations = batch.observations
         legal = batch.legal.to(device)
@@ -220,7 +215,13 @@ def main() -> None:
         total_clipped, total_kl, total_grad = zero(), zero(), zero()
         steps = 0
         for _epoch in range(args.epochs):
-            slices = minibatch_indices(batch.decisions, args.batch, compiled=args.compile)
+            order = torch.randperm(batch.decisions)
+            slices = [
+                order[start_index : start_index + args.batch]
+                for start_index in range(0, batch.decisions, args.batch)
+            ]
+            # Whole minibatches only, so the compiled step sees one shape.
+            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
 
             def prepare(drawn: torch.Tensor):
                 # The gather on the host runs a few minibatches ahead of
@@ -263,12 +264,14 @@ def main() -> None:
                     total_grad += grad_norm
                 steps += 1
 
-        denom = max(steps, 1)
+        require_updates(steps)
+        denom = steps
         record = {
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
+            "checkpoint_generation": generation + 1,
+            "optimizer_updates": steps,
             "decisions": batch.decisions,
-            "optimizer_steps": steps,
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),

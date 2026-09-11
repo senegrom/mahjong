@@ -113,14 +113,7 @@ class Ring:
     def _validate(maps: dict, n: int) -> None:
         if n <= 0 or any(maps[field].ndim == 0 or len(maps[field]) != n for field in FIELDS):
             raise ValueError("Replay fields must have one row per decision")
-        planes = maps[SPARSE]
-        if (planes.indptr.ndim != 1 or planes.indices.ndim != 1 or planes.values.ndim != 1
-                or len(planes) != n or planes.indptr.dtype.kind not in "iu"
-                or planes.indices.dtype.kind not in "iu" or planes.indptr[0] != 0
-                or np.any(planes.indptr[1:] < planes.indptr[:-1])
-                or planes.nnz != len(planes.indices) or planes.nnz != len(planes.values)
-                or planes.values.dtype.hasobject):
-            raise ValueError("Inconsistent sparse replay observations")
+        maps[SPARSE].validate(expected_rows=n)
 
     @staticmethod
     def _sync_directory(path: Path) -> None:

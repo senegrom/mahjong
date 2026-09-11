@@ -19,15 +19,17 @@ import time
 from pathlib import Path
 
 import torch
+
+from .checkpoints import atomic_save
+from .training_safety import (
+    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
+)
+from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
 from . import combined, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
-from .checkpoint import atomic_save
-from .training_safety import (
-    TRAINING_API_VERSION, minibatch_indices, require_training_engine, validate_training_options,
-)
 from .training_state import capture_random_state, restore_random_state
 
 SMOOTHING = 1 / 3
@@ -88,6 +90,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_learning(args.batch, args.epochs)
     validate_training_options(args)
     require_training_engine()
     torch.set_num_threads(2)
@@ -107,8 +110,7 @@ def main() -> None:
     if args.resume is not None and args.resume.exists():
         net, payload = combined.load(args.resume, device)
         start = int(payload.get("generation", 0))
-        smoothed = payload.get("smoothed")
-        best_placement = float(payload.get("best_placement", float("inf")))
+        smoothed, best_placement = benchmark_history(payload)
         optimiser_state = payload.get("optimizer_state")
         random_state = payload.get("random_state")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
@@ -167,14 +169,12 @@ def main() -> None:
     )
     if optimiser_state is not None:
         try:
-            optimiser.load_state_dict(optimiser_state)
+            optimiser.load_state_dict(combined.migrate_belief_optimizer(optimiser_state, optimiser, net))
             for group, lr in zip(optimiser.param_groups, (args.lr, args.lr_ours, args.lr_mortal)):
                 group["lr"] = lr
             print("restored AdamW state", flush=True)
         except (ValueError, RuntimeError) as error:
             print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
-
-    net.reset_legacy_belief_optimizer_state(optimiser)
 
     if args.compile:
         # Deciding, with the batch's size left symbolic; the learning
@@ -217,13 +217,6 @@ def main() -> None:
             "random_state": capture_random_state(drawer),
         }
 
-    # Old evaluation scores used a different environment/RNG contract.
-    # Carry model/optimizer weights, but remeasure rather than compare stale best scores.
-    if start and payload.get("training_api_version") != TRAINING_API_VERSION:
-        smoothed = None
-        best_placement = float("inf")
-        print("environment contract changed: reset benchmark history; remeasure checkpoints", flush=True)
-
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
@@ -242,6 +235,7 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
         )
+        require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
         observations = batch.observations
         legal = batch.legal.to(device)
@@ -284,7 +278,13 @@ def main() -> None:
         total_leash, total_hands, total_covered = zero(), zero(), zero()
         steps = 0
         for _epoch in range(args.epochs):
-            slices = minibatch_indices(batch.decisions, args.batch, compiled=args.compile)
+            order = torch.randperm(batch.decisions)
+            slices = [
+                order[start_index : start_index + args.batch]
+                for start_index in range(0, batch.decisions, args.batch)
+            ]
+            # Whole minibatches only, so the compiled step sees one shape.
+            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
 
             def prepare(drawn: torch.Tensor):
                 return drawn.to(device), observations.rows(drawn.numpy()).dense(device)
@@ -378,8 +378,11 @@ def main() -> None:
                 head_shift = float(shift.sum() / allowed.sum().clamp(min=1))
             net.train()
 
-        denom = max(steps, 1)
+        require_updates(steps)
+        denom = steps
         record = {
+            "checkpoint_generation": generation + 1,
+            "optimizer_updates": steps,
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
             "fixed": fixed,
@@ -388,7 +391,6 @@ def main() -> None:
             "on_mortal": round(weights[1], 4),
             "on_ours": round(weights[2], 4),
             "decisions": batch.decisions,
-            "optimizer_steps": steps,
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),

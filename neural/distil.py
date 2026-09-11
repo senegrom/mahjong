@@ -6,8 +6,9 @@ about the hidden hands; the search makes the top few moves in worlds drawn
 from that belief and has the network's own value head judge what results;
 whichever move survives that is a better move than the one proposed, or the
 search is worth nothing. Training the network towards it makes the next
-proposal better, and the value head, kept in training on real outcomes
-alongside, makes the next judgement better too.
+proposal better. This legacy script currently trains action and hand labels
+only; outcome/value learning is still missing and must not be inferred from
+this description. Search quality itself must also be measured.
 
 It also solves the practical problem with search, which is that half a
 second a decision is hopeless in a browser. A network taught the search's
@@ -26,16 +27,17 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch import nn
 
-from .checkpoint import atomic_save
+from .checkpoints import atomic_save
+from torch import nn
 
 import riichi_py
 
 from .model import from_payload
-from .training_safety import require_training_engine, require_legacy_search, require_search_payload
 from .selfplay import measure
+from .searched import require_native_search, UnsupportedSearchLayout
 from .outcomes import require_finished, validate_budget
+from .training_safety import require_training_engine
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -64,7 +66,7 @@ def search_with_value_head(
     unless another beats it by `margin` standard errors of the weighted
     world-by-world difference.
     """
-    require_legacy_search(net)
+    require_native_search(net)
     games = len(ranked)
     hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
     total = sum(counts)
@@ -148,10 +150,9 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
     searching seat would, and the play the positions come from is the play
     the network will actually meet.
     """
-    require_training_engine()
-    require_legacy_search(net)
+    require_native_search(net)
     net.eval()
-    max_steps = getattr(args, 'max_steps', 4000)
+    max_steps = getattr(args, "max_steps", 4000)
     validate_budget(args.games, max_steps)
     arena = riichi_py.Arena(games=args.games, seed=seed, bot_places=[])
     observations: list[np.ndarray] = []
@@ -217,14 +218,17 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
 
 def main() -> None:
     args = parse_args()
+    require_training_engine()
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     args.out.mkdir(parents=True, exist_ok=True)
     log_path = args.out / "log.jsonl"
 
     payload = torch.load(args.resume, map_location=device, weights_only=True)
-    require_search_payload(payload)
+    if "combined" in payload or "model" not in payload:
+        raise UnsupportedSearchLayout("Legacy distillation cannot load a Mortal/combined checkpoint as a standalone model")
     net = from_payload(payload, device, args.channels, args.blocks)
+    require_native_search(net)
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
     print(
         f"device {device} | {net.channels}x{net.blocks} "

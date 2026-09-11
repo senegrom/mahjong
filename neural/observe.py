@@ -80,6 +80,25 @@ class Planes:
     def nnz(self) -> int:
         return int(self.indptr[-1])
 
+    def validate(self, expected_rows: int | None = None) -> None:
+        """Check untrusted arrays before a column can address another observation."""
+        if (any(not isinstance(a, np.ndarray) or a.ndim != 1
+                for a in (self.indptr, self.indices, self.values))
+                or self.indptr.dtype != np.dtype(np.int64)
+                or self.indices.dtype != np.dtype(np.uint16)
+                or self.values.dtype.kind != "f" or not self.values.dtype.isnative
+                or not len(self.indptr) or self.indptr[0] != 0
+                or expected_rows is not None and len(self) != expected_rows
+                or np.any(self.indptr[1:] < self.indptr[:-1])
+                or self.nnz != len(self.indices) or self.nnz != len(self.values)):
+            raise ValueError("Inconsistent sparse replay observations or array dtypes")
+        # Bound temporary boolean allocations for multi-gigabyte replay rounds.
+        for start in range(0, self.nnz, 1_000_000):
+            stop = start + 1_000_000
+            if (np.any(self.indices[start:stop] >= WIDTH)
+                    or not np.isfinite(self.values[start:stop]).all()):
+                raise ValueError("Sparse observation columns must be in bounds and values finite")
+
     def nbytes(self) -> int:
         return self.indptr.nbytes + self.indices.nbytes + self.values.nbytes
 
@@ -112,6 +131,7 @@ class Planes:
         and are widened there: widening them on the host first cost more
         than the copy. Torch has no unsigned 16-bit kind, so the indices
         travel as signed and are put right on the card."""
+        self.validate()
         n = len(self)
         out = torch.zeros(n * WIDTH, dtype=torch.float32, device=device)
         nnz = self.nnz
@@ -161,7 +181,10 @@ class Planes:
     @classmethod
     def load(cls, root: Path, stem: str, mmap: bool = True) -> Planes:
         mode = "r" if mmap else None
-        return cls(*(np.load(Path(root) / f"{stem}-{name}.npy", mmap_mode=mode) for name in cls.ARRAYS))
+        planes = cls(*(np.load(Path(root) / f"{stem}-{name}.npy", mmap_mode=mode,
+                               allow_pickle=False) for name in cls.ARRAYS))
+        planes.validate()
+        return planes
 
     @classmethod
     def exists(cls, root: Path, stem: str) -> bool:
@@ -220,6 +243,7 @@ class DevicePlanes:
     """
 
     def __init__(self, planes: Planes, device: str | torch.device) -> None:
+        planes.validate()
         self.device = torch.device(device)
         self.indptr = torch.from_numpy(np.asarray(planes.indptr, dtype=np.int64)).to(self.device)
         signed = torch.from_numpy(np.ascontiguousarray(planes.indices).view(np.int16))

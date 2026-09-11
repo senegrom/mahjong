@@ -30,9 +30,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch import nn
 
-from .checkpoint import atomic_save
+from .checkpoints import atomic_save
+from torch import nn
 
 import riichi_py
 
