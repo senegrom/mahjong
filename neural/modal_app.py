@@ -518,6 +518,7 @@ def train_combined(
     mortal: str = "mortal-run/latest",
     opponents: list[str] | None = None,
     opponent_share: float = 0.0,
+    explore: float = 0.0,
     run: str = "joined-run",
     compile: bool = True,
 ) -> str:
@@ -539,6 +540,7 @@ def train_combined(
         "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
         "--lr", str(lr), "--lr-ours", str(lr_ours), "--lr-mortal", str(lr_mortal),
         "--entropy", str(entropy), "--leash", str(leash),
+        "--explore", str(explore),
         "--measure-every", str(measure_every), "--measure-games", str(measure_games),
         "--amp", "--out", str(where),
     ]
