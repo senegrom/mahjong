@@ -1897,16 +1897,16 @@ mod tests {
         assert!(went_on_once, "some dealer kept the deal at South 4");
     }
 
-    /// The placement goes by the final scores, and a tie goes to the lower
-    /// seat, as it does when the training target is worked out.
+    /// Final scores determine placement; tied players share the rewards
+    /// of the positions they occupy, just as Python training targets do.
     #[test]
-    fn placement_goes_by_final_score_with_ties_to_the_lower_seat() {
+    fn placement_goes_by_final_score_with_shared_tie_rewards() {
         let mut table = Table::new();
         table.scores = [40_000, 30_000, 20_000, 30_000];
         table.finished = true;
         assert_eq!(placement_value(&table, 0), 1.5);
-        assert_eq!(placement_value(&table, 1), 0.5);
-        assert_eq!(placement_value(&table, 3), -0.5);
+        assert_eq!(placement_value(&table, 1), 0.0);
+        assert_eq!(placement_value(&table, 3), 0.0);
         assert_eq!(placement_value(&table, 2), -1.5);
     }
 
