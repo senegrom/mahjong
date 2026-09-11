@@ -1,13 +1,10 @@
 import { analyzePolicy } from './policy.js';
+import { weightsByChoice, MORTAL_REACH } from './action-weights.js';
 
 export const AGENTS = Object.freeze({ beginner: 'Beginner', club: 'Club', full: 'Trained' });
 export const WINDS = Object.freeze(['East', 'South', 'West', 'North']);
 export const isTrained = agent => agent === 'full';
 export const controller = agent => isTrained(agent) ? 'neural' : agent;
-
-/** Mortal's reach. It names no tile: a declaration is asked again which
- * tile it discards, from a position that already knows about it. */
-const MORTAL_REACH = 37;
 
 /** Model availability is not encoder availability. Position-only engines
  * cannot reproduce the complete history required by the trained policy. */
@@ -19,16 +16,6 @@ export function supportsTrainedAgent(engine) {
 }
 export const TRAINED_HISTORY_REQUIRED = 'Trained advice requires a complete in-app game history. '
   + 'For manually entered tables, choose Beginner or Club. Trained play remains available in Play, Watch and hand review.';
-
-/** Weights over Mortal's moves, read against our own choices. Every riichi
- * discard is the one reach, so they all show the weight it was given. */
-function weightsByChoice(engine, choices, weights) {
-  return choices.map((entry) => {
-    if (entry.index == null) return { ...entry, weight: null };
-    const action = engine.mortal_action_of(entry.index);
-    return { ...entry, weight: action < 0 ? null : weights[action] };
-  });
-}
 
 export async function evaluateAgent(engine, agent, signal) {
   const choices = engine.agent_choices();
@@ -54,7 +41,7 @@ export async function evaluateAgent(engine, agent, signal) {
     const choice = choices.find(entry => entry.index === index);
     if (!choice) throw new Error('The agent did not return a legal choice');
     return { agent, choice, kind: 'policy',
-      choices: weightsByChoice(engine, choices, weights)
+      choices: weightsByChoice(engine, choices, weights, action => engine.agent_action_from_mortal(action, false))
         .sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1) || (a.index ?? 99) - (b.index ?? 99)) };
   }
   if (!(agent in AGENTS)) throw new Error('Unknown agent');

@@ -23,6 +23,7 @@ import riichi_py
 
 from . import zoo
 from .observe import Planes, Views
+from .outcomes import placement_rewards, placements, require_finished, validate_budget, win_shares
 
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
@@ -139,6 +140,7 @@ def play(
     fixed weak ones. With no opponents given, every path below is the one
     that ran before.
     """
+    validate_budget(games, max_steps)
     net.eval()
     for other in opponents or []:
         other.eval()
@@ -233,81 +235,78 @@ def play(
                     )
         timing["opponents"] += clock() - began
         began = clock()
-        if not len(index):
-            arena.step(their_choice.tolist())
-            timing["engine"] += clock() - began
-            continue
         choice = their_choice.copy()
-        if hasattr(net, "decide"):
-            # A learner in an action space of its own (see
-            # `mortal_learner`): it answers the table in ours and records
-            # its decisions itself, possibly more than one per row, and
-            # keeps its own account of the time.
-            picked, records = net.decide(views, index, deciding[index], mask[index], greedy)
-            choice[index] = picked
-            observations.append(records.planes)
-            legal_masks.append(records.masks)
-            record_actions = records.actions
-            record_log_probs = records.log_probs
-            record_slots = records.slots
-            # What the three opponents were really holding, one row for each
-            # decision recorded rather than one for each row of the table: a
-            # riichi is two decisions from the one position, and the reading
-            # of the hands is trained on both.
-            held.append(truth[index][record_slots].copy())
-            began = clock()
-        else:
-            if recording:
-                sparse = views.sparse(index, deciding[index])
-                timing["encode"] += clock() - began
+        if len(index):
+            if hasattr(net, "decide"):
+                # A learner in an action space of its own (see
+                # `mortal_learner`): it answers the table in ours and records
+                # its decisions itself, possibly more than one per row, and
+                # keeps its own account of the time.
+                picked, records = net.decide(views, index, deciding[index], mask[index], greedy)
+                choice[index] = picked
+                observations.append(records.planes)
+                legal_masks.append(records.masks)
+                record_actions = records.actions
+                record_log_probs = records.log_probs
+                record_slots = records.slots
+                # What the three opponents were really holding, one row for each
+                # decision recorded rather than one for each row of the table: a
+                # riichi is two decisions from the one position, and the reading
+                # of the hands is trained on both.
+                held.append(truth[index][record_slots].copy())
                 began = clock()
-                batch_planes = sparse.dense(device)
             else:
-                sparse = None
-                batch_planes = views.dense(net.kind, index, deciding[index], device)
-            batch_mask = torch.from_numpy(mask[index]).to(device)
-            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
-                logits, _value, guessed = net.everything(batch_planes, batch_mask)
-            logits = logits.float()
-            distribution = torch.distributions.Categorical(logits=logits)
-            # What the network believes the opponents hold, so the engine
-            # can imagine one world per game from it: the reader's
-            # negatives, the hands the proposal deals that were not the
-            # real ones.
-            beliefs = np.zeros((games, HANDS), dtype=np.float32)
-            beliefs[index] = (
-                torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
-            )
-            proposed = np.frombuffer(imagine(arena, beliefs), dtype=np.float32)
-            proposed = proposed.reshape(games, HIDDEN_HANDS_PLANES, POSITIONS)
-            chosen = logits.argmax(dim=1) if greedy else distribution.sample()
-            chosen_log_prob = distribution.log_prob(chosen)
-            record_actions = chosen.cpu().numpy()
-            record_log_probs = chosen_log_prob.cpu().numpy()
-            record_slots = np.arange(len(index))
-            choice[index] = record_actions
+                if recording:
+                    sparse = views.sparse(index, deciding[index])
+                    timing["encode"] += clock() - began
+                    began = clock()
+                    batch_planes = sparse.dense(device)
+                else:
+                    sparse = None
+                    batch_planes = views.dense(net.kind, index, deciding[index], device)
+                batch_mask = torch.from_numpy(mask[index]).to(device)
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
+                    logits, _value, guessed = net.everything(batch_planes, batch_mask)
+                logits = logits.float()
+                distribution = torch.distributions.Categorical(logits=logits)
+                # What the network believes the opponents hold, so the engine
+                # can imagine one world per game from it: the reader's
+                # negatives, the hands the proposal deals that were not the
+                # real ones.
+                beliefs = np.zeros((games, HANDS), dtype=np.float32)
+                beliefs[index] = (
+                    torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
+                )
+                proposed = np.frombuffer(imagine(arena, beliefs), dtype=np.float32)
+                proposed = proposed.reshape(games, HIDDEN_HANDS_PLANES, POSITIONS)
+                chosen = logits.argmax(dim=1) if greedy else distribution.sample()
+                chosen_log_prob = distribution.log_prob(chosen)
+                record_actions = chosen.cpu().numpy()
+                record_log_probs = chosen_log_prob.cpu().numpy()
+                record_slots = np.arange(len(index))
+                choice[index] = record_actions
 
-            # Copies, not views: a view would keep the whole step's buffer
-            # alive until the round is gathered at the end.
-            if sparse is not None:
-                observations.append(sparse)
-            legal_masks.append(mask[index].copy())
-            held.append(truth[index].copy())
-            oracle.append(hidden[index].astype(np.uint8))
-            imagined.append(proposed[index].astype(np.uint8))
-            timing["network"] += clock() - began
-            began = clock()
+                # Copies, not views: a view would keep the whole step's buffer
+                # alive until the round is gathered at the end.
+                if sparse is not None:
+                    observations.append(sparse)
+                legal_masks.append(mask[index].copy())
+                held.append(truth[index].copy())
+                oracle.append(hidden[index].astype(np.uint8))
+                imagined.append(proposed[index].astype(np.uint8))
+                timing["network"] += clock() - began
+                began = clock()
 
-        for record in range(len(record_actions)):
-            game = int(index[record_slots[record]])
-            seat = int(seats[game])
-            person = int(players[game][seat])
-            step_index = len(actions)
-            actions.append(int(record_actions[record]))
-            log_probs.append(float(record_log_probs[record]))
-            rewards.append(0.0)
-            pending[game][person].append(step_index)
-            everything[game][person].append(step_index)
+            for record in range(len(record_actions)):
+                game = int(index[record_slots[record]])
+                seat = int(seats[game])
+                person = int(players[game][seat])
+                step_index = len(actions)
+                actions.append(int(record_actions[record]))
+                log_probs.append(float(record_log_probs[record]))
+                rewards.append(0.0)
+                pending[game][person].append(step_index)
+                everything[game][person].append(step_index)
         timing["other"] += clock() - began
         began = clock()
 
@@ -325,6 +324,8 @@ def play(
                     pending[game][person] = []
         timing["engine"] += clock() - began
 
+    require_finished(arena, steps=steps, context="self-play")
+
     # A learner that decides for itself kept its own account; fold it in
     # and clear it for the next round.
     own = getattr(net, "timing", None)
@@ -336,10 +337,10 @@ def play(
     # The placement, which is what the game is actually for, reaches every
     # decision that player made.
     final_scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4)
-    places = (-final_scores).argsort(axis=1).argsort(axis=1)
+    bonuses = placement_rewards(final_scores, PLACEMENT_VALUE)
     for game in range(games):
         for person in range(4):
-            value = PLACEMENT_VALUE[int(places[game][person])]
+            value = float(bonuses[game, person])
             for step_index in everything[game][person]:
                 rewards[step_index] += value
 
@@ -368,7 +369,8 @@ def play(
 
 @torch.no_grad()
 def measure(
-    net, games: int, seed: int, device: str = "cuda", amp: bool = False
+    net, games: int, seed: int, device: str = "cuda", amp: bool = False,
+    max_steps: int = 4000,
 ) -> dict[str, float]:
     """Plays the network against three heuristic opponents.
 
@@ -389,12 +391,13 @@ def measure(
     effect makes a fixed benchmark seed produce exactly the same games as the
     historical path while the large allocations disappear.
     """
+    validate_budget(games, max_steps)
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[1, 2, 3])
     views = Views(arena, games, {net.kind})
     hands = 0
     steps = 0
-    while not arena.all_finished() and steps < 4000:
+    while not arena.all_finished() and steps < max_steps:
         steps += 1
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
         live = seats != 0xFF
@@ -434,11 +437,12 @@ def measure(
         arena.step(choice.tolist())
         hands += int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())
 
+    require_finished(arena, steps=steps, context="measurement")
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4).copy()
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
+    order = placements(scores)
     return {
         "placement": float(order[:, 0].mean()),
         "score": float(scores[:, 0].mean()),
-        "wins": float((order[:, 0] == 1).mean()),
+        "wins": float(win_shares(scores)[:, 0].mean()),
         "hands": hands,
     }

@@ -35,6 +35,8 @@ import time
 import numpy as np
 import torch
 
+from .outcomes import placements as tied_placements, require_finished, validate_budget, win_shares
+
 import riichi_py
 
 from .model import from_payload
@@ -192,6 +194,7 @@ def play(
     depth: int = 0,
     temperature: float = 0.0,
     valued_by: str = "critic",
+    max_steps: int = 4000,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -199,10 +202,11 @@ def play(
     else plays the network's first choice, so the only thing that differs
     between the two arms is whether that choice was checked.
     """
+    validate_budget(games, max_steps)
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
     steps = 0
-    while not arena.all_finished() and steps < 4000:
+    while not arena.all_finished() and steps < max_steps:
         steps += 1
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
         if not (seats != 0xFF).any():
@@ -253,13 +257,13 @@ def play(
             )
         arena.step(list(choice))
 
+    require_finished(arena, steps=steps, context="search evaluation")
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
     return scores, arena.search_tally()
 
 
 def placements(scores: np.ndarray, place: int) -> np.ndarray:
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
-    return order[:, place]
+    return tied_placements(scores)[:, place]
 
 
 def main() -> None:
@@ -359,7 +363,7 @@ def main() -> None:
                 "chair": chair,
                 "placement": float(got.mean()),
                 "score": float(scores[:, chair].mean()),
-                "wins": float((got == 1).mean()),
+                "wins": float(win_shares(scores)[:, chair].mean()),
             }
         )
         per_deal.append(got.astype(float))

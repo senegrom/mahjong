@@ -71,7 +71,11 @@ async function strongResults(page) {
     assert.ok(preferred);
     assert.equal(actual[index].played, notes[index].played);
     assert.equal(actual[index].advised, actual[index].agreed ? notes[index].played : preferred.label);
-    assert.equal(actual[index].weight, percent(answer.weights[answer.action]));
+    // Independently sum the real worker's aliases for this historical move.
+    const weight = afterReach ? answer.weights[37]
+      : answer.weights.reduce((sum, value, action) => sum
+        + (action !== 37 && translations[index][action] === chosen ? value : 0), 0);
+    assert.equal(actual[index].weight, percent(Math.min(1, weight)));
     assert.equal(actual[index].agreed, preferred.kind === notes[index].played_kind
       && (preferred.tile ?? null) === (notes[index].played_tile ?? null));
   }

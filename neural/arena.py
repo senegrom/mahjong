@@ -31,6 +31,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from .outcomes import placements as tied_placements, win_shares
+
 from .model import from_payload
 from .selfplay import play
 
@@ -39,8 +41,7 @@ SEATS = 4
 
 def placements(scores: np.ndarray, seat: int) -> np.ndarray:
     """Where the player in `seat` finished each game, from 1 to 4."""
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
-    return order[:, seat]
+    return tied_placements(scores)[:, seat]
 
 
 @torch.no_grad()
@@ -63,7 +64,7 @@ def duplicate(net, games: int, seed: int, device: str = "cuda") -> dict:
                 "seat": seat,
                 "placement": float(got.mean()),
                 "score": float(batch.final_scores[:, seat].mean()),
-                "wins": float((got == 1).mean()),
+                "wins": float(win_shares(batch.final_scores)[:, seat].mean()),
                 "hands": batch.hands,
                 # Kept for the error bar below, then dropped from the report.
                 "placements": got.astype(float),
