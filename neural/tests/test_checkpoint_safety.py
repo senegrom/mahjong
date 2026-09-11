@@ -30,7 +30,7 @@ class CheckpointSafetyTests(unittest.TestCase):
                     stream.flush()
                     if interrupt:
                         signal.raise_signal(signal.SIGINT)
-                with patch.object(checkpoints.torch, 'save', side_effect=fail):
+                with patch.object(torch, 'save', side_effect=fail):
                     with self.assertRaises(BaseException):
                         checkpoints.atomic_save(saved(2), path)
                 self.assertEqual(path.read_bytes(), before)
@@ -66,7 +66,7 @@ class CheckpointSafetyTests(unittest.TestCase):
             path = Path(folder) / 'latest.pt'
             checkpoints.atomic_save(saved(1), path)
             script = '''
-import os, sys
+import os, sys, torch
 from pathlib import Path
 from neural import checkpoints
 
@@ -74,7 +74,7 @@ def die(payload, stream):
     stream.write(b'partial')
     stream.flush()
     os._exit(19)
-checkpoints.torch.save = die
+torch.save = die
 checkpoints.atomic_save({'generation': 2}, Path(sys.argv[1]))
 '''
             result = subprocess.run([sys.executable, '-c', script, str(path)], check=False)
@@ -107,7 +107,7 @@ checkpoints.atomic_save({'generation': 2}, Path(sys.argv[1]))
             before=(target/'latest.pt').read_bytes()
             with self.assertRaisesRegex(ValueError, 'older'):
                 checkpoints.publish_training_snapshot(source, target, 11)
-            self.assertEqual(before, (target/'latest.pt').read_bytes())
+            self.assertEqual(before,(target/'latest.pt').read_bytes())
 
     def test_every_training_writer_uses_atomic_checkpoint_publication(self):
         root=Path(__file__).resolve().parents[1]

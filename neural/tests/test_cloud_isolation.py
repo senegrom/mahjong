@@ -10,6 +10,8 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -127,3 +129,17 @@ class CloudIsolationTests(unittest.TestCase):
         with self.assertRaisesRegex(OSError,'publication failed'):
             with cloud_runs.managed_process(process):raise OSError('publication failed')
         self.assertEqual(events,['terminate','wait']);self.assertTrue(process.stdout.closed)
+
+    def test_deployment_metadata_does_not_require_local_torch(self):
+        # Modal builds Torch into the remote image; its deployment client must
+        # still import the application on a machine with only the Modal SDK.
+        script = """
+import sys
+sys.modules['torch'] = None
+from neural.tests.test_cloud_isolation import controller
+module = controller()
+assert module.app is not None
+"""
+        result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True,
+                                cwd=Path(__file__).resolve().parents[2], timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)

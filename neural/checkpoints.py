@@ -14,7 +14,6 @@ import shutil
 import tempfile
 from typing import Iterator
 
-import torch
 
 
 def sync_directory(path: Path) -> None:
@@ -49,6 +48,8 @@ def validate_checkpoint(path: Path, *, require_generation: bool = False) -> int 
     CPU checks every tensor storage without allocating a second model on GPU.
     Only tensor/primitive checkpoints supported by weights_only are published.
     """
+    import torch
+
     saved = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(saved, dict) or not saved:
         raise ValueError(f"{path}: checkpoint must be a nonempty mapping")
@@ -61,6 +62,8 @@ def validate_checkpoint(path: Path, *, require_generation: bool = False) -> int 
 
 def atomic_save(payload: dict, destination: Path) -> None:
     """Serialize, flush and validate before replacing the last good checkpoint."""
+    import torch
+
     destination = Path(destination)
     with staging_file(destination) as staged:
         with staged.open("wb") as stream:
