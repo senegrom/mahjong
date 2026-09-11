@@ -867,6 +867,37 @@ impl Arena {
         )
     }
 
+    /// For every leaf the last [`Arena::leaves_from`] or
+    /// [`Arena::lookahead_leaves`] produced, whose
+    /// view it is and what its world invented, in the same slot order.
+    ///
+    /// A network that reads Mortal's planes cannot be given the engine's
+    /// observations. It is given instead the player whose state to copy —
+    /// the number the follower knows, not the seat — and the mjai lines to
+    /// advance that copy by. A slot with no lines is one nothing can value
+    /// this way: it settled, it broke, or its world dealt a new hand and
+    /// moved the seats out from under the actor numbers.
+    fn leaves_mjai(&self) -> (Vec<usize>, Vec<Vec<String>>) {
+        let mut players = Vec::new();
+        let mut lines = Vec::new();
+        for (game, seat) in self.seats.iter().enumerate() {
+            let Some((_, leaves)) = &self.pending[game] else {
+                continue;
+            };
+            let seating = seat.table.seating();
+            for (slot, viewpoint) in leaves.viewpoints.iter().enumerate() {
+                players.push(seating[viewpoint.index()]);
+                lines.push(
+                    leaves.invented[slot]
+                        .iter()
+                        .map(|event| event.to_json(seating))
+                        .collect(),
+                );
+            }
+        }
+        (players, lines)
+    }
+
     /// One imagined world per live game, from the belief's marginals, as
     /// the hidden-hand planes the reader is shown: the negatives it learns
     /// to tell from the real hands, which [`Arena::oracle`] carries. Zeros

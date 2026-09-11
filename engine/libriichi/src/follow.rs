@@ -226,28 +226,159 @@ impl Follower {
                 .collect::<Result<Vec<_>>>()
         })?;
 
-        let total: usize = rows.iter().map(|row| row.indices.len()).sum();
-        let width = rows.first().map_or(0, |row| row.mask.len());
-        let mut indptr = Vec::with_capacity(rows.len() + 1);
-        let mut indices = Vec::with_capacity(total);
-        let mut values = Vec::with_capacity(total);
-        let mut masks = Vec::with_capacity(rows.len() * width);
-        indptr.push(0_i32);
-        for row in rows {
-            indices.extend_from_slice(&row.indices);
-            values.extend_from_slice(&row.values);
-            masks.extend_from_slice(&row.mask);
-            indptr.push(indices.len() as i32);
-        }
-        let masks = Array2::from_shape_vec((indptr.len() - 1, width), masks)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        Ok((
-            PyArray1::from_vec(py, indptr),
-            PyArray1::from_vec(py, indices),
-            PyArray1::from_vec(py, values),
-            PyArray2::from_owned_array(py, masks),
-        ))
+        pack(py, rows)
     }
+}
+
+/// Many imagined continuations of one real table, each carrying its own
+/// copy of a player's state.
+///
+/// A search deals worlds it cannot see and plays them forward, and wants
+/// Mortal's view of every position it reaches. Replaying each from the deal
+/// would cost more than the search, and is unnecessary: a continuation
+/// starts from a position the follower already holds, so the state is
+/// cloned and only the events the continuation invented are applied to the
+/// copy. Nothing here touches the real table.
+#[pyclass]
+pub struct Imagined {
+    states: Vec<PlayerState>,
+    version: u32,
+}
+
+#[pymethods]
+impl Imagined {
+    /// One state per slot, each copied from the real player named by its
+    /// `(game, player)` pair. The same real player may be named by any
+    /// number of slots; each gets its own copy.
+    #[staticmethod]
+    #[pyo3(signature = (follower, who, version = 4))]
+    fn from_follower(follower: &Follower, who: Vec<(usize, usize)>, version: u32) -> PyResult<Self> {
+        let mut states = Vec::with_capacity(who.len());
+        for (game, player) in who {
+            if game >= follower.tables.len() || player >= 4 {
+                return Err(PyValueError::new_err(format!(
+                    "no player {player} in game {game}"
+                )));
+            }
+            states.push(follower.tables[game].states[player].clone());
+        }
+        Ok(Self { states, version })
+    }
+
+    fn __len__(&self) -> usize {
+        self.states.len()
+    }
+
+    /// The observation's shape, `(planes, 34)`.
+    fn shape(&self) -> (usize, usize) {
+        obs_shape(self.version)
+    }
+
+    /// Feeds each slot the events its own continuation invented, one list
+    /// of JSON lines per slot in the order they happened. Slots are read in
+    /// parallel; a slot whose line its state refuses is reported by index,
+    /// because a search that has drifted from the rules must be found, not
+    /// quietly valued.
+    fn feed(&mut self, py: Python<'_>, lines: Vec<Vec<String>>) -> PyResult<()> {
+        if lines.len() != self.states.len() {
+            return Err(PyValueError::new_err(format!(
+                "{} lists of events for {} slots",
+                lines.len(),
+                self.states.len()
+            )));
+        }
+        let states = &mut self.states;
+        py.allow_threads(|| {
+            states
+                .par_iter_mut()
+                .zip(lines.par_iter())
+                .enumerate()
+                .try_for_each(|(slot, (state, lines))| -> Result<()> {
+                    for line in lines {
+                        let event: Event = serde_json::from_str(line)
+                            .with_context(|| format!("slot {slot}: bad mjai line: {line}"))?;
+                        state
+                            .update(&event)
+                            .with_context(|| format!("slot {slot} rejected: {line}"))?;
+                    }
+                    Ok(())
+                })
+        })?;
+        Ok(())
+    }
+
+    /// Every slot's observation, in slot order, kept sparse in the same
+    /// layout [`Follower::encode`] uses.
+    #[allow(clippy::type_complexity)]
+    fn encode<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<(
+        Bound<'py, PyArray1<i32>>,
+        Bound<'py, PyArray1<u16>>,
+        Bound<'py, PyArray1<f32>>,
+        Bound<'py, PyArray2<bool>>,
+    )> {
+        let version = self.version;
+        let rows: Vec<Sparse> = py.allow_threads(|| {
+            self.states
+                .par_iter()
+                .map(|state| {
+                    let (obs, mask) = state.encode_obs(version, false);
+                    let mut indices = Vec::with_capacity(2048);
+                    let mut values = Vec::with_capacity(2048);
+                    for (index, &value) in obs.iter().enumerate() {
+                        if value != 0. {
+                            indices.push(index as u16);
+                            values.push(value);
+                        }
+                    }
+                    Sparse {
+                        indices,
+                        values,
+                        mask: mask.to_vec(),
+                    }
+                })
+                .collect()
+        });
+        pack(py, rows)
+    }
+}
+
+/// The sparse batch as Python reads it: `indptr` of length rows plus one,
+/// the flat `indices` and `values` between consecutive entries, and the
+/// rows' masks, dense.
+#[allow(clippy::type_complexity)]
+fn pack<'py>(
+    py: Python<'py>,
+    rows: Vec<Sparse>,
+) -> PyResult<(
+    Bound<'py, PyArray1<i32>>,
+    Bound<'py, PyArray1<u16>>,
+    Bound<'py, PyArray1<f32>>,
+    Bound<'py, PyArray2<bool>>,
+)> {
+    let total: usize = rows.iter().map(|row| row.indices.len()).sum();
+    let width = rows.first().map_or(0, |row| row.mask.len());
+    let mut indptr = Vec::with_capacity(rows.len() + 1);
+    let mut indices = Vec::with_capacity(total);
+    let mut values = Vec::with_capacity(total);
+    let mut masks = Vec::with_capacity(rows.len() * width);
+    indptr.push(0_i32);
+    for row in rows {
+        indices.extend_from_slice(&row.indices);
+        values.extend_from_slice(&row.values);
+        masks.extend_from_slice(&row.mask);
+        indptr.push(indices.len() as i32);
+    }
+    let masks = Array2::from_shape_vec((indptr.len() - 1, width), masks)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    Ok((
+        PyArray1::from_vec(py, indptr),
+        PyArray1::from_vec(py, indices),
+        PyArray1::from_vec(py, values),
+        PyArray2::from_owned_array(py, masks),
+    ))
 }
 
 pub(crate) fn register_module(
@@ -257,5 +388,6 @@ pub(crate) fn register_module(
 ) -> PyResult<()> {
     let m = PyModule::new(py, "follow")?;
     m.add_class::<Follower>()?;
+    m.add_class::<Imagined>()?;
     add_submodule(py, prefix, super_mod, &m)
 }

@@ -688,6 +688,57 @@ def arena(
 @app.function(
     gpu="L40S",
     cpu=16.0,
+    memory=65536,
+    timeout=6 * 60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def searched(
+    which: str = "latest",
+    games: int = 120,
+    worlds: int = 16,
+    candidates: int = 4,
+    margin: float = 2.0,
+    run: str = DEFAULT_RUN,
+) -> str:
+    """Whether one ply of search beats the policy that supplies it.
+
+    Its own container, and a large one: the search clones a hand per
+    candidate per world per game and plays each of them forward, which is
+    tens of gigabytes of short-lived state and far more than a desk shared
+    with a browser has to spare.
+
+    The arm without search is not played. All four seats are the same
+    network, so their placements sum to ten on every deal and average to
+    exactly 2.5; the searching arm is measured against that.
+    """
+    volume.reload()
+    source = _checkpoint(run, which)
+    if not source.exists():
+        return f"no checkpoint at {source}"
+    local = Path("/scratch/searched")
+    local.mkdir(parents=True, exist_ok=True)
+    copied = local / (which.replace("/", "--") + ".pt")
+    shutil.copyfile(source, copied)
+    print(f"{which}.pt generation {_generation_of(copied)}", flush=True)
+
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "neural.search_test", str(copied),
+            str(games), str(worlds), str(candidates), str(margin),
+        ],
+        cwd="/src",
+        env=_environment(),
+        capture_output=True,
+        text=True,
+    )
+    answer = (result.stdout or "") + (result.stderr or "")
+    print(answer, flush=True)
+    return answer
+
+
+@app.function(
+    gpu="L40S",
+    cpu=16.0,
     memory=32768,
     timeout=3 * 60 * 60,
     volumes={str(VOLUME): volume},
