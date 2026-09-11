@@ -38,7 +38,7 @@ import torch
 import riichi_py
 
 from . import worlds as worlds_module
-from .model import from_payload
+from . import zoo
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -365,8 +365,12 @@ def main() -> None:
     parser.add_argument("--blocks", type=int, default=20)
     args = parser.parse_args()
 
-    state = torch.load(args.checkpoint, map_location=args.device, weights_only=True)
-    net = from_payload(state, args.device, args.channels, args.blocks)
+    # Loaded the way every other path loads a checkpoint, so a combined
+    # one arrives whole rather than as whichever backbone `from_payload`
+    # could rebuild, and then refused outright if this search cannot serve
+    # the planes it reads.
+    net = zoo.load_player(args.checkpoint, args.device, args.channels, args.blocks)
+    worlds_module.assert_searchable(net, args.checkpoint)
 
     per_chair = []
     per_deal = []

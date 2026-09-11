@@ -111,3 +111,38 @@ def resample(scores: np.ndarray, keep: int, rng: np.random.Generator) -> Chosen:
         efficiency=efficiency,
         distinct=len(set(picked)),
     )
+
+
+def assert_searchable(net, checkpoint="the checkpoint") -> None:
+    """Refuses a network the engine's lookahead cannot actually serve.
+
+    The lookahead observes the worlds it imagines with `encoding::observe`,
+    which is our engine's ninety-seven planes, and it names moves in our
+    engine's seventy-eight actions. A network of the current lineage reads
+    Mortal's thousand and twelve and answers in Mortal's forty-six.
+
+    That mismatch used to pass in silence. `from_payload` rebuilds a
+    `PolicyValueNet` from a checkpoint's `model` entry and nothing else, so
+    handing it a combined checkpoint loaded one backbone out of the two and
+    searched a player that was never trained — no error, no warning, and a
+    placement figure at the end that looked like a measurement.
+
+    A refusal here is not a limitation to work around by padding inputs or
+    changing a plane count. It is the statement that this search cannot
+    evaluate this network, which is true until the lookahead can build the
+    planes the network reads for every position it reaches, root and
+    continuation alike.
+    """
+    import riichi_py
+
+    kind = getattr(net, "kind", "engine")
+    planes = getattr(net, "planes", None)
+    planes = planes() if callable(planes) else planes
+    if kind != "engine" or (planes is not None and planes != riichi_py.PLANES):
+        raise SystemExit(
+            f"{checkpoint} reads {planes if planes is not None else kind!r} and this "
+            f"search builds {riichi_py.PLANES} of our engine's planes for every world it "
+            "imagines. It cannot be searched here. Use a network of the engine's own "
+            "lineage, or give the lookahead a way to build this one's planes for the "
+            "positions it reaches; see neural/search_test.py for that bridge."
+        )

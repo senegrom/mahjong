@@ -121,5 +121,37 @@ class DegenerateInputFailsSafely(unittest.TestCase):
         self.assertEqual(chosen.weights, [0.1] * 10)
 
 
+
+class UnsupportedCheckpointsAreRefused(unittest.TestCase):
+    """The mismatch that used to pass in silence."""
+
+    def test_a_mortal_plane_network_is_refused(self):
+        from neural.worlds import assert_searchable
+
+        class Fusion:
+            kind = "mortal"
+
+            def planes(self):
+                return 1012
+
+        with self.assertRaises(SystemExit) as caught:
+            assert_searchable(Fusion(), "leashed-run/latest.pt")
+        self.assertIn("cannot be searched here", str(caught.exception))
+        self.assertIn("leashed-run/latest.pt", str(caught.exception))
+
+    def test_an_engine_plane_network_is_allowed(self):
+        import riichi_py
+
+        from neural.worlds import assert_searchable
+
+        class Ours:
+            kind = "engine"
+
+            def planes(self):
+                return riichi_py.PLANES
+
+        assert_searchable(Ours())  # does not raise
+
+
 if __name__ == "__main__":
     unittest.main()
