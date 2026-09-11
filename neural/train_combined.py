@@ -24,6 +24,10 @@ from torch import nn
 from . import combined, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
+from .checkpoint import atomic_save
+from .training_safety import (
+    TRAINING_API_VERSION, minibatch_indices, require_training_engine, validate_training_options,
+)
 from .training_state import capture_random_state, restore_random_state
 
 SMOOTHING = 1 / 3
@@ -84,6 +88,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_training_options(args)
+    require_training_engine()
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     amp_enabled = args.amp and device == "cuda"
@@ -120,7 +126,7 @@ def main() -> None:
     if args.leash > 0:
         kept = args.out / "reference.pt"
         if not kept.exists():
-            torch.save(net.state(), kept)
+            atomic_save(net.state(), kept)
             print(f"kept the starting policy at {kept}", flush=True)
         reference, _reference_state = combined.load(kept, device)
         reference.eval()
@@ -168,6 +174,8 @@ def main() -> None:
         except (ValueError, RuntimeError) as error:
             print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
 
+    net.reset_legacy_belief_optimizer_state(optimiser)
+
     if args.compile:
         # Deciding, with the batch's size left symbolic; the learning
         # forward compiles per mode, three graphs in all.
@@ -202,11 +210,19 @@ def main() -> None:
             **net.state(),
             "learner": "combined",
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             "smoothed": smoothed,
             "best_placement": best_placement,
             "optimizer_state": optimiser.state_dict(),
             "random_state": capture_random_state(drawer),
         }
+
+    # Old evaluation scores used a different environment/RNG contract.
+    # Carry model/optimizer weights, but remeasure rather than compare stale best scores.
+    if start and payload.get("training_api_version") != TRAINING_API_VERSION:
+        smoothed = None
+        best_placement = float("inf")
+        print("environment contract changed: reset benchmark history; remeasure checkpoints", flush=True)
 
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
@@ -258,8 +274,8 @@ def main() -> None:
                 guess[chunk] = value.float()[:rows]
         value_error = float(((returns - guess) ** 2).mean())
         advantages = returns - guess
-        advantage_spread = float(advantages.std())
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+        advantage_spread = float(advantages.std(unbiased=False))
+        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-6)
 
         net.train()
         zero = lambda: torch.zeros((), device=device)
@@ -268,13 +284,7 @@ def main() -> None:
         total_leash, total_hands, total_covered = zero(), zero(), zero()
         steps = 0
         for _epoch in range(args.epochs):
-            order = torch.randperm(batch.decisions)
-            slices = [
-                order[start_index : start_index + args.batch]
-                for start_index in range(0, batch.decisions, args.batch)
-            ]
-            # Whole minibatches only, so the compiled step sees one shape.
-            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
+            slices = minibatch_indices(batch.decisions, args.batch, compiled=args.compile)
 
             def prepare(drawn: torch.Tensor):
                 return drawn.to(device), observations.rows(drawn.numpy()).dense(device)
@@ -334,7 +344,7 @@ def main() -> None:
                     loss = loss + args.leash * leash
                 loss.backward()
                 grad_norm = nn.utils.clip_grad_norm_(
-                    [p for p in net.parameters() if p.requires_grad], 1.0
+                    [p for p in net.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
                 )
                 optimiser.step()
                 with torch.no_grad():
@@ -371,12 +381,14 @@ def main() -> None:
         denom = max(steps, 1)
         record = {
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             "fixed": fixed,
             "head_shift": round(head_shift, 4),
             "on_fusion": round(weights[0], 4),
             "on_mortal": round(weights[1], 4),
             "on_ours": round(weights[2], 4),
             "decisions": batch.decisions,
+            "optimizer_steps": steps,
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),
@@ -386,7 +398,7 @@ def main() -> None:
             "policy_loss": round(float(total_policy / denom), 4),
             "value_loss": round(float(total_value / denom), 4),
             "value_error": round(value_error, 4),
-            "return_variance": round(float(returns.var()), 4),
+            "return_variance": round(float(returns.var(unbiased=False)), 4),
             "advantage_spread": round(advantage_spread, 4),
             "entropy": round(float(total_entropy / denom), 4),
             "leash_kl": round(float(total_leash / denom), 5),
@@ -427,13 +439,12 @@ def main() -> None:
         if measured is not None:
             payload["placement"] = measured["placement"]
         if is_best:
-            torch.save(payload, args.out / "best.pt")
-        torch.save(payload, args.out / "latest.pt")
+            atomic_save(payload, args.out / "best.pt")
+        atomic_save(payload, args.out / "latest.pt")
         print(json.dumps(record), flush=True)
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    torch.save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

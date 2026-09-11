@@ -40,6 +40,7 @@ from .outcomes import placements as tied_placements, require_finished, validate_
 import riichi_py
 
 from .model import from_payload
+from .training_safety import require_training_engine, require_legacy_search, require_search_payload
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -124,6 +125,7 @@ def search_with_value_head(
     moves are its best (zero) or sampled. `valued_by` names the head that
     judges the leaves.
     """
+    require_legacy_search(net)
     games = len(ranked)
     hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
     total = sum(counts)
@@ -203,6 +205,8 @@ def play(
     between the two arms is whether that choice was checked.
     """
     validate_budget(games, max_steps)
+    require_training_engine()
+    require_legacy_search(net)
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
     steps = 0
@@ -326,6 +330,7 @@ def main() -> None:
     args = parser.parse_args()
 
     state = torch.load(args.checkpoint, map_location=args.device, weights_only=True)
+    require_search_payload(state)
     net = from_payload(state, args.device, args.channels, args.blocks)
 
     per_chair = []

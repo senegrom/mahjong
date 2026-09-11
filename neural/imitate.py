@@ -32,6 +32,8 @@ import numpy as np
 import torch
 from torch import nn
 
+from .checkpoint import atomic_save
+
 import riichi_py
 
 from . import selfplay, zoo
@@ -396,7 +398,7 @@ def main() -> None:
                     "win_rate": round(against["wins"], 3),
                 }
             )
-            torch.save(
+            atomic_save(
                 {"model": net.state_dict(), "generation": 0, **net.payload_fields()},
                 args.out / "latest.pt",
             )
@@ -404,7 +406,7 @@ def main() -> None:
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    torch.save(
+    atomic_save(
         {"model": net.state_dict(), "generation": 0, **net.payload_fields()},
         args.out / "latest.pt",
     )

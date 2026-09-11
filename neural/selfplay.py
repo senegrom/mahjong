@@ -21,6 +21,8 @@ import torch
 
 import riichi_py
 
+from .training_safety import require_training_engine
+
 from . import zoo
 from .observe import Planes, Views
 from .outcomes import placement_rewards, placements, require_finished, validate_budget, win_shares
@@ -140,6 +142,7 @@ def play(
     fixed weak ones. With no opponents given, every path below is the one
     that ran before.
     """
+    require_training_engine()
     validate_budget(games, max_steps)
     net.eval()
     for other in opponents or []:
@@ -386,12 +389,10 @@ def evaluate_games(
 
     This is a score-only loop rather than `play(..., greedy=True)`: it does
     not fetch oracle/truth labels, construct rewards, or retain a round-sized
-    training batch. It deliberately still asks the belief head for one
-    imagined world per decision. `Arena::imagined_hands` advances the same
-    per-table RNG that later deals the next hand, so keeping that one side
-    effect makes a fixed benchmark seed produce exactly the same games as the
-    historical path while the large allocations disappear.
+    training batch. Imagined worlds use an independent native RNG, so
+    benchmarking has no need to generate unused hidden-hand proposals.
     """
+    require_training_engine()
     validate_budget(games, max_steps)
     if isinstance(place, bool) or not isinstance(place, (int, np.integer)) or not 0 <= place < 4:
         raise ValueError("place must be a player index from 0 to 3")
@@ -431,15 +432,6 @@ def evaluate_games(
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
             logits, _value, guessed = net.everything(batch_planes, batch_mask)
         logits = logits.float()
-
-        # Preserve the old evaluator's RNG consumption exactly. The imagined
-        # hands themselves are not needed for scoring, so they are discarded
-        # immediately rather than retained with every decision.
-        beliefs = np.zeros((games, HANDS), dtype=np.float32)
-        beliefs[index] = (
-            torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
-        )
-        imagine(arena, beliefs)
 
         choice[index] = logits.argmax(dim=1).cpu().numpy()
         arena.step(choice.tolist())

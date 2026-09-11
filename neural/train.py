@@ -30,6 +30,10 @@ from torch import nn
 from . import selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
+from .checkpoint import atomic_save
+from .training_safety import (
+    TRAINING_API_VERSION, minibatch_indices, require_training_engine, validate_training_options,
+)
 from .model import (
     DEFAULT_BLOCKS,
     DEFAULT_CHANNELS,
@@ -169,6 +173,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_training_options(args)
+    require_training_engine()
     # The environment runs on this thread and the network on the GPU, so a
     # couple of worker threads is plenty and leaves the machine usable.
     torch.set_num_threads(2)
@@ -217,6 +223,8 @@ def main() -> None:
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     else:
         net = PolicyValueNet(args.channels, args.blocks).to(device)
+    if net.actions != selfplay.ACTIONS:
+        raise SystemExit("neural.train requires the 78-action learner; use the appropriate Mortal-space trainer")
     if net.kind != "mortal":
         raise SystemExit("training needs a network that sees Mortal's planes")
 
@@ -344,6 +352,7 @@ def main() -> None:
             "model": net.state_dict(),
             "optimizer": optimiser.state_dict(),
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             **net.payload_fields(),
             "smoothed": smoothed,
             "best_placement": best_placement,
@@ -398,6 +407,13 @@ def main() -> None:
     # names below are cleared before the next round is played, so the
     # machine carries one round rather than two.
     batch = observations = oracle = imagined = on_card = None
+    # Old evaluation scores used a different environment/RNG contract.
+    # Carry model/optimizer weights, but remeasure rather than compare stale best scores.
+    if start and resume_payload.get("training_api_version") != TRAINING_API_VERSION:
+        smoothed = None
+        best_placement = float("inf")
+        print("environment contract changed: reset benchmark history; remeasure checkpoints", flush=True)
+
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
@@ -496,7 +512,7 @@ def main() -> None:
         distil_weight = args.distil_weight if oracle_better else 0.0
         advantages = normalised - baseline
         advantage_mean = advantages.mean()
-        advantage_std = advantages.std()
+        advantage_std = advantages.std(unbiased=False)
         advantage_spread = float(advantage_std)
         advantages = (advantages - advantage_mean) / (advantage_std + 1e-6)
 
@@ -532,16 +548,7 @@ def main() -> None:
             # there too. The old GPU permutation had to copy every minibatch
             # of indices back to the CPU before the observations could be
             # gathered, forcing one device synchronisation per step.
-            order = torch.randperm(batch.decisions)
-            slices = [
-                order[start_index : start_index + args.batch]
-                for start_index in range(0, batch.decisions, args.batch)
-            ]
-            # Whole minibatches only: the compiled step is built for one
-            # shape, and a remainder of a new size each generation had it
-            # rebuilt now and then, minutes each time. The few thousand rows
-            # left over differ every epoch.
-            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
+            slices = minibatch_indices(batch.decisions, args.batch, compiled=args.compile)
 
             def prepare(drawn: torch.Tensor):
                 # Sparse on the host, dense float32 on the card: the
@@ -632,7 +639,7 @@ def main() -> None:
                 )
 
                 loss.backward()
-                grad_norm = nn.utils.clip_grad_norm_(trainable, 1.0)
+                grad_norm = nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
                 optimiser.step()
 
                 with torch.no_grad():
@@ -700,7 +707,7 @@ def main() -> None:
                     + args.reader_weight * reader_loss
                 )
                 loss.backward()
-                nn.utils.clip_grad_norm_(trainable, 1.0)
+                nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
                 optimiser.step()
                 with torch.no_grad():
                     replay_critic += critic_loss
@@ -716,7 +723,9 @@ def main() -> None:
         confidence_total = (sure_count + likely_count + unlikely_count).clamp(min=1)
         record = {
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             "decisions": batch.decisions,
+            "optimizer_steps": steps,
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),
@@ -762,7 +771,7 @@ def main() -> None:
             "reader_right": round(float(total_read_right / denom), 4),
             # What a constant guess would score, so the two losses above
             # read as how much of the return each head explains.
-            "return_variance": round(float(returns.var()), 4),
+            "return_variance": round(float(returns.var(unbiased=False)), 4),
             "entropy": round(float(total_entropy / denom), 4),
             "hands_loss": round(float(total_hands / denom), 4),
             "hands_read": round(float(total_covered / denom), 4),
@@ -815,13 +824,13 @@ def main() -> None:
         if measured is not None:
             payload["placement"] = measured["placement"]
         if is_best:
-            torch.save(payload, args.out / "best.pt")
+            atomic_save(payload, args.out / "best.pt")
 
         # Saved every generation, not only when measured, so that a restart
         # loses one generation at most rather than every one since the last
         # measurement.
         phase = time.time()
-        torch.save(payload, args.out / "latest.pt")
+        atomic_save(payload, args.out / "latest.pt")
         if time.time() - phase > 30:
             print(f"saving the checkpoint took {time.time() - phase:.0f}s", flush=True)
 
@@ -829,10 +838,6 @@ def main() -> None:
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    # The same fields the per-generation save writes. This one used to drop
-    # the smoothed placement and the best it had reached, so every restart
-    # began judging from nothing however carefully they were carried.
-    torch.save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

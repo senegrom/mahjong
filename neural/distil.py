@@ -28,10 +28,14 @@ import numpy as np
 import torch
 from torch import nn
 
+from .checkpoint import atomic_save
+
 import riichi_py
 
 from .model import from_payload
+from .training_safety import require_training_engine, require_legacy_search, require_search_payload
 from .selfplay import measure
+from .outcomes import require_finished, validate_budget
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -60,6 +64,7 @@ def search_with_value_head(
     unless another beats it by `margin` standard errors of the weighted
     world-by-world difference.
     """
+    require_legacy_search(net)
     games = len(ranked)
     hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
     total = sum(counts)
@@ -111,6 +116,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=200)
     parser.add_argument("--games", type=int, default=24, help="tables per round")
+    parser.add_argument("--max-steps", type=int, default=4000)
     parser.add_argument("--worlds", type=int, default=200)
     parser.add_argument("--candidates", type=int, default=4)
     parser.add_argument("--margin", type=float, default=2.0)
@@ -142,7 +148,11 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
     searching seat would, and the play the positions come from is the play
     the network will actually meet.
     """
+    require_training_engine()
+    require_legacy_search(net)
     net.eval()
+    max_steps = getattr(args, 'max_steps', 4000)
+    validate_budget(args.games, max_steps)
     arena = riichi_py.Arena(games=args.games, seed=seed, bot_places=[])
     observations: list[np.ndarray] = []
     masks: list[np.ndarray] = []
@@ -150,7 +160,7 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
     held: list[np.ndarray] = []
     proposed: list[int] = []
 
-    for _step in range(4000):
+    for _step in range(max_steps):
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
         live = seats != 0xFF
         if not live.any():
@@ -195,6 +205,7 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
 
         arena.step(list(chosen))
 
+    require_finished(arena, steps=_step + 1, context='search distillation')
     return (
         np.stack(observations),
         np.stack(masks),
@@ -212,6 +223,7 @@ def main() -> None:
     log_path = args.out / "log.jsonl"
 
     payload = torch.load(args.resume, map_location=device, weights_only=True)
+    require_search_payload(payload)
     net = from_payload(payload, device, args.channels, args.blocks)
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
     print(
@@ -277,7 +289,7 @@ def main() -> None:
         }
 
         if (round_index + 1) % args.measure_every == 0 or round_index == 0:
-            against = measure(net, games=args.measure_games, seed=9_000 + round_index)
+            against = measure(net, games=args.measure_games, seed=9_000 + round_index, device=device)
             record.update(
                 {
                     "placement": round(against["placement"], 3),
@@ -298,10 +310,10 @@ def main() -> None:
                 "blocks": net.blocks,
                 "placement": against["placement"],
             }
-            torch.save(saved, args.out / "latest.pt")
+            atomic_save(saved, args.out / "latest.pt")
             if smoothed < best_placement:
                 best_placement = smoothed
-                torch.save(saved, args.out / "best.pt")
+                atomic_save(saved, args.out / "best.pt")
                 record["best"] = True
 
         print(json.dumps(record), flush=True)
