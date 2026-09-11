@@ -109,7 +109,7 @@ async function open(saved=initial, {width=1100,height=850,dark=false,confirm=fal
     await page.setRequestInterception(true);
     page.on('request',request=>{
       if(request.url().includes('/assets/policy.worker-')) {
-        const text=mock.sharedCall ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[73]?73:d.mask.findIndex(Boolean)});'
+        const text=mock.sharedCall ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[38]?38:d.mask.findIndex(Boolean)});'
           : mock.delay ? `self.onmessage=({data:d})=>setTimeout(()=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)}),${mock.delay});`
           : mock.fail ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,error:"Simulated network failure"});'
           : 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)});';
@@ -125,9 +125,23 @@ const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_
 const ui=page=>page.evaluate(()=>({failure:document.querySelector('.failure')?.textContent ?? '',selected:document.querySelectorAll('.hand .selected').length,opponents:document.querySelector('select').value}));
 async function shot(page,name) { await page.screenshot({path:resolve(output,`${name}.png`),fullPage:true}); }
 function noErrors(page) { assert.deepEqual(problems.get(page),[]); }
-async function check(name,fn) {
-  try { await fn(); results.push({name,passed:true}); console.log(`PASS ${name}`); }
-  catch(error) { results.push({name,passed:false,error:error.stack}); console.error(`FAIL ${name}\n${error.stack}`); }
+async function check(name, fn) {
+  const failures = [];
+  try { await fn(); } catch (error) { failures.push(error); }
+  // A test may share several tabs, but no context should survive into the next
+  // test with its WASM engine, workers and service workers still running.
+  const closed = await Promise.allSettled(contexts.splice(0).map(async context => context.close()));
+  for (const result of closed) {
+    if (result.status === 'rejected') failures.push(result.reason);
+  }
+  if (failures.length) {
+    const error = failures.map(failure => failure?.stack ?? String(failure)).join('\n');
+    results.push({ name, passed: false, error });
+    console.error(`FAIL ${name}\n${error}`);
+  } else {
+    results.push({ name, passed: true });
+    console.log(`PASS ${name}`);
+  }
 }
 function contrast(a,b) {
   const luminance=s=>s.match(/[\d.]+/g).slice(0,3).map(Number).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
@@ -295,7 +309,7 @@ try {
   });
   await check('human Pass in the browser still lets the trained opponent claim Chii',async()=>{
     const page=await open(sharedCallSave,{mock:{sharedCall:true}});await page.click('[data-choice=pass]');
-    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.some(c=>c.type==='opponent'&&c.action===73),{},SAVE_KEY);
+    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.some(c=>c.type==='opponent'&&c.action===38),{},SAVE_KEY);
     const snapshot=await saved(page);assert.ok(snapshot.commands.some(c=>c.type==='choose'&&c.kind==='pass'));
     const south=JSON.parse(snapshot.state)[0].seats.find(s=>s.seat==='south');
     assert.ok(south.melds.some(m=>m.kind==='chii'&&m.claimed_tile==='2m'));noErrors(page);

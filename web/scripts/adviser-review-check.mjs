@@ -1,4 +1,4 @@
-/** Review a restored hand with the actual production UI and Strong worker. */
+/** Review a restored hand with the actual production UI and trained worker. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
@@ -8,13 +8,14 @@ import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
+import { MODEL_FILES } from '../src/lib/model-package.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
-const strongShipped = existsSync(resolve(dist, 'model-strong.onnx'));
+const trainedShipped = existsSync(resolve(dist, MODEL_FILES.full));
 const match = new MatchSession(Game, 1, 'club');
-let snapshot, notes, first, choices;
+let snapshot, notes, first, choices, translations, reachTranslations;
 try {
   match.advance(false);
   for (let n = 0; n < 250 && match.view.phase !== 'over'; n++) {
@@ -25,8 +26,12 @@ try {
   assert.equal(match.view.phase, 'over');
   snapshot = match.snapshot(); notes = match.engine.review();
   assert.ok(notes.length > 1);
-  first = { planes: Array.from(match.engine.review_observation(0)), mask: Array.from(match.engine.review_mask(0)) };
+  first = { planes: Array.from(match.engine.review_observation_mortal(0)), mask: Array.from(match.engine.review_mask_mortal(0)) };
   choices = notes.map((_, index) => match.engine.review_choices(index));
+  translations = notes.map((_, index) => Array.from({ length: 46 }, (_, action) =>
+    match.engine.review_action_from_mortal(index, action, false)));
+  reachTranslations = notes.map((_, index) => Array.from({ length: 34 }, (_, action) =>
+    match.engine.review_action_from_mortal(index, action, true)));
 } finally { match.dispose(); }
 
 const server = createServer(createFixtureHandler({ root: dist, publicRoot: dist }));
@@ -54,9 +59,15 @@ async function strongResults(page) {
     agreed: el.classList.contains('agreed'),
   })));
   const inference = await page.evaluate(() => window.reviewAnswers);
-  assert.equal(inference.length, notes.length, 'one real Strong answer per historical decision');
+  let cursor = 0;
   for (let index = 0; index < notes.length; index++) {
-    const answer = inference[index], preferred = choices[index].find(c => c.index === answer.action);
+    const answer = inference[cursor++];
+    assert.ok(answer, 'each historical decision needs a real trained answer');
+    const afterReach = answer.action === 37;
+    const action = afterReach ? inference[cursor++]?.action : answer.action;
+    assert.ok(Number.isInteger(action), 'a reach must also answer which tile is discarded');
+    const chosen = (afterReach ? reachTranslations : translations)[index][action];
+    const preferred = choices[index].find(c => c.index === chosen);
     assert.ok(preferred);
     assert.equal(actual[index].played, notes[index].played);
     assert.equal(actual[index].advised, actual[index].agreed ? notes[index].played : preferred.label);
@@ -64,10 +75,11 @@ async function strongResults(page) {
     assert.equal(actual[index].agreed, preferred.kind === notes[index].played_kind
       && (preferred.tile ?? null) === (notes[index].played_tile ?? null));
   }
+  assert.equal(cursor, inference.length, 'no extra or missing review answers');
   assert.equal(await page.$('.review .numbers'), null);
   const requests = await page.evaluate(() => window.reviewRequests);
-  assert.equal(requests.length, notes.length);
-  assert.ok(requests.every(request => request.url.endsWith('/model-strong.onnx')));
+  assert.equal(requests.length, cursor);
+  assert.ok(requests.every(request => request.url.endsWith(`/${MODEL_FILES.full}`)));
   assert.deepEqual({ planes: requests[0].planes, mask: requests[0].mask }, first);
   assert.deepEqual(await saved(page), snapshot);
 }
@@ -79,7 +91,7 @@ try {
   assert.ok(executablePath, 'Set CHROME_BIN to Chrome/Chromium');
   browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const context = await browser.createBrowserContext();
-  const name = 'Club and Strong review: real percentages, retry, cached results and remembered choice on mobile';
+  const name = 'Club and Trained AI review: real percentages, retry, cached results and remembered choice on mobile';
   try {
     const page = await context.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -88,7 +100,7 @@ try {
     await page.evaluateOnNewDocument((saveKey, settingsKey, initial) => {
       if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(initial));
       if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify({
-        version: 1, difficulty: 'club', trainedModel: 'quick', reviewAdviser: 'club', hints: true,
+        version: 1, difficulty: 'club', trainedModel: 'full', reviewAdviser: 'club', hints: true,
       }));
       window.reviewRequests = []; window.reviewAnswers = [];
       const NativeWorker = window.Worker;
@@ -121,7 +133,7 @@ try {
     assert.equal(await page.$eval(select, el => el.value), 'club');
     assert.match(await page.$eval('.review .summary', el => el.textContent), /matched Club/);
     if (notes.some(note => !note.agreed)) assert.ok(await page.$('.review .numbers'));
-    if (strongShipped) {
+    if (trainedShipped) {
       await page.waitForFunction(() => !document.querySelector('select[aria-label="Review adviser"] option[value="strong"]').disabled);
       await page.select(select, 'strong');
       await page.waitForSelector('.review .retry', { timeout: 90000 });
@@ -135,7 +147,8 @@ try {
       await page.select(select, 'strong');
       await strongResults(page); // No additional worker requests for a cached hand.
       const preferences = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SETTINGS_KEY);
-      assert.equal(preferences.reviewAdviser, 'strong'); assert.equal(preferences.trainedModel, 'quick');
+      assert.equal(preferences.reviewAdviser, 'strong'); assert.equal(preferences.difficulty, 'club');
+      assert.equal(Object.hasOwn(preferences, 'trainedModel'), false, 'retired network preferences are no longer persisted');
       await page.setViewport({ width: 360, height: 800, hasTouch: true });
       await page.reload({ waitUntil: 'networkidle0' });
       await openReview(page);

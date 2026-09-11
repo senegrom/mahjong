@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, untrack } from 'svelte';
   import { PhysicalAnalysis, settle_physical } from '../wasm/riichi.js';
-  import { AGENTS, WINDS, evaluateAgent, isTrained } from './agents.js';
+  import { AGENTS, WINDS, evaluateAgent, isTrained, supportsTrainedAgent, TRAINED_HISTORY_REQUIRED } from './agents.js';
   import { TILES } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, setTiles } from './guided-game.js';
@@ -15,6 +15,7 @@
   import GuidedResult from './GuidedResult.svelte';
 
   let { ready, trainedAvailable, storage, hints = true } = $props();
+  const trainedSupported = supportsTrainedAgent(PhysicalAnalysis.prototype);
   let game = $state(emptyGuided());
   let state = $derived(game.state);
   let position = $derived(state.position);
@@ -82,7 +83,7 @@
     catch (error) { failure = error.message ?? String(error); return false; }
   }
   async function analyze(key = decisionKey()) {
-    if (blocked || state.stage !== 'decision') return;
+    if (blocked || state.stage !== 'decision' || (isTrained(state.agent) && !trainedSupported)) return;
     request?.abort();
     const owner = new AbortController(); request = owner;
     const p = JSON.parse(JSON.stringify(position)), agent = state.agent;
@@ -135,9 +136,14 @@
     <div class="guide-meta">
       <span>{WINDS[position.round]} {position.kyoku} · You: {WINDS[position.seat]} · {mine.score?.toLocaleString()} points</span>
       <label>Adviser<select aria-label="Guided game adviser" value={state.agent} onchange={e => edit(s => { s.agent = e.currentTarget.value; })}>
-        {#each Object.entries(AGENTS) as [key, name] (key)}{#if !isTrained(key) || trainedAvailable || state.agent === key}<option value={key}>{name}</option>{/if}{/each}
+        {#each Object.entries(AGENTS) as [key, name] (key)}{#if !isTrained(key) || trainedAvailable || state.agent === key}<option value={key} disabled={isTrained(key) && (!trainedSupported || !trainedAvailable)}>{name}</option>{/if}{/each}
       </select></label>
     </div>
+    {#if !trainedSupported}
+      <p class="adviser-availability" role="status">{TRAINED_HISTORY_REQUIRED}
+        {#if isTrained(state.agent)}Your saved adviser is unavailable; select Beginner or Club to continue. Your saved position is unchanged.{/if}
+      </p>
+    {/if}
     {#if !['setup', 'hand', 'dora'].includes(state.stage)}
       <div class="your-hand" aria-label="Your guided hand">
         <div class="hand-caption"><strong>Your hand</strong><span>{mine.riichi !== 'none' ? 'Riichi · ' : ''}{mine.furiten ? 'Passed win · furiten · ' : ''}{position.wall} live tiles left</span></div>

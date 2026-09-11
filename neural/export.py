@@ -70,6 +70,10 @@ def quantise(source: Path, destination: Path) -> None:
 
     quantize_dynamic(
         str(source), str(destination), weight_type=QuantType.QInt8,
+        # U8S8 kernels on AVX2/non-VNNI AVX512 saturate pairwise products
+        # to int16. Seven-bit weights keep 2 * 255 * 64 within that range.
+        # Keep the same browser operators and the strict check_runs guard.
+        reduce_range=True,
         extra_options={"DefaultTensorType": onnx.TensorProto.FLOAT},
     )
     model = onnx.load(str(destination))
