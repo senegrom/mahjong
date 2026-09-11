@@ -204,29 +204,38 @@ def main() -> None:
     # A member that is missing is dropped from the roster rather than
     # skipped silently at seating time, so the shares still add up and the
     # log says who was actually available.
-    roster = population.Population(
-        members=[
-            member
-            for member in population.Population.around(
-                champion=args.champion, recent=args.recent, older=args.older
-            ).members
-            if Path(member.name).exists()
-        ]
-    )
-    missing = [
-        member.name
-        for member in population.Population.around(
-            champion=args.champion, recent=args.recent, older=args.older
-        ).members
-        if not Path(member.name).exists()
+    #
+    # Checkpoints named with `--opponents` still seat: a launcher that
+    # copies them to local files and passes the paths is how every run has
+    # started one, and quietly seating nobody because the roster wanted
+    # different flags would be a silent loss of the whole population.
+    wanted = [
+        (Path(path), member)
+        for path, member in zip(
+            args.opponents, population.Population.from_paths(args.opponents).members
+        )
     ]
-    for name in missing:
-        print(f"no opponent at {name}, left out of the roster", flush=True)
-    seated = []
-    for member in roster.members:
-        other = zoo.load_player(member.name, device, compile=args.compile)
+    for name in (args.champion, *args.recent, *args.older):
+        if name:
+            role = (
+                "champion" if name == args.champion
+                else "recent" if name in args.recent
+                else "older"
+            )
+            weight = {"champion": 3.0, "recent": 1.0, "older": 0.5}[role]
+            wanted.append(
+                (Path(name), population.Member(str(name), role, f"named as {role}", weight))
+            )
+    seated, members = [], []
+    for path, member in wanted:
+        if not path.exists():
+            print(f"no opponent at {path}, left out of the roster", flush=True)
+            continue
+        other = zoo.load_player(path, device, compile=args.compile)
         other.eval()
         seated.append(other)
+        members.append(member)
+    roster = population.Population(members=members)
     if seated:
         print(
             f"{len(seated)} others seated in {args.opponent_share:.0%} of games: "

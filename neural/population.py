@@ -40,6 +40,7 @@ has specialised, and one averaged number would hide it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -119,6 +120,29 @@ class Population:
         for name in older or []:
             members.append(Member(name, "older", "an older checkpoint of this lineage", 0.5))
         members.extend(references)
+        return cls(members=members)
+
+    @classmethod
+    def from_paths(cls, paths) -> Population:
+        """A roster from checkpoints named on a command line.
+
+        Launchers copy a checkpoint to a local file and pass that path, so
+        `mortal-run/latest` arrives as `.../mortal-run--latest.pt`. The
+        original name is recovered from it, which is what lets a member
+        keep the role and the note it has in `REFERENCES` instead of
+        becoming an anonymous entry that the log cannot explain.
+        """
+        known = {member.name: member for member in REFERENCES}
+        members = []
+        for path in paths:
+            stem = Path(str(path)).stem
+            name = stem.replace("--", "/")
+            member = known.get(name)
+            members.append(
+                member
+                if member is not None
+                else Member(name, "recent", "a checkpoint named on the command line", 1.0)
+            )
         return cls(members=members)
 
     def names(self) -> list[str]:

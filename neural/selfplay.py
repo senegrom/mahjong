@@ -210,6 +210,7 @@ def play(
     opponent_share: float = 0.0,
     population=None,
     explore_share: float = 0.0,
+    want_oracle: bool = False,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -390,10 +391,15 @@ def play(
             # riichi is two decisions from the one position, and the reading
             # of the hands is trained on both.
             held.append(truth[index][record_slots].copy())
-            # The oracle's planes on this path too. The fusion decides
-            # through here, so without them its oracle critic sees nothing
-            # at all and cannot be trained or even measured.
-            oracle.append(hidden[index][record_slots].astype(np.uint8))
+            # The oracle's planes on this path too, when somebody is going
+            # to read them. The fusion decides through here, so without
+            # them its oracle critic sees nothing at all and cannot be
+            # trained or even measured -- but nothing trains it yet, and
+            # they are about a kilobyte a decision, which is most of a
+            # gigabyte on a large round. Collected on request rather than
+            # by default.
+            if want_oracle:
+                oracle.append(hidden[index][record_slots].astype(np.uint8))
             wandered.append(getattr(records, "forced", np.zeros(len(record_slots), dtype=bool)))
             began = clock()
         else:
