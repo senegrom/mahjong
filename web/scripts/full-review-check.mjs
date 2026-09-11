@@ -48,7 +48,24 @@ const final=(()=>{
  finally{m.dispose();}
 })();
 const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_KEY);
-async function check(name,test){try{await test();results.push({name,passed:true});console.log(`PASS ${name}`);}catch(error){results.push({name,passed:false,error:error.stack});console.error(`FAIL ${name}\n${error.stack}`);}}
+async function check(name, fn) {
+  const failures = [];
+  try { await fn(); } catch (error) { failures.push(error); }
+  // A test may share several tabs, but no context should survive into the next
+  // test with its WASM engine, workers and service workers still running.
+  const closed = await Promise.allSettled(contexts.splice(0).map(async context => context.close()));
+  for (const result of closed) {
+    if (result.status === 'rejected') failures.push(result.reason);
+  }
+  if (failures.length) {
+    const error = failures.map(failure => failure?.stack ?? String(failure)).join('\n');
+    results.push({ name, passed: false, error });
+    console.error(`FAIL ${name}\n${error}`);
+  } else {
+    results.push({ name, passed: true });
+    console.log(`PASS ${name}`);
+  }
+}
 async function open(snapshot,{width=1100,height=900,confirm=false,hints=true}={}){
  const context=await browser.createBrowserContext();contexts.push(context);const page=await context.newPage();page.reviewErrors=[];
  page.on('pageerror',error=>page.reviewErrors.push(error.message));await page.setViewport({width,height});
