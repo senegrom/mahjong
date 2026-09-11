@@ -22,6 +22,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from . import checkpoint
 from . import combined, population, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
@@ -143,7 +144,7 @@ def main() -> None:
     if args.leash > 0:
         kept = args.out / "reference.pt"
         if not kept.exists():
-            torch.save(net.state(), kept)
+            checkpoint.publish(net.state(), kept)
             print(f"kept the starting policy at {kept}", flush=True)
         reference, _reference_state = combined.load(kept, device)
         reference.eval()
@@ -185,6 +186,32 @@ def main() -> None:
     if optimiser_state is not None:
         try:
             optimiser.load_state_dict(optimiser_state)
+            # A parameter whose shape has changed carries moments of the
+            # old shape, and AdamW will not say so until it steps: it fails
+            # with a complaint about dtype and layout, a generation's work
+            # after the thing that was wrong. The reader's output layer
+            # changed shape when it was made able to name a tile, so the
+            # moments are checked here against the parameters they belong
+            # to and any that no longer fit are started fresh.
+            stale = []
+            for group in optimiser.param_groups:
+                for parameter in group["params"]:
+                    kept = optimiser.state.get(parameter)
+                    if not kept:
+                        continue
+                    for name in ("exp_avg", "exp_avg_sq"):
+                        moment = kept.get(name)
+                        if moment is not None and moment.shape != parameter.shape:
+                            stale.append(parameter)
+                            break
+            for parameter in stale:
+                optimiser.state.pop(parameter, None)
+            if stale:
+                print(
+                    f"{len(stale)} parameters changed shape; their AdamW moments "
+                    "start again",
+                    flush=True,
+                )
             for group, lr in zip(optimiser.param_groups, (args.lr, args.lr_ours, args.lr_mortal)):
                 group["lr"] = lr
             print("restored AdamW state", flush=True)
@@ -504,14 +531,14 @@ def main() -> None:
             # checkpoint forward, not a finding that it is stronger.
             # `neural.promote` decides that, by sitting it opposite the
             # champion; nothing here may write `champion.pt`.
-            torch.save(payload, args.out / "candidate.pt")
-            torch.save(payload, args.out / "best.pt")
-        torch.save(payload, args.out / "latest.pt")
+            checkpoint.publish(payload, args.out / "candidate.pt")
+            checkpoint.publish(payload, args.out / "best.pt")
+        checkpoint.publish(payload, args.out / "latest.pt")
         print(json.dumps(record), flush=True)
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    torch.save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
+    checkpoint.publish(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

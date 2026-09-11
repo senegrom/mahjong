@@ -70,7 +70,10 @@ class Fuse(nn.Module):
         # exactly as our network did and is never worse for the change.
         self.value_fix = nn.Sequential(nn.Linear(phi, 256), nn.ReLU(), nn.Linear(256, 1))
         self.hands_fix = nn.Sequential(nn.Linear(phi, width), nn.ReLU())
-        self.hands_out = nn.Conv1d(width, OPPONENTS, 1)
+        # One number per opponent per tile, read straight off Mortal's
+        # vector. See `read_hands` for why it cannot be a convolution over
+        # a spread one.
+        self.hands_out = nn.Linear(width, OPPONENTS * POSITIONS)
         # F1 starts silent, not absent: its last layers are zero, so it
         # adds nothing to the first move played, while its weight below is
         # small and not zero, so a gradient reaches F2 from the first step.
@@ -108,11 +111,31 @@ class Fuse(nn.Module):
         return value + self.value_fix(phi.detach()).squeeze(1)
 
     def read_hands(self, phi: torch.Tensor, guessed: torch.Tensor) -> torch.Tensor:
-        """What the three opponents are holding, likewise: our network's
-        reading, corrected by Mortal's vector spread over the tiles, and
-        likewise without training it."""
-        spread = self.hands_fix(phi.detach()).unsqueeze(2).expand(-1, -1, guessed.shape[2])
-        return guessed + self.hands_out(spread)
+        """What the three opponents are holding: our network's reading,
+        corrected by Mortal's vector, and likewise without training it.
+
+        The correction has to differ from tile to tile or it cannot exist.
+        A reading is a distribution over the thirty-four tiles, so adding
+        the same number to every logit leaves the softmax exactly where it
+        was. The first version of this spread Mortal's vector evenly across
+        the tiles and put it through a one-by-one convolution, which gives
+        every tile the same number and therefore does nothing at all:
+        measured with real weights it moved a logit by 244 and a
+        probability by 9e-16, and the gradient reaching it was 2e-15.
+        Parameters that could not be trained, and could not have changed an
+        answer if they had been.
+
+        Putting the base reading in beside the spread vector is not enough
+        either — it lets the correction vary by tile, but only through what
+        our own network already said, so Mortal's vector still only sets a
+        constant and still cannot name a tile.
+
+        So Mortal's vector is read straight into one number per opponent
+        per tile. That is the only shape of correction a distribution
+        admits, and it is the one this was always supposed to be.
+        """
+        correction = self.hands_out(self.hands_fix(phi.detach()))
+        return guessed + correction.reshape(guessed.shape)
 
     def hidden(self, phi: torch.Tensor, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """F2, per tile and pooled, from Mortal's vector and our features."""
@@ -386,7 +409,25 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
     # everything it had and starts those at nothing, which is where they
     # begin anyway: the fusion then judges and reads as our network does
     # and learns from there.
-    net.fuse.load_state_dict(state["combined"], strict=False)
+    #
+    # A weight whose shape has changed is dropped rather than refused. The
+    # reader's output layer grew an input for the base reading, because
+    # without it the correction was the same number on every tile and a
+    # distribution cannot see that. Its old weights meant nothing — they
+    # could not move an answer — so there is nothing to migrate, and
+    # starting them at zero leaves the fusion reading exactly as our own
+    # network does, which is where it began.
+    carried = net.fuse.state_dict()
+    saved = state["combined"]
+    fits = {
+        name: value
+        for name, value in saved.items()
+        if name in carried and carried[name].shape == value.shape
+    }
+    dropped = sorted(set(saved) - set(fits))
+    if dropped:
+        print(f"fusion weights not carried over, shape changed: {dropped}", flush=True)
+    net.fuse.load_state_dict(fits, strict=False)
     return net, state
 
 

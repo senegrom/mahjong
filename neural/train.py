@@ -27,6 +27,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from . import checkpoint
 from . import selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
@@ -825,13 +826,13 @@ def main() -> None:
         if measured is not None:
             payload["placement"] = measured["placement"]
         if is_best:
-            torch.save(payload, args.out / "best.pt")
+            checkpoint.publish(payload, args.out / "best.pt")
 
         # Saved every generation, not only when measured, so that a restart
         # loses one generation at most rather than every one since the last
         # measurement.
         phase = time.time()
-        torch.save(payload, args.out / "latest.pt")
+        checkpoint.publish(payload, args.out / "latest.pt")
         if time.time() - phase > 30:
             print(f"saving the checkpoint took {time.time() - phase:.0f}s", flush=True)
 
@@ -842,7 +843,7 @@ def main() -> None:
     # The same fields the per-generation save writes. This one used to drop
     # the smoothed placement and the best it had reached, so every restart
     # began judging from nothing however carefully they were carried.
-    torch.save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
+    checkpoint.publish(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 
