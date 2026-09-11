@@ -144,6 +144,7 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
     """
     net.eval()
     arena = riichi_py.Arena(games=args.games, seed=seed, bot_places=[])
+    arena.strict = True
     observations: list[np.ndarray] = []
     masks: list[np.ndarray] = []
     labels: list[int] = []

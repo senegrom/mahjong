@@ -201,6 +201,7 @@ def play(
     """
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
+    arena.strict = True
     steps = 0
     while not arena.all_finished() and steps < 4000:
         steps += 1

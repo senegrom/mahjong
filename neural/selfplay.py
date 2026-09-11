@@ -47,6 +47,29 @@ HAND_SCALE = 1.0 / 4000.0
 # the game.
 PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 
+#: What the network is being asked to maximise, named and numbered.
+#:
+#: The target is a hybrid and should be read as one rather than as final
+#: placement with a detail attached:
+#:
+#:     z = (points the decision's hand moved) / 4000  +  placement bonus
+#:
+#: The first term is credited only within the hand it belongs to; the
+#: second reaches every decision that player made in the game. So a hand
+#: worth four thousand points weighs as much in the target as a whole place
+#: at the table. That is a deliberate choice — it gives a decision
+#: something to learn from long before the game ends — but it means
+#: training and evaluation are not measuring the same thing: `neural.duel`
+#: and `measure` report placement alone.
+#:
+#: The number is here so that a checkpoint records which objective it was
+#: trained against. A saved round carries it, and a trainer must refuse a
+#: round from a different one rather than mix two objectives in one replay:
+#: the returns would not be on one scale and nothing would say so.
+#:
+#: 1 — hand points over four thousand, plus the placement bonus.
+REWARD_VERSION = 1
+
 
 @dataclass
 class Batch:
@@ -81,6 +104,9 @@ class Batch:
     decisions: int
     final_scores: np.ndarray
     hand_results: list[int] = field(default_factory=list)
+    #: Which objective `returns` was built against, so a trainer can refuse
+    #: a round that was not built against the one it is learning.
+    reward_version: int = REWARD_VERSION
     #: Where the round's wall time went, in seconds by part: the engine
     #: and the follower, the encoder, the network, the seated others, and
     #: the bookkeeping. For finding what to make faster.
@@ -143,6 +169,7 @@ def play(
     for other in opponents or []:
         other.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=bot_places or [])
+    arena.strict = True
     kinds = {net.kind} | {other.kind for other in opponents or []}
     views = Views(arena, games, kinds)
     recording = net.kind == "mortal"
@@ -183,6 +210,32 @@ def play(
     if isinstance(own, dict):
         for name in own:
             own[name] = 0.0
+    def settle() -> int:
+        """Pays every hand that ended on the step just taken, and says how
+        many did.
+
+        Called after every `arena.step`, including the steps on which only
+        foreign opponents decided. A hand can end on any of them, the
+        engine forgets that it ended as soon as the next step is taken, and
+        the decisions waiting on it are the learner's whoever made the last
+        move. Missing one does not only lose that reward: the entries stay
+        pending and are paid by the hand after, which credits a decision
+        with points from a hand it was not part of.
+        """
+        ended = np.frombuffer(arena.hand_ended(), dtype=np.uint8)
+        if not ended.any():
+            return 0
+        results = np.frombuffer(arena.hand_result(), dtype=np.int32).reshape(games, 4)
+        counted = 0
+        for game in np.nonzero(ended)[0]:
+            counted += 1
+            for person in range(4):
+                value = float(results[game][person]) * HAND_SCALE
+                for step_index in pending[game][person]:
+                    rewards[step_index] += value
+                pending[game][person] = []
+        return counted
+
     while not arena.all_finished() and steps < max_steps:
         steps += 1
         began = clock()
@@ -235,6 +288,10 @@ def play(
         began = clock()
         if not len(index):
             arena.step(their_choice.tolist())
+            # A step nobody recorded a decision on can still end a hand,
+            # and the decisions waiting on that hand are owed its points
+            # exactly as much as if the learner had made the last move.
+            hands += settle()
             timing["engine"] += clock() - began
             continue
         choice = their_choice.copy()
@@ -312,17 +369,7 @@ def play(
         began = clock()
 
         arena.step(choice.tolist())
-
-        ended = np.frombuffer(arena.hand_ended(), dtype=np.uint8)
-        if ended.any():
-            results = np.frombuffer(arena.hand_result(), dtype=np.int32).reshape(games, 4)
-            for game in np.nonzero(ended)[0]:
-                hands += 1
-                for person in range(4):
-                    value = float(results[game][person]) * HAND_SCALE
-                    for step_index in pending[game][person]:
-                        rewards[step_index] += value
-                    pending[game][person] = []
+        hands += settle()
         timing["engine"] += clock() - began
 
     # A learner that decides for itself kept its own account; fold it in
@@ -332,6 +379,46 @@ def play(
         for name, value in own.items():
             timing[name] = timing.get(name, 0.0) + value
             own[name] = 0.0
+
+    # A round that ran out of steps has games still in progress, and their
+    # final scores are whatever the table happened to hold when the clock
+    # stopped. Turning those into placements labels an unfinished game as a
+    # finished one and teaches the network from it. The limit is a guard
+    # against a hand that will not end, not a budget to be spent, so
+    # reaching it is a fault to be reported rather than worked around.
+    if not arena.all_finished():
+        unfinished = int((np.frombuffer(arena.seats(), dtype=np.uint8) != 0xFF).sum())
+        raise RuntimeError(
+            f"self-play stopped after {steps} steps with {unfinished} of {games} games "
+            "unfinished; their placements would be invented, so the round is refused"
+        )
+
+    # Every game is over, so every hand ended, so every decision waiting on
+    # a hand was paid by it and nothing can still be waiting. An entry left
+    # here is the sign of a hand whose ending was not noticed: it would have
+    # gone unpaid and then been paid by the hand after, crediting a decision
+    # with points from a hand it took no part in. The check is cheap and the
+    # fault is silent, which is exactly when to keep one.
+    stranded = sum(len(pending[game][person]) for game in range(games) for person in range(4))
+    if stranded:
+        raise RuntimeError(
+            f"{stranded} decisions were still waiting on a hand that had already ended; "
+            "a hand's end was missed and its points would have been credited to the wrong hand"
+        )
+
+    # The engine counted the hands too, and it cannot miss one. If the two
+    # counts differ then an ending went by unnoticed, and the decisions
+    # waiting on that hand were paid by the hand after it — credited with
+    # points from a hand they took no part in. Nothing else shows it: the
+    # decisions are paid, once each, by the wrong hand, and every total
+    # still adds up.
+    truly = int(np.asarray(arena.hands_done(), dtype=np.int64).sum())
+    if truly != hands:
+        raise RuntimeError(
+            f"the engine finished {truly} hands and the collector noticed {hands}; "
+            f"{truly - hands} endings went by unseen, so their points reached the "
+            "decisions of the hand that followed"
+        )
 
     # The placement, which is what the game is actually for, reaches every
     # decision that player made.
@@ -383,14 +470,18 @@ def measure(
 
     This is a score-only loop rather than `play(..., greedy=True)`: it does
     not fetch oracle/truth labels, construct rewards, or retain a round-sized
-    training batch. It deliberately still asks the belief head for one
-    imagined world per decision. `Arena::imagined_hands` advances the same
-    per-table RNG that later deals the next hand, so keeping that one side
-    effect makes a fixed benchmark seed produce exactly the same games as the
-    historical path while the large allocations disappear.
+    training batch.
+
+    It used to ask the belief head for an imagined world it had no use for,
+    because imagining one consumed the generator that deals the next hand
+    and dropping the call would have changed the games. The two streams are
+    separate now, so the call is gone. A benchmark seed therefore deals
+    different games here than it did before that separation, and figures
+    from either side of it are not comparable.
     """
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[1, 2, 3])
+    arena.strict = True
     views = Views(arena, games, {net.kind})
     hands = 0
     steps = 0
@@ -418,21 +509,22 @@ def measure(
         batch_planes = views.dense(net.kind, index, deciding, device)
         batch_mask = torch.from_numpy(mask[index]).to(device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
-            logits, _value, guessed = net.everything(batch_planes, batch_mask)
+            logits, _value, _guessed = net.everything(batch_planes, batch_mask)
         logits = logits.float()
-
-        # Preserve the old evaluator's RNG consumption exactly. The imagined
-        # hands themselves are not needed for scoring, so they are discarded
-        # immediately rather than retained with every decision.
-        beliefs = np.zeros((games, HANDS), dtype=np.float32)
-        beliefs[index] = (
-            torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
-        )
-        imagine(arena, beliefs)
 
         choice[index] = logits.argmax(dim=1).cpu().numpy()
         arena.step(choice.tolist())
         hands += int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())
+
+    # Final scores only mean something once the games are over; a run that
+    # stopped on the step limit would have the network judged on tables
+    # frozen mid-hand. See the same guard in `play`.
+    if not arena.all_finished():
+        unfinished = int((np.frombuffer(arena.seats(), dtype=np.uint8) != 0xFF).sum())
+        raise RuntimeError(
+            f"the measurement stopped after {steps} steps with {unfinished} of {games} games "
+            "unfinished; the result would not be a result, so it is refused"
+        )
 
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4).copy()
     order = (-scores).argsort(axis=1).argsort(axis=1) + 1

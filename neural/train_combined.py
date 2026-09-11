@@ -268,6 +268,18 @@ def main() -> None:
             ]
             # Whole minibatches only, so the compiled step sees one shape.
             slices = [drawn for drawn in slices if drawn.numel() == args.batch]
+            if not slices:
+                # Every minibatch was a remainder, so this epoch would
+                # train on nothing. A round smaller than one batch used to
+                # pass through here in silence: the generation was written,
+                # the checkpoint saved, the process exited nought, and not a
+                # weight had moved. A smoke test that proves only that the
+                # script runs is worse than no smoke test.
+                raise RuntimeError(
+                    f"a round of {batch.decisions} decisions makes no whole minibatch of "
+                    f"{args.batch}; nothing would be learned from it. Lower --batch or "
+                    "raise --games."
+                )
 
             def prepare(drawn: torch.Tensor):
                 return drawn.to(device), observations.rows(drawn.numpy()).dense(device)
@@ -387,6 +399,7 @@ def main() -> None:
             "hands_covered": round(float(total_covered / denom), 4),
             "clipped": round(float(total_clipped / denom), 3),
             "approx_kl": round(float(total_kl / denom), 5),
+            "optimiser_steps": steps,
             "grad_norm": round(float(total_grad / denom), 3),
             "mean_return": round(float(returns.mean()), 4),
         }

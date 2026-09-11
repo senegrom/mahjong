@@ -542,6 +542,15 @@ def main() -> None:
             # rebuilt now and then, minutes each time. The few thousand rows
             # left over differ every epoch.
             slices = [drawn for drawn in slices if drawn.numel() == args.batch]
+            if not slices:
+                # A round smaller than one batch would train on nothing at
+                # all, write its generation, save its checkpoint and exit
+                # nought. Say so instead.
+                raise RuntimeError(
+                    f"a round of {batch.decisions} decisions makes no whole minibatch of "
+                    f"{args.batch}; nothing would be learned from it. Lower --batch or "
+                    "raise --games."
+                )
 
             def prepare(drawn: torch.Tensor):
                 # Sparse on the host, dense float32 on the card: the
@@ -768,6 +777,7 @@ def main() -> None:
             "hands_read": round(float(total_covered / denom), 4),
             "clipped": round(float(total_clipped / denom), 3),
             "approx_kl": round(float(total_kl / denom), 5),
+            "optimiser_steps": steps,
             "grad_norm": round(float(total_grad_norm / denom), 3),
             "mean_return": round(float(returns.mean()), 4),
         }
