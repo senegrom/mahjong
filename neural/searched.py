@@ -37,6 +37,7 @@ import torch
 
 import riichi_py
 
+from . import worlds as worlds_module
 from .model import from_payload
 
 PLANES = riichi_py.PLANES
@@ -99,6 +100,7 @@ def search_with_value_head(
     depth=0,
     temperature=0.0,
     valued_by="critic",
+    health=None,
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -123,6 +125,12 @@ def search_with_value_head(
     judges the leaves.
     """
     games = len(ranked)
+    # A stream of its own for choosing worlds, so which ones are drawn does
+    # not depend on, or disturb, anything else. The seed moves with the
+    # position so two identical calls agree and successive ones do not.
+    seed_for_worlds = 0x51ED ^ (len(ranked) * 1_000_003) ^ int(sum(map(len, ranked)))
+    efficiency: list[float] = []
+    distinct: list[int] = []
     hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
     total = sum(counts)
     kept = [[] for _ in range(games)]
@@ -141,16 +149,22 @@ def search_with_value_head(
             shown = torch.from_numpy(hands[rows]).to(device)
             plausible[rows] = net.read_plausibility(position, shown).float().cpu().numpy()
         offset = 0
+        # Drawn in proportion to the reader's weights rather than taken from
+        # the top of them: see `neural.worlds`. Keeping the likeliest worlds
+        # and renormalising throws away the mass below the cut, and in this
+        # game the hand that decides whether a discard was a mistake is
+        # usually the unlikely one.
+        picker = np.random.default_rng(seed_for_worlds)
         for game, count in enumerate(counts):
             if count == 0:
                 continue
             scores = plausible[offset : offset + count]
             offset += count
-            order = np.argsort(-scores)[:worlds]
-            top = scores[order]
-            weight = np.exp(top - top.max())
-            kept[game] = [int(index) for index in order]
-            weights[game] = [float(value) for value in weight / weight.sum()]
+            chosen = worlds_module.resample(scores, worlds, picker)
+            kept[game] = chosen.kept
+            weights[game] = chosen.weights
+            efficiency.append(chosen.efficiency)
+            distinct.append(chosen.distinct)
     if played_by == "network":
         arena.lookahead_begin(ranked, kept, weights, candidates=candidates, depth=depth)
         play_lookahead(net, arena, device=device, temperature=temperature)
@@ -173,6 +187,13 @@ def search_with_value_head(
         valued[start : start + step] = (
             net.value_only(chunk, head=valued_by).float().cpu().numpy()
         )
+    if health is not None and efficiency:
+        # How much of the proposal the weights actually used, and how many
+        # distinct worlds survived. An efficiency near zero means the search
+        # is running on a handful of worlds whatever `worlds` was asked for,
+        # and its margin is measuring the spread of those few.
+        health.setdefault("efficiency", []).extend(efficiency)
+        health.setdefault("distinct", []).extend(distinct)
     return arena.decide(valued.tolist(), margin, ranked)
 
 
@@ -202,6 +223,10 @@ def play(
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
     arena.strict = True
+    # How much of each proposal the reader's weights actually used. A
+    # search whose worlds all come from a handful of proposals is not
+    # searching the number of worlds it was asked for.
+    health: dict[str, list] = {}
     steps = 0
     while not arena.all_finished() and steps < 4000:
         steps += 1
@@ -251,10 +276,28 @@ def play(
                 depth=depth,
                 temperature=temperature,
                 valued_by=valued_by,
+                health=health,
             )
         arena.step(list(choice))
 
+    # The same guard as everywhere else: a run that stopped on the step
+    # limit has games still in progress, and their scores are not results.
+    if not arena.all_finished():
+        unfinished = int((np.frombuffer(arena.seats(), dtype=np.uint8) != 0xFF).sum())
+        raise RuntimeError(
+            f"the search run stopped after {steps} steps with {unfinished} of {games} "
+            "games unfinished; the result would not be a result, so it is refused"
+        )
+
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
+    if health.get("efficiency"):
+        mean = float(np.mean(health["efficiency"]))
+        print(
+            f"  worlds: the reader's weights used {mean:.1%} of each proposal on average, "
+            f"{float(np.mean(health['distinct'])):.1f} distinct worlds kept",
+            file=sys.stderr,
+            flush=True,
+        )
     return scores, arena.search_tally()
 
 

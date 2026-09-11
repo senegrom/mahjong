@@ -30,6 +30,7 @@ from torch import nn
 
 import riichi_py
 
+from . import worlds as worlds_module
 from .model import from_payload
 from .selfplay import measure
 
@@ -43,7 +44,8 @@ HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 
 @torch.no_grad()
 def search_with_value_head(
-    net, arena, ranked, belief_flat, *, worlds, candidates, margin, hurried, device="cuda", pool=4
+    net, arena, ranked, belief_flat, *, worlds, candidates, margin, hurried, device="cuda",
+    pool=4, health=None,
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -61,6 +63,12 @@ def search_with_value_head(
     world-by-world difference.
     """
     games = len(ranked)
+    # A stream of its own for choosing worlds, so which ones are drawn does
+    # not depend on, or disturb, anything else. The seed moves with the
+    # position so two identical calls agree and successive ones do not.
+    seed_for_worlds = 0x51ED ^ (len(ranked) * 1_000_003) ^ int(sum(map(len, ranked)))
+    efficiency: list[float] = []
+    distinct: list[int] = []
     hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
     total = sum(counts)
     kept = [[] for _ in range(games)]
@@ -79,16 +87,22 @@ def search_with_value_head(
             shown = torch.from_numpy(hands[rows]).to(device)
             plausible[rows] = net.read_plausibility(position, shown).float().cpu().numpy()
         offset = 0
+        # Drawn in proportion to the reader's weights rather than taken from
+        # the top of them: see `neural.worlds`. Keeping the likeliest worlds
+        # and renormalising throws away the mass below the cut, and in this
+        # game the hand that decides whether a discard was a mistake is
+        # usually the unlikely one.
+        picker = np.random.default_rng(seed_for_worlds)
         for game, count in enumerate(counts):
             if count == 0:
                 continue
             scores = plausible[offset : offset + count]
             offset += count
-            order = np.argsort(-scores)[:worlds]
-            top = scores[order]
-            weight = np.exp(top - top.max())
-            kept[game] = [int(index) for index in order]
-            weights[game] = [float(value) for value in weight / weight.sum()]
+            chosen = worlds_module.resample(scores, worlds, picker)
+            kept[game] = chosen.kept
+            weights[game] = chosen.weights
+            efficiency.append(chosen.efficiency)
+            distinct.append(chosen.distinct)
     planes_bytes, counts, _settled, _wanted = arena.leaves_from(
         ranked, kept, weights, candidates=candidates, hurried=hurried
     )
@@ -104,6 +118,13 @@ def search_with_value_head(
     for start in range(0, total, step):
         chunk = torch.from_numpy(planes[start : start + step]).to(device)
         valued[start : start + step] = net.value_only(chunk).float().cpu().numpy()
+    if health is not None and efficiency:
+        # How much of the proposal the weights actually used, and how many
+        # distinct worlds survived. An efficiency near zero means the search
+        # is running on a handful of worlds whatever `worlds` was asked for,
+        # and its margin is measuring the spread of those few.
+        health.setdefault("efficiency", []).extend(efficiency)
+        health.setdefault("distinct", []).extend(distinct)
     return arena.decide(valued.tolist(), margin, ranked)
 
 

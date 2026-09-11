@@ -433,6 +433,14 @@ def main() -> None:
         if measured is not None:
             payload["placement"] = measured["placement"]
         if is_best:
+            # `candidate.pt` is the generation the heuristic table liked
+            # best so far, and that is all it is. The bots compress real
+            # differences several-fold and this measures one seat, so
+            # being the best of these readings is a reason to put a
+            # checkpoint forward, not a finding that it is stronger.
+            # `neural.promote` decides that, by sitting it opposite the
+            # champion; nothing here may write `champion.pt`.
+            torch.save(payload, args.out / "candidate.pt")
             torch.save(payload, args.out / "best.pt")
         torch.save(payload, args.out / "latest.pt")
         print(json.dumps(record), flush=True)
