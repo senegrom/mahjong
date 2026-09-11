@@ -30,6 +30,7 @@ from torch import nn
 
 import riichi_py
 
+from . import ledger
 from . import worlds as worlds_module
 from .model import from_payload
 from .selfplay import measure
@@ -147,6 +148,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
+    parser.add_argument(
+        "--improve", type=float, default=0.5,
+        help="how much of the policy's own mass moves onto the move the "
+             "search preferred. One is the old hard label; below it the "
+             "target keeps the policy's opinion about everything the "
+             "search did not rank. This search gives one improved move per "
+             "position rather than the visit counts a tree would, so there "
+             "are no counts to use and none are invented",
+    )
+    parser.add_argument(
+        "--value-weight", type=float, default=0.5,
+        help="how hard the critic is pulled towards what the searched "
+             "games actually paid. At zero the evaluator is never "
+             "corrected against the outcomes of the play its own opinions "
+             "produced, which is what this loop was missing",
+    )
     parser.add_argument("--measure-every", type=int, default=10)
     parser.add_argument("--measure-games", type=int, default=384)
     parser.add_argument("--seed", type=int, default=4_040_404)
@@ -171,8 +188,17 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
     labels: list[int] = []
     held: list[np.ndarray] = []
     proposed: list[int] = []
+    # What each decision turned out to be worth. Without this the value
+    # head learns nothing here at all: the search picks its moves using the
+    # critic, the policy learns those picks, and the critic is never told
+    # what any of it came to. That is not a loop, it is a network agreeing
+    # with itself.
+    account = ledger.Ledger(args.games)
+    rows: list[int] = []
 
+    steps = 0
     for _step in range(4000):
+        steps += 1
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
         live = seats != 0xFF
         if not live.any():
@@ -208,14 +234,21 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
             device=device,
         )
 
+        players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(args.games, 4)
         for game in np.nonzero(live)[0]:
             observations.append(planes[game])
             masks.append(mask[game])
             labels.append(int(chosen[game]))
             held.append(truth[game])
             proposed.append(int(order[game][0]))
+            person = int(players[game][min(int(seats[game]), 3)])
+            rows.append(account.open(int(game), person))
 
         arena.step(list(chosen))
+        account.settle(arena)
+
+    ledger.refuse_if_unfinished(arena, args.games, steps, "the searched round")
+    returns = account.close(arena)
 
     return (
         np.stack(observations),
@@ -223,6 +256,7 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
         np.array(labels, dtype=np.int64),
         np.stack(held),
         np.array(proposed, dtype=np.int64),
+        returns[np.asarray(rows, dtype=np.int64)],
     )
 
 
@@ -246,7 +280,7 @@ def main() -> None:
     smoothed = None
     for round_index in range(args.rounds):
         began = time.time()
-        planes, masks, labels, truth, proposed = collect(
+        planes, masks, labels, truth, proposed, returns = collect(
             net, args, args.seed + round_index * 977, device
         )
         played = time.time() - began
@@ -254,6 +288,7 @@ def main() -> None:
         legal = torch.from_numpy(masks).to(device)
         targets = torch.from_numpy(labels).to(device)
         wanted_hands = torch.from_numpy(truth).to(device)
+        wanted_returns = torch.from_numpy(returns).to(device)
 
         # How often the search disagreed with what the network proposed. If
         # this is zero there is nothing to learn and the search is a no-op;
@@ -269,10 +304,40 @@ def main() -> None:
                 picks = order[start : start + args.batch]
                 if picks.numel() < 2:
                     continue
-                logits, _value, guessed = net.everything(
+                logits, value, guessed = net.everything(
                     observations[picks], legal[picks]
                 )
-                loss = nn.functional.cross_entropy(logits, targets[picks])
+
+                # The policy learns an improvement distribution, not a hard
+                # label. This search produces one improved move per
+                # position, not the visit counts a tree would, so there are
+                # no counts to use and inventing some would be dressing up
+                # a single answer as a vote. What is defensible is to move
+                # some of the policy's own mass onto the move the search
+                # preferred and leave the rest where it was: at
+                # `--improve` 1 that is the old hard label, and below it
+                # the target keeps the policy's opinion about everything
+                # the search did not rank.
+                with torch.no_grad():
+                    base = torch.softmax(logits.detach(), dim=1)
+                    wanted_policy = base * (1.0 - args.improve)
+                    wanted_policy.scatter_add_(
+                        1,
+                        targets[picks].unsqueeze(1),
+                        torch.full_like(targets[picks], args.improve, dtype=base.dtype)
+                        .unsqueeze(1),
+                    )
+                    wanted_policy = wanted_policy / wanted_policy.sum(dim=1, keepdim=True)
+                loss = -(wanted_policy * torch.log_softmax(logits, dim=1)).sum(dim=1).mean()
+
+                # And the critic learns what the searched games really came
+                # to. Without this the evaluator is never corrected against
+                # the outcomes of the play its own opinions produced, which
+                # is the difference between a loop and a network agreeing
+                # with itself.
+                loss = loss + args.value_weight * nn.functional.mse_loss(
+                    value, wanted_returns[picks]
+                )
 
                 # The table-reading head keeps learning here too: the label
                 # is exact and the search depends on it.
@@ -291,6 +356,17 @@ def main() -> None:
 
         record = {
             "round": round_index,
+            # What made this round, so a replay of it can be told apart
+            # from one made by another actor under other rules.
+            "actor": str(args.resume),
+            "reward_version": ledger.REWARD_VERSION,
+            "improve": args.improve,
+            "search": {
+                "worlds": args.worlds,
+                "candidates": args.candidates,
+                "margin": args.margin,
+                "hurried": bool(args.hurried),
+            },
             "positions": int(len(targets)),
             "search_changed": round(changed, 4),
             "loss": round(total_loss / max(seen, 1), 4),
