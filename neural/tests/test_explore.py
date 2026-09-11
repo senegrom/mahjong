@@ -45,14 +45,14 @@ class NothingChangesAtZero(unittest.TestCase):
         torch.manual_seed(0)
         logits = masked_logits(256, [1, 3, 5])
         mask = legal_mask(256, [1, 3, 5])
-        chosen, _ = explore(logits, mask, 0.0, np.random.default_rng(0))
+        chosen, _, _forced = explore(logits, mask, 0.0, np.random.default_rng(0))
         self.assertTrue(bool(mask.gather(1, chosen.unsqueeze(1)).all()), "an illegal move")
 
     def test_the_probability_is_the_policy_s_own_to_the_last_bit(self):
         logits = masked_logits(64, [0, 2, 7])
         mask = legal_mask(64, [0, 2, 7])
         torch.manual_seed(3)
-        chosen, recorded = explore(logits, mask, 0.0, np.random.default_rng(0))
+        chosen, recorded, _forced = explore(logits, mask, 0.0, np.random.default_rng(0))
         wanted = torch.distributions.Categorical(logits=logits).log_prob(chosen)
         self.assertTrue(torch.allclose(recorded, wanted, atol=0, rtol=0))
 
@@ -64,7 +64,7 @@ class TheRecordedProbabilityIsTheBehaviour(unittest.TestCase):
         logits = masked_logits(512, allowed)
         mask = legal_mask(512, allowed)
         torch.manual_seed(11)
-        chosen, recorded = explore(logits, mask, epsilon, np.random.default_rng(5))
+        chosen, recorded, _forced = explore(logits, mask, epsilon, np.random.default_rng(5))
 
         policy = torch.distributions.Categorical(logits=logits)
         share = torch.exp(policy.log_prob(chosen))
@@ -79,7 +79,7 @@ class TheRecordedProbabilityIsTheBehaviour(unittest.TestCase):
         logits = masked_logits(256, allowed)
         mask = legal_mask(256, allowed)
         torch.manual_seed(7)
-        _chosen, recorded = explore(logits, mask, epsilon, np.random.default_rng(1))
+        _chosen, recorded, _forced = explore(logits, mask, epsilon, np.random.default_rng(1))
         floor = math.log(epsilon / len(allowed))
         self.assertTrue(bool((recorded >= floor - 1e-6).all()))
 
@@ -96,7 +96,7 @@ class TheRecordedProbabilityIsTheBehaviour(unittest.TestCase):
         found = False
         for trial in range(200):
             torch.manual_seed(trial)
-            chosen, recorded = explore(logits, mask, epsilon, np.random.default_rng(trial))
+            chosen, recorded, _forced = explore(logits, mask, epsilon, np.random.default_rng(trial))
             if int(chosen[0]) == 1:
                 found = True
                 self.assertGreater(
@@ -113,7 +113,7 @@ class ItOnlyEverPlaysLegalMoves(unittest.TestCase):
         logits = masked_logits(1024, allowed)
         mask = legal_mask(1024, allowed)
         torch.manual_seed(2)
-        chosen, _ = explore(logits, mask, 1.0, np.random.default_rng(9))
+        chosen, _, _forced = explore(logits, mask, 1.0, np.random.default_rng(9))
         self.assertTrue(bool(mask.gather(1, chosen.unsqueeze(1)).all()))
         self.assertEqual(set(chosen.tolist()) - set(allowed), set())
 
@@ -122,7 +122,7 @@ class ItOnlyEverPlaysLegalMoves(unittest.TestCase):
         logits = masked_logits(20_000, allowed)
         mask = legal_mask(20_000, allowed)
         torch.manual_seed(4)
-        chosen, _ = explore(logits, mask, 1.0, np.random.default_rng(13))
+        chosen, _, _forced = explore(logits, mask, 1.0, np.random.default_rng(13))
         for index in allowed:
             share = float((chosen == index).float().mean())
             self.assertAlmostEqual(share, 1 / 3, delta=0.02)
@@ -131,10 +131,37 @@ class ItOnlyEverPlaysLegalMoves(unittest.TestCase):
         logits = masked_logits(32, [5])
         mask = legal_mask(32, [5])
         torch.manual_seed(1)
-        chosen, recorded = explore(logits, mask, 0.7, np.random.default_rng(0))
+        chosen, recorded, _forced = explore(logits, mask, 0.7, np.random.default_rng(0))
         self.assertTrue(bool((chosen == 5).all()))
         self.assertTrue(torch.allclose(recorded, torch.zeros_like(recorded), atol=1e-6),
                         "the only move must be recorded as certain")
+
+
+class ItSaysWhichMovesItForced(unittest.TestCase):
+    """A diagnostic has to be able to weigh the critic's error on the
+    positions a forced move led to apart from the rest, so the round must
+    remember which they were."""
+
+    def test_nothing_is_forced_at_zero(self):
+        logits = masked_logits(64, [1, 2])
+        mask = legal_mask(64, [1, 2])
+        torch.manual_seed(0)
+        _chosen, _recorded, forced = explore(logits, mask, 0.0, np.random.default_rng(0))
+        self.assertFalse(bool(forced.any()))
+
+    def test_everything_is_forced_at_one(self):
+        logits = masked_logits(64, [1, 2])
+        mask = legal_mask(64, [1, 2])
+        torch.manual_seed(0)
+        _chosen, _recorded, forced = explore(logits, mask, 1.0, np.random.default_rng(0))
+        self.assertTrue(bool(forced.all()))
+
+    def test_the_share_forced_is_the_share_asked_for(self):
+        logits = masked_logits(20_000, [1, 2, 3])
+        mask = legal_mask(20_000, [1, 2, 3])
+        torch.manual_seed(0)
+        _chosen, _recorded, forced = explore(logits, mask, 0.2, np.random.default_rng(0))
+        self.assertAlmostEqual(float(forced.float().mean()), 0.2, delta=0.02)
 
 
 class ARoundActuallyWanders(unittest.TestCase):

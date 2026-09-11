@@ -112,8 +112,8 @@ def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> t
             chosen = torch.where(forced, instead, chosen)
         share = torch.exp(distribution.log_prob(chosen))
         behaviour = (1.0 - epsilon) * share + epsilon / count.to(share.dtype)
-        return chosen, torch.log(behaviour)
-    return chosen, distribution.log_prob(chosen)
+        return chosen, torch.log(behaviour), forced
+    return chosen, distribution.log_prob(chosen), torch.zeros_like(chosen, dtype=torch.bool)
 
 
 @dataclass
@@ -152,6 +152,11 @@ class Batch:
     #: Which objective `returns` was built against, so a trainer can refuse
     #: a round that was not built against the one it is learning.
     reward_version: int = REWARD_VERSION
+    #: Which decisions were a legal move taken at random rather than the
+    #: policy's own choice. The positions that follow one are the positions
+    #: a search asks the value head about, so a diagnostic can weigh the
+    #: critic's error on them apart from the rest.
+    explored: torch.Tensor | None = None
     #: Which of the seated others took a place in each game, by index into
     #: the list given, or -1 where the learner held all four. Kept so a
     #: round can say who it played rather than only how it did on average.
@@ -262,6 +267,7 @@ def play(
     held: list[np.ndarray] = []
     oracle: list[np.ndarray] = []
     imagined: list[np.ndarray] = []
+    wandered: list[np.ndarray] = []
     actions: list[int] = []
     log_probs: list[float] = []
     rewards: list[float] = []
@@ -384,6 +390,11 @@ def play(
             # riichi is two decisions from the one position, and the reading
             # of the hands is trained on both.
             held.append(truth[index][record_slots].copy())
+            # The oracle's planes on this path too. The fusion decides
+            # through here, so without them its oracle critic sees nothing
+            # at all and cannot be trained or even measured.
+            oracle.append(hidden[index][record_slots].astype(np.uint8))
+            wandered.append(getattr(records, "forced", np.zeros(len(record_slots), dtype=bool)))
             began = clock()
         else:
             if recording:
@@ -412,12 +423,16 @@ def play(
             if greedy:
                 chosen = logits.argmax(dim=1)
                 chosen_log_prob = distribution.log_prob(chosen)
+                was_forced = torch.zeros_like(chosen, dtype=torch.bool)
             else:
-                chosen, chosen_log_prob = explore(logits, batch_mask, explore_share, wanderer)
+                chosen, chosen_log_prob, was_forced = explore(
+                    logits, batch_mask, explore_share, wanderer
+                )
             record_actions = chosen.cpu().numpy()
             record_log_probs = chosen_log_prob.cpu().numpy()
             record_slots = np.arange(len(index))
             choice[index] = record_actions
+            wandered.append(was_forced.cpu().numpy())
 
             # Copies, not views: a view would keep the whole step's buffer
             # alive until the round is gathered at the end.
@@ -534,6 +549,7 @@ def play(
         held=gather(held) if held else torch.zeros(0),
         oracle=gather(oracle) if oracle else torch.zeros(0),
         imagined=gather(imagined) if imagined else torch.zeros(0),
+        explored=gather(wandered) if wandered else None,
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,

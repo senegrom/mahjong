@@ -48,6 +48,12 @@ class Records:
     actions: np.ndarray
     log_probs: np.ndarray
     slots: np.ndarray
+    #: Which of these decisions were a legal move taken at random rather
+    #: than the policy's choice. The tile a declaration names is never
+    #: forced: exploring the reach and then the tile it throws would be two
+    #: wanderings compounded, and the first already puts the position
+    #: somewhere the policy would not have gone.
+    forced: np.ndarray | None = None
 
 
 def decide_in_mortal_space(
@@ -110,7 +116,7 @@ def decide_in_mortal_space(
         # ask it about, which are exactly the ones the policy avoids.
         from .selfplay import explore
 
-        picked, log_prob = explore(
+        picked, log_prob, was_forced = explore(
             logits,
             mask,
             explore_share,
@@ -118,6 +124,10 @@ def decide_in_mortal_space(
         )
     log_prob = log_prob.cpu().numpy()
     picked = picked.cpu().numpy()
+    if greedy:
+        was_forced = np.zeros(len(picked), dtype=bool)
+    else:
+        was_forced = was_forced.cpu().numpy()
     timing["network"] = timing.get("network", 0.0) + clock() - began
 
     choice = zoo.first_meaning(picked, legal)
@@ -127,6 +137,7 @@ def decide_in_mortal_space(
     record_actions = [picked]
     record_log_probs = [log_prob]
     record_slots = [np.arange(len(who))]
+    record_forced = [was_forced]
     second = np.nonzero(decidable & (picked == zoo.MORTAL_RIICHI))[0].tolist()
     if not decidable.all():
         keep = decidable
@@ -135,6 +146,7 @@ def decide_in_mortal_space(
         record_actions = [picked[keep]]
         record_log_probs = [log_prob[keep]]
         record_slots = [np.nonzero(keep)[0]]
+        record_forced = [was_forced[keep]]
 
     if second:
         # The reach declared ahead of the table; then the tile, from the
@@ -166,6 +178,9 @@ def decide_in_mortal_space(
         record_actions.append(tile)
         record_log_probs.append(log_prob_after)
         record_slots.append(np.array(second, dtype=np.int64))
+        # The tile a declaration throws is never a forced move; see
+        # `Records.forced`.
+        record_forced.append(np.zeros(len(second), dtype=bool))
 
     if len(record_planes) == 1:
         records = Records(
@@ -174,6 +189,7 @@ def decide_in_mortal_space(
             actions=record_actions[0].astype(np.int64),
             log_probs=record_log_probs[0].astype(np.float32),
             slots=record_slots[0].astype(np.int64),
+            forced=record_forced[0].astype(bool),
         )
     else:
         records = Records(
@@ -182,6 +198,7 @@ def decide_in_mortal_space(
             actions=np.concatenate(record_actions).astype(np.int64),
             log_probs=np.concatenate(record_log_probs).astype(np.float32),
             slots=np.concatenate(record_slots).astype(np.int64),
+            forced=np.concatenate(record_forced).astype(bool),
         )
     return choice, records
 
