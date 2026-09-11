@@ -25,6 +25,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from .checkpoints import atomic_save
+from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
 from . import selfplay, zoo
@@ -169,6 +172,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_learning(args.batch, args.epochs)
     # The environment runs on this thread and the network on the GPU, so a
     # couple of worker threads is plenty and leaves the machine usable.
     torch.set_num_threads(2)
@@ -411,6 +415,7 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
         )
+        require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
         # Each phase of the learning half is timed and said in the record:
         # a generation stalled by a near-constant five minutes now and
@@ -712,10 +717,13 @@ def main() -> None:
         # synchronisations above. Once the first scalar is read, the rest are
         # already complete.
         replay_seconds = time.time() - phase
-        denom = max(steps, 1)
+        require_updates(steps)
+        denom = steps
         confidence_total = (sure_count + likely_count + unlikely_count).clamp(min=1)
         record = {
             "generation": generation,
+            "checkpoint_generation": generation + 1,
+            "optimizer_updates": steps,
             "decisions": batch.decisions,
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
@@ -751,6 +759,7 @@ def main() -> None:
             "share_unlikely": round(float(unlikely_count / confidence_total), 3),
             # The same heads on the ring of past rounds, which is where
             # they must not learn a round by heart.
+            "replay_optimizer_updates": replay_steps,
             "replay_rounds": len(ring),
             "replay_critic_loss": round(float(replay_critic / max(replay_steps, 1)), 4),
             "replay_oracle_loss": round(float(replay_oracle / max(replay_steps, 1)), 4),
@@ -815,13 +824,13 @@ def main() -> None:
         if measured is not None:
             payload["placement"] = measured["placement"]
         if is_best:
-            torch.save(payload, args.out / "best.pt")
+            atomic_save(payload, args.out / "best.pt")
 
         # Saved every generation, not only when measured, so that a restart
         # loses one generation at most rather than every one since the last
         # measurement.
         phase = time.time()
-        torch.save(payload, args.out / "latest.pt")
+        atomic_save(payload, args.out / "latest.pt")
         if time.time() - phase > 30:
             print(f"saving the checkpoint took {time.time() - phase:.0f}s", flush=True)
 
@@ -832,7 +841,7 @@ def main() -> None:
     # The same fields the per-generation save writes. This one used to drop
     # the smoothed placement and the best it had reached, so every restart
     # began judging from nothing however carefully they were carried.
-    torch.save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
+    atomic_save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

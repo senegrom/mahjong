@@ -50,6 +50,22 @@ HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 SEATS = 4
 
 
+class UnsupportedSearchLayout(ValueError):
+    """The native hypothetical-position API cannot supply this model's inputs."""
+
+
+def require_native_search(net) -> None:
+    planes = getattr(net, "planes", PLANES)
+    actions = getattr(net, "actions", ACTIONS)
+    if planes != PLANES or actions != ACTIONS or getattr(net, "kind", "engine") != "engine":
+        raise UnsupportedSearchLayout(
+            f"Native lookahead requires {PLANES} engine planes and {ACTIONS} actions; "
+            f"got {planes} planes, {actions} actions ({getattr(net, 'kind', 'unknown')}). "
+            "Hypothetical leaves have no Mortal event history. Use neural.arena or the "
+            "network-only baseline for current checkpoints; do not pad or relabel engine planes."
+        )
+
+
 @torch.no_grad()
 def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=400):
     """Plays every decision the lookaheads are waiting on with the policy
@@ -58,6 +74,7 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=400):
     depth was asked for. Its best move at temperature zero, a sample
     otherwise. Returns how many passes of the policy it took; a slot still
     waiting after `passes` is given up on and does not count."""
+    require_native_search(net)
     taken = 0
     while taken < passes:
         planes_bytes, masks_bytes, count = arena.lookahead_owed()
@@ -124,6 +141,7 @@ def search_with_value_head(
     moves are its best (zero) or sampled. `valued_by` names the head that
     judges the leaves.
     """
+    require_native_search(net)
     games = len(ranked)
     hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
     total = sum(counts)
@@ -203,6 +221,12 @@ def play(
     between the two arms is whether that choice was checked.
     """
     validate_budget(games, max_steps)
+    if searcher is None:
+        from . import duel, zoo
+        player = zoo.MortalSpacePlayer(net, device) if getattr(net, "speaks_mortal", False) else net
+        scores = duel.table(player, player, games, seed, 0, device, max_steps=max_steps)
+        return scores, (0, 0)
+    require_native_search(net)
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
     steps = 0

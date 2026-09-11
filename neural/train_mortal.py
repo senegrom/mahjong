@@ -20,11 +20,15 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from .checkpoints import atomic_save
+from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
 from . import mortal_learner, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
+from .training_state import capture_sampling_state, restore_sampling_state
 
 SMOOTHING = 1 / 3
 
@@ -68,6 +72,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_learning(args.batch, args.epochs)
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     amp_enabled = args.amp and device == "cuda"
@@ -81,12 +86,14 @@ def main() -> None:
     best_placement = float("inf")
     smoothed = None
     optimiser_state = None
+    sampling_state = None
     if args.resume is not None and args.resume.exists():
         net, payload = mortal_learner.load(args.resume, device, args.temperature)
         start = int(payload.get("generation", 0))
         smoothed = payload.get("smoothed")
         best_placement = float(payload.get("best_placement", float("inf")))
         optimiser_state = payload.get("optimizer_state")
+        sampling_state = payload.get("sampling_state")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.mortal is not None and args.mortal.exists():
         net = mortal_learner.from_mortal(args.mortal, device, args.temperature)
@@ -132,6 +139,8 @@ def main() -> None:
         flush=True,
     )
 
+    restore_sampling_state(sampling_state, generation=start)
+
     def checkpoint_payload(generation: int) -> dict:
         return {
             **net.state(),
@@ -142,6 +151,7 @@ def main() -> None:
             "best_placement": best_placement,
             "temperature": args.temperature,
             "optimizer_state": optimiser.state_dict(),
+            "sampling_state": capture_sampling_state(),
         }
 
     end = start + args.rounds if args.rounds else args.generations
@@ -159,6 +169,7 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
         )
+        require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
         observations = batch.observations
         legal = batch.legal.to(device)
@@ -248,9 +259,12 @@ def main() -> None:
                     total_grad += grad_norm
                 steps += 1
 
-        denom = max(steps, 1)
+        require_updates(steps)
+        denom = steps
         record = {
             "generation": generation,
+            "checkpoint_generation": generation + 1,
+            "optimizer_updates": steps,
             "decisions": batch.decisions,
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
@@ -299,13 +313,13 @@ def main() -> None:
         if measured is not None:
             payload["placement"] = measured["placement"]
         if is_best:
-            torch.save(payload, args.out / "best.pt")
-        torch.save(payload, args.out / "latest.pt")
+            atomic_save(payload, args.out / "best.pt")
+        atomic_save(payload, args.out / "latest.pt")
         print(json.dumps(record), flush=True)
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    torch.save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
+    atomic_save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

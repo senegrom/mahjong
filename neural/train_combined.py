@@ -19,6 +19,9 @@ import time
 from pathlib import Path
 
 import torch
+
+from .checkpoints import atomic_save
+from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
 from . import combined, selfplay, zoo
@@ -84,6 +87,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_learning(args.batch, args.epochs)
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     amp_enabled = args.amp and device == "cuda"
@@ -120,7 +124,7 @@ def main() -> None:
     if args.leash > 0:
         kept = args.out / "reference.pt"
         if not kept.exists():
-            torch.save(net.state(), kept)
+            atomic_save(net.state(), kept)
             print(f"kept the starting policy at {kept}", flush=True)
         reference, _reference_state = combined.load(kept, device)
         reference.eval()
@@ -161,7 +165,7 @@ def main() -> None:
     )
     if optimiser_state is not None:
         try:
-            optimiser.load_state_dict(optimiser_state)
+            optimiser.load_state_dict(combined.migrate_belief_optimizer(optimiser_state, optimiser, net))
             for group, lr in zip(optimiser.param_groups, (args.lr, args.lr_ours, args.lr_mortal)):
                 group["lr"] = lr
             print("restored AdamW state", flush=True)
@@ -226,6 +230,7 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
         )
+        require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
         observations = batch.observations
         legal = batch.legal.to(device)
@@ -368,8 +373,11 @@ def main() -> None:
                 head_shift = float(shift.sum() / allowed.sum().clamp(min=1))
             net.train()
 
-        denom = max(steps, 1)
+        require_updates(steps)
+        denom = steps
         record = {
+            "checkpoint_generation": generation + 1,
+            "optimizer_updates": steps,
             "generation": generation,
             "fixed": fixed,
             "head_shift": round(head_shift, 4),
@@ -427,13 +435,13 @@ def main() -> None:
         if measured is not None:
             payload["placement"] = measured["placement"]
         if is_best:
-            torch.save(payload, args.out / "best.pt")
-        torch.save(payload, args.out / "latest.pt")
+            atomic_save(payload, args.out / "best.pt")
+        atomic_save(payload, args.out / "latest.pt")
         print(json.dumps(record), flush=True)
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    torch.save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
+    atomic_save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

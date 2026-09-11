@@ -70,7 +70,7 @@ class Fuse(nn.Module):
         # exactly as our network did and is never worse for the change.
         self.value_fix = nn.Sequential(nn.Linear(phi, 256), nn.ReLU(), nn.Linear(256, 1))
         self.hands_fix = nn.Sequential(nn.Linear(phi, width), nn.ReLU())
-        self.hands_out = nn.Conv1d(width, OPPONENTS, 1)
+        self.hands_out = nn.Linear(width, OPPONENTS * POSITIONS)
         # F1 starts silent, not absent: its last layers are zero, so it
         # adds nothing to the first move played, while its weight below is
         # small and not zero, so a gradient reaches F2 from the first step.
@@ -109,10 +109,19 @@ class Fuse(nn.Module):
 
     def read_hands(self, phi: torch.Tensor, guessed: torch.Tensor) -> torch.Tensor:
         """What the three opponents are holding, likewise: our network's
-        reading, corrected by Mortal's vector spread over the tiles, and
-        likewise without training it."""
-        spread = self.hands_fix(phi.detach()).unsqueeze(2).expand(-1, -1, guessed.shape[2])
-        return guessed + self.hands_out(spread)
+        reading, corrected by a tile-dependent projection of Mortal's vector,
+        likewise without training its encoder."""
+        correction = self.hands_out(self.hands_fix(phi.detach()))
+        return guessed + correction.reshape(-1, OPPONENTS, POSITIONS)
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        weight, bias = prefix + "hands_out.weight", prefix + "hands_out.bias"
+        if weight in state_dict and state_dict[weight].ndim == 3:
+            # Old Conv1d added one constant per opponent. Replicate that same
+            # constant over tile-specific rows, preserving its probabilities.
+            state_dict[weight] = state_dict[weight].squeeze(-1).repeat_interleave(POSITIONS, dim=0)
+            state_dict[bias] = state_dict[bias].repeat_interleave(POSITIONS, dim=0)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
     def hidden(self, phi: torch.Tensor, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """F2, per tile and pooled, from Mortal's vector and our features."""
@@ -388,3 +397,30 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
 
 def is_combined(payload: dict) -> bool:
     return isinstance(payload, dict) and "combined" in payload
+
+
+def migrate_belief_optimizer(saved: dict, optimiser, net: Combined) -> dict:
+    """Expand legacy Adam moments alongside the equivalent model conversion.
+
+    The number/order of parameters is unchanged (Linear replaces Conv1d).
+    Only these two tensors changed shape; never reset unrelated optimizer state.
+    """
+    result = {**saved, "state": dict(saved["state"])}
+    targets = {id(net.fuse.hands_out.weight): "weight", id(net.fuse.hands_out.bias): "bias"}
+    for old_group, group in zip(saved["param_groups"], optimiser.param_groups):
+        for key, parameter in zip(old_group["params"], group["params"]):
+            kind = targets.get(id(parameter))
+            if kind is None or key not in result["state"]:
+                continue
+            state = dict(result["state"][key])
+            for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                value = state.get(name)
+                if value is None or value.shape == parameter.shape:
+                    continue
+                old_shape = ((OPPONENTS, net.fuse.width, 1) if kind == "weight"
+                             else (OPPONENTS,))
+                if tuple(value.shape) != old_shape:
+                    raise ValueError("Unexpected fusion belief optimizer tensor shape")
+                state[name] = (value.squeeze(-1) if kind == "weight" else value).repeat_interleave(POSITIONS, dim=0)
+            result["state"][key] = state
+    return result
