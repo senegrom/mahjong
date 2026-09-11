@@ -77,6 +77,14 @@ def parse_args() -> argparse.Namespace:
              "in neural.population is what seats them now",
     )
     parser.add_argument(
+        "--explore", type=float, default=0.0,
+        help="how often a legal move is taken at random instead of the "
+             "policy's, so the value head sees the positions a search asks "
+             "it about rather than only the ones the policy reaches. The "
+             "probability written down is the mixture's, not the policy's, "
+             "so PPO divides by who actually chose",
+    )
+    parser.add_argument(
         "--champion", default=None,
         help="the checkpoint that last passed the gate, seated most often",
     )
@@ -260,6 +268,7 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
             population=roster,
+            explore_share=args.explore,
         )
         played = time.time() - began
         observations = batch.observations

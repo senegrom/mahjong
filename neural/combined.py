@@ -309,6 +309,8 @@ class Combined(nn.Module):
         players: np.ndarray,
         legal: np.ndarray,
         greedy: bool = False,
+        explore_share: float = 0.0,
+        wanderer=None,
     ):
         """One of our engine's actions per row, and what the policy decided
         to get there. Its moves are Mortal's, so a riichi is answered in two
@@ -321,6 +323,8 @@ class Combined(nn.Module):
             legal,
             greedy,
             str(next(self.parameters()).device),
+            explore_share=explore_share,
+            wanderer=wanderer,
         )
 
     def parameter_count(self) -> int:

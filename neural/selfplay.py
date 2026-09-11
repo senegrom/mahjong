@@ -71,6 +71,51 @@ PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 REWARD_VERSION = 1
 
 
+def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> tuple:
+    """A move from the policy, or now and then a legal one at random, and
+    the probability the *behaviour* gave whatever came out.
+
+    Why this exists. The value head only ever sees positions the policy
+    actually reached, and a search asks it what a move the policy would not
+    have chosen is worth. Those positions are off the distribution it was
+    trained on, its error there is not noise but a bias that correlates
+    with the move being considered, and averaging over more imagined worlds
+    cannot remove it because every world shares it. Widening where
+    self-play goes is the direct attack: the value head is shown the
+    positions the search will ask about.
+
+    Why the probability is the mixture and not the policy's. PPO divides by
+    the probability the behaviour gave the action it took. Forcing a move
+    and then recording the policy's own probability for it would be a lie
+    about who chose it, and the ratio would be wrong exactly on the
+    decisions that are unusual -- which is every one this is for. The
+    behaviour here is the mixture, so its probability is
+
+        (1 - epsilon) * pi(a)  +  epsilon / (legal moves)
+
+    which is what is written down. At epsilon zero it is pi(a) to the last
+    bit and nothing changes.
+    """
+    distribution = torch.distributions.Categorical(logits=logits)
+    chosen = distribution.sample()
+    if epsilon > 0:
+        count = legal.sum(dim=1).clamp(min=1)
+        forced = torch.from_numpy(rng.random(len(chosen))).to(logits.device) < epsilon
+        if forced.any():
+            # A legal move chosen evenly: the cumulative count of legal
+            # entries reaches the drawn rank exactly at the wanted one.
+            draw = torch.from_numpy(rng.random(len(chosen))).to(logits.device)
+            rank = (draw * count).floor().clamp(max=count - 1).long()
+            walk = legal.long().cumsum(dim=1) - 1
+            picked = (walk == rank.unsqueeze(1)) & legal
+            instead = picked.float().argmax(dim=1)
+            chosen = torch.where(forced, instead, chosen)
+        share = torch.exp(distribution.log_prob(chosen))
+        behaviour = (1.0 - epsilon) * share + epsilon / count.to(share.dtype)
+        return chosen, torch.log(behaviour)
+    return chosen, distribution.log_prob(chosen)
+
+
 @dataclass
 class Batch:
     """What one round of self-play produced."""
@@ -159,6 +204,7 @@ def play(
     opponents: list | None = None,
     opponent_share: float = 0.0,
     population=None,
+    explore_share: float = 0.0,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -193,6 +239,9 @@ def play(
     #: only where somebody was actually seated, which is what a report of
     #: who-played-whom needs.
     seated_in = np.full(games, -1, dtype=np.int64)
+    # Its own stream, so how much the round wanders cannot change what is
+    # dealt, and turning exploration on or off leaves the games alone.
+    wanderer = np.random.default_rng(seed ^ 0x3A17_9E55)
     if opponents and opponent_share > 0:
         picker = np.random.default_rng(seed ^ 0x0DDBA11)
         if population is not None:
@@ -320,7 +369,10 @@ def play(
             # `mortal_learner`): it answers the table in ours and records
             # its decisions itself, possibly more than one per row, and
             # keeps its own account of the time.
-            picked, records = net.decide(views, index, deciding[index], mask[index], greedy)
+            picked, records = net.decide(
+                views, index, deciding[index], mask[index], greedy,
+                explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
+            )
             choice[index] = picked
             observations.append(records.planes)
             legal_masks.append(records.masks)
@@ -357,8 +409,11 @@ def play(
             )
             proposed = np.frombuffer(imagine(arena, beliefs), dtype=np.float32)
             proposed = proposed.reshape(games, HIDDEN_HANDS_PLANES, POSITIONS)
-            chosen = logits.argmax(dim=1) if greedy else distribution.sample()
-            chosen_log_prob = distribution.log_prob(chosen)
+            if greedy:
+                chosen = logits.argmax(dim=1)
+                chosen_log_prob = distribution.log_prob(chosen)
+            else:
+                chosen, chosen_log_prob = explore(logits, batch_mask, explore_share, wanderer)
             record_actions = chosen.cpu().numpy()
             record_log_probs = chosen_log_prob.cpu().numpy()
             record_slots = np.arange(len(index))

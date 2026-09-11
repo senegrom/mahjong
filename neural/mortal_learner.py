@@ -59,6 +59,8 @@ def decide_in_mortal_space(
     greedy: bool = False,
     device: str = "cuda",
     timing: dict | None = None,
+    explore_share: float = 0.0,
+    wanderer=None,
 ) -> tuple[np.ndarray, Records]:
     """One of our engine's actions per row, and the records of everything
     the policy decided to get there, in Mortal's action space.
@@ -97,8 +99,24 @@ def decide_in_mortal_space(
         logits = score(planes.dense(device), mask)
     logits = logits.float()
     distribution = torch.distributions.Categorical(logits=logits)
-    picked = logits.argmax(dim=1) if greedy else distribution.sample()
-    log_prob = distribution.log_prob(picked).cpu().numpy()
+    if greedy:
+        picked = logits.argmax(dim=1)
+        log_prob = distribution.log_prob(picked)
+    else:
+        # Now and then a legal move at random instead of the policy's, and
+        # the probability recorded is the mixture's rather than the
+        # policy's, because that is who chose it. See `selfplay.explore`:
+        # the point is to show the value head the positions a search will
+        # ask it about, which are exactly the ones the policy avoids.
+        from .selfplay import explore
+
+        picked, log_prob = explore(
+            logits,
+            mask,
+            explore_share,
+            wanderer if wanderer is not None else np.random.default_rng(),
+        )
+    log_prob = log_prob.cpu().numpy()
     picked = picked.cpu().numpy()
     timing["network"] = timing.get("network", 0.0) + clock() - began
 
@@ -226,6 +244,8 @@ class MortalLearner(nn.Module):
         players: np.ndarray,
         legal: np.ndarray,
         greedy: bool = False,
+        explore_share: float = 0.0,
+        wanderer=None,
     ) -> tuple[np.ndarray, Records]:
         """One of our actions per row, and the records of the decisions
         made, in Mortal's action space, that produced them."""
@@ -238,6 +258,8 @@ class MortalLearner(nn.Module):
             greedy,
             self.device,
             self.timing,
+            explore_share=explore_share,
+            wanderer=wanderer,
         )
 
     def choose(
