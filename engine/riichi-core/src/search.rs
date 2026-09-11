@@ -688,17 +688,18 @@ fn table_of(hand: &Hand) -> Table {
 }
 
 /// What finishing the game is worth to `player`, by the place the final
-/// scores put them in. Ties go to the lower seat, as they do when the
-/// training target is worked out.
+/// scores put them in. Ties share the rewards of the places they occupy,
+/// using the same convention as the Python training targets.
 fn placement_value(table: &Table, player: usize) -> f64 {
     let finals = table.final_scores();
     let mine = finals[player];
-    let place = finals
+    let better = finals.iter().filter(|score| **score > mine).count();
+    let tied = finals.iter().filter(|score| **score == mine).count();
+    PLACEMENT_VALUE[better..better + tied]
         .iter()
-        .enumerate()
-        .filter(|(other, score)| **score > mine || (**score == mine && *other < player))
-        .count();
-    PLACEMENT_VALUE[place] as f64
+        .map(|value| *value as f64)
+        .sum::<f64>()
+        / tied as f64
 }
 
 /// Plays an imagined world on from just after a candidate move until the
@@ -1896,16 +1897,16 @@ mod tests {
         assert!(went_on_once, "some dealer kept the deal at South 4");
     }
 
-    /// The placement goes by the final scores, and a tie goes to the lower
-    /// seat, as it does when the training target is worked out.
+    /// Final scores determine placement; tied players share the rewards
+    /// of the positions they occupy, just as Python training targets do.
     #[test]
-    fn placement_goes_by_final_score_with_ties_to_the_lower_seat() {
+    fn placement_goes_by_final_score_with_shared_tie_rewards() {
         let mut table = Table::new();
         table.scores = [40_000, 30_000, 20_000, 30_000];
         table.finished = true;
         assert_eq!(placement_value(&table, 0), 1.5);
-        assert_eq!(placement_value(&table, 1), 0.5);
-        assert_eq!(placement_value(&table, 3), -0.5);
+        assert_eq!(placement_value(&table, 1), 0.0);
+        assert_eq!(placement_value(&table, 3), 0.0);
         assert_eq!(placement_value(&table, 2), -1.5);
     }
 
@@ -2010,3 +2011,7 @@ mod tests {
         assert_eq!(first.act(&hand), second.act(&hand));
     }
 }
+
+#[cfg(test)]
+#[path = "search_outcome_tests.rs"]
+mod outcome_tests;

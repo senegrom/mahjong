@@ -28,6 +28,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from .outcomes import placements as tied_placements, require_finished, validate_budget, win_shares
+
 import riichi_py
 
 from . import zoo
@@ -53,6 +55,7 @@ def table(
     Both networks play their best move rather than sampling, which is what
     the browser does and what the comparison is about.
     """
+    validate_budget(games, max_steps)
     challenger.eval()
     incumbent.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
@@ -86,12 +89,12 @@ def table(
 
         arena.step(choice.tolist())
 
+    require_finished(arena, steps=steps, context="duel")
     return np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
 
 
 def placements(scores: np.ndarray, place: int) -> np.ndarray:
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
-    return order[:, place]
+    return tied_placements(scores)[:, place]
 
 
 def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda") -> dict:
@@ -106,7 +109,7 @@ def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda") -> 
                 "place": place,
                 "placement": float(got.mean()),
                 "score": float(scores[:, place].mean()),
-                "wins": float((got == 1).mean()),
+                "wins": float(win_shares(scores)[:, place].mean()),
             }
         )
         per_deal.append(got.astype(float))

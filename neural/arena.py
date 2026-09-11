@@ -31,40 +31,40 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .model import from_payload
-from .selfplay import play
+from .outcomes import placements as tied_placements, win_shares
+
+from . import zoo
+from .selfplay import evaluate_games
 
 SEATS = 4
 
 
 def placements(scores: np.ndarray, seat: int) -> np.ndarray:
     """Where the player in `seat` finished each game, from 1 to 4."""
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
-    return order[:, seat]
+    return tied_placements(scores)[:, seat]
 
 
 @torch.no_grad()
-def duplicate(net, games: int, seed: int, device: str = "cuda") -> dict:
+def duplicate(net, games: int, seed: int, device: str = "cuda", max_steps: int = 4000) -> dict:
     """Plays the same deals with the network in each of the four seats."""
     per_seat = []
     for seat in range(SEATS):
-        bots = [place for place in range(SEATS) if place != seat]
-        batch = play(
+        scores, hands = evaluate_games(
             net,
             games=games,
             seed=seed,
             device=device,
-            bot_places=bots,
-            greedy=True,
+            place=seat,
+            max_steps=max_steps,
         )
-        got = placements(batch.final_scores, seat)
+        got = placements(scores, seat)
         per_seat.append(
             {
                 "seat": seat,
                 "placement": float(got.mean()),
-                "score": float(batch.final_scores[:, seat].mean()),
-                "wins": float((got == 1).mean()),
-                "hands": batch.hands,
+                "score": float(scores[:, seat].mean()),
+                "wins": float(win_shares(scores)[:, seat].mean()),
+                "hands": hands,
                 # Kept for the error bar below, then dropped from the report.
                 "placements": got.astype(float),
             }
@@ -132,6 +132,7 @@ def main() -> None:
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("--games", type=int, default=500, help="deals per seating")
     parser.add_argument("--seed", type=int, default=555_000)
+    parser.add_argument("--max-steps", type=int, default=4000, help="decision budget per simulation")
     parser.add_argument(
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
@@ -143,11 +144,11 @@ def main() -> None:
     parser.add_argument("--blocks", type=int, default=20)
     args = parser.parse_args()
 
-    state = torch.load(args.checkpoint, map_location=args.device, weights_only=True)
-    net = from_payload(state, args.device, args.channels, args.blocks)
+    net = zoo.load_player(args.checkpoint, args.device, args.channels, args.blocks)
     net.eval()
 
-    result = duplicate(net, games=args.games, seed=args.seed, device=args.device)
+    result = duplicate(net, games=args.games, seed=args.seed, device=args.device,
+                       max_steps=args.max_steps)
     result["checkpoint"] = str(args.checkpoint)
     result["verdict"] = verdict(result)
     print(json.dumps(result, indent=1))

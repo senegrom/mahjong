@@ -1,3 +1,5 @@
+import { weightsByChoice, MORTAL_REACH } from './action-weights.js';
+
 /** Review captured decisions in order, sharing the ordinary bounded AI worker.
  *
  * The network reads Mortal's planes and answers in Mortal's forty-six moves,
@@ -8,9 +10,6 @@
 const aborted = signal => {
   if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
 };
-
-/** Mortal's reach, which names no tile of its own. */
-const MORTAL_REACH = 37;
 
 export async function reviewWithStrong(engine, notes, analyze, { signal, onProgress = () => {} } = {}) {
   aborted(signal);
@@ -39,24 +38,25 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
       aborted(signal);
     }
     const chosen = engine.review_action_from_mortal(index, action, afterReach);
-    const preferred = choices.find(choice => choice.index === chosen);
+    const weighted = weightsByChoice(engine, choices, weights,
+      action => engine.review_action_from_mortal(index, action, false));
+    const preferred = weighted.find(choice => choice.index === chosen);
     // The weight belongs to the declaration, not to the tile it names: the
     // second question is asked only once the first is decided.
-    const weight = weights?.[afterReach ? MORTAL_REACH : action];
+    const weight = preferred?.weight;
     if (!preferred || !Number.isFinite(weight) || weight < 0 || weight > 1) {
       throw new Error('The trained network returned an invalid review choice');
     }
     const note = notes[index];
-    const played = choices.find(choice => choice.kind === note.played_kind
+    const played = weighted.find(choice => choice.kind === note.played_kind
       && (choice.tile ?? null) === (note.played_tile ?? null));
     if (!played) throw new Error('The recorded move is missing from this decision');
-    const playedAction = played.index == null ? -1 : engine.mortal_action_of(played.index);
     reviewed.push({
       turn: note.turn, played: note.played, played_kind: note.played_kind, played_tile: note.played_tile,
       call_tile: note.call_tile, call_from: note.call_from,
       dora_types: note.dora_types, advised: preferred.label, advised_tile: preferred.tile,
       agreed: played.kind === preferred.kind && (played.tile ?? null) === (preferred.tile ?? null),
-      preferred_weight: weight, played_weight: playedAction < 0 ? null : weights[playedAction],
+      preferred_weight: weight, played_weight: played.weight,
     });
     onProgress(index + 1, notes.length);
   }

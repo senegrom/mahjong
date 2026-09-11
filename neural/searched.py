@@ -35,6 +35,8 @@ import time
 import numpy as np
 import torch
 
+from .outcomes import placements as tied_placements, require_finished, validate_budget, win_shares
+
 import riichi_py
 
 from .model import from_payload
@@ -48,6 +50,22 @@ HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 SEATS = 4
 
 
+class UnsupportedSearchLayout(ValueError):
+    """The native hypothetical-position API cannot supply this model's inputs."""
+
+
+def require_native_search(net) -> None:
+    planes = getattr(net, "planes", PLANES)
+    actions = getattr(net, "actions", ACTIONS)
+    if planes != PLANES or actions != ACTIONS or getattr(net, "kind", "engine") != "engine":
+        raise UnsupportedSearchLayout(
+            f"Native lookahead requires {PLANES} engine planes and {ACTIONS} actions; "
+            f"got {planes} planes, {actions} actions ({getattr(net, 'kind', 'unknown')}). "
+            "Hypothetical leaves have no Mortal event history. Use neural.arena or the "
+            "network-only baseline for current checkpoints; do not pad or relabel engine planes."
+        )
+
+
 @torch.no_grad()
 def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=400):
     """Plays every decision the lookaheads are waiting on with the policy
@@ -56,6 +74,7 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=400):
     depth was asked for. Its best move at temperature zero, a sample
     otherwise. Returns how many passes of the policy it took; a slot still
     waiting after `passes` is given up on and does not count."""
+    require_native_search(net)
     taken = 0
     while taken < passes:
         planes_bytes, masks_bytes, count = arena.lookahead_owed()
@@ -122,6 +141,7 @@ def search_with_value_head(
     moves are its best (zero) or sampled. `valued_by` names the head that
     judges the leaves.
     """
+    require_native_search(net)
     games = len(ranked)
     hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
     total = sum(counts)
@@ -192,6 +212,7 @@ def play(
     depth: int = 0,
     temperature: float = 0.0,
     valued_by: str = "critic",
+    max_steps: int = 4000,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -199,10 +220,17 @@ def play(
     else plays the network's first choice, so the only thing that differs
     between the two arms is whether that choice was checked.
     """
+    validate_budget(games, max_steps)
+    if searcher is None:
+        from . import duel, zoo
+        player = zoo.MortalSpacePlayer(net, device) if getattr(net, "speaks_mortal", False) else net
+        scores = duel.table(player, player, games, seed, 0, device, max_steps=max_steps)
+        return scores, (0, 0)
+    require_native_search(net)
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
     steps = 0
-    while not arena.all_finished() and steps < 4000:
+    while not arena.all_finished() and steps < max_steps:
         steps += 1
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
         if not (seats != 0xFF).any():
@@ -253,13 +281,13 @@ def play(
             )
         arena.step(list(choice))
 
+    require_finished(arena, steps=steps, context="search evaluation")
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
     return scores, arena.search_tally()
 
 
 def placements(scores: np.ndarray, place: int) -> np.ndarray:
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
-    return order[:, place]
+    return tied_placements(scores)[:, place]
 
 
 def main() -> None:
@@ -359,7 +387,7 @@ def main() -> None:
                 "chair": chair,
                 "placement": float(got.mean()),
                 "score": float(scores[:, chair].mean()),
-                "wins": float((got == 1).mean()),
+                "wins": float(win_shares(scores)[:, chair].mean()),
             }
         )
         per_deal.append(got.astype(float))

@@ -26,6 +26,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from .checkpoints import atomic_save
 from torch import nn
 
 import riichi_py
@@ -298,10 +300,10 @@ def main() -> None:
                 "blocks": net.blocks,
                 "placement": against["placement"],
             }
-            torch.save(saved, args.out / "latest.pt")
+            atomic_save(saved, args.out / "latest.pt")
             if smoothed < best_placement:
                 best_placement = smoothed
-                torch.save(saved, args.out / "best.pt")
+                atomic_save(saved, args.out / "best.pt")
                 record["best"] = True
 
         print(json.dumps(record), flush=True)

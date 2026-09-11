@@ -61,3 +61,30 @@ def restore_random_state(
     drawer.bit_generator.state = deepcopy(saved["freeze"])
     torch.set_rng_state(saved["torch"].cpu())
     return drawer
+
+
+def capture_sampling_state() -> dict:
+    """CPU and every CUDA generator, copied at the completed checkpoint boundary."""
+    return {"torch": torch.get_rng_state().clone(),
+            "cuda": [state.clone() for state in torch.cuda.get_rng_state_all()]
+            if torch.cuda.is_available() else None}
+
+
+def restore_sampling_state(saved: dict | None, *, generation: int) -> None:
+    """Restore only after all learners, opponents, optimizers and compilers exist."""
+    if generation < 0:
+        raise ValueError("Checkpoint generation cannot be negative")
+    if saved is None:
+        if generation:
+            warnings.warn("Legacy Mortal checkpoint has no sampling state; exact continuation "
+                          "cannot be reconstructed", RuntimeWarning, stacklevel=2)
+        return
+    cuda = saved.get("cuda")
+    if cuda is not None and torch.cuda.is_available():
+        if len(cuda) != torch.cuda.device_count():
+            raise ValueError("Checkpoint CUDA random states do not match the device count")
+        torch.cuda.set_rng_state_all([state.cpu() for state in cuda])
+    elif cuda is not None or torch.cuda.is_available():
+        warnings.warn("Training device changed; GPU sampling cannot be reproduced",
+                      RuntimeWarning, stacklevel=2)
+    torch.set_rng_state(saved["torch"].cpu())
