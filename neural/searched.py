@@ -37,6 +37,7 @@ import torch
 
 import riichi_py
 
+from . import contract as contract_module
 from . import worlds as worlds_module
 from . import zoo
 
@@ -101,6 +102,7 @@ def search_with_value_head(
     temperature=0.0,
     valued_by="critic",
     health=None,
+    served=None,
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -176,17 +178,22 @@ def search_with_value_head(
     total = sum(counts)
     if total == 0:
         return arena.decide([], margin, ranked)
-    planes = np.frombuffer(planes_bytes, dtype=np.float32).reshape(total, PLANES, POSITIONS)
+    # The leaves as *this* network reads them. The engine writes its own
+    # ninety-seven planes for every one, which is right for a network of
+    # its own lineage and useless for one that reads Mortal's thousand and
+    # twelve: that one gets a copy of the seat's real state advanced by the
+    # events its imagined world invented. Root and continuation go through
+    # the same contract, because a search that serves one correctly and the
+    # other some other way is measuring a network that does not exist.
+    leaves = served.leaves(arena, planes_bytes, counts, device)
     # Every slot is valued, including the few that want no value; the engine
     # adds what it settled itself, ignores the rest, and that is cheaper
     # than gathering.
     valued = np.empty(total, dtype=np.float32)
     step = 8192
     for start in range(0, total, step):
-        chunk = torch.from_numpy(planes[start : start + step]).to(device)
-        valued[start : start + step] = (
-            net.value_only(chunk, head=valued_by).float().cpu().numpy()
-        )
+        chunk = leaves[start : start + step]
+        valued[start : start + step] = served.value(chunk).float().cpu().numpy()
     if health is not None and efficiency:
         # How much of the proposal the weights actually used, and how many
         # distinct worlds survived. An efficiency near zero means the search
@@ -213,6 +220,7 @@ def play(
     depth: int = 0,
     temperature: float = 0.0,
     valued_by: str = "critic",
+    served=None,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -221,8 +229,18 @@ def play(
     between the two arms is whether that choice was checked.
     """
     net.eval()
+    served = served or contract_module.serve(net)
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
     arena.strict = True
+    # A network reading Mortal's planes needs the follower its root is
+    # built from, and the leaves are copied from the same states.
+    if served.contract.reads == "mortal":
+        from .observe import Views
+
+        views = Views(arena, games, {net.kind})
+        contract_module.remember_follower(arena, views.observer.follower)
+    else:
+        views = None
     # How much of each proposal the reader's weights actually used. A
     # search whose worlds all come from a handful of proposals is not
     # searching the number of worlds it was asked for.
@@ -277,6 +295,7 @@ def play(
                 temperature=temperature,
                 valued_by=valued_by,
                 health=health,
+                served=served,
             )
         arena.step(list(choice))
 
@@ -369,8 +388,13 @@ def main() -> None:
     # one arrives whole rather than as whichever backbone `from_payload`
     # could rebuild, and then refused outright if this search cannot serve
     # the planes it reads.
+    # Loaded whole, then asked what it reads and answers in. The server
+    # that comes back builds the planes for the root and for every imagined
+    # continuation alike; a network nothing here can serve is refused by
+    # name rather than approximated with another's planes.
     net = zoo.load_player(args.checkpoint, args.device, args.channels, args.blocks)
-    worlds_module.assert_searchable(net, args.checkpoint)
+    served = contract_module.serve(net, str(args.checkpoint))
+    print(json.dumps({"contract": served.contract.describe()}), flush=True)
 
     per_chair = []
     per_deal = []
@@ -391,6 +415,7 @@ def main() -> None:
             depth=args.depth,
             temperature=args.temperature,
             valued_by=args.valued_by,
+            served=served,
         )
         asked += tally[0]
         overrode += tally[1]
