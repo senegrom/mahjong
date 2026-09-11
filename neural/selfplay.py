@@ -368,15 +368,16 @@ def play(
 
 
 @torch.no_grad()
-def measure(
+def evaluate_games(
     net, games: int, seed: int, device: str = "cuda", amp: bool = False,
-    max_steps: int = 4000,
-) -> dict[str, float]:
+    max_steps: int = 4000, place: int = 0,
+) -> tuple[np.ndarray, int]:
     """Plays the network against three heuristic opponents.
 
-    The network takes place 0 at every table; the other three places are the
-    benchmark. What comes back is the average placement, where 1.0 would be
-    winning every game and 4.0 losing every one, and the average final score.
+    The network takes the fixed player identity `place`, not a wind: seats
+    rotate between hands. Return final scores by player and the hand count,
+    without retaining training records. Raw Mortal-space networks are adapted
+    before either observation or action masks reach their forward method.
 
     It plays its best move rather than sampling, because that is what the
     web app does. Measuring sampled play would mix how well the network has
@@ -392,8 +393,13 @@ def measure(
     historical path while the large allocations disappear.
     """
     validate_budget(games, max_steps)
+    if isinstance(place, bool) or not isinstance(place, (int, np.integer)) or not 0 <= place < 4:
+        raise ValueError("place must be a player index from 0 to 3")
+    if getattr(net, "speaks_mortal", False):
+        net = zoo.MortalSpacePlayer(net, device)
     net.eval()
-    arena = riichi_py.Arena(games=games, seed=seed, bot_places=[1, 2, 3])
+    arena = riichi_py.Arena(games=games, seed=seed,
+                            bot_places=[player for player in range(4) if player != place])
     views = Views(arena, games, {net.kind})
     hands = 0
     steps = 0
@@ -410,6 +416,8 @@ def measure(
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
         index = np.nonzero(live)[0]
         deciding = players[index, seats[index]]
+        if np.any(deciding != place):
+            raise RuntimeError("The arena exposed a heuristic opponent's decision; rebuild riichi_py")
 
         choice = np.zeros(games, dtype=np.int64)
         if hasattr(net, "choose"):
@@ -439,6 +447,16 @@ def measure(
 
     require_finished(arena, steps=steps, context="measurement")
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4).copy()
+    return scores, hands
+
+
+@torch.no_grad()
+def measure(
+    net, games: int, seed: int, device: str = "cuda", amp: bool = False,
+    max_steps: int = 4000,
+) -> dict[str, float]:
+    """Score player 0 against three independent heuristic opponents."""
+    scores, hands = evaluate_games(net, games, seed, device, amp, max_steps)
     order = placements(scores)
     return {
         "placement": float(order[:, 0].mean()),

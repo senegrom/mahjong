@@ -32,7 +32,7 @@ class OutcomeTests(unittest.TestCase):
 
     def test_duplicate_and_duel_reports_share_tied_wins(self):
         scores = np.zeros((2, 4), dtype=np.int32)
-        with patch.object(arena, 'play', return_value=SimpleNamespace(final_scores=scores, hands=16)):
+        with patch.object(arena, 'evaluate_games', return_value=(scores, 16)):
             result = arena.duplicate(None, 2, 1, 'cpu')
         self.assertEqual(result['placement'], 2.5)
         self.assertEqual(result['wins'], .25)

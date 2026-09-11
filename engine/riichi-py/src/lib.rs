@@ -178,7 +178,8 @@ impl Seat {
                     } else {
                         self.asking = offered.iter().map(|(seat, _)| *seat).collect();
                         self.answers.clear();
-                        return;
+                        // Settle bot claims before exporting the next external decision.
+                        continue;
                     }
                 }
                 Phase::Over => self.next_hand(),
@@ -1151,3 +1152,6 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("PASS", PASS)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod ownership_tests;

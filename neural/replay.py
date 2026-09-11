@@ -60,6 +60,19 @@ class Ring:
         self.entries: list[dict] = []
         self.next_slot = 0
         self.maps: dict[int, dict] = {}
+        self._dirty = True
+        retained = self._read_index()
+        # Make a manifest left by an interrupted publication durable before
+        # reclaiming generations which it no longer references.
+        self._sync_directory(self.root)
+        self._collect(retained)
+        self._dirty = False
+
+    def _read_index(self) -> list[dict]:
+        """Reload committed state without reclaiming any potentially live data."""
+        self.entries = []
+        self.next_slot = 0
+        self.maps = {}
         if self.index.exists():
             saved = json.loads(self.index.read_text(encoding="utf-8"))
             if saved.get("version", 1) not in (1, 2):
@@ -86,10 +99,15 @@ class Ring:
                     continue
                 self.entries.append(entry)
                 self.maps[slot] = maps
-            # Unreferenced generations can be left by an interrupted writer.
-            self._collect(saved["entries"])
-        else:
-            self._collect([])
+            return saved["entries"]
+        return []
+
+    def _refresh(self) -> None:
+        # A catchable signal may arrive after rename but before any following
+        # Python assignment. Never reuse speculative in-memory state.
+        if self._dirty:
+            self._read_index()
+            self._dirty = False
 
     @staticmethod
     def _validate(maps: dict, n: int) -> None:
@@ -145,14 +163,17 @@ class Ring:
                 self._remove(path)
 
     def __len__(self) -> int:
+        self._refresh()
         return len(self.entries)
 
     def total(self) -> int:
         """How many decisions the ring holds."""
+        self._refresh()
         return sum(entry["n"] for entry in self.entries)
 
     def push(self, batch) -> None:
         """Publish a complete generation without modifying any live batch."""
+        self._refresh()
         n = int(batch.decisions)
         data = {field: getattr(batch, field).numpy() for field in FIELDS}
         data[SPARSE] = batch.observations
@@ -166,7 +187,7 @@ class Ring:
         entry = {"slot": slot, "n": n, "generation": generation}
         entries = ([old for old in self.entries if old["slot"] != slot] + [entry])[-self.rounds:]
         previous = self.entries
-        published = False
+        self._dirty = True
         try:
             staging.mkdir()
             for field in FIELDS:
@@ -185,17 +206,18 @@ class Ring:
             os.replace(manifest, self.index)
             # Publication has occurred. Even if the directory sync fails, this
             # process must agree with the manifest now visible to new readers.
-            published = True
             self.entries = entries
             self.next_slot += 1
             self.maps = {old["slot"]: self.maps[old["slot"]] for old in entries
                          if old is not entry and old["slot"] in self.maps}
             self._sync_directory(self.root)
+            self._dirty = False
         finally:
             self._remove(manifest)
-            if not published:
-                self._remove(staging)
-                self._remove(destination)
+            self._remove(staging)
+            # Never delete destination here: rename may have committed it just
+            # before KeyboardInterrupt. Recovery/next successful publication
+            # collects only generations absent from the committed manifest.
         # Only retire data after successful, durable publication.
         for old in previous:
             if old not in entries and not old.get("generation"):
@@ -215,6 +237,7 @@ class Ring:
 
     def sample(self, count: int, rng: np.random.Generator) -> dict:
         """Draw one round proportionally to its size, then rows uniformly."""
+        self._refresh()
         if count <= 0 or not self.entries:
             raise ValueError("Sampling needs a positive count and a nonempty replay ring")
         weights = np.array([entry["n"] for entry in self.entries], dtype=np.float64)

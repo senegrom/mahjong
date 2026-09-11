@@ -688,17 +688,18 @@ fn table_of(hand: &Hand) -> Table {
 }
 
 /// What finishing the game is worth to `player`, by the place the final
-/// scores put them in. Ties go to the lower seat, as they do when the
-/// training target is worked out.
+/// scores put them in. Ties share the rewards of the places they occupy,
+/// using the same convention as the Python training targets.
 fn placement_value(table: &Table, player: usize) -> f64 {
     let finals = table.final_scores();
     let mine = finals[player];
-    let place = finals
+    let better = finals.iter().filter(|score| **score > mine).count();
+    let tied = finals.iter().filter(|score| **score == mine).count();
+    PLACEMENT_VALUE[better..better + tied]
         .iter()
-        .enumerate()
-        .filter(|(other, score)| **score > mine || (**score == mine && *other < player))
-        .count();
-    PLACEMENT_VALUE[place] as f64
+        .map(|value| *value as f64)
+        .sum::<f64>()
+        / tied as f64
 }
 
 /// Plays an imagined world on from just after a candidate move until the
@@ -2010,3 +2011,7 @@ mod tests {
         assert_eq!(first.act(&hand), second.act(&hand));
     }
 }
+
+#[cfg(test)]
+#[path = "search_outcome_tests.rs"]
+mod outcome_tests;
