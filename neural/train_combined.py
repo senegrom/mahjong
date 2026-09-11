@@ -22,7 +22,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from . import combined, selfplay, zoo
+from . import combined, population, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
 
@@ -71,7 +71,24 @@ def parse_args() -> argparse.Namespace:
         "mortal+head. Freezing a network without its head lets the head "
         "move the policy anyway",
     )
-    parser.add_argument("--opponents", type=Path, nargs="*", default=[])
+    parser.add_argument(
+        "--opponents", type=Path, nargs="*", default=[],
+        help="kept for launchers that name opponents directly; the roster "
+             "in neural.population is what seats them now",
+    )
+    parser.add_argument(
+        "--champion", default=None,
+        help="the checkpoint that last passed the gate, seated most often",
+    )
+    parser.add_argument(
+        "--recent", nargs="*", default=[],
+        help="checkpoints from the last few blocks of this lineage",
+    )
+    parser.add_argument(
+        "--older", nargs="*", default=[],
+        help="checkpoints from further back, which catch a policy going "
+             "round in circles",
+    )
     parser.add_argument("--opponent-share", type=float, default=0.0)
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
@@ -174,16 +191,40 @@ def main() -> None:
     else:
         learn = net.everything
 
+    # Who else sits at the tables, as a roster with roles and shares rather
+    # than a list of paths typed on the launch line: see `neural.population`.
+    # A member that is missing is dropped from the roster rather than
+    # skipped silently at seating time, so the shares still add up and the
+    # log says who was actually available.
+    roster = population.Population(
+        members=[
+            member
+            for member in population.Population.around(
+                champion=args.champion, recent=args.recent, older=args.older
+            ).members
+            if Path(member.name).exists()
+        ]
+    )
+    missing = [
+        member.name
+        for member in population.Population.around(
+            champion=args.champion, recent=args.recent, older=args.older
+        ).members
+        if not Path(member.name).exists()
+    ]
+    for name in missing:
+        print(f"no opponent at {name}, left out of the roster", flush=True)
     seated = []
-    for path in args.opponents:
-        if not Path(path).exists():
-            print(f"no opponent at {path}, skipping", flush=True)
-            continue
-        other = zoo.load_player(path, device, compile=args.compile)
+    for member in roster.members:
+        other = zoo.load_player(member.name, device, compile=args.compile)
         other.eval()
         seated.append(other)
     if seated:
-        print(f"{len(seated)} others seated in {args.opponent_share:.0%} of games", flush=True)
+        print(
+            f"{len(seated)} others seated in {args.opponent_share:.0%} of games: "
+            + json.dumps(roster.describe()),
+            flush=True,
+        )
     print(
         f"device {device} | ours {net.ours.channels}x{net.ours.blocks} | Mortal beneath | "
         f"{net.parameter_count() / 1e6:.2f}M parameters | fixed by turns: {args.fixed}",
@@ -218,6 +259,7 @@ def main() -> None:
             amp=amp_enabled,
             opponents=seated,
             opponent_share=args.opponent_share,
+            population=roster,
         )
         played = time.time() - began
         observations = batch.observations
@@ -400,6 +442,10 @@ def main() -> None:
             "clipped": round(float(total_clipped / denom), 3),
             "approx_kl": round(float(total_kl / denom), 5),
             "optimiser_steps": steps,
+            # One row a player met, never summed. Improving against your
+            # own recent past while losing to the fine-tuned Mortal is
+            # specialisation, and an average is what hides it.
+            "matchups": batch.matchups,
             "grad_norm": round(float(total_grad / denom), 3),
             "mean_return": round(float(returns.mean()), 4),
         }

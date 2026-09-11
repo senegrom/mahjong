@@ -107,6 +107,14 @@ class Batch:
     #: Which objective `returns` was built against, so a trainer can refuse
     #: a round that was not built against the one it is learning.
     reward_version: int = REWARD_VERSION
+    #: Which of the seated others took a place in each game, by index into
+    #: the list given, or -1 where the learner held all four. Kept so a
+    #: round can say who it played rather than only how it did on average.
+    seated: np.ndarray | None = None
+    #: How the learner placed against each of them, one row a player. Never
+    #: summed: improving against your own recent past while losing to a
+    #: fixed reference is specialisation, and an average hides it.
+    matchups: list[dict] = field(default_factory=list)
     #: Where the round's wall time went, in seconds by part: the engine
     #: and the follower, the encoder, the network, the seated others, and
     #: the bookkeeping. For finding what to make faster.
@@ -150,6 +158,7 @@ def play(
     amp: bool = False,
     opponents: list | None = None,
     opponent_share: float = 0.0,
+    population=None,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -179,11 +188,22 @@ def play(
     # hands mid-hand.
     foreign_player = np.full(games, -1, dtype=np.int64)
     foreign_which = np.zeros(games, dtype=np.int64)
+    #: Which seated player took a place in each game, or -1 for a table of
+    #: the learner alone. The same thing `foreign_which` says, but valid
+    #: only where somebody was actually seated, which is what a report of
+    #: who-played-whom needs.
+    seated_in = np.full(games, -1, dtype=np.int64)
     if opponents and opponent_share > 0:
         picker = np.random.default_rng(seed ^ 0x0DDBA11)
-        taken = picker.random(games) < opponent_share
+        if population is not None:
+            seated_in = population.seat(games, opponent_share, picker)
+            taken = seated_in >= 0
+            foreign_which[taken] = seated_in[taken]
+        else:
+            taken = picker.random(games) < opponent_share
+            foreign_which[taken] = picker.integers(0, len(opponents), size=int(taken.sum()))
+            seated_in[taken] = foreign_which[taken]
         foreign_player[taken] = picker.integers(0, 4, size=int(taken.sum()))
-        foreign_which[taken] = picker.integers(0, len(opponents), size=int(taken.sum()))
 
     # One block per step, holding the live games' rows in the order the
     # decisions are numbered below: a round is a few hundred blocks rather
@@ -434,7 +454,23 @@ def play(
     if decisions == 0:
         raise RuntimeError("self-play produced no decisions")
 
+    # How the learner placed in each game, so the round can say who it
+    # played and how it did against each of them rather than only how it
+    # did on average. Places are per person; the learner holds every seat
+    # a foreign player did not, so its own placement is the mean of those.
+    learner_place = np.zeros(games, dtype=np.float64)
+    for game in range(games):
+        mine = [person for person in range(4) if person != foreign_player[game]]
+        learner_place[game] = float(np.mean([places[game][person] + 1 for person in mine]))
+    against: list[dict] = []
+    if population is not None and opponents:
+        from .population import matchups as _matchups
+
+        against = _matchups(seated_in, learner_place, population.members)
+
     return Batch(
+        seated=seated_in,
+        matchups=against,
         observations=Planes.cat(observations),
         legal=gather(legal_masks),
         actions=torch.tensor(actions, dtype=torch.int64),
