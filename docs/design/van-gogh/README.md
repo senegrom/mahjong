@@ -2,7 +2,7 @@
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
-Carl approved all except K and requested deployment. **Van Gogh is now a selectable set** with ten distinct approved faces: A–E, G–J and L. The later L is the active white dragon; F remains an earlier alternative. East wind K is excluded. The remaining 24 tile identities use Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
+Carl approved all except K and requested deployment. **Van Gogh is a selectable set with eleven distinct faces**: A–E, G–J and L, plus Blazing Dawn (East A). The later L is the active white dragon; F remains an earlier alternative. East wind K is excluded. The remaining 23 tile identities use Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
 
 ![Van Gogh — six first tile studies](studies/01-van-gogh-concepts.png)
 
@@ -32,7 +32,15 @@ Carl approved all except K and requested deployment. **Van Gogh is now a selecta
 
 The second sheet was generated after Carl asked to continue and retry image generation. **G and H are the strongest new directions.** I keeps nine clearly separated disks; J keeps six clearly separated bamboo motifs. L removes much of F's filigree and gives the white dragon a simpler silhouette. K should receive a final glyph-structure check, and H's flower petals need more clearance at the edges, when these concepts become individual faces.
 
-The two sheets contain 12 studies covering 11 distinct tile types, including two white-dragon alternatives. Ten distinct faces are now approved and exported. The full Van Gogh artwork collection remains in progress, and East wind is being redesigned. The normal dora foil shines over L's own painted dragon without substituting another set's dragon.
+The first two sheets contain 12 studies covering 11 distinct tile types, including two white-dragon alternatives. Ten of those faces are exported. The normal dora foil shines over L's own painted dragon without substituting another set's dragon.
+
+## Selected East wind
+
+![East wind alternatives](studies/03-east-wind-alternatives.png)
+
+On 12 September 2026, Carl selected **A — Blazing Dawn** for East and requested deployment. The playable `Ton` (`1z`) is cropped directly from the left-hand A, preserving its golden sunlight and wheat character against the orange sun and cobalt sky. The [prompt record](prompt-03.md) preserves the original generation and correction briefs. B and C remain alternatives; K remains rejected.
+
+Carl also commissioned a North wind in B's Wind Ribbons style: ivory and turquoise 北 on violet and ultramarine. The corrected North design was approved for deployment, but its source file was lost during workspace maintenance before the GitHub upload completed. Recover that exact image before adding North; its current Classic fallback remains readable.
 
 ## Design language
 
@@ -53,6 +61,6 @@ The second sheet explores the bird, further bamboo rhythms and the dawn wind pal
 
 Both the [first concept sheet](studies/01-van-gogh-concepts.png) and [second concept sheet](studies/02-van-gogh-concepts.png) are unmodified image-generation outputs. They contain captions and gutters outside the faces and are not production atlases. The [manifest](manifest.json) records the study identities, source dimensions and hashes. The [first prompt](prompt.md) and [second prompt](prompt-02.md) preserve the briefs used with ChatGPT's built-in image generation tool.
 
-The deployed faces preserve the exact approved source pixels in lossless rectangular crops. Captions and presentation gutters are excluded. Their SVG wrappers follow the existing 300 × 400 canvas, 26-unit corner radius and 1% bleed conventions. The [export script](../../../web/scripts/export-van-gogh-tiles.mjs) reproduces all ten faces and the preview. Continue the remaining artwork through all 34 tile types as further designs are selected.
+The deployed faces preserve the exact approved source pixels in lossless rectangular crops. Captions and presentation gutters are excluded. Their SVG wrappers follow the existing 300 × 400 canvas, 26-unit corner radius and 1% bleed conventions. The [export script](../../../web/scripts/export-van-gogh-tiles.mjs) reproduces all eleven faces and the preview. Continue the remaining artwork through all 34 tile types as further designs are selected.
 
 Reference: [Matisse set and export conventions](../../../web/public/tiles/matisse/README.md).

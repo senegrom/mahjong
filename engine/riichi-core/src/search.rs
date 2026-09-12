@@ -1401,9 +1401,8 @@ impl Lookahead {
                     // numbers a caller would write are the old hand's, so
                     // it offers none and is valued by what it settled.
                     if slot.dealt == 0 {
-                        invented[index] = slot.world.log
-                            [slot.logged.min(slot.world.log.len())..]
-                            .to_vec();
+                        invented[index] =
+                            slot.world.log[slot.logged.min(slot.world.log.len())..].to_vec();
                     }
                     wanted[index] = true;
                     counted[index] = true;

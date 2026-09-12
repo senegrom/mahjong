@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved all except K and requested deployment. The later L is the active white dragon; F remains a study.",
+  "approval": "Carl approved A–E, G–J and L, excluding K. He then selected Blazing Dawn (East A) for East and requested deployment. The later L is the active white dragon; F remains a study.",
   "fallback": "classic",
   "sources": [
     {
@@ -23,6 +23,11 @@
       "id": "second",
       "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
       "sha256": "62821f5d99b1a849b25775f20fa32717f7b4a7986638958609b9d95e2f82abb8"
+    },
+    {
+      "id": "east",
+      "source": "docs/design/van-gogh/studies/03-east-wind-alternatives.png",
+      "sha256": "87debf57e582ff54d0204200a5abd066c4f04b4d17348e57ec906d5e5b8b251b"
     }
   ],
   "tiles": [
@@ -195,6 +200,23 @@
         "height": 495
       },
       "pngSha256": "00da99912d57e7e9704ae2ba8237118a202ebe1d9829cfbaba489b7bc8870994"
+    },
+    {
+      "candidate": "East A",
+      "tile": "1z",
+      "name": "Ton",
+      "label": "East wind",
+      "source": "docs/design/van-gogh/studies/03-east-wind-alternatives.png",
+      "status": "approved",
+      "png": "approved/Ton.png",
+      "svg": "approved/Ton.svg",
+      "crop": {
+        "x": 22,
+        "y": 118,
+        "width": 526,
+        "height": 737
+      },
+      "pngSha256": "3b3c9c14c55cbef72156ddea31dd7c9a08435be52ac6d970b2c41a302e0caf7b"
     }
   ],
   "rejected": [
@@ -233,7 +255,6 @@
     "7s",
     "8s",
     "9s",
-    "1z",
     "2z",
     "3z",
     "4z",

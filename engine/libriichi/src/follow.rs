@@ -252,7 +252,11 @@ impl Imagined {
     /// number of slots; each gets its own copy.
     #[staticmethod]
     #[pyo3(signature = (follower, who, version = 4))]
-    fn from_follower(follower: &Follower, who: Vec<(usize, usize)>, version: u32) -> PyResult<Self> {
+    fn from_follower(
+        follower: &Follower,
+        who: Vec<(usize, usize)>,
+        version: u32,
+    ) -> PyResult<Self> {
         let mut states = Vec::with_capacity(who.len());
         for (game, player) in who {
             if game >= follower.tables.len() || player >= 4 {
