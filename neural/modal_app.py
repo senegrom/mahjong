@@ -680,6 +680,7 @@ def searched(
     run: str = DEFAULT_RUN,
     played_by: str = "club",
     depth: int = 0,
+    chair: int = -1,
 ) -> str:
     """Whether one ply of search beats the policy that supplies it.
 
@@ -709,7 +710,7 @@ def searched(
                 "--games", str(games), "--worlds", str(worlds),
                 "--candidates", str(candidates), "--margin", str(margin),
                 "--pool", str(pool), "--played-by", played_by, "--depth", str(depth),
-                "--device", "cuda",
+                "--chair", str(chair), "--device", "cuda",
             ],
             cwd="/src",
             env=_environment(),

@@ -475,6 +475,14 @@ def main() -> None:
     )
     parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
+    parser.add_argument(
+        "--chair",
+        type=int,
+        default=-1,
+        help="one chair to play rather than all four, so the chairs of one "
+        "measurement can run side by side; the deals are the same, so "
+        "their per-deal placements pair up afterwards",
+    )
     args = parser.parse_args()
 
     # Loaded whole, then asked what it reads and answers in. The server
@@ -488,7 +496,8 @@ def main() -> None:
     per_chair = []
     per_deal = []
     asked = overrode = 0
-    for chair in range(SEATS):
+    chairs = [args.chair] if 0 <= args.chair < SEATS else list(range(SEATS))
+    for chair in chairs:
         began = time.perf_counter()
         scores, tally = play(
             net,
@@ -544,7 +553,8 @@ def main() -> None:
                 "temperature": args.temperature,
                 "candidates": args.candidates,
                 "margin": args.margin,
-                "games_total": args.games * SEATS,
+                "games_total": args.games * len(chairs),
+                "chairs": chairs,
                 "device": args.device,
                 "placement": overall,
                 "standard_error": error,
