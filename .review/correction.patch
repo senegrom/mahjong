@@ -1,0 +1,27 @@
+diff --git a/neural/cloud_requests.py b/neural/cloud_requests.py
+index 86ad923..b9d00b7 100644
+--- a/neural/cloud_requests.py
++++ b/neural/cloud_requests.py
+@@ -79,7 +79,5 @@ def stage_opponents(where: Path, opponents: Sequence[str] | None,
+         json.dump({"version": 1, "opponent_share": float(opponent_share),
+                    "opponents": entries}, stream, indent=2, allow_nan=False)
+         stream.write("\n")
+-    arguments = ["--opponent-share", str(float(opponent_share))]
+-    if paths:
+-        arguments += ["--opponents", *paths]
+-    return arguments
++    # Preserve the launchers' established flag order for existing callers.
++    return ["--opponents", *paths, "--opponent-share", str(float(opponent_share))]
+diff --git a/neural/tests/test_review_cloud_requests.py b/neural/tests/test_review_cloud_requests.py
+index cdd6996..29bc493 100644
+--- a/neural/tests/test_review_cloud_requests.py
++++ b/neural/tests/test_review_cloud_requests.py
+@@ -40,7 +40,7 @@ class CloudRequestHelpersTests(unittest.TestCase):
+                             source/(name+'.pt'))
+             args = stage_opponents(where, ['run-a/best', 'run-b/best'], .5,
+                                    lambda name: source/(name+'.pt'))
+-            paths = args[args.index('--opponents')+1:]
++            paths = args[args.index('--opponents')+1:args.index('--opponent-share')]
+             self.assertEqual(len(set(paths)), 2)
+             self.assertEqual([torch.load(p, weights_only=True)['generation'] for p in paths], [11, 22])
+             saved = json.loads((where/'opponents.json').read_text())
