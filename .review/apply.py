@@ -18,6 +18,8 @@ patches = [
      '097d17da1fb96d8d00a2b700b6e2a088b731827032933666f7b7b1698700cdd3', []),
     (lzma.decompress(Path('.review/reconcile.patch.xz').read_bytes()),
      '34b94527d4425001408d547c1c6c9c72e3888782c1c3fc1bac42d3f79aa6535e', []),
+    (Path('.review/native-mask.patch').read_bytes(),
+     'cc0873a3313b0d999e281209e3b9d2bfa6009d1b5c6b4cbb4688c9c2099a0082', []),
 ]
 for patch, expected, options in patches:
     if hashlib.sha256(patch).hexdigest() != expected:

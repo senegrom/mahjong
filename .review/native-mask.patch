@@ -1,0 +1,38 @@
+diff --git a/neural/contract.py b/neural/contract.py
+index cd981c1..ef43caa 100644
+--- a/neural/contract.py
++++ b/neural/contract.py
+@@ -214,7 +214,10 @@ class MortalServed:
+             raise ValueError("Native continuation metadata does not match the leaf count")
+         if wanted is None:
+             raise UnsupportedSearchLayout("Mortal continuations require the native wanted-value mask")
+-        wants = np.asarray(wanted, dtype=bool)
++        # PyO3 exposes Vec<u8> as bytes; controlled callers may supply lists.
++        raw_wanted = (np.frombuffer(wanted, dtype=np.uint8)
++                      if isinstance(wanted, (bytes, bytearray, memoryview)) else wanted)
++        wants = np.asarray(raw_wanted, dtype=bool)
+         if wants.shape != (total,):
+             raise ValueError("Native wanted-value mask has the wrong shape")
+         unsupported = [at for at in range(total) if wants[at] and not lines[at]]
+diff --git a/neural/tests/test_search_review_repairs.py b/neural/tests/test_search_review_repairs.py
+index 56b5610..f5fef9a 100644
+--- a/neural/tests/test_search_review_repairs.py
++++ b/neural/tests/test_search_review_repairs.py
+@@ -105,10 +105,13 @@ class ContinuationTests(unittest.TestCase):
+     def test_nonterminal_without_history_fails_before_zeros_are_evaluated(self):
+         served=contract.serve(self.net())
+         arena=SimpleNamespace(leaves_mjai=lambda:([0],[[]]))
+-        with self.assertRaisesRegex(contract.UnsupportedSearchLayout,'nonterminal'):
+-            served.leaves(arena,b'',[1],'cpu',wanted=[1])
+-        terminal=served.leaves(arena,b'',[1],'cpu',wanted=[0])
+-        self.assertEqual(tuple(terminal.shape),(1,1012,34))
++        for wanted in ([1], b'\x01', bytearray([1]), memoryview(b'\x01')):
++            with self.subTest(wanted=type(wanted).__name__):
++                with self.assertRaisesRegex(contract.UnsupportedSearchLayout,'nonterminal'):
++                    served.leaves(arena,b'',[1],'cpu',wanted=wanted)
++        for wanted in ([0], b'\x00', bytearray([0]), memoryview(b'\x00')):
++            terminal=served.leaves(arena,b'',[1],'cpu',wanted=wanted)
++            self.assertEqual(tuple(terminal.shape),(1,1012,34))
+ 
+     def test_mortal_observations_with_engine_actions_keep_their_78_mask(self):
+         net=self.net(actions=78); served=contract.serve(net)
