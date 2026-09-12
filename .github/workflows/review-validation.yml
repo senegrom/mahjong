@@ -5,18 +5,112 @@ on:
 permissions:
   contents: read
 jobs:
-  snapshot:
+  python:
+    name: complete native Python training suite
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Archive reviewed source (no checkpoints)
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - run: python .review/apply.py
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: |
+            . -> target
+            engine/libriichi -> target
+          save-if: false
+      - name: Compile and check whitespace
         run: |
-          git archive --format=zip --output=/tmp/review-source.zip HEAD neural engine .github Cargo.toml Cargo.lock docs/TRAINING_HARDENING.md web/runtime/reduced-ops.config
+          python -m compileall -q neural
+          git diff --check
+          rustfmt --edition 2024 --check engine/libriichi/src/follow.rs
+      - name: Install CPU training and export dependencies
+        run: |
+          python -m pip install 'numpy>=2,<3' 'maturin>=1.7,<2' 'onnx>=1.17,<2' 'onnxruntime>=1.22,<2'
+          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Build and install both native Python engines
+        run: |
+          maturin build --release --locked --manifest-path engine/riichi-py/Cargo.toml --out wheels
+          maturin build --release --locked --manifest-path engine/libriichi/Cargo.toml --out wheels
+          python -m pip install wheels/*.whl
+      - name: Run every discovered neural test
+        run: |
+          set -o pipefail
+          python -m unittest discover -s neural/tests -v 2>&1 | tee /tmp/neural-review-tests.log
+      - name: Archive validation evidence
+        if: always()
+        run: |
+          git diff --binary > /tmp/applied-review.patch
+          git status --short > /tmp/review-status.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: python-review-evidence
+          path: |
+            /tmp/neural-review-tests.log
+            /tmp/applied-review.patch
+            /tmp/review-status.txt
+          if-no-files-found: ignore
+          retention-days: 7
+  rust:
+    name: full Rust workspace tests and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 .review/apply.py
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          save-if: false
+      - run: cargo fmt --all --check
+      - run: cargo test --locked --workspace
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+  candidate:
+    name: publish tested candidate only
+    needs: [python, rust]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - run: python3 .review/apply.py
+      - name: Create clean candidate without preparation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=44fd950223e4e2929c8799f0587fe61e87d658cd
+          export GIT_INDEX_FILE="$RUNNER_TEMP/production-index"
+          git read-tree "$base"
+          git add --all -- neural docs/TRAINING_REVIEW_REPAIRS.md
+          tree=$(git write-tree)
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          candidate=$(printf 'Repair reviewed training, replay, search and promotion contracts\n\nValidated by complete native Python and Rust suites in run %s.\nNo preparation scripts or workflow included.\n' "$GITHUB_RUN_ID" | git commit-tree "$tree" -p "$base")
+          test -z "$(git diff-tree --no-commit-id --name-only -r "$candidate" -- .review .github)"
+          git diff --check "$base" "$candidate"
+          git diff --stat "$base" "$candidate"
+          branch="review-tested/training-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git push origin "${candidate}:refs/heads/${branch}"
+          printf 'CANDIDATE_COMMIT=%s\nCANDIDATE_TREE=%s\nCANDIDATE_BRANCH=%s\n' "$candidate" "$tree" "$branch" | tee /tmp/candidate.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: review-source
-          path: /tmp/review-source.zip
-          retention-days: 1
+          name: tested-candidate
+          path: /tmp/candidate.txt
+          retention-days: 7
