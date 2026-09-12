@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K. He then selected Blazing Dawn (East A) for East and requested deployment. The later L is the active white dragon; F remains a study.",
+  "approval": "Carl approved A–E, G–J and L, excluding K. He then selected Blazing Dawn (East A) for East and the corrected Wind Ribbons companion (North B) for North and requested deployment. The later L is the active white dragon; F remains a study.",
   "fallback": "classic",
   "sources": [
     {
@@ -28,6 +28,11 @@
       "id": "east",
       "source": "docs/design/van-gogh/studies/03-east-wind-alternatives.png",
       "sha256": "87debf57e582ff54d0204200a5abd066c4f04b4d17348e57ec906d5e5b8b251b"
+    },
+    {
+      "id": "north",
+      "source": "docs/design/van-gogh/studies/04-north-wind-ribbons.png",
+      "sha256": "3a51fc2f26cbd476cce085d93b52a5a81c5a17d14d4bcf00a0597a402435588e"
     }
   ],
   "tiles": [
@@ -217,6 +222,23 @@
         "height": 737
       },
       "pngSha256": "3b3c9c14c55cbef72156ddea31dd7c9a08435be52ac6d970b2c41a302e0caf7b"
+    },
+    {
+      "candidate": "North B",
+      "tile": "4z",
+      "name": "Pei",
+      "label": "North wind",
+      "source": "docs/design/van-gogh/studies/04-north-wind-ribbons.png",
+      "status": "approved",
+      "png": "approved/Pei.png",
+      "svg": "approved/Pei.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      },
+      "pngSha256": "acc898620ef512f35dc9f750d0d1d74cab98fbb495b3af1096e0c3a7e6668b53"
     }
   ],
   "rejected": [
@@ -257,7 +279,6 @@
     "9s",
     "2z",
     "3z",
-    "4z",
     "6z"
   ]
 }
