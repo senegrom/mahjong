@@ -1,0 +1,138 @@
+name: validate reviewed training fixes
+on:
+  push:
+    branches: [work/review-fixes-publish-20260912]
+    paths: ['.github/workflows/review-fixes-validate.yml']
+permissions:
+  contents: read
+jobs:
+  validate:
+    if: github.repository == 'senegrom/mahjong' && github.ref == 'refs/heads/work/review-fixes-publish-20260912'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify and apply the exact locally tested patch
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib, json, pathlib, subprocess
+          parts = ['0', '1a', '1b', '1c']
+          encoded = ''.join(pathlib.Path('.github/review-fixes-payload-' + part + '.b64').read_text().strip() for part in parts)
+          compressed = base64.b64decode(encoded, validate=True)
+          expected = '4bb2d0f900bc96aeda392c2743d2339116c2205e4a02abafddea6c100b42e49d'
+          assert hashlib.sha256(compressed).hexdigest() == expected, 'Uploaded patch checksum mismatch'
+          payload = json.loads(gzip.decompress(compressed))
+          assert payload['base'] == '44fd950223e4e2929c8799f0587fe61e87d658cd'
+          expected_paths = set('''docs/TRAINING_REVIEW_PUBLICATION.md
+          neural/contract.py
+          neural/counterfactual.py
+          neural/mortal_learner.py
+          neural/ppo_control.py
+          neural/promote.py
+          neural/searched.py
+          neural/selfplay.py
+          neural/tests/test_review_drift.py
+          neural/tests/test_review_provenance.py
+          neural/tests/test_review_publication.py
+          neural/tests/test_review_search.py
+          neural/tests/test_training_controls.py
+          neural/train.py
+          neural/train_combined.py
+          neural/train_mortal.py'''.splitlines())
+          assert set(payload['files']) == expected_paths
+          pathlib.Path('/tmp/review-payload.json').write_text(json.dumps(payload))
+          pathlib.Path('/tmp/review-fixes.patch').write_text(payload['patch'])
+          subprocess.run(['git', 'checkout', '--detach', payload['base']], check=True)
+          subprocess.run(['git', 'apply', '--check', '/tmp/review-fixes.patch'], check=True)
+          subprocess.run(['git', 'apply', '/tmp/review-fixes.patch'], check=True)
+          for name, expected_hash in payload['files'].items():
+              actual = subprocess.check_output(['git', 'hash-object', name], text=True).strip()
+              assert actual == expected_hash, (name, actual, expected_hash)
+          subprocess.run(['git', 'add', '--', *sorted(expected_paths)], check=True)
+          changed = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
+          assert set(changed) == expected_paths
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          subprocess.run(['git', 'diff', '--cached', '--stat'], check=True)
+          pathlib.Path('/tmp/review-evidence').mkdir(exist_ok=True)
+          pathlib.Path('/tmp/review-evidence/source-hashes.json').write_text(json.dumps(payload['files'], indent=2))
+          print('All 16 patched files match the locally tested Git blob hashes')
+          PY
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: |
+            . -> target
+            engine/libriichi -> target
+          save-if: false
+      - name: Validate formatting and the complete Rust workspace
+        run: |
+          cargo fmt --all --check
+          rustfmt --edition 2024 --check engine/libriichi/src/follow.rs
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace
+      - name: Install pinned Python environment and fresh engines
+        run: |
+          python -m pip install 'numpy>=2,<3' 'maturin>=1.7,<2' 'onnx>=1.17,<2' 'onnxruntime>=1.22,<2'
+          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+          (cd engine/riichi-py && maturin build --release --locked --out ../../review-wheels)
+          (cd engine/libriichi && maturin build --release --locked --out ../../review-wheels)
+          python -m pip install review-wheels/*.whl
+          python -m compileall -q neural
+      - name: Run the complete Python regression suite
+        run: |
+          set -o pipefail
+          python -m unittest discover -s neural/tests -v 2>&1 | tee /tmp/review-evidence/tests.log
+      - name: Create clean candidate objects without updating any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess, urllib.request
+          assert os.environ['GITHUB_REPOSITORY'] == 'senegrom/mahjong'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/work/review-fixes-publish-20260912'
+          payload = json.loads(pathlib.Path('/tmp/review-payload.json').read_text())
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert git('rev-parse', 'HEAD') == payload['base']
+          assert set(git('diff', '--cached', '--name-only').splitlines()) == set(payload['files'])
+          for name, expected in payload['files'].items():
+              assert git('hash-object', name) == expected, name
+          entries = [dict(path=name, mode='100644', type='blob', content=pathlib.Path(name).read_text()) for name in sorted(payload['files'])]
+          def post(kind, data):
+              request = urllib.request.Request('https://api.github.com/repos/senegrom/mahjong/git/' + kind,
+                  data=json.dumps(data).encode(), method='POST', headers={
+                      'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                      'Accept': 'application/vnd.github+json',
+                      'Content-Type': 'application/json'})
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.load(response)
+          tree = post('trees', dict(base_tree=git('rev-parse', 'HEAD^{tree}'), tree=entries))
+          commit = post('commits', dict(message='Fix evaluated champion publication, exploration drift and search contracts',
+              tree=tree['sha'], parents=[payload['base']]))
+          result = dict(commit=commit['sha'], tree=tree['sha'], base=payload['base'], files=payload['files'])
+          pathlib.Path('/tmp/review-evidence/candidate.json').write_text(json.dumps(result, indent=2))
+          print('VALIDATED_CANDIDATE=' + commit['sha'])
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('Validated candidate (no branch moved): `' + commit['sha'] + '`\n')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: reviewed-fixes-validation
+          path: /tmp/review-evidence/
+          retention-days: 7
