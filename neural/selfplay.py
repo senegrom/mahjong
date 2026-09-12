@@ -245,7 +245,8 @@ def play(
                 # `mortal_learner`): it answers the table in ours and records
                 # its decisions itself, possibly more than one per row, and
                 # keeps its own account of the time.
-                picked, records = net.decide(views, index, deciding[index], mask[index], greedy)
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and str(device).startswith("cuda")):
+                    picked, records = net.decide(views, index, deciding[index], mask[index], greedy)
                 choice[index] = picked
                 observations.append(records.planes)
                 legal_masks.append(records.masks)

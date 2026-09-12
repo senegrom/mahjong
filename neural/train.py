@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import json
 import time
 from pathlib import Path
@@ -37,6 +38,7 @@ from torch import nn
 from . import selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
+from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
 from .model import (
     DEFAULT_BLOCKS,
     DEFAULT_CHANNELS,
@@ -171,6 +173,7 @@ def parse_args() -> argparse.Namespace:
         "which fuses its kernels and matters most when the launching "
         "thread is starved",
     )
+    add_training_controls(parser)
     return parser.parse_args()
 
 
@@ -356,6 +359,7 @@ def main() -> None:
             "optimizer": optimiser.state_dict(),
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
+            "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch},
             **net.payload_fields(),
             "smoothed": smoothed,
             "best_placement": best_placement,
@@ -480,19 +484,20 @@ def main() -> None:
         oracle_guess = torch.empty(batch.decisions, device=device)
         critic_guess = torch.empty(batch.decisions, device=device)
         baseline_began = time.time()
+        baseline_rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
         with torch.no_grad():
-            for start_index in range(0, batch.decisions, 8192):
-                chunk = slice(start_index, start_index + 8192)
+            for start_index in range(0, batch.decisions, baseline_rows):
+                chunk = slice(start_index, start_index + baseline_rows)
                 if on_card is not None:
-                    planes = on_card.slice(start_index, start_index + 8192)
+                    planes = on_card.slice(start_index, start_index + baseline_rows)
                 else:
-                    planes = observations.slice(start_index, start_index + 8192).dense(device)
+                    planes = observations.slice(start_index, start_index + baseline_rows).dense(device)
                 seen = oracle[chunk].to(device).float()
                 # The last chunk padded to the others' size, so the compiled
                 # graph sees one shape all round.
                 rows = planes.shape[0]
-                planes = pad_rows(planes, 8192)
-                seen = pad_rows(seen, 8192)
+                planes = pad_rows(planes, baseline_rows)
+                seen = pad_rows(seen, baseline_rows)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     guessed_value, judged, criticised = values(planes, seen)
                 public_guess[chunk] = guessed_value.float()[:rows]
@@ -539,6 +544,7 @@ def main() -> None:
         sure_count = zero()
         likely_count = zero()
         unlikely_count = zero()
+        drift = PolicyDrift(args.target_kl)
         steps = 0
         for _epoch in range(args.epochs):
             # The large observations live on the host, so make the shuffle
@@ -582,85 +588,90 @@ def main() -> None:
                 if on_card is not None
                 else Prefetcher(slices, prepare)
             )
-            for picks, planes, seen, fake in minibatches:
-                optimiser.zero_grad(set_to_none=True)
-                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    logits, value, guessed, oracle_value, criticised = learn(
-                        planes, legal[picks], seen
+            with closing(minibatches):
+                for picks, planes, seen, fake in minibatches:
+                    optimiser.zero_grad(set_to_none=True)
+                    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                        logits, value, guessed, oracle_value, criticised = learn(
+                            planes, legal[picks], seen
+                        )
+                    # Whatever the forward pass ran in, the losses are float32.
+                    logits = logits.float()
+                    value = value.float()
+                    guessed = guessed.float()
+                    oracle_value = oracle_value.float()
+                    criticised = criticised.float()
+                    reader_loss, reader_right = reader_loss_of(
+                        planes, seen[:, :HIDDEN_HANDS_PLANES], fake
                     )
-                # Whatever the forward pass ran in, the losses are float32.
-                logits = logits.float()
-                value = value.float()
-                guessed = guessed.float()
-                oracle_value = oracle_value.float()
-                criticised = criticised.float()
-                reader_loss, reader_right = reader_loss_of(
-                    planes, seen[:, :HIDDEN_HANDS_PLANES], fake
-                )
-                distribution = torch.distributions.Categorical(logits=logits)
-                log_prob = distribution.log_prob(actions[picks])
-                advantage = advantages[picks]
+                    distribution = torch.distributions.Categorical(logits=logits)
+                    log_prob = distribution.log_prob(actions[picks])
+                    if drift.check(old_log_probs[picks], log_prob):
+                        break
+                    advantage = advantages[picks]
 
-                # The clipped objective: an update may improve an action's
-                # odds, but only so far in one round, which is what keeps a
-                # policy from narrowing onto a single action.
-                with torch.no_grad():
-                    confidence = old_log_probs[picks].exp()
-                    sure = confidence > 0.5
-                    likely = (confidence > 0.2) & ~sure
-                    unlikely = confidence <= 0.2
-                    sure_sum += (advantage * sure).sum()
-                    sure_count += sure.sum()
-                    likely_sum += (advantage * likely).sum()
-                    likely_count += likely.sum()
-                    unlikely_sum += (advantage * unlikely).sum()
-                    unlikely_count += unlikely.sum()
-                ratio = torch.exp(log_prob - old_log_probs[picks])
-                clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
-                policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
-                with torch.no_grad():
-                    total_clipped += (ratio != clipped).float().mean()
-                    # Standard PPO approximate KL. It does not alter the
-                    # update, but makes a too-large policy step visible next
-                    # to the clip fraction rather than only after an arena.
-                    total_kl += (old_log_probs[picks] - log_prob).mean()
-                value_loss = nn.functional.mse_loss(value, normalised[picks])
-                oracle_loss = nn.functional.mse_loss(oracle_value, normalised[picks])
-                critic_loss = nn.functional.mse_loss(criticised, normalised[picks])
-                # The public head also learns from the oracle's estimate as
-                # it stood before the round, on rounds where that estimate
-                # was the better one; see the choice of baseline above.
-                distil_loss = nn.functional.mse_loss(value, oracle_guess[picks])
-                entropy = distribution.entropy().mean()
+                    # The clipped objective: an update may improve an action's
+                    # odds, but only so far in one round, which is what keeps a
+                    # policy from narrowing onto a single action.
+                    with torch.no_grad():
+                        confidence = old_log_probs[picks].exp()
+                        sure = confidence > 0.5
+                        likely = (confidence > 0.2) & ~sure
+                        unlikely = confidence <= 0.2
+                        sure_sum += (advantage * sure).sum()
+                        sure_count += sure.sum()
+                        likely_sum += (advantage * likely).sum()
+                        likely_count += likely.sum()
+                        unlikely_sum += (advantage * unlikely).sum()
+                        unlikely_count += unlikely.sum()
+                    ratio = torch.exp(log_prob - old_log_probs[picks])
+                    clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
+                    policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
+                    with torch.no_grad():
+                        total_clipped += (ratio != clipped).float().mean()
+                        # Standard PPO approximate KL. It does not alter the
+                        # update, but makes a too-large policy step visible next
+                        # to the clip fraction rather than only after an arena.
+                        total_kl += (old_log_probs[picks] - log_prob).mean()
+                    value_loss = nn.functional.mse_loss(value, normalised[picks])
+                    oracle_loss = nn.functional.mse_loss(oracle_value, normalised[picks])
+                    critic_loss = nn.functional.mse_loss(criticised, normalised[picks])
+                    # The public head also learns from the oracle's estimate as
+                    # it stood before the round, on rounds where that estimate
+                    # was the better one; see the choice of baseline above.
+                    distil_loss = nn.functional.mse_loss(value, oracle_guess[picks])
+                    entropy = distribution.entropy().mean()
 
-                # What the opponents are holding.
-                hands_loss, covered = hands_loss_of(guessed, held[picks])
-                loss = (
-                    policy_loss
-                    + args.value_weight * (value_loss + oracle_loss + critic_loss)
-                    + args.value_weight * distil_weight * distil_loss
-                    + args.hands_weight * hands_loss
-                    + args.reader_weight * reader_loss
-                    - args.entropy * entropy
-                )
+                    # What the opponents are holding.
+                    hands_loss, covered = hands_loss_of(guessed, held[picks])
+                    loss = (
+                        policy_loss
+                        + args.value_weight * (value_loss + oracle_loss + critic_loss)
+                        + args.value_weight * distil_weight * distil_loss
+                        + args.hands_weight * hands_loss
+                        + args.reader_weight * reader_loss
+                        - args.entropy * entropy
+                    )
 
-                loss.backward()
-                grad_norm = nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
-                optimiser.step()
+                    loss.backward()
+                    grad_norm = nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
+                    optimiser.step()
 
-                with torch.no_grad():
-                    total_policy += policy_loss
-                    total_value += value_loss
-                    total_oracle += oracle_loss
-                    total_critic += critic_loss
-                    total_distil += distil_loss
-                    total_reader += reader_loss
-                    total_read_right += reader_right
-                    total_entropy += entropy
-                    total_hands += hands_loss
-                    total_covered += covered
-                    total_grad_norm += grad_norm
-                steps += 1
+                    with torch.no_grad():
+                        total_policy += policy_loss
+                        total_value += value_loss
+                        total_oracle += oracle_loss
+                        total_critic += critic_loss
+                        total_distil += distil_loss
+                        total_reader += reader_loss
+                        total_read_right += reader_right
+                        total_entropy += entropy
+                        total_hands += hands_loss
+                        total_covered += covered
+                        total_grad_norm += grad_norm
+                    steps += 1
+            if drift.stopped:
+                break
 
         epochs_seconds = time.time() - phase
         phase = time.time()
@@ -692,43 +703,44 @@ def main() -> None:
                     rows["imagined"].to(device).float(),
                 )
 
-            for planes, seen, target, held_rows, fake in Prefetcher(
-                range(args.replay_steps), prepare_replay
-            ):
-                optimiser.zero_grad(set_to_none=True)
-                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    guessed, oracle_value, criticised = auxiliary(planes, seen)
-                guessed = guessed.float()
-                oracle_value = oracle_value.float()
-                criticised = criticised.float()
-                critic_loss = nn.functional.mse_loss(criticised, target)
-                oracle_loss = nn.functional.mse_loss(oracle_value, target)
-                hands_loss, _covered = hands_loss_of(guessed, held_rows)
-                reader_loss, reader_right = reader_loss_of(
-                    planes, seen[:, :HIDDEN_HANDS_PLANES], fake
-                )
-                loss = (
-                    args.value_weight * (critic_loss + oracle_loss)
-                    + args.hands_weight * hands_loss
-                    + args.reader_weight * reader_loss
-                )
-                loss.backward()
-                nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
-                optimiser.step()
-                with torch.no_grad():
-                    replay_critic += critic_loss
-                    replay_oracle += oracle_loss
-                    replay_read_right += reader_right
-                replay_steps += 1
+            with Prefetcher(range(args.replay_steps), prepare_replay) as minibatches:
+                for planes, seen, target, held_rows, fake in minibatches:
+                    optimiser.zero_grad(set_to_none=True)
+                    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                        guessed, oracle_value, criticised = auxiliary(planes, seen)
+                    guessed = guessed.float()
+                    oracle_value = oracle_value.float()
+                    criticised = criticised.float()
+                    critic_loss = nn.functional.mse_loss(criticised, target)
+                    oracle_loss = nn.functional.mse_loss(oracle_value, target)
+                    hands_loss, _covered = hands_loss_of(guessed, held_rows)
+                    reader_loss, reader_right = reader_loss_of(
+                        planes, seen[:, :HIDDEN_HANDS_PLANES], fake
+                    )
+                    loss = (
+                        args.value_weight * (critic_loss + oracle_loss)
+                        + args.hands_weight * hands_loss
+                        + args.reader_weight * reader_loss
+                    )
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
+                    optimiser.step()
+                    with torch.no_grad():
+                        replay_critic += critic_loss
+                        replay_oracle += oracle_loss
+                        replay_read_right += reader_right
+                    replay_steps += 1
 
-        # One synchronisation here replaces the many per-minibatch metric
-        # synchronisations above. Once the first scalar is read, the rest are
-        # already complete.
+            # One synchronisation here replaces the many per-minibatch metric
+            # synchronisations above. Once the first scalar is read, the rest are
+            # already complete.
         replay_seconds = time.time() - phase
         require_updates(steps)
         denom = steps
         confidence_total = (sure_count + likely_count + unlikely_count).clamp(min=1)
         record = {
+            **drift.metrics(),
+            "baseline_batch": baseline_rows,
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
             "checkpoint_generation": generation + 1,

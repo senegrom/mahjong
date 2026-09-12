@@ -14,6 +14,7 @@ heads and no replay ring, since it has none of the heads those serve.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import json
 import time
 from pathlib import Path
@@ -31,6 +32,7 @@ from torch import nn
 from . import mortal_learner, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
+from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
 from .training_state import capture_sampling_state, restore_sampling_state
 
 SMOOTHING = 1 / 3
@@ -70,6 +72,7 @@ def parse_args() -> argparse.Namespace:
         "attention run as a dozen kernels each in eager mode, and a step of "
         "learning was bound by them rather than by the data",
     )
+    add_training_controls(parser)
     return parser.parse_args()
 
 
@@ -152,6 +155,7 @@ def main() -> None:
             "learner": "mortal",
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
+            "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch},
             "smoothed": smoothed,
             "best_placement": best_placement,
             "temperature": args.temperature,
@@ -189,18 +193,19 @@ def main() -> None:
         # The baseline: the value head as it stands before the round.
         net.eval()
         guess = torch.empty(batch.decisions, device=device)
+        baseline_rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
         with torch.no_grad():
-            for start_index in range(0, batch.decisions, 4096):
-                chunk = slice(start_index, start_index + 4096)
+            for start_index in range(0, batch.decisions, baseline_rows):
+                chunk = slice(start_index, start_index + baseline_rows)
                 if on_card is not None:
-                    planes = on_card.slice(start_index, start_index + 4096)
+                    planes = on_card.slice(start_index, start_index + baseline_rows)
                 else:
-                    planes = observations.slice(start_index, start_index + 4096).dense(device)
+                    planes = observations.slice(start_index, start_index + baseline_rows).dense(device)
                 # The last chunk padded to the others' size, so the compiled
                 # graph sees one shape all round.
                 rows = planes.shape[0]
-                planes = pad_rows(planes, 4096)
-                mask = pad_rows(legal[chunk], 4096, True)
+                planes = pad_rows(planes, baseline_rows)
+                mask = pad_rows(legal[chunk], baseline_rows, True)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                     _logits, value = learn(planes, mask)
                 guess[chunk] = value.float()[:rows]
@@ -213,6 +218,7 @@ def main() -> None:
         zero = lambda: torch.zeros((), device=device)
         total_policy, total_value, total_entropy = zero(), zero(), zero()
         total_clipped, total_kl, total_grad = zero(), zero(), zero()
+        drift = PolicyDrift(args.target_kl)
         steps = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(batch.decisions)
@@ -237,36 +243,43 @@ def main() -> None:
                 if on_card is not None
                 else Prefetcher(slices, prepare)
             )
-            for picks, planes in minibatches:
-                optimiser.zero_grad(set_to_none=True)
-                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    logits, value = learn(planes, legal[picks])
-                logits = logits.float()
-                value = value.float()
-                distribution = torch.distributions.Categorical(logits=logits)
-                log_prob = distribution.log_prob(actions[picks])
-                advantage = advantages[picks]
-                ratio = torch.exp(log_prob - old_log_probs[picks])
-                clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
-                policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
-                value_loss = nn.functional.mse_loss(value, returns[picks])
-                entropy = distribution.entropy().mean()
-                loss = policy_loss + args.value_weight * value_loss - args.entropy * entropy
-                loss.backward()
-                grad_norm = nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
-                optimiser.step()
-                with torch.no_grad():
-                    total_policy += policy_loss
-                    total_value += value_loss
-                    total_entropy += entropy
-                    total_clipped += (ratio != clipped).float().mean()
-                    total_kl += (old_log_probs[picks] - log_prob).mean()
-                    total_grad += grad_norm
-                steps += 1
+            with closing(minibatches):
+                for picks, planes in minibatches:
+                    optimiser.zero_grad(set_to_none=True)
+                    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                        logits, value = learn(planes, legal[picks])
+                    logits = logits.float()
+                    value = value.float()
+                    distribution = torch.distributions.Categorical(logits=logits)
+                    log_prob = distribution.log_prob(actions[picks])
+                    if drift.check(old_log_probs[picks], log_prob):
+                        break
+                    advantage = advantages[picks]
+                    ratio = torch.exp(log_prob - old_log_probs[picks])
+                    clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
+                    policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
+                    value_loss = nn.functional.mse_loss(value, returns[picks])
+                    entropy = distribution.entropy().mean()
+                    loss = policy_loss + args.value_weight * value_loss - args.entropy * entropy
+                    loss.backward()
+                    grad_norm = nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
+                    optimiser.step()
+                    with torch.no_grad():
+                        total_policy += policy_loss
+                        total_value += value_loss
+                        total_entropy += entropy
+                        total_clipped += (ratio != clipped).float().mean()
+                        total_kl += (old_log_probs[picks] - log_prob).mean()
+                        total_grad += grad_norm
+                    steps += 1
+            if drift.stopped:
+                break
 
         require_updates(steps)
         denom = steps
         record = {
+            **drift.metrics(),
+            "baseline_batch": baseline_rows,
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
             "checkpoint_generation": generation + 1,

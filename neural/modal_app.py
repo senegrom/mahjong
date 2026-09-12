@@ -38,6 +38,7 @@ from pathlib import Path
 
 import modal
 
+from neural.training_safety import training_control_arguments
 from neural.checkpoints import copy_checkpoint, publish_training_snapshot, validate_checkpoint
 from neural.cloud_runs import workspace, validate_run, managed_process
 
@@ -212,6 +213,8 @@ def train(
     run: str = DEFAULT_RUN,
     channels: int = 320,
     blocks: int = 24,
+    target_kl: float = 0.0,
+    baseline_batch: int | None = None,
 ) -> str:
     """Runs `generations` rounds of self-play and learning, resuming from the
     checkpoint of that name in the run's directory on the volume when it is
@@ -223,6 +226,7 @@ def train(
     passes over each round three times and its critic learns the round by
     heart.
     """
+    controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
         started_from = None
@@ -292,12 +296,11 @@ def train(
         # what it gained was knowing its own family. An older self is foreign
         # enough to be worth playing, and another lineage more so.
         seated = []
-        for name in opponents or []:
+        for opponent_index, name in enumerate(opponents or []):
             source = _checkpoint(run, name)
-            if not source.exists():
-                print(f"no opponent at {source}", flush=True)
-                continue
-            local = where / "opponents" / f"{Path(name).name}.pt"
+            if not source.is_file():
+                raise FileNotFoundError(f"Requested opponent checkpoint does not exist: {source}")
+            local = where / "opponents" / f"{opponent_index:03d}.pt"
             local.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, local)
             seated.append(str(local))
@@ -305,6 +308,7 @@ def train(
             command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
 
         environment = _environment(TRAINER_CPUS)
+        command += controls
         print(" ".join(command), flush=True)
 
         saved_cache = False
@@ -379,6 +383,8 @@ def train_mortal(
     opponents: list[str] | None = None,
     opponent_share: float = 0.0,
     run: str = "mortal-run",
+    target_kl: float = 0.0,
+    baseline_batch: int | None = None,
 ) -> str:
     """Fine-tunes a published Mortal on our rules by self-play, in a run
     directory of its own: see `neural/train_mortal.py`. Resumes from the
@@ -386,6 +392,7 @@ def train_mortal(
     the published Mortal named otherwise. Its own function, so it runs
     beside the other lineage's training rather than queueing behind it.
     """
+    controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
         source = _checkpoint(run, resume)
@@ -420,17 +427,17 @@ def train_mortal(
             print(f"starting from {origin}", flush=True)
 
         seated = []
-        for name in opponents or []:
+        for opponent_index, name in enumerate(opponents or []):
             found = _checkpoint(run, name)
-            if not found.exists():
-                print(f"no opponent at {found}", flush=True)
-                continue
-            local = where / "opponents" / (name.replace("/", "--") + ".pt")
+            if not found.is_file():
+                raise FileNotFoundError(f"Requested opponent checkpoint does not exist: {found}")
+            local = where / "opponents" / f"{opponent_index:03d}.pt"
             local.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(found, local)
             seated.append(str(local))
         if seated:
             command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+        command += controls
         print(" ".join(command), flush=True)
 
         saved_cache = False
@@ -503,6 +510,8 @@ def train_combined(
     opponent_share: float = 0.0,
     run: str = "joined-run",
     compile: bool = True,
+    target_kl: float = 0.0,
+    baseline_batch: int | None = None,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -512,6 +521,7 @@ def train_combined(
     """
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
+    controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
         source = _checkpoint(run, resume)
@@ -558,17 +568,17 @@ def train_combined(
             print(f"joining {ours} and {mortal}", flush=True)
 
         seated = []
-        for name in opponents or []:
+        for opponent_index, name in enumerate(opponents or []):
             found = _checkpoint(run, name)
-            if not found.exists():
-                print(f"no opponent at {found}", flush=True)
-                continue
-            local = where / "opponents" / (name.replace("/", "--") + ".pt")
+            if not found.is_file():
+                raise FileNotFoundError(f"Requested opponent checkpoint does not exist: {found}")
+            local = where / "opponents" / f"{opponent_index:03d}.pt"
             local.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(found, local)
             seated.append(str(local))
         if seated:
             command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+        command += controls
         print(" ".join(command), flush=True)
 
         saved_cache = False
@@ -1025,5 +1035,7 @@ def smoke() -> str:
 
 
 @app.local_entrypoint()
-def main(generations: int = 40, games: int = 1024, batch: int = 4096) -> None:
-    print(train.remote(generations=generations, games=games, batch=batch))
+def main(generations: int = 40, games: int = 1024, batch: int = 4096,
+         target_kl: float = 0.0, baseline_batch: int | None = None) -> None:
+    print(train.remote(generations=generations, games=games, batch=batch,
+                       target_kl=target_kl, baseline_batch=baseline_batch))

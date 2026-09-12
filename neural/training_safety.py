@@ -6,6 +6,7 @@ checkpoints. This module does not import Torch on thin cloud launchers.
 from __future__ import annotations
 
 from pathlib import Path
+import math
 import warnings
 
 TRAINING_API_VERSION = 2
@@ -70,3 +71,32 @@ def validate_training_options(args) -> None:
             if not isinstance(mode, str) or (mode != "none" and
                     not set(mode.split("+")) <= {"mortal", "ours", "head"}):
                 raise ValueError(f"Invalid training mode: {mode}")
+
+    # Reject nonfinite hyperparameters before allocating a model or creating output.
+    for name in ('lr', 'lr_ours', 'lr_mortal', 'temperature'):
+        value = getattr(args, name, None)
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            raise ValueError(f'{name} must be finite and positive')
+    for name in ('target_kl', 'entropy', 'value_weight', 'hands_weight', 'reader_weight',
+                 'distil_weight', 'leash'):
+        value = getattr(args, name, 0.0)
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(f'{name} must be finite and nonnegative')
+    clip = getattr(args, 'clip', 0.2)
+    if not math.isfinite(clip) or not 0 < clip < 1:
+        raise ValueError('clip must be finite and between zero and one')
+    baseline = getattr(args, 'baseline_batch', None)
+    if baseline is not None and (type(baseline) is not int or baseline <= 0):
+        raise ValueError('baseline_batch must be a positive integer')
+
+
+def training_control_arguments(target_kl: float = 0.0, baseline_batch: int | None = None) -> list[str]:
+    """Shared thin-launcher validation; never import Torch to deploy a cloud job."""
+    if not math.isfinite(target_kl) or target_kl < 0:
+        raise ValueError('target_kl must be finite and nonnegative')
+    arguments = ['--target-kl', str(target_kl)]
+    if baseline_batch is not None:
+        if type(baseline_batch) is not int or baseline_batch <= 0:
+            raise ValueError('baseline_batch must be a positive integer')
+        arguments += ['--baseline-batch', str(baseline_batch)]
+    return arguments
