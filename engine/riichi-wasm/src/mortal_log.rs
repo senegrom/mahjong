@@ -289,7 +289,9 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
     // replacement go again. The seat acting now, with a replacement in
     // hand, has instead just declared one, so its quad goes at the end.
     let holding_replacement = hand.phase == Phase::Act && hand.after_quad;
-    let robbed = hand.robbable_quad.filter(|_| hand.phase == Phase::CallWindow);
+    let robbed = hand
+        .robbable_quad
+        .filter(|_| hand.phase == Phase::CallWindow);
     let mut standing: HashMap<(usize, u32), Vec<(Wind, MeldKind, Tile)>> = HashMap::new();
     let mut closing: Vec<(Wind, MeldKind, Tile)> = Vec::new();
     for (index, player) in hand.players.iter().enumerate() {
@@ -371,9 +373,7 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
         .zip(&bet)
         .map(|(player, placed)| player.score + 1000 * *placed as i32)
         .collect();
-    let kyotaku = hand
-        .riichi_sticks
-        .saturating_sub(bet.iter().sum::<u32>());
+    let kyotaku = hand.riichi_sticks.saturating_sub(bet.iter().sum::<u32>());
     let indicators = hand.wall.dora_indicators();
     let first = *indicators.first()?;
     let mut faces = String::from("[");
@@ -412,7 +412,12 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
             .remove(&(who.index(), discard.order))
             .unwrap_or_default()
         {
-            draw(&mut tail, &mut drawn, owner, (owner == seat).then_some(tile));
+            draw(
+                &mut tail,
+                &mut drawn,
+                owner,
+                (owner == seat).then_some(tile),
+            );
             tail.push(if kind == MeldKind::ConcealedKan {
                 ankan_json(owner, tile)
             } else {
@@ -433,10 +438,7 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
             draw(&mut tail, &mut drawn, *who, mine.then_some(discard.tile));
         }
         if discard.riichi {
-            tail.push(format!(
-                "{{\"type\":\"reach\",\"actor\":{}}}",
-                who.index()
-            ));
+            tail.push(format!("{{\"type\":\"reach\",\"actor\":{}}}", who.index()));
         }
         // Its own discards are replayed as tiles drawn and let go, which is
         // what the extra draw above supplied; the other three keep the mark
@@ -496,7 +498,12 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
     // A quad declared but not yet discarded from, and the seat that holds a
     // replacement now: both belong after everything in the rivers.
     for (owner, kind, tile) in closing {
-        draw(&mut tail, &mut drawn, owner, (owner == seat).then_some(tile));
+        draw(
+            &mut tail,
+            &mut drawn,
+            owner,
+            (owner == seat).then_some(tile),
+        );
         tail.push(if kind == MeldKind::ConcealedKan {
             ankan_json(owner, tile)
         } else {
@@ -759,5 +766,4 @@ mod tests {
         }
         assert!(checked > 150, "only {checked} positions were compared");
     }
-
 }
