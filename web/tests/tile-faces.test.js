@@ -14,17 +14,23 @@ const publicRoot = new URL('../public/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', publicRoot), 'utf8'));
 const faces = TILE_FACE_OPTIONS.map(face => face.value);
 
-test('Van Gogh preserves selected East A, excludes K and uses L for white dragon', () => {
-  const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z'];
+test('Van Gogh preserves selected East A and North B, excludes K and uses L for white dragon', () => {
+  const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z'];
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'C', 'D', 'E', 'G', 'H', 'I', 'J', 'L', 'East A']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'C', 'D', 'E', 'G', 'H', 'I', 'J', 'L', 'East A', 'North B']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
     'docs/design/van-gogh/studies/03-east-wind-alternatives.png');
   const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  const north = set.tiles.find(tile => tile.tile === '4z');
+  assert.equal(tileImage('4z', 'van-gogh'), 'tiles/van-gogh/approved/Pei.svg');
+  assert.equal(north.source, 'docs/design/van-gogh/studies/04-north-wind-ribbons.png');
+  assert.deepEqual(north.crop, { x: 0, y: 0, width: 1086, height: 1448 });
+  assert.equal(hash(readFileSync(new URL(`../../${north.source}`, import.meta.url))),
+    '3a51fc2f26cbd476cce085d93b52a5a81c5a17d14d4bcf00a0597a402435588e');
   for (const source of set.sources) {
     assert.equal(hash(readFileSync(new URL(`../../${source.source}`, import.meta.url))), source.sha256);
   }
@@ -94,7 +100,7 @@ test('all selectable face sets are in the preload inventory with valid files', (
   assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/approved/Pin1.svg'));
   assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/placeholders/placeholder.svg'));
   assert.equal(TILE_IMAGE_URLS.some(url => url.startsWith('tiles/cubist/')), false);
-  assert.equal(TILE_IMAGE_URLS.filter(url => url.startsWith('tiles/van-gogh/')).length, 11);
+  assert.equal(TILE_IMAGE_URLS.filter(url => url.startsWith('tiles/van-gogh/')).length, 12);
   for (const face of faces) {
     for (const tile of TILE_TYPES) assert.ok(TILE_IMAGE_URLS.includes(tileImage(tile, face)));
   }
@@ -155,9 +161,11 @@ test('the real Tile component respects the selected face and hidden state', asyn
     assert.match(vanGoghWhite, /\bringed\b/);
     assert.match(vanGoghWhite, /class="foil/);
     assert.doesNotMatch(vanGoghWhite, /haku-dragon-reveal|Haku-foil/);
-    const east = show('1z', 'van-gogh', { dora: true, size: 'small' });
-    assert.match(east, /\bvan-gogh\b/);
-    assert.match(east, /\bringed\b/);
+    for (const tile of ['1z', '4z']) {
+      const wind = show(tile, 'van-gogh', { dora: true, size: 'small' });
+      assert.match(wind, /\bvan-gogh\b/);
+      assert.match(wind, /\bringed\b/);
+    }
     assert.doesNotMatch(show('2z', 'van-gogh'), /\bvan-gogh\b/);
   }
 });
