@@ -1,0 +1,22 @@
+name: training review validation
+on:
+  push:
+    branches: [prep/training-review-20260912]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Archive reviewed source (no checkpoints)
+        run: |
+          git archive --format=zip --output=/tmp/review-source.zip HEAD neural engine .github Cargo.toml Cargo.lock docs/TRAINING_HARDENING.md web/runtime/reduced-ops.config
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: review-source
+          path: /tmp/review-source.zip
+          retention-days: 1
