@@ -38,7 +38,6 @@
   import { getContext } from 'svelte';
   import { tileWords } from './tiles.js';
   import { TILE_FACE_CONTEXT, tileImage } from './tile-faces.js';
-  import { CUBIST_APPROVED } from './cubist-faces.js';
   import { VAN_GOGH_APPROVED } from './van-gogh-faces.js';
 
   const currentFace = getContext(TILE_FACE_CONTEXT) ?? (() => 'classic');
@@ -115,15 +114,14 @@
   // Sets that do not leave it plain frame it in blue; so does this one.
   let blank = $derived(tileFace === 'classic' && !facedown && tile === '5z');
   let whiteDragonDora = $derived(!facedown && tile === '5z' && dora);
-  // These artist sets retain their approved white-dragon artwork under the foil.
-  let revealUrl = $derived(['cubist', 'van-gogh'].includes(tileFace) ? null : tileFace === 'matisse' ? MATISSE_DRAGON_URL : dragonUrl);
+  // Van Gogh retains its approved white-dragon artwork under the foil.
+  let revealUrl = $derived(tileFace === 'van-gogh' ? null : tileFace === 'matisse' ? MATISSE_DRAGON_URL : dragonUrl);
 </script>
 
 {#if onclick}
   <button
     class="tile {size}"
     class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
-    class:cubist={tileFace === 'cubist' && !facedown && CUBIST_APPROVED.includes(tile)}
     class:van-gogh={tileFace === 'van-gogh' && !facedown && VAN_GOGH_APPROVED.includes(tile)}
     class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
@@ -162,7 +160,6 @@
   <span
     class="tile {size}"
     class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
-    class:cubist={tileFace === 'cubist' && !facedown && CUBIST_APPROVED.includes(tile)}
     class:van-gogh={tileFace === 'van-gogh' && !facedown && VAN_GOGH_APPROVED.includes(tile)}
     class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
@@ -209,7 +206,7 @@
     flex: none;
   }
 
-  .tile.matisse, .tile.cubist, .tile.dali, .tile.van-gogh {
+  .tile.matisse, .tile.dali, .tile.van-gogh {
     /* Match the SVG's 26-unit corners at every tile size. */
     --face-radius: calc(var(--face-width) * 26 / 300);
   }

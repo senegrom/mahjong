@@ -1,6 +1,5 @@
 import { TILE_TYPES, tileFile } from './tiles.js';
 import { MATISSE_APPROVED } from './matisse-faces.js';
-import { CUBIST_APPROVED } from './cubist-faces.js';
 import { VAN_GOGH_APPROVED } from './van-gogh-faces.js';
 import { DALI_APPROVED } from './dali-faces.js';
 export { DALI_APPROVED } from './dali-faces.js';
@@ -10,7 +9,6 @@ export const TILE_FACE_OPTIONS = Object.freeze([
   { value: 'classic', label: 'Classic' },
   { value: 'matisse', label: 'Matisse' },
   { value: 'dali', label: 'Dalí' },
-  { value: 'cubist', label: 'Cubist' },
   { value: 'van-gogh', label: 'Van Gogh' },
 ]);
 export const normalizeTileFace = value => TILE_FACE_OPTIONS.some(face => face.value === value) ? value : 'classic';
@@ -22,9 +20,6 @@ export function tileImage(tile, face = 'classic', facedown = false) {
   // Only selected artwork is shipped. Keep the other identities readable.
   if (face === 'van-gogh') return VAN_GOGH_APPROVED.includes(tile)
     ? `tiles/van-gogh/approved/${file}.svg`
-    : `tiles/${file}.svg`;
-  if (face === 'cubist') return CUBIST_APPROVED.includes(tile)
-    ? `tiles/cubist/approved/${file}.svg`
     : `tiles/${file}.svg`;
   if (face === 'dali') return DALI_APPROVED.includes(tile)
     ? `tiles/dali/approved/${file}.svg`
