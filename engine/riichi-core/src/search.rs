@@ -816,36 +816,35 @@ pub fn leaves_from(
     // observation. The events are taken from where the real hand's log
     // stopped, so they are only what this world invented.
     let logged: Vec<usize> = worlds.iter().map(|world| world.log.len()).collect();
-    let results: Vec<(Vec<f32>, f64, bool, Wind, Vec<mjai::Event>)> =
-        run_all(&jobs, |&(candidate, world)| {
-            let mut trial = worlds[world].clone();
-            let from = logged[world];
-            if trial.act(candidates[candidate]).is_err() {
-                return (Vec::new(), 0.0, false, seat, Vec::new());
+    let results = run_all(&jobs, |&(candidate, world)| {
+        let mut trial = worlds[world].clone();
+        let from = logged[world];
+        if trial.act(candidates[candidate]).is_err() {
+            return (Vec::new(), 0.0, false, seat, Vec::new());
+        }
+        match play_to_leaf(&mut trial, seat, style, world as u64 * 977 + 13) {
+            Leaf::Position {
+                seat: viewpoint,
+                settled,
+                dealt,
+            } => {
+                let mut out = vec![0.0; OBSERVATION];
+                encoding::observe(&trial, viewpoint, &mut out);
+                // A world that dealt on is playing a hand the log of
+                // which replaced the one the cursor points into, and
+                // its seats have moved besides. It offers no events and
+                // is valued by what it settled.
+                let invented = if dealt > 0 {
+                    Vec::new()
+                } else {
+                    trial.log[from.min(trial.log.len())..].to_vec()
+                };
+                (out, settled, true, viewpoint, invented)
             }
-            match play_to_leaf(&mut trial, seat, style, world as u64 * 977 + 13) {
-                Leaf::Position {
-                    seat: viewpoint,
-                    settled,
-                    dealt,
-                } => {
-                    let mut out = vec![0.0; OBSERVATION];
-                    encoding::observe(&trial, viewpoint, &mut out);
-                    // A world that dealt on is playing a hand the log of
-                    // which replaced the one the cursor points into, and
-                    // its seats have moved besides. It offers no events and
-                    // is valued by what it settled.
-                    let invented = if dealt > 0 {
-                        Vec::new()
-                    } else {
-                        trial.log[from.min(trial.log.len())..].to_vec()
-                    };
-                    (out, settled, true, viewpoint, invented)
-                }
-                Leaf::Settled(worth) => (Vec::new(), worth, true, seat, Vec::new()),
-                Leaf::Broken => (Vec::new(), 0.0, false, seat, Vec::new()),
-            }
-        });
+            Leaf::Settled(worth) => (Vec::new(), worth, true, seat, Vec::new()),
+            Leaf::Broken => (Vec::new(), 0.0, false, seat, Vec::new()),
+        }
+    });
 
     let slots = jobs.len();
     let mut observations = vec![0.0f32; slots * OBSERVATION];
