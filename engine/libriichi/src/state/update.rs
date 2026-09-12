@@ -692,6 +692,51 @@ impl PlayerState {
     /// Updates `tiles_seen`, `doras_seen` and `akas_seen`.
     ///
     /// Returns an error if we have already witnessed 4 such tiles.
+    /// Replaces the concealed tiles with `counts` over the 34 kinds and
+    /// refreshes everything derived from them, as a search does for a seat
+    /// whose hand it imagined: the public state stays the seat's own, the
+    /// tiles are the world's. The tiles seen and the doras owned count
+    /// the old hand out and the new one in; a hand of another size than
+    /// the one held is refused, since the public state fixes the size.
+    pub fn replace_concealed(&mut self, counts: &[u8; 34]) -> Result<()> {
+        let held: u8 = self.tehai.iter().sum();
+        let given: u8 = counts.iter().sum();
+        ensure!(
+            held == given,
+            "a hand of {held} concealed tiles cannot become one of {given}",
+        );
+        for (kind, &n) in counts.iter().enumerate() {
+            let others = self.tiles_seen[kind] - self.tehai[kind];
+            ensure!(
+                others + n <= 4,
+                "the world holds more of a kind than exist beside what this seat has seen",
+            );
+        }
+        for kind in 0..34 {
+            let was = self.tehai[kind];
+            let now = counts[kind];
+            self.tiles_seen[kind] = self.tiles_seen[kind] - was + now;
+            self.doras_seen =
+                self.doras_seen - self.dora_factor[kind] * was + self.dora_factor[kind] * now;
+            self.doras_owned[0] =
+                self.doras_owned[0] - self.dora_factor[kind] * was + self.dora_factor[kind] * now;
+            self.tehai[kind] = now;
+        }
+        self.akas_in_hand.fill(false);
+        // What a draw refreshes when the seat holds the drawn tile, what a
+        // discard refreshes otherwise: the shanten of a hand is defined on
+        // 3n+1 tiles, and a hand of 3n+2 is asked which discard keeps it.
+        if held % 3 == 2 {
+            if !self.riichi_accepted[0] {
+                self.update_shanten_discards();
+            }
+        } else {
+            self.update_shanten();
+            self.update_waits_and_furiten();
+        }
+        Ok(())
+    }
+
     pub(super) fn witness_tile(&mut self, tile: Tile) -> Result<()> {
         ensure!(
             !tile.is_unknown(),

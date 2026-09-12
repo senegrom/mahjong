@@ -81,7 +81,7 @@ use crate::hand::TileSet;
 use crate::mjai;
 use crate::rng::Rng;
 use crate::table::Table;
-use crate::tile::{Tile, COPIES};
+use crate::tile::{Tile, COPIES, KINDS};
 use crate::Wind;
 
 /// How hard to think.
@@ -571,6 +571,10 @@ impl Tally {
 /// network values that; when the game ends, the placement it ended in is
 /// banked instead and there is nothing left to value.
 ///
+/// An event with the seating it was logged under: which seat of the hand
+/// the search began in sat in each seat of the hand the event belongs to.
+pub type Seated = (mjai::Event, [usize; 4]);
+
 /// Slots are numbered `candidate * worlds + world`.
 #[derive(Clone, Debug)]
 pub struct Leaves {
@@ -606,10 +610,11 @@ pub struct Leaves {
     /// seat's real state, after `carried`, they put it where the leaf is.
     /// Empty for a slot nothing values.
     pub invented: Vec<Vec<mjai::Event>>,
-    /// For a slot whose world dealt on, what the hand the search began in
-    /// did from where the real log stopped to its end, in that hand's own
-    /// seats; these come first. Empty for a world still in that hand.
-    pub carried: Vec<Vec<mjai::Event>>,
+    /// For a slot whose world dealt on, what the hands before its current
+    /// one did from where the real log stopped to their ends, each event
+    /// with the seating it was logged under (see `seatings`); these come
+    /// first. Empty for a world still in the hand the search began in.
+    pub carried: Vec<Vec<Seated>>,
     /// Which seat of the hand the search began in sits in each seat of the
     /// slot's current hand: the identity until the world deals on. An mjai
     /// reader names people, so a later hand's events are written through
@@ -628,9 +633,9 @@ enum Leaf {
         seat: Wind,
         settled: f64,
         dealt: usize,
-        /// What the hand the search began in did after the caller's cursor,
-        /// if the world went on to another; see [`Leaves::carried`].
-        carried: Vec<mjai::Event>,
+        /// What the hands before the current one did after the caller's
+        /// cursor, if the world went on; see [`Leaves::carried`].
+        carried: Vec<(mjai::Event, [usize; 4])>,
         /// See [`Leaves::seatings`].
         seating: [usize; 4],
         /// Where in the world's current log the invented events begin: the
@@ -746,7 +751,7 @@ fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64, from: usi
     let mut seat = seat;
     let mut dealt = 0;
     let mut from = from;
-    let mut carried: Vec<mjai::Event> = Vec::new();
+    let mut carried: Vec<(mjai::Event, [usize; 4])> = Vec::new();
     let mut seating: [usize; 4] = [0, 1, 2, 3];
     // A game rarely runs past a dozen hands, and the loop is here for the
     // hand that ends before the player's first turn in it, which happens
@@ -770,7 +775,11 @@ fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64, from: usi
                 // What the hand did after the cursor, kept before its log
                 // is replaced: a reader of the seat's state has to be told
                 // how this hand ended before it can be told the next began.
-                carried.extend(world.log[from.min(world.log.len())..].iter().cloned());
+                carried.extend(
+                    world.log[from.min(world.log.len())..]
+                        .iter()
+                        .map(|event| (event.clone(), seating)),
+                );
                 // The seats of the hand that just ended stand in for the
                 // players, so the player is this seat's number.
                 let player = seat.index();
@@ -843,7 +852,7 @@ struct Sprout {
     /// needs in place of the observation: the events, and who sits where.
     viewpoint: Wind,
     invented: Vec<mjai::Event>,
-    carried: Vec<mjai::Event>,
+    carried: Vec<(mjai::Event, [usize; 4])>,
     seating: [usize; 4],
 }
 
@@ -936,7 +945,7 @@ pub fn leaves_from(
     let mut counted = vec![false; slots];
     let mut viewpoints = vec![seat; slots];
     let mut invented: Vec<Vec<mjai::Event>> = vec![Vec::new(); slots];
-    let mut carried: Vec<Vec<mjai::Event>> = vec![Vec::new(); slots];
+    let mut carried: Vec<Vec<(mjai::Event, [usize; 4])>> = vec![Vec::new(); slots];
     let mut seatings: Vec<[usize; 4]> = vec![[0, 1, 2, 3]; slots];
     for (slot, sprout) in results.into_iter().enumerate() {
         if !sprout.observation.is_empty() {
@@ -1179,13 +1188,23 @@ struct Slot {
     /// given up on.
     dealt: u64,
     /// See [`Leaves::carried`] and [`Leaves::seatings`].
-    carried: Vec<mjai::Event>,
+    carried: Vec<(mjai::Event, [usize; 4])>,
     seating: [usize; 4],
+    /// What every seat held in this slot's world as the search began,
+    /// before the candidate move, by seat of the hand the search began
+    /// in: the tiles a copy of a seat's state is given before the world's
+    /// events. See [`Lookahead::hands`].
+    opening: [[u8; KINDS]; 4],
     /// What the next hand's deal is seeded from.
     seed: u64,
     /// How much of `world.log` was already there when the search began, so
     /// what the world invented can be told from what really happened.
     logged: usize,
+    /// How much of `carried` and of the current `world.log` a caller
+    /// keeping the seats' states in step has already been given; see
+    /// [`Lookahead::owed_events`].
+    exported_carried: usize,
+    exported: usize,
     state: SlotState,
 }
 
@@ -1266,10 +1285,18 @@ impl Slot {
         let moved = self.world.players[player].score - self.world.opening[player];
         self.settled += moved as f64 / POINTS_PER_UNIT as f64;
         // What the hand did after the cursor, kept before its log goes; see
-        // `play_to_leaf`.
+        // `play_to_leaf`. A caller keeping states in step may have been
+        // given part of it already, so its cursor into `carried` moves
+        // with what it was given.
         let logged = self.logged.min(self.world.log.len());
-        self.carried
-            .extend(self.world.log[logged..].iter().cloned());
+        let given = self.exported.clamp(logged, self.world.log.len());
+        self.exported_carried += given - logged;
+        let seating = self.seating;
+        self.carried.extend(
+            self.world.log[logged..]
+                .iter()
+                .map(|event| (event.clone(), seating)),
+        );
         let mut table = table_of(&self.world);
         table.finish(&self.world);
         if table.finished {
@@ -1293,6 +1320,26 @@ impl Slot {
         ];
         self.seat = table.seat_of(player);
         self.logged = 0;
+        self.exported = 0;
+    }
+
+    /// What the slot's world invented since this was last asked: the
+    /// events of hands that ended, each with the seating it was logged
+    /// under, then the current hand's from the export cursor, under the
+    /// seating now. Moves the cursors, so each event is given once.
+    fn events_since_last_asked(&mut self) -> Vec<(mjai::Event, [usize; 4])> {
+        let mut out: Vec<(mjai::Event, [usize; 4])> =
+            self.carried[self.exported_carried.min(self.carried.len())..].to_vec();
+        self.exported_carried = self.carried.len();
+        let from = self.exported.max(self.logged).min(self.world.log.len());
+        let seating = self.seating;
+        out.extend(
+            self.world.log[from..]
+                .iter()
+                .map(|event| (event.clone(), seating)),
+        );
+        self.exported = self.world.log.len();
+        out
     }
 
     /// Applies the caller's decision, an index into the action space, and
@@ -1397,6 +1444,10 @@ impl Lookahead {
                 // Where the real hand's log stopped, before the candidate
                 // move: everything after this the world invented.
                 let logged = trial.log.len();
+                let mut opening = [[0u8; KINDS]; 4];
+                for seat in Wind::ALL {
+                    opening[seat.index()] = *trial.players[seat.index()].hand.counts();
+                }
                 let state = if trial.act(candidates[candidate]).is_err() {
                     SlotState::Broken
                 } else {
@@ -1412,8 +1463,11 @@ impl Lookahead {
                     dealt: 0,
                     carried: Vec::new(),
                     seating: [0, 1, 2, 3],
+                    opening,
                     seed: world as u64 * 977 + 13,
                     logged,
+                    exported_carried: 0,
+                    exported: logged,
                     state,
                 }
             })
@@ -1459,6 +1513,42 @@ impl Lookahead {
         owed.len()
     }
 
+    /// For every waiting slot, in the order [`Lookahead::owed`] lists
+    /// them: its index, the seat that owes the decision, and what the
+    /// world invented since this was last asked for that slot -- each
+    /// event with the seating it was logged under, in the seats of the
+    /// hand the search began in. A caller keeping a copy of every seat's
+    /// state feeds these to the slot's copies and encodes the owing one.
+    pub fn owed_events(&mut self) -> Vec<(usize, Wind, Vec<Seated>)> {
+        let owed = self.owed();
+        owed.into_iter()
+            .map(|(index, seat)| {
+                let events = self.slots[index].events_since_last_asked();
+                (index, seat, events)
+            })
+            .collect()
+    }
+
+    /// The concealed tiles each seat held in each slot's world as the
+    /// search began, before the candidate move, by seat of the hand the
+    /// search began in, as counts over the kinds: what a copy of a seat's
+    /// state must be given before it is told the world's events, since
+    /// the world dealt the seats the searcher cannot see hands of its own.
+    pub fn hands(&self) -> Vec<[[u8; KINDS]; 4]> {
+        self.slots.iter().map(|slot| slot.opening).collect()
+    }
+
+    /// Which seat of the hand the search began in sits in each seat of
+    /// each slot's current hand; see [`Leaves::seatings`].
+    pub fn seatings(&self) -> Vec<[usize; 4]> {
+        self.slots.iter().map(|slot| slot.seating).collect()
+    }
+
+    /// How many slots there are: candidates times worlds.
+    pub fn slots(&self) -> usize {
+        self.slots.len()
+    }
+
     /// Applies one decision per waiting slot, in the order
     /// [`Lookahead::owed`] listed them, and advances every slot again.
     pub fn apply(&mut self, actions: &[usize]) {
@@ -1491,7 +1581,7 @@ impl Lookahead {
         let mut counted = vec![false; slots];
         let mut viewpoints = Vec::with_capacity(slots);
         let mut invented: Vec<Vec<mjai::Event>> = vec![Vec::new(); slots];
-        let mut carried: Vec<Vec<mjai::Event>> = vec![Vec::new(); slots];
+        let mut carried: Vec<Vec<(mjai::Event, [usize; 4])>> = vec![Vec::new(); slots];
         let mut seatings: Vec<[usize; 4]> = vec![[0, 1, 2, 3]; slots];
         for (index, slot) in self.slots.iter().enumerate() {
             settled[index] = slot.settled;
@@ -1832,6 +1922,74 @@ mod tests {
         passes
     }
 
+    /// What a slot streams to a caller keeping the seats' states in step
+    /// is exactly what its leaf carries: every event once, in order, each
+    /// under the seating it was logged under, the candidate move first.
+    #[test]
+    fn the_lookahead_streams_each_slots_events_once() {
+        let table = Table::new();
+        let mut rng = Rng::from_seed(2026);
+        let hand = table.deal(&mut rng);
+        let seat = hand.turn;
+        let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
+        let mut rng = Rng::from_seed(9);
+        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
+        let weights = vec![1.0; 3];
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 1);
+        let slots = lookahead.slots();
+        let mut streamed: Vec<Vec<(mjai::Event, [usize; 4])>> = vec![Vec::new(); slots];
+        let mut passes = 0;
+        while !lookahead.finished() {
+            passes += 1;
+            assert!(passes < 1000, "a lookahead ends");
+            let owed = lookahead.owed_events();
+            for (index, _seat, events) in &owed {
+                if streamed[*index].is_empty() {
+                    assert!(
+                        matches!(events.first(), Some((mjai::Event::Dahai { .. }, _))),
+                        "the first thing a slot streams is the candidate discard"
+                    );
+                }
+                streamed[*index].extend(events.iter().cloned());
+            }
+            let mut observations = Vec::new();
+            let mut masks = Vec::new();
+            let count = lookahead.observe_into(&mut observations, &mut masks);
+            assert_eq!(
+                count,
+                owed.len(),
+                "events and observations name the same slots"
+            );
+            lookahead.apply(&first_legal(&masks));
+        }
+        let got = lookahead.leaves();
+        let mut checked = 0;
+        for slot in 0..slots {
+            if !got.wanted[slot] {
+                continue;
+            }
+            // What was streamed may stop short of the leaf: the last events
+            // before a leaf are invented after the slot was last asked.
+            let mut whole: Vec<(mjai::Event, [usize; 4])> = got.carried[slot].clone();
+            whole.extend(
+                got.invented[slot]
+                    .iter()
+                    .map(|event| (event.clone(), got.seatings[slot])),
+            );
+            assert!(
+                streamed[slot].len() <= whole.len(),
+                "slot {slot} streamed more than its leaf carries"
+            );
+            assert_eq!(
+                streamed[slot][..],
+                whole[..streamed[slot].len()],
+                "slot {slot} streamed something other than what its leaf carries, in order"
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "no leaf to check");
+    }
+
     /// A lookahead played by the caller reaches the same kind of leaves as
     /// the heuristic one: one slot per candidate per world, a real
     /// observation wherever a value is wanted, every leaf the searching
@@ -2041,8 +2199,12 @@ mod tests {
                 // ended, then the whole of the new one, and who sits where.
                 assert_eq!(from, 0, "the new hand's log is wholly invented");
                 assert!(
-                    matches!(carried.last(), Some(mjai::Event::EndKyoku)),
+                    matches!(carried.last(), Some((mjai::Event::EndKyoku, _))),
                     "the hand that ended is carried to its end"
+                );
+                assert!(
+                    carried.iter().all(|(_, under)| *under == [0, 1, 2, 3]),
+                    "the hand that ended was logged under the original seats"
                 );
                 assert!(
                     matches!(world.log.first(), Some(mjai::Event::StartKyoku { .. })),

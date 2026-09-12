@@ -324,6 +324,119 @@ class MortalServed:
         _logits, value, _hands = self.net.everything(planes, mask)
         return value
 
+    def play_lookahead(self, arena, device="cuda", temperature=0.0, passes=400) -> int:
+        """The network moving every seat inside the lookahead, on Mortal's
+        planes.
+
+        A copy of each seat's state is kept per slot -- four per imagined
+        world and candidate -- and told what that slot's world invents,
+        hand boundaries included, as the engine streams it; the seat that
+        owes a decision is encoded from its copy and answers in Mortal's
+        moves, translated back to ours under the engine's legality. A
+        reach is put its second question from a further copy, so the
+        slot's own copies are never told a reach the engine then plays
+        differently or not at all. Returns how many passes it took.
+        """
+        import json
+
+        from . import zoo
+        from .observe import Planes
+
+        net = self.net
+        follower = arena_follower(arena)
+        base: dict[tuple[int, int], int] = {}
+        who: list[tuple[int, int]] = []
+        for game, count in enumerate(arena.lookahead_slots()):
+            for slot in range(count):
+                base[(game, slot)] = len(who)
+                who.extend((game, player) for player in range(4))
+        if not who:
+            return 0
+        copies = self._Imagined.from_follower(follower, who, 4)
+        # Every copy holds what its world dealt that seat as the search
+        # began, before the candidate: the seats the searcher cannot see
+        # hold the world's tiles, and the searcher's own are the same in
+        # every world.
+        which: list[int] = []
+        hands: list[list[str]] = []
+        for (game, slot), dealt in zip(base, (
+            by_player
+            for per_game in arena.lookahead_hands()
+            for by_player in per_game
+        )):
+            for player in range(4):
+                which.append(base[(game, slot)] + player)
+                hands.append(list(dealt[player]))
+        copies.replace_concealed(which, hands)
+        taken = 0
+        while taken < passes:
+            games, slots, players, masks_bytes, lines = arena.lookahead_owed_mjai()
+            count = len(games)
+            if count == 0:
+                break
+            taken += 1
+            masks = np.frombuffer(masks_bytes, dtype=np.uint8).reshape(count, ENGINE_ACTIONS)
+            masks = masks.astype(bool)
+            # Every seat's copy of each owed slot learns what its world did.
+            which: list[int] = []
+            told: list[list[str]] = []
+            for game, slot, new in zip(games, slots, lines):
+                if not new:
+                    continue
+                start = base[(game, slot)]
+                for player in range(4):
+                    which.append(start + player)
+                    told.append(new)
+            if which:
+                copies.feed_some(which, told)
+            deciding = [base[(game, slot)] + int(player) for game, slot, player in zip(games, slots, players)]
+            indptr, indices, values, _own = copies.encode_some(deciding)
+            planes = Planes.from_follower(indptr, indices, values)
+            # What our engine allows, named in Mortal's moves, as the table
+            # asks it (`zoo.choose_in_mortal_space`).
+            allowed = zoo.translatable(masks)
+            orphan = ~allowed.any(axis=1)
+            allowed[orphan, zoo.MORTAL_PASS] = True
+            best = np.empty(count, dtype=np.int64)
+            step = 4096
+            for start in range(0, count, step):
+                rows = np.arange(start, min(start + step, count))
+                logits, _value = net(
+                    planes.rows(rows).dense(device), torch.from_numpy(allowed[rows]).to(device)
+                )
+                logits = logits.float()
+                if temperature > 0:
+                    odds = torch.softmax(logits / temperature, dim=1)
+                    picked = torch.multinomial(odds, 1).squeeze(1)
+                else:
+                    picked = logits.argmax(dim=1)
+                best[rows] = picked.cpu().numpy()
+            actions = zoo.first_meaning(best, masks)
+            actions = np.where(orphan | (actions < 0), masks.argmax(axis=1), actions)
+            second = np.nonzero((best == zoo.MORTAL_RIICHI) & ~orphan)[0]
+            if len(second):
+                asked = copies.clone_some([deciding[at] for at in second])
+                asked.feed(
+                    [[json.dumps({"type": "reach", "actor": int(players[at])})] for at in second]
+                )
+                indptr, indices, values, _masks = asked.encode()
+                after = Planes.from_follower(indptr, indices, values).dense(device)
+                tiles = masks[second, zoo.RIICHI_DISCARD : zoo.TSUMO]
+                allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
+                allowed_after[:, :POSITIONS] = tiles
+                logits_after, _value = net(after, torch.from_numpy(allowed_after).to(device))
+                logits_after = logits_after.float()[:, :POSITIONS]
+                ranked = torch.where(
+                    torch.from_numpy(tiles).to(device), logits_after, torch.full_like(logits_after, -np.inf)
+                )
+                if temperature > 0:
+                    tile = torch.multinomial(torch.softmax(ranked / temperature, dim=1), 1).squeeze(1)
+                else:
+                    tile = ranked.argmax(dim=1)
+                actions[second] = zoo.RIICHI_DISCARD + tile.cpu().numpy()
+            arena.lookahead_apply(actions.tolist())
+        return taken
+
 
 #: Where the follower lives on a `Views`. Set by `serve`, because the
 #: server needs it and the arena does not carry one.

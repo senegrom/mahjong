@@ -50,20 +50,42 @@ class SearchContractTests(unittest.TestCase):
                     device="cpu",
                 )
 
-    def test_the_network_moving_the_other_seats_needs_the_engines_own_layout(self):
-        """That lookahead asks the engine for its own observations at every
-        decision inside the search, so only the engine's lineage can answer,
-        whatever the club-played search can serve."""
-        for net in (
-            PolicyValueNet(8, 1, planes=riichi_py.PLANES, actions=46),
-            PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46),
-        ):
-            with self.subTest(planes=net.planes, actions=net.actions):
-                with patch.object(riichi_py, "Arena", side_effect=AssertionError("too late")):
-                    with self.assertRaisesRegex(searched.UnsupportedSearchLayout, "Mortal event history"):
-                        searched.play_lookahead(net, None, device="cpu")
-                    with self.assertRaises(searched.UnsupportedSearchLayout):
-                        searched.play(net, 1, 1, 0, 1, 1, 0.0, device="cpu", played_by="network")
+    def test_the_engine_planes_lookahead_needs_the_engines_own_layout(self):
+        """`play_lookahead` asks the engine for its own observations at
+        every decision inside the search; a network on Mortal's planes is
+        served by `MortalServed.play_lookahead` instead, and the layout
+        nobody trained is refused either way."""
+        net = PolicyValueNet(8, 1, planes=riichi_py.PLANES, actions=46)
+        with patch.object(riichi_py, "Arena", side_effect=AssertionError("too late")):
+            with self.assertRaisesRegex(searched.UnsupportedSearchLayout, "Mortal event history"):
+                searched.play_lookahead(net, None, device="cpu")
+            with self.assertRaises(searched.UnsupportedSearchLayout):
+                searched.play(net, 1, 1, 0, 1, 1, 0.0, device="cpu", played_by="network")
+        mortal = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+        with self.assertRaisesRegex(searched.UnsupportedSearchLayout, "Mortal event history"):
+            searched.play_lookahead(mortal, None, device="cpu")
+
+    def test_the_network_moves_every_seat_inside_the_search_on_mortals_planes(self):
+        """The strong searchers' way: the seats between the candidate and
+        the leaf are played by the network itself, here through a copy of
+        each seat's state kept in step with what its world invents; every
+        such decision is answered in Mortal's moves and translated back
+        under the engine's legality, hand boundaries included."""
+        previous = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            served = contract.serve(net)
+            served.count_crossings = True
+            scores, tally = searched.play(
+                net, 2, 8, 0, 2, 2, 0.0, pool=1, device="cpu", played_by="network", depth=1,
+                served=served,
+            )
+        finally:
+            torch.set_num_threads(previous)
+        self.assertEqual(scores.shape, (2, 4))
+        self.assertGreater(tally[0], 0, "nothing was searched")
+        self.assertGreater(served.crossed, 0, "no imagined world played into the next hand")
 
     def test_the_club_played_search_serves_mortals_planes(self):
         """The reason the contract exists: the current lineage reads

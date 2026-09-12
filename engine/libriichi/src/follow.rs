@@ -14,6 +14,7 @@ use crate::consts::obs_shape;
 use crate::mjai::Event;
 use crate::py_helper::add_submodule;
 use crate::state::{ActionCandidate, PlayerState};
+use crate::tile::Tile;
 
 use anyhow::{Context, Result};
 use ndarray::Array2;
@@ -309,6 +310,149 @@ impl Imagined {
                 })
         })?;
         Ok(())
+    }
+
+    /// Feeds the named slots, each its own list of lines, leaving the rest
+    /// as they are: a lookahead asks one seat at a time and tells only the
+    /// slots that have moved.
+    fn feed_some(
+        &mut self,
+        py: Python<'_>,
+        which: Vec<usize>,
+        lines: Vec<Vec<String>>,
+    ) -> PyResult<()> {
+        if which.len() != lines.len() {
+            return Err(PyValueError::new_err(format!(
+                "{} lists of events for {} slots",
+                lines.len(),
+                which.len()
+            )));
+        }
+        for &slot in &which {
+            if slot >= self.states.len() {
+                return Err(PyValueError::new_err(format!("no slot {slot}")));
+            }
+        }
+        // Distinct slots, so they can be fed in parallel without aliasing:
+        // every state is visited once, and only the named ones are fed.
+        let mut given: Vec<Option<usize>> = vec![None; self.states.len()];
+        for (at, &slot) in which.iter().enumerate() {
+            if given[slot].is_some() {
+                return Err(PyValueError::new_err(format!("slot {slot} named twice")));
+            }
+            given[slot] = Some(at);
+        }
+        let states = &mut self.states;
+        py.detach(|| {
+            states
+                .par_iter_mut()
+                .enumerate()
+                .try_for_each(|(slot, state)| -> Result<()> {
+                    let Some(at) = given[slot] else {
+                        return Ok(());
+                    };
+                    for line in &lines[at] {
+                        let event: Event = serde_json::from_str(line)
+                            .with_context(|| format!("slot {slot}: bad mjai line: {line}"))?;
+                        state
+                            .update(&event)
+                            .with_context(|| format!("slot {slot} rejected: {line}"))?;
+                    }
+                    Ok(())
+                })
+        })?;
+        Ok(())
+    }
+
+    /// Gives the named slots the concealed tiles their imagined worlds
+    /// dealt them, as mjai tile names: a search keeps a copy of every
+    /// seat's state per world, and the seats it imagined hold the world's
+    /// tiles, not the real seat's. See `PlayerState::replace_concealed`.
+    fn replace_concealed(&mut self, which: Vec<usize>, hands: Vec<Vec<String>>) -> PyResult<()> {
+        if which.len() != hands.len() {
+            return Err(PyValueError::new_err(format!(
+                "{} hands for {} slots",
+                hands.len(),
+                which.len()
+            )));
+        }
+        for (&slot, hand) in which.iter().zip(&hands) {
+            let Some(state) = self.states.get_mut(slot) else {
+                return Err(PyValueError::new_err(format!("no slot {slot}")));
+            };
+            let mut counts = [0u8; 34];
+            for name in hand {
+                let tile: Tile = name
+                    .parse()
+                    .map_err(|_| PyValueError::new_err(format!("slot {slot}: bad tile {name}")))?;
+                counts[tile.deaka().as_usize()] += 1;
+            }
+            state
+                .replace_concealed(&counts)
+                .map_err(|error| PyValueError::new_err(format!("slot {slot}: {error}")))?;
+        }
+        Ok(())
+    }
+
+    /// Copies of the named slots, as a new set: what a question asked
+    /// ahead of the table -- which tile a reach throws -- is put to, so the
+    /// slot itself is not told a reach the search may decide against.
+    fn clone_some(&self, which: Vec<usize>) -> PyResult<Self> {
+        let mut states = Vec::with_capacity(which.len());
+        for slot in which {
+            let Some(state) = self.states.get(slot) else {
+                return Err(PyValueError::new_err(format!("no slot {slot}")));
+            };
+            states.push(state.clone());
+        }
+        Ok(Self {
+            states,
+            version: self.version,
+        })
+    }
+
+    /// The named slots' observations, in the order named, kept sparse in
+    /// the same layout [`Follower::encode`] uses.
+    #[allow(clippy::type_complexity)]
+    fn encode_some<'py>(
+        &self,
+        py: Python<'py>,
+        which: Vec<usize>,
+    ) -> PyResult<(
+        Bound<'py, PyArray1<i32>>,
+        Bound<'py, PyArray1<u16>>,
+        Bound<'py, PyArray1<f32>>,
+        Bound<'py, PyArray2<bool>>,
+    )> {
+        for &slot in &which {
+            if slot >= self.states.len() {
+                return Err(PyValueError::new_err(format!("no slot {slot}")));
+            }
+        }
+        let version = self.version;
+        let states = &self.states;
+        let rows: Vec<Sparse> = py.detach(|| {
+            which
+                .par_iter()
+                .map(|&slot| {
+                    let (obs, mask) = states[slot].encode_obs(version, false);
+                    let mut indices = Vec::with_capacity(2048);
+                    let mut values = Vec::with_capacity(2048);
+                    for (index, &value) in obs.iter().enumerate() {
+                        if value != 0. {
+                            indices.push(index as u16);
+                            values.push(value);
+                        }
+                    }
+                    Sparse {
+                        indices,
+                        values,
+                        mask: mask.to_vec(),
+                    }
+                })
+                .collect()
+        });
+        pack(py, rows)
     }
 
     /// Every slot's observation, in slot order, kept sparse in the same

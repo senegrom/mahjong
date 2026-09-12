@@ -839,6 +839,104 @@ impl Arena {
         )
     }
 
+    /// How many slots each game's lookahead holds, candidates times
+    /// worlds, and zero for a game with none: what a caller keeping a copy
+    /// of every seat's state per slot needs to lay them out.
+    fn lookahead_slots(&self) -> Vec<usize> {
+        self.lookaheads
+            .iter()
+            .map(|entry| entry.as_ref().map_or(0, |(_, lookahead)| lookahead.slots()))
+            .collect()
+    }
+
+    /// What each slot's world dealt each real player, right after
+    /// [`Arena::lookahead_begin`]: per game with a lookahead, per slot, four
+    /// lists of mjai tile names indexed by real player. A copy of a seat's
+    /// state is given these before the world's events, since the world
+    /// dealt the seats the searcher cannot see hands of its own.
+    fn lookahead_hands(&self) -> Vec<Vec<[Vec<String>; 4]>> {
+        self.lookaheads
+            .iter()
+            .enumerate()
+            .filter_map(|(game, entry)| entry.as_ref().map(|(_, lookahead)| (game, lookahead)))
+            .map(|(game, lookahead)| {
+                // As the search began, so the seats are the real hand's.
+                let real = self.seats[game].table.seating();
+                lookahead
+                    .hands()
+                    .into_iter()
+                    .map(|by_seat| {
+                        let mut by_player: [Vec<String>; 4] = Default::default();
+                        for seat in 0..4 {
+                            let player = real[seat];
+                            by_player[player] = riichi_core::tile::Tile::all()
+                                .flat_map(|tile| {
+                                    std::iter::repeat_n(
+                                        mjai::name(tile),
+                                        by_seat[seat][tile.idx()] as usize,
+                                    )
+                                })
+                                .collect();
+                        }
+                        by_player
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// The decisions the lookaheads are waiting on, for a network that
+    /// reads Mortal's planes: per waiting slot, in the order
+    /// [`Arena::lookahead_owed`] gives them, the game, the slot's index in
+    /// its game, the real player who owes the decision, and the events the
+    /// world invented since that slot was last asked, as mjai lines naming
+    /// real players. The legality masks come with them, as bytes of 0 and
+    /// 1 over our actions, so the engine's observations need not be built.
+    #[allow(clippy::type_complexity)]
+    fn lookahead_owed_mjai<'py>(
+        &mut self,
+        py: Python<'py>,
+    ) -> (
+        Vec<usize>,
+        Vec<usize>,
+        Vec<usize>,
+        Bound<'py, PyBytes>,
+        Vec<Vec<String>>,
+    ) {
+        let mut games = Vec::new();
+        let mut slots = Vec::new();
+        let mut players = Vec::new();
+        let mut masks: Vec<u8> = Vec::new();
+        let mut lines: Vec<Vec<String>> = Vec::new();
+        for (game, entry) in self.lookaheads.iter_mut().enumerate() {
+            let Some((_, lookahead)) = entry else {
+                continue;
+            };
+            let real = self.seats[game].table.seating();
+            let seatings = lookahead.seatings();
+            let mut observations: Vec<f32> = Vec::new();
+            let mut flags: Vec<bool> = Vec::new();
+            lookahead.observe_into(&mut observations, &mut flags);
+            masks.extend(flags.iter().map(|flag| u8::from(*flag)));
+            for (slot, seat, events) in lookahead.owed_events() {
+                let now: [usize; 4] = std::array::from_fn(|s| real[seatings[slot][s]]);
+                games.push(game);
+                slots.push(slot);
+                players.push(now[seat.index()]);
+                lines.push(
+                    events
+                        .iter()
+                        .map(|(event, under)| {
+                            let then: [usize; 4] = std::array::from_fn(|s| real[under[s]]);
+                            event.to_json(then)
+                        })
+                        .collect(),
+                );
+            }
+        }
+        (games, slots, players, PyBytes::new(py, &masks), lines)
+    }
+
     /// Answers them: one action index per waiting slot, in the order
     /// [`Arena::lookahead_owed`] gave them, and every lookahead advances
     /// to the next decision it owes.
@@ -924,7 +1022,10 @@ impl Arena {
                 players.push(now[viewpoint.index()]);
                 let mut told: Vec<String> = leaves.carried[slot]
                     .iter()
-                    .map(|event| event.to_json(real))
+                    .map(|(event, under)| {
+                        let then: [usize; 4] = std::array::from_fn(|s| real[under[s]]);
+                        event.to_json(then)
+                    })
                     .collect();
                 told.extend(leaves.invented[slot].iter().map(|event| event.to_json(now)));
                 lines.push(told);

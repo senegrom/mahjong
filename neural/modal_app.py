@@ -678,6 +678,8 @@ def searched(
     margin: float = 2.0,
     pool: int = 4,
     run: str = DEFAULT_RUN,
+    played_by: str = "club",
+    depth: int = 0,
 ) -> str:
     """Whether one ply of search beats the policy that supplies it.
 
@@ -706,7 +708,8 @@ def searched(
                 sys.executable, "-m", "neural.searched", str(copied),
                 "--games", str(games), "--worlds", str(worlds),
                 "--candidates", str(candidates), "--margin", str(margin),
-                "--pool", str(pool), "--played-by", "club", "--device", "cuda",
+                "--pool", str(pool), "--played-by", played_by, "--depth", str(depth),
+                "--device", "cuda",
             ],
             cwd="/src",
             env=_environment(),

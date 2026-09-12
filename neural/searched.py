@@ -151,7 +151,7 @@ def search_with_value_head(
     judges the leaves.
     """
     served = served or contract_module.serve(net)
-    if played_by == "network":
+    if played_by == "network" and served.contract.reads != "mortal":
         require_native_search(net)
     games = len(ranked)
     # A stream of its own for choosing worlds, so which ones are drawn does
@@ -204,7 +204,13 @@ def search_with_value_head(
             distinct.append(chosen.distinct)
     if played_by == "network":
         arena.lookahead_begin(ranked, kept, weights, candidates=candidates, depth=depth)
-        play_lookahead(net, arena, device=device, temperature=temperature)
+        # The seats inside the lookahead are moved by the network on the
+        # planes it reads: the engine's own, or Mortal's through copies
+        # of every seat's state kept in step (`MortalServed`).
+        if served.contract.reads == "mortal":
+            served.play_lookahead(arena, device=device, temperature=temperature)
+        else:
+            play_lookahead(net, arena, device=device, temperature=temperature)
         planes_bytes, counts, _settled, _wanted = arena.lookahead_leaves()
     else:
         planes_bytes, counts, _settled, _wanted = arena.leaves_from(
@@ -276,7 +282,7 @@ def play(
     # search that cannot build the planes a network reads must not write
     # a tally that looks like a measurement.
     served = served or contract_module.serve(net)
-    if played_by == "network":
+    if played_by == "network" and served.contract.reads != "mortal":
         require_native_search(net)
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
     # The network that answers, out of whatever player wrapped it, and

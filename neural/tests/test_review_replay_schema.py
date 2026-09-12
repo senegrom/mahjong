@@ -57,7 +57,7 @@ class DenseReplayBoundaryTests(unittest.TestCase):
         from neural.replay import Ring
         from neural.tests.test_replay_atomic import batch
         for field,value in bad_cases():
-            with self.subTest(field=field),tempfile.TemporaryDirectory() as folder:
+            with self.subTest(field=field),tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
                 root=Path(folder);ring=Ring(root,1);ring.push(batch(1,n=2))
                 before=ring.index.read_bytes()
                 bad=batch(2,n=2);setattr(bad,field,torch.from_numpy(value.copy()))
@@ -65,6 +65,7 @@ class DenseReplayBoundaryTests(unittest.TestCase):
                 self.assertEqual(ring.index.read_bytes(),before)
                 np.testing.assert_array_equal(ring.sample(2,np.random.default_rng(0))['returns'],[1,1])
                 generation=json.loads(before)['entries'][0]['generation']
+                del ring  # its maps of the batch must close before the file is rewritten
                 np.save(root/generation/(field+'.npy'),value)
                 with warnings.catch_warnings(record=True) as caught:
                     warnings.simplefilter('always');reopened=Ring(root,1)
