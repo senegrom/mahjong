@@ -1,0 +1,53 @@
+name: reviewed fixes artifacts
+on:
+  push:
+    branches: [work/review-fixes-publish-20260912]
+    paths: ['.github/workflows/review-fixes-artifacts.yml']
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 44fd950223e4e2929c8799f0587fe61e87d658cd
+          persist-credentials: false
+      - name: Archive exact source without models or artwork
+        run: |
+          mkdir -p review-artifacts
+          git archive HEAD neural engine Cargo.toml Cargo.lock .github/workflows/neural.yml .github/workflows/ci.yml web/runtime/reduced-ops.config docs/TRAINING_CONTROLS.md > review-artifacts/source.tar
+          git rev-parse HEAD > review-artifacts/source-commit.txt
+          git ls-tree -r HEAD > review-artifacts/source-tree.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: review-fixes-source
+          path: review-artifacts/
+          retention-days: 7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: |
+            . -> target
+            engine/libriichi -> target
+          save-if: false
+      - name: Build both native engines and capture formatting
+        run: |
+          python -m pip install 'maturin>=1.7,<2'
+          (cd engine/riichi-py && maturin build --release --locked --out ../../review-wheels)
+          (cd engine/libriichi && maturin build --release --locked --out ../../review-wheels)
+          cargo fmt --all
+          rustfmt --edition 2024 engine/libriichi/src/follow.rs
+          git diff > review-wheels/formatting.patch
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: review-fixes-engines
+          path: review-wheels/
+          retention-days: 7
