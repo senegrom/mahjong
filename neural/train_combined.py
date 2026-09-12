@@ -342,6 +342,17 @@ def main() -> None:
         total_clipped, total_kl, total_grad = zero(), zero(), zero()
         total_leash, total_hands, total_covered = zero(), zero(), zero()
         drift = PolicyDrift(args.target_kl)
+        # Rows whose move was forced by exploration are the value head's
+        # and the reader's to learn from, not the policy's: the policy did
+        # not choose them, and a ratio against its own probability there
+        # sits far outside the clip, where a bad move teaches nothing and
+        # a lucky one teaches the wrong thing. Kept out of every policy
+        # term below; nothing is forced when --explore is zero.
+        explored = (
+            batch.explored.to(device=device, dtype=torch.bool)
+            if getattr(batch, "explored", None) is not None
+            else torch.zeros(batch.decisions, dtype=torch.bool, device=device)
+        )
         steps = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(batch.decisions)
@@ -374,14 +385,17 @@ def main() -> None:
                     hands_loss, covered = hands_loss_of(guessed.float(), held[picks])
                     distribution = torch.distributions.Categorical(logits=logits)
                     log_prob = distribution.log_prob(actions[picks])
-                    if drift.check(old_log_probs[picks], log_prob):
+                    chosen = ~explored[picks]
+                    own = chosen.sum().clamp(min=1)
+                    if chosen.any() and drift.check(old_log_probs[picks][chosen], log_prob[chosen]):
                         break
                     advantage = advantages[picks]
                     ratio = torch.exp(log_prob - old_log_probs[picks])
                     clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
-                    policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
+                    surrogate = torch.min(ratio * advantage, clipped * advantage)
+                    policy_loss = -(surrogate * chosen).sum() / own
                     value_loss = nn.functional.mse_loss(value, returns[picks])
-                    entropy = distribution.entropy().mean()
+                    entropy = (distribution.entropy() * chosen).sum() / own
                     loss = (
                         policy_loss
                         + args.value_weight * value_loss
@@ -409,7 +423,7 @@ def main() -> None:
                         weight = torch.where(allowed, before.exp(), torch.zeros_like(before))
                         before = torch.where(allowed, before, torch.zeros_like(before))
                         now = torch.where(allowed, now, torch.zeros_like(now))
-                        leash = (weight * (before - now)).sum(dim=1).mean()
+                        leash = ((weight * (before - now)).sum(dim=1) * chosen).sum() / own
                         loss = loss + args.leash * leash
                     loss.backward()
                     grad_norm = nn.utils.clip_grad_norm_(
@@ -420,8 +434,8 @@ def main() -> None:
                         total_policy += policy_loss
                         total_value += value_loss
                         total_entropy += entropy
-                        total_clipped += (ratio != clipped).float().mean()
-                        total_kl += (old_log_probs[picks] - log_prob).mean()
+                        total_clipped += ((ratio != clipped).float() * chosen).sum() / own
+                        total_kl += ((old_log_probs[picks] - log_prob) * chosen).sum() / own
                         total_grad += grad_norm
                         total_leash += leash
                         total_hands += hands_loss

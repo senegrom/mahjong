@@ -58,35 +58,33 @@ class NothingChangesAtZero(unittest.TestCase):
 
 
 class TheRecordedProbabilityIsTheBehaviour(unittest.TestCase):
-    def test_it_is_the_mixture_not_the_policy(self):
-        epsilon = 0.25
-        allowed = [1, 3, 5]
-        logits = masked_logits(512, allowed)
-        mask = legal_mask(512, allowed)
-        torch.manual_seed(11)
-        chosen, recorded, _forced = explore(logits, mask, epsilon, np.random.default_rng(5))
-
+    def test_it_is_the_policy_s_own_probability_even_when_exploring(self):
+        """A forced move is a draw from the mixture, but what PPO divides
+        by is the policy's probability of the move the row trains on; a
+        forced row does not train the policy at all (`train_combined`
+        keeps it out), so its probability is the policy's too and never
+        the mixture's, which sat far outside the clip and eroded two
+        blocks."""
+        torch.manual_seed(2)
+        logits = torch.randn(64, 12) * 3
+        mask = torch.ones(64, 12, dtype=torch.bool)
+        epsilon = 0.3
+        chosen, recorded, forced = explore(logits, mask, epsilon, np.random.default_rng(5))
         policy = torch.distributions.Categorical(logits=logits)
-        share = torch.exp(policy.log_prob(chosen))
-        wanted = torch.log((1 - epsilon) * share + epsilon / len(allowed))
-        self.assertTrue(torch.allclose(recorded, wanted, atol=1e-6))
+        self.assertTrue(torch.allclose(recorded, policy.log_prob(chosen)))
+        count = mask.sum(dim=1)
+        floor = torch.log(epsilon / count.float())
+        # Some forced move is one the policy would hardly ever play, and it
+        # is written down as exactly that unlikely.
+        self.assertTrue(bool((recorded[forced] < floor[forced]).any()))
 
-    def test_it_is_always_at_least_the_floor_the_mixture_guarantees(self):
-        """No action the behaviour could take may be recorded as less
-        likely than the even draw alone makes it."""
-        epsilon = 0.1
-        allowed = [0, 1, 2, 3]
-        logits = masked_logits(256, allowed)
-        mask = legal_mask(256, allowed)
-        torch.manual_seed(7)
-        _chosen, recorded, _forced = explore(logits, mask, epsilon, np.random.default_rng(1))
-        floor = math.log(epsilon / len(allowed))
-        self.assertTrue(bool((recorded >= floor - 1e-6).all()))
-
-    def test_a_move_the_policy_hates_is_recorded_as_possible(self):
-        """The whole point. The policy gives this move about nothing; the
-        behaviour gives it epsilon over the legal moves, and that is what
-        PPO must divide by."""
+    def test_a_move_the_policy_hates_is_played_and_flagged(self):
+        """The whole point. The policy gives this move about nothing;
+        exploration plays it anyway, says so in the flag, and writes down
+        the policy's own probability -- so a trainer that keeps flagged
+        rows out of the policy gradient never divides by it, and one that
+        forgot would find a ratio far outside the clip, not a comfortable
+        one."""
         epsilon = 0.5
         allowed = [0, 1]
         logits = torch.full((1, 8), float("-inf"))
@@ -96,14 +94,14 @@ class TheRecordedProbabilityIsTheBehaviour(unittest.TestCase):
         found = False
         for trial in range(200):
             torch.manual_seed(trial)
-            chosen, recorded, _forced = explore(logits, mask, epsilon, np.random.default_rng(trial))
+            chosen, recorded, forced = explore(logits, mask, epsilon, np.random.default_rng(trial))
             if int(chosen[0]) == 1:
                 found = True
-                self.assertGreater(
-                    float(recorded[0]), math.log(epsilon / 2) - 1e-6,
-                    "the hated move was recorded as less likely than the even draw",
+                self.assertTrue(bool(forced[0]), "a move the policy never plays can only be forced")
+                self.assertLess(
+                    float(recorded[0]), math.log(epsilon / 2),
+                    "the hated move is recorded at the policy's own probability, not the mixture's",
                 )
-                self.assertLess(float(recorded[0]), 0.0)
         self.assertTrue(found, "the hated move was never forced")
 
 

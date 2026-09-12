@@ -87,17 +87,20 @@ def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> t
     self-play goes is the direct attack: the value head is shown the
     positions the search will ask about.
 
-    Why the probability is the mixture and not the policy's. PPO divides by
-    the probability the behaviour gave the action it took. Forcing a move
-    and then recording the policy's own probability for it would be a lie
-    about who chose it, and the ratio would be wrong exactly on the
-    decisions that are unusual -- which is every one this is for. The
-    behaviour here is the mixture, so its probability is
-
-        (1 - epsilon) * pi(a)  +  epsilon / (legal moves)
-
-    which is what is written down. At epsilon zero it is pi(a) to the last
-    bit and nothing changes.
+    Why the probability recorded is the policy's own and not the mixture's.
+    The first version wrote down the mixture's, (1 - epsilon) pi(a) +
+    epsilon / legal, on the argument that PPO divides by the probability
+    the behaviour gave the move. Two blocks eroded on it the same way and
+    the arithmetic says why: a move the policy gave 1e-4 was recorded near
+    0.007, PPO's ratio for it began near 0.014, far below the clip, and
+    there the clipped objective has no gradient for a negative advantage
+    and a full one for a positive -- so a bad forced move was never pushed
+    down and a lucky one was pushed up. The policy's own unlikely moves
+    suffered the same. Now every move is recorded at pi(a): given the coin
+    said "policy", the move is a draw from pi and that is the right ratio;
+    a forced move is flagged, and the trainer keeps it out of the policy
+    gradient altogether (see `train_combined`), while the value, hands and
+    reader terms still see the position it led to, which was the point.
     """
     distribution = torch.distributions.Categorical(logits=logits)
     chosen = distribution.sample()
@@ -113,9 +116,7 @@ def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> t
             picked = (walk == rank.unsqueeze(1)) & legal
             instead = picked.float().argmax(dim=1)
             chosen = torch.where(forced, instead, chosen)
-        share = torch.exp(distribution.log_prob(chosen))
-        behaviour = (1.0 - epsilon) * share + epsilon / count.to(share.dtype)
-        return chosen, torch.log(behaviour), forced
+        return chosen, distribution.log_prob(chosen), forced
     return chosen, distribution.log_prob(chosen), torch.zeros_like(chosen, dtype=torch.bool)
 
 
