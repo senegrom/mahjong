@@ -60,8 +60,8 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('Dali resolves seven approved images and placeholders for the rest', () => {
-  const approved = new Set(['1p', '3p', '5p', '1s', '2s', '8m', '7z']);
+test('Dali resolves eight approved images and placeholders for the rest', () => {
+  const approved = new Set(['1p', '3p', '5p', '1s', '2s', '5s', '8m', '7z']);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'dali');
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
@@ -74,6 +74,7 @@ test('Dali resolves seven approved images and placeholders for the rest', () => 
   }
   assert.equal(tileImage('1p', 'dali'), 'tiles/dali/approved/Pin1.svg');
   assert.equal(tileImage('3p', 'dali'), 'tiles/dali/approved/Pin3.svg');
+  assert.equal(tileImage('5s', 'dali'), 'tiles/dali/approved/Sou5.svg');
   assert.equal(tileImage('7z', 'dali'), 'tiles/dali/approved/Chun.svg');
 });
 

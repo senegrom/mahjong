@@ -101,6 +101,24 @@
       }
     },
     {
+      "name": "Sou5",
+      "tile": "5s",
+      "label": "5 bamboo",
+      "direction": "The Soft Grove — A",
+      "status": "approved",
+      "png": "approved/Sou5.png",
+      "svg": "approved/Sou5.svg",
+      "source": "docs/design/dali/studies/five-bamboo-a-approved.png",
+      "sourceSha256": "1efca5645d6704496508e2d40a57b8bc2d8e580851b2297cc8c36f78d7ea4c36",
+      "pngSha256": "1efca5645d6704496508e2d40a57b8bc2d8e580851b2297cc8c36f78d7ea4c36",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
       "name": "Man8",
       "tile": "8m",
       "label": "8 characters",
@@ -200,10 +218,6 @@
     },
     {
       "tile": "4s",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "5s",
       "svg": "placeholders/placeholder.svg"
     },
     {

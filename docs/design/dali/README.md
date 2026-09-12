@@ -1,6 +1,6 @@
 # Dalí mahjong tile set
 
-A surrealist tile face set for the mahjong game. Seven faces are approved: the original six studies and Carl's selected three-disks alternative B, **Time coming apart**.
+A surrealist tile face set for the mahjong game. Eight faces are approved: the original six studies, Carl's selected three-disks alternative B, **Time coming apart**, and five-bamboo alternative A, **The Soft Grove**.
 
 ## Approved first studies
 
@@ -11,10 +11,11 @@ A surrealist tile face set for the mahjong game. Seven faces are approved: the o
 | `Pin5.svg` | 5 dots | Levitation — five polished, slightly softened disks floating over the desert |
 | `Sou1.svg` | 1 bamboo | Stilt Bird — one elongated surreal crane-like bird with impossibly long legs |
 | `Sou2.svg` | 2 bamboo | Elastic Growth — two sinuous segmented bamboo stalks; all visible colour remains green |
+| `Sou5.svg` | 5 bamboo | The Soft Grove — A: four jade stems and one ruby stem soften into droplets and pools, retaining the five-pip arrangement |
 | `Man8.svg` | 8 characters | Impossible Stone — ivory 八 above a sculptural vermilion 萬 |
 | `Chun.svg` | Red dragon | Molten Ruby — translucent ruby-red 中 stretched into an uncanny molten form |
 
-The other 27 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork.
+The other 26 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork.
 
 ## Presentation
 
@@ -22,7 +23,11 @@ The set follows the existing tile system's 300 × 400 face, 26-unit rounded clip
 
 Three disks uses the exact [selected B image](studies/three-disks-b-approved.png), preserving the complete 1086 × 1448 source and its original PNG bytes. Alternatives A (the river) and C (the butterflies) were not selected. Keep the chosen artwork when exporting; do not regenerate or redraw it.
 
-Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: seven approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
+Five bamboo uses the exact [selected A image](studies/five-bamboo-a-approved.png), preserving the complete 1086 × 1448 source and its original PNG bytes. Its four green stems and central ruby stem remain clearly countable. Alternatives B (floating joints) and C (the hand shadow) were not selected.
+
+Present three alternatives for each new tile before selection.
+
+Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: eight approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
 
 ## Reproducing the exports
 
