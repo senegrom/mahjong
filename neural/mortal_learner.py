@@ -54,6 +54,7 @@ class Records:
     #: wanderings compounded, and the first already puts the position
     #: somewhere the policy would not have gone.
     forced: np.ndarray | None = None
+    epsilon: np.ndarray | None = None
 
 
 def decide_in_mortal_space(
@@ -194,6 +195,11 @@ def decide_in_mortal_space(
             slots=np.concatenate(record_slots).astype(np.int64),
             forced=np.concatenate(record_forced).astype(bool),
         )
+    first_rows = int(decidable.sum())
+    records.epsilon = np.concatenate([
+        np.full(first_rows, 0.0 if greedy else explore_share, dtype=np.float32),
+        np.zeros(len(second), dtype=np.float32),
+    ])
     return choice, records
 
 

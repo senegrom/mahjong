@@ -15,24 +15,17 @@ from neural import replay
 from neural.observe import Planes
 
 
-def batch(value):
-    return SimpleNamespace(
-        decisions=3, legal=torch.ones(3, 46, dtype=torch.bool),
-        held=torch.full((3, 3, 34), float(value)),
-        oracle=torch.full((3, 3, 34), value, dtype=torch.uint8),
-        imagined=torch.full((3, 3, 34), value, dtype=torch.uint8),
-        returns=torch.full((3,), float(value)),
-        observations=Planes(np.arange(4, dtype=np.int64), np.zeros(3, dtype=np.uint16),
-                            np.full(3, value, dtype=np.float16)),
-    )
+from neural.tests.test_replay_atomic import batch
 
 
 class ReplaySignalTests(unittest.TestCase):
     def assert_batch(self, ring, value):
         sample = ring.sample(3, np.random.default_rng(0))
         np.testing.assert_array_equal(sample['observations'].values, value)
-        for field in ('held', 'oracle', 'imagined', 'returns'):
-            np.testing.assert_array_equal(sample[field].numpy(), value)
+        expected = batch(value, n=len(sample['returns']))
+        for field in ('legal', 'held', 'oracle', 'imagined', 'returns'):
+            np.testing.assert_array_equal(sample[field].numpy(), getattr(expected, field).numpy(),
+                                          err_msg=field)
 
     def test_sigint_before_and_after_publication_recovers_disk_and_live_writer(self):
         source, start = inspect.getsourcelines(replay.Ring.push)

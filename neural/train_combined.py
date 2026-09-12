@@ -29,6 +29,7 @@ from .training_batches import validate_learning, require_trainable_round, requir
 from torch import nn
 
 from . import combined, population, selfplay, zoo
+from .behavior import action_log_prob, validate_exploration
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
@@ -119,6 +120,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     validate_learning(args.batch, args.epochs)
+    validate_exploration(args.explore)
     validate_training_options(args)
     require_training_engine()
     torch.set_num_threads(2)
@@ -272,7 +274,8 @@ def main() -> None:
             "learner": "combined",
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
-            "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch},
+            "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch,
+                                  "explore": args.explore, "ppo_reference": "recorded_behaviour_mixture"},
             "smoothed": smoothed,
             "best_placement": best_placement,
             "optimizer_state": optimiser.state_dict(),
@@ -306,6 +309,10 @@ def main() -> None:
         actions = batch.actions.to(device)
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
+        epsilon = getattr(batch, "behaviour_epsilon", None)
+        if args.explore and epsilon is None:
+            raise ValueError("Exploratory PPO requires recorded per-decision mixture coefficients")
+        epsilon = epsilon.to(device) if epsilon is not None else torch.zeros_like(old_log_probs)
         # What the three opponents were really holding at each decision: the
         # label the reading of the hands is trained against, which self-play
         # knows for free and which is far denser than the game's result.
@@ -373,7 +380,8 @@ def main() -> None:
                     value = value.float()
                     hands_loss, covered = hands_loss_of(guessed.float(), held[picks])
                     distribution = torch.distributions.Categorical(logits=logits)
-                    log_prob = distribution.log_prob(actions[picks])
+                    log_prob = action_log_prob(logits, legal[picks], actions[picks],
+                                               epsilon[picks] if args.explore else 0.0)
                     if drift.check(old_log_probs[picks], log_prob):
                         break
                     advantage = advantages[picks]

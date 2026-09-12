@@ -24,6 +24,7 @@ import riichi_py
 from .training_safety import require_training_engine
 
 from . import zoo
+from .behavior import action_log_prob, validate_exploration
 from .observe import Planes, Views
 from .outcomes import placement_rewards, placements, require_finished, validate_budget, win_shares
 
@@ -99,6 +100,7 @@ def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> t
     which is what is written down. At epsilon zero it is pi(a) to the last
     bit and nothing changes.
     """
+    validate_exploration(epsilon)
     distribution = torch.distributions.Categorical(logits=logits)
     chosen = distribution.sample()
     if epsilon > 0:
@@ -113,9 +115,7 @@ def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> t
             picked = (walk == rank.unsqueeze(1)) & legal
             instead = picked.float().argmax(dim=1)
             chosen = torch.where(forced, instead, chosen)
-        share = torch.exp(distribution.log_prob(chosen))
-        behaviour = (1.0 - epsilon) * share + epsilon / count.to(share.dtype)
-        return chosen, torch.log(behaviour), forced
+        return chosen, action_log_prob(logits, legal, chosen, epsilon), forced
     return chosen, distribution.log_prob(chosen), torch.zeros_like(chosen, dtype=torch.bool)
 
 
@@ -160,6 +160,12 @@ class Batch:
     #: a search asks the value head about, so a diagnostic can weigh the
     #: critic's error on them apart from the rest.
     explored: torch.Tensor | None = None
+    #: Actual exploration coefficient at each recorded decision, including zero
+    #: for the second reach stage. Required to reproduce behaviour in PPO.
+    behaviour_epsilon: torch.Tensor | None = None
+    #: This information state follows a forced decision by the same player in
+    #: this hand. It is not the coin flip about the action chosen *here*.
+    after_exploration: torch.Tensor | None = None
     #: Which of the seated others took a place in each game, by index into
     #: the list given, or -1 where the learner held all four. Kept so a
     #: round can say who it played rather than only how it did on average.
@@ -231,6 +237,7 @@ def play(
     """
     require_training_engine()
     validate_budget(games, max_steps)
+    validate_exploration(explore_share)
     net.eval()
     for other in opponents or []:
         other.eval()
@@ -273,6 +280,9 @@ def play(
     oracle: list[np.ndarray] = []
     imagined: list[np.ndarray] = []
     wandered: list[np.ndarray] = []
+    coefficients: list[np.ndarray] = []
+    after_exploration: list[bool] = []
+    last_forced = np.zeros((games, 4), dtype=bool)
     actions: list[int] = []
     log_probs: list[float] = []
     rewards: list[float] = []
@@ -309,6 +319,7 @@ def play(
         counted = 0
         for game in np.nonzero(ended)[0]:
             counted += 1
+            last_forced[game] = False
             for person in range(4):
                 value = float(results[game][person]) * HAND_SCALE
                 for step_index in pending[game][person]:
@@ -408,7 +419,16 @@ def play(
             # by default.
             if want_oracle:
                 oracle.append(hidden[index][record_slots].astype(np.uint8))
-            wandered.append(getattr(records, "forced", np.zeros(len(record_slots), dtype=bool)))
+            record_forced = getattr(records, "forced", None)
+            if record_forced is None:
+                record_forced = np.zeros(len(record_slots), dtype=bool)
+            wandered.append(record_forced)
+            epsilon = getattr(records, "epsilon", None)
+            if epsilon is None:
+                if explore_share > 0 and not greedy:
+                    raise ValueError("An exploring recorder must expose per-decision epsilon")
+                epsilon = np.zeros(len(record_slots), dtype=np.float32)
+            coefficients.append(epsilon)
             began = clock()
         else:
             if recording:
@@ -446,7 +466,9 @@ def play(
             record_log_probs = chosen_log_prob.cpu().numpy()
             record_slots = np.arange(len(index))
             choice[index] = record_actions
-            wandered.append(was_forced.cpu().numpy())
+            record_forced = was_forced.cpu().numpy()
+            wandered.append(record_forced)
+            coefficients.append(np.full(len(record_slots), 0.0 if greedy else explore_share, dtype=np.float32))
 
             # Copies, not views: a view would keep the whole step's buffer
             # alive until the round is gathered at the end.
@@ -459,16 +481,22 @@ def play(
             timing["network"] += clock() - began
             began = clock()
 
+        forced_this_step = np.zeros((games, 4), dtype=bool)
         for record in range(len(record_actions)):
             game = int(index[record_slots[record]])
             seat = int(seats[game])
             person = int(players[game][seat])
+            after_exploration.append(bool(last_forced[game, person] or forced_this_step[game, person]))
+            forced_this_step[game, person] |= bool(record_forced[record])
             step_index = len(actions)
             actions.append(int(record_actions[record]))
             log_probs.append(float(record_log_probs[record]))
             rewards.append(0.0)
             pending[game][person].append(step_index)
             everything[game][person].append(step_index)
+        for game in index:
+            person = deciding[game]
+            last_forced[game, person] = forced_this_step[game, person]
         timing["other"] += clock() - began
         began = clock()
 
@@ -567,6 +595,8 @@ def play(
         oracle=gather(oracle) if oracle else torch.zeros(0),
         imagined=gather(imagined) if imagined else torch.zeros(0),
         explored=gather(wandered) if wandered else None,
+        behaviour_epsilon=gather(coefficients),
+        after_exploration=torch.tensor(after_exploration, dtype=torch.bool),
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,

@@ -1,5 +1,9 @@
 """Whether a candidate has earned the champion's place.
 
+The CLI uses neural.gate's immutable inputs and conservative evidence rule.
+The paired-error object API documented below is retained as a diagnostic,
+not as a substitute for the CLI's publication evidence.
+
 The trainer used to keep `best.pt` by smoothed placement against three
 heuristic players, a hundred and ninety-two games, the network always in
 one seat. That number cannot do the job it was given. The heuristic table
@@ -169,69 +173,97 @@ def gate(
 
 
 def promote(payload: dict, where: Path, verdict: Verdict) -> None:
-    """Writes the champion, and the verdict that made it one.
+    """Legacy in-memory publication; callers must supply the evaluated payload.
 
-    The verdict is kept beside the checkpoint because a champion with no
-    record of what it beat, by how much, over which deals, is only the most
-    recent file.
+    The CLI uses immutable snapshots and the hash-bound gate below. This helper
+    remains for callers already holding evaluated bytes; publication is atomic.
     """
-    import torch
+    from .checkpoints import atomic_save
 
-    where.mkdir(parents=True, exist_ok=True)
-    torch.save(payload, where / "champion.pt")
-    (where / "champion.json").write_text(verdict.as_json(), encoding="utf-8")
+    if not verdict.promoted:
+        raise ValueError("A rejected candidate cannot replace the champion")
+    atomic_save({**payload, "promotion_verdict": asdict(verdict)}, where / "champion.pt")
+
+
+def publish_evaluated_snapshot(snapshot: Path, where: Path, report: dict) -> None:
+    """Publish exactly the bytes approved by gate.compare, never a mutable path.
+
+    The immutable hash-named verdict is durable before the checkpoint rename.
+    Individual files are atomic, not a multi-file transaction. Readers bind the
+    verdict to the checkpoint SHA-256, not to the most recently edited JSON file.
+    """
+    import hashlib
+    import os
+    from .checkpoints import copy_checkpoint, staging_file, sync_directory
+
+    if not report.get("promote"):
+        raise ValueError("A rejected candidate cannot replace the champion")
+    expected = report["candidate"]["sha256"]
+    if not isinstance(expected, str) or len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
+        raise ValueError("The verdict needs a candidate SHA-256")
+    where = Path(where)
+    destination = where / "champion.pt"
+    with staging_file(destination) as staged:
+        copy_checkpoint(snapshot, staged)
+        with staged.open("rb") as stream:
+            actual = hashlib.file_digest(stream, "sha256").hexdigest()
+        if actual != expected:
+            raise ValueError("Candidate bytes changed after evaluation; champion is unchanged")
+        evidence = where / "promotion-reports" / f"{actual}.json"
+        with staging_file(evidence) as record:
+            with record.open("w", encoding="utf-8") as stream:
+                json.dump(report, stream, indent=2, allow_nan=False)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(record, evidence)
+            sync_directory(evidence.parent)
+        os.replace(staged, destination)
+        sync_directory(where)
 
 
 def main() -> None:
-    """Runs the gate from the command line.
+    """Use the shared conservative gate, then atomically publish its exact input.
 
-        python -m neural.promote <candidate.pt> <champion.pt> [--games 200]
-
-    Writes `champion.pt` beside the candidate only when the gate passes,
-    and the verdict either way.
+    The object-level paired-error `gate` remains a diagnostic for compatibility;
+    only neural.gate.compare supplies the CLI's publication evidence.
     """
     import argparse
-
+    import tempfile
     import torch
+    from . import gate as evidence_gate
+    from .checkpoints import copy_checkpoint
 
-    from . import zoo
-
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("candidate", type=Path)
     parser.add_argument("champion", type=Path)
-    parser.add_argument("--games", type=int, default=DEFAULT_GAMES,
-                        help="deals per seat per direction")
-    parser.add_argument("--margin", type=float, default=DEFAULT_MARGIN,
-                        help="standard errors the candidate must lead by")
-    parser.add_argument("--attempt", type=int, default=1,
-                        help="which try this is; it moves the deals, and it is "
-                             "recorded, because testing until something passes "
-                             "promotes noise")
-    parser.add_argument("--out", type=Path, default=None,
-                        help="where a promoted champion is written; the "
-                             "candidate's own folder by default")
-    parser.add_argument("--device", default="cuda" if __import__("torch").cuda.is_available() else "cpu")
+    parser.add_argument("--games", type=int, default=512)
+    parser.add_argument("--attempt", type=int, default=1)
+    parser.add_argument("--seed", type=int, required=True, help="fresh held-out seed range")
+    parser.add_argument("--confidence", type=float, default=.95)
+    parser.add_argument("--minimum-edge", type=float, default=0.)
+    parser.add_argument("--minimum-deals", type=int, default=128)
+    parser.add_argument("--max-steps", type=int, default=4000)
+    parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
-
-    candidate = zoo.load_player(args.candidate, args.device)
-    champion = zoo.load_player(args.champion, args.device)
-    verdict = gate(
-        candidate,
-        champion,
-        candidate_name=str(args.candidate),
-        champion_name=str(args.champion),
-        games=args.games,
-        margin=args.margin,
-        attempt=args.attempt,
-        device=args.device,
-    )
-    print(verdict.as_json(), flush=True)
-    if verdict.promoted:
-        where = args.out or args.candidate.parent
-        promote(torch.load(args.candidate, map_location="cpu", weights_only=False), where, verdict)
-        print(f"promoted: {where / 'champion.pt'}", flush=True)
-    else:
-        print("not promoted; the champion keeps its place", flush=True)
+    torch.set_num_threads(2)
+    with tempfile.TemporaryDirectory(prefix="mahjong-promotion-") as folder:
+        snapshots = [Path(folder) / name for name in ("candidate.pt", "champion.pt")]
+        for source, target in zip((args.candidate, args.champion), snapshots):
+            copy_checkpoint(source, target)
+        report = evidence_gate.compare(
+            *snapshots, games=args.games, seed=args.seed, device=args.device,
+            max_steps=args.max_steps, confidence=args.confidence,
+            minimum_edge=args.minimum_edge, attempt=args.attempt,
+            minimum_deals=args.minimum_deals,
+        )
+        report["candidate"]["path"] = str(args.candidate)
+        report["champion"]["path"] = str(args.champion)
+        if report["promote"]:
+            publish_evaluated_snapshot(snapshots[0], args.out or args.candidate.parent, report)
+            report["checkpoint_written"] = True
+        print(json.dumps(report, indent=2, allow_nan=False), flush=True)
 
 
 if __name__ == "__main__":

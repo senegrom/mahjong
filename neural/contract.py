@@ -106,7 +106,7 @@ def of(net) -> Contract:
         reads=kind,
         planes=int(planes),
         answers=int(getattr(net, "actions", ENGINE_ACTIONS)),
-        speaks_our_moves=kind == "engine",
+        speaks_our_moves=int(getattr(net, "actions", ENGINE_ACTIONS)) == ENGINE_ACTIONS,
         has_value=hasattr(net, "everything"),
         has_belief=hasattr(net, "everything"),
         parts=tuple(parts),
@@ -133,7 +133,7 @@ class EngineServed:
             torch.from_numpy(legal[rows]).to(device),
         )
 
-    def leaves(self, arena, leaf_bytes, counts, device):
+    def leaves(self, arena, leaf_bytes, counts, device, *, wanted=None):
         total = sum(counts)
         planes = np.frombuffer(leaf_bytes, dtype=np.float32)
         return torch.from_numpy(
@@ -189,24 +189,39 @@ class MortalServed:
         from . import zoo
 
         planes, _own = views.sparse_and_masks(rows, deciding)
-        allowed = zoo.translatable(legal[rows])
-        allowed[~allowed.any(axis=1), zoo.MORTAL_PASS] = True
+        allowed = (legal[rows].copy() if self.contract.speaks_our_moves
+                   else zoo.translatable(legal[rows]))
+        if not allowed.any(axis=1).all():
+            raise ValueError("Search roots must each have a legal action")
         return planes.dense(device), torch.from_numpy(allowed).to(device)
 
-    def leaves(self, arena, leaf_bytes, counts, device):
+    def leaves(self, arena, leaf_bytes, counts, device, *, wanted=None):
         """Every leaf as Mortal sees it, built from its own continuation.
 
-        A leaf whose world dealt a new hand offers no events -- its log
-        replaced the one the cursor points into and its seats have moved --
-        and is given zeros, which the engine ignores for the slots it does
-        not want valued.
+        Only terminal/broken slots may omit event history. A nonterminal leaf
+        that crossed a hand boundary is explicitly unsupported until the bridge
+        can reconstruct its new hand and seating. Never evaluate fabricated zeros.
         """
         from .observe import Planes
 
         total = sum(counts)
         players, lines = arena.leaves_mjai()
         game_of = np.repeat(np.arange(len(counts)), counts)
-        live = [at for at in range(total) if lines[at]]
+        if len(players) != total or len(lines) != total:
+            raise ValueError("Native continuation metadata does not match the leaf count")
+        if wanted is None:
+            raise UnsupportedSearchLayout("Mortal continuations require the native wanted-value mask")
+        wants = np.asarray(wanted, dtype=bool)
+        if wants.shape != (total,):
+            raise ValueError("Native wanted-value mask has the wrong shape")
+        unsupported = [at for at in range(total) if wants[at] and not lines[at]]
+        if unsupported:
+            raise UnsupportedSearchLayout(
+                f"{len(unsupported)} nonterminal search leaves have no reconstructible "
+                "Mortal history (for example, a new hand). Refusing invented zero observations; "
+                "a player-specific new-hand continuation encoder is required."
+            )
+        live = [at for at in range(total) if wants[at]]
         out = torch.zeros(total, self.contract.planes, POSITIONS, device=device)
         if not live:
             return out
@@ -229,6 +244,8 @@ class MortalServed:
         `first_meaning` would say and what nobody chose."""
         from . import zoo
 
+        if self.contract.speaks_our_moves:
+            return EngineServed.to_engine(self, action, legal_row, after_reach)
         if after_reach:
             tile = action if action < 34 else zoo.MORTAL_RED.get(action, -1)
             if tile < 0:
@@ -245,6 +262,8 @@ class MortalServed:
         tile the second question decides (see `after_reach`)."""
         from . import zoo
 
+        if self.contract.speaks_our_moves:
+            return EngineServed.to_engine_rows(self, own_order, legal)
         ranked = np.where(legal[:, None, :], zoo.PRIORITY[own_order], np.inf)
         best = ranked.argmin(axis=2)
         found = np.isfinite(np.take_along_axis(ranked, best[..., None], axis=2)[..., 0])
@@ -345,6 +364,11 @@ def serve(net, checkpoint: str = "the checkpoint"):
             )
         return EngineServed(net, contract)
     if contract.reads == "mortal":
+        if contract.planes != 1012 or contract.answers not in (46, ENGINE_ACTIONS):
+            raise UnsupportedSearchLayout(
+                f"{checkpoint} has unsupported Mortal layout: {contract.planes} planes, "
+                f"{contract.answers} actions; expected 1012 planes and 46 or {ENGINE_ACTIONS} actions"
+            )
         return MortalServed(net, contract)
     raise UnsupportedSearchLayout(
         f"{checkpoint} reads {contract.reads!r}, which no server here builds. "

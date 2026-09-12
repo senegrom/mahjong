@@ -41,6 +41,7 @@ import modal
 from neural.training_safety import training_control_arguments
 from neural.checkpoints import copy_checkpoint, publish_training_snapshot, validate_checkpoint
 from neural.cloud_runs import workspace, validate_run, managed_process
+from neural.cloud_requests import validate_cloud_request, stage_opponents
 
 HERE = Path(__file__).parent.parent
 
@@ -229,6 +230,7 @@ def train(
     passes over each round three times and its critic learns the round by
     heart.
     """
+    validate_cloud_request(generations, opponents, opponent_share)
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
@@ -298,20 +300,9 @@ def train(
         # past and only halfway against a foreign network, so a large part of
         # what it gained was knowing its own family. An older self is foreign
         # enough to be worth playing, and another lineage more so.
-        seated = []
-        for name in opponents or []:
-            source = _checkpoint(run, name)
-            if not source.is_file():
-                raise FileNotFoundError(f"Requested opponent checkpoint does not exist: {source}")
-            # Named after the checkpoint with its run, so two lineages'
-            # `latest` stay distinct files and the roster can read the
-            # name back (`population.Population.from_paths`).
-            local = where / "opponents" / (name.replace("/", "--") + ".pt")
-            local.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, local)
-            seated.append(str(local))
-        if seated:
-            command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+        command += stage_opponents(
+            where, opponents, opponent_share, lambda name: _checkpoint(run, name)
+        )
 
         environment = _environment(TRAINER_CPUS)
         command += controls
@@ -398,6 +389,7 @@ def train_mortal(
     the published Mortal named otherwise. Its own function, so it runs
     beside the other lineage's training rather than queueing behind it.
     """
+    validate_cloud_request(generations, opponents, opponent_share)
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
@@ -432,20 +424,9 @@ def train_mortal(
             command += ["--mortal", str(where / "origin.pt")]
             print(f"starting from {origin}", flush=True)
 
-        seated = []
-        for name in opponents or []:
-            found = _checkpoint(run, name)
-            if not found.is_file():
-                raise FileNotFoundError(f"Requested opponent checkpoint does not exist: {found}")
-            # Named after the checkpoint with its run, so two lineages'
-            # `latest` stay distinct files and the roster can read the
-            # name back (`population.Population.from_paths`).
-            local = where / "opponents" / (name.replace("/", "--") + ".pt")
-            local.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(found, local)
-            seated.append(str(local))
-        if seated:
-            command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+        command += stage_opponents(
+            where, opponents, opponent_share, lambda name: _checkpoint(run, name)
+        )
         command += controls
         print(" ".join(command), flush=True)
 
@@ -531,6 +512,7 @@ def train_combined(
     """
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
+    validate_cloud_request(generations, opponents, opponent_share)
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
@@ -578,20 +560,9 @@ def train_combined(
             command += parts
             print(f"joining {ours} and {mortal}", flush=True)
 
-        seated = []
-        for name in opponents or []:
-            found = _checkpoint(run, name)
-            if not found.is_file():
-                raise FileNotFoundError(f"Requested opponent checkpoint does not exist: {found}")
-            # Named after the checkpoint with its run, so two lineages'
-            # `latest` stay distinct files and the roster can read the
-            # name back (`population.Population.from_paths`).
-            local = where / "opponents" / (name.replace("/", "--") + ".pt")
-            local.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(found, local)
-            seated.append(str(local))
-        if seated:
-            command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+        command += stage_opponents(
+            where, opponents, opponent_share, lambda name: _checkpoint(run, name)
+        )
         command += controls
         print(" ".join(command), flush=True)
 

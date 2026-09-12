@@ -32,6 +32,8 @@ import numpy as np
 import torch
 
 from .checkpoints import atomic_save
+from .auxiliary_training import validate_auxiliary_options, require_supervised_rows
+from .training_batches import require_updates
 from torch import nn
 
 import riichi_py
@@ -139,8 +141,9 @@ def teacher_distribution(
     if actions != zoo.MORTAL_ACTIONS:
         raise ValueError(f"unsupported teacher action space: {actions}")
 
-    planes, own = views.sparse_and_masks(rows, players)
-    allowed = own & zoo.translatable(legal)
+    planes, _own = views.sparse_and_masks(rows, players)
+    # The core mask is authoritative, including late-wall legal reach.
+    allowed = zoo.translatable(legal)
     orphan = ~allowed.any(axis=1)
     allowed[orphan, zoo.MORTAL_PASS] = True
     first = probabilities(planes.dense(device), allowed)
@@ -254,12 +257,13 @@ def collect(
 
 def main() -> None:
     args = parse_args()
+    validate_auxiliary_options(args)
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     args.out.mkdir(parents=True, exist_ok=True)
     log_path = args.out / "log.jsonl"
 
-    if args.resume is not None and args.resume.exists():
+    if args.resume is not None:
         payload = torch.load(args.resume, map_location=device, weights_only=True)
         net = PolicyValueNet(**shape_of(payload, args.channels, args.blocks)).to(device)
         load_weights(net, payload["model"])
@@ -319,6 +323,7 @@ def main() -> None:
             student=args.student,
         )
         played = time.time() - began
+        require_supervised_rows(int(len(labels)))
         observations = planes
         legal = torch.from_numpy(masks).to(device)
         targets = torch.from_numpy(labels).to(device)
@@ -330,6 +335,7 @@ def main() -> None:
         total_covered = 0.0
         agreed = 0
         seen = 0
+        updates = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(len(targets), device=device)
             for start in range(0, len(targets), args.batch):
@@ -368,20 +374,25 @@ def main() -> None:
                     total_covered += float(
                         ((overlap * holding).sum() / holding.sum().clamp(min=1)) * picks.numel()
                     )
+                if not torch.isfinite(loss):
+                    raise FloatingPointError("Nonfinite auxiliary loss; no optimizer step was applied")
                 optimiser.zero_grad(set_to_none=True)
                 loss.backward()
-                nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
                 optimiser.step()
+                updates += 1
                 total_loss += loss.item() * picks.numel()
                 agreed += int((logits.argmax(dim=1) == targets[picks]).sum())
                 seen += picks.numel()
 
+        require_updates(updates)
         record = {
+            "optimizer_updates": updates,
             "round": round_index,
             "positions": int(len(targets)),
-            "loss": round(total_loss / max(seen, 1), 4),
-            "agreement": round(agreed / max(seen, 1), 4),
-            "hands_read": round(total_covered / max(seen, 1), 4),
+            "loss": round(total_loss / seen, 4),
+            "agreement": round(agreed / seen, 4),
+            "hands_read": round(total_covered / seen, 4),
             "seconds": round(time.time() - began, 1),
             # Kept apart so a slow round can be blamed on the right half:
             # the engine playing on the CPU, or the GPU being fed too slowly.
