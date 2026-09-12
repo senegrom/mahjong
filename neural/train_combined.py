@@ -29,6 +29,7 @@ from .training_batches import validate_learning, require_trainable_round, requir
 from torch import nn
 
 from . import combined, population, selfplay, zoo
+from .behavior import validate_exploration
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
@@ -119,6 +120,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     validate_learning(args.batch, args.epochs)
+    validate_exploration(args.explore)
     validate_training_options(args)
     require_training_engine()
     torch.set_num_threads(2)
@@ -272,7 +274,8 @@ def main() -> None:
             "learner": "combined",
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
-            "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch},
+            "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch,
+                                  "explore": args.explore, "ppo_reference": "unforced_policy_rows"},
             "smoothed": smoothed,
             "best_placement": best_placement,
             "optimizer_state": optimiser.state_dict(),
@@ -389,8 +392,9 @@ def main() -> None:
                     own = chosen.sum().clamp(min=1)
                     if chosen.any() and drift.check(old_log_probs[picks][chosen], log_prob[chosen]):
                         break
-                    advantage = advantages[picks]
-                    ratio = torch.exp(log_prob - old_log_probs[picks])
+                    advantage = advantages[picks].masked_fill(~chosen, 0.0)
+                    delta = (log_prob - old_log_probs[picks]).masked_fill(~chosen, 0.0)
+                    ratio = torch.exp(delta)
                     clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
                     surrogate = torch.min(ratio * advantage, clipped * advantage)
                     policy_loss = -(surrogate * chosen).sum() / own
@@ -435,7 +439,7 @@ def main() -> None:
                         total_value += value_loss
                         total_entropy += entropy
                         total_clipped += ((ratio != clipped).float() * chosen).sum() / own
-                        total_kl += ((old_log_probs[picks] - log_prob) * chosen).sum() / own
+                        total_kl += -delta.sum() / own
                         total_grad += grad_norm
                         total_leash += leash
                         total_hands += hands_loss

@@ -72,8 +72,12 @@ def resample(scores: np.ndarray, keep: int, rng: np.random.Generator) -> Chosen:
     through an efficiency of zero.
     """
     scores = np.asarray(scores, dtype=np.float64)
+    if scores.ndim != 1:
+        raise ValueError("world log weights must be a one-dimensional vector")
+    if type(keep) is not int or keep < 0:
+        raise ValueError("keep must be a nonnegative integer")
     count = scores.size
-    if count == 0 or keep <= 0:
+    if count == 0 or keep == 0:
         return Chosen(kept=[], weights=[], efficiency=0.0, distinct=0)
 
     finite = np.isfinite(scores)
@@ -83,11 +87,14 @@ def resample(scores: np.ndarray, keep: int, rng: np.random.Generator) -> Chosen:
         # the whole search, and let the efficiency report the damage.
         scores = np.where(finite, scores, -np.inf)
 
-    shifted = scores - scores.max(initial=0.0)
-    weight = np.exp(np.where(np.isfinite(shifted), shifted, -np.inf))
+    if finite.any():
+        shifted = scores - scores[finite].max()
+        weight = np.exp(shifted)
+    else:
+        weight = np.zeros(count, dtype=np.float64)
     total = weight.sum()
     if not np.isfinite(total) or total <= 0.0:
-        even = rng.choice(count, size=min(keep, count), replace=count < keep)
+        even = rng.choice(count, size=keep, replace=count < keep)
         kept = sorted(int(index) for index in np.atleast_1d(even))
         return Chosen(
             kept=kept,

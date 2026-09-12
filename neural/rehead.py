@@ -36,6 +36,8 @@ import numpy as np
 import torch
 
 from .checkpoints import atomic_save
+from .auxiliary_training import validate_auxiliary_options, require_supervised_rows
+from .training_batches import require_updates
 from torch import nn
 
 import riichi_py
@@ -117,7 +119,7 @@ def collect(
 
         # One encoding serves both: they read the same planes.
         views.prepare(rows, who)
-        sparse, own = views.sparse_and_masks(rows, who)
+        sparse, _own = views.sparse_and_masks(rows, who)
         planes = sparse.dense(device)
         ours = torch.from_numpy(legal[rows]).to(device)
         logits, _value = teacher(planes, ours)
@@ -129,8 +131,13 @@ def collect(
         # both by Mortal's plain five and by its red one, so what Mortal
         # may actually do here decides what the weight is allowed to land
         # on before it is normalised.
-        allowed = own & zoo.translatable(legal[rows])
-        target = (spread @ means) * torch.from_numpy(allowed).to(device)
+        allowed = zoo.translatable(legal[rows])
+        # Several Mortal aliases can mean the same engine move (red/plain
+        # fives). Split that move's mass rather than duplicating it when the
+        # authoritative mask allows both aliases.
+        allowed_tensor = torch.from_numpy(allowed).to(device)
+        multiplicity = allowed_tensor.float() @ means.T
+        target = ((spread / multiplicity.clamp(min=1)) @ means) * allowed_tensor
         total = target.sum(dim=1)
         usable = allowed.any(axis=1) & (total.cpu().numpy() > 1e-6)
         if usable.any():
@@ -154,14 +161,11 @@ def collect(
             pairs = [(int(rows[i]), int(who[i])) for i in second]
             for game, player in pairs:
                 follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
-            indptr, indices, values, after_masks = follower.encode(pairs)
+            indptr, indices, values, _after_masks = follower.encode(pairs)
             after = Planes.from_follower(indptr, indices, values)
-            after_allowed = np.asarray(after_masks, dtype=bool)
             tiles = legal[rows][second, zoo.RIICHI_DISCARD : zoo.TSUMO]
-            after_allowed[:, :POSITIONS] &= tiles
-            after_allowed[:, POSITIONS:] = False
-            empty = ~after_allowed.any(axis=1)
-            after_allowed[empty, :POSITIONS] = tiles[empty]
+            after_allowed = np.zeros((len(second), MORTAL_ACTIONS), dtype=bool)
+            after_allowed[:, :POSITIONS] = tiles
             block = spread[torch.from_numpy(second).to(device),
                            zoo.RIICHI_DISCARD : zoo.TSUMO].cpu().numpy()
             block = block * after_allowed[:, :POSITIONS]
@@ -183,6 +187,7 @@ def collect(
 
 def main() -> None:
     args = parse_args()
+    validate_auxiliary_options(args)
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     args.out.mkdir(parents=True, exist_ok=True)
@@ -196,7 +201,7 @@ def main() -> None:
     if teacher.speaks_mortal:
         raise SystemExit("the teacher already speaks Mortal's space; there is nothing to re-head")
 
-    if args.resume is not None and args.resume.exists():
+    if args.resume is not None:
         resumed = torch.load(args.resume, map_location=device, weights_only=True)
         student = PolicyValueNet(**shape_of(resumed)).to(device)
         student.load_state_dict(resumed["model"])
@@ -224,14 +229,13 @@ def main() -> None:
             teacher, student, args.games, args.seed + round_index * 977, device, args.temperature
         )
         played = time.time() - began
-        if len(masks) == 0:
-            print("no positions collected", flush=True)
-            continue
+        require_supervised_rows(int(len(masks)))
         legal = torch.from_numpy(masks).to(device)
         wanted = torch.from_numpy(targets).to(device)
 
         student.train()
         total_loss, agreed, seen = 0.0, 0, 0
+        updates = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(len(masks), device=device)
             for start in range(0, len(masks), args.batch):
@@ -248,20 +252,25 @@ def main() -> None:
                 log_odds = torch.log_softmax(logits.float(), dim=1)
                 log_odds = torch.where(weight > 0, log_odds, torch.zeros_like(log_odds))
                 loss = -(weight * log_odds).sum(dim=1).mean()
+                if not torch.isfinite(loss):
+                    raise FloatingPointError("Nonfinite auxiliary loss; no optimizer step was applied")
                 optimiser.zero_grad(set_to_none=True)
                 loss.backward()
-                nn.utils.clip_grad_norm_(head, 1.0)
+                nn.utils.clip_grad_norm_(head, 1.0, error_if_nonfinite=True)
                 optimiser.step()
+                updates += 1
                 total_loss += loss.item() * picks.numel()
                 agreed += int((logits.argmax(dim=1) == weight.argmax(dim=1)).sum())
                 seen += picks.numel()
 
+        require_updates(updates)
         record = {
+            "optimizer_updates": updates,
             "round": round_index,
             "positions": int(len(masks)),
             "declarations": declared,
-            "loss": round(total_loss / max(seen, 1), 4),
-            "agreement": round(agreed / max(seen, 1), 4),
+            "loss": round(total_loss / seen, 4),
+            "agreement": round(agreed / seen, 4),
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),
         }

@@ -126,10 +126,11 @@ def publish_training_snapshot(source: Path, target: Path, minimum_generation: in
                 # for that round's notification; never pair it with this latest.
                 if other is None or other <= generation:
                     names.append(name)
-        log = source / "log.jsonl"
-        if log.exists():
-            shutil.copyfile(log, staged / "log.jsonl")
-            names.append("log.jsonl")
+        for name in ("log.jsonl", "opponents.json"):
+            log = source / name
+            if log.exists():
+                shutil.copyfile(log, staged / name)
+                names.append(name)
         # All checkpoints have been fully deserialized before any live rename.
         # Retain each tenth complete generation from these exact copied bytes.
         if generation % 10 == 0:

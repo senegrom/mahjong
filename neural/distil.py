@@ -6,9 +6,10 @@ about the hidden hands; the search makes the top few moves in worlds drawn
 from that belief and has the network's own value head judge what results;
 whichever move survives that is a better move than the one proposed, or the
 search is worth nothing. Training the network towards it makes the next
-proposal better. This legacy script currently trains action and hand labels
-only; outcome/value learning is still missing and must not be inferred from
-this description. Search quality itself must also be measured.
+proposal better. This native-layout script now learns frozen policy-improvement
+targets and completed-game returns using the evaluator selected for search.
+Search quality must still be established independently; these targets are not
+tree visit counts, and current Mortal-layout training is a separate path.
 
 It also solves the practical problem with search, which is that half a
 second a decision is hopeless in a browser. A network taught the search's
@@ -29,6 +30,9 @@ import numpy as np
 import torch
 
 from .checkpoints import atomic_save
+from .auxiliary_training import validate_auxiliary_options, require_supervised_rows
+from .training_batches import require_updates
+from .search_learning import improvement_targets, masked_policy_loss
 from torch import nn
 
 import riichi_py
@@ -39,7 +43,7 @@ from .model import from_payload
 from .selfplay import measure
 from .searched import require_native_search, UnsupportedSearchLayout
 from .outcomes import require_finished, validate_budget
-from .training_safety import require_training_engine
+from .training_safety import TRAINING_API_VERSION, require_training_engine
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -52,7 +56,7 @@ HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 @torch.no_grad()
 def search_with_value_head(
     net, arena, ranked, belief_flat, *, worlds, candidates, margin, hurried, device="cuda",
-    pool=4, health=None,
+    pool=4, health=None, valued_by="critic",
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -125,7 +129,7 @@ def search_with_value_head(
     step = 8192
     for start in range(0, total, step):
         chunk = torch.from_numpy(planes[start : start + step]).to(device)
-        valued[start : start + step] = net.value_only(chunk).float().cpu().numpy()
+        valued[start : start + step] = net.value_only(chunk, head=valued_by).float().cpu().numpy()
     if health is not None and efficiency:
         # How much of the proposal the weights actually used, and how many
         # distinct worlds survived. An efficiency near zero means the search
@@ -172,6 +176,7 @@ def parse_args() -> argparse.Namespace:
              "corrected against the outcomes of the play its own opinions "
              "produced, which is what this loop was missing",
     )
+    parser.add_argument("--valued-by", choices=("critic", "public", "mean"), default="critic")
     parser.add_argument("--measure-every", type=int, default=10)
     parser.add_argument("--measure-games", type=int, default=384)
     parser.add_argument("--seed", type=int, default=4_040_404)
@@ -198,6 +203,7 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
     labels: list[int] = []
     held: list[np.ndarray] = []
     proposed: list[int] = []
+    actor_policies: list[np.ndarray] = []
     # What each decision turned out to be worth. Without this the value
     # head learns nothing here at all: the search picks its moves using the
     # critic, the policy learns those picks, and the critic is never told
@@ -225,6 +231,7 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
             torch.from_numpy(planes).to(device),
             torch.from_numpy(mask).to(device),
         )
+        actor_policy = torch.softmax(logits.float(), dim=1).cpu().numpy()
         order = torch.argsort(logits, dim=1, descending=True).cpu().numpy()
         belief = torch.softmax(guessed, dim=2).reshape(args.games, HANDS).cpu().numpy()
 
@@ -242,6 +249,7 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
             margin=args.margin,
             hurried=args.hurried,
             device=device,
+            valued_by=getattr(args, "valued_by", "critic"),
         )
 
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(args.games, 4)
@@ -251,6 +259,7 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
             labels.append(int(chosen[game]))
             held.append(truth[game])
             proposed.append(int(order[game][0]))
+            actor_policies.append(actor_policy[game].copy())
             person = int(players[game][min(int(seats[game]), 3)])
             rows.append(account.open(int(game), person))
 
@@ -266,11 +275,13 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
         np.stack(held),
         np.array(proposed, dtype=np.int64),
         returns[np.asarray(rows, dtype=np.int64)],
+        np.stack(actor_policies),
     )
 
 
 def main() -> None:
     args = parse_args()
+    validate_auxiliary_options(args)
     require_training_engine()
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -293,15 +304,20 @@ def main() -> None:
     smoothed = None
     for round_index in range(args.rounds):
         began = time.time()
-        planes, masks, labels, truth, proposed, returns = collect(
+        planes, masks, labels, truth, proposed, returns, actor_policies = collect(
             net, args, args.seed + round_index * 977, device
         )
+        require_supervised_rows(len(labels))
         played = time.time() - began
         observations = torch.from_numpy(planes).to(device)
         legal = torch.from_numpy(masks).to(device)
         targets = torch.from_numpy(labels).to(device)
         wanted_hands = torch.from_numpy(truth).to(device)
         wanted_returns = torch.from_numpy(returns).to(device)
+        if wanted_returns.shape != targets.shape or not torch.isfinite(wanted_returns).all():
+            raise ValueError("Outcome targets must be finite vectors aligned with decisions")
+        wanted_policy = improvement_targets(torch.from_numpy(actor_policies).to(device),
+                                            targets, legal, args.improve)
 
         # How often the search disagreed with what the network proposed. If
         # this is zero there is nothing to learn and the search is a no-op;
@@ -311,6 +327,7 @@ def main() -> None:
         net.train()
         total_loss = 0.0
         seen = 0
+        updates = 0
         for _epoch in range(args.epochs):
             order = torch.randperm(len(targets), device=device)
             for start in range(0, len(targets), args.batch):
@@ -321,27 +338,9 @@ def main() -> None:
                     observations[picks], legal[picks]
                 )
 
-                # The policy learns an improvement distribution, not a hard
-                # label. This search produces one improved move per
-                # position, not the visit counts a tree would, so there are
-                # no counts to use and inventing some would be dressing up
-                # a single answer as a vote. What is defensible is to move
-                # some of the policy's own mass onto the move the search
-                # preferred and leave the rest where it was: at
-                # `--improve` 1 that is the old hard label, and below it
-                # the target keeps the policy's opinion about everything
-                # the search did not rank.
-                with torch.no_grad():
-                    base = torch.softmax(logits.detach(), dim=1)
-                    wanted_policy = base * (1.0 - args.improve)
-                    wanted_policy.scatter_add_(
-                        1,
-                        targets[picks].unsqueeze(1),
-                        torch.full_like(targets[picks], args.improve, dtype=base.dtype)
-                        .unsqueeze(1),
-                    )
-                    wanted_policy = wanted_policy / wanted_policy.sum(dim=1, keepdim=True)
-                loss = -(wanted_policy * torch.log_softmax(logits, dim=1)).sum(dim=1).mean()
+                # Fixed search-time targets do not move with the student between epochs.
+                loss = masked_policy_loss(logits, wanted_policy[picks], legal[picks])
+                value = net.value_only(observations[picks], head=args.valued_by)
 
                 # And the critic learns what the searched games really came
                 # to. Without this the evaluator is never corrected against
@@ -361,13 +360,19 @@ def main() -> None:
                 loss = loss + (reading * holding).sum() / holding.sum().clamp(min=1)
 
                 optimiser.zero_grad(set_to_none=True)
+                if not torch.isfinite(loss):
+                    raise FloatingPointError("Nonfinite distillation loss; no optimizer step was applied")
                 loss.backward()
-                nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
                 optimiser.step()
+                updates += 1
                 total_loss += loss.item() * picks.numel()
                 seen += picks.numel()
 
+        require_updates(updates)
         record = {
+            "optimizer_updates": updates,
+            "valued_by": args.valued_by,
             "round": round_index,
             # What made this round, so a replay of it can be told apart
             # from one made by another actor under other rules.
@@ -405,8 +410,10 @@ def main() -> None:
             saved = {
                 "model": net.state_dict(),
                 "generation": round_index + 1,
-                "channels": net.channels,
-                "blocks": net.blocks,
+                **net.payload_fields(),
+                "training_api_version": TRAINING_API_VERSION,
+                "reward_version": ledger.REWARD_VERSION,
+                "valued_by": args.valued_by,
                 "placement": against["placement"],
             }
             atomic_save(saved, args.out / "latest.pt")

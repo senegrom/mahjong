@@ -17,11 +17,19 @@ from neural.observe import Planes
 
 
 def batch(value, n=3):
+    import riichi_py
+    tile = int(value) % riichi_py.POSITIONS
+    held = torch.zeros(n, riichi_py.OPPONENTS, riichi_py.POSITIONS)
+    held[:, :, tile] = 1
+    oracle = torch.zeros(n, riichi_py.ORACLE_PLANES, riichi_py.POSITIONS, dtype=torch.uint8)
+    imagined = torch.zeros(n, riichi_py.HIDDEN_HANDS_PLANES, riichi_py.POSITIONS, dtype=torch.uint8)
+    oracle[:, 0, tile] = 1
+    imagined[:, 0, tile] = 1
     return SimpleNamespace(
-        decisions=n, legal=torch.ones(n, 46, dtype=torch.bool),
-        held=torch.full((n, 3, 34), float(value)),
-        oracle=torch.full((n, 3, 34), value, dtype=torch.uint8),
-        imagined=torch.full((n, 3, 34), value, dtype=torch.uint8),
+        decisions=n, legal=torch.ones(n, riichi_py.ACTIONS, dtype=torch.bool),
+        held=held,
+        oracle=oracle,
+        imagined=imagined,
         returns=torch.full((n,), float(value)),
         observations=Planes(np.arange(n+1, dtype=np.int64), np.zeros(n, dtype=np.uint16),
                             np.full(n, value, dtype=np.float16)))
@@ -31,8 +39,10 @@ class ReplayTests(unittest.TestCase):
     def assert_batch(self, ring, value):
         sampled = ring.sample(3, np.random.default_rng(0))
         self.assertTrue((sampled['observations'].values == value).all())
-        for field in ('held', 'oracle', 'imagined', 'returns'):
-            self.assertTrue((sampled[field].numpy() == value).all(), field)
+        expected = batch(value, n=len(sampled['returns']))
+        for field in ('legal', 'held', 'oracle', 'imagined', 'returns'):
+            np.testing.assert_array_equal(sampled[field].numpy(), getattr(expected, field).numpy(),
+                                          err_msg=field)
 
     def test_every_array_write_failure_preserves_old_data_and_in_memory_state(self):
         save = np.save

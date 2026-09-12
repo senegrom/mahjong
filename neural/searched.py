@@ -228,7 +228,7 @@ def search_with_value_head(
     step = 8192
     for start in range(0, total, step):
         chunk = leaves[start : start + step]
-        valued[start : start + step] = served.value(chunk).float().cpu().numpy()
+        valued[start : start + step] = served.value(chunk, head=valued_by).float().cpu().numpy()
     if health is not None and efficiency:
         # How much of the proposal the weights actually used, and how many
         # distinct worlds survived. An efficiency near zero means the search

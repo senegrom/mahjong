@@ -36,6 +36,7 @@ import numpy as np
 import torch
 
 from .observe import Planes
+from .replay_schema import validate_dense_replay
 
 FIELDS = ("legal", "held", "oracle", "imagined", "returns")
 SPARSE = "observations"
@@ -113,6 +114,7 @@ class Ring:
     def _validate(maps: dict, n: int) -> None:
         if n <= 0 or any(maps[field].ndim == 0 or len(maps[field]) != n for field in FIELDS):
             raise ValueError("Replay fields must have one row per decision")
+        validate_dense_replay(maps, n)
         maps[SPARSE].validate(expected_rows=n)
 
     @staticmethod

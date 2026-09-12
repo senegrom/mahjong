@@ -51,7 +51,7 @@ def is_discard(action: int) -> bool:
 
 
 @torch.no_grad()
-def value_leaves(net, lines, players, follower, device, chunk=4096):
+def value_leaves(net, lines, players, follower, device, chunk=4096, *, wanted=None):
     """The critic's worth of every leaf, through Mortal's planes.
 
     Each leaf is a copy of the seat's real state advanced by the events its
@@ -59,7 +59,12 @@ def value_leaves(net, lines, players, follower, device, chunk=4096):
     way — it settled, it broke, or its world dealt a new hand — and is
     given zero, which the engine ignores for the slots it does not want.
     """
-    live = [at for at, events in enumerate(lines) if events]
+    from .contract import UnsupportedSearchLayout
+    if wanted is None or len(wanted) != len(lines):
+        raise UnsupportedSearchLayout("A native wanted-value mask is required for every leaf")
+    if any(wants and not events for wants, events in zip(wanted, lines)):
+        raise UnsupportedSearchLayout("Nonterminal Mortal leaves without history cannot be valued")
+    live = [at for at, wants in enumerate(wanted) if wants]
     valued = np.zeros(len(lines), dtype=np.float32)
     if not live:
         return valued
@@ -158,7 +163,7 @@ def play(net, games, seed, searcher, worlds, candidates, margin, device):
                 # the right table.
                 game_of = np.repeat(np.arange(games), leaf_counts)
                 pairs = [(int(game_of[at]), int(leaf_players[at])) for at in range(total)]
-                valued = value_leaves(net, leaf_lines, pairs, follower, device)
+                valued = value_leaves(net, leaf_lines, pairs, follower, device, wanted=_wanted)
                 decided = arena.decide(valued.tolist(), margin, ranked)
                 asked += len(thinking)
                 changed += sum(

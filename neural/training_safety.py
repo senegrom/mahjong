@@ -53,13 +53,17 @@ def validate_training_options(args) -> None:
         path = getattr(args, name, None)
         if path is not None and not Path(path).is_file():
             raise FileNotFoundError(f"{name} checkpoint does not exist: {path}")
-    for path in getattr(args, "opponents", []):
+    roster = list(getattr(args, "opponents", []))
+    roster += list(getattr(args, "recent", [])) + list(getattr(args, "older", []))
+    if getattr(args, "champion", None):
+        roster.append(args.champion)
+    for path in roster:
         if not Path(path).is_file():
             raise FileNotFoundError(f"opponent checkpoint does not exist: {path}")
     share = getattr(args, "opponent_share", 0.0)
     if not 0.0 <= share <= 1.0:
         raise ValueError("opponent_share must be between zero and one")
-    if share > 0 and not getattr(args, "opponents", []):
+    if share > 0 and not roster:
         raise ValueError("opponent_share requires at least one opponent checkpoint")
     if getattr(args, "freeze_policy", False) and getattr(args, "freeze_aux", False):
         raise ValueError("freeze_policy and freeze_aux cannot both be enabled")

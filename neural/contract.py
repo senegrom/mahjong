@@ -106,7 +106,7 @@ def of(net) -> Contract:
         reads=kind,
         planes=int(planes),
         answers=int(getattr(net, "actions", ENGINE_ACTIONS)),
-        speaks_our_moves=kind == "engine",
+        speaks_our_moves=int(getattr(net, "actions", ENGINE_ACTIONS)) == ENGINE_ACTIONS,
         has_value=hasattr(net, "everything"),
         has_belief=hasattr(net, "everything"),
         parts=tuple(parts),
@@ -133,7 +133,7 @@ class EngineServed:
             torch.from_numpy(legal[rows]).to(device),
         )
 
-    def leaves(self, arena, leaf_bytes, counts, device, wanted=None):
+    def leaves(self, arena, leaf_bytes, counts, device, *, wanted=None):
         total = sum(counts)
         planes = np.frombuffer(leaf_bytes, dtype=np.float32)
         return torch.from_numpy(
@@ -184,9 +184,7 @@ class MortalServed:
         self.net = net
         self.contract = contract
         self._Imagined = Imagined
-        #: How many leaves so far came from a world that played into the
-        #: next hand, counted only when asked (`count_crossings`), since
-        #: telling costs a scan of every leaf's events.
+        # Retain upstream's opt-in count of reconstructed hand boundaries.
         self.count_crossings = False
         self.crossed = 0
 
@@ -194,33 +192,42 @@ class MortalServed:
         from . import zoo
 
         planes, _own = views.sparse_and_masks(rows, deciding)
-        allowed = zoo.translatable(legal[rows])
-        allowed[~allowed.any(axis=1), zoo.MORTAL_PASS] = True
+        allowed = (legal[rows].copy() if self.contract.speaks_our_moves
+                   else zoo.translatable(legal[rows]))
+        if not allowed.any(axis=1).all():
+            raise ValueError("Search roots must each have a legal action")
         return planes.dense(device), torch.from_numpy(allowed).to(device)
 
-    def leaves(self, arena, leaf_bytes, counts, device, wanted=None):
+    def leaves(self, arena, leaf_bytes, counts, device, *, wanted=None):
         """Every leaf as Mortal sees it, built from its own continuation.
 
-        A leaf whose world played into the next hand carries how the old
-        hand ended and the whole of the new one, so the copy is advanced
-        across the boundary like the real seat would be. A leaf the engine
-        wants valued but that offers no events is refused rather than given
-        zeros: a blank position has a value too, and it is not this one's.
+        The native bridge carries completed-hand and new-hand events across
+        hand boundaries. Only terminal/broken slots may omit event history.
+        Missing nonterminal history is an error, never a fabricated zero input.
         """
         from .observe import Planes
 
         total = sum(counts)
         players, lines = arena.leaves_mjai()
         game_of = np.repeat(np.arange(len(counts)), counts)
-        live = [at for at in range(total) if lines[at]]
-        if wanted is not None:
-            starved = sum(1 for at in range(total) if wanted[at] and not lines[at])
-            if starved:
-                raise UnsupportedSearchLayout(
-                    f"{starved} of {total} leaves the engine wants valued offer no events, "
-                    "so nothing can build Mortal's planes for them; they must not be "
-                    "valued as blank positions"
-                )
+        if len(players) != total or len(lines) != total:
+            raise ValueError("Native continuation metadata does not match the leaf count")
+        if wanted is None:
+            raise UnsupportedSearchLayout("Mortal continuations require the native wanted-value mask")
+        # PyO3 exposes Vec<u8> as bytes; controlled callers may supply lists.
+        raw_wanted = (np.frombuffer(wanted, dtype=np.uint8)
+                      if isinstance(wanted, (bytes, bytearray, memoryview)) else wanted)
+        wants = np.asarray(raw_wanted, dtype=bool)
+        if wants.shape != (total,):
+            raise ValueError("Native wanted-value mask has the wrong shape")
+        unsupported = [at for at in range(total) if wants[at] and not lines[at]]
+        if unsupported:
+            raise UnsupportedSearchLayout(
+                f"{len(unsupported)} nonterminal search leaves have no reconstructible "
+                "Mortal history. Refusing invented zero observations; "
+                "rebuild the native bridge and check its continuation metadata."
+            )
+        live = [at for at in range(total) if wants[at]]
         if self.count_crossings:
             self.crossed += sum(
                 1 for at in live if any('"start_kyoku"' in line for line in lines[at])
@@ -247,6 +254,8 @@ class MortalServed:
         `first_meaning` would say and what nobody chose."""
         from . import zoo
 
+        if self.contract.speaks_our_moves:
+            return EngineServed.to_engine(self, action, legal_row, after_reach)
         if after_reach:
             tile = action if action < 34 else zoo.MORTAL_RED.get(action, -1)
             if tile < 0:
@@ -263,6 +272,8 @@ class MortalServed:
         tile the second question decides (see `after_reach`)."""
         from . import zoo
 
+        if self.contract.speaks_our_moves:
+            return EngineServed.to_engine_rows(self, own_order, legal)
         ranked = np.where(legal[:, None, :], zoo.PRIORITY[own_order], np.inf)
         best = ranked.argmin(axis=2)
         found = np.isfinite(np.take_along_axis(ranked, best[..., None], axis=2)[..., 0])
@@ -363,6 +374,11 @@ def serve(net, checkpoint: str = "the checkpoint"):
             )
         return EngineServed(net, contract)
     if contract.reads == "mortal":
+        if contract.planes != 1012 or contract.answers not in (46, ENGINE_ACTIONS):
+            raise UnsupportedSearchLayout(
+                f"{checkpoint} has unsupported Mortal layout: {contract.planes} planes, "
+                f"{contract.answers} actions; expected 1012 planes and 46 or {ENGINE_ACTIONS} actions"
+            )
         return MortalServed(net, contract)
     raise UnsupportedSearchLayout(
         f"{checkpoint} reads {contract.reads!r}, which no server here builds. "
