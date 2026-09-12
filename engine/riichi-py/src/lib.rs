@@ -47,6 +47,8 @@ struct Seat {
     table: Table,
     hand: Hand,
     rng: Rng,
+    /// Simulation must never consume the generator that deals real hands.
+    search_rng: Rng,
     /// Seats that still owe an answer to the claim on the table.
     asking: VecDeque<Wind>,
     /// Answers gathered so far in this claim window.
@@ -89,6 +91,7 @@ impl Seat {
             table,
             hand,
             rng,
+            search_rng: Rng::from_seed(seed ^ 0x5EA5_C400),
             asking: VecDeque::new(),
             answers: Vec::new(),
             opening_scores,
@@ -347,7 +350,7 @@ fn imagine_from<'py>(arena: &mut Arena, py: Python<'py>, beliefs: &[f32]) -> Bou
             continue;
         };
         let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-        let world = search::imagine(&seat.hand, wind, &belief, &mut seat.rng);
+        let world = search::imagine(&seat.hand, wind, &belief, &mut seat.search_rng);
         encoding::hidden_hands(
             &world,
             wind,
@@ -510,7 +513,14 @@ impl Arena {
                     return ranked[game].first().copied().unwrap_or(PASS);
                 }
                 asked += 1;
-                match search::best(&seat.hand, wind, &shortlist, effort, &belief, &mut seat.rng) {
+                match search::best(
+                    &seat.hand,
+                    wind,
+                    &shortlist,
+                    effort,
+                    &belief,
+                    &mut seat.search_rng,
+                ) {
                     Some(judged) => {
                         let picked = action_to_index(judged.action);
                         if Some(picked) != ranked[game].first().copied() {
@@ -588,7 +598,14 @@ impl Arena {
                 continue;
             }
             let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-            let got = search::leaves(&seat.hand, wind, &shortlist, effort, &belief, &mut seat.rng);
+            let got = search::leaves(
+                &seat.hand,
+                wind,
+                &shortlist,
+                effort,
+                &belief,
+                &mut seat.search_rng,
+            );
             counts.push(got.counted.len());
             observations.extend_from_slice(&got.observations);
             settled.extend(got.settled.iter().map(|worth| *worth as f32));
@@ -633,7 +650,8 @@ impl Arena {
                 continue;
             }
             let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-            let imagined = search::imagine_worlds(&seat.hand, wind, &belief, &mut seat.rng, worlds);
+            let imagined =
+                search::imagine_worlds(&seat.hand, wind, &belief, &mut seat.search_rng, worlds);
             let start = planes.len();
             planes.resize(start + imagined.len() * HIDDEN_HANDS, 0.0);
             for (index, world) in imagined.iter().enumerate() {
@@ -972,13 +990,33 @@ impl Arena {
     }
 
     /// Applies one action per game. Games that owe no decision ignore theirs.
-    fn step(&mut self, actions: Vec<usize>) -> PyResult<()> {
+    #[pyo3(signature = (actions, strict=true))]
+    fn step(&mut self, actions: Vec<usize>, strict: bool) -> PyResult<()> {
         if actions.len() != self.seats.len() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "expected {} actions, got {}",
                 self.seats.len(),
                 actions.len()
             )));
+        }
+        if strict {
+            // Validate the complete batch first: an invalid later row must not
+            // leave earlier games advanced with no corresponding training data.
+            for (game, (seat, index)) in self.seats.iter().zip(&actions).enumerate() {
+                let Some(wind) = seat.pending() else {
+                    continue;
+                };
+                let valid = if seat.asking.is_empty() {
+                    encoding::decode_action(&seat.hand, *index).is_some()
+                } else {
+                    encoding::decode_call(&seat.hand, wind, *index).is_some()
+                };
+                if !valid {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "illegal action {index} in game {game} for {wind:?}"
+                    )));
+                }
+            }
         }
         // Every game is its own table, hand and generator, and stepping one
         // means running the heuristic players round to the next decision the
@@ -1136,6 +1174,7 @@ fn cast_i32(values: &[i32]) -> &[u8] {
 #[pymodule(gil_used = true)]
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
+    module.add("TRAINING_API_VERSION", 2u32)?;
     module.add("PLANES", PLANES)?;
     module.add("POSITIONS", POSITIONS)?;
     module.add("OBSERVATION", OBSERVATION)?;

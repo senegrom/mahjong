@@ -21,6 +21,9 @@ from pathlib import Path
 import torch
 
 from .checkpoints import atomic_save
+from .training_safety import (
+    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
+)
 from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
@@ -88,6 +91,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     validate_learning(args.batch, args.epochs)
+    validate_training_options(args)
+    require_training_engine()
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     amp_enabled = args.amp and device == "cuda"
@@ -105,8 +110,7 @@ def main() -> None:
     if args.resume is not None and args.resume.exists():
         net, payload = combined.load(args.resume, device)
         start = int(payload.get("generation", 0))
-        smoothed = payload.get("smoothed")
-        best_placement = float(payload.get("best_placement", float("inf")))
+        smoothed, best_placement = benchmark_history(payload)
         optimiser_state = payload.get("optimizer_state")
         random_state = payload.get("random_state")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
@@ -206,6 +210,7 @@ def main() -> None:
             **net.state(),
             "learner": "combined",
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             "smoothed": smoothed,
             "best_placement": best_placement,
             "optimizer_state": optimiser.state_dict(),
@@ -263,8 +268,8 @@ def main() -> None:
                 guess[chunk] = value.float()[:rows]
         value_error = float(((returns - guess) ** 2).mean())
         advantages = returns - guess
-        advantage_spread = float(advantages.std())
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+        advantage_spread = float(advantages.std(unbiased=False))
+        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-6)
 
         net.train()
         zero = lambda: torch.zeros((), device=device)
@@ -339,7 +344,7 @@ def main() -> None:
                     loss = loss + args.leash * leash
                 loss.backward()
                 grad_norm = nn.utils.clip_grad_norm_(
-                    [p for p in net.parameters() if p.requires_grad], 1.0
+                    [p for p in net.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
                 )
                 optimiser.step()
                 with torch.no_grad():
@@ -379,6 +384,7 @@ def main() -> None:
             "checkpoint_generation": generation + 1,
             "optimizer_updates": steps,
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             "fixed": fixed,
             "head_shift": round(head_shift, 4),
             "on_fusion": round(weights[0], 4),
@@ -394,7 +400,7 @@ def main() -> None:
             "policy_loss": round(float(total_policy / denom), 4),
             "value_loss": round(float(total_value / denom), 4),
             "value_error": round(value_error, 4),
-            "return_variance": round(float(returns.var()), 4),
+            "return_variance": round(float(returns.var(unbiased=False)), 4),
             "advantage_spread": round(advantage_spread, 4),
             "entropy": round(float(total_entropy / denom), 4),
             "leash_kl": round(float(total_leash / denom), 5),
@@ -441,7 +447,6 @@ def main() -> None:
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    atomic_save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

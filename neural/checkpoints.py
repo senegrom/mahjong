@@ -60,8 +60,13 @@ def validate_checkpoint(path: Path, *, require_generation: bool = False) -> int 
     return generation
 
 
-def atomic_save(payload: dict, destination: Path) -> None:
-    """Serialize, flush and validate before replacing the last good checkpoint."""
+def atomic_save(payload: dict, destination: Path, *, keep_previous: bool = True) -> None:
+    """Validate the new file, retain the old bytes, then atomically publish.
+
+    The optional .previous snapshot is local and single-writer, not a
+    validated recovery guarantee for files that were already corrupt.
+    Cloud publishing keeps its existing independent validation contract.
+    """
     import torch
 
     destination = Path(destination)
@@ -71,6 +76,15 @@ def atomic_save(payload: dict, destination: Path) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         validate_checkpoint(staged)
+        if keep_previous and destination.exists():
+            previous = destination.with_name(destination.name + ".previous")
+            with staging_file(previous) as backup:
+                with destination.open("rb") as original, backup.open("wb") as stream:
+                    shutil.copyfileobj(original, stream)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(backup, previous)
+                sync_directory(destination.parent)
         os.replace(staged, destination)
         sync_directory(destination.parent)
 

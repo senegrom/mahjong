@@ -32,6 +32,8 @@ from .outcomes import placements as tied_placements, require_finished, validate_
 
 import riichi_py
 
+from .training_safety import require_training_engine
+
 from . import zoo
 from .observe import Views
 
@@ -55,6 +57,7 @@ def table(
     Both networks play their best move rather than sampling, which is what
     the browser does and what the comparison is about.
     """
+    require_training_engine()
     validate_budget(games, max_steps)
     challenger.eval()
     incumbent.eval()

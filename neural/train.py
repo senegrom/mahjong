@@ -25,8 +25,12 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import riichi_py
 
 from .checkpoints import atomic_save
+from .training_safety import (
+    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
+)
 from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
@@ -173,6 +177,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     validate_learning(args.batch, args.epochs)
+    validate_training_options(args)
+    require_training_engine()
     # The environment runs on this thread and the network on the GPU, so a
     # couple of worker threads is plenty and leaves the machine usable.
     torch.set_num_threads(2)
@@ -210,8 +216,7 @@ def main() -> None:
         net = PolicyValueNet(**shape).to(device)
         load_weights(net, resume_payload["model"])
         start = int(resume_payload.get("generation", 0))
-        smoothed = resume_payload.get("smoothed")
-        best_placement = float(resume_payload.get("best_placement", float("inf")))
+        smoothed, best_placement = benchmark_history(resume_payload)
         if smoothed is not None:
             print(
                 f"carrying a smoothed placement of {smoothed:.3f}, "
@@ -221,6 +226,8 @@ def main() -> None:
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     else:
         net = PolicyValueNet(args.channels, args.blocks).to(device)
+    if getattr(net, "actions", riichi_py.ACTIONS) != riichi_py.ACTIONS:
+        raise SystemExit("neural.train requires a 78-action learner; use the Mortal-space trainer")
     if net.kind != "mortal":
         raise SystemExit("training needs a network that sees Mortal's planes")
 
@@ -348,6 +355,7 @@ def main() -> None:
             "model": net.state_dict(),
             "optimizer": optimiser.state_dict(),
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             **net.payload_fields(),
             "smoothed": smoothed,
             "best_placement": best_placement,
@@ -501,7 +509,7 @@ def main() -> None:
         distil_weight = args.distil_weight if oracle_better else 0.0
         advantages = normalised - baseline
         advantage_mean = advantages.mean()
-        advantage_std = advantages.std()
+        advantage_std = advantages.std(unbiased=False)
         advantage_spread = float(advantage_std)
         advantages = (advantages - advantage_mean) / (advantage_std + 1e-6)
 
@@ -637,7 +645,7 @@ def main() -> None:
                 )
 
                 loss.backward()
-                grad_norm = nn.utils.clip_grad_norm_(trainable, 1.0)
+                grad_norm = nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
                 optimiser.step()
 
                 with torch.no_grad():
@@ -705,7 +713,7 @@ def main() -> None:
                     + args.reader_weight * reader_loss
                 )
                 loss.backward()
-                nn.utils.clip_grad_norm_(trainable, 1.0)
+                nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
                 optimiser.step()
                 with torch.no_grad():
                     replay_critic += critic_loss
@@ -722,6 +730,7 @@ def main() -> None:
         confidence_total = (sure_count + likely_count + unlikely_count).clamp(min=1)
         record = {
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             "checkpoint_generation": generation + 1,
             "optimizer_updates": steps,
             "decisions": batch.decisions,
@@ -771,7 +780,7 @@ def main() -> None:
             "reader_right": round(float(total_read_right / denom), 4),
             # What a constant guess would score, so the two losses above
             # read as how much of the return each head explains.
-            "return_variance": round(float(returns.var()), 4),
+            "return_variance": round(float(returns.var(unbiased=False)), 4),
             "entropy": round(float(total_entropy / denom), 4),
             "hands_loss": round(float(total_hands / denom), 4),
             "hands_read": round(float(total_covered / denom), 4),
@@ -838,10 +847,6 @@ def main() -> None:
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    # The same fields the per-generation save writes. This one used to drop
-    # the smoothed placement and the best it had reached, so every restart
-    # began judging from nothing however carefully they were carried.
-    atomic_save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

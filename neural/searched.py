@@ -39,6 +39,8 @@ from .outcomes import placements as tied_placements, require_finished, validate_
 
 import riichi_py
 
+from .training_safety import require_training_engine
+
 from .model import from_payload
 
 PLANES = riichi_py.PLANES
@@ -55,6 +57,7 @@ class UnsupportedSearchLayout(ValueError):
 
 
 def require_native_search(net) -> None:
+    require_training_engine()
     planes = getattr(net, "planes", PLANES)
     actions = getattr(net, "actions", ACTIONS)
     if planes != PLANES or actions != ACTIONS or getattr(net, "kind", "engine") != "engine":
@@ -220,6 +223,7 @@ def play(
     else plays the network's first choice, so the only thing that differs
     between the two arms is whether that choice was checked.
     """
+    require_training_engine()
     validate_budget(games, max_steps)
     if searcher is None:
         from . import duel, zoo

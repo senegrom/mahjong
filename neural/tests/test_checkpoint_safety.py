@@ -44,12 +44,15 @@ class CheckpointSafetyTests(unittest.TestCase):
             replace = os.replace
             def commit_then_interrupt(source, target):
                 replace(source, target)
-                signal.raise_signal(signal.SIGINT)
+                if Path(target) == path:
+                    signal.raise_signal(signal.SIGINT)
             with patch.object(checkpoints.os, 'replace', side_effect=commit_then_interrupt):
                 with self.assertRaises(KeyboardInterrupt):
                     checkpoints.atomic_save(saved(2), path)
             self.assertEqual(checkpoints.validate_checkpoint(path), 2)
-            self.assertEqual(list(Path(folder).iterdir()), [path])
+            previous = path.with_name(path.name + ".previous")
+            self.assertEqual(checkpoints.validate_checkpoint(previous), 1)
+            self.assertEqual(set(Path(folder).iterdir()), {path, previous})
 
     def test_failed_fsync_or_replace_keeps_a_loadable_checkpoint(self):
         for operation in ('fsync', 'replace'):

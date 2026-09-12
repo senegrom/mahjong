@@ -267,7 +267,7 @@ class Combined(nn.Module):
         # Z1, over the same moves Mortal answers: left unmasked, since the
         # head above weighs it and masks once at the end.
         a1 = torch.cat([tiles, ours.policy_pooled(pooled)], dim=1)
-        value = ours.value(pooled).squeeze(1)
+        value = ours.value(pooled.detach()).squeeze(1)
         guessed = ours.hands_from(planes, features)
         phi = self.mortal.features(planes)
         q = self.mortal.dqn(phi, legal)
