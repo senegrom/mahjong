@@ -87,9 +87,8 @@ pub(crate) fn mortal_mask_of(hand: &Hand, seat: Wind, after_reach: bool) -> Vec<
     encoding::legal_mask(hand, seat, &mut ours);
     let mut theirs = vec![false; MORTAL_ACTIONS];
     if after_reach {
-        for tile in 0..34 {
-            theirs[tile] = ours[encoding::RIICHI_DISCARD + tile];
-        }
+        theirs[..34]
+            .copy_from_slice(&ours[encoding::RIICHI_DISCARD..encoding::RIICHI_DISCARD + 34]);
         return theirs;
     }
     for (action, allowed) in theirs.iter_mut().enumerate() {

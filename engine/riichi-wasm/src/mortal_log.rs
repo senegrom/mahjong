@@ -248,6 +248,9 @@ fn consumed_from_hand(kind: MeldKind, tile: Tile, claimed: Option<Tile>) -> Vec<
 fn discards_after(kind: MeldKind) -> bool {
     matches!(kind, MeldKind::Chii | MeldKind::Pon | MeldKind::ExtendedKan)
 }
+/// A meld as the replay names it: who called it, what kind, and the tile
+/// it was called on.
+type Called = (Wind, MeldKind, Tile);
 
 fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
     let taken = claims(hand)?;
@@ -292,8 +295,8 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
     let robbed = hand
         .robbable_quad
         .filter(|_| hand.phase == Phase::CallWindow);
-    let mut standing: HashMap<(usize, u32), Vec<(Wind, MeldKind, Tile)>> = HashMap::new();
-    let mut closing: Vec<(Wind, MeldKind, Tile)> = Vec::new();
+    let mut standing: HashMap<(usize, u32), Vec<Called>> = HashMap::new();
+    let mut closing: Vec<Called> = Vec::new();
     for (index, player) in hand.players.iter().enumerate() {
         let who = wind_of(index);
         for meld in &player.melds {
@@ -489,7 +492,7 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
                     &mut tail,
                     &mut drawn,
                     claim.claimer,
-                    (claim.claimer == seat).then(|| next).flatten(),
+                    (claim.claimer == seat).then_some(next).flatten(),
                 );
             }
         }
