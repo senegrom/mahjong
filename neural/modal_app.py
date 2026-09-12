@@ -38,6 +38,9 @@ from pathlib import Path
 
 import modal
 
+from neural.checkpoints import copy_checkpoint, publish_training_snapshot, validate_checkpoint
+from neural.cloud_runs import workspace, validate_run, managed_process
+
 HERE = Path(__file__).parent.parent
 
 # Debian with a Rust toolchain, because the engines are compiled and the
@@ -69,7 +72,6 @@ image = (
 app = modal.App("mahjong-train", image=image)
 volume = modal.Volume.from_name("mahjong-train", create_if_missing=True)
 VOLUME = Path("/vol")
-RUN = Path("/scratch/run")
 # The lineage that sees Mortal's planes, trained from September 2026.
 DEFAULT_RUN = "w1012-run"
 
@@ -81,6 +83,13 @@ def _checkpoint(run: str, name: str) -> Path:
     # Named with or without the suffix: the launchers that predate the
     # runs living side by side say "latest.pt", and a name that resolved to
     # nothing would start a fresh network over a run's history.
+    validate_run(run)
+    # A leading slash is absolute on the volume whatever the host thinks
+    # of it: `Path` on Windows calls "/tmp/other" relative.
+    if (not isinstance(name, str) or not name or "\\" in name
+            or name.startswith("/") or Path(name).is_absolute()
+            or ".." in Path(name).parts):
+        raise ValueError("checkpoint must be a relative path within the volume")
     name = name.removesuffix(".pt")
     own = VOLUME / run / f"{name}.pt"
     if own.exists():
@@ -88,53 +97,19 @@ def _checkpoint(run: str, name: str) -> Path:
     return VOLUME / f"{name}.pt"
 
 
-def _publish(run: Path, generation: int, target_run: str) -> None:
-    """Copies the checkpoints and the log to the volume and commits them."""
-    target = VOLUME / target_run
-    target.mkdir(parents=True, exist_ok=True)
-    # `log.jsonl` is the record the loop writes itself, one line a
-    # generation. `train.log` is only what the desktop's shell redirect
-    # captured, and nothing on this side appends to it.
-    for name in ("latest.pt", "best.pt", "log.jsonl", "reference.pt"):
-        source = run / name
-        if not source.exists():
-            continue
-        staged = target / f".{name}.partial"
-        shutil.copyfile(source, staged)
-        staged.replace(target / name)
-    (target / "generation.txt").write_text(str(generation), encoding="utf-8")
-    # Keep a checkpoint every tenth generation, for good. `best.pt` is
-    # chosen on placement against the heuristic players, and that figure
-    # has been measured moving opposite to real strength: over generations
-    # 270 to 286 it improved by 0.088 while the network lost 0.13 at the
-    # table. So the best network this run ever had was overwritten twice by
-    # worse ones with better bot scores, and is gone. A run cannot be
-    # rolled back to a peak it did not keep.
-    if generation % 10 == 0:
-        history = target / "history"
-        history.mkdir(parents=True, exist_ok=True)
-        kept = history / f"gen-{generation:05d}.pt"
-        if not kept.exists() and (run / "latest.pt").exists():
-            shutil.copyfile(run / "latest.pt", kept)
+def _publish(run: Path, generation: int, target_run: str) -> int:
+    """Publish only copied, fully validated checkpoints of completed generations."""
+    validate_run(target_run)
+    actual = publish_training_snapshot(run, VOLUME / target_run, generation)
     volume.commit()
+    return actual
 
 
 def _generation_of(checkpoint: Path) -> int:
-    """The generation a checkpoint says it is, or zero.
-
-    Read from the checkpoint rather than counted from the log: the
-    desktop's log is UTF-16, so counting it returned zero, and a zero there
-    is not harmless. It went into the published record and the next run
-    resumed from the wrong place.
-    """
+    """Missing starts at zero; an unreadable existing checkpoint is an error."""
     if not checkpoint.exists():
         return 0
-    try:
-        import torch
-
-        return int(torch.load(checkpoint, map_location="cpu", weights_only=True)["generation"])
-    except Exception:
-        return 0
+    return validate_checkpoint(checkpoint, require_generation=True)
 
 
 # Processors for the two trainers. The observation's efficiency lookahead
@@ -251,129 +226,135 @@ def train(
     passes over each round three times and its critic learns the round by
     heart.
     """
-    RUN.mkdir(parents=True, exist_ok=True)
-    volume.reload()
-    started_from = None
-    source = _checkpoint(run, resume)
-    if source.exists():
-        started_from = str(source)
-        shutil.copyfile(source, RUN / "latest.pt")
-        # Carry the history forward so a resumed run appends to it rather
-        # than starting a fresh record every container.
-        for name in ("log.jsonl", "train.log"):
-            history = VOLUME / run / name
-            if history.exists():
-                shutil.copyfile(history, RUN / name)
-    print(f"resuming from {started_from or 'nothing: a fresh network'}", flush=True)
+    with workspace(run) as where:
+        volume.reload()
+        started_from = None
+        source = _checkpoint(run, resume)
+        if source.exists():
+            started_from = str(source)
+            copy_checkpoint(source, where / "latest.pt", require_generation=True)
+            for saved_name in ("best.pt", "reference.pt"):
+                saved = VOLUME / run / saved_name
+                # Cross-lineage starts must not inherit this run's old baseline.
+                if source.parent == VOLUME / run and saved.exists():
+                    copy_checkpoint(saved, where / saved_name)
+            # Carry the history forward so a resumed run appends to it rather
+            # than starting a fresh record every container.
+            for name in ("log.jsonl", "train.log"):
+                history = VOLUME / run / name
+                if source.parent == VOLUME / run and history.exists():
+                    shutil.copyfile(history, where / name)
+        print(f"resuming from {started_from or 'nothing: a fresh network'}", flush=True)
 
-    command = [
-        sys.executable,
-        "-m",
-        "neural.train",
-        # `--rounds` is how many more to train from where the run resumes.
-        # `--generations` is an absolute target, and a resumed run is
-        # already past any small number, so it would stop at once.
-        "--rounds",
-        str(generations),
-        "--generations",
-        "1000000",
-        "--games",
-        str(games),
-        "--batch",
-        str(batch),
-        "--epochs",
-        str(epochs),
-        "--lr",
-        str(lr),
-        "--entropy",
-        str(entropy),
-        "--measure-every",
-        str(measure_every),
-        "--measure-games",
-        str(measure_games),
-        "--replay-rounds",
-        str(replay_rounds),
-        "--replay-steps",
-        str(replay_steps),
-        "--channels",
-        str(channels),
-        "--blocks",
-        str(blocks),
-        "--amp",
-        "--compile",
-        "--out",
-        str(RUN),
-    ]
-    if (RUN / "latest.pt").exists():
-        command += ["--resume", str(RUN / "latest.pt")]
+        command = [
+            sys.executable,
+            "-m",
+            "neural.train",
+            # `--rounds` is how many more to train from where the run resumes.
+            # `--generations` is an absolute target, and a resumed run is
+            # already past any small number, so it would stop at once.
+            "--rounds",
+            str(generations),
+            "--generations",
+            "1000000",
+            "--games",
+            str(games),
+            "--batch",
+            str(batch),
+            "--epochs",
+            str(epochs),
+            "--lr",
+            str(lr),
+            "--entropy",
+            str(entropy),
+            "--measure-every",
+            str(measure_every),
+            "--measure-games",
+            str(measure_games),
+            "--replay-rounds",
+            str(replay_rounds),
+            "--replay-steps",
+            str(replay_steps),
+            "--channels",
+            str(channels),
+            "--blocks",
+            str(blocks),
+            "--amp",
+            "--compile",
+            "--out",
+            str(where),
+        ]
+        if started_from is not None:
+            command += ["--resume", str(where / "latest.pt")]
 
-    # Older selves to seat in a share of the games, named relative to the
-    # run's directory on the volume, or to the volume's root for another
-    # lineage's, so "history/gen-00290" and "w320-run/published" both work.
-    # Measured 6 September: the old run recovered fully against its own
-    # past and only halfway against a foreign network, so a large part of
-    # what it gained was knowing its own family. An older self is foreign
-    # enough to be worth playing, and another lineage more so.
-    seated = []
-    for name in opponents or []:
-        source = _checkpoint(run, name)
-        if not source.exists():
-            print(f"no opponent at {source}", flush=True)
-            continue
-        local = RUN / "opponents" / f"{Path(name).name}.pt"
-        local.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, local)
-        seated.append(str(local))
-    if seated:
-        command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
-
-    environment = _environment(TRAINER_CPUS)
-    print(" ".join(command), flush=True)
-
-    saved_cache = False
-    began = time.time()
-    started_at = _generation_of(RUN / "latest.pt")
-    seen = started_at
-    print(f"the checkpoint says generation {started_at}", flush=True)
-    process = subprocess.Popen(
-        command,
-        cwd="/src",
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    assert process.stdout is not None
-    for line in process.stdout:
-        print(line.rstrip(), flush=True)
-        # A finished generation is a JSON record; publish on each one so a
-        # preempted container costs a single round.
-        if line.startswith("{") and '"generation"' in line:
-            try:
-                import json
-
-                seen = int(json.loads(line)["generation"])
-            except Exception:
+        # Older selves to seat in a share of the games, named relative to the
+        # run's directory on the volume, or to the volume's root for another
+        # lineage's, so "history/gen-00290" and "w320-run/published" both work.
+        # Measured 6 September: the old run recovered fully against its own
+        # past and only halfway against a foreign network, so a large part of
+        # what it gained was knowing its own family. An older self is foreign
+        # enough to be worth playing, and another lineage more so.
+        seated = []
+        for name in opponents or []:
+            source = _checkpoint(run, name)
+            if not source.exists():
+                print(f"no opponent at {source}", flush=True)
                 continue
-            _publish(RUN, seen, run)
-            if not saved_cache:
-                _save_cache()
-                saved_cache = True
-    code = process.wait()
-    _save_cache()
-    # Publish only when a generation actually finished. A run that trained
-    # nothing still rewrites its checkpoint with the target generation
-    # stamped on it, and publishing that overwrote a good record with one
-    # claiming to be two hundred generations younger.
-    if seen > started_at:
-        _publish(RUN, seen, run)
-    else:
-        print(f"nothing trained: leaving the volume at generation {started_at}", flush=True)
-    return (
-        f"exit={code} generation={seen} from {started_at} "
-        f"after {time.time() - began:.0f}s"
-    )
+            local = where / "opponents" / f"{Path(name).name}.pt"
+            local.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, local)
+            seated.append(str(local))
+        if seated:
+            command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+
+        environment = _environment(TRAINER_CPUS)
+        print(" ".join(command), flush=True)
+
+        saved_cache = False
+        began = time.time()
+        started_at = _generation_of(where / "latest.pt")
+        seen = started_at
+        print(f"the checkpoint says generation {started_at}", flush=True)
+        with managed_process(subprocess.Popen(
+            command,
+            cwd="/src",
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )) as process:
+            assert process.stdout is not None
+            for line in process.stdout:
+                print(line.rstrip(), flush=True)
+                # A finished generation is a JSON record; publish on each one so a
+                # preempted container costs a single round.
+                if line.startswith("{") and '"generation"' in line:
+                    try:
+                        import json
+
+                        record = json.loads(line)
+                        seen = int(record.get("checkpoint_generation", record["generation"] + 1))
+                    except Exception:
+                        continue
+                    seen = _publish(where, seen, run)
+                    if not saved_cache:
+                        _save_cache()
+                        saved_cache = True
+            code = process.wait()
+        _save_cache()
+        # Publish only when a generation actually finished. A run that trained
+        # nothing still rewrites its checkpoint with the target generation
+        # stamped on it, and publishing that overwrote a good record with one
+        # claiming to be two hundred generations younger.
+        if code == 0 and seen > started_at:
+            seen = _publish(where, seen, run)
+        else:
+            print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
+        return (
+            f"exit={code} generation={seen} from {started_at} "
+            f"after {time.time() - began:.0f}s"
+        )
 
 
 @app.function(
@@ -408,83 +389,88 @@ def train_mortal(
     the published Mortal named otherwise. Its own function, so it runs
     beside the other lineage's training rather than queueing behind it.
     """
-    where = Path("/scratch") / run
-    where.mkdir(parents=True, exist_ok=True)
-    volume.reload()
-    source = _checkpoint(run, resume)
-    command = [
-        sys.executable, "-m", "neural.train_mortal",
-        "--rounds", str(generations), "--generations", "1000000",
-        "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
-        "--lr", str(lr), "--entropy", str(entropy), "--temperature", str(temperature),
-        "--measure-every", str(measure_every), "--measure-games", str(measure_games),
-        "--amp", "--compile", "--out", str(where),
-    ]
-    if source.exists():
-        shutil.copyfile(source, where / "latest.pt")
-        history = VOLUME / run / "log.jsonl"
-        if history.exists():
-            shutil.copyfile(history, where / "log.jsonl")
+    with workspace(run) as where:
+        volume.reload()
+        source = _checkpoint(run, resume)
+        command = [
+            sys.executable, "-m", "neural.train_mortal",
+            "--rounds", str(generations), "--generations", "1000000",
+            "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
+            "--lr", str(lr), "--entropy", str(entropy), "--temperature", str(temperature),
+            "--measure-every", str(measure_every), "--measure-games", str(measure_games),
+            "--amp", "--compile", "--out", str(where),
+        ]
+        if source.exists():
+            copy_checkpoint(source, where / "latest.pt", require_generation=True)
+            for saved_name in ("best.pt", "reference.pt"):
+                saved = VOLUME / run / saved_name
+                # Cross-lineage starts must not inherit this run's old baseline.
+                if source.parent == VOLUME / run and saved.exists():
+                    copy_checkpoint(saved, where / saved_name)
+            history = VOLUME / run / "log.jsonl"
+            if source.parent == VOLUME / run and history.exists():
+                shutil.copyfile(history, where / "log.jsonl")
+            else:
+                (where / "log.jsonl").unlink(missing_ok=True)
+            command += ["--resume", str(where / "latest.pt")]
+            print(f"resuming from {source}", flush=True)
         else:
-            (where / "log.jsonl").unlink(missing_ok=True)
-        command += ["--resume", str(where / "latest.pt")]
-        print(f"resuming from {source}", flush=True)
-    else:
-        origin = _checkpoint(run, mortal)
-        if not origin.exists():
-            return f"no Mortal at {origin}"
-        shutil.copyfile(origin, where / "origin.pt")
-        command += ["--mortal", str(where / "origin.pt")]
-        print(f"starting from {origin}", flush=True)
+            origin = _checkpoint(run, mortal)
+            if not origin.exists():
+                return f"no Mortal at {origin}"
+            shutil.copyfile(origin, where / "origin.pt")
+            command += ["--mortal", str(where / "origin.pt")]
+            print(f"starting from {origin}", flush=True)
 
-    seated = []
-    for name in opponents or []:
-        found = _checkpoint(run, name)
-        if not found.exists():
-            print(f"no opponent at {found}", flush=True)
-            continue
-        local = where / "opponents" / (name.replace("/", "--") + ".pt")
-        local.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(found, local)
-        seated.append(str(local))
-    if seated:
-        command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
-    print(" ".join(command), flush=True)
-
-    saved_cache = False
-    began = time.time()
-    started_at = _generation_of(where / "latest.pt")
-    seen = started_at
-    process = subprocess.Popen(
-        command,
-        cwd="/src",
-        env=_environment(TRAINER_CPUS),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    assert process.stdout is not None
-    for line in process.stdout:
-        print(line.rstrip(), flush=True)
-        if line.startswith("{") and '"generation"' in line:
-            try:
-                import json
-
-                seen = int(json.loads(line)["generation"])
-            except Exception:
+        seated = []
+        for name in opponents or []:
+            found = _checkpoint(run, name)
+            if not found.exists():
+                print(f"no opponent at {found}", flush=True)
                 continue
-            _publish(where, seen, run)
-            if not saved_cache:
-                _save_cache()
-                saved_cache = True
-    code = process.wait()
-    _save_cache()
-    if seen > started_at:
-        _publish(where, seen, run)
-    else:
-        print(f"nothing trained: leaving the volume at generation {started_at}", flush=True)
-    return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
+            local = where / "opponents" / (name.replace("/", "--") + ".pt")
+            local.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(found, local)
+            seated.append(str(local))
+        if seated:
+            command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+        print(" ".join(command), flush=True)
+
+        saved_cache = False
+        began = time.time()
+        started_at = _generation_of(where / "latest.pt")
+        seen = started_at
+        with managed_process(subprocess.Popen(
+            command,
+            cwd="/src",
+            env=_environment(TRAINER_CPUS),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )) as process:
+            assert process.stdout is not None
+            for line in process.stdout:
+                print(line.rstrip(), flush=True)
+                if line.startswith("{") and '"generation"' in line:
+                    try:
+                        import json
+
+                        record = json.loads(line)
+                        seen = int(record.get("checkpoint_generation", record["generation"] + 1))
+                    except Exception:
+                        continue
+                    seen = _publish(where, seen, run)
+                    if not saved_cache:
+                        _save_cache()
+                        saved_cache = True
+            code = process.wait()
+        _save_cache()
+        if code == 0 and seen > started_at:
+            seen = _publish(where, seen, run)
+        else:
+            print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
+        return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
 
 
 @app.function(
@@ -530,101 +516,101 @@ def train_combined(
     """
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
-    where = Path("/scratch") / run
-    where.mkdir(parents=True, exist_ok=True)
-    volume.reload()
-    source = _checkpoint(run, resume)
-    command = [
-        sys.executable, "-m", "neural.train_combined",
-        "--rounds", str(generations), "--generations", "1000000",
-        "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
-        "--lr", str(lr), "--lr-ours", str(lr_ours), "--lr-mortal", str(lr_mortal),
-        "--entropy", str(entropy), "--leash", str(leash),
-        "--explore", str(explore),
-        "--measure-every", str(measure_every), "--measure-games", str(measure_games),
-        "--amp", "--out", str(where),
-    ]
-    # Six networks compile here, the joined player twice over and its four
-    # seated others once, which took a fresh container over an hour before
-    # its first generation; eager is the choice when that is not worth it.
-    if compile:
-        command.append("--compile")
-    if fixed:
-        command += ["--fixed", *fixed]
-    if source.exists():
-        shutil.copyfile(source, where / "latest.pt")
-        history = VOLUME / run / "log.jsonl"
-        if history.exists():
-            shutil.copyfile(history, where / "log.jsonl")
+    with workspace(run) as where:
+        volume.reload()
+        source = _checkpoint(run, resume)
+        command = [
+            sys.executable, "-m", "neural.train_combined",
+            "--rounds", str(generations), "--generations", "1000000",
+            "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
+            "--lr", str(lr), "--lr-ours", str(lr_ours), "--lr-mortal", str(lr_mortal),
+            "--entropy", str(entropy), "--leash", str(leash),
+            "--explore", str(explore),
+            "--measure-every", str(measure_every), "--measure-games", str(measure_games),
+            "--amp", "--out", str(where),
+        ]
+        # Six networks compile here, the joined player twice over and its four
+        # seated others once, which took a fresh container over an hour before
+        # its first generation; eager is the choice when that is not worth it.
+        if compile:
+            command.append("--compile")
+        if fixed:
+            command += ["--fixed", *fixed]
+        if source.exists():
+            copy_checkpoint(source, where / "latest.pt", require_generation=True)
+            for saved_name in ("best.pt", "reference.pt"):
+                saved = VOLUME / run / saved_name
+                # Cross-lineage starts must not inherit this run's old baseline.
+                if source.parent == VOLUME / run and saved.exists():
+                    copy_checkpoint(saved, where / saved_name)
+            history = VOLUME / run / "log.jsonl"
+            if source.parent == VOLUME / run and history.exists():
+                shutil.copyfile(history, where / "log.jsonl")
+            else:
+                (where / "log.jsonl").unlink(missing_ok=True)
+            command += ["--resume", str(where / "latest.pt")]
+            print(f"resuming from {source}", flush=True)
         else:
-            (where / "log.jsonl").unlink(missing_ok=True)
-        # The policy this run began with, so a later block is held to the
-        # same starting point and not to wherever the last block stopped.
-        began = VOLUME / run / "reference.pt"
-        if began.exists():
-            shutil.copyfile(began, where / "reference.pt")
-        command += ["--resume", str(where / "latest.pt")]
-        print(f"resuming from {source}", flush=True)
-    else:
-        parts = []
-        for label, name in (("--ours", ours), ("--mortal", mortal)):
+            parts = []
+            for label, name in (("--ours", ours), ("--mortal", mortal)):
+                found = _checkpoint(run, name)
+                if not found.exists():
+                    return f"no checkpoint at {found}"
+                local = where / (name.replace("/", "--") + ".pt")
+                shutil.copyfile(found, local)
+                parts += [label, str(local)]
+            command += parts
+            print(f"joining {ours} and {mortal}", flush=True)
+
+        seated = []
+        for name in opponents or []:
             found = _checkpoint(run, name)
             if not found.exists():
-                return f"no checkpoint at {found}"
-            local = where / (name.replace("/", "--") + ".pt")
-            shutil.copyfile(found, local)
-            parts += [label, str(local)]
-        command += parts
-        print(f"joining {ours} and {mortal}", flush=True)
-
-    seated = []
-    for name in opponents or []:
-        found = _checkpoint(run, name)
-        if not found.exists():
-            print(f"no opponent at {found}", flush=True)
-            continue
-        local = where / "opponents" / (name.replace("/", "--") + ".pt")
-        local.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(found, local)
-        seated.append(str(local))
-    if seated:
-        command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
-    print(" ".join(command), flush=True)
-
-    saved_cache = False
-    began = time.time()
-    started_at = _generation_of(where / "latest.pt")
-    seen = started_at
-    process = subprocess.Popen(
-        command,
-        cwd="/src",
-        env=_environment(TRAINER_CPUS),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    assert process.stdout is not None
-    for line in process.stdout:
-        print(line.rstrip(), flush=True)
-        if line.startswith("{") and '"generation"' in line:
-            try:
-                import json
-
-                seen = int(json.loads(line)["generation"])
-            except Exception:
+                print(f"no opponent at {found}", flush=True)
                 continue
-            _publish(where, seen, run)
-            if not saved_cache:
-                _save_cache()
-                saved_cache = True
-    code = process.wait()
-    _save_cache()
-    if seen > started_at:
-        _publish(where, seen, run)
-    else:
-        print(f"nothing trained: leaving the volume at generation {started_at}", flush=True)
-    return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
+            local = where / "opponents" / (name.replace("/", "--") + ".pt")
+            local.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(found, local)
+            seated.append(str(local))
+        if seated:
+            command += ["--opponents", *seated, "--opponent-share", str(opponent_share)]
+        print(" ".join(command), flush=True)
+
+        saved_cache = False
+        began = time.time()
+        started_at = _generation_of(where / "latest.pt")
+        seen = started_at
+        with managed_process(subprocess.Popen(
+            command,
+            cwd="/src",
+            env=_environment(TRAINER_CPUS),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )) as process:
+            assert process.stdout is not None
+            for line in process.stdout:
+                print(line.rstrip(), flush=True)
+                if line.startswith("{") and '"generation"' in line:
+                    try:
+                        import json
+
+                        record = json.loads(line)
+                        seen = int(record.get("checkpoint_generation", record["generation"] + 1))
+                    except Exception:
+                        continue
+                    seen = _publish(where, seen, run)
+                    if not saved_cache:
+                        _save_cache()
+                        saved_cache = True
+            code = process.wait()
+        _save_cache()
+        if code == 0 and seen > started_at:
+            seen = _publish(where, seen, run)
+        else:
+            print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
+        return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
 
 
 @app.function(
@@ -700,6 +686,7 @@ def searched(
     worlds: int = 16,
     candidates: int = 4,
     margin: float = 2.0,
+    pool: int = 4,
     run: str = DEFAULT_RUN,
 ) -> str:
     """Whether one ply of search beats the policy that supplies it.
@@ -711,28 +698,31 @@ def searched(
 
     The arm without search is not played. All four seats are the same
     network, so their placements sum to ten on every deal and average to
-    exactly 2.5; the searching arm is measured against that.
+    exactly 2.5; the searching arm is measured against that. The network
+    is served through `neural.contract`, so a checkpoint of the current
+    lineage is searched on the planes it reads, and one nothing can serve
+    is refused by name before a tally is written.
     """
     volume.reload()
     source = _checkpoint(run, which)
     if not source.exists():
         return f"no checkpoint at {source}"
-    local = Path("/scratch/searched")
-    local.mkdir(parents=True, exist_ok=True)
-    copied = local / (which.replace("/", "--") + ".pt")
-    shutil.copyfile(source, copied)
-    print(f"{which}.pt generation {_generation_of(copied)}", flush=True)
-
-    result = subprocess.run(
-        [
-            sys.executable, "-m", "neural.search_test", str(copied),
-            str(games), str(worlds), str(candidates), str(margin),
-        ],
-        cwd="/src",
-        env=_environment(),
-        capture_output=True,
-        text=True,
-    )
+    with workspace("searched") as where:
+        copied = where / (which.replace("/", "--") + ".pt")
+        copy_checkpoint(source, copied, require_generation=True)
+        print(f"{which}.pt generation {_generation_of(copied)}", flush=True)
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "neural.searched", str(copied),
+                "--games", str(games), "--worlds", str(worlds),
+                "--candidates", str(candidates), "--margin", str(margin),
+                "--pool", str(pool), "--played-by", "club", "--device", "cuda",
+            ],
+            cwd="/src",
+            env=_environment(),
+            capture_output=True,
+            text=True,
+        )
     answer = (result.stdout or "") + (result.stderr or "")
     print(answer, flush=True)
     return answer
@@ -896,52 +886,53 @@ def distil(
     The result goes to the run's directory under `name`, so it can be
     duelled before anything decides to train on from it.
     """
-    volume.reload()
-    local = Path("/scratch/distil")
-    local.mkdir(parents=True, exist_ok=True)
-    out = Path("/scratch/distilled")
-    command = [
-        sys.executable, "-m", "neural.imitate",
-        "--rounds", str(rounds), "--games", str(games), "--lr", str(lr),
-        "--channels", str(channels), "--blocks", str(blocks),
-        "--student", student_planes,
-        "--measure-every", "10", "--measure-games", "512",
-        "--out", str(out),
-    ]
-    if not attention:
-        command.append("--no-attention")
-    for label, which in (("--resume", student), ("--teacher", teacher)):
-        if not which:
-            continue
-        source = _checkpoint(run, which)
-        if not source.exists():
-            return f"no checkpoint at {source}"
-        copied = local / (which.replace("/", "--") + ".pt")
-        shutil.copyfile(source, copied)
-        command += [label, str(copied)]
-    if teacher:
-        command += [
-            "--teacher-channels", str(teacher_channels),
-            "--teacher-blocks", str(teacher_blocks),
+    with workspace(run) as where:
+        volume.reload()
+        local = where / "inputs"
+        local.mkdir()
+        out = where / "out"
+        command = [
+            sys.executable, "-m", "neural.imitate",
+            "--rounds", str(rounds), "--games", str(games), "--lr", str(lr),
+            "--channels", str(channels), "--blocks", str(blocks),
+            "--student", student_planes,
+            "--measure-every", "10", "--measure-games", "512",
+            "--out", str(out),
         ]
-    print(" ".join(command), flush=True)
+        if not attention:
+            command.append("--no-attention")
+        for label, which in (("--resume", student), ("--teacher", teacher)):
+            if not which:
+                continue
+            source = _checkpoint(run, which)
+            if not source.exists():
+                return f"no checkpoint at {source}"
+            copied = local / (which.replace("/", "--") + ".pt")
+            shutil.copyfile(source, copied)
+            command += [label, str(copied)]
+        if teacher:
+            command += [
+                "--teacher-channels", str(teacher_channels),
+                "--teacher-blocks", str(teacher_blocks),
+            ]
+        print(" ".join(command), flush=True)
 
-    result = subprocess.run(
-        command,
-        cwd="/src",
-        env=_environment(),
-        capture_output=True,
-        text=True,
-    )
-    answer = (result.stdout or "")[-4000:] + (result.stderr or "" if result.returncode else "")
-    if (out / "latest.pt").exists():
-        target = VOLUME / run
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(out / "latest.pt", target / f"{name}.pt")
-        volume.commit()
-        answer += f"\nwrote {run}/{name}.pt"
-    print(answer, flush=True)
-    return answer
+        result = subprocess.run(
+            command,
+            cwd="/src",
+            env=_environment(),
+            capture_output=True,
+            text=True,
+        )
+        answer = (result.stdout or "")[-4000:] + (result.stderr or "" if result.returncode else "")
+        if result.returncode == 0 and (out / "latest.pt").exists():
+            target = VOLUME / run
+            target.mkdir(parents=True, exist_ok=True)
+            copy_checkpoint(out / "latest.pt", target / f"{validate_run(name)}.pt")
+            volume.commit()
+            answer += f"\nwrote {run}/{name}.pt"
+        print(answer, flush=True)
+        return answer
 
 
 @app.function(
@@ -972,48 +963,47 @@ def rehead(
     directory under `name`, to be duelled against the teacher before
     anything is built on it.
     """
-    volume.reload()
-    where = Path("/scratch") / f"{run}-rehead"
-    where.mkdir(parents=True, exist_ok=True)
-    out = where / "out"
-    source = _checkpoint(run, teacher)
-    if not source.exists():
-        return f"no checkpoint at {source}"
-    local = where / "teacher.pt"
-    shutil.copyfile(source, local)
-    command = [
-        sys.executable, "-m", "neural.rehead",
-        "--teacher", str(local),
-        "--rounds", str(rounds), "--games", str(games), "--lr", str(lr),
-        "--batch", str(batch), "--epochs", str(epochs),
-        "--temperature", str(temperature),
-        "--out", str(out),
-    ]
-    if resume:
-        found = _checkpoint(run, resume)
-        if not found.exists():
-            return f"no checkpoint at {found}"
-        carried = where / "student.pt"
-        shutil.copyfile(found, carried)
-        command += ["--resume", str(carried)]
-    print(" ".join(command), flush=True)
+    with workspace(run) as where:
+        volume.reload()
+        out = where / "out"
+        source = _checkpoint(run, teacher)
+        if not source.exists():
+            return f"no checkpoint at {source}"
+        local = where / "teacher.pt"
+        shutil.copyfile(source, local)
+        command = [
+            sys.executable, "-m", "neural.rehead",
+            "--teacher", str(local),
+            "--rounds", str(rounds), "--games", str(games), "--lr", str(lr),
+            "--batch", str(batch), "--epochs", str(epochs),
+            "--temperature", str(temperature),
+            "--out", str(out),
+        ]
+        if resume:
+            found = _checkpoint(run, resume)
+            if not found.exists():
+                return f"no checkpoint at {found}"
+            carried = where / "student.pt"
+            shutil.copyfile(found, carried)
+            command += ["--resume", str(carried)]
+        print(" ".join(command), flush=True)
 
-    result = subprocess.run(
-        command,
-        cwd="/src",
-        env=_environment(),
-        capture_output=True,
-        text=True,
-    )
-    answer = (result.stdout or "")[-4000:] + (result.stderr or "" if result.returncode else "")
-    if (out / "latest.pt").exists():
-        target = VOLUME / run
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(out / "latest.pt", target / f"{name}.pt")
-        volume.commit()
-        answer += f"\nwrote {run}/{name}.pt"
-    print(answer, flush=True)
-    return answer
+        result = subprocess.run(
+            command,
+            cwd="/src",
+            env=_environment(),
+            capture_output=True,
+            text=True,
+        )
+        answer = (result.stdout or "")[-4000:] + (result.stderr or "" if result.returncode else "")
+        if result.returncode == 0 and (out / "latest.pt").exists():
+            target = VOLUME / run
+            target.mkdir(parents=True, exist_ok=True)
+            copy_checkpoint(out / "latest.pt", target / f"{validate_run(name)}.pt")
+            volume.commit()
+            answer += f"\nwrote {run}/{name}.pt"
+        print(answer, flush=True)
+        return answer
 
 
 @app.function(

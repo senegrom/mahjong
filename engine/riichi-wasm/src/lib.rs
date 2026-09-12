@@ -49,7 +49,10 @@ fn meanings(action: usize) -> Vec<usize> {
         tile if tile < 34 => vec![encoding::DISCARD + tile],
         // Our rules have no red fives, so one means the plain tile.
         red if MORTAL_RED_FIVES.contains(&red) => {
-            vec![encoding::DISCARD + [4, 13, 22][MORTAL_RED_FIVES.iter().position(|x| *x == red).unwrap()]]
+            vec![
+                encoding::DISCARD
+                    + [4, 13, 22][MORTAL_RED_FIVES.iter().position(|x| *x == red).unwrap()],
+            ]
         }
         // Which tile the riichi discards is a second question.
         MORTAL_REACH => (encoding::RIICHI_DISCARD..encoding::TSUMO).collect(),
@@ -461,6 +464,11 @@ struct RecordedDecision {
 /// after `tell_mortal`, and reading a state that has not been told about
 /// the moves just played would encode a position nobody is in.
 impl Game {
+    fn pending_reach_for(&self, seat: Wind) -> bool {
+        self.mortal_awaiting_riichi
+            == Some((self.hand_seating[seat.index()], self.hand.discards_made))
+    }
+
     fn mortal_planes(&self, player: usize, after_reach: bool) -> Vec<f32> {
         // A declared reach is put to a copy, never to the state itself: the
         // real declaration arrives later through the engine's own log, and
@@ -573,7 +581,7 @@ pub struct Game {
     /// Whether a reach has been declared and the tile it discards is still
     /// to be named. The declaration is not played until the tile is known,
     /// our engine taking the two as one move.
-    mortal_awaiting_riichi: bool,
+    mortal_awaiting_riichi: Option<(usize, u32)>,
     /// Points each seat held when the hand was dealt, so the score screen
     /// can say what the hand cost or paid.
     opening: [i32; 4],
@@ -625,11 +633,13 @@ impl Game {
             seat,
             hand_seating,
             log: Vec::new(),
-            mortal: (0..4).map(|player| MortalState::new(player as u8)).collect(),
+            mortal: (0..4)
+                .map(|player| MortalState::new(player as u8))
+                .collect(),
             mortal_started: false,
             mortal_logged: 0,
             mortal_events: Vec::new(),
-            mortal_awaiting_riichi: false,
+            mortal_awaiting_riichi: None,
             opening: [0; 4],
             decisions: Vec::new(),
             external,
@@ -696,7 +706,7 @@ impl Game {
         let (planes, positions) = obs_shape(MORTAL_VERSION);
         match self.opponent_owing() {
             Some(seat) => {
-                let after_reach = self.mortal_awaiting_riichi;
+                let after_reach = self.pending_reach_for(seat);
                 self.mortal_planes(self.hand_seating[seat.index()], after_reach)
             }
             None => vec![0.0; planes * positions],
@@ -709,9 +719,8 @@ impl Game {
     /// two rule sets differ over a late riichi, and asking both would drop
     /// one our rules allow.
     pub fn opponent_mask_mortal(&mut self) -> Vec<u8> {
-        let after_reach = self.mortal_awaiting_riichi;
         let allowed = match self.opponent_owing() {
-            Some(seat) => self.mortal_mask_for(seat, after_reach),
+            Some(seat) => self.mortal_mask_for(seat, self.pending_reach_for(seat)),
             None => vec![false; MORTAL_ACTIONS],
         };
         allowed.iter().map(|flag| u8::from(*flag)).collect()
@@ -731,7 +740,7 @@ impl Game {
         if action >= MORTAL_ACTIONS {
             return Err(JsValue::from_str("that is not one of Mortal's moves"));
         }
-        if self.mortal_awaiting_riichi {
+        if self.pending_reach_for(seat) {
             let tile = match action {
                 tile if tile < 34 => tile,
                 red if MORTAL_RED_FIVES.contains(&red) => {
@@ -739,13 +748,19 @@ impl Game {
                 }
                 _ => return Err(JsValue::from_str("a declared reach must name a tile")),
             };
-            self.mortal_awaiting_riichi = false;
-            return self
-                .play_opponent(encoding::RIICHI_DISCARD + tile)
-                .map(|()| false);
+            if !self.mortal_mask_for(seat, true)[tile] {
+                return Err(JsValue::from_str("that tile is not a legal riichi discard"));
+            }
+            self.play_opponent(encoding::RIICHI_DISCARD + tile)?;
+            self.mortal_awaiting_riichi = None;
+            return Ok(false);
         }
         if action == MORTAL_REACH {
-            self.mortal_awaiting_riichi = true;
+            if !self.may_reach(&self.hand, seat) {
+                return Err(JsValue::from_str("that seat cannot declare riichi now"));
+            }
+            self.mortal_awaiting_riichi =
+                Some((self.hand_seating[seat.index()], self.hand.discards_made));
             return Ok(true);
         }
         let mut ours = vec![false; ACTIONS];
@@ -880,6 +895,7 @@ impl Game {
     /// Any neural claims already gathered remain binding. Finish gathering
     /// the others before resolving the window, then leave external mode.
     pub fn continue_with_club(&mut self) -> Result<(), JsValue> {
+        self.mortal_awaiting_riichi = None;
         if !self.external {
             return Ok(());
         }
@@ -918,6 +934,12 @@ impl Game {
             .opponent_owing()
             .filter(|seat| self.hand_seating[seat.index()] == player)
             .ok_or_else(|| JsValue::from_str("that trained opponent is not awaiting an answer"))?;
+        if self
+            .mortal_awaiting_riichi
+            .is_some_and(|(who, _)| who == player)
+        {
+            self.mortal_awaiting_riichi = None;
+        }
         self.controllers[player] = Controller::Club;
         self.refresh_external();
         if self.asking.contains(&seat) {
@@ -1342,7 +1364,11 @@ impl Game {
             .decisions
             .get(index)
             .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        Ok(self.mortal_planes_at(decision.told, self.hand_seating[decision.seat.index()], false))
+        Ok(self.mortal_planes_at(
+            decision.told,
+            self.hand_seating[decision.seat.index()],
+            false,
+        ))
     }
 
     /// The same decision once a reach is declared, for the second question
@@ -1370,9 +1396,7 @@ impl Game {
         let mut ours = vec![false; ACTIONS];
         encoding::legal_mask(&decision.position, decision.seat, &mut ours);
         Ok((0..MORTAL_ACTIONS)
-            .map(|action| {
-                u8::from(action < 34 && ours[encoding::RIICHI_DISCARD + action])
-            })
+            .map(|action| u8::from(action < 34 && ours[encoding::RIICHI_DISCARD + action]))
             .collect())
     }
 
@@ -1471,6 +1495,7 @@ impl Game {
         // Told before the seats move: the events just played belong to the
         // seating they were played under.
         self.tell_mortal();
+        self.mortal_awaiting_riichi = None;
         self.table.finish(&self.hand);
         // A finished match retains its last hand and that hand's identities.
         // Only rotate the displayed seats when a new hand actually exists.
@@ -2083,6 +2108,65 @@ pub fn riichi_label(state: Riichi) -> &'static str {
 #[cfg(test)]
 mod ui_review_tests {
     use super::*;
+
+    fn pending_reach_game() -> Game {
+        let mut game = Game::new(81.0, Some("neural".into()));
+        game.player = 3;
+        game.seat = Wind::North;
+        game.hand_seating = [0, 1, 2, 3];
+        game.hand.turn = Wind::East;
+        game.hand.phase = Phase::Act;
+        game.hand.players[0].hand = "123m123p123s11122z".parse().unwrap();
+        game.hand.drawn = Some("2z".parse().unwrap());
+        assert!(game.may_reach(&game.hand, Wind::East));
+        assert!(game.play_opponent_mortal(MORTAL_REACH).unwrap());
+        assert!(game.pending_reach_for(Wind::East));
+        game
+    }
+
+    #[test]
+    fn club_recovery_clears_only_the_abandoned_reach() {
+        let mut game = pending_reach_game();
+        game.continue_opponent_with_club(0).unwrap();
+        assert_eq!(game.mortal_awaiting_riichi, None);
+        // The next trained player's ordinary discard must not become the
+        // second half of a different player's abandoned declaration.
+        game.hand.turn = Wind::South;
+        game.hand.players[1].hand = "147m147p147s12345z".parse().unwrap();
+        game.hand.drawn = Some("5z".parse().unwrap());
+        assert!(!game.pending_reach_for(Wind::South));
+        let mask = game.opponent_mask_mortal();
+        assert!(mask[..34].iter().any(|flag| *flag != 0));
+        assert_eq!(mask[MORTAL_REACH], 0);
+        assert!(game.external_for(Wind::South));
+    }
+
+    #[test]
+    fn global_club_recovery_clears_pending_reach() {
+        let mut game = pending_reach_game();
+        game.continue_with_club().unwrap();
+        assert_eq!(game.mortal_awaiting_riichi, None);
+    }
+
+    #[test]
+    fn pending_reach_is_bound_to_player_and_discard_position() {
+        let mut game = pending_reach_game();
+        assert!(!game.pending_reach_for(Wind::South));
+        game.hand.discards_made += 1;
+        assert!(!game.pending_reach_for(Wind::East));
+    }
+
+    #[test]
+    fn second_reach_answer_finishes_and_clears_the_declaration() {
+        let mut game = pending_reach_game();
+        let tile = game.opponent_mask_mortal()[..34]
+            .iter()
+            .position(|flag| *flag != 0)
+            .unwrap();
+        assert!(!game.play_opponent_mortal(tile).unwrap());
+        assert_eq!(game.mortal_awaiting_riichi, None);
+        assert!(game.hand.players[0].has_riichi());
+    }
 
     fn shared_window(human_wins: bool) -> Game {
         let mut game = Game::new(287.0, Some("neural".into()));

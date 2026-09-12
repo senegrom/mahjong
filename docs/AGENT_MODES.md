@@ -5,8 +5,7 @@ Use the mode bar, or **Game settings → Game mode** on the smallest phone scree
 ## Watch
 
 Select **Agent watch**, choose the followed agent and each of the other three
-players, then **Start watching**. Beginner, Club and Trained can sit at the
-same table.
+players, then **Start watching**. Beginner, Club and Trained can sit at the same table.
 Agent assignments stay with the same players as their seat winds change.
 
 With **Auto play** off, the table pauses at each followed player's decision,
@@ -38,6 +37,12 @@ only the first legal kan of each kind. A second legal kan remains available to
 choose in Watch or record in Physical play and is labelled **Unscored**.
 
 ## Physical table
+
+**Beginner and Club are supported for manually entered positions.** Trained
+advice requires the complete in-app event history, which the position-only
+adapter cannot reconstruct. Its option is disabled even when the model is
+installed; the editor starts on Club. No hidden history or trained percentages
+are invented. Trained opponents, Watch and in-app hand review remain available.
 
 1. Select **Physical agent play** and the seat to analyse. Seats use the current
    hand's East/South/West/North winds, so change them when the dealer changes.
@@ -97,7 +102,14 @@ play reopens in the same window.
 ## Guided physical game
 
 Select **Guided physical game** (or open `?mode=guided`) to follow a real game
-from the start of a hand. The guide asks for one thing at a time:
+from the start of a hand. Like the position editor, this mode currently uses
+the position-only adapter, so Beginner and Club are the available advisers.
+A saved Trained preference is preserved but disabled, with an explanation:
+select Beginner or Club explicitly to resume advice without changing the
+position, move log or undo history. The guide does not silently substitute an
+agent or attempt unsupported inference.
+
+The guide asks for one thing at a time:
 
 1. Your points and seat wind. The default is 30,000 each, East 1. Expand
    **Round, other scores and sticks** for different scores, honba or riichi
@@ -152,7 +164,7 @@ the end of a match), then choose the **Review adviser**:
 
 - **Club** explains hand readiness, improving tiles, danger and dora for turn
   actions, and explains whether it would accept or pass on a call.
-- **Trained** evaluates each recorded decision using the information available
+- **Trained AI** evaluates each recorded decision using the information available
   before that move. It shows the preferred move and its percentage; when your
   move differs, it also shows your move's percentage when the policy scores it.
 
@@ -164,11 +176,10 @@ calls because the next discard or replacement draw has not happened yet.
 These percentages express preference among legal moves, not the chance of
 winning. **Every decision** includes moves that agree with the adviser. The
 adviser choice is remembered independently of the opponents at your table.
-The Trained adviser is offered when the network is included in the build and
-downloads on demand. A failed review can be retried. Switching advisers or
-leaving the hand cancels pending analysis; a completed Trained review is
-reused while the same review remains open. Reviewing never changes the game
-or its saved history.
+Trained AI is offered when its model is included in the build and downloads on
+demand. A failed review can be retried. Switching advisers or leaving the hand
+cancels pending analysis; a completed trained review is reused while the same
+review remains open. Reviewing never changes the game or its saved history.
 
 ## Validation
 
@@ -183,11 +194,15 @@ drafts, queued undo, reopening, and unavailable storage.
 `web/tests/review-policy.test.js` compares historical review inputs with the
 original live decisions, including restored saves and hand boundaries, and
 checks sequential inference, cancellation and unscored choices.
-`web/scripts/adviser-review-check.mjs` checks adviser selection, a real Trained
+`web/scripts/adviser-review-check.mjs` checks adviser selection, real trained
 percentages, retry, cached results, saved preferences and mobile layout in CI.
 
 `web/tests/guided-game.test.js` checks the guided turn sequence against the real
 rules engine, including calls, kans, furiten, wall counts, settlement, undo and
 conflicting saves. `web/scripts/guided-game-check.mjs` runs the North-seat
-walkthrough, alternative confirmation, reload, opponent calls, a real Trained
-weights and mobile layout against the production build.
+walkthrough, alternative confirmation, reload, opponent calls, adviser
+capability gating, explicit recovery of saved Trained preferences, real
+Trained weights, and mobile layout against the production build.
+`web/tests/trained-capability.test.js` checks the real live and position-only
+WASM adapters, both riichi stages, and rejection of unsupported inference
+without falling back to another agent.

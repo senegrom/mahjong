@@ -156,13 +156,8 @@ def decide_in_mortal_space(
             follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
         indptr, indices, values, masks = follower.encode([who[i] for i in second])
         after = Planes.from_follower(indptr, indices, values)
-        allowed_after = np.asarray(masks, dtype=bool)
-        for slot, i in enumerate(second):
-            tiles = legal[i][zoo.RIICHI_DISCARD : zoo.TSUMO]
-            allowed_after[slot, :34] &= tiles
-            allowed_after[slot, 34:] = False
-            if not allowed_after[slot].any():
-                allowed_after[slot, :34] = tiles
+        allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
+        allowed_after[:, :34] = legal[second, zoo.RIICHI_DISCARD:zoo.TSUMO]
         mask_after = torch.from_numpy(allowed_after).to(device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=str(device).startswith("cuda")):
             logits_after = score(after.dense(device), mask_after)

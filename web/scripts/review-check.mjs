@@ -1,6 +1,7 @@
 // Plays a hand to its end and opens the review, which is the only way to
 // find out whether the numbers behind it survive the trip into the page.
 import puppeteer from 'puppeteer-core';
+import { MODEL_FILES } from '../src/lib/model-package.js';
 
 const URL = process.argv[2] ?? 'http://127.0.0.1:8732/?opponents=club';
 const LIMIT = Number(process.argv[3] ?? 180) * 1000;
@@ -104,11 +105,9 @@ try {
   if (review.numbers.length) {
     console.log(`first numbers: ${review.numbers.slice(0, 6).join(' | ')}`);
   }
-  // The trained network is optional by design: the page offers that tier only
-  // when the file is there, and a checkout without it still plays the built-in
-  // bots. Its absence is a build that carries no network, not a broken
-  // deployment.
-  const unexpected = missing.filter((url) => !url.endsWith('model-full.onnx'));
+  // Only configured model availability probes may be absent. Never exempt
+  // a retired model filename or a missing application/runtime asset.
+  const unexpected = missing.filter(url => !Object.values(MODEL_FILES).some(file => url.endsWith(`/${file}`)));
   console.log(`page errors: ${problems.length ? problems.join('; ') : 'none'}`);
   console.log(
     `missing files: ${missing.length ? missing.map((u) => u.split('/').pop()).join(', ') : 'none'}`,

@@ -1,9 +1,27 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: /
+    # libriichi is excluded from the root workspace and has its own lockfile.
+    # Scan both so related Python-binding updates can share one reviewed PR.
+    directories:
+      - /
+      - /engine/libriichi
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      python-bindings:
+        applies-to: version-updates
+        patterns: ['pyo3*', numpy, ndarray]
+      rand-family:
+        applies-to: version-updates
+        patterns: [rand, 'rand_*']
+      # Cargo 0.x minor updates can be breaking; keep unrelated ones separate.
+      rust-patches:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: [patch]
   - package-ecosystem: npm
     directory: /web
     # These peer dependencies must move together, including major upgrades.
@@ -14,9 +32,20 @@ updates:
           - svelte
           - vite
           - '@sveltejs/vite-plugin-svelte'
+      npm-minor-patch:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: [minor, patch]
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns: ['*']

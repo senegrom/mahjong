@@ -4,10 +4,12 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
+import { MODEL_FILES } from '../src/lib/model-package.js';
 
 const source = (await readFile(new URL('../src/lib/policy.js', import.meta.url), 'utf8'))
   .replace("import { startOffline, prepareOfflineAi } from './offline.js';", '')
   .replace("import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';", '')
+  .replace("import { MODEL_FILES } from './model-package.js';", '')
   .replaceAll('import.meta.url', "'https://test.invalid/mahjong/policy.js'")
   .replaceAll('export ', '');
 
@@ -23,7 +25,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, MODEL_FILES,
     startOffline: async () => null,
     prepareOfflineAi: (model) => new Promise(resolve => downloads.push({ model, resolve })),
   });
@@ -80,7 +82,7 @@ test('memory errors discard the worker even after cancellation, and retry starts
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, MODEL_FILES,
     startOffline: async () => null, prepareOfflineAi: async () => null,
   });
   vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, resetPolicy };', context);
@@ -128,7 +130,7 @@ function memoryClient(t) {
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, MODEL_FILES,
     startOffline: async () => null, prepareOfflineAi: async () => null,
   });
   vm.runInContext(source + '\nglobalThis.api = { analyzePolicy, resetPolicy };', context);

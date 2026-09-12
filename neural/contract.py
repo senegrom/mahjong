@@ -37,6 +37,15 @@ ENGINE_ACTIONS = riichi_py.ACTIONS
 POSITIONS = riichi_py.POSITIONS
 
 
+class UnsupportedSearchLayout(ValueError):
+    """Nothing here can build this network's inputs for a search.
+
+    A `ValueError` rather than an exit, so a caller can catch it before an
+    arena is built and a tally is written; `neural.searched` re-exports it
+    under this name.
+    """
+
+
 @dataclass(frozen=True)
 class Contract:
     """What a checkpoint turned out to be."""
@@ -71,8 +80,18 @@ class Contract:
         }
 
 
+def unwrap(net):
+    """The network that answers with `everything`: a player that only
+    wraps one to be asked Mortal's way (`zoo.MortalSpacePlayer`) carries
+    it as `net`, and the search asks the network, not the wrapper."""
+    if not hasattr(net, "everything") and hasattr(getattr(net, "net", None), "everything"):
+        return net.net
+    return net
+
+
 def of(net) -> Contract:
     """Reads the contract off a loaded player."""
+    net = unwrap(net)
     kind = getattr(net, "kind", "engine")
     planes = getattr(net, "planes", None)
     planes = planes() if callable(planes) else planes
@@ -122,7 +141,13 @@ class EngineServed:
         ).to(device)
 
     def to_engine(self, action: int, legal_row: np.ndarray, after_reach: bool = False) -> int:
-        return int(action)
+        return int(action) if legal_row[action] else -1
+
+    def to_engine_rows(self, own_order: np.ndarray, legal: np.ndarray) -> np.ndarray:
+        """Every row's order named in our moves at once: its own, with
+        the illegal ones marked -1."""
+        rows = np.arange(len(own_order))[:, None]
+        return np.where(legal[rows, own_order], own_order, -1)
 
     def order(self, logits) -> np.ndarray:
         return torch.argsort(logits, dim=1, descending=True).cpu().numpy()
@@ -197,6 +222,11 @@ class MortalServed:
         return out
 
     def to_engine(self, action: int, legal_row: np.ndarray, after_reach: bool = False) -> int:
+        """One of Mortal's moves as one of ours, or -1 where it means
+        nothing legal. A reach names no tile until the second question is
+        asked (`after_reach`), so before that it is -1 rather than the
+        lowest tile that happens to be legal, which is what a bare
+        `first_meaning` would say and what nobody chose."""
         from . import zoo
 
         if after_reach:
@@ -205,12 +235,50 @@ class MortalServed:
                 return -1
             index = zoo.RIICHI_DISCARD + tile
             return index if legal_row[index] else -1
+        if action == zoo.MORTAL_RIICHI:
+            return -1
         return int(zoo.first_meaning(np.array([action]), legal_row[None, :])[0])
+
+    def to_engine_rows(self, own_order: np.ndarray, legal: np.ndarray) -> np.ndarray:
+        """Every row's order in Mortal's moves named in ours at once, -1
+        where a move means nothing legal there and for a reach, whose
+        tile the second question decides (see `after_reach`)."""
+        from . import zoo
+
+        ranked = np.where(legal[:, None, :], zoo.PRIORITY[own_order], np.inf)
+        best = ranked.argmin(axis=2)
+        found = np.isfinite(np.take_along_axis(ranked, best[..., None], axis=2)[..., 0])
+        found &= own_order != zoo.MORTAL_RIICHI
+        return np.where(found, best, -1)
 
     def order(self, logits) -> np.ndarray:
         return torch.argsort(logits, dim=1, descending=True).cpu().numpy()
 
+    def after_reach(self, arena, rows, deciding, legal, device):
+        """The second question a reach asks, which tile to throw, put from
+        a copy of each seat's real state told the declaration.
 
+        A copy and not the follower: the table's player tells its follower
+        the reach ahead of the table because it is about to make it, and
+        the follower skips the duplicate when the table confirms it. A
+        search has not decided yet, and a follower told of a reach that
+        never happens carries it for the rest of the hand.
+        """
+        import json
+
+        from . import zoo
+        from .observe import Planes
+
+        who = [(int(game), int(player)) for game, player in zip(rows, deciding)]
+        copies = self._Imagined.from_follower(arena_follower(arena), who, 4)
+        copies.feed([[json.dumps({"type": "reach", "actor": player})] for _game, player in who])
+        indptr, indices, values, _masks = copies.encode()
+        planes = Planes.from_follower(indptr, indices, values).dense(device)
+        # What our engine allows the declaration to throw, named as Mortal
+        # names a discard, as `zoo.choose_in_mortal_space` asks it.
+        allowed = np.zeros((len(who), zoo.MORTAL_ACTIONS), dtype=bool)
+        allowed[:, :POSITIONS] = legal[rows, zoo.RIICHI_DISCARD : zoo.TSUMO]
+        return planes, torch.from_numpy(allowed).to(device)
 
     def value(self, planes, head: str = "critic"):
         """What the network makes of these positions.
@@ -255,22 +323,30 @@ def serve(net, checkpoint: str = "the checkpoint"):
     search that cannot build the planes a network reads, for the root and
     for every continuation, cannot evaluate that network at all.
     """
+    net = unwrap(net)
     contract = of(net)
     if not contract.has_value:
-        raise SystemExit(
+        raise UnsupportedSearchLayout(
             f"{checkpoint} has no value head, and a search values the positions its "
             "candidates lead to. Nothing here can search it."
         )
     if contract.reads == "engine":
-        if contract.planes != ENGINE_PLANES:
-            raise SystemExit(
-                f"{checkpoint} reads {contract.planes} planes where the engine writes "
-                f"{ENGINE_PLANES}. It cannot be searched here."
+        if contract.planes != ENGINE_PLANES or contract.answers != ENGINE_ACTIONS:
+            # Engine planes with Mortal's moves is a layout nobody trained
+            # and nothing serves: the engine's lookahead names our
+            # seventy-eight, and the leaves it hands back have no Mortal
+            # event history to translate the other way from.
+            raise UnsupportedSearchLayout(
+                f"{checkpoint} reads {contract.planes} planes and answers in "
+                f"{contract.answers} moves; native lookahead serves {ENGINE_PLANES} "
+                f"engine planes and {ENGINE_ACTIONS} actions, and its hypothetical "
+                "leaves have no Mortal event history. It cannot be searched here; "
+                "do not pad or relabel engine planes."
             )
         return EngineServed(net, contract)
     if contract.reads == "mortal":
         return MortalServed(net, contract)
-    raise SystemExit(
+    raise UnsupportedSearchLayout(
         f"{checkpoint} reads {contract.reads!r}, which no server here builds. "
         "Add one rather than approximating it with another's planes."
     )

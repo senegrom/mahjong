@@ -18,14 +18,19 @@ import json
 import time
 from pathlib import Path
 
-import numpy as np
 import torch
+
+from .checkpoints import atomic_save
+from .training_safety import (
+    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
+)
+from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
-from . import checkpoint
 from . import combined, population, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
+from .training_state import capture_random_state, restore_random_state
 
 SMOOTHING = 1 / 3
 
@@ -110,6 +115,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_learning(args.batch, args.epochs)
+    validate_training_options(args)
+    require_training_engine()
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     amp_enabled = args.amp and device == "cuda"
@@ -123,12 +131,13 @@ def main() -> None:
     best_placement = float("inf")
     smoothed = None
     optimiser_state = None
+    random_state = None
     if args.resume is not None and args.resume.exists():
         net, payload = combined.load(args.resume, device)
         start = int(payload.get("generation", 0))
-        smoothed = payload.get("smoothed")
-        best_placement = float(payload.get("best_placement", float("inf")))
+        smoothed, best_placement = benchmark_history(payload)
         optimiser_state = payload.get("optimizer_state")
+        random_state = payload.get("random_state")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.ours is not None and args.mortal is not None:
         net, _config = combined.build(args.ours, args.mortal, device)
@@ -144,7 +153,7 @@ def main() -> None:
     if args.leash > 0:
         kept = args.out / "reference.pt"
         if not kept.exists():
-            checkpoint.publish(net.state(), kept)
+            atomic_save(net.state(), kept)
             print(f"kept the starting policy at {kept}", flush=True)
         reference, _reference_state = combined.load(kept, device)
         reference.eval()
@@ -185,33 +194,7 @@ def main() -> None:
     )
     if optimiser_state is not None:
         try:
-            optimiser.load_state_dict(optimiser_state)
-            # A parameter whose shape has changed carries moments of the
-            # old shape, and AdamW will not say so until it steps: it fails
-            # with a complaint about dtype and layout, a generation's work
-            # after the thing that was wrong. The reader's output layer
-            # changed shape when it was made able to name a tile, so the
-            # moments are checked here against the parameters they belong
-            # to and any that no longer fit are started fresh.
-            stale = []
-            for group in optimiser.param_groups:
-                for parameter in group["params"]:
-                    kept = optimiser.state.get(parameter)
-                    if not kept:
-                        continue
-                    for name in ("exp_avg", "exp_avg_sq"):
-                        moment = kept.get(name)
-                        if moment is not None and moment.shape != parameter.shape:
-                            stale.append(parameter)
-                            break
-            for parameter in stale:
-                optimiser.state.pop(parameter, None)
-            if stale:
-                print(
-                    f"{len(stale)} parameters changed shape; their AdamW moments "
-                    "start again",
-                    flush=True,
-                )
+            optimiser.load_state_dict(combined.migrate_belief_optimizer(optimiser_state, optimiser, net))
             for group, lr in zip(optimiser.param_groups, (args.lr, args.lr_ours, args.lr_mortal)):
                 group["lr"] = lr
             print("restored AdamW state", flush=True)
@@ -274,16 +257,22 @@ def main() -> None:
         f"{net.parameter_count() / 1e6:.2f}M parameters | fixed by turns: {args.fixed}",
         flush=True,
     )
-    drawer = np.random.default_rng(args.seed + 99)
+    # Constructors above consume Torch randomness. Restore only now, so the
+    # next self-play decision and minibatch continue exactly where we saved.
+    drawer = restore_random_state(
+        random_state, seed=args.seed, generation=start, modes=args.fixed
+    )
 
     def checkpoint_payload(generation: int) -> dict:
         return {
             **net.state(),
             "learner": "combined",
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             "smoothed": smoothed,
             "best_placement": best_placement,
             "optimizer_state": optimiser.state_dict(),
+            "random_state": capture_random_state(drawer),
         }
 
     end = start + args.rounds if args.rounds else args.generations
@@ -306,6 +295,7 @@ def main() -> None:
             population=roster,
             explore_share=args.explore,
         )
+        require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
         observations = batch.observations
         legal = batch.legal.to(device)
@@ -338,8 +328,8 @@ def main() -> None:
                 guess[chunk] = value.float()[:rows]
         value_error = float(((returns - guess) ** 2).mean())
         advantages = returns - guess
-        advantage_spread = float(advantages.std())
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+        advantage_spread = float(advantages.std(unbiased=False))
+        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-6)
 
         net.train()
         zero = lambda: torch.zeros((), device=device)
@@ -355,18 +345,6 @@ def main() -> None:
             ]
             # Whole minibatches only, so the compiled step sees one shape.
             slices = [drawn for drawn in slices if drawn.numel() == args.batch]
-            if not slices:
-                # Every minibatch was a remainder, so this epoch would
-                # train on nothing. A round smaller than one batch used to
-                # pass through here in silence: the generation was written,
-                # the checkpoint saved, the process exited nought, and not a
-                # weight had moved. A smoke test that proves only that the
-                # script runs is worse than no smoke test.
-                raise RuntimeError(
-                    f"a round of {batch.decisions} decisions makes no whole minibatch of "
-                    f"{args.batch}; nothing would be learned from it. Lower --batch or "
-                    "raise --games."
-                )
 
             def prepare(drawn: torch.Tensor):
                 return drawn.to(device), observations.rows(drawn.numpy()).dense(device)
@@ -426,7 +404,7 @@ def main() -> None:
                     loss = loss + args.leash * leash
                 loss.backward()
                 grad_norm = nn.utils.clip_grad_norm_(
-                    [p for p in net.parameters() if p.requires_grad], 1.0
+                    [p for p in net.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
                 )
                 optimiser.step()
                 with torch.no_grad():
@@ -460,9 +438,13 @@ def main() -> None:
                 head_shift = float(shift.sum() / allowed.sum().clamp(min=1))
             net.train()
 
-        denom = max(steps, 1)
+        require_updates(steps)
+        denom = steps
         record = {
+            "checkpoint_generation": generation + 1,
+            "optimizer_updates": steps,
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             "fixed": fixed,
             "head_shift": round(head_shift, 4),
             "on_fusion": round(weights[0], 4),
@@ -478,7 +460,7 @@ def main() -> None:
             "policy_loss": round(float(total_policy / denom), 4),
             "value_loss": round(float(total_value / denom), 4),
             "value_error": round(value_error, 4),
-            "return_variance": round(float(returns.var()), 4),
+            "return_variance": round(float(returns.var(unbiased=False)), 4),
             "advantage_spread": round(advantage_spread, 4),
             "entropy": round(float(total_entropy / denom), 4),
             "leash_kl": round(float(total_leash / denom), 5),
@@ -486,11 +468,10 @@ def main() -> None:
             "hands_covered": round(float(total_covered / denom), 4),
             "clipped": round(float(total_clipped / denom), 3),
             "approx_kl": round(float(total_kl / denom), 5),
-            "optimiser_steps": steps,
             # One row a player met, never summed. Improving against your
             # own recent past while losing to the fine-tuned Mortal is
             # specialisation, and an average is what hides it.
-            "matchups": batch.matchups,
+            "matchups": getattr(batch, "matchups", None),
             "grad_norm": round(float(total_grad / denom), 3),
             "mean_return": round(float(returns.mean()), 4),
         }
@@ -531,14 +512,13 @@ def main() -> None:
             # checkpoint forward, not a finding that it is stronger.
             # `neural.promote` decides that, by sitting it opposite the
             # champion; nothing here may write `champion.pt`.
-            checkpoint.publish(payload, args.out / "candidate.pt")
-            checkpoint.publish(payload, args.out / "best.pt")
-        checkpoint.publish(payload, args.out / "latest.pt")
+            atomic_save(payload, args.out / "candidate.pt")
+            atomic_save(payload, args.out / "best.pt")
+        atomic_save(payload, args.out / "latest.pt")
         print(json.dumps(record), flush=True)
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    checkpoint.publish(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

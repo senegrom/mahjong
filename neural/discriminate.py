@@ -52,7 +52,6 @@ HEADS = ("critic", "public", "mean")
 def look(net, games: int, seed: int, warmup: int, worlds: int, candidates: int, device: str):
     """Plays a few turns, then builds one decision's leaves in every game."""
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
-    arena.strict = True
     for _ in range(warmup):
         if arena.all_finished():
             break

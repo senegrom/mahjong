@@ -20,11 +20,18 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from .checkpoints import atomic_save
+from .training_safety import (
+    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
+)
+from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
 from . import mortal_learner, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
+from .training_state import capture_sampling_state, restore_sampling_state
 
 SMOOTHING = 1 / 3
 
@@ -68,6 +75,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_learning(args.batch, args.epochs)
+    validate_training_options(args)
+    require_training_engine()
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     amp_enabled = args.amp and device == "cuda"
@@ -81,12 +91,13 @@ def main() -> None:
     best_placement = float("inf")
     smoothed = None
     optimiser_state = None
+    sampling_state = None
     if args.resume is not None and args.resume.exists():
         net, payload = mortal_learner.load(args.resume, device, args.temperature)
         start = int(payload.get("generation", 0))
-        smoothed = payload.get("smoothed")
-        best_placement = float(payload.get("best_placement", float("inf")))
+        smoothed, best_placement = benchmark_history(payload)
         optimiser_state = payload.get("optimizer_state")
+        sampling_state = payload.get("sampling_state")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.mortal is not None and args.mortal.exists():
         net = mortal_learner.from_mortal(args.mortal, device, args.temperature)
@@ -132,16 +143,20 @@ def main() -> None:
         flush=True,
     )
 
+    restore_sampling_state(sampling_state, generation=start)
+
     def checkpoint_payload(generation: int) -> dict:
         return {
             **net.state(),
             "config": config,
             "learner": "mortal",
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
             "smoothed": smoothed,
             "best_placement": best_placement,
             "temperature": args.temperature,
             "optimizer_state": optimiser.state_dict(),
+            "sampling_state": capture_sampling_state(),
         }
 
     end = start + args.rounds if args.rounds else args.generations
@@ -159,6 +174,7 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
         )
+        require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
         observations = batch.observations
         legal = batch.legal.to(device)
@@ -190,8 +206,8 @@ def main() -> None:
                 guess[chunk] = value.float()[:rows]
         value_error = float(((returns - guess) ** 2).mean())
         advantages = returns - guess
-        advantage_spread = float(advantages.std())
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+        advantage_spread = float(advantages.std(unbiased=False))
+        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-6)
 
         net.train()
         zero = lambda: torch.zeros((), device=device)
@@ -237,7 +253,7 @@ def main() -> None:
                 entropy = distribution.entropy().mean()
                 loss = policy_loss + args.value_weight * value_loss - args.entropy * entropy
                 loss.backward()
-                grad_norm = nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                grad_norm = nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
                 optimiser.step()
                 with torch.no_grad():
                     total_policy += policy_loss
@@ -248,9 +264,13 @@ def main() -> None:
                     total_grad += grad_norm
                 steps += 1
 
-        denom = max(steps, 1)
+        require_updates(steps)
+        denom = steps
         record = {
             "generation": generation,
+            "training_api_version": TRAINING_API_VERSION,
+            "checkpoint_generation": generation + 1,
+            "optimizer_updates": steps,
             "decisions": batch.decisions,
             "hands": batch.hands,
             "seconds": round(time.time() - began, 1),
@@ -261,7 +281,7 @@ def main() -> None:
             "policy_loss": round(float(total_policy / denom), 4),
             "value_loss": round(float(total_value / denom), 4),
             "value_error": round(value_error, 4),
-            "return_variance": round(float(returns.var()), 4),
+            "return_variance": round(float(returns.var(unbiased=False)), 4),
             "advantage_spread": round(advantage_spread, 4),
             "entropy": round(float(total_entropy / denom), 4),
             "clipped": round(float(total_clipped / denom), 3),
@@ -299,13 +319,12 @@ def main() -> None:
         if measured is not None:
             payload["placement"] = measured["placement"]
         if is_best:
-            torch.save(payload, args.out / "best.pt")
-        torch.save(payload, args.out / "latest.pt")
+            atomic_save(payload, args.out / "best.pt")
+        atomic_save(payload, args.out / "latest.pt")
         print(json.dumps(record), flush=True)
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
 
-    torch.save(checkpoint_payload(max(end, start)), args.out / "latest.pt")
     print("training finished", flush=True)
 
 

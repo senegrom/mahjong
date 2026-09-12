@@ -35,11 +35,15 @@ import time
 import numpy as np
 import torch
 
+from .outcomes import placements as tied_placements, require_finished, validate_budget, win_shares
+
 import riichi_py
 
 from . import contract as contract_module
 from . import worlds as worlds_module
 from . import zoo
+from .contract import UnsupportedSearchLayout
+from .training_safety import require_training_engine
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -50,6 +54,25 @@ HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 SEATS = 4
 
 
+def require_native_search(net) -> None:
+    """The lookahead in which the network moves the other seats asks the
+    engine for its own observations at every decision inside the search,
+    and those are the engine's planes in our moves. Only a network of that
+    lineage can answer them. The club-played search is served more widely:
+    see `neural.contract`, whose `UnsupportedSearchLayout` this raises."""
+    require_training_engine()
+    planes = getattr(net, "planes", PLANES)
+    planes = planes() if callable(planes) else planes
+    actions = getattr(net, "actions", ACTIONS)
+    if planes != PLANES or actions != ACTIONS or getattr(net, "kind", "engine") != "engine":
+        raise UnsupportedSearchLayout(
+            f"Native lookahead requires {PLANES} engine planes and {ACTIONS} actions; "
+            f"got {planes} planes, {actions} actions ({getattr(net, 'kind', 'unknown')}). "
+            "Hypothetical leaves have no Mortal event history. Use neural.arena or the "
+            "network-only baseline for current checkpoints; do not pad or relabel engine planes."
+        )
+
+
 @torch.no_grad()
 def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=400):
     """Plays every decision the lookaheads are waiting on with the policy
@@ -58,6 +81,7 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=400):
     depth was asked for. Its best move at temperature zero, a sample
     otherwise. Returns how many passes of the policy it took; a slot still
     waiting after `passes` is given up on and does not count."""
+    require_native_search(net)
     taken = 0
     while taken < passes:
         planes_bytes, masks_bytes, count = arena.lookahead_owed()
@@ -126,6 +150,9 @@ def search_with_value_head(
     moves are its best (zero) or sampled. `valued_by` names the head that
     judges the leaves.
     """
+    served = served or contract_module.serve(net)
+    if played_by == "network":
+        require_native_search(net)
     games = len(ranked)
     # A stream of its own for choosing worlds, so which ones are drawn does
     # not depend on, or disturb, anything else. The seed moves with the
@@ -138,18 +165,26 @@ def search_with_value_head(
     kept = [[] for _ in range(games)]
     weights = [[] for _ in range(games)]
     if total:
-        hands = np.frombuffer(hands_bytes, dtype=np.float32)
-        hands = hands.reshape(total, HIDDEN_HANDS_PLANES, POSITIONS)
-        public = np.frombuffer(arena.observations(), dtype=np.float32)
-        public = public.reshape(games, PLANES, POSITIONS)
-        game_of = np.repeat(np.arange(games), counts)
-        plausible = np.empty(total, dtype=np.float32)
-        step = 4096
-        for start in range(0, total, step):
-            rows = slice(start, start + step)
-            position = torch.from_numpy(public[game_of[rows]]).to(device)
-            shown = torch.from_numpy(hands[rows]).to(device)
-            plausible[rows] = net.read_plausibility(position, shown).float().cpu().numpy()
+        weighs = served.contract.reads == "engine" and hasattr(net, "read_plausibility")
+        if weighs:
+            hands = np.frombuffer(hands_bytes, dtype=np.float32)
+            hands = hands.reshape(total, HIDDEN_HANDS_PLANES, POSITIONS)
+            public = np.frombuffer(arena.observations(), dtype=np.float32)
+            public = public.reshape(games, PLANES, POSITIONS)
+            game_of = np.repeat(np.arange(games), counts)
+            plausible = np.empty(total, dtype=np.float32)
+            step = 4096
+            for start in range(0, total, step):
+                rows = slice(start, start + step)
+                position = torch.from_numpy(public[game_of[rows]]).to(device)
+                shown = torch.from_numpy(hands[rows]).to(device)
+                plausible[rows] = net.read_plausibility(position, shown).float().cpu().numpy()
+        else:
+            # The reader that weighs a world reads our own planes beside the
+            # hands, and a network on Mortal's planes has no such reader.
+            # Its worlds count evenly, which is what a reader that had
+            # learned nothing would give: the unweighted estimator.
+            plausible = np.zeros(total, dtype=np.float32)
         offset = 0
         # Drawn in proportion to the reader's weights rather than taken from
         # the top of them: see `neural.worlds`. Keeping the likeliest worlds
@@ -221,6 +256,7 @@ def play(
     temperature: float = 0.0,
     valued_by: str = "critic",
     served=None,
+    max_steps: int = 4000,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -228,16 +264,29 @@ def play(
     else plays the network's first choice, so the only thing that differs
     between the two arms is whether that choice was checked.
     """
+    require_training_engine()
+    validate_budget(games, max_steps)
+    if searcher is None:
+        from . import duel
+        player = zoo.MortalSpacePlayer(net, device) if getattr(net, "speaks_mortal", False) else net
+        scores = duel.table(player, player, games, seed, 0, device, max_steps=max_steps)
+        return scores, (0, 0)
     net.eval()
+    # Refused here, before an arena exists, if nothing can serve it: a
+    # search that cannot build the planes a network reads must not write
+    # a tally that looks like a measurement.
     served = served or contract_module.serve(net)
+    if played_by == "network":
+        require_native_search(net)
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
-    arena.strict = True
-    # A network reading Mortal's planes needs the follower its root is
-    # built from, and the leaves are copied from the same states.
+    # The network that answers, out of whatever player wrapped it, and
+    # for one reading Mortal's planes the follower its root is built from;
+    # the leaves are copied from the same states.
+    net = served.net
     if served.contract.reads == "mortal":
         from .observe import Views
 
-        views = Views(arena, games, {net.kind})
+        views = Views(arena, games, {served.contract.reads})
         contract_module.remember_follower(arena, views.observer.follower)
     else:
         views = None
@@ -246,25 +295,72 @@ def play(
     # searching the number of worlds it was asked for.
     health: dict[str, list] = {}
     steps = 0
-    while not arena.all_finished() and steps < 4000:
+    while not arena.all_finished() and steps < max_steps:
         steps += 1
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
         if not (seats != 0xFF).any():
             break
 
-        planes = np.frombuffer(arena.observations(), dtype=np.float32)
-        planes = planes.reshape(games, PLANES, POSITIONS)
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
         mask = mask.reshape(games, ACTIONS).astype(bool)
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, SEATS)
+        live = seats != 0xFF
+        rows = np.nonzero(live)[0]
+        deciding = players[rows, np.minimum(seats[rows], 3)].astype(np.int64)
+        if views is not None:
+            views.advance()
+            views.prepare(rows, deciding)
 
-        logits, _value, guessed = net.everything(
-            torch.from_numpy(planes).to(device),
-            torch.from_numpy(mask).to(device),
-        )
-        # The network's order over the moves, best first.
-        order = torch.argsort(logits, dim=1, descending=True).cpu().numpy()
-        belief = torch.softmax(guessed, dim=2).reshape(games, HANDS).cpu().numpy()
+        # The root as this network reads it, through the same contract as
+        # the leaves below. A network of Mortal's lineage answers in
+        # Mortal's forty-six and the engine plays seventy-eight, so its
+        # order is named in ours; a reach there names no tile, and is put
+        # the second question the table puts it wherever one is legal, so
+        # the riichi discards take the reach's place in the order in the
+        # tile order of that answer.
+        root_planes, root_mask = served.root(arena, views, rows, deciding, mask, device)
+        logits, _value, guessed = net.everything(root_planes, root_mask)
+        own_order = served.order(logits.float())
+        named = served.to_engine_rows(own_order, mask[rows])
+        reach_at: dict[int, int] = {}
+        tile_order = None
+        if not served.contract.speaks_our_moves:
+            may_reach = mask[rows, zoo.RIICHI_DISCARD : zoo.TSUMO].any(axis=1)
+            second = np.nonzero(may_reach)[0]
+            if len(second):
+                after_planes, after_mask = served.after_reach(
+                    arena, rows[second], deciding[second], mask, device
+                )
+                after_logits, _after_value, _after_hands = net.everything(after_planes, after_mask)
+                tile_order = (
+                    torch.argsort(after_logits[:, :POSITIONS].float(), dim=1, descending=True)
+                    .cpu()
+                    .numpy()
+                )
+                reach_at = {int(at): k for k, at in enumerate(second)}
+        order = np.zeros((games, ACTIONS), dtype=np.int64)
+        every = np.arange(ACTIONS)
+        for at, game in enumerate(rows):
+            ours = named[at]
+            if at in reach_at:
+                where = np.nonzero(own_order[at] == zoo.MORTAL_RIICHI)[0]
+                riichi = zoo.RIICHI_DISCARD + tile_order[reach_at[at]]
+                riichi = riichi[mask[game][riichi]]
+                if len(where):
+                    ours = np.concatenate([ours[: where[0]], riichi, ours[where[0] + 1 :]])
+            ours = ours[ours >= 0]
+            # Each of our moves once, at its first mention, then the legal
+            # ones the network's order did not reach, then the rest: every
+            # row is a full order of distinct moves and the search reads
+            # only its head.
+            _first, at_first = np.unique(ours, return_index=True)
+            ours = ours[np.sort(at_first)]
+            seen = np.zeros(ACTIONS, dtype=bool)
+            seen[ours] = True
+            rest = every[~seen]
+            order[game] = np.concatenate([ours, rest[mask[game][rest]], rest[~mask[game][rest]]])
+        belief = np.zeros((games, HANDS), dtype=np.float32)
+        belief[rows] = torch.softmax(guessed.float(), dim=2).reshape(len(rows), HANDS).cpu().numpy()
 
         if searcher is None:
             choice = order[:, 0].tolist()
@@ -299,15 +395,7 @@ def play(
             )
         arena.step(list(choice))
 
-    # The same guard as everywhere else: a run that stopped on the step
-    # limit has games still in progress, and their scores are not results.
-    if not arena.all_finished():
-        unfinished = int((np.frombuffer(arena.seats(), dtype=np.uint8) != 0xFF).sum())
-        raise RuntimeError(
-            f"the search run stopped after {steps} steps with {unfinished} of {games} "
-            "games unfinished; the result would not be a result, so it is refused"
-        )
-
+    require_finished(arena, steps=steps, context="search evaluation")
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
     if health.get("efficiency"):
         mean = float(np.mean(health["efficiency"]))
@@ -321,8 +409,7 @@ def play(
 
 
 def placements(scores: np.ndarray, place: int) -> np.ndarray:
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
-    return order[:, place]
+    return tied_placements(scores)[:, place]
 
 
 def main() -> None:
@@ -384,10 +471,6 @@ def main() -> None:
     parser.add_argument("--blocks", type=int, default=20)
     args = parser.parse_args()
 
-    # Loaded the way every other path loads a checkpoint, so a combined
-    # one arrives whole rather than as whichever backbone `from_payload`
-    # could rebuild, and then refused outright if this search cannot serve
-    # the planes it reads.
     # Loaded whole, then asked what it reads and answers in. The server
     # that comes back builds the planes for the root and for every imagined
     # continuation alike; a network nothing here can serve is refused by
@@ -432,7 +515,7 @@ def main() -> None:
                 "chair": chair,
                 "placement": float(got.mean()),
                 "score": float(scores[:, chair].mean()),
-                "wins": float((got == 1).mean()),
+                "wins": float(win_shares(scores)[:, chair].mean()),
             }
         )
         per_deal.append(got.astype(float))

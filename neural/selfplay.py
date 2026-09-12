@@ -21,8 +21,11 @@ import torch
 
 import riichi_py
 
+from .training_safety import require_training_engine
+
 from . import zoo
 from .observe import Planes, Views
+from .outcomes import placement_rewards, placements, require_finished, validate_budget, win_shares
 
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
@@ -226,11 +229,12 @@ def play(
     fixed weak ones. With no opponents given, every path below is the one
     that ran before.
     """
+    require_training_engine()
+    validate_budget(games, max_steps)
     net.eval()
     for other in opponents or []:
         other.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=bot_places or [])
-    arena.strict = True
     kinds = {net.kind} | {other.kind for other in opponents or []}
     views = Views(arena, games, kinds)
     recording = net.kind == "mortal"
@@ -407,7 +411,6 @@ def play(
                 sparse = views.sparse(index, deciding[index])
                 timing["encode"] += clock() - began
                 began = clock()
-                batch_planes = sparse.dense(device)
             else:
                 sparse = None
                 batch_planes = views.dense(net.kind, index, deciding[index], device)
@@ -468,6 +471,8 @@ def play(
         hands += settle()
         timing["engine"] += clock() - began
 
+    require_finished(arena, steps=steps, context="self-play")
+
     # A learner that decides for itself kept its own account; fold it in
     # and clear it for the next round.
     own = getattr(net, "timing", None)
@@ -519,10 +524,10 @@ def play(
     # The placement, which is what the game is actually for, reaches every
     # decision that player made.
     final_scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4)
-    places = (-final_scores).argsort(axis=1).argsort(axis=1)
+    bonuses = placement_rewards(final_scores, PLACEMENT_VALUE)
     for game in range(games):
         for person in range(4):
-            value = PLACEMENT_VALUE[int(places[game][person])]
+            value = float(bonuses[game, person])
             for step_index in everything[game][person]:
                 rewards[step_index] += value
 
@@ -534,10 +539,11 @@ def play(
     # played and how it did against each of them rather than only how it
     # did on average. Places are per person; the learner holds every seat
     # a foreign player did not, so its own placement is the mean of those.
+    places = placements(final_scores)
     learner_place = np.zeros(games, dtype=np.float64)
     for game in range(games):
         mine = [person for person in range(4) if person != foreign_player[game]]
-        learner_place[game] = float(np.mean([places[game][person] + 1 for person in mine]))
+        learner_place[game] = float(np.mean([places[game][person] for person in mine]))
     against: list[dict] = []
     if population is not None and opponents:
         from .population import matchups as _matchups
@@ -567,14 +573,16 @@ def play(
 
 
 @torch.no_grad()
-def measure(
-    net, games: int, seed: int, device: str = "cuda", amp: bool = False
-) -> dict[str, float]:
+def evaluate_games(
+    net, games: int, seed: int, device: str = "cuda", amp: bool = False,
+    max_steps: int = 4000, place: int = 0,
+) -> tuple[np.ndarray, int]:
     """Plays the network against three heuristic opponents.
 
-    The network takes place 0 at every table; the other three places are the
-    benchmark. What comes back is the average placement, where 1.0 would be
-    winning every game and 4.0 losing every one, and the average final score.
+    The network takes the fixed player identity `place`, not a wind: seats
+    rotate between hands. Return final scores by player and the hand count,
+    without retaining training records. Raw Mortal-space networks are adapted
+    before either observation or action masks reach their forward method.
 
     It plays its best move rather than sampling, because that is what the
     web app does. Measuring sampled play would mix how well the network has
@@ -583,22 +591,22 @@ def measure(
 
     This is a score-only loop rather than `play(..., greedy=True)`: it does
     not fetch oracle/truth labels, construct rewards, or retain a round-sized
-    training batch.
-
-    It used to ask the belief head for an imagined world it had no use for,
-    because imagining one consumed the generator that deals the next hand
-    and dropping the call would have changed the games. The two streams are
-    separate now, so the call is gone. A benchmark seed therefore deals
-    different games here than it did before that separation, and figures
-    from either side of it are not comparable.
+    training batch. Imagined worlds use an independent native RNG, so
+    benchmarking has no need to generate unused hidden-hand proposals.
     """
+    require_training_engine()
+    validate_budget(games, max_steps)
+    if isinstance(place, bool) or not isinstance(place, (int, np.integer)) or not 0 <= place < 4:
+        raise ValueError("place must be a player index from 0 to 3")
+    if getattr(net, "speaks_mortal", False):
+        net = zoo.MortalSpacePlayer(net, device)
     net.eval()
-    arena = riichi_py.Arena(games=games, seed=seed, bot_places=[1, 2, 3])
-    arena.strict = True
+    arena = riichi_py.Arena(games=games, seed=seed,
+                            bot_places=[player for player in range(4) if player != place])
     views = Views(arena, games, {net.kind})
     hands = 0
     steps = 0
-    while not arena.all_finished() and steps < 4000:
+    while not arena.all_finished() and steps < max_steps:
         steps += 1
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
         live = seats != 0xFF
@@ -611,6 +619,8 @@ def measure(
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
         index = np.nonzero(live)[0]
         deciding = players[index, seats[index]]
+        if np.any(deciding != place):
+            raise RuntimeError("The arena exposed a heuristic opponent's decision; rebuild riichi_py")
 
         choice = np.zeros(games, dtype=np.int64)
         if hasattr(net, "choose"):
@@ -629,21 +639,22 @@ def measure(
         arena.step(choice.tolist())
         hands += int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())
 
-    # Final scores only mean something once the games are over; a run that
-    # stopped on the step limit would have the network judged on tables
-    # frozen mid-hand. See the same guard in `play`.
-    if not arena.all_finished():
-        unfinished = int((np.frombuffer(arena.seats(), dtype=np.uint8) != 0xFF).sum())
-        raise RuntimeError(
-            f"the measurement stopped after {steps} steps with {unfinished} of {games} games "
-            "unfinished; the result would not be a result, so it is refused"
-        )
-
+    require_finished(arena, steps=steps, context="measurement")
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4).copy()
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
+    return scores, hands
+
+
+@torch.no_grad()
+def measure(
+    net, games: int, seed: int, device: str = "cuda", amp: bool = False,
+    max_steps: int = 4000,
+) -> dict[str, float]:
+    """Score player 0 against three independent heuristic opponents."""
+    scores, hands = evaluate_games(net, games, seed, device, amp, max_steps)
+    order = placements(scores)
     return {
         "placement": float(order[:, 0].mean()),
         "score": float(scores[:, 0].mean()),
-        "wins": float((order[:, 0] == 1).mean()),
+        "wins": float(win_shares(scores)[:, 0].mean()),
         "hands": hands,
     }

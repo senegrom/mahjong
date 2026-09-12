@@ -316,7 +316,7 @@ python -m neural.export leashed-run/latest.pt web/public/model-full.onnx
 The export writes all three of the network's answers, not just the move:
 
 - `policy`, forty-six weights in Mortal's action space, which
-  `web/src/lib/mortal-space.js` gathers back into weights over ours (a red
+  `web/src/lib/action-weights.js` gathers back into weights over ours (a red
   five and its plain tile are two of Mortal's moves and one of ours; a
   reach names no tile, so its weight is spread over the tiles by the
   second question a declaration asks);

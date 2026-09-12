@@ -1,46 +1,55 @@
 import { analyzePolicy } from './policy.js';
 import { readBeliefs, readValue } from './beliefs.js';
-import { MORTAL_REACH, weightsOverOurMoves } from './mortal-space.js';
+import { weightsByChoice, MORTAL_REACH } from './action-weights.js';
 
 export const AGENTS = Object.freeze({ beginner: 'Beginner', club: 'Club', full: 'Trained' });
 export const WINDS = Object.freeze(['East', 'South', 'West', 'North']);
 export const isTrained = agent => agent === 'full';
 export const controller = agent => isTrained(agent) ? 'neural' : agent;
 
+/** Whether an engine can be asked the trained network's questions at all:
+ * the observation and mask in Mortal's space, the second question a reach
+ * asks, and the translation back into our moves.
+ *
+ * A game in progress has all of them. So does a position typed into the
+ * guided or physical table, since the engine replays it into the events
+ * Mortal's encoder needs (see `mortal_log.rs`); an engine that lacks any
+ * of the six is refused here rather than being asked half a question. */
+export function supportsTrainedAgent(engine) {
+  return ['agent_observation_mortal', 'agent_mask_mortal',
+    'agent_observation_after_reach', 'agent_mask_after_reach',
+    'agent_action_from_mortal', 'mortal_action_of']
+    .every(name => typeof engine?.[name] === 'function');
+}
+export const TRAINED_HISTORY_REQUIRED = 'Trained advice needs an engine that can build the network\'s '
+  + 'observation for this table. Choose Beginner or Club here; Trained play remains available in Play, Watch and hand review.';
+
 export async function evaluateAgent(engine, agent, signal) {
   const choices = engine.agent_choices();
   if (!choices.length) throw new Error('This seat has no decision to make yet');
   if (isTrained(agent)) {
-    // The network reads Mortal's planes, which are built from events. A
-    // game in progress has them; a position typed in is replayed into them
-    // first, which the engine does and which fails loudly if the position
-    // describes a hand that cannot have happened.
-    if (typeof engine.agent_observation_mortal !== 'function') {
-      throw new Error('The trained network is not available for this table');
+    if (!supportsTrainedAgent(engine)) {
+      throw new Error(TRAINED_HISTORY_REQUIRED);
     }
-    const mask = engine.agent_mask_mortal();
     let { action, weights, value, hands } = await analyzePolicy(
-      engine.agent_observation_mortal(), mask, signal, agent,
+      engine.agent_observation_mortal(), engine.agent_mask_mortal(), signal, agent,
     );
-    // Asked whenever a reach is legal, not only when it wins: the tiles it
-    // would throw are what turns one weight into a weight for each riichi.
-    const after = mask[MORTAL_REACH]
-      ? await analyzePolicy(engine.agent_observation_after_reach(), engine.agent_mask_after_reach(), signal, agent)
-      : null;
-    const afterReach = action === MORTAL_REACH;
-    if (afterReach) action = after.action;
+    let afterReach = false;
+    if (action === MORTAL_REACH) {
+      afterReach = true;
+      ({ action } = await analyzePolicy(
+        engine.agent_observation_after_reach(), engine.agent_mask_after_reach(), signal, agent,
+      ));
+    }
     const index = engine.agent_action_from_mortal(action, afterReach);
     const choice = choices.find(entry => entry.index === index);
     if (!choice) throw new Error('The agent did not return a legal choice');
-    const spread = weightsOverOurMoves(weights, mask, after,
-      (entry, reach) => engine.agent_action_from_mortal(entry, reach));
     return { agent, choice, kind: 'policy',
       // What the network makes of the position beside the move: what it
       // thinks the hand is worth, and what it thinks the other three hold.
       value: readValue(value),
       beliefs: hands ? readBeliefs(hands, concealedCounts(engine)) : null,
-      choices: choices
-        .map(entry => ({ ...entry, weight: entry.index == null ? null : spread.get(entry.index) ?? 0 }))
+      choices: weightsByChoice(engine, choices, weights, action => engine.agent_action_from_mortal(action, false))
         .sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1) || (a.index ?? 99) - (b.index ?? 99)) };
   }
   if (!(agent in AGENTS)) throw new Error('Unknown agent');

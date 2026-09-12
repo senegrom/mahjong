@@ -10,13 +10,14 @@ import puppeteer from 'puppeteer-core';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
+import { MODEL_FILES } from '../src/lib/model-package.js';
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web=fileURLToPath(new URL('../', import.meta.url));
 const output=resolve(web,'test-results');
 const handler=createFixtureHandler({root:resolve(web,'dist'),publicRoot:resolve(web,'dist')});
 let modelGets=0;
 const server=createServer((req,res)=>{
-  if(req.url==='/mahjong/model-full.onnx'&&req.method==='GET')modelGets++;
+  if(req.url===`/mahjong/${MODEL_FILES.full}`&&req.method==='GET')modelGets++;
   void handler(req,res);
 });
 const results=[],contexts=[];
@@ -33,7 +34,7 @@ async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false
   const context=await browser.createBrowserContext();contexts.push(context);
   const p=await context.newPage();p.errors=[];p.modelLoads=0;
   p.on('pageerror',e=>p.errors.push(e.message));
-  p.on('request',req=>{if(req.url().endsWith('/model-full.onnx')&&req.method()==='GET')p.modelLoads++;});
+  p.on('request',req=>{if(req.url().endsWith(`/${MODEL_FILES.full}`)&&req.method()==='GET')p.modelLoads++;});
   await p.setViewport({width,height,isMobile:width<500||height<500,hasTouch:width<500||height<500});
   await p.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
   await p.evaluateOnNewDocument((key,settings,snapshot)=>{
@@ -44,12 +45,9 @@ async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false
   if(mock || missing) await p.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'serviceWorker', { value: undefined }));
   await p.setRequestInterception(true);
   p.on('request',req=>{
-    if(missing&&req.url().endsWith('/model-full.onnx'))void req.respond({status:404,body:''});
+    if(missing&&req.url().endsWith(`/${MODEL_FILES.full}`))void req.respond({status:404,body:''});
     else if(mock&&req.url().includes('/assets/policy.worker-'))void req.respond({status:200,contentType:'text/javascript',body:fail
       ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,error:"Test network failure"});'
-      // The opponents answer in Mortal's forty-six moves now: 43 wins the
-      // hand, 45 declines a claim, and anything else falls back to the first
-      // legal move, which is a discard.
       : 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[43]?43:d.mask[45]?45:d.mask.findIndex(Boolean)});'});
     else void req.continue();
   });
@@ -138,11 +136,7 @@ try {
       await p.waitForFunction((key,count)=>JSON.parse(localStorage.getItem(key)).commands.length>count,{},SAVE_KEY,current.commands.length);
       await settled(p);
     }
-    // One network ships, so one download serves both trained seats. This is
-    // also the only check that the page fetches the shipped network at all,
-    // which the retired two-network check used to prove separately.
-    assert.equal(modelGets-loadsBefore,1,'the shipped network must be downloaded exactly once for both trained seats');
-    assert.equal(await p.$('.failure'),null);
+    assert.equal(modelGets-loadsBefore,1);assert.equal(await p.$('.failure'),null);
     const snapshot=await saved(p);assert.ok(snapshot.commands.filter(c=>c.type==='opponent').length>=4);
     assert.deepEqual(await labels(p),['neural','club','neural']);assert.deepEqual(p.errors,[]);
     const r=MatchSession.restore(Game,JSON.stringify(snapshot));try{assert.equal(r.stateKey(),snapshot.state);}finally{r.dispose();}

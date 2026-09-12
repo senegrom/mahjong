@@ -135,7 +135,8 @@ def choose_in_mortal_space(
     """One of our engine's actions per row, from values in Mortal's own
     action space.
 
-    `ask(who, fresh)` answers with those values and Mortal's mask for the
+    `ask(who, fresh, allowed)` scores using the core-derived mask and returns
+    those values plus Mortal's original mask for the
     positions named. A riichi there names no tile, so when one is chosen
     the reach is told to the follower and the same question asked again,
     from the state in which it is declared, and the tile is decided by the
@@ -143,7 +144,6 @@ def choose_in_mortal_space(
     """
     who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
     legal = np.atleast_2d(legal)
-    values, own = ask(who, False)
     # What our engine allows, named in Mortal's moves, and not what the two
     # rule sets agree on: Mortal will not reach with fewer than four tiles
     # left in the wall, and EMA 2025 section 3.3.10 allows it down to one.
@@ -152,6 +152,7 @@ def choose_in_mortal_space(
     allowed = translatable(legal)
     orphan = ~allowed.any(axis=1)
     allowed[orphan, MORTAL_PASS] = True
+    values, own = ask(who, False, allowed)
     ranked = np.where(allowed, values, -np.inf)
     best = ranked.argmax(axis=1)
     if stats is not None:
@@ -169,8 +170,10 @@ def choose_in_mortal_space(
         for i in second:
             game, player = who[i]
             follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
-        after, _own_after = ask([who[i] for i in second], True)
         tiles = legal[second, RIICHI_DISCARD:TSUMO]
+        allowed_after = np.zeros((len(second), MORTAL_ACTIONS), dtype=bool)
+        allowed_after[:, :34] = tiles
+        after, _own_after = ask([who[i] for i in second], True, allowed_after)
         ranked_tiles = np.where(tiles, after[:, :riichi_py.POSITIONS], -np.inf)
         choice[second] = RIICHI_DISCARD + ranked_tiles.argmax(axis=1)
     return choice.astype(np.int64)
@@ -215,12 +218,12 @@ class MortalSpacePlayer:
 
     @torch.no_grad()
     def _ask(
-        self, views: Views, who: list[tuple[int, int]], fresh: bool = False
+        self, views: Views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         rows = np.array([game for game, _player in who], dtype=np.int64)
         players = np.array([player for _game, player in who], dtype=np.int64)
         sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
-        mask = torch.from_numpy(masks).to(self.device)
+        mask = torch.from_numpy(allowed).to(self.device)
         with torch.no_grad(), torch.autocast(
             "cuda", dtype=torch.bfloat16, enabled=str(self.device).startswith("cuda")
         ):
@@ -233,7 +236,7 @@ class MortalSpacePlayer:
     ) -> np.ndarray:
         stats: dict = {}
         choice = choose_in_mortal_space(
-            lambda who, fresh: self._ask(views, who, fresh), views, rows, players, legal, stats
+            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal, stats
         )
         self.orphans += stats.get("orphans", 0)
         self.fallbacks += stats.get("fallbacks", 0)
@@ -262,7 +265,7 @@ class MortalPlayer:
         return self
 
     def _ask(
-        self, views: Views, who: list[tuple[int, int]], fresh: bool = False
+        self, views: Views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """Mortal's Q values for those players, in its own action space,
         and its own mask of what it believes it may do. From the step's
@@ -271,7 +274,7 @@ class MortalPlayer:
         players = np.array([player for _game, player in who], dtype=np.int64)
         sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
         planes = sparse.dense(self.device)
-        mask = torch.from_numpy(masks).to(self.device)
+        mask = torch.from_numpy(allowed).to(self.device)
         with torch.no_grad(), torch.autocast(
             "cuda", dtype=torch.bfloat16, enabled=str(self.device).startswith("cuda")
         ):
@@ -287,7 +290,7 @@ class MortalPlayer:
         actions that our engine allows, translated."""
         stats: dict = {}
         choice = choose_in_mortal_space(
-            lambda who, fresh: self._ask(views, who, fresh), views, rows, players, legal, stats
+            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal, stats
         )
         self.orphans += stats.get("orphans", 0)
         self.fallbacks += stats.get("fallbacks", 0)

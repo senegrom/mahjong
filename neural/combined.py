@@ -70,9 +70,6 @@ class Fuse(nn.Module):
         # exactly as our network did and is never worse for the change.
         self.value_fix = nn.Sequential(nn.Linear(phi, 256), nn.ReLU(), nn.Linear(256, 1))
         self.hands_fix = nn.Sequential(nn.Linear(phi, width), nn.ReLU())
-        # One number per opponent per tile, read straight off Mortal's
-        # vector. See `read_hands` for why it cannot be a convolution over
-        # a spread one.
         self.hands_out = nn.Linear(width, OPPONENTS * POSITIONS)
         # F1 starts silent, not absent: its last layers are zero, so it
         # adds nothing to the first move played, while its weight below is
@@ -111,31 +108,20 @@ class Fuse(nn.Module):
         return value + self.value_fix(phi.detach()).squeeze(1)
 
     def read_hands(self, phi: torch.Tensor, guessed: torch.Tensor) -> torch.Tensor:
-        """What the three opponents are holding: our network's reading,
-        corrected by Mortal's vector, and likewise without training it.
-
-        The correction has to differ from tile to tile or it cannot exist.
-        A reading is a distribution over the thirty-four tiles, so adding
-        the same number to every logit leaves the softmax exactly where it
-        was. The first version of this spread Mortal's vector evenly across
-        the tiles and put it through a one-by-one convolution, which gives
-        every tile the same number and therefore does nothing at all:
-        measured with real weights it moved a logit by 244 and a
-        probability by 9e-16, and the gradient reaching it was 2e-15.
-        Parameters that could not be trained, and could not have changed an
-        answer if they had been.
-
-        Putting the base reading in beside the spread vector is not enough
-        either — it lets the correction vary by tile, but only through what
-        our own network already said, so Mortal's vector still only sets a
-        constant and still cannot name a tile.
-
-        So Mortal's vector is read straight into one number per opponent
-        per tile. That is the only shape of correction a distribution
-        admits, and it is the one this was always supposed to be.
-        """
+        """What the three opponents are holding, likewise: our network's
+        reading, corrected by a tile-dependent projection of Mortal's vector,
+        likewise without training its encoder."""
         correction = self.hands_out(self.hands_fix(phi.detach()))
-        return guessed + correction.reshape(guessed.shape)
+        return guessed + correction.reshape(-1, OPPONENTS, POSITIONS)
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        weight, bias = prefix + "hands_out.weight", prefix + "hands_out.bias"
+        if weight in state_dict and state_dict[weight].ndim == 3:
+            # Old Conv1d added one constant per opponent. Replicate that same
+            # constant over tile-specific rows, preserving its probabilities.
+            state_dict[weight] = state_dict[weight].squeeze(-1).repeat_interleave(POSITIONS, dim=0)
+            state_dict[bias] = state_dict[bias].repeat_interleave(POSITIONS, dim=0)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
     def hidden(self, phi: torch.Tensor, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """F2, per tile and pooled, from Mortal's vector and our features."""
@@ -281,7 +267,7 @@ class Combined(nn.Module):
         # Z1, over the same moves Mortal answers: left unmasked, since the
         # head above weighs it and masks once at the end.
         a1 = torch.cat([tiles, ours.policy_pooled(pooled)], dim=1)
-        value = ours.value(pooled).squeeze(1)
+        value = ours.value(pooled.detach()).squeeze(1)
         guessed = ours.hands_from(planes, features)
         phi = self.mortal.features(planes)
         q = self.mortal.dqn(phi, legal)
@@ -310,16 +296,16 @@ class Combined(nn.Module):
         """Its best move per row, in our engine's actions. The same two
         steps as `decide`, with nothing recorded."""
         return zoo.choose_in_mortal_space(
-            lambda who, fresh: self._ask(views, who, fresh), views, rows, players, legal
+            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal
         )
 
     @torch.no_grad()
-    def _ask(self, views, who: list[tuple[int, int]], fresh: bool = False):
+    def _ask(self, views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray):
         rows = np.array([game for game, _player in who], dtype=np.int64)
         players = np.array([player for _game, player in who], dtype=np.int64)
         sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
         device = str(next(self.parameters()).device)
-        mask = torch.from_numpy(masks).to(device)
+        mask = torch.from_numpy(allowed).to(device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.startswith("cuda")):
             logits, _value = self.forward(sparse.dense(device), mask)
         return logits.float().cpu().numpy(), masks
@@ -409,27 +395,36 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
     # everything it had and starts those at nothing, which is where they
     # begin anyway: the fusion then judges and reads as our network does
     # and learns from there.
-    #
-    # A weight whose shape has changed is dropped rather than refused. The
-    # reader's output layer grew an input for the base reading, because
-    # without it the correction was the same number on every tile and a
-    # distribution cannot see that. Its old weights meant nothing — they
-    # could not move an answer — so there is nothing to migrate, and
-    # starting them at zero leaves the fusion reading exactly as our own
-    # network does, which is where it began.
-    carried = net.fuse.state_dict()
-    saved = state["combined"]
-    fits = {
-        name: value
-        for name, value in saved.items()
-        if name in carried and carried[name].shape == value.shape
-    }
-    dropped = sorted(set(saved) - set(fits))
-    if dropped:
-        print(f"fusion weights not carried over, shape changed: {dropped}", flush=True)
-    net.fuse.load_state_dict(fits, strict=False)
+    net.fuse.load_state_dict(state["combined"], strict=False)
     return net, state
 
 
 def is_combined(payload: dict) -> bool:
     return isinstance(payload, dict) and "combined" in payload
+
+
+def migrate_belief_optimizer(saved: dict, optimiser, net: Combined) -> dict:
+    """Expand legacy Adam moments alongside the equivalent model conversion.
+
+    The number/order of parameters is unchanged (Linear replaces Conv1d).
+    Only these two tensors changed shape; never reset unrelated optimizer state.
+    """
+    result = {**saved, "state": dict(saved["state"])}
+    targets = {id(net.fuse.hands_out.weight): "weight", id(net.fuse.hands_out.bias): "bias"}
+    for old_group, group in zip(saved["param_groups"], optimiser.param_groups):
+        for key, parameter in zip(old_group["params"], group["params"]):
+            kind = targets.get(id(parameter))
+            if kind is None or key not in result["state"]:
+                continue
+            state = dict(result["state"][key])
+            for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                value = state.get(name)
+                if value is None or value.shape == parameter.shape:
+                    continue
+                old_shape = ((OPPONENTS, net.fuse.width, 1) if kind == "weight"
+                             else (OPPONENTS,))
+                if tuple(value.shape) != old_shape:
+                    raise ValueError("Unexpected fusion belief optimizer tensor shape")
+                state[name] = (value.squeeze(-1) if kind == "weight" else value).repeat_interleave(POSITIONS, dim=0)
+            result["state"][key] = state
+    return result

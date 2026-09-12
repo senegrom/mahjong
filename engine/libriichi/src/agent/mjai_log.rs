@@ -10,7 +10,7 @@ use pyo3::prelude::*;
 use serde_json as json;
 
 pub struct MjaiLogBatchAgent {
-    engine: PyObject,
+    engine: Py<PyAny>,
     name: String,
 
     game_states: Vec<GameState>,
@@ -31,10 +31,10 @@ struct GameState {
 }
 
 impl MjaiLogBatchAgent {
-    pub fn new(engine: PyObject, player_ids: &[u8]) -> Result<Self> {
+    pub fn new(engine: Py<PyAny>, player_ids: &[u8]) -> Result<Self> {
         ensure!(player_ids.iter().all(|&id| matches!(id, 0..=3)));
 
-        let name = Python::with_gil(|py| {
+        let name = Python::attach(|py| {
             let obj = engine.bind_borrowed(py);
             for method in ["react_batch", "start_game", "end_kyoku", "end_game"] {
                 ensure!(
@@ -65,7 +65,7 @@ impl MjaiLogBatchAgent {
             return Ok(());
         }
 
-        let raw_reactions: Vec<String> = Python::with_gil(|py| {
+        let raw_reactions: Vec<String> = Python::attach(|py| {
             let game_states = mem::take(&mut self.game_states);
             self.engine
                 .bind_borrowed(py)
@@ -130,7 +130,7 @@ impl BatchAgent for MjaiLogBatchAgent {
     }
 
     fn start_game(&mut self, index: usize) -> Result<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             self.engine
                 .bind_borrowed(py)
                 .call_method1(intern!(py, "start_game"), (index,))?;
@@ -139,7 +139,7 @@ impl BatchAgent for MjaiLogBatchAgent {
     }
 
     fn end_kyoku(&mut self, index: usize) -> Result<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             self.engine
                 .bind_borrowed(py)
                 .call_method1(intern!(py, "end_kyoku"), (index,))?;
@@ -148,7 +148,7 @@ impl BatchAgent for MjaiLogBatchAgent {
     }
 
     fn end_game(&mut self, index: usize, game_result: &GameResult) -> Result<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             self.engine
                 .bind_borrowed(py)
                 .call_method1(intern!(py, "end_game"), (index, game_result.scores))?;

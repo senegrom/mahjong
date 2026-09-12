@@ -34,6 +34,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from .checkpoints import atomic_save
 from torch import nn
 
 import riichi_py
@@ -263,7 +265,7 @@ def main() -> None:
             "seconds": round(time.time() - began, 1),
             "play_seconds": round(played, 1),
         }
-        torch.save(
+        atomic_save(
             {"model": student.state_dict(), "generation": 0, **student.payload_fields()},
             args.out / "latest.pt",
         )

@@ -85,7 +85,6 @@ def play(net, games, seed, searcher, worlds, candidates, margin, device):
     """Plays `games` out and returns the final scores. `searcher` is the
     place that thinks ahead, or None for nobody."""
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
-    arena.strict = True
     views = Views(arena, games, {net.kind})
     follower = views.observer.follower
     asked = changed = 0
@@ -174,8 +173,9 @@ def play(net, games, seed, searcher, worlds, candidates, margin, device):
 
 
 def placements(scores, place):
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
-    return order[:, place]
+    from .outcomes import placements as tied
+
+    return tied(scores)[:, place]
 
 
 def main():

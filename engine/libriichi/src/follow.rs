@@ -120,7 +120,7 @@ impl Follower {
             )));
         }
         let tables = &mut self.tables;
-        py.allow_threads(|| {
+        py.detach(|| {
             tables
                 .par_iter_mut()
                 .zip(lines.par_iter())
@@ -194,7 +194,7 @@ impl Follower {
         }
         let version = self.version;
         let tables = &self.tables;
-        let rows: Vec<Sparse> = py.allow_threads(|| {
+        let rows: Vec<Sparse> = py.detach(|| {
             who.par_iter()
                 .map(|&(game, player)| -> Result<Sparse> {
                     let original = &tables[game].states[player];
@@ -288,7 +288,7 @@ impl Imagined {
             )));
         }
         let states = &mut self.states;
-        py.allow_threads(|| {
+        py.detach(|| {
             states
                 .par_iter_mut()
                 .zip(lines.par_iter())
@@ -320,7 +320,7 @@ impl Imagined {
         Bound<'py, PyArray2<bool>>,
     )> {
         let version = self.version;
-        let rows: Vec<Sparse> = py.allow_threads(|| {
+        let rows: Vec<Sparse> = py.detach(|| {
             self.states
                 .par_iter()
                 .map(|state| {

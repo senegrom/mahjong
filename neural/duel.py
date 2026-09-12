@@ -28,7 +28,11 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from .outcomes import placements as tied_placements, require_finished, validate_budget, win_shares
+
 import riichi_py
+
+from .training_safety import require_training_engine
 
 from . import zoo
 from .observe import Views
@@ -53,10 +57,11 @@ def table(
     Both networks play their best move rather than sampling, which is what
     the browser does and what the comparison is about.
     """
+    require_training_engine()
+    validate_budget(games, max_steps)
     challenger.eval()
     incumbent.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
-    arena.strict = True
     # Each network is served the planes it sees, so the two may be of
     # different lineages.
     views = Views(arena, games, {challenger.kind, incumbent.kind})
@@ -87,23 +92,12 @@ def table(
 
         arena.step(choice.tolist())
 
-    # A duel that ran out of steps would compare the two networks on tables
-    # frozen mid-hand, and the number that came back would look exactly like
-    # a result. The limit guards against a hand that will not end, so
-    # reaching it is a fault to report rather than a budget to spend.
-    if not arena.all_finished():
-        unfinished = int((np.frombuffer(arena.seats(), dtype=np.uint8) != 0xFF).sum())
-        raise RuntimeError(
-            f"the duel stopped after {steps} steps with {unfinished} of {games} games "
-            "unfinished; the comparison would not be a comparison, so it is refused"
-        )
-
+    require_finished(arena, steps=steps, context="duel")
     return np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
 
 
 def placements(scores: np.ndarray, place: int) -> np.ndarray:
-    order = (-scores).argsort(axis=1).argsort(axis=1) + 1
-    return order[:, place]
+    return tied_placements(scores)[:, place]
 
 
 def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda") -> dict:
@@ -118,7 +112,7 @@ def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda") -> 
                 "place": place,
                 "placement": float(got.mean()),
                 "score": float(scores[:, place].mean()),
-                "wins": float((got == 1).mean()),
+                "wins": float(win_shares(scores)[:, place].mean()),
             }
         )
         per_deal.append(got.astype(float))

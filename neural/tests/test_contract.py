@@ -108,6 +108,9 @@ class EachKindGetsItsOwnServer(unittest.TestCase):
 
 
 class UnservableCombinationsAreRefusedByName(unittest.TestCase):
+    def test_the_refusal_is_a_value_error_a_caller_can_catch(self):
+        self.assertTrue(issubclass(contract.UnsupportedSearchLayout, ValueError))
+
     def test_a_network_with_no_critic_cannot_be_searched(self):
         class Blind:
             kind = "engine"
@@ -116,7 +119,7 @@ class UnservableCombinationsAreRefusedByName(unittest.TestCase):
             def planes(self):
                 return riichi_py.PLANES
 
-        with self.assertRaises(SystemExit) as caught:
+        with self.assertRaises(contract.UnsupportedSearchLayout) as caught:
             contract.serve(Blind(), "blind.pt")
         self.assertIn("no value head", str(caught.exception))
         self.assertIn("blind.pt", str(caught.exception))
@@ -132,7 +135,7 @@ class UnservableCombinationsAreRefusedByName(unittest.TestCase):
             def everything(self, planes, mask):
                 raise NotImplementedError
 
-        with self.assertRaises(SystemExit) as caught:
+        with self.assertRaises(contract.UnsupportedSearchLayout) as caught:
             contract.serve(Odd(), "odd.pt")
         self.assertIn("cannot be searched here", str(caught.exception))
 
@@ -147,7 +150,7 @@ class UnservableCombinationsAreRefusedByName(unittest.TestCase):
             def everything(self, planes, mask):
                 raise NotImplementedError
 
-        with self.assertRaises(SystemExit) as caught:
+        with self.assertRaises(contract.UnsupportedSearchLayout) as caught:
             contract.serve(Strange(), "strange.pt")
         self.assertIn("no server here builds", str(caught.exception))
         self.assertIn("rather than approximating", str(caught.exception))
@@ -194,7 +197,6 @@ class TheContractServesTheSamePositionNormalPlayDoes(unittest.TestCase):
 
         games = 4
         arena = riichi_py.Arena(games=games, seed=1234, bot_places=[])
-        arena.strict = True
         views = Views(arena, games, {net.kind})
         contract.remember_follower(arena, views.observer.follower)
         views.advance()

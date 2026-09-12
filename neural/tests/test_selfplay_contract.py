@@ -60,7 +60,7 @@ class FirstLegal:
         return logits, value, guessed
 
 
-def played_out(arena, games, limit=4000):
+def played_out(arena, games, limit=4000, lenient_steps=False):
     """Plays every seat's first legal move until the games end."""
     steps = 0
     while not arena.all_finished() and steps < limit:
@@ -71,37 +71,39 @@ def played_out(arena, games, limit=4000):
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8).reshape(games, -1).astype(bool)
         live = seats != 0xFF
         choice = np.where(live, mask.argmax(axis=1), 0).astype(np.int64)
-        arena.step(choice.tolist())
+        if lenient_steps:
+            arena.step(choice.tolist(), strict=False)
+        else:
+            arena.step(choice.tolist())
     return steps
 
 
 class StrictActions(unittest.TestCase):
     """An index that names no legal move must not be quietly replaced."""
 
-    def test_a_lenient_arena_substitutes_and_carries_on(self):
+    def test_a_lenient_step_substitutes_and_carries_on(self):
+        """Asked for by name: a page wants to shrug at a stray index."""
         arena = riichi_py.Arena(games=1, seed=SEED, bot_places=[])
-        self.assertFalse(arena.strict, "a page wants to shrug at a stray index")
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8).reshape(1, -1).astype(bool)
         illegal = int(np.nonzero(~mask[0])[0][0])
-        arena.step([illegal])  # does not raise
+        arena.step([illegal], strict=False)  # does not raise
 
-    def test_a_strict_arena_refuses_rather_than_substitute(self):
+    def test_the_default_refuses_rather_than_substitute(self):
+        """Strict is what a trainer gets without asking, so a record can
+        never describe a move the engine did not play."""
         arena = riichi_py.Arena(games=1, seed=SEED, bot_places=[])
-        arena.strict = True
-        self.assertTrue(arena.strict)
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8).reshape(1, -1).astype(bool)
         illegal = int(np.nonzero(~mask[0])[0][0])
         with self.assertRaises(ValueError) as caught:
             arena.step([illegal])
-        self.assertIn("strict", str(caught.exception))
+        self.assertIn("illegal action", str(caught.exception))
 
     def test_strict_play_is_otherwise_unchanged(self):
-        """Legal moves are played the same either way, so turning it on
+        """Legal moves are played the same either way, so the default
         does not change what a run does, only what it refuses."""
         lenient = riichi_py.Arena(games=GAMES, seed=SEED, bot_places=[])
         strict = riichi_py.Arena(games=GAMES, seed=SEED, bot_places=[])
-        strict.strict = True
-        played_out(lenient, GAMES)
+        played_out(lenient, GAMES, lenient_steps=True)
         played_out(strict, GAMES)
         self.assertEqual(
             np.frombuffer(lenient.final_scores(), dtype=np.int32).tolist(),

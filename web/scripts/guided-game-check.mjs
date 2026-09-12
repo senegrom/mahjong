@@ -6,7 +6,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { createFixtureHandler } from './static-fixture-server.mjs';
-import { parseTiles, PHYSICAL_KEY } from '../src/lib/physical-position.js';
+import { emptyPosition, parseTiles, PHYSICAL_KEY } from '../src/lib/physical-position.js';
 import { GUIDED_KEY, GUIDED_FORMAT, emptyGuided, guidedEvent } from '../src/lib/guided-game.js';
 import { SETTINGS_KEY, SAVE_KEY } from '../src/lib/session.js';
 
@@ -138,21 +138,66 @@ try {
     assert.deepEqual(await page.evaluate(({ physical, match }) => [localStorage.getItem(physical), localStorage.getItem(match)], { physical: PHYSICAL_KEY, match: SAVE_KEY }), ['existing position editor draft', 'existing regular match']);
     assert.deepEqual(page.problems, []);
   });
-  await check('mobile guided play shows the real trained percentages and resumes the pending decision', async context => {
-    const page = await open(context, 360);
+  await check('mobile guided play offers every adviser and honours a saved trained preference', async context => {
+    const page = await open(context, 360), modelRequests = [];
+    page.on('request', request => { if (new URL(request.url()).pathname.endsWith('.onnx') && request.method() === 'GET') modelRequests.push(request.url()); });
     await setup(page, '0');
     await tile(page, '4z'); await choice(page);
-    await page.waitForSelector('[aria-label="Guided game adviser"] option[value="full"]');
-    await page.select('[aria-label="Guided game adviser"]', 'full');
-    await page.waitForFunction(() => document.querySelector('.recommendation strong')?.textContent.includes('Trained') && document.querySelector('.weight-row meter'), { timeout: 120000 });
-    const weights = await page.$$eval('.weight-row meter', meters => meters.map(m => Number(m.value)));
-    assert.ok(Math.abs(weights.reduce((a, b) => a + b, 0) - 1) < 1e-5);
+    const selector = '[aria-label="Guided game adviser"]';
+    // A typed-in position is replayed into the events the network's encoder
+    // needs, so the trained adviser is offered here as it is in a live game.
+    assert.deepEqual(await page.$$eval(`${selector} option:not(:disabled)`, options => options.map(o => o.value)), ['beginner', 'club', 'full']);
+    assert.equal(await page.$('.adviser-availability'), null, 'nothing is unavailable to explain');
+    assert.equal(await page.$('.weight-row meter'), null, 'Club selection is not a trained percentage');
     assert.equal(await page.$$eval('.held-tiles .copy-count', nodes => nodes.length), 14);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
+    const before = await saved(page);
+    // A saved trained preference is kept as the adviser, and the decision it
+    // was saved on is advised by the real network, not rewritten.
+    before.state.agent = 'full';
+    await page.evaluate(({ key, text }) => localStorage.setItem(key, text), { key: GUIDED_KEY, text: GUIDED_FORMAT.encode(before) });
+    await page.reload({ waitUntil: 'networkidle0' }); await stage(page, 'decision');
+    await page.waitForSelector('.guided-controls:not(:disabled)');
+    assert.equal(await page.$eval(selector, el => el.value), 'full');
+    assert.equal(await page.$eval(`${selector} option[value="full"]`, el => el.disabled), false);
+    await page.waitForSelector('.record-best', { timeout: 90000 });
+    assert.ok(modelRequests.length > 0, 'trained advice loads the network');
+    assert.notEqual(await page.$('.weight-row meter'), null, 'a trained suggestion carries its weight');
+    assert.equal(await page.$('.failure'), null);
+    assert.deepEqual(await saved(page), before, 'loading must preserve the entire saved game');
+    await page.select(selector, 'club'); await choice(page);
+    const resumed = await saved(page);
+    assert.deepEqual(resumed.state.position, before.state.position);
+    assert.deepEqual(resumed.log, before.log); assert.deepEqual(resumed.past, before.past);
+    assert.equal(resumed.state.agent, 'club');
     await page.screenshot({ path: resolve(output, 'guided-game-mobile.png'), fullPage: true });
     await page.reload({ waitUntil: 'networkidle0' }); await choice(page);
-    assert.equal(await page.$eval('[aria-label="Guided game adviser"]', el => el.value), 'full');
+    assert.equal(await page.$eval(selector, el => el.value), 'club');
     assert.equal((await saved(page)).state.position.players[0].hand.length, 14);
+    assert.deepEqual(page.problems, []);
+  });
+  await check('physical editor starts on Trained when the network is there and Club preserves the table', async context => {
+    const page = await open(context, 360), position = emptyPosition();
+    position.players[0].hand = parseTiles('123m456p789s11234z');
+    position.drawn = '4z'; position.indicators = ['5z'];
+    await page.evaluate(({ key, position }) => localStorage.setItem(key, JSON.stringify({ version: 1, position })), { key: PHYSICAL_KEY, position });
+    await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=physical`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('.physical-editor:not(:disabled)');
+    const selector = '[aria-label="Physical play agent"]';
+    // The trained adviser is the default wherever its network can be fetched,
+    // and every adviser is offered; Club is chosen here to keep the check
+    // off the network's clock.
+    assert.equal(await page.$eval(selector, el => el.value), 'full');
+    assert.deepEqual(await page.$$eval(`${selector} option:not(:disabled)`, options => options.map(o => o.value)), ['beginner', 'club', 'full']);
+    assert.equal(await page.$('.adviser-availability'), null, 'nothing is unavailable to explain');
+    await page.select(selector, 'club');
+    await page.click('.physical-toolbar .primary');
+    await page.waitForSelector('.recommendation');
+    assert.equal(await page.$eval('.recommendation strong', el => el.textContent), 'Club');
+    assert.equal(await page.$('.weight-row meter'), null);
+    assert.equal(await page.$('.physical-play .failure'), null);
+    const restored = await page.evaluate(key => JSON.parse(localStorage.getItem(key)).position, PHYSICAL_KEY);
+    assert.deepEqual(restored, position);
     assert.deepEqual(page.problems, []);
   });
   await check('two windows stop conflicting edits and reload the newer guided prompt', async context => {

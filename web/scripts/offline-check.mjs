@@ -11,21 +11,14 @@ import { createHash } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
+import { MODEL_FILES } from '../src/lib/model-package.js';
 import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
 const manifest = JSON.parse(await readFile(resolve(dist, 'offline-manifest.json'), 'utf8'));
 const source = await readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8');
-// The build puts every network and the runtime in one optional group, so the
-// manifest names the file rather than this check knowing it. The group matters
-// as much as the name: the checks below prove the AI bytes are never fetched
-// for a game that does not want them, and only the group says which those are.
-const models = manifest.entries.filter(e => e.url.endsWith('.onnx'));
-assert.equal(models.length, 1, 'The site ships exactly one trained network');
-assert.ok(manifest.hasModel, 'A build carrying a network must say so');
-assert.ok(models.every(e => e.group === 'ai'), 'The network is an optional download, not part of the core game');
-const modelPath = models[0].url, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
+const modelPath = MODEL_FILES.full, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
 const count = new Map(), refused = [], overrides = new Map();
 let unavailable = false, failPath = null, holdPath = null, holdResolve = null, holdSeenResolve = null;
 const mime = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css',

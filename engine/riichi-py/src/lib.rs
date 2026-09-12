@@ -48,18 +48,8 @@ struct Seat {
     hand: Hand,
     /// Deals the hands. Nothing hypothetical may draw from it.
     rng: Rng,
-    /// Draws the worlds a search imagines, and anything else that is
-    /// thought about rather than played.
-    ///
-    /// It is separate from `rng` because they would otherwise be one
-    /// stream: imagining a world consumed the generator that deals the
-    /// next hand, so thinking harder changed the cards. That makes a
-    /// search impossible to compare against no search — the two arms are
-    /// not playing the same games — and it makes a run irreproducible the
-    /// moment its search effort is touched. `measure` went as far as
-    /// keeping an imagined world it did not want, purely to keep the
-    /// stream where history had left it.
-    dream: Rng,
+    /// Simulation must never consume the generator that deals real hands.
+    search_rng: Rng,
     /// Seats that still owe an answer to the claim on the table.
     asking: VecDeque<Wind>,
     /// Answers gathered so far in this claim window.
@@ -97,7 +87,6 @@ impl Seat {
         let mut rng = Rng::from_seed(seed);
         // A stream of its own, far from the dealing one, so that how much
         // a search imagines cannot change what is dealt.
-        let dream = Rng::from_seed(seed ^ 0x5bf0_3635_ca19_6583);
         let hand = table.deal(&mut rng);
         let opening_scores = scores_of(&hand);
         let bots = std::array::from_fn(|place| {
@@ -109,7 +98,7 @@ impl Seat {
             table,
             hand,
             rng,
-            dream,
+            search_rng: Rng::from_seed(seed ^ 0x5EA5_C400),
             asking: VecDeque::new(),
             answers: Vec::new(),
             opening_scores,
@@ -200,7 +189,8 @@ impl Seat {
                     } else {
                         self.asking = offered.iter().map(|(seat, _)| *seat).collect();
                         self.answers.clear();
-                        return;
+                        // Settle bot claims before exporting the next external decision.
+                        continue;
                     }
                 }
                 Phase::Over => self.next_hand(),
@@ -249,31 +239,16 @@ impl Seat {
     }
 
     /// Applies one decision from the seat that owed it.
-    /// Plays one decision, and says whether the index given could be read
-    /// as a move at all.
-    ///
-    /// An index that decodes to nothing is replaced by a legal move, which
-    /// is what a page wants: a player has to move, and an interface that
-    /// panicked on a stray index would be worse than one that shrugs. A
-    /// trainer wants the opposite. What it writes down is the action it
-    /// believes was played, together with the probability it gave that
-    /// action, and if the engine quietly played a different one then the
-    /// record describes a game nobody played. `strict` makes the
-    /// substitution refuse instead, so the caller can throw the trajectory
-    /// away rather than learn from it.
-    fn step(&mut self, index: usize, strict: bool) -> Result<(), String> {
+    fn step(&mut self, index: usize) {
         self.hand_just_ended = false;
         if self.finished {
-            return Ok(());
+            return;
         }
         if let Some(seat) = self.asking.pop_front() {
-            let named = encoding::decode_call(&self.hand, seat, index);
-            if strict && named.is_none() {
-                return Err(format!(
-                    "index {index} is not a call {seat:?} may make here"
-                ));
-            }
-            let call = named
+            // An index naming no call was refused by the arena in strict
+            // mode before any table moved; what reaches here is either
+            // legal or deliberately lenient, and is answered with a pass.
+            let call = encoding::decode_call(&self.hand, seat, index)
                 .or_else(|| encoding::decode_call(&self.hand, seat, PASS))
                 .unwrap_or(Call::Pass);
             self.answers.push((seat, call));
@@ -284,14 +259,10 @@ impl Seat {
                     .expect("every answer came from the offered set");
             }
             self.settle();
-            return Ok(());
+            return;
         }
         if matches!(self.hand.phase, Phase::Act) {
-            let named = encoding::decode_action(&self.hand, index);
-            if strict && named.is_none() {
-                return Err(format!("index {index} is not an action this seat may take"));
-            }
-            let action = named.unwrap_or_else(|| {
+            let action = encoding::decode_action(&self.hand, index).unwrap_or_else(|| {
                 // A policy that names an illegal action still has to move, so
                 // the first legal one is taken. The mask makes this rare.
                 self.hand
@@ -303,7 +274,6 @@ impl Seat {
             self.hand.act(action).expect("the action was legal");
             self.settle();
         }
-        Ok(())
     }
 }
 
@@ -379,10 +349,6 @@ pub struct Arena {
     /// For each game, a lookahead the caller is playing the other seats
     /// of, with its candidates.
     lookaheads: Vec<Option<(Vec<Action>, search::Lookahead)>>,
-    /// Whether an index naming no legal move is refused rather than
-    /// replaced. Off by default, which is what a page wants; a trainer
-    /// turns it on so a record cannot describe a move nobody played.
-    strict: bool,
 }
 
 /// One imagined world per live game from the beliefs given, as the
@@ -396,7 +362,7 @@ fn imagine_from<'py>(arena: &mut Arena, py: Python<'py>, beliefs: &[f32]) -> Bou
             continue;
         };
         let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-        let world = search::imagine(&seat.hand, wind, &belief, &mut seat.dream);
+        let world = search::imagine(&seat.hand, wind, &belief, &mut seat.search_rng);
         encoding::hidden_hands(
             &world,
             wind,
@@ -429,7 +395,6 @@ impl Arena {
             pending: (0..games).map(|_| None).collect(),
             imagined: (0..games).map(|_| Vec::new()).collect(),
             lookaheads: (0..games).map(|_| None).collect(),
-            strict: false,
         }
     }
 
@@ -560,7 +525,14 @@ impl Arena {
                     return ranked[game].first().copied().unwrap_or(PASS);
                 }
                 asked += 1;
-                match search::best(&seat.hand, wind, &shortlist, effort, &belief, &mut seat.dream) {
+                match search::best(
+                    &seat.hand,
+                    wind,
+                    &shortlist,
+                    effort,
+                    &belief,
+                    &mut seat.search_rng,
+                ) {
                     Some(judged) => {
                         let picked = action_to_index(judged.action);
                         if Some(picked) != ranked[game].first().copied() {
@@ -638,7 +610,14 @@ impl Arena {
                 continue;
             }
             let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-            let got = search::leaves(&seat.hand, wind, &shortlist, effort, &belief, &mut seat.dream);
+            let got = search::leaves(
+                &seat.hand,
+                wind,
+                &shortlist,
+                effort,
+                &belief,
+                &mut seat.search_rng,
+            );
             counts.push(got.counted.len());
             observations.extend_from_slice(&got.observations);
             settled.extend(got.settled.iter().map(|worth| *worth as f32));
@@ -683,7 +662,8 @@ impl Arena {
                 continue;
             }
             let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-            let imagined = search::imagine_worlds(&seat.hand, wind, &belief, &mut seat.dream, worlds);
+            let imagined =
+                search::imagine_worlds(&seat.hand, wind, &belief, &mut seat.search_rng, worlds);
             let start = planes.len();
             planes.resize(start + imagined.len() * HIDDEN_HANDS, 0.0);
             for (index, world) in imagined.iter().enumerate() {
@@ -1053,7 +1033,8 @@ impl Arena {
     }
 
     /// Applies one action per game. Games that owe no decision ignore theirs.
-    fn step(&mut self, actions: Vec<usize>) -> PyResult<()> {
+    #[pyo3(signature = (actions, strict=true))]
+    fn step(&mut self, actions: Vec<usize>, strict: bool) -> PyResult<()> {
         if actions.len() != self.seats.len() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "expected {} actions, got {}",
@@ -1061,42 +1042,37 @@ impl Arena {
                 actions.len()
             )));
         }
+        if strict {
+            // Validate the complete batch first: an invalid later row must not
+            // leave earlier games advanced with no corresponding training data.
+            for (game, (seat, index)) in self.seats.iter().zip(&actions).enumerate() {
+                let Some(wind) = seat.pending() else {
+                    continue;
+                };
+                let valid = if seat.asking.is_empty() {
+                    encoding::decode_action(&seat.hand, *index).is_some()
+                } else {
+                    encoding::decode_call(&seat.hand, wind, *index).is_some()
+                };
+                if !valid {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "illegal action {index} in game {game} for {wind:?}"
+                    )));
+                }
+            }
+        }
         // Every game is its own table, hand and generator, and stepping one
         // means running the heuristic players round to the next decision the
         // network owes, which is where the CPU time of a generation goes.
         // The GPU was sitting at ten percent waiting for this loop.
-        let strict = self.strict;
-        let refused: Vec<(usize, String)> = {
+        {
             use rayon::prelude::*;
             self.seats
                 .par_iter_mut()
                 .zip(actions.par_iter())
-                .enumerate()
-                .filter_map(|(game, (seat, index))| {
-                    seat.step(*index, strict).err().map(|why| (game, why))
-                })
-                .collect()
-        };
-        if let Some((game, why)) = refused.into_iter().next() {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "game {game}: {why}. The arena is in strict mode, so the move was not                  replaced by a legal one: a trajectory recording a move the engine did                  not play is worse than a round that stops."
-            )));
+                .for_each(|(seat, index)| seat.step(*index));
         }
         Ok(())
-    }
-
-    /// Whether an index that names no legal move is refused rather than
-    /// replaced. Training and evaluation want it on, so a record cannot
-    /// describe a move the engine did not play; a user interface wants it
-    /// off, so a stray index does not end the game.
-    #[setter]
-    fn set_strict(&mut self, strict: bool) {
-        self.strict = strict;
-    }
-
-    #[getter]
-    fn strict(&self) -> bool {
-        self.strict
     }
 
     /// One game's mjai events since they were last asked for, as JSON
@@ -1252,6 +1228,7 @@ fn cast_i32(values: &[i32]) -> &[u8] {
 #[pymodule(gil_used = true)]
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
+    module.add("TRAINING_API_VERSION", 2u32)?;
     module.add("PLANES", PLANES)?;
     module.add("POSITIONS", POSITIONS)?;
     module.add("OBSERVATION", OBSERVATION)?;
@@ -1268,3 +1245,6 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("PASS", PASS)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod ownership_tests;

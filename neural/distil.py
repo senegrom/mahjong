@@ -6,8 +6,9 @@ about the hidden hands; the search makes the top few moves in worlds drawn
 from that belief and has the network's own value head judge what results;
 whichever move survives that is a better move than the one proposed, or the
 search is worth nothing. Training the network towards it makes the next
-proposal better, and the value head, kept in training on real outcomes
-alongside, makes the next judgement better too.
+proposal better. This legacy script currently trains action and hand labels
+only; outcome/value learning is still missing and must not be inferred from
+this description. Search quality itself must also be measured.
 
 It also solves the practical problem with search, which is that half a
 second a decision is hopeless in a browser. A network taught the search's
@@ -26,6 +27,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+from .checkpoints import atomic_save
 from torch import nn
 
 import riichi_py
@@ -34,6 +37,9 @@ from . import ledger
 from . import worlds as worlds_module
 from .model import from_payload
 from .selfplay import measure
+from .searched import require_native_search, UnsupportedSearchLayout
+from .outcomes import require_finished, validate_budget
+from .training_safety import require_training_engine
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -63,6 +69,7 @@ def search_with_value_head(
     unless another beats it by `margin` standard errors of the weighted
     world-by-world difference.
     """
+    require_native_search(net)
     games = len(ranked)
     # A stream of its own for choosing worlds, so which ones are drawn does
     # not depend on, or disturb, anything else. The seed moves with the
@@ -133,6 +140,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=200)
     parser.add_argument("--games", type=int, default=24, help="tables per round")
+    parser.add_argument("--max-steps", type=int, default=4000)
     parser.add_argument("--worlds", type=int, default=200)
     parser.add_argument("--candidates", type=int, default=4)
     parser.add_argument("--margin", type=float, default=2.0)
@@ -180,9 +188,11 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
     searching seat would, and the play the positions come from is the play
     the network will actually meet.
     """
+    require_native_search(net)
     net.eval()
+    max_steps = getattr(args, "max_steps", 4000)
+    validate_budget(args.games, max_steps)
     arena = riichi_py.Arena(games=args.games, seed=seed, bot_places=[])
-    arena.strict = True
     observations: list[np.ndarray] = []
     masks: list[np.ndarray] = []
     labels: list[int] = []
@@ -197,7 +207,7 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
     rows: list[int] = []
 
     steps = 0
-    for _step in range(4000):
+    for _step in range(max_steps):
         steps += 1
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
         live = seats != 0xFF
@@ -247,9 +257,8 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
         arena.step(list(chosen))
         account.settle(arena)
 
-    ledger.refuse_if_unfinished(arena, args.games, steps, "the searched round")
+    require_finished(arena, steps=steps, context="search distillation")
     returns = account.close(arena)
-
     return (
         np.stack(observations),
         np.stack(masks),
@@ -262,13 +271,17 @@ def collect(net, args, seed: int, device: str) -> tuple[np.ndarray, ...]:
 
 def main() -> None:
     args = parse_args()
+    require_training_engine()
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     args.out.mkdir(parents=True, exist_ok=True)
     log_path = args.out / "log.jsonl"
 
     payload = torch.load(args.resume, map_location=device, weights_only=True)
+    if "combined" in payload or "model" not in payload:
+        raise UnsupportedSearchLayout("Legacy distillation cannot load a Mortal/combined checkpoint as a standalone model")
     net = from_payload(payload, device, args.channels, args.blocks)
+    require_native_search(net)
     optimiser = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
     print(
         f"device {device} | {net.channels}x{net.blocks} "
@@ -375,7 +388,7 @@ def main() -> None:
         }
 
         if (round_index + 1) % args.measure_every == 0 or round_index == 0:
-            against = measure(net, games=args.measure_games, seed=9_000 + round_index)
+            against = measure(net, games=args.measure_games, seed=9_000 + round_index, device=device)
             record.update(
                 {
                     "placement": round(against["placement"], 3),
@@ -396,10 +409,10 @@ def main() -> None:
                 "blocks": net.blocks,
                 "placement": against["placement"],
             }
-            torch.save(saved, args.out / "latest.pt")
+            atomic_save(saved, args.out / "latest.pt")
             if smoothed < best_placement:
                 best_placement = smoothed
-                torch.save(saved, args.out / "best.pt")
+                atomic_save(saved, args.out / "best.pt")
                 record["best"] = True
 
         print(json.dumps(record), flush=True)

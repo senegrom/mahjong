@@ -111,11 +111,16 @@ class Ledger:
                 "points reached the decisions of the hand that followed"
             )
 
+        # Tied players share the rewards of the places they occupy, the
+        # convention `neural.outcomes` fixes for training and evaluation
+        # alike and the engine's own search settles worlds by.
+        from .outcomes import placement_rewards
+
         scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(self.games, 4)
-        places = (-scores).argsort(axis=1).argsort(axis=1)
+        bonuses = placement_rewards(scores, PLACEMENT_VALUE)
         for game in range(self.games):
             for person in range(4):
-                value = PLACEMENT_VALUE[int(places[game][person])]
+                value = float(bonuses[game, person])
                 for row in self.everything[game][person]:
                     self.rewards[row] += value
         return np.asarray(self.rewards, dtype=np.float32)

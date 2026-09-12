@@ -17,7 +17,7 @@ pub struct Bot {
 #[pymethods]
 impl Bot {
     #[new]
-    fn new(engine: PyObject, player_id: u8) -> Result<Self> {
+    fn new(engine: Py<PyAny>, player_id: u8) -> Result<Self> {
         let agent = MortalBatchAgent::new(engine, &[player_id])?;
         let state = PlayerState::new(player_id);
         Ok(Self {
@@ -37,7 +37,7 @@ impl Bot {
     #[pyo3(name = "react")]
     #[pyo3(signature = (line, /, *, can_act=true))]
     fn react_py(&mut self, line: &str, can_act: bool, py: Python<'_>) -> Result<Option<String>> {
-        py.allow_threads(move || self.react(line, can_act))
+        py.detach(move || self.react(line, can_act))
     }
 }
 

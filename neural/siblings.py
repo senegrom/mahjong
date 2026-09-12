@@ -60,6 +60,7 @@ import riichi_py
 
 from . import zoo
 from .observe import Views
+from .outcomes import placement_rewards
 from .selfplay import HAND_SCALE, PLACEMENT_VALUE
 
 SEATS = 4
@@ -96,7 +97,6 @@ def pass_through(
     the step that is made to differ.
     """
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
-    arena.strict = True
     views = Views(arena, games, {net.kind})
 
     at_root: dict[int, dict] = {}
@@ -150,13 +150,13 @@ def pass_through(
         raise RuntimeError("a pass stopped before its games were over")
 
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS)
-    places = (-scores).argsort(axis=1).argsort(axis=1)
+    bonuses = placement_rewards(scores, PLACEMENT_VALUE)
     worth = {}
     for game in range(games):
         who = (watch or {}).get(game, at_root.get(game, {}).get("person"))
         if who is None:
             continue
-        worth[game] = earned[game] + PLACEMENT_VALUE[int(places[game][who])]
+        worth[game] = earned[game] + float(bonuses[game, who])
     return at_root, worth
 
 

@@ -109,8 +109,6 @@ async function open(saved=initial, {width=1100,height=850,dark=false,confirm=fal
     await page.setRequestInterception(true);
     page.on('request',request=>{
       if(request.url().includes('/assets/policy.worker-')) {
-        // The opponents answer in Mortal's moves. 38 is the chi whose claimed
-        // tile is lowest in the sequence, which our own rules call a high chii.
         const text=mock.sharedCall ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[38]?38:d.mask.findIndex(Boolean)});'
           : mock.delay ? `self.onmessage=({data:d})=>setTimeout(()=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)}),${mock.delay});`
           : mock.fail ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,error:"Simulated network failure"});'
@@ -127,9 +125,23 @@ const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_
 const ui=page=>page.evaluate(()=>({failure:document.querySelector('.failure')?.textContent ?? '',selected:document.querySelectorAll('.hand .selected').length,opponents:document.querySelector('select').value}));
 async function shot(page,name) { await page.screenshot({path:resolve(output,`${name}.png`),fullPage:true}); }
 function noErrors(page) { assert.deepEqual(problems.get(page),[]); }
-async function check(name,fn) {
-  try { await fn(); results.push({name,passed:true}); console.log(`PASS ${name}`); }
-  catch(error) { results.push({name,passed:false,error:error.stack}); console.error(`FAIL ${name}\n${error.stack}`); }
+async function check(name, fn) {
+  const failures = [];
+  try { await fn(); } catch (error) { failures.push(error); }
+  // A test may share several tabs, but no context should survive into the next
+  // test with its WASM engine, workers and service workers still running.
+  const closed = await Promise.allSettled(contexts.splice(0).map(async context => context.close()));
+  for (const result of closed) {
+    if (result.status === 'rejected') failures.push(result.reason);
+  }
+  if (failures.length) {
+    const error = failures.map(failure => failure?.stack ?? String(failure)).join('\n');
+    results.push({ name, passed: false, error });
+    console.error(`FAIL ${name}\n${error}`);
+  } else {
+    results.push({ name, passed: true });
+    console.log(`PASS ${name}`);
+  }
 }
 function contrast(a,b) {
   const luminance=s=>s.match(/[\d.]+/g).slice(0,3).map(Number).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
