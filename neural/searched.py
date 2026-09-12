@@ -220,7 +220,7 @@ def search_with_value_head(
     # events its imagined world invented. Root and continuation go through
     # the same contract, because a search that serves one correctly and the
     # other some other way is measuring a network that does not exist.
-    leaves = served.leaves(arena, planes_bytes, counts, device)
+    leaves = served.leaves(arena, planes_bytes, counts, device, wanted=_wanted)
     # Every slot is valued, including the few that want no value; the engine
     # adds what it settled itself, ignores the rest, and that is cheaper
     # than gathering.

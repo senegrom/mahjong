@@ -133,7 +133,7 @@ class EngineServed:
             torch.from_numpy(legal[rows]).to(device),
         )
 
-    def leaves(self, arena, leaf_bytes, counts, device):
+    def leaves(self, arena, leaf_bytes, counts, device, wanted=None):
         total = sum(counts)
         planes = np.frombuffer(leaf_bytes, dtype=np.float32)
         return torch.from_numpy(
@@ -184,6 +184,11 @@ class MortalServed:
         self.net = net
         self.contract = contract
         self._Imagined = Imagined
+        #: How many leaves so far came from a world that played into the
+        #: next hand, counted only when asked (`count_crossings`), since
+        #: telling costs a scan of every leaf's events.
+        self.count_crossings = False
+        self.crossed = 0
 
     def root(self, arena, views, rows, deciding, legal, device):
         from . import zoo
@@ -193,13 +198,14 @@ class MortalServed:
         allowed[~allowed.any(axis=1), zoo.MORTAL_PASS] = True
         return planes.dense(device), torch.from_numpy(allowed).to(device)
 
-    def leaves(self, arena, leaf_bytes, counts, device):
+    def leaves(self, arena, leaf_bytes, counts, device, wanted=None):
         """Every leaf as Mortal sees it, built from its own continuation.
 
-        A leaf whose world dealt a new hand offers no events -- its log
-        replaced the one the cursor points into and its seats have moved --
-        and is given zeros, which the engine ignores for the slots it does
-        not want valued.
+        A leaf whose world played into the next hand carries how the old
+        hand ended and the whole of the new one, so the copy is advanced
+        across the boundary like the real seat would be. A leaf the engine
+        wants valued but that offers no events is refused rather than given
+        zeros: a blank position has a value too, and it is not this one's.
         """
         from .observe import Planes
 
@@ -207,6 +213,18 @@ class MortalServed:
         players, lines = arena.leaves_mjai()
         game_of = np.repeat(np.arange(len(counts)), counts)
         live = [at for at in range(total) if lines[at]]
+        if wanted is not None:
+            starved = sum(1 for at in range(total) if wanted[at] and not lines[at])
+            if starved:
+                raise UnsupportedSearchLayout(
+                    f"{starved} of {total} leaves the engine wants valued offer no events, "
+                    "so nothing can build Mortal's planes for them; they must not be "
+                    "valued as blank positions"
+                )
+        if self.count_crossings:
+            self.crossed += sum(
+                1 for at in live if any('"start_kyoku"' in line for line in lines[at])
+            )
         out = torch.zeros(total, self.contract.planes, POSITIONS, device=device)
         if not live:
             return out

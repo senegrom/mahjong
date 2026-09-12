@@ -915,15 +915,19 @@ impl Arena {
             let Some((_, leaves)) = &self.pending[game] else {
                 continue;
             };
-            let seating = seat.table.seating();
+            // The real table's seating names the people in the hand the
+            // search began in; a world that dealt on names them through
+            // its own seating, composed with that.
+            let real = seat.table.seating();
             for (slot, viewpoint) in leaves.viewpoints.iter().enumerate() {
-                players.push(seating[viewpoint.index()]);
-                lines.push(
-                    leaves.invented[slot]
-                        .iter()
-                        .map(|event| event.to_json(seating))
-                        .collect(),
-                );
+                let now: [usize; 4] = std::array::from_fn(|s| real[leaves.seatings[slot][s]]);
+                players.push(now[viewpoint.index()]);
+                let mut told: Vec<String> = leaves.carried[slot]
+                    .iter()
+                    .map(|event| event.to_json(real))
+                    .collect();
+                told.extend(leaves.invented[slot].iter().map(|event| event.to_json(now)));
+                lines.push(told);
             }
         }
         (players, lines)

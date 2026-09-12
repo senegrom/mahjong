@@ -600,10 +600,21 @@ pub struct Leaves {
     /// `observations`, which are our engine's: it needs the seat's own
     /// state advanced by what the world invented, and this says whose.
     pub viewpoints: Vec<Wind>,
-    /// What each slot's world did after the search began, as the events an
-    /// mjai reader consumes. Applied to a copy of that seat's real state,
-    /// they put it where the leaf is. Empty for a slot nothing values.
+    /// What each slot's world invented in its current hand, as the events
+    /// an mjai reader consumes: from where the real log stopped, or the
+    /// whole hand when the world dealt it itself. Applied to a copy of that
+    /// seat's real state, after `carried`, they put it where the leaf is.
+    /// Empty for a slot nothing values.
     pub invented: Vec<Vec<mjai::Event>>,
+    /// For a slot whose world dealt on, what the hand the search began in
+    /// did from where the real log stopped to its end, in that hand's own
+    /// seats; these come first. Empty for a world still in that hand.
+    pub carried: Vec<Vec<mjai::Event>>,
+    /// Which seat of the hand the search began in sits in each seat of the
+    /// slot's current hand: the identity until the world deals on. An mjai
+    /// reader names people, so a later hand's events are written through
+    /// this.
+    pub seatings: Vec<[usize; 4]>,
 }
 
 /// Where an imagined world got to after a candidate move.
@@ -617,6 +628,15 @@ enum Leaf {
         seat: Wind,
         settled: f64,
         dealt: usize,
+        /// What the hand the search began in did after the caller's cursor,
+        /// if the world went on to another; see [`Leaves::carried`].
+        carried: Vec<mjai::Event>,
+        /// See [`Leaves::seatings`].
+        seating: [usize; 4],
+        /// Where in the world's current log the invented events begin: the
+        /// caller's cursor in the hand the search began in, the start of a
+        /// hand the world dealt itself.
+        from: usize,
     },
     /// The game ended, and this is what the player's stake came to.
     Settled(f64),
@@ -721,10 +741,13 @@ fn placement_value(table: &Table, player: usize) -> f64 {
 /// Plays an imagined world on from just after a candidate move until the
 /// searching player has a decision to make, through the end of a hand and
 /// into the next if need be, or until the game ends.
-fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64) -> Leaf {
+fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64, from: usize) -> Leaf {
     let mut settled = 0.0;
     let mut seat = seat;
     let mut dealt = 0;
+    let mut from = from;
+    let mut carried: Vec<mjai::Event> = Vec::new();
+    let mut seating: [usize; 4] = [0, 1, 2, 3];
     // A game rarely runs past a dozen hands, and the loop is here for the
     // hand that ends before the player's first turn in it, which happens
     // once in a very long while.
@@ -736,11 +759,18 @@ fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64) -> Leaf {
                     seat,
                     settled,
                     dealt,
+                    carried,
+                    seating,
+                    from,
                 }
             }
             Advance::Broken => return Leaf::Broken,
             Advance::HandOver(moved) => {
                 settled += moved;
+                // What the hand did after the cursor, kept before its log
+                // is replaced: a reader of the seat's state has to be told
+                // how this hand ended before it can be told the next began.
+                carried.extend(world.log[from.min(world.log.len())..].iter().cloned());
                 // The seats of the hand that just ended stand in for the
                 // players, so the player is this seat's number.
                 let player = seat.index();
@@ -751,7 +781,19 @@ fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64) -> Leaf {
                 }
                 let mut rng = Rng::from_seed(seed ^ 0x9e37_79b9);
                 *world = table.deal(&mut rng);
+                // Who sits where now, written in the seats of the hand the
+                // search began in: the table numbers people by the seats
+                // of the hand that just ended, which the seating so far
+                // maps back.
+                let next = table.seating();
+                seating = [
+                    seating[next[0]],
+                    seating[next[1]],
+                    seating[next[2]],
+                    seating[next[3]],
+                ];
                 seat = table.seat_of(player);
+                from = 0;
                 dealt += 1;
             }
         }
@@ -789,6 +831,36 @@ pub fn leaves(
     leaves_from(seat, candidates, &worlds, &weights, effort)
 }
 
+/// What one imagined world hands back for one candidate.
+struct Sprout {
+    /// The leaf's observation if it has one to value, else empty.
+    observation: Vec<f32>,
+    /// What is already settled about it.
+    settled: f64,
+    /// Whether it counts at all.
+    counts: bool,
+    /// The seat the leaf is viewed from, and what a Mortal-plane network
+    /// needs in place of the observation: the events, and who sits where.
+    viewpoint: Wind,
+    invented: Vec<mjai::Event>,
+    carried: Vec<mjai::Event>,
+    seating: [usize; 4],
+}
+
+impl Sprout {
+    fn valueless(settled: f64, counts: bool, seat: Wind) -> Self {
+        Sprout {
+            observation: Vec::new(),
+            settled,
+            counts,
+            viewpoint: seat,
+            invented: Vec::new(),
+            carried: Vec::new(),
+            seating: [0, 1, 2, 3],
+        }
+    }
+}
+
 /// Makes each candidate move in each of the given worlds, which the caller
 /// has imagined and weighed, and returns the positions that result for the
 /// value head to judge. `weights` says how much each world counts.
@@ -820,29 +892,40 @@ pub fn leaves_from(
         let mut trial = worlds[world].clone();
         let from = logged[world];
         if trial.act(candidates[candidate]).is_err() {
-            return (Vec::new(), 0.0, false, seat, Vec::new());
+            return Sprout::valueless(0.0, false, seat);
         }
-        match play_to_leaf(&mut trial, seat, style, world as u64 * 977 + 13) {
+        match play_to_leaf(&mut trial, seat, style, world as u64 * 977 + 13, from) {
             Leaf::Position {
                 seat: viewpoint,
                 settled,
                 dealt,
+                carried,
+                seating,
+                from,
             } => {
+                debug_assert!(
+                    dealt == 0 || from == 0,
+                    "a world that dealt on invents the whole of its hand"
+                );
                 let mut out = vec![0.0; OBSERVATION];
                 encoding::observe(&trial, viewpoint, &mut out);
-                // A world that dealt on is playing a hand the log of
-                // which replaced the one the cursor points into, and
-                // its seats have moved besides. It offers no events and
-                // is valued by what it settled.
-                let invented = if dealt > 0 {
-                    Vec::new()
-                } else {
-                    trial.log[from.min(trial.log.len())..].to_vec()
-                };
-                (out, settled, true, viewpoint, invented)
+                // What this world's current hand invented: from the
+                // cursor in the hand the search began in, or the whole of
+                // a hand the world dealt itself, the one before it
+                // carried apart in its own seats.
+                let invented = trial.log[from.min(trial.log.len())..].to_vec();
+                Sprout {
+                    observation: out,
+                    settled,
+                    counts: true,
+                    viewpoint,
+                    invented,
+                    carried,
+                    seating,
+                }
             }
-            Leaf::Settled(worth) => (Vec::new(), worth, true, seat, Vec::new()),
-            Leaf::Broken => (Vec::new(), 0.0, false, seat, Vec::new()),
+            Leaf::Settled(worth) => Sprout::valueless(worth, true, seat),
+            Leaf::Broken => Sprout::valueless(0.0, false, seat),
         }
     });
 
@@ -853,15 +936,20 @@ pub fn leaves_from(
     let mut counted = vec![false; slots];
     let mut viewpoints = vec![seat; slots];
     let mut invented: Vec<Vec<mjai::Event>> = vec![Vec::new(); slots];
-    for (slot, (out, worth, counts, viewpoint, events)) in results.into_iter().enumerate() {
-        if !out.is_empty() {
-            observations[slot * OBSERVATION..(slot + 1) * OBSERVATION].copy_from_slice(&out);
+    let mut carried: Vec<Vec<mjai::Event>> = vec![Vec::new(); slots];
+    let mut seatings: Vec<[usize; 4]> = vec![[0, 1, 2, 3]; slots];
+    for (slot, sprout) in results.into_iter().enumerate() {
+        if !sprout.observation.is_empty() {
+            observations[slot * OBSERVATION..(slot + 1) * OBSERVATION]
+                .copy_from_slice(&sprout.observation);
             wanted[slot] = true;
         }
-        settled[slot] = worth;
-        counted[slot] = counts;
-        viewpoints[slot] = viewpoint;
-        invented[slot] = events;
+        settled[slot] = sprout.settled;
+        counted[slot] = sprout.counts;
+        viewpoints[slot] = sprout.viewpoint;
+        invented[slot] = sprout.invented;
+        carried[slot] = sprout.carried;
+        seatings[slot] = sprout.seating;
     }
     Leaves {
         worlds: worlds.len(),
@@ -873,6 +961,8 @@ pub fn leaves_from(
         weights: weights.to_vec(),
         viewpoints,
         invented,
+        carried,
+        seatings,
     }
 }
 
@@ -1088,6 +1178,9 @@ struct Slot {
     /// Hands dealt on the way, so a world that never reaches a decision is
     /// given up on.
     dealt: u64,
+    /// See [`Leaves::carried`] and [`Leaves::seatings`].
+    carried: Vec<mjai::Event>,
+    seating: [usize; 4],
     /// What the next hand's deal is seeded from.
     seed: u64,
     /// How much of `world.log` was already there when the search began, so
@@ -1172,6 +1265,11 @@ impl Slot {
         let player = self.seat.index();
         let moved = self.world.players[player].score - self.world.opening[player];
         self.settled += moved as f64 / POINTS_PER_UNIT as f64;
+        // What the hand did after the cursor, kept before its log goes; see
+        // `play_to_leaf`.
+        let logged = self.logged.min(self.world.log.len());
+        self.carried
+            .extend(self.world.log[logged..].iter().cloned());
         let mut table = table_of(&self.world);
         table.finish(&self.world);
         if table.finished {
@@ -1186,7 +1284,15 @@ impl Slot {
         }
         let mut rng = Rng::from_seed(self.seed.wrapping_add(self.dealt * 4) ^ 0x9e37_79b9);
         self.world = table.deal(&mut rng);
+        let next = table.seating();
+        self.seating = [
+            self.seating[next[0]],
+            self.seating[next[1]],
+            self.seating[next[2]],
+            self.seating[next[3]],
+        ];
         self.seat = table.seat_of(player);
+        self.logged = 0;
     }
 
     /// Applies the caller's decision, an index into the action space, and
@@ -1304,6 +1410,8 @@ impl Lookahead {
                     asking: VecDeque::new(),
                     answers: Vec::new(),
                     dealt: 0,
+                    carried: Vec::new(),
+                    seating: [0, 1, 2, 3],
                     seed: world as u64 * 977 + 13,
                     logged,
                     state,
@@ -1383,6 +1491,8 @@ impl Lookahead {
         let mut counted = vec![false; slots];
         let mut viewpoints = Vec::with_capacity(slots);
         let mut invented: Vec<Vec<mjai::Event>> = vec![Vec::new(); slots];
+        let mut carried: Vec<Vec<mjai::Event>> = vec![Vec::new(); slots];
+        let mut seatings: Vec<[usize; 4]> = vec![[0, 1, 2, 3]; slots];
         for (index, slot) in self.slots.iter().enumerate() {
             settled[index] = slot.settled;
             viewpoints.push(slot.seat);
@@ -1395,14 +1505,14 @@ impl Lookahead {
                         &mut observations[start..start + OBSERVATION],
                     );
                     // Only what this world invented, so the events can be
-                    // applied to a copy of the seat's real state. A world
-                    // that dealt on has rotated the seats, and the actor
-                    // numbers a caller would write are the old hand's, so
-                    // it offers none and is valued by what it settled.
-                    if slot.dealt == 0 {
-                        invented[index] =
-                            slot.world.log[slot.logged.min(slot.world.log.len())..].to_vec();
-                    }
+                    // applied to a copy of the seat's real state: the
+                    // current hand's from the cursor, which a deal reset
+                    // to its start, and what the hand before did apart,
+                    // with who sits where now.
+                    invented[index] =
+                        slot.world.log[slot.logged.min(slot.world.log.len())..].to_vec();
+                    carried[index] = slot.carried.clone();
+                    seatings[index] = slot.seating;
                     wanted[index] = true;
                     counted[index] = true;
                 }
@@ -1420,6 +1530,8 @@ impl Lookahead {
             weights: self.weights.clone(),
             viewpoints,
             invented,
+            carried,
+            seatings,
         }
     }
 }
@@ -1898,11 +2010,14 @@ mod tests {
         let moved = (after - before) as f64 / POINTS_PER_UNIT as f64;
 
         // East 1 cannot be the last hand, so the world goes on.
-        match play_to_leaf(&mut world, seat, Style::rollout(), 77) {
+        match play_to_leaf(&mut world, seat, Style::rollout(), 77, 0) {
             Leaf::Position {
                 seat: now,
                 settled,
                 dealt,
+                carried,
+                seating,
+                from,
             } => {
                 assert!(
                     (settled - moved).abs() < 1e-9,
@@ -1922,6 +2037,25 @@ mod tests {
                     after,
                     "the player's points came with them"
                 );
+                // A reader of the seat's state is told how the old hand
+                // ended, then the whole of the new one, and who sits where.
+                assert_eq!(from, 0, "the new hand's log is wholly invented");
+                assert!(
+                    matches!(carried.last(), Some(mjai::Event::EndKyoku)),
+                    "the hand that ended is carried to its end"
+                );
+                assert!(
+                    matches!(world.log.first(), Some(mjai::Event::StartKyoku { .. })),
+                    "the new hand begins with its deal"
+                );
+                assert_eq!(
+                    seating[now.index()],
+                    seat.index(),
+                    "the searcher's original seat sits at the new one"
+                );
+                let mut seen = seating;
+                seen.sort_unstable();
+                assert_eq!(seen, [0, 1, 2, 3], "the seating is a permutation");
             }
             Leaf::Settled(_) => panic!("the game cannot end at East 1"),
             Leaf::Broken => panic!("the world could be played on"),
@@ -1950,7 +2084,7 @@ mod tests {
             let mut after = table_of(&world);
             after.finish(&world);
 
-            match play_to_leaf(&mut world.clone(), seat, Style::rollout(), seed) {
+            match play_to_leaf(&mut world.clone(), seat, Style::rollout(), seed, 0) {
                 Leaf::Settled(worth) => {
                     assert!(after.finished, "settled only when the game is over");
                     let expected = moved + placement_value(&after, seat.index());

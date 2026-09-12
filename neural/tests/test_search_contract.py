@@ -77,6 +77,30 @@ class SearchContractTests(unittest.TestCase):
         self.assertEqual(served.contract.answers, 46)
         self.assertFalse(served.contract.speaks_our_moves)
 
+    def test_a_world_that_deals_on_is_served_across_the_hand_boundary(self):
+        """Worlds that end the hand inside the search used to reach the
+        network as blank positions, which it valued at +0.49 against a
+        real average near zero, and the search preferred whatever ended
+        the hand. Now the copy is told how the hand ended and dealt the
+        next; the leaf is served, and counted here."""
+        previous = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            served = contract.serve(net)
+            served.count_crossings = True
+            scores, tally = searched.play(
+                net, 2, 5, 0, 2, 2, 0.0, pool=1, device="cpu", served=served
+            )
+        finally:
+            torch.set_num_threads(previous)
+        self.assertEqual(scores.shape, (2, 4))
+        self.assertGreater(tally[0], 0, "nothing was searched")
+        self.assertGreater(
+            served.crossed, 0,
+            "no imagined world played into the next hand, so the boundary went untested",
+        )
+
     def test_the_exception_is_one_class_wherever_it_is_raised(self):
         self.assertIs(searched.UnsupportedSearchLayout, contract.UnsupportedSearchLayout)
         self.assertTrue(issubclass(searched.UnsupportedSearchLayout, ValueError))
