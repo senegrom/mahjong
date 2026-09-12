@@ -101,8 +101,8 @@ def decide_in_mortal_space(
     timing["translate"] = timing.get("translate", 0.0) + clock() - began
     began = clock()
     mask = torch.from_numpy(allowed).to(device)
-    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=str(device).startswith("cuda")):
-        logits = score(planes.dense(device), mask)
+    # Precision is owned by the caller, matching the later PPO forward.
+    logits = score(planes.dense(device), mask)
     logits = logits.float()
     distribution = torch.distributions.Categorical(logits=logits)
     if greedy:
@@ -159,8 +159,7 @@ def decide_in_mortal_space(
         allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
         allowed_after[:, :34] = legal[second, zoo.RIICHI_DISCARD:zoo.TSUMO]
         mask_after = torch.from_numpy(allowed_after).to(device)
-        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=str(device).startswith("cuda")):
-            logits_after = score(after.dense(device), mask_after)
+        logits_after = score(after.dense(device), mask_after)
         logits_after = logits_after.float()
         distribution_after = torch.distributions.Categorical(logits=logits_after)
         tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()

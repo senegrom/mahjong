@@ -32,7 +32,7 @@ from .outcomes import placements as tied_placements, require_finished, validate_
 
 import riichi_py
 
-from .training_safety import require_training_engine
+from .training_safety import TRAINING_API_VERSION, require_training_engine
 
 from . import zoo
 from .observe import Views
@@ -59,6 +59,8 @@ def table(
     """
     require_training_engine()
     validate_budget(games, max_steps)
+    if type(place) is not int or not 0 <= place < 4:
+        raise ValueError("place must be a player index from zero to three")
     challenger.eval()
     incumbent.eval()
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
@@ -100,12 +102,13 @@ def placements(scores: np.ndarray, place: int) -> np.ndarray:
     return tied_placements(scores)[:, place]
 
 
-def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda") -> dict:
+def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda",
+         max_steps: int = 4000) -> dict:
     """The same deals four times, with the challenger in each seat."""
     per_seat = []
     per_deal = []
     for place in range(SEATS):
-        scores = table(challenger, incumbent, games, seed, place, device=device)
+        scores = table(challenger, incumbent, games, seed, place, device=device, max_steps=max_steps)
         got = placements(scores, place)
         per_seat.append(
             {
@@ -121,12 +124,14 @@ def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda") -> 
     paired = np.stack(per_deal).mean(axis=0)
     error = float(paired.std(ddof=1) / (len(paired) ** 0.5)) if len(paired) > 1 else 0.0
     return {
+        "training_api_version": TRAINING_API_VERSION,
+        "seed": seed,
         "games_per_seat": games,
         "games_total": games * SEATS,
         "placement": overall,
         "standard_error": error,
         "by_seat": per_seat,
-        "by_deal": [round(float(value), 4) for value in paired],
+        "by_deal": paired.tolist(),
     }
 
 
@@ -160,6 +165,7 @@ def main() -> None:
     parser.add_argument("incumbent", type=Path)
     parser.add_argument("--games", type=int, default=1000, help="deals per seating")
     parser.add_argument("--seed", type=int, default=555_000)
+    parser.add_argument("--max-steps", type=int, default=4000)
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
@@ -173,7 +179,7 @@ def main() -> None:
     incumbent = load(
         args.incumbent, args.incumbent_channels, args.incumbent_blocks, args.device
     )
-    result = duel(challenger, incumbent, args.games, args.seed, device=args.device)
+    result = duel(challenger, incumbent, args.games, args.seed, device=args.device, max_steps=args.max_steps)
     result["challenger"] = str(args.challenger)
     result["incumbent"] = str(args.incumbent)
     result["verdict"] = verdict(result)

@@ -380,10 +380,14 @@ def play(
             # `mortal_learner`): it answers the table in ours and records
             # its decisions itself, possibly more than one per row, and
             # keeps its own account of the time.
-            picked, records = net.decide(
-                views, index, deciding[index], mask[index], greedy,
-                explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
-            )
+            # The precision of the rollout is the trainer's choice, made
+            # here and nowhere inside: the probabilities recorded are the
+            # ones the learning forward will reproduce.
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and str(device).startswith("cuda")):
+                picked, records = net.decide(
+                    views, index, deciding[index], mask[index], greedy,
+                    explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
+                )
             choice[index] = picked
             observations.append(records.planes)
             legal_masks.append(records.masks)
@@ -411,6 +415,7 @@ def play(
                 sparse = views.sparse(index, deciding[index])
                 timing["encode"] += clock() - began
                 began = clock()
+                batch_planes = sparse.dense(device)
             else:
                 sparse = None
                 batch_planes = views.dense(net.kind, index, deciding[index], device)
