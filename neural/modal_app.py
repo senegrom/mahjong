@@ -753,12 +753,18 @@ def searched(
                 if rows == kept_rows:
                     return
                 staging = target.with_name(target.name + ".writing")
-                if staging.exists():
-                    shutil.rmtree(staging)
-                shutil.copytree(records, staging)
-                if target.exists():
-                    shutil.rmtree(target)
-                staging.rename(target)
+                try:
+                    if staging.exists():
+                        shutil.rmtree(staging)
+                    shutil.copytree(records, staging)
+                    if target.exists():
+                        shutil.rmtree(target)
+                    staging.rename(target)
+                except OSError:
+                    # A volume that will not rename a folder: copied over
+                    # in place instead. A recording only grows and its
+                    # files keep their names, so nothing stale survives.
+                    shutil.copytree(records, target, dirs_exist_ok=True)
                 volume.commit()
             except (OSError, ValueError) as error:
                 print(f"records not kept this time: {error}", flush=True)
