@@ -1180,6 +1180,11 @@ struct Slot {
     /// How many more turns to act the searching player takes with the
     /// policy before the position is valued.
     depth: usize,
+    /// Whether the world is played to the end of the hand the search began
+    /// in, whatever the depth, and valued at the searching player's first
+    /// decision of the next: the hand's own result is then banked in
+    /// `settled` rather than guessed by a critic.
+    until_hand_ends: bool,
     /// Seats still to answer the claim on the table, in order, and the
     /// answers so far, as the arena keeps them.
     asking: VecDeque<Wind>,
@@ -1321,6 +1326,12 @@ impl Slot {
         self.seat = table.seat_of(player);
         self.logged = 0;
         self.exported = 0;
+        if self.until_hand_ends {
+            // The hand the search began in is over and paid; the first
+            // decision of this one is the leaf.
+            self.depth = 0;
+            self.until_hand_ends = false;
+        }
     }
 
     /// What the slot's world invented since this was last asked: the
@@ -1434,6 +1445,7 @@ impl Lookahead {
         worlds: &[Hand],
         weights: &[f64],
         depth: usize,
+        until_hand_ends: bool,
     ) -> Lookahead {
         assert!(!candidates.is_empty(), "there is always something to do");
         assert_eq!(worlds.len(), weights.len(), "one weight per world");
@@ -1457,7 +1469,10 @@ impl Lookahead {
                     world: trial,
                     seat,
                     settled: 0.0,
-                    depth,
+                    // More turns than a hand has, so the leaf comes only
+                    // once the hand has ended and the depth is reset.
+                    depth: if until_hand_ends { 1_000 } else { depth },
+                    until_hand_ends,
                     asking: VecDeque::new(),
                     answers: Vec::new(),
                     dealt: 0,
@@ -1935,7 +1950,7 @@ mod tests {
         let mut rng = Rng::from_seed(9);
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
         let weights = vec![1.0; 3];
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 1);
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 1, false);
         let slots = lookahead.slots();
         let mut streamed: Vec<Vec<(mjai::Event, [usize; 4])>> = vec![Vec::new(); slots];
         let mut passes = 0;
@@ -1990,6 +2005,43 @@ mod tests {
         assert!(checked > 0, "no leaf to check");
     }
 
+    /// Played until the hand ends, every leaf is the first decision of a
+    /// later hand or the game's end, and what the hand paid is banked.
+    #[test]
+    fn until_the_hand_ends_every_leaf_is_in_the_next_hand() {
+        let table = Table::new();
+        let mut rng = Rng::from_seed(2026);
+        let hand = table.deal(&mut rng);
+        let seat = hand.turn;
+        let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
+        let mut rng = Rng::from_seed(9);
+        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
+        let weights = vec![1.0; 3];
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, true);
+        drive(&mut lookahead);
+        let got = lookahead.leaves();
+        let mut leaves = 0;
+        for (index, slot) in lookahead.slots.iter().enumerate() {
+            match slot.state {
+                SlotState::Leaf => {
+                    leaves += 1;
+                    assert!(
+                        slot.dealt >= 1,
+                        "slot {index} is a leaf in the hand it began in"
+                    );
+                    assert!(got.wanted[index]);
+                    assert!(
+                        !got.carried[index].is_empty(),
+                        "slot {index} carries how the first hand ended"
+                    );
+                }
+                SlotState::Settled => assert!(!got.wanted[index]),
+                SlotState::Running | SlotState::Broken => {}
+            }
+        }
+        assert!(leaves > 0, "no world reached the next hand");
+    }
+
     /// A lookahead played by the caller reaches the same kind of leaves as
     /// the heuristic one: one slot per candidate per world, a real
     /// observation wherever a value is wanted, every leaf the searching
@@ -2006,7 +2058,7 @@ mod tests {
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 5);
         let weights = vec![0.1, 0.2, 0.3, 0.2, 0.2];
 
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0);
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false);
         let passes = drive(&mut lookahead);
         assert!(
             passes >= 3,
@@ -2068,9 +2120,9 @@ mod tests {
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 4);
         let weights = vec![1.0; 4];
 
-        let mut shallow = Lookahead::begin(seat, &candidates, &worlds, &weights, 0);
+        let mut shallow = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false);
         let near_passes = drive(&mut shallow);
-        let mut deep = Lookahead::begin(seat, &candidates, &worlds, &weights, 1);
+        let mut deep = Lookahead::begin(seat, &candidates, &worlds, &weights, 1, false);
         let far_passes = drive(&mut deep);
         assert!(
             far_passes > near_passes,
@@ -2111,7 +2163,7 @@ mod tests {
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
         let weights = vec![1.0; 3];
 
-        let lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0);
+        let lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false);
         assert!(!lookahead.finished(), "the next player has a turn to take");
         let got = lookahead.leaves();
         assert!(

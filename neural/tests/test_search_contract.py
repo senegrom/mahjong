@@ -78,7 +78,7 @@ class SearchContractTests(unittest.TestCase):
             served = contract.serve(net)
             served.count_crossings = True
             scores, tally = searched.play(
-                net, 2, 8, 0, 2, 2, 0.0, pool=1, device="cpu", played_by="network", depth=1,
+                net, 2, 8, 0, 2, 2, 0.0, pool=1, device="cpu", played_by="network", depth=-1,
                 served=served,
             )
         finally:

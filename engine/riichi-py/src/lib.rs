@@ -766,7 +766,7 @@ impl Arena {
     /// alternates [`Arena::lookahead_owed`] and [`Arena::lookahead_apply`]
     /// until nothing is owed, and takes the leaves with
     /// [`Arena::lookahead_leaves`] for [`Arena::decide`].
-    #[pyo3(signature = (ranked, kept, weights, candidates=4, depth=0))]
+    #[pyo3(signature = (ranked, kept, weights, candidates=4, depth=0, until_hand_ends=false))]
     fn lookahead_begin(
         &mut self,
         ranked: Vec<Vec<usize>>,
@@ -774,6 +774,7 @@ impl Arena {
         weights: Vec<Vec<f32>>,
         candidates: usize,
         depth: usize,
+        until_hand_ends: bool,
     ) -> usize {
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
@@ -809,8 +810,14 @@ impl Arena {
                 .map(|index| imagined[*index].clone())
                 .collect();
             let world_weights: Vec<f64> = weights[game].iter().map(|w| *w as f64).collect();
-            let lookahead =
-                search::Lookahead::begin(wind, &shortlist, &worlds, &world_weights, depth);
+            let lookahead = search::Lookahead::begin(
+                wind,
+                &shortlist,
+                &worlds,
+                &world_weights,
+                depth,
+                until_hand_ends,
+            );
             self.lookaheads[game] = Some((shortlist, lookahead));
             running += 1;
         }

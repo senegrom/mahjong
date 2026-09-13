@@ -203,7 +203,14 @@ def search_with_value_head(
             efficiency.append(chosen.efficiency)
             distinct.append(chosen.distinct)
     if played_by == "network":
-        arena.lookahead_begin(ranked, kept, weights, candidates=candidates, depth=depth)
+        # A depth below zero plays each world to the end of the hand and
+        # values the leaf at the searcher's first decision of the next: the
+        # hand's own result is then what actually happened, and the critic
+        # speaks only of the hand after.
+        arena.lookahead_begin(
+            ranked, kept, weights, candidates=candidates, depth=max(depth, 0),
+            until_hand_ends=depth < 0,
+        )
         # The seats inside the lookahead are moved by the network on the
         # planes it reads: the engine's own, or Mortal's through copies
         # of every seat's state kept in step (`MortalServed`).
@@ -447,7 +454,8 @@ def main() -> None:
         default=0,
         help="with the network moving the other seats, how many of the "
         "searching player's own turns it plays before the position is "
-        "valued; zero values the next one",
+        "valued; zero values the next one, and below zero plays the hand to "
+        "its end and values the first decision of the next",
     )
     parser.add_argument(
         "--valued-by",
