@@ -2,7 +2,7 @@
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
-Carl approved all except K and requested deployment. **Van Gogh is a selectable set with twelve distinct faces**: A–E, G–J and L, plus Blazing Dawn (East A) and Wind Ribbons (North B). The later L is the active white dragon; F remains an earlier alternative. East wind K is excluded. The remaining 22 tile identities use Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
+Carl approved all except K and requested deployment. **Van Gogh is a selectable set with twelve distinct faces**: A–C, E, G–J and L, plus Almond Branches (Characters A), Blazing Dawn (East A) and Wind Ribbons (North B). Almond Branches replaces D for 3 of characters. The later L is the active white dragon; F remains an earlier alternative. East wind K is excluded. The remaining 22 tile identities use Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
 
 ![Van Gogh — six first tile studies](studies/01-van-gogh-concepts.png)
 
@@ -32,7 +32,7 @@ Carl approved all except K and requested deployment. **Van Gogh is a selectable 
 
 The second sheet was generated after Carl asked to continue and retry image generation. **G and H are the strongest new directions.** I keeps nine clearly separated disks; J keeps six clearly separated bamboo motifs. L removes much of F's filigree and gives the white dragon a simpler silhouette. K should receive a final glyph-structure check, and H's flower petals need more clearance at the edges, when these concepts become individual faces.
 
-The first two sheets contain 12 studies covering 11 distinct tile types, including two white-dragon alternatives. Ten of those faces are exported. The normal dora foil shines over L's own painted dragon without substituting another set's dragon.
+The first two sheets contain 12 studies covering 11 distinct tile types, including two white-dragon alternatives. Nine of those faces remain active after the Almond Branches replacement for 3 of characters. The normal dora foil shines over L's own painted dragon without substituting another set's dragon.
 
 ## Selected East wind
 
@@ -47,6 +47,14 @@ On 12 September 2026, Carl selected **A — Blazing Dawn** for East and requeste
 Carl selected A for East and commissioned North in B's Wind Ribbons style: ivory and turquoise 北 on violet and ultramarine. The corrected North design extends the right upright into the upper third, with its diagonal joining below the top. Both halves remain separated by a dark gap, with broad curls below.
 
 Carl approved deployment, then supplied the [original shared image](https://chatgpt.com/s/m_6aa570cca934819188878ae3ac92bde4) to recover the exact artwork after its temporary working copy was lost. The original 1086 × 1448 PNG is now committed in this repository. The playable `Pei` (`4z`, North B) uses its entire canvas without repainting. The [source and prompt record](prompt-04.md) preserves the image hash and correction brief.
+
+## Selected 3 of characters
+
+![Three of characters — new directions](studies/06-three-characters-new-directions.png)
+
+On 13 September 2026, Carl selected **A — Almond Branches** for 3 of characters and requested deployment. The playable `Man3` (`3m`, Characters A) is cropped directly from the approved left panel at `[25, 93, 523, 782]`. Flowering branches form 三萬 against an aquamarine field. The [complete prompt](prompt-06.md) and original sheet are preserved; the source image SHA-256 is `a0d0c325a5f63f6121555e099afcbba65cfaeb2941aee3962572b371282bfdd7`.
+
+Carl also requested recreations of **B — Night Café** for 2 of characters (`二萬`) and **C — Cypress Fields** for 4 of characters (`四萬`). Those adaptations are being developed as separate artwork. The earlier Painted Letters D remains preserved in the first study sheet.
 
 ## Design language
 
