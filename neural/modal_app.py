@@ -898,13 +898,14 @@ def teach(
     recordings: list[str],
     checkpoint: str = "leashed-run/latest",
     out: str = "taught/latest",
-    epochs: int = 4,
-    lr: float = 1e-4,
+    epochs: int = 8,
+    lr: float = 1e-3,
     batch: int = 128,
     target: str = "decision",
     temperature: float = 0.1,
-    leash: float = 0.1,
+    leash: float = 1.0,
     hold: str = "mortal+ours",
+    rows: str = "changed",
     weighted: bool = False,
     emphasis: float = 1.0,
     without_mask: bool = False,
@@ -935,8 +936,8 @@ def teach(
             sys.executable, "-m", "neural.teach", *[str(folder) for folder in folders],
             str(copied), "--out", str(taught), "--epochs", str(epochs), "--lr", str(lr),
             "--batch", str(batch), "--target", target, "--temperature", str(temperature),
-            "--leash", str(leash), "--hold", hold, "--emphasis", str(emphasis),
-            "--device", "cuda",
+            "--leash", str(leash), "--hold", hold, "--rows", rows,
+            "--emphasis", str(emphasis), "--device", "cuda",
         ]
         if weighted:
             command.append("--weighted")

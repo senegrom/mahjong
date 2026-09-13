@@ -220,6 +220,45 @@ class TeachingTests(unittest.TestCase):
                          said["rows"])
         self.assertNotIn("where_it_changed", said["where_it_changed"], "read apart only once")
 
+    def test_only_the_decisions_the_search_overrode_are_taught(self):
+        """Where the search agreed with the policy, a one-hot on the
+        policy's own move is a demand to sharpen rather than to keep, and
+        sharpening is what erodes this lineage. Teaching only what the
+        search overrode leaves the logits of a row it agreed on where the
+        leash puts them; teaching every row moves them more.
+        """
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            recorded = a_recording(Path(folder))
+            lesson = teach.Lesson(recorded)
+            training = lesson.split()[0]
+            agreed = training[~lesson.changed[training]]
+            self.assertGreater(len(agreed), 0)
+            planes, allowed, moves, valid, _targets, _weights = teach.lesson_batch(
+                lesson, agreed[:16], "cpu"
+            )
+            torch.manual_seed(8)
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            with torch.no_grad():
+                before = net.everything(planes, allowed)[0].float().clone()
+            torch.manual_seed(8)
+            only = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            teach.teach(only, lesson, epochs=2, lr=1e-3, batch=32, device="cpu", leash=0.0,
+                        hold="none", rows="changed")
+            torch.manual_seed(8)
+            every = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            teach.teach(every, lesson, epochs=2, lr=1e-3, batch=32, device="cpu", leash=0.0,
+                        hold="none", rows="all")
+            with torch.no_grad():
+                moved_only = (only.everything(planes, allowed)[0].float() - before)
+                moved_every = (every.everything(planes, allowed)[0].float() - before)
+            picked = moves.clamp(min=0)
+            # How much the move the policy already made was pushed up on
+            # the rows the search agreed with.
+            pushed_only = float(moved_only.gather(1, picked)[valid][::3].mean())
+            pushed_every = float(moved_every.gather(1, picked)[valid][::3].mean())
+        self.assertGreater(pushed_every, pushed_only,
+                           "teaching every row sharpens the moves it already made")
+
     def test_nothing_to_teach_is_refused_rather_than_pretended(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             recorded = a_recording(Path(folder))

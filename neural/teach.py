@@ -251,7 +251,7 @@ def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, 
     was = net.training
     net.eval()
     agreed = worth = drift = 0.0
-    best_worth = policy_worth = 0.0
+    best_worth = policy_worth = taught = 0.0
     counted = 0
     for start in range(0, len(rows), step):
         picks = rows[start : start + step]
@@ -260,6 +260,9 @@ def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, 
         picked = logits.float().gather(1, moves.clamp(min=0))
         picked = torch.where(valid, picked, torch.full_like(picked, float("-inf")))
         chose = picked.argmax(dim=1)
+        # The move the lesson asked for, which for the default target is
+        # the one the search made under its margin.
+        asked = torch.from_numpy(lesson.targets[picks]).to(device).argmax(dim=1)
         # Every candidate's worth less the mean of the candidates compared
         # there, ungrouped: a candidate that lost its group to a better one
         # keeps its own figure, and the winner's is the group's, so the
@@ -271,6 +274,7 @@ def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, 
         at = torch.arange(len(picks), device=device)
         rollouts_best = centred.argmax(dim=1)
         agreed += float((chose == rollouts_best).float().sum())
+        taught += float((chose == asked).float().sum())
         worth += float(centred[at, chose].sum())
         best_worth += float(centred.max(dim=1).values.sum())
         # The policy's own first move before any teaching: candidate zero,
@@ -284,6 +288,9 @@ def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, 
         net.train()
     out = {
         "rows": int(counted),
+        # What the lesson asked for: the search's own move under its
+        # margin. The figure to read, since the best average is noise.
+        "plays_the_lesson": round(taught / counted, 4),
         "agrees_with_rollouts": round(agreed / counted, 4),
         "worth_of_its_pick": round(worth / counted, 5),
         "worth_of_policys_pick": round(policy_worth / counted, 5),
@@ -313,12 +320,23 @@ def teach(
     device: str = "cpu",
     leash: float = 0.1,
     hold: str = "mortal+ours",
+    rows: str = "changed",
     log=None,
     seed: int = 11,
 ) -> list[dict]:
     """Teaches the policy the lesson, holding still what `hold` names, and
     measures it on the held-back deals after every epoch. The network is
-    changed in place; the history is returned."""
+    changed in place; the history is returned.
+
+    `rows` says which decisions the cross-entropy is asked about. On a
+    decision the search left alone the lesson is the move the policy
+    already made, and asking for it as a one-hot is not "keep this" but
+    "put all of your probability here" -- the sharpening that erodes this
+    lineage. With `changed`, the default, only the decisions the search
+    overrode are taught and the leash alone holds the rest, which is what
+    the leash is for. With `all`, every row is taught, which is worse and
+    is kept for comparison.
+    """
     # The policy as it stands, kept whatever the leash weighs: what the
     # lesson is pulling against, and what every measure below says the
     # distance from. A teacher that cannot say how far it moved the policy
@@ -334,6 +352,10 @@ def teach(
     training, held = lesson.split()
     if len(training) == 0:
         raise ValueError("the recording has no rows to teach from")
+    if rows not in ("changed", "all"):
+        raise ValueError(f"no such rows: {rows}")
+    if rows == "changed" and not lesson.changed[training].any():
+        raise ValueError("the search overrode nothing in these deals, so there is nothing to teach")
     history: list[dict] = []
     drawer = np.random.default_rng(seed)
     for epoch in range(epochs):
@@ -343,8 +365,13 @@ def teach(
         for start in range(0, len(order), batch):
             picks = np.sort(order[start : start + batch])
             planes, allowed, moves, valid, targets, weights = lesson_batch(lesson, picks, device)
+            if rows == "changed":
+                weights = weights * torch.from_numpy(
+                    lesson.changed[picks].astype(np.float32)
+                ).to(device)
             logits, _value, _hands = net.everything(planes, allowed)
-            loss = taught_loss(logits.float(), moves, valid, targets, weights)
+            loss = (taught_loss(logits.float(), moves, valid, targets, weights)
+                    if float(weights.sum()) > 0 else torch.zeros((), device=device))
             if leash > 0:
                 with torch.no_grad():
                     before, _v, _h = reference.everything(planes, allowed)
@@ -373,8 +400,8 @@ def main() -> None:
     parser.add_argument("recording", type=Path, nargs="+", help="recording directories, taken together")
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--epochs", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--epochs", type=int, default=8)
+    parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=128)
     parser.add_argument(
         "--target",
@@ -397,9 +424,14 @@ def main() -> None:
     parser.add_argument(
         "--leash",
         type=float,
-        default=0.1,
+        default=1.0,
         help="how hard the starting policy is held on to, in nats; this "
-        "lineage erodes without one (neural.train_combined)",
+        "lineage erodes without one (neural.train_combined). Swept on a "
+        "ten-thousand-decision recording: at a rate of a thousandth, a "
+        "leash of one tenth drifts a nat and loses ground on the "
+        "decisions the search left alone, a leash of four learns almost "
+        "nothing, and a leash of one learns a fifth of the overrides for "
+        "a third of a nat",
     )
     parser.add_argument(
         "--hold",
@@ -412,6 +444,15 @@ def main() -> None:
         "--weighted",
         action="store_true",
         help="count each row by how much its worlds agreed on it",
+    )
+    parser.add_argument(
+        "--rows",
+        choices=("changed", "all"),
+        default="changed",
+        help="which decisions the lesson is asked about: the ones the "
+        "search overrode, with the leash holding the rest, or every one "
+        "of them. Asking for the policy's own move as a one-hot where the "
+        "search agreed is a demand to sharpen, not to keep",
     )
     parser.add_argument(
         "--emphasis",
@@ -452,7 +493,7 @@ def main() -> None:
     before = measure(net, lesson, lesson.split()[1], args.device)
     history = teach(
         net, lesson, epochs=args.epochs, lr=args.lr, batch=args.batch, device=args.device,
-        leash=args.leash, hold=args.hold, log=sys.stderr,
+        leash=args.leash, hold=args.hold, rows=args.rows, log=sys.stderr,
     )
     payload = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     kept = {
@@ -463,11 +504,12 @@ def main() -> None:
         "taught": {
             "from": str(args.checkpoint),
             "recordings": [str(folder) for folder in args.recording],
-            "rows": len(lesson),
+            "decisions": len(lesson),
             "target": args.target,
             "temperature": args.temperature,
             "leash": args.leash,
             "hold": args.hold,
+            "rows": args.rows,
             "epochs": args.epochs,
             "lr": args.lr,
             "weighted": bool(args.weighted),
