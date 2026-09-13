@@ -29,7 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import shutil
+import tempfile
 import statistics
 import sys
 import time
@@ -45,7 +45,7 @@ from . import contract as contract_module
 from . import worlds as worlds_module
 from . import zoo
 from .contract import UnsupportedSearchLayout
-from .training_safety import require_training_engine
+from .training_safety import require_training_engine, require_search_engine
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -76,7 +76,7 @@ def require_native_search(net) -> None:
 
 
 @torch.no_grad()
-def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=400):
+def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
     """Plays every decision the lookaheads are waiting on with the policy
     until none is left: the network moving the other seats inside the
     search, and the searching player's own turns beyond the first when a
@@ -129,6 +129,7 @@ def search_with_value_head(
     valued_by="critic",
     health=None,
     served=None,
+    leaf_batch=contract_module.DEFAULT_LEAF_BATCH,
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -153,6 +154,9 @@ def search_with_value_head(
     judges the leaves.
     """
     served = served or contract_module.serve(net)
+    require_search_engine()
+    if type(leaf_batch) is not int or leaf_batch <= 0:
+        raise ValueError("leaf_batch must be a positive integer")
     if played_by == "network" and served.contract.reads != "mortal":
         require_native_search(net)
     games = len(ranked)
@@ -212,10 +216,9 @@ def search_with_value_head(
             efficiency.append(chosen.efficiency)
             distinct.append(chosen.distinct)
     if played_by == "network":
-        # A depth below zero plays each world to the end of the hand and
-        # values the leaf at the searcher's first decision of the next: the
-        # hand's own result is then what actually happened, and the critic
-        # speaks only of the hand after.
+        # A depth below zero bypasses the root-hand critic. After the
+        # root hand ends, the network plays to terminal placement without
+        # adding later hands' score changes to this decision's reward.
         arena.lookahead_begin(
             ranked, kept, weights, candidates=candidates, depth=max(depth, 0),
             until_hand_ends=depth < 0,
@@ -242,15 +245,15 @@ def search_with_value_head(
     # events its imagined world invented. Root and continuation go through
     # the same contract, because a search that serves one correctly and the
     # other some other way is measuring a network that does not exist.
-    leaves = served.leaves(arena, planes_bytes, counts, device, wanted=_wanted)
-    # Every slot is valued, including the few that want no value; the engine
-    # adds what it settled itself, ignores the rest, and that is cheaper
-    # than gathering.
-    valued = np.empty(total, dtype=np.float32)
-    step = 8192
-    for start in range(0, total, step):
-        chunk = leaves[start : start + step]
-        valued[start : start + step] = served.value(chunk, head=valued_by).float().cpu().numpy()
+    valued = np.zeros(total, dtype=np.float32)
+    for slots, chunk in served.leaf_batches(
+        arena, planes_bytes, counts, device, wanted=_wanted, batch_size=leaf_batch,
+    ):
+        values = served.value(chunk, head=valued_by).float().cpu().numpy()
+        if values.shape != (len(slots),) or not np.isfinite(values).all():
+            raise ValueError("The search critic must return one finite value per wanted leaf")
+        valued[slots] = values
+        del chunk
     if health is not None and efficiency:
         # How much of the proposal the weights actually used, and how many
         # distinct worlds survived. An efficiency near zero means the search
@@ -278,6 +281,7 @@ def play(
     temperature: float = 0.0,
     valued_by: str = "critic",
     served=None,
+    leaf_batch: int = contract_module.DEFAULT_LEAF_BATCH,
     max_steps: int = 4000,
     recording: "Recording | None" = None,
     sure: float = 1.0,
@@ -406,6 +410,7 @@ def play(
                 valued_by=valued_by,
                 health=health,
                 served=served,
+                leaf_batch=leaf_batch,
             )
             if recording is not None:
                 if views is None:
@@ -508,7 +513,7 @@ class Recording:
         self.step.append(int(step))
         self.sure.append(float(sure))
         self.legal.append(
-            np.asarray(legal, dtype=bool) if legal is not None else np.ones(ACTIONS, dtype=bool)
+            np.array(legal, dtype=bool, copy=True) if legal is not None else np.ones(ACTIONS, dtype=bool)
         )
 
     def checkpoint(self) -> bool:
@@ -523,21 +528,9 @@ class Recording:
         return True
 
     def save(self, folder, meta: dict, complete: bool = True) -> None:
-        folder = Path(folder)
-        # Written beside the folder and swapped in whole, so whoever reads
-        # or copies it while the search runs never sees half a recording.
-        writing = folder.with_name(folder.name + ".writing")
-        previous = folder.with_name(folder.name + ".previous")
-        for stale in (writing, previous):
-            if stale.exists():
-                shutil.rmtree(stale)
-        writing.mkdir(parents=True)
-        self._write(writing, {**meta, "complete": bool(complete)})
-        if folder.exists():
-            folder.rename(previous)
-        writing.rename(folder)
-        if previous.exists():
-            shutil.rmtree(previous)
+        from .recordings import write_snapshot
+
+        write_snapshot(Path(folder), self._write, {**meta, "complete": bool(complete)})
         self.saved_at = time.perf_counter()
         self.saved_rows = len(self)
 
@@ -590,6 +583,8 @@ def main() -> None:
         "the sampled search, with no weighing at all",
     )
     parser.add_argument("--margin", type=float, default=2.0)
+    parser.add_argument("--leaf-batch", type=int, default=contract_module.DEFAULT_LEAF_BATCH,
+                        help="maximum leaves reconstructed, densified and valued together")
     parser.add_argument(
         "--played-by",
         choices=("club", "network"),
@@ -603,8 +598,8 @@ def main() -> None:
         default=0,
         help="with the network moving the other seats, how many of the "
         "searching player's own turns it plays before the position is "
-        "valued; zero values the next one, and below zero plays the hand to "
-        "its end and values the first decision of the next",
+        "valued; zero values the next one in this hand. Below zero bypasses "
+        "the critic. Any crossed-hand world plays on to terminal placement",
     )
     parser.add_argument(
         "--valued-by",
@@ -667,11 +662,22 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Pin the bytes before loading or recording a digest. A trainer may
+    # replace the caller's latest.pt while this long measurement runs.
+    from .checkpoints import copy_checkpoint
+
+    with tempfile.TemporaryDirectory(prefix="mahjong-searched-") as folder:
+        checkpoint = Path(folder) / "checkpoint.pt"
+        generation = copy_checkpoint(Path(args.checkpoint), checkpoint)
+        _run(args, checkpoint, generation)
+
+
+def _run(args, checkpoint: Path, generation: int | None) -> None:
     # Loaded whole, then asked what it reads and answers in. The server
     # that comes back builds the planes for the root and for every imagined
     # continuation alike; a network nothing here can serve is refused by
     # name rather than approximated with another's planes.
-    net = zoo.load_player(args.checkpoint, args.device, args.channels, args.blocks)
+    net = zoo.load_player(checkpoint, args.device, args.channels, args.blocks)
     served = contract_module.serve(net, str(args.checkpoint))
     print(json.dumps({"contract": served.contract.describe()}), flush=True)
 
@@ -679,8 +685,16 @@ def main() -> None:
     per_deal = []
     asked = overrode = own = taken_sure = 0
     chairs = [args.chair] if 0 <= args.chair < SEATS else list(range(SEATS))
+    from .recordings import digest_file
+
     meta = {
         "checkpoint": str(args.checkpoint),
+        "checkpoint_sha256": digest_file(checkpoint),
+        "checkpoint_generation": generation,
+        "temperature": args.temperature,
+        "leaf_batch": args.leaf_batch,
+        "device": args.device,
+        "save_every": args.save_every,
         "contract": served.contract.describe(),
         "games": args.games,
         "seed": args.seed,
@@ -713,6 +727,7 @@ def main() -> None:
             temperature=args.temperature,
             valued_by=args.valued_by,
             served=served,
+            leaf_batch=args.leaf_batch,
             recording=recording,
             sure=args.sure,
             health=health,

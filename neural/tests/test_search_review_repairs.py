@@ -89,10 +89,10 @@ class SearchLearningTests(unittest.TestCase):
             calls=[]
             def leaves(*args,**kwargs):
                 self.assertEqual(kwargs['wanted'],[1])
-                return torch.zeros(1,1,1)
+                yield np.array([0]), torch.zeros(1,1,1)
             def value(planes,head):
                 calls.append(head);return torch.tensor([result])
-            served=SimpleNamespace(contract=SimpleNamespace(reads='mortal'),leaves=leaves,value=value)
+            served=SimpleNamespace(contract=SimpleNamespace(reads='mortal'),leaf_batches=leaves,value=value)
             got=searched.search_with_value_head(object(),Arena(),[[0]],[],worlds=1,candidates=1,
                 margin=2.,hurried=True,device='cpu',pool=1,valued_by=head,served=served)
             self.assertEqual(got,[result]);self.assertEqual(calls,[head])

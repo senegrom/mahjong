@@ -78,7 +78,9 @@ def measure(folder: Path, margin: float = MARGIN, repeats: int = REPEATS,
             seed: int = 11) -> dict:
     """What the margin's rule, and taking the best average, gain a
     decision on the recording named."""
-    folder = Path(folder)
+    from .recordings import resolve_recording
+
+    folder = resolve_recording(folder)
     meta_path = folder / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
     per_world = np.load(folder / "per_world.npy").astype(np.float64)
@@ -138,6 +140,7 @@ def measure(folder: Path, margin: float = MARGIN, repeats: int = REPEATS,
     ) if rows else float("nan")
     return {
         "recording": str(folder),
+        "search_backup_version": meta.get("search_backup_version", 1),
         "worlds": meta.get("worlds"),
         "sure": meta.get("sure"),
         "complete": meta.get("complete"),

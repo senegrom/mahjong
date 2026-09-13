@@ -43,6 +43,7 @@ from neural.training_safety import training_control_arguments
 from neural.checkpoints import copy_checkpoint, publish_training_snapshot, validate_checkpoint
 from neural.cloud_runs import workspace, validate_run, managed_process
 from neural.cloud_requests import validate_cloud_request, stage_opponents
+from neural.recordings import atomic_json, copy_recording, experiment, resolve_recording
 
 HERE = Path(__file__).parent.parent
 
@@ -694,103 +695,110 @@ def searched(
     record: bool = False,
     sure: float = 1.0,
     save_every: int = 600,
+    seed: int = 90_210,
+    temperature: float = 0.0,
+    valued_by: str = "critic",
+    leaf_batch: int = 256,
 ) -> str:
-    """Whether one ply of search beats the policy that supplies it.
+    """Evaluate search, keeping progress separate from successful complete runs.
 
-    `sure` gates the search on the policy's confidence: an own decision
-    where the policy puts that much probability on its first move is
-    taken at its word, unsearched and unrecorded (`neural.searched
-    --sure`). With `record`, the searched decisions are copied to the
-    volume every `save_every` seconds as well as at the end.
-
-    Its own container, and a large one: the search clones a hand per
-    candidate per world per game and plays each of them forward, which is
-    tens of gigabytes of short-lived state and far more than a desk shared
-    with a browser has to spare.
-
-    The arm without search is not played. All four seats are the same
-    network, so their placements sum to ten on every deal and average to
-    exactly 2.5; the searching arm is measured against that. The network
-    is served through `neural.contract`, so a checkpoint of the current
-    lineage is searched on the planes it reads, and one nothing can serve
-    is refused by name before a tally is written.
+    Every invocation has an immutable identity bound to the copied checkpoint
+    digest and its complete configuration. Progress survives interruption under
+    progress/; only a successful child with a validated complete manifest can
+    publish under complete/. Neither another run nor another generation is ever
+    deleted. Filesystems that cannot publish atomically fail rather than falling
+    back to overwriting a live recording in place.
     """
+    import math
+    from neural.recordings import validate_snapshot
+
+    validate_run(run)
+    for name, value in (("games", games), ("worlds", worlds), ("candidates", candidates),
+                        ("pool", pool), ("leaf_batch", leaf_batch)):
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+    if type(seed) is not int or seed < 0 or seed + games > 2**64:
+        raise ValueError("seed range must fit unsigned 64-bit game seeds")
+    if type(depth) is not int or type(chair) is not int or not -1 <= chair < 4:
+        raise ValueError("depth must be an integer and chair must be -1 or 0..3")
+    for name, value in (("margin", margin), ("temperature", temperature), ("save_every", save_every)):
+        if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"{name} must be finite and nonnegative")
+    if not math.isfinite(sure) or not 0 <= sure <= 1:
+        raise ValueError("sure must be a probability")
+    if played_by not in ("club", "network") or valued_by not in ("critic", "public", "mean"):
+        raise ValueError("invalid rollout policy or value head")
     volume.reload()
     source = _checkpoint(run, which)
     if not source.exists():
-        return f"no checkpoint at {source}"
+        raise FileNotFoundError(f"no checkpoint at {source}")
     with workspace("searched") as where:
-        copied = where / (which.replace("/", "--") + ".pt")
-        copy_checkpoint(source, copied, require_generation=True)
-        print(f"{which}.pt generation {_generation_of(copied)}", flush=True)
+        copied = where / "checkpoint.pt"
+        generation = copy_checkpoint(source, copied, require_generation=True)
+        settings = dict(run=run, which=which, games=games, seed=seed, worlds=worlds,
+                        candidates=candidates, margin=margin, pool=pool, played_by=played_by,
+                        depth=depth, chair=chair, sure=sure, save_every=save_every,
+                        temperature=temperature, valued_by=valued_by, leaf_batch=leaf_batch,
+                        device="cuda")
+        identity = experiment(copied, generation, settings)
+        target = VOLUME / "searched-records" / identity["experiment_id"]
+        if record:
+            atomic_json(target / "experiment.json", identity)
+            volume.commit()
         command = [
             sys.executable, "-m", "neural.searched", str(copied),
-            "--games", str(games), "--worlds", str(worlds),
+            "--games", str(games), "--seed", str(seed), "--worlds", str(worlds),
             "--candidates", str(candidates), "--margin", str(margin),
             "--pool", str(pool), "--played-by", played_by, "--depth", str(depth),
             "--chair", str(chair), "--sure", str(sure), "--save-every", str(save_every),
-            "--device", "cuda",
+            "--temperature", str(temperature), "--valued-by", valued_by,
+            "--leaf-batch", str(leaf_batch), "--device", "cuda",
         ]
         records = where / "records"
-        # Kept on the volume by checkpoint, search settings and chair, so
-        # the chairs of one measurement sit side by side; copied whenever
-        # the search has written more, so a container killed mid-run (the
-        # spend limit took eight at once, hours in) leaves its decisions
-        # behind. The search swaps each write in whole, and a copy that
-        # catches it halfway is retried at the next look.
-        gate = f"-s{sure:g}" if sure < 1.0 else ""
-        name = f"{validate_run(run)}--{which.replace('/', '--')}--{played_by}-d{depth}-w{worlds}{gate}"
-        target = VOLUME / "searched-records" / name / (f"chair{chair}" if chair >= 0 else "all")
-        kept_rows = -1
+        kept_snapshot = None
 
-        def keep_records() -> None:
-            nonlocal kept_rows
-            meta = records / "meta.json"
-            if not meta.exists():
-                return
+        def keep_records(*, complete=False):
+            nonlocal kept_snapshot
             try:
-                rows = int(json.loads(meta.read_text(encoding="utf-8")).get("rows", 0))
-                if rows == kept_rows:
-                    return
-                staging = target.with_name(target.name + ".writing")
-                try:
-                    if staging.exists():
-                        shutil.rmtree(staging)
-                    shutil.copytree(records, staging)
-                    if target.exists():
-                        shutil.rmtree(target)
-                    staging.rename(target)
-                except OSError:
-                    # A volume that will not rename a folder: copied over
-                    # in place instead. A recording only grows and its
-                    # files keep their names, so nothing stale survives.
-                    shutil.copytree(records, target, dirs_exist_ok=True)
-                volume.commit()
-            except (OSError, ValueError) as error:
-                print(f"records not kept this time: {error}", flush=True)
+                snapshot = resolve_recording(records)
+            except FileNotFoundError:
+                if complete:
+                    raise ValueError("Successful search produced no complete recording") from None
                 return
-            kept_rows = rows
-            print(f"{rows} recorded decisions kept at {target}", flush=True)
+            meta = validate_snapshot(snapshot, require_complete=complete)
+            key = (meta["snapshot_id"], complete)
+            if key == kept_snapshot:
+                return
+            copy_recording(snapshot, target / ("complete" if complete else "progress"),
+                           require_complete=complete)
+            volume.commit()
+            kept_snapshot = key
+            print(f"{meta['rows']} recorded decisions kept at {target}", flush=True)
 
         if record:
             command += ["--record", str(records)]
-            if target.exists():
-                shutil.rmtree(target)
         log = where / "searched.log"
-        with open(log, "w", encoding="utf-8") as sink:
+        with log.open("w", encoding="utf-8") as sink:
             with managed_process(subprocess.Popen(
                 command, cwd="/src", env=_environment(SEARCH_CPUS), stdout=sink, stderr=subprocess.STDOUT,
             )) as process:
                 while True:
                     try:
-                        process.wait(timeout=60)
+                        returncode = process.wait(timeout=60)
                         break
                     except subprocess.TimeoutExpired:
                         if record:
                             keep_records()
-        if record:
-            keep_records()
         answer = log.read_text(encoding="utf-8", errors="replace")
+        if record:
+            atomic_json(target / "result.json", {"returncode": returncode, "output": answer})
+            volume.commit()
+        if returncode:
+            # Valid progress may already have been kept, but it is not a
+            # successful experiment and never replaces an accepted dataset.
+            raise subprocess.CalledProcessError(returncode, command, output=answer)
+        if record:
+            keep_records(complete=True)
     print(answer, flush=True)
     return answer
 
@@ -921,6 +929,7 @@ def teach(
     volume.reload()
     folders = [VOLUME / name for name in recordings]
     for folder in folders:
+        folder = resolve_recording(folder)
         if not (folder / "meta.json").exists():
             return f"no recording at {folder}"
     run = checkpoint.rpartition("/")[0] or DEFAULT_RUN
@@ -993,6 +1002,7 @@ def train_head(
     volume.reload()
     folders = [VOLUME / name for name in recordings]
     for folder in folders:
+        folder = resolve_recording(folder)
         if not (folder / "meta.json").exists():
             return f"no recording at {folder}"
     source = _checkpoint(checkpoint.rpartition("/")[0] or DEFAULT_RUN, checkpoint.rpartition("/")[2])
