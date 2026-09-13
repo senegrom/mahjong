@@ -332,53 +332,11 @@ def play(
             views.prepare(rows, deciding)
 
         # The root as this network reads it, through the same contract as
-        # the leaves below. A network of Mortal's lineage answers in
-        # Mortal's forty-six and the engine plays seventy-eight, so its
-        # order is named in ours; a reach there names no tile, and is put
-        # the second question the table puts it wherever one is legal, so
-        # the riichi discards take the reach's place in the order in the
-        # tile order of that answer.
-        root_planes, root_mask = served.root(arena, views, rows, deciding, mask, device)
-        logits, _value, guessed = net.everything(root_planes, root_mask)
-        own_order = served.order(logits.float())
-        named = served.to_engine_rows(own_order, mask[rows])
-        reach_at: dict[int, int] = {}
-        tile_order = None
-        if not served.contract.speaks_our_moves:
-            may_reach = mask[rows, zoo.RIICHI_DISCARD : zoo.TSUMO].any(axis=1)
-            second = np.nonzero(may_reach)[0]
-            if len(second):
-                after_planes, after_mask = served.after_reach(
-                    arena, rows[second], deciding[second], mask, device
-                )
-                after_logits, _after_value, _after_hands = net.everything(after_planes, after_mask)
-                tile_order = (
-                    torch.argsort(after_logits[:, :POSITIONS].float(), dim=1, descending=True)
-                    .cpu()
-                    .numpy()
-                )
-                reach_at = {int(at): k for k, at in enumerate(second)}
-        order = np.zeros((games, ACTIONS), dtype=np.int64)
-        every = np.arange(ACTIONS)
-        for at, game in enumerate(rows):
-            ours = named[at]
-            if at in reach_at:
-                where = np.nonzero(own_order[at] == zoo.MORTAL_RIICHI)[0]
-                riichi = zoo.RIICHI_DISCARD + tile_order[reach_at[at]]
-                riichi = riichi[mask[game][riichi]]
-                if len(where):
-                    ours = np.concatenate([ours[: where[0]], riichi, ours[where[0] + 1 :]])
-            ours = ours[ours >= 0]
-            # Each of our moves once, at its first mention, then the legal
-            # ones the network's order did not reach, then the rest: every
-            # row is a full order of distinct moves and the search reads
-            # only its head.
-            _first, at_first = np.unique(ours, return_index=True)
-            ours = ours[np.sort(at_first)]
-            seen = np.zeros(ACTIONS, dtype=bool)
-            seen[ours] = True
-            rest = every[~seen]
-            order[game] = np.concatenate([ours, rest[mask[game][rest]], rest[~mask[game][rest]]])
+        # the leaves below: its order over our moves, with a reach's second
+        # question asked wherever one is legal (`contract.root_order`).
+        order, _logits, _value, guessed = contract_module.root_order(
+            served, arena, views, rows, deciding, mask, device
+        )
         belief = np.zeros((games, HANDS), dtype=np.float32)
         belief[rows] = torch.softmax(guessed.float(), dim=2).reshape(len(rows), HANDS).cpu().numpy()
 

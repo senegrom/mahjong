@@ -283,7 +283,7 @@ class MortalServed:
     def order(self, logits) -> np.ndarray:
         return torch.argsort(logits, dim=1, descending=True).cpu().numpy()
 
-    def after_reach(self, arena, rows, deciding, legal, device):
+    def after_reach(self, arena, rows, deciding, legal, device, follower=None):
         """The second question a reach asks, which tile to throw, put from
         a copy of each seat's real state told the declaration.
 
@@ -299,7 +299,8 @@ class MortalServed:
         from .observe import Planes
 
         who = [(int(game), int(player)) for game, player in zip(rows, deciding)]
-        copies = self._Imagined.from_follower(arena_follower(arena), who, 4)
+        follower = follower if follower is not None else arena_follower(arena)
+        copies = self._Imagined.from_follower(follower, who, 4)
         copies.feed([[json.dumps({"type": "reach", "actor": player})] for _game, player in who])
         indptr, indices, values, _masks = copies.encode()
         planes = Planes.from_follower(indptr, indices, values).dense(device)
@@ -436,6 +437,69 @@ class MortalServed:
                 actions[second] = zoo.RIICHI_DISCARD + tile.cpu().numpy()
             arena.lookahead_apply(actions.tolist())
         return taken
+
+
+def root_order(served, arena, views, rows, deciding, mask, device):
+    """The network's order over our moves at the root, best first, for the
+    live games, and what else its one pass gave: the logits in its own
+    moves, the value, and its reading of the hands.
+
+    A network of Mortal's lineage answers in Mortal's forty-six and the
+    engine plays seventy-eight, so its order is named in ours; a reach
+    there names no tile, and is put the second question the table puts
+    it wherever one is legal, so the riichi discards take the reach's
+    place in the order in the tile order of that answer. Every row of
+    `order` is a full order of distinct moves -- the network's first, then
+    the legal moves it did not reach, then the rest -- so a caller may read
+    only its head. `arena` may be None when no reach's second question
+    can arise for an engine-planes network; a Mortal-planes one needs it
+    for the follower its copies come from.
+    """
+    from . import zoo
+
+    net = served.net
+    games = mask.shape[0]
+    root_planes, root_mask = served.root(arena, views, rows, deciding, mask, device)
+    logits, value, guessed = net.everything(root_planes, root_mask)
+    own_order = served.order(logits.float())
+    named = served.to_engine_rows(own_order, mask[rows])
+    reach_at: dict[int, int] = {}
+    tile_order = None
+    if not served.contract.speaks_our_moves:
+        may_reach = mask[rows, zoo.RIICHI_DISCARD : zoo.TSUMO].any(axis=1)
+        second = np.nonzero(may_reach)[0]
+        if len(second):
+            # The follower the copies come from: the arena's, or the one
+            # the views hold when a player asks without an arena of its own.
+            follower = views.observer.follower if views is not None and views.observer is not None else None
+            after_planes, after_mask = served.after_reach(
+                arena, rows[second], deciding[second], mask, device, follower=follower
+            )
+            after_logits, _after_value, _after_hands = net.everything(after_planes, after_mask)
+            tile_order = (
+                torch.argsort(after_logits[:, :POSITIONS].float(), dim=1, descending=True)
+                .cpu()
+                .numpy()
+            )
+            reach_at = {int(at): k for k, at in enumerate(second)}
+    order = np.zeros((games, ENGINE_ACTIONS), dtype=np.int64)
+    every = np.arange(ENGINE_ACTIONS)
+    for at, game in enumerate(rows):
+        ours = named[at]
+        if at in reach_at:
+            where = np.nonzero(own_order[at] == zoo.MORTAL_RIICHI)[0]
+            riichi = zoo.RIICHI_DISCARD + tile_order[reach_at[at]]
+            riichi = riichi[mask[game][riichi]]
+            if len(where):
+                ours = np.concatenate([ours[: where[0]], riichi, ours[where[0] + 1 :]])
+        ours = ours[ours >= 0]
+        _first, at_first = np.unique(ours, return_index=True)
+        ours = ours[np.sort(at_first)]
+        seen = np.zeros(ENGINE_ACTIONS, dtype=bool)
+        seen[ours] = True
+        rest = every[~seen]
+        order[game] = np.concatenate([ours, rest[mask[game][rest]], rest[~mask[game][rest]]])
+    return order, logits, value, guessed
 
 
 #: Where the follower lives on a `Views`. Set by `serve`, because the
