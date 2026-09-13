@@ -117,7 +117,18 @@ class Recorded:
     def targets(self) -> np.ndarray:
         """Each candidate's worth less the mean over the candidates tried
         there, NaN where there was no candidate: the difference the head
-        learns."""
+        learns.
+
+        These are what the worlds came to, and the best of four of them is
+        a best by luck: splitting the worlds so that one half chooses and
+        the other scores, the best candidate is worth 0.031 of a unit less
+        than the policy's own move on an eight-world recording, while the
+        moves the search's margin let through are worth 0.034 more. A head
+        fitted to these differences is fitted to that noise as well, which
+        is what `precision` weighs down and what the margin in
+        `neural.ranked` has to survive; `neural.teach` learns the search's
+        decision instead.
+        """
         valid = ~np.isnan(self.values)
         counts = valid.sum(axis=1, keepdims=True).clip(min=1)
         mean = np.where(valid, self.values, 0.0).sum(axis=1, keepdims=True) / counts
