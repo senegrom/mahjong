@@ -906,6 +906,7 @@ def teach(
     leash: float = 0.1,
     hold: str = "mortal+ours",
     weighted: bool = False,
+    emphasis: float = 1.0,
     without_mask: bool = False,
     duel_games: int = 0,
     seed: int = 555_000,
@@ -934,7 +935,8 @@ def teach(
             sys.executable, "-m", "neural.teach", *[str(folder) for folder in folders],
             str(copied), "--out", str(taught), "--epochs", str(epochs), "--lr", str(lr),
             "--batch", str(batch), "--target", target, "--temperature", str(temperature),
-            "--leash", str(leash), "--hold", hold, "--device", "cuda",
+            "--leash", str(leash), "--hold", hold, "--emphasis", str(emphasis),
+            "--device", "cuda",
         ]
         if weighted:
             command.append("--weighted")

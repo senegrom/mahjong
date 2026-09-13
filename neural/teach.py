@@ -91,7 +91,8 @@ class Lesson:
     """
 
     def __init__(self, recorded: Recorded, temperature: float = 0.1, weighted: bool = False,
-                 without_mask: bool = False, target: str = "decision") -> None:
+                 without_mask: bool = False, target: str = "decision",
+                 emphasis: float = 1.0) -> None:
         if recorded.legal is None and not without_mask:
             raise ValueError(
                 "this recording did not keep the table's mask, and the fusion reads the mask "
@@ -161,6 +162,15 @@ class Lesson:
             self.weights = (weight / max(np.nanmean(weight[self.rows]), 1e-6)).astype(np.float32)
         else:
             self.weights = np.ones(rows, dtype=np.float32)
+        # Most rows teach the move the policy already makes: the margin
+        # holds the search back nine times in ten, and those rows are an
+        # anchor rather than a lesson. `emphasis` says how much more the
+        # rows that change something count, which decides whether the
+        # lesson lands at all or is swamped by agreement it did not need
+        # to be taught. One is the rate they actually occur at.
+        self.emphasis = float(emphasis)
+        if emphasis != 1.0:
+            self.weights = self.weights * np.where(self.changed, float(emphasis), 1.0).astype(np.float32)
         # What the table allowed, in Mortal's moves: the question the
         # network is asked, not only what the leash holds it over. The
         # fusion's correction reads the mask as an input (`combined.Fuse`),
@@ -226,7 +236,8 @@ def leash_to(before: torch.Tensor, now: torch.Tensor, allowed: torch.Tensor) -> 
 
 
 @torch.no_grad()
-def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, step: int = 256) -> dict:
+def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, step: int = 256,
+            split_by_change: bool = True) -> dict:
     """What the policy makes of the rows it is shown: how often its first
     move is the one the rollouts liked best, what the rollouts gave the
     move it would play, and how far it has come from where it started.
@@ -280,6 +291,15 @@ def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, 
     }
     if reference is not None:
         out["leash_kl"] = round(drift / counted, 5)
+    if split_by_change:
+        # The lesson lives in the rows the search changed; the rest teach
+        # the move the policy already made, and a policy that learned
+        # nothing scores well on them. Read the two apart.
+        changed = lesson.changed[rows]
+        for name, which in (("where_it_changed", changed), ("where_it_agreed", ~changed)):
+            if which.any():
+                out[name] = measure(net, lesson, rows[which], device, step=step,
+                                    split_by_change=False)
     return out
 
 
@@ -394,6 +414,14 @@ def main() -> None:
         help="count each row by how much its worlds agreed on it",
     )
     parser.add_argument(
+        "--emphasis",
+        type=float,
+        default=1.0,
+        help="how much more the decisions the search changed count than "
+        "the ones it left alone; one teaches them at the rate they occur, "
+        "which is about one in fourteen",
+    )
+    parser.add_argument(
         "--without-mask",
         action="store_true",
         help="teach from a recording that did not keep the table's mask, "
@@ -411,7 +439,7 @@ def main() -> None:
     if len(args.recording) > 1:
         recorded = gathered([Recorded(folder) for folder in args.recording])
     lesson = Lesson(recorded, temperature=args.temperature, weighted=args.weighted,
-                    without_mask=args.without_mask, target=args.target)
+                    without_mask=args.without_mask, target=args.target, emphasis=args.emphasis)
     print(
         json.dumps({
             "rows": len(lesson), "of": len(recorded), "whole_mask": lesson.whole_mask,
@@ -443,6 +471,7 @@ def main() -> None:
             "epochs": args.epochs,
             "lr": args.lr,
             "weighted": bool(args.weighted),
+            "emphasis": args.emphasis,
             "history": history,
         },
     }

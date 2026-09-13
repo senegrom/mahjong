@@ -198,6 +198,28 @@ class TeachingTests(unittest.TestCase):
                         "a heavy leash holds the policy nearer where it started")
         self.assertLess(held_back, learned, "and it learns less of the lesson for it")
 
+    def test_the_rows_that_change_something_can_be_made_to_count_for_more(self):
+        """Nine decisions in ten teach the move the policy already makes.
+        Emphasis counts the others for more, and the reading says how the
+        two kinds went apart."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            recorded = a_recording(Path(folder))
+            plain = teach.Lesson(recorded)
+            loud = teach.Lesson(recorded, emphasis=5.0)
+            changed = plain.changed[plain.rows]
+            self.assertTrue(changed.any() and (~changed).any())
+            np.testing.assert_allclose(plain.weights[plain.rows], 1.0)
+            np.testing.assert_allclose(loud.weights[plain.rows][changed], 5.0)
+            np.testing.assert_allclose(loud.weights[plain.rows][~changed], 1.0)
+            torch.manual_seed(8)
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            said = teach.measure(net, plain, plain.rows, "cpu")
+        self.assertIn("where_it_changed", said)
+        self.assertIn("where_it_agreed", said)
+        self.assertEqual(said["where_it_changed"]["rows"] + said["where_it_agreed"]["rows"],
+                         said["rows"])
+        self.assertNotIn("where_it_changed", said["where_it_changed"], "read apart only once")
+
     def test_nothing_to_teach_is_refused_rather_than_pretended(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             recorded = a_recording(Path(folder))
