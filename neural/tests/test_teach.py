@@ -63,7 +63,7 @@ class LessonTests(unittest.TestCase):
                 3, zoo.RIICHI_DISCARD + 8, 0, 0, 1, sure=0.4, legal=legal,
             )
             recording.save(folder, {"note": "test", "seed": 1, "games": 1})
-            lesson = teach.Lesson(sibling_head.Recorded(Path(folder)), temperature=0.1)
+            lesson = teach.Lesson(sibling_head.Recorded(Path(folder)), temperature=0.1, target="values")
         self.assertEqual(len(lesson), 1, "the row has two distinct moves to compare")
         moves = lesson.moves[0]
         self.assertEqual(list(moves), [3, -1, zoo.MORTAL_RIICHI],
@@ -107,10 +107,41 @@ class LessonTests(unittest.TestCase):
     def test_a_colder_lesson_is_a_sharper_one(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             recorded = a_recording(Path(folder))
-            cold = teach.Lesson(recorded, temperature=0.02)
-            warm = teach.Lesson(recorded, temperature=1.0)
+            cold = teach.Lesson(recorded, temperature=0.02, target="values")
+            warm = teach.Lesson(recorded, temperature=1.0, target="values")
         self.assertGreater(len(cold), 0)
         self.assertGreater(cold.targets.max(axis=1).mean(), warm.targets.max(axis=1).mean())
+
+    def test_the_lesson_is_the_move_the_search_made_under_its_margin(self):
+        """The default lesson is the search's own decision, not the best
+        average: four candidates over a handful of worlds have a best by
+        luck, and the margin is what tells the two apart. Where the search
+        kept the policy's move, that is what is taught."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            recorded = a_recording(Path(folder))
+            lesson = teach.Lesson(recorded)
+            values = teach.Lesson(recorded, target="values")
+        self.assertGreater(len(lesson), 0)
+        taught = lesson.moves[lesson.rows][
+            np.arange(len(lesson.rows)), lesson.targets[lesson.rows].argmax(axis=1)
+        ]
+        made = teach.OURS_TO_MORTAL[recorded.search[lesson.rows]]
+        np.testing.assert_array_equal(taught, made, "the move taught is the move the search made")
+        np.testing.assert_allclose(lesson.targets[lesson.rows].sum(axis=1), 1.0)
+        self.assertTrue(
+            ((lesson.targets[lesson.rows] == 0) | (lesson.targets[lesson.rows] == 1)).all(),
+            "one move a row, not a spread over the candidates",
+        )
+        # Where the search kept the policy's move, that is the move
+        # taught; this recording was searched without a margin, so it
+        # kept fewer than it would in play.
+        kept = ~lesson.changed[lesson.rows]
+        self.assertTrue(kept.any() and lesson.changed[lesson.rows].any())
+        policys = teach.OURS_TO_MORTAL[recorded.policy[lesson.rows]]
+        np.testing.assert_array_equal(taught[kept], policys[kept])
+        # The raw ordering can disagree with the search's choice: two of
+        # our moves that are one of Mortal's group to the better of them.
+        self.assertEqual(values.targets.shape, lesson.targets.shape)
 
 
 class TeachingTests(unittest.TestCase):

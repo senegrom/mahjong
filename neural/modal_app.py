@@ -901,6 +901,7 @@ def teach(
     epochs: int = 4,
     lr: float = 1e-4,
     batch: int = 128,
+    target: str = "decision",
     temperature: float = 0.1,
     leash: float = 0.1,
     hold: str = "mortal+ours",
@@ -932,8 +933,8 @@ def teach(
         command = [
             sys.executable, "-m", "neural.teach", *[str(folder) for folder in folders],
             str(copied), "--out", str(taught), "--epochs", str(epochs), "--lr", str(lr),
-            "--batch", str(batch), "--temperature", str(temperature), "--leash", str(leash),
-            "--hold", hold, "--device", "cuda",
+            "--batch", str(batch), "--target", target, "--temperature", str(temperature),
+            "--leash", str(leash), "--hold", hold, "--device", "cuda",
         ]
         if weighted:
             command.append("--weighted")

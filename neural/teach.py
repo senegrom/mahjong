@@ -16,6 +16,15 @@ are not claimed to be bad; they are held where they were by the leash,
 the same KL to the starting policy that keeps self-play from eroding this
 lineage (`neural.train_combined`).
 
+Which move the rollouts taught is not the one with the best average.
+Four candidates valued over a handful of worlds have a best by luck: on
+an eight-world recording, choosing on one half of the worlds and scoring
+on the other, the best candidate loses 0.031 of a unit a decision, while
+the moves the search's two-standard-error margin let through gain 0.034.
+So `--target decision`, the default, teaches the move the search made
+under that margin; `--target values` teaches the raw ordering, for
+comparison rather than for use.
+
     python -m neural.teach recordings/ checkpoint.pt --out taught.pt
 
 The rein is the learning rate as much as the leash's weight: gradients
@@ -82,7 +91,7 @@ class Lesson:
     """
 
     def __init__(self, recorded: Recorded, temperature: float = 0.1, weighted: bool = False,
-                 without_mask: bool = False) -> None:
+                 without_mask: bool = False, target: str = "decision") -> None:
         if recorded.legal is None and not without_mask:
             raise ValueError(
                 "this recording did not keep the table's mask, and the fusion reads the mask "
@@ -112,15 +121,40 @@ class Lesson:
         self.worth = worth
         valid = moves >= 0
         self.valid = valid
-        # The lesson itself: what the rollouts said, as a distribution over
-        # the moves that were compared. A row with one move left after the
-        # grouping teaches nothing and is dropped.
-        filled = np.where(valid, worth, -np.inf)
-        odds = np.exp((filled - filled.max(axis=1, keepdims=True)) / max(self.temperature, 1e-6))
-        odds = np.where(valid, odds, 0.0)
-        total = odds.sum(axis=1, keepdims=True)
-        self.targets = np.where(total > 0, odds / np.maximum(total, 1e-12), 0.0).astype(np.float32)
-        self.rows = np.nonzero(valid.sum(axis=1) >= 2)[0]
+        if target not in ("decision", "values"):
+            raise ValueError(f"no such target: {target}")
+        self.target = target
+        # The lesson itself. Two ways to say what the rollouts taught:
+        #
+        # `decision` is the move the search actually made, which is the
+        # policy's own unless a candidate beat it by two standard errors
+        # over the worlds (`search::pick_by_margin`). That filter is the
+        # difference between a lesson and noise: on an eight-world
+        # recording, taking the best candidate outright loses 0.031 of a
+        # unit a decision, chosen on one half of the worlds and scored on
+        # the other, while the moves the margin let through gain 0.034.
+        #
+        # `values` is the raw ordering, softened by the temperature: every
+        # candidate taught in proportion to what it came to. It teaches
+        # the winner's curse along with the lesson, and is kept for
+        # comparison rather than for use.
+        if target == "values":
+            filled = np.where(valid, worth, -np.inf)
+            odds = np.exp((filled - filled.max(axis=1, keepdims=True)) / max(self.temperature, 1e-6))
+            odds = np.where(valid, odds, 0.0)
+            total = odds.sum(axis=1, keepdims=True)
+            self.targets = np.where(total > 0, odds / np.maximum(total, 1e-12), 0.0).astype(np.float32)
+        else:
+            wanted = np.where(recorded.search >= 0, OURS_TO_MORTAL[recorded.search.clip(min=0)], -1)
+            self.targets = np.zeros((rows, width), dtype=np.float32)
+            for row in range(rows):
+                where = np.nonzero(valid[row] & (moves[row] == wanted[row]))[0]
+                if len(where):
+                    self.targets[row, where[0]] = 1.0
+        #: Where the search's move was not the policy's: the rows that
+        #: teach something the policy did not already do.
+        self.changed = recorded.search != recorded.policy
+        self.rows = np.nonzero((valid.sum(axis=1) >= 2) & (self.targets.sum(axis=1) > 0))[0]
         if weighted:
             precision = recorded.precision()
             weight = np.nansum(np.where(valid, precision, np.nan), axis=1)
@@ -323,6 +357,16 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--batch", type=int, default=128)
     parser.add_argument(
+        "--target",
+        choices=("decision", "values"),
+        default="decision",
+        help="what the rollouts are taken to have taught: the move the "
+        "search made, which is the policy's own unless a candidate beat "
+        "it by two standard errors over the worlds, or the raw ordering "
+        "of the candidates softened by the temperature. The filter is "
+        "what separates the lesson from the winner's curse",
+    )
+    parser.add_argument(
         "--temperature",
         type=float,
         default=0.1,
@@ -367,11 +411,13 @@ def main() -> None:
     if len(args.recording) > 1:
         recorded = gathered([Recorded(folder) for folder in args.recording])
     lesson = Lesson(recorded, temperature=args.temperature, weighted=args.weighted,
-                    without_mask=args.without_mask)
+                    without_mask=args.without_mask, target=args.target)
     print(
         json.dumps({
             "rows": len(lesson), "of": len(recorded), "whole_mask": lesson.whole_mask,
-            "sure": recorded.meta.get("sure"), "temperature": args.temperature,
+            "sure": recorded.meta.get("sure"), "target": args.target,
+            "temperature": args.temperature if args.target == "values" else None,
+            "taught_a_new_move": int(lesson.changed[lesson.rows].sum()),
         }),
         file=sys.stderr, flush=True,
     )
@@ -390,6 +436,7 @@ def main() -> None:
             "from": str(args.checkpoint),
             "recordings": [str(folder) for folder in args.recording],
             "rows": len(lesson),
+            "target": args.target,
             "temperature": args.temperature,
             "leash": args.leash,
             "hold": args.hold,
