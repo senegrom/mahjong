@@ -149,6 +149,13 @@ class Batch:
     #: against the real hands the oracle planes carry.
     imagined: torch.Tensor
     returns: torch.Tensor
+    #: The placement part of `returns` alone, one a decision: what the game
+    #: was worth to that player in the end, with no hand points in it. A
+    #: head trained on this judges a position by where it leads in the
+    #: standings, which is what a search needs at a hand boundary where
+    #: the hand's own points have already been banked (`neural.worth`,
+    #: docs/SEARCH_REVIEW_REPAIRS.md).
+    placements: torch.Tensor
     log_probs: torch.Tensor
     games: int
     hands: int
@@ -561,11 +568,16 @@ def play(
     # decision that player made.
     final_scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4)
     bonuses = placement_rewards(final_scores, PLACEMENT_VALUE)
+    # Kept apart as well as added in: the same number, but a head that
+    # learns it alone judges standings rather than standings plus the
+    # hand's points, and only the first of those is wanted at a boundary.
+    placement_only = [0.0] * len(rewards)
     for game in range(games):
         for person in range(4):
             value = float(bonuses[game, person])
             for step_index in everything[game][person]:
                 rewards[step_index] += value
+                placement_only[step_index] = value
 
     decisions = len(actions)
     if decisions == 0:
@@ -601,6 +613,7 @@ def play(
         behaviour_epsilon=gather(coefficients),
         after_exploration=torch.tensor(after_exploration, dtype=torch.bool),
         returns=torch.tensor(rewards, dtype=torch.float32),
+        placements=torch.tensor(placement_only, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,
         hands=hands,
