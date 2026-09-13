@@ -150,6 +150,12 @@ class SearchContractTests(unittest.TestCase):
         self.assertEqual(len(recording), tally[0])
         self.assertEqual(len(recording.sure), len(recording))
         self.assertTrue(all(0.0 < sure <= 1.0 for sure in recording.sure), "a probability a row")
+        # The engine's mask at each root comes along, so a policy taught
+        # from the rows can be asked, and leashed, under it.
+        self.assertEqual(len(recording.legal), len(recording))
+        for candidates, legal in zip(recording.candidates, recording.legal):
+            self.assertEqual(legal.shape, (riichi_py.ACTIONS,))
+            self.assertTrue(all(legal[c] for c in candidates), "every candidate was legal")
         for candidates, values, worlds, policy, search in zip(
             recording.candidates, recording.values, recording.per_world, recording.policy, recording.search
         ):
@@ -166,6 +172,9 @@ class SearchContractTests(unittest.TestCase):
             per_world = np.load(Path(folder) / "per_world.npy")
             self.assertEqual(per_world.shape[0], len(recording))
             self.assertEqual(per_world.shape[2], 3)
+            legal = np.load(Path(folder) / "legal.npy")
+            self.assertEqual(legal.shape, (len(recording), riichi_py.ACTIONS))
+            self.assertEqual(legal.dtype, np.bool_)
 
     def test_a_sure_policy_is_taken_at_its_word_and_costs_no_worlds(self):
         """Gated at zero the policy is sure of everything: nothing is

@@ -422,6 +422,7 @@ def play(
                     recording.add(
                         root, judged, int(order[game][0]), int(choice[game]),
                         int(searcher), int(game), steps, sure=float(top[game]),
+                        legal=mask[game],
                     )
                 recording.checkpoint()
         arena.step(list(choice))
@@ -480,6 +481,9 @@ class Recording:
         self.step: list[int] = []
         #: How sure the policy was of its first move there: its probability.
         self.sure: list[float] = []
+        #: What the engine allowed at the root, in our moves: what a policy
+        #: taught from this recording is asked under, and leashed under.
+        self.legal: list[np.ndarray] = []
         self.folder = Path(folder) if folder is not None else None
         self.meta = dict(meta or {})
         self.every = every
@@ -491,7 +495,7 @@ class Recording:
 
     def add(
         self, root, judged, policy: int, search: int, chair: int, game: int, step: int,
-        sure: float = 1.0,
+        sure: float = 1.0, legal=None,
     ) -> None:
         self.roots.append(root)
         self.candidates.append([int(index) for index, _value, _worlds in judged])
@@ -503,6 +507,9 @@ class Recording:
         self.game.append(int(game))
         self.step.append(int(step))
         self.sure.append(float(sure))
+        self.legal.append(
+            np.asarray(legal, dtype=bool) if legal is not None else np.ones(ACTIONS, dtype=bool)
+        )
 
     def checkpoint(self) -> bool:
         """Writes what is recorded so far to the folder given at
@@ -563,6 +570,7 @@ class Recording:
         np.save(folder / "game.npy", np.asarray(self.game, dtype=np.int64))
         np.save(folder / "step.npy", np.asarray(self.step, dtype=np.int64))
         np.save(folder / "sure.npy", np.asarray(self.sure, dtype=np.float32))
+        np.save(folder / "legal.npy", np.stack(self.legal) if self.legal else np.zeros((0, ACTIONS), dtype=bool))
         (folder / "meta.json").write_text(json.dumps({**meta, "rows": rows}, indent=1), encoding="utf-8")
 
 

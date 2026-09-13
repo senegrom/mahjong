@@ -103,6 +103,10 @@ class Recorded:
         # where an older recording did not keep it.
         sure_path = folder / "sure.npy"
         self.sure = np.load(sure_path) if sure_path.exists() else np.ones(rows, dtype=np.float32)
+        # What the engine allowed at each root, in our moves, where the
+        # recording kept it; a policy taught from the rows needs it.
+        legal_path = folder / "legal.npy"
+        self.legal = np.load(legal_path) if legal_path.exists() else None
         if not (len(self.candidates) == len(self.values) == len(self.policy) == rows):
             raise ValueError(f"{folder}: the recording's arrays do not agree on the row count")
 
@@ -373,6 +377,8 @@ def gathered(parts: list[Recorded]) -> Recorded:
     joined.game = np.concatenate([part.game + offset for part, offset in zip(parts, offsets)])
     joined.chair = np.concatenate([part.chair for part in parts])
     joined.sure = np.concatenate([part.sure for part in parts])
+    joined.legal = (np.concatenate([part.legal for part in parts])
+                    if all(part.legal is not None for part in parts) else None)
     joined.meta = {
         "parts": [part.meta for part in parts],
         "sure": max(float(part.meta.get("sure", 1.0)) for part in parts),
