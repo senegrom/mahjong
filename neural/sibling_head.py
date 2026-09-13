@@ -180,6 +180,17 @@ def scored(head: Ranker, net, roots: Planes, rows: np.ndarray, device: str, step
     return torch.cat(out) if out else torch.zeros(0, ACTIONS, device=device)
 
 
+def chosen_by_search(recorded: Recorded) -> np.ndarray:
+    """Which candidate the search took, as a column of the candidate
+    table, and -1 where it took none of them. The move it made is the
+    policy's own unless one beat it by two standard errors over the
+    worlds, and that filter is what separates a lesson from the winner's
+    curse (`neural.worth`)."""
+    same = recorded.candidates == recorded.search[:, None]
+    found = same.any(axis=1)
+    return np.where(found, same.argmax(axis=1), -1)
+
+
 @torch.no_grad()
 def measure(head: Ranker, net, recorded: Recorded, rows: np.ndarray, device: str) -> dict:
     """How the head ranks against the rollouts, on the rows named.
@@ -221,9 +232,32 @@ def measure(head: Ranker, net, recorded: Recorded, rows: np.ndarray, device: str
             "gain_when_overriding": round(gain, 5),
             "gain_per_decision": round(rate * gain, 5),
         }
+    # Whether the head names the move the search actually made, which is
+    # the only judgement here that was filtered for noise. Read apart for
+    # the decisions the search changed, where the base rate is zero
+    # because the policy's own move is not the one to name.
+    took = torch.from_numpy(chosen_by_search(recorded)[rows]).to(device)
+    changed = torch.from_numpy(
+        (recorded.search != recorded.policy)[rows]
+    ).to(device)
+    names_it = (by_head == took) & (took >= 0)
+    overrode = {
+        "rows": int(changed.sum()),
+        "head_names_the_move": round(float(names_it[changed].float().mean()), 4) if bool(changed.any()) else None,
+        # What naming one of the candidates at random would get there,
+        # since the policy's own move is by definition the wrong answer
+        # on a decision the search overrode.
+        "by_chance": round(float((valid[changed].float().sum(dim=1).reciprocal()).mean()), 4)
+        if bool(changed.any()) else None,
+    }
     return {
         "rows": int(len(rows)),
         "loss": round(float(loss), 5),
+        "head_names_the_search_move": round(float(names_it.float().mean()), 4),
+        # Saying "the policy's move" everywhere scores this, which is what
+        # the figure above has to beat to mean anything at all.
+        "keeping_the_policys_move_would_score": round(float((~changed).float().mean()), 4),
+        "where_the_search_overrode": overrode,
         "head_agrees_with_rollouts": round(float((by_head == by_rollouts).float().mean()), 4),
         "policy_agrees_with_rollouts": round(float((by_rollouts == 0).float().mean()), 4),
         "worth_of_heads_pick": round(float(head_worth.mean()), 5),
@@ -244,11 +278,20 @@ def train(
     head: Ranker | None = None,
     log=None,
     weighted: bool = False,
+    target: str = "values",
 ) -> tuple[Ranker, list[dict]]:
     """Trains the head on the recording's training rows and measures it on
     the held-out ones after every epoch. `weighted` counts each target by
     its precision (`Recorded.precision`), normalised to a mean of one over
-    the targets, so the loss keeps its scale."""
+    the targets, so the loss keeps its scale.
+
+    `target` says what the head is asked to learn. `values` fits the
+    differences the worlds came to, which carry the winner's curse along
+    with the lesson. `decision` asks instead which move the search made
+    under its two-standard-error margin -- a choice among the candidates,
+    learned as one -- which is the only part of a recording measured to
+    be worth anything (`neural.worth`).
+    """
     net.eval()
     head = head or Ranker(backbone(net).channels)
     head.to(device)
@@ -262,6 +305,13 @@ def train(
         weights_all = torch.from_numpy(np.nan_to_num(precision, nan=0.0))
     else:
         weights_all = torch.ones_like(targets_all)
+    if target not in ("values", "decision"):
+        raise ValueError(f"no such target: {target}")
+    took_all = torch.from_numpy(chosen_by_search(recorded))
+    if target == "decision":
+        training = training[took_all[training].numpy() >= 0]
+        if len(training) == 0:
+            raise ValueError("the search chose none of the candidates it was given")
     history: list[dict] = []
     generator = np.random.default_rng(7)
     for epoch in range(epochs):
@@ -277,8 +327,14 @@ def train(
             weights = weights_all[picks].to(device)
             valid = ~torch.isnan(targets)
             scores = head(features, pooled).gather(1, candidates.clamp(min=0))
-            squared = (scores[valid] - targets[valid]) ** 2
-            loss = (weights[valid] * squared).sum() / weights[valid].sum().clamp(min=1e-6)
+            if target == "decision":
+                # A choice among the candidates: the head's scores are the
+                # logits of which move the search would make.
+                logits = torch.where(valid, scores, torch.full_like(scores, float("-inf")))
+                loss = nn.functional.cross_entropy(logits, took_all[picks].to(device))
+            else:
+                squared = (scores[valid] - targets[valid]) ** 2
+                loss = (weights[valid] * squared).sum() / weights[valid].sum().clamp(min=1e-6)
             optimiser.zero_grad(set_to_none=True)
             loss.backward()
             optimiser.step()
@@ -317,6 +373,15 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=256)
     parser.add_argument(
+        "--target",
+        choices=("values", "decision"),
+        default="decision",
+        help="what the head learns: the differences the worlds came to, "
+        "which carry the winner's curse, or which move the search made "
+        "under its margin, which is the part of a recording measured to "
+        "be worth something",
+    )
+    parser.add_argument(
         "--weighted",
         action="store_true",
         help="count each target by how much its worlds agreed on it, so the "
@@ -335,13 +400,13 @@ def main() -> None:
     print(f"{len(recorded)} recorded decisions from {len(args.recording)} recording(s)", file=sys.stderr, flush=True)
     head, history = train(
         recorded, net, epochs=args.epochs, lr=args.lr, batch=args.batch, device=args.device, log=sys.stderr,
-        weighted=args.weighted,
+        weighted=args.weighted, target=args.target,
     )
     # The head is consulted where the search was: below the confidence
     # the recordings were gated at, which the player reads back.
     save(head, args.out, {"checkpoint": str(args.checkpoint), "recordings": [str(p) for p in args.recording],
                           "history": history, "sure": float(recorded.meta.get("sure", 1.0)),
-                          "weighted": bool(args.weighted)})
+                          "weighted": bool(args.weighted), "target": args.target})
     print(json.dumps({"out": str(args.out), "final": history[-1] if history else None}, indent=1))
 
 

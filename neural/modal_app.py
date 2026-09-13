@@ -993,6 +993,7 @@ def train_head(
     lr: float = 1e-3,
     batch: int = 256,
     weighted: bool = False,
+    target: str = "decision",
 ) -> str:
     """Trains the sibling head (`neural.sibling_head`) on recordings the
     search kept on the volume -- directories under `searched-records/`,
@@ -1019,6 +1020,7 @@ def train_head(
         ]
         if weighted:
             command.append("--weighted")
+        command += ["--target", target]
         print(" ".join(command), flush=True)
         result = subprocess.run(command, cwd="/src", env=_environment(8), capture_output=True, text=True)
         answer = (result.stdout or "") + (result.stderr or "")

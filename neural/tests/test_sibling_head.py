@@ -99,6 +99,47 @@ class SiblingHeadTests(unittest.TestCase):
         finally:
             torch.set_num_threads(previous)
 
+    def test_the_head_can_learn_which_move_the_search_made(self):
+        """The other target: not what the worlds averaged to, which
+        carries the winner's curse, but which of the candidates the search
+        took under its margin. Learned as a choice, and measured against
+        naming one at random, which is what it has to beat where the
+        search overrode."""
+        previous = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            torch.manual_seed(4)
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            served = contract.serve(net)
+            recording = searched.Recording()
+            searched.play(net, 2, 4, 0, 3, 3, 0.0, pool=1, device="cpu", served=served, recording=recording)
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+                recording.save(folder, {"note": "test", "seed": 4, "games": 2})
+                recorded = sibling_head.Recorded(Path(folder))
+                took = sibling_head.chosen_by_search(recorded)
+                self.assertTrue((took >= 0).all(), "the search took one of the candidates it was given")
+                np.testing.assert_array_equal(
+                    recorded.candidates[np.arange(len(took)), took], recorded.search
+                )
+                training, held = recorded.split()
+                head, history = sibling_head.train(
+                    recorded, net, epochs=6, lr=3e-3, batch=32, device="cpu", target="decision"
+                )
+                on_training = sibling_head.measure(head, net, recorded, training, "cpu")
+                del held
+        finally:
+            torch.set_num_threads(previous)
+        self.assertEqual(len(history), 6)
+        # It is learning the choice: the cross-entropy over the candidates
+        # falls. Whether it generalises is a question for a recording of
+        # real size, not for two games.
+        self.assertLess(history[-1]["train_loss"], history[0]["train_loss"])
+        self.assertIn("keeping_the_policys_move_would_score", on_training)
+        overrode = on_training["where_the_search_overrode"]
+        self.assertGreater(overrode["rows"], 0)
+        self.assertIsNotNone(overrode["by_chance"])
+        self.assertLessEqual(overrode["by_chance"], 0.5)
+
     def test_the_head_learns_a_recording_and_is_measured_against_the_rollouts(self):
         previous = torch.get_num_threads()
         torch.set_num_threads(1)
