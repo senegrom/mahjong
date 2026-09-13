@@ -39,6 +39,15 @@ class SiblingHeadTests(unittest.TestCase):
             np.testing.assert_allclose(targets[0], [1.0 - 0.3, -0.5 - 0.3, 0.4 - 0.3], rtol=1e-5, atol=1e-6)
             np.testing.assert_allclose(targets[1][:2], [0.2, -0.2], rtol=1e-5, atol=1e-6)
             self.assertTrue(np.isnan(targets[1][2]), "a missing candidate is no target")
+            # The first row's worlds disagree about the second candidate
+            # and agree about the first; the second row has one world, so
+            # only the floor speaks.
+            precision = recorded.precision(floor=0.1)
+            self.assertTrue(np.isfinite(precision[0][:3]).all())
+            self.assertTrue(np.isnan(precision[0][3:]).all() if precision.shape[1] > 3 else True)
+            self.assertGreater(precision[0][0], precision[0][1], "a candidate the worlds agreed on is trusted more")
+            np.testing.assert_allclose(precision[1][:2], [100.0, 100.0], rtol=1e-4)
+            self.assertTrue(np.isnan(precision[1][2]))
 
     def test_a_recording_is_kept_as_the_search_runs_and_read_back_whole(self):
         """Written partially every interval while the search runs, marked
@@ -98,6 +107,11 @@ class SiblingHeadTests(unittest.TestCase):
                 self.assertEqual(len(training) + len(held), len(recorded))
                 head, history = sibling_head.train(recorded, net, epochs=4, lr=3e-3, batch=32, device="cpu")
                 self.assertEqual(len(history), 4)
+                weighted, weighed = sibling_head.train(
+                    recorded, net, epochs=1, lr=3e-3, batch=32, device="cpu", weighted=True
+                )
+                self.assertEqual(len(weighed), 1)
+                self.assertTrue(np.isfinite(weighed[0]["train_loss"]))
                 self.assertLess(
                     history[-1]["train_loss"], history[0]["train_loss"],
                     "the head fits the differences it is shown",

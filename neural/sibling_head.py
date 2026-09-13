@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import warnings
 import sys
 from pathlib import Path
 
@@ -89,6 +90,8 @@ class Recorded:
         self.roots = Planes.load(folder, "root", mmap=False)
         self.candidates = np.load(folder / "candidates.npy")
         self.values = np.load(folder / "values.npy")
+        per_world = folder / "per_world.npy"
+        self.per_world = np.load(per_world) if per_world.exists() else None
         self.policy = np.load(folder / "policy.npy")
         self.search = np.load(folder / "search.npy")
         self.game = np.load(folder / "game.npy")
@@ -115,6 +118,29 @@ class Recorded:
         counts = valid.sum(axis=1, keepdims=True).clip(min=1)
         mean = np.where(valid, self.values, 0.0).sum(axis=1, keepdims=True) / counts
         return np.where(valid, self.values - mean, np.nan).astype(np.float32)
+
+    def precision(self, floor: float = 0.05) -> np.ndarray:
+        """How far each target can be trusted: one over the variance of the
+        difference across the worlds it was averaged from, plus `floor`
+        squared for the spread of true differences. A row whose candidates
+        came to the same thing in every world speaks loudly; one whose
+        worlds disagree wildly speaks softly. Even where the worlds were
+        not kept. NaN where there is no candidate."""
+        valid = ~np.isnan(self.values)
+        if self.per_world is None:
+            return np.where(valid, 1.0 / floor**2, np.nan).astype(np.float32)
+        worlds = self.per_world.astype(np.float64)
+        with warnings.catch_warnings():
+            # Padding is all NaN, which numpy remarks on; it is masked below.
+            warnings.simplefilter("ignore", RuntimeWarning)
+            # The difference in each world between a candidate and the mean
+            # of the candidates tried there, then its variance over worlds.
+            centred = worlds - np.nanmean(worlds, axis=1, keepdims=True)
+            counted = (~np.isnan(centred)).sum(axis=2)
+            spread = np.nanvar(centred, axis=2)
+        spread = np.where(counted > 1, spread, 0.0)
+        error = spread / np.maximum(counted, 1)
+        return np.where(valid, 1.0 / (error + floor**2), np.nan).astype(np.float32)
 
     def split(self, held_out_every: int = 10) -> tuple[np.ndarray, np.ndarray]:
         """Rows to train on and rows to hold out, split by game and chair
@@ -181,9 +207,12 @@ def train(
     device: str = "cpu",
     head: Ranker | None = None,
     log=None,
+    weighted: bool = False,
 ) -> tuple[Ranker, list[dict]]:
     """Trains the head on the recording's training rows and measures it on
-    the held-out ones after every epoch."""
+    the held-out ones after every epoch. `weighted` counts each target by
+    its precision (`Recorded.precision`), normalised to a mean of one over
+    the targets, so the loss keeps its scale."""
     net.eval()
     head = head or Ranker(backbone(net).channels)
     head.to(device)
@@ -191,6 +220,12 @@ def train(
     training, held = recorded.split()
     targets_all = torch.from_numpy(recorded.targets)
     candidates_all = torch.from_numpy(recorded.candidates)
+    if weighted:
+        precision = recorded.precision()
+        precision = precision / np.nanmean(precision)
+        weights_all = torch.from_numpy(np.nan_to_num(precision, nan=0.0))
+    else:
+        weights_all = torch.ones_like(targets_all)
     history: list[dict] = []
     generator = np.random.default_rng(7)
     for epoch in range(epochs):
@@ -203,13 +238,15 @@ def train(
             features, pooled = features_of(net, planes)
             targets = targets_all[picks].to(device)
             candidates = candidates_all[picks].to(device)
+            weights = weights_all[picks].to(device)
             valid = ~torch.isnan(targets)
             scores = head(features, pooled).gather(1, candidates.clamp(min=0))
-            loss = nn.functional.mse_loss(scores[valid], targets[valid])
+            squared = (scores[valid] - targets[valid]) ** 2
+            loss = (weights[valid] * squared).sum() / weights[valid].sum().clamp(min=1e-6)
             optimiser.zero_grad(set_to_none=True)
             loss.backward()
             optimiser.step()
-            total += float(loss) * int(valid.sum())
+            total += float(loss.detach()) * int(valid.sum())
             count += int(valid.sum())
         head.eval()
         record = {
@@ -243,6 +280,13 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=256)
+    parser.add_argument(
+        "--weighted",
+        action="store_true",
+        help="count each target by how much its worlds agreed on it, so the "
+        "rows the rollouts were sure of teach more than the ones they were "
+        "not",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
@@ -254,12 +298,14 @@ def main() -> None:
         recorded = gathered([Recorded(folder) for folder in args.recording])
     print(f"{len(recorded)} recorded decisions from {len(args.recording)} recording(s)", file=sys.stderr, flush=True)
     head, history = train(
-        recorded, net, epochs=args.epochs, lr=args.lr, batch=args.batch, device=args.device, log=sys.stderr
+        recorded, net, epochs=args.epochs, lr=args.lr, batch=args.batch, device=args.device, log=sys.stderr,
+        weighted=args.weighted,
     )
     # The head is consulted where the search was: below the confidence
     # the recordings were gated at, which the player reads back.
     save(head, args.out, {"checkpoint": str(args.checkpoint), "recordings": [str(p) for p in args.recording],
-                          "history": history, "sure": float(recorded.meta.get("sure", 1.0))})
+                          "history": history, "sure": float(recorded.meta.get("sure", 1.0)),
+                          "weighted": bool(args.weighted)})
     print(json.dumps({"out": str(args.out), "final": history[-1] if history else None}, indent=1))
 
 
@@ -280,6 +326,16 @@ def gathered(parts: list[Recorded]) -> Recorded:
 
     joined.candidates = padded([part.candidates for part in parts], -1)
     joined.values = padded([part.values for part in parts], np.nan)
+    if all(part.per_world is not None for part in parts):
+        worlds = max(part.per_world.shape[2] for part in parts)
+        blocks = []
+        for part in parts:
+            block = np.full((part.per_world.shape[0], width, worlds), np.nan, dtype=np.float32)
+            block[:, : part.per_world.shape[1], : part.per_world.shape[2]] = part.per_world
+            blocks.append(block)
+        joined.per_world = np.concatenate(blocks)
+    else:
+        joined.per_world = None
     joined.policy = np.concatenate([part.policy for part in parts])
     joined.search = np.concatenate([part.search for part in parts])
     offsets = np.cumsum([0] + [int(part.game.max()) + 1 if len(part.game) else 0 for part in parts[:-1]])
