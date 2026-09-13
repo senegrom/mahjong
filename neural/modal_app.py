@@ -763,8 +763,17 @@ def duel(
     incumbent_channels: int = 192,
     incumbent_blocks: int = 10,
     run: str = DEFAULT_RUN,
+    challenger_head: str | None = None,
+    head_k: int = 4,
+    head_margin: float = 0.05,
 ) -> str:
     """Sits two checkpoints from the volume at the same table.
+
+    With `challenger_head`, a sibling head on the volume (a `.pt` written
+    by `neural.sibling_head`, named by its path from the volume's root),
+    the challenger plays with the head's second opinion over its first
+    `head_k` moves, taking the head's favourite past `head_margin`; see
+    `neural.ranked`.
 
     Measuring each against the heuristic players and subtracting has a
     floor of about 0.024 on the difference, so two close networks never
@@ -792,14 +801,29 @@ def duel(
         flush=True,
     )
 
-    result = subprocess.run(
-        [
+    if challenger_head is None:
+        command = [
             sys.executable, "-m", "neural.duel", str(files[0]), str(files[1]),
             "--games", str(games), "--seed", str(seed),
             "--channels", str(channels), "--blocks", str(blocks),
             "--incumbent-channels", str(incumbent_channels),
             "--incumbent-blocks", str(incumbent_blocks),
-        ],
+        ]
+    else:
+        # The challenger with a sibling head's second opinion, against the
+        # same network plain: the head's worth, at one table.
+        head = _checkpoint(run, challenger_head)
+        if not head.exists():
+            return f"no head at {head}"
+        head_copy = local / ("head--" + challenger_head.replace("/", "--") + ".pt")
+        shutil.copyfile(head, head_copy)
+        command = [
+            sys.executable, "-m", "neural.ranked", str(files[0]), str(head_copy),
+            "--games", str(games), "--seed", str(seed),
+            "--k", str(head_k), "--margin", str(head_margin),
+        ]
+    result = subprocess.run(
+        command,
         cwd="/src",
         env=_environment(),
         capture_output=True,
