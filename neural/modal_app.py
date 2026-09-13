@@ -665,9 +665,13 @@ def arena(
 
 @app.function(
     gpu="L40S",
-    cpu=16.0,
+    # The search with the network moving every seat is bound by Mortal's
+    # encoder, which runs on the processors: a chair of a hundred deals at
+    # sixteen worlds, each played to the end of its hand, took 5.8 hours
+    # on sixteen of them.
+    cpu=32.0,
     memory=65536,
-    timeout=6 * 60 * 60,
+    timeout=12 * 60 * 60,
     volumes={str(VOLUME): volume},
 )
 def searched(
