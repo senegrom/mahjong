@@ -123,6 +123,48 @@ class SearchContractTests(unittest.TestCase):
             "no imagined world played into the next hand, so the boundary went untested",
         )
 
+    def test_a_recording_keeps_every_searched_decision_with_its_worlds(self):
+        """The root as the network read it, the candidates, what each came
+        to in every world, and both choices, one row a searched decision;
+        written and read back whole."""
+        import tempfile
+        from pathlib import Path
+
+        from neural.observe import Planes
+
+        previous = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            served = contract.serve(net)
+            recording = searched.Recording()
+            scores, tally = searched.play(
+                net, 1, 4, 0, 3, 3, 0.0, pool=1, device="cpu", served=served, recording=recording,
+            )
+        finally:
+            torch.set_num_threads(previous)
+        self.assertGreater(len(recording), 0, "nothing was recorded")
+        # The tally counts every decision the engine was asked to decide,
+        # the other seats' single-candidate ones included; a row is kept
+        # only where there was something to compare.
+        self.assertLess(len(recording), tally[0])
+        for candidates, values, worlds, policy, search in zip(
+            recording.candidates, recording.values, recording.per_world, recording.policy, recording.search
+        ):
+            self.assertGreaterEqual(len(candidates), 2)
+            self.assertEqual(len(candidates), len(values))
+            self.assertEqual(candidates[0], policy, "the first candidate is the policy's choice")
+            self.assertIn(search, candidates, "the search chose among the candidates")
+            self.assertTrue(all(len(w) == 3 for w in worlds), "a worth for each of the three worlds")
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            recording.save(folder, {"note": "test"})
+            roots = Planes.load(Path(folder), "root", mmap=False)
+            self.assertEqual(len(roots), len(recording))
+            self.assertEqual(roots.dense("cpu").shape[1], MORTAL_PLANES)
+            per_world = np.load(Path(folder) / "per_world.npy")
+            self.assertEqual(per_world.shape[0], len(recording))
+            self.assertEqual(per_world.shape[2], 3)
+
     def test_the_exception_is_one_class_wherever_it_is_raised(self):
         self.assertIs(searched.UnsupportedSearchLayout, contract.UnsupportedSearchLayout)
         self.assertTrue(issubclass(searched.UnsupportedSearchLayout, ValueError))

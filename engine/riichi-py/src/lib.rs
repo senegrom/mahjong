@@ -340,6 +340,11 @@ pub struct Arena {
     hands: Vec<f32>,
     /// How the search has spent itself, across every game.
     searched: search::Tally,
+    /// What the last decision judged of every candidate, per game: the
+    /// move's index, its weighted mean over the worlds, and its worth in
+    /// each world (NaN where it could not be tried). Empty for a game that
+    /// was not searched. See [`Arena::judgements`].
+    judgements: Vec<Vec<(usize, f64, Vec<f64>)>>,
     /// For each game, the candidates and leaves of a search whose values
     /// have been asked for and not yet given back.
     pending: Vec<Option<(Vec<Action>, search::Leaves)>>,
@@ -392,6 +397,7 @@ impl Arena {
             mask: vec![false; games * ACTIONS],
             hands: vec![0.0; games * HANDS],
             searched: search::Tally::default(),
+            judgements: (0..games).map(|_| Vec::new()).collect(),
             pending: (0..games).map(|_| None).collect(),
             imagined: (0..games).map(|_| Vec::new()).collect(),
             lookaheads: (0..games).map(|_| None).collect(),
@@ -1076,6 +1082,7 @@ impl Arena {
         let mut chosen = Vec::with_capacity(games);
         for (game, ranking) in ranked.iter().enumerate() {
             let fallback = ranking.first().copied().unwrap_or(PASS);
+            self.judgements[game].clear();
             let Some((candidates, leaves)) = self.pending[game].take() else {
                 chosen.push(fallback);
                 continue;
@@ -1087,7 +1094,22 @@ impl Arena {
                 .collect();
             offset += slots;
             self.searched.asked += 1;
-            match search::decide(&candidates, &leaves, &values, margin) {
+            let judged = search::judge_all(&candidates, &leaves, &values);
+            self.judgements[game] = judged
+                .iter()
+                .map(|entry| {
+                    (
+                        action_to_index(entry.action),
+                        entry.value,
+                        entry
+                            .per_world
+                            .iter()
+                            .map(|world| world.unwrap_or(f64::NAN))
+                            .collect(),
+                    )
+                })
+                .collect();
+            match search::pick_by_margin(&judged, margin) {
                 Some(judged) => {
                     let picked = action_to_index(judged.action);
                     if Some(picked) != ranking.first().copied() {
@@ -1100,6 +1122,14 @@ impl Arena {
         }
         assert_eq!(offset, valued.len(), "every value was spent");
         chosen
+    }
+
+    /// What the last [`Arena::decide`] judged of every candidate, per
+    /// game: the move's index, its weighted mean over the worlds, and its
+    /// worth in each world in the order the worlds were made, NaN where
+    /// the move could not be tried there. Empty for a game not searched.
+    fn judgements(&self) -> Vec<Vec<(usize, f64, Vec<f64>)>> {
+        self.judgements.clone()
     }
 
     /// How many decisions the search was asked about, and how many of them

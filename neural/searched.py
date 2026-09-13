@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import statistics
 import sys
 import time
@@ -270,8 +271,14 @@ def play(
     valued_by: str = "critic",
     served=None,
     max_steps: int = 4000,
+    recording: "Recording | None" = None,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
+
+    With a `recording`, every searched decision is added to it: the root
+    as the network read it, the candidates and what each came to in every
+    world, beside the policy's choice and the search's. Roots are kept
+    sparse, so only a network on Mortal's planes can be recorded.
 
     `searcher` is the place that thinks ahead, or None for nobody. Everyone
     else plays the network's first choice, so the only thing that differs
@@ -406,6 +413,22 @@ def play(
                 health=health,
                 served=served,
             )
+            if recording is not None:
+                if views is None:
+                    raise UnsupportedSearchLayout(
+                        "a recording keeps the root as sparse Mortal planes; this network "
+                        "reads the engine's, which nothing here records"
+                    )
+                judgements = arena.judgements()
+                for at, game in enumerate(rows):
+                    judged = judgements[game]
+                    if len(judged) < 2:
+                        continue
+                    root, _own = views.sparse_and_masks(rows[at : at + 1], deciding[at : at + 1])
+                    recording.add(
+                        root, judged, int(order[game][0]), int(choice[game]),
+                        int(searcher), int(game), steps,
+                    )
         arena.step(list(choice))
 
     require_finished(arena, steps=steps, context="search evaluation")
@@ -423,6 +446,73 @@ def play(
 
 def placements(scores: np.ndarray, place: int) -> np.ndarray:
     return tied_placements(scores)[:, place]
+
+
+class Recording:
+    """What a search saw and judged, decision by decision, on Mortal's
+    planes: the root, the candidates in the network's order, what each
+    came to in every world, and the move the policy would have made
+    beside the one the search made. Written as one sparse block of roots
+    and arrays alongside, padded to the widest candidate list and world
+    count with -1 and NaN.
+
+    The raw material for a critic that ranks siblings: every row is a
+    position with several moves tried in the same worlds, which is what
+    self-play never shows a value head.
+    """
+
+    def __init__(self) -> None:
+        self.roots: list = []
+        self.candidates: list[list[int]] = []
+        self.values: list[list[float]] = []
+        self.per_world: list[list[list[float]]] = []
+        self.policy: list[int] = []
+        self.search: list[int] = []
+        self.chair: list[int] = []
+        self.game: list[int] = []
+        self.step: list[int] = []
+
+    def __len__(self) -> int:
+        return len(self.candidates)
+
+    def add(self, root, judged, policy: int, search: int, chair: int, game: int, step: int) -> None:
+        self.roots.append(root)
+        self.candidates.append([int(index) for index, _value, _worlds in judged])
+        self.values.append([float(value) for _index, value, _worlds in judged])
+        self.per_world.append([[float(w) for w in worlds] for _index, _value, worlds in judged])
+        self.policy.append(int(policy))
+        self.search.append(int(search))
+        self.chair.append(int(chair))
+        self.game.append(int(game))
+        self.step.append(int(step))
+
+    def save(self, folder, meta: dict) -> None:
+        from .observe import Planes
+
+        folder = Path(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        rows = len(self)
+        width = max((len(c) for c in self.candidates), default=0)
+        worlds = max((len(w) for c in self.per_world for w in c), default=0)
+        candidates = np.full((rows, width), -1, dtype=np.int64)
+        values = np.full((rows, width), np.nan, dtype=np.float32)
+        per_world = np.full((rows, width, worlds), np.nan, dtype=np.float32)
+        for at in range(rows):
+            n = len(self.candidates[at])
+            candidates[at, :n] = self.candidates[at]
+            values[at, :n] = self.values[at]
+            for k, w in enumerate(self.per_world[at]):
+                per_world[at, k, : len(w)] = w
+        Planes.cat(self.roots).save(folder, "root")
+        np.save(folder / "candidates.npy", candidates)
+        np.save(folder / "values.npy", values)
+        np.save(folder / "per_world.npy", per_world)
+        np.save(folder / "policy.npy", np.asarray(self.policy, dtype=np.int64))
+        np.save(folder / "search.npy", np.asarray(self.search, dtype=np.int64))
+        np.save(folder / "chair.npy", np.asarray(self.chair, dtype=np.int64))
+        np.save(folder / "game.npy", np.asarray(self.game, dtype=np.int64))
+        np.save(folder / "step.npy", np.asarray(self.step, dtype=np.int64))
+        (folder / "meta.json").write_text(json.dumps({**meta, "rows": rows}, indent=1), encoding="utf-8")
 
 
 def main() -> None:
@@ -484,6 +574,14 @@ def main() -> None:
     parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
     parser.add_argument(
+        "--record",
+        type=Path,
+        default=None,
+        help="a directory to write every searched decision to: the root as "
+        "the network read it, the candidates and what each came to in "
+        "every world, the policy's choice and the search's",
+    )
+    parser.add_argument(
         "--chair",
         type=int,
         default=-1,
@@ -505,6 +603,7 @@ def main() -> None:
     per_deal = []
     asked = overrode = 0
     chairs = [args.chair] if 0 <= args.chair < SEATS else list(range(SEATS))
+    recording = Recording() if args.record is not None else None
     for chair in chairs:
         began = time.perf_counter()
         scores, tally = play(
@@ -522,6 +621,7 @@ def main() -> None:
             temperature=args.temperature,
             valued_by=args.valued_by,
             served=served,
+            recording=recording,
         )
         asked += tally[0]
         overrode += tally[1]
@@ -542,6 +642,26 @@ def main() -> None:
             }
         )
         per_deal.append(got.astype(float))
+
+    if recording is not None:
+        recording.save(
+            args.record,
+            {
+                "checkpoint": str(args.checkpoint),
+                "contract": served.contract.describe(),
+                "games": args.games,
+                "seed": args.seed,
+                "worlds": args.worlds,
+                "pool": args.pool,
+                "candidates": args.candidates,
+                "margin": args.margin,
+                "played_by": args.played_by,
+                "depth": args.depth,
+                "valued_by": args.valued_by,
+                "chairs": chairs,
+            },
+        )
+        print(f"recorded {len(recording)} searched decisions to {args.record}", file=sys.stderr, flush=True)
 
     overall = statistics.fmean(row["placement"] for row in per_chair)
     paired = np.stack(per_deal).mean(axis=0)

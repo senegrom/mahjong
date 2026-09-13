@@ -990,8 +990,15 @@ pub fn decide(
     valued: &[f64],
     margin: f64,
 ) -> Option<Judged> {
+    pick_by_margin(&judge_all(candidates, leaves, valued), margin)
+}
+
+/// What every candidate came to: its worth in each world, and the weighted
+/// mean over the worlds it was tried in, in candidate order. What
+/// [`decide`] picks from, and what a recording keeps.
+pub fn judge_all(candidates: &[Action], leaves: &Leaves, valued: &[f64]) -> Vec<Judged> {
     assert_eq!(valued.len(), leaves.counted.len(), "one value per slot");
-    let judged: Vec<Judged> = (0..leaves.candidates)
+    (0..leaves.candidates)
         .map(|candidate| {
             let per_world: Vec<Option<f64>> = (0..leaves.worlds)
                 .map(|world| {
@@ -1025,12 +1032,11 @@ pub fn decide(
                 weights: leaves.weights.clone(),
             }
         })
-        .collect();
-    pick_by_margin(&judged, margin)
+        .collect()
 }
 
 /// The first playable candidate, unless another beats it by the margin.
-fn pick_by_margin(judged: &[Judged], margin: f64) -> Option<Judged> {
+pub fn pick_by_margin(judged: &[Judged], margin: f64) -> Option<Judged> {
     let incumbent = judged.iter().find(|entry| entry.worlds > 0)?;
     let mut best = incumbent;
     let mut best_edge = 0.0;

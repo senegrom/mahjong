@@ -685,6 +685,7 @@ def searched(
     played_by: str = "club",
     depth: int = 0,
     chair: int = -1,
+    record: bool = False,
 ) -> str:
     """Whether one ply of search beats the policy that supplies it.
 
@@ -708,19 +709,33 @@ def searched(
         copied = where / (which.replace("/", "--") + ".pt")
         copy_checkpoint(source, copied, require_generation=True)
         print(f"{which}.pt generation {_generation_of(copied)}", flush=True)
+        command = [
+            sys.executable, "-m", "neural.searched", str(copied),
+            "--games", str(games), "--worlds", str(worlds),
+            "--candidates", str(candidates), "--margin", str(margin),
+            "--pool", str(pool), "--played-by", played_by, "--depth", str(depth),
+            "--chair", str(chair), "--device", "cuda",
+        ]
+        records = where / "records"
+        if record:
+            command += ["--record", str(records)]
         result = subprocess.run(
-            [
-                sys.executable, "-m", "neural.searched", str(copied),
-                "--games", str(games), "--worlds", str(worlds),
-                "--candidates", str(candidates), "--margin", str(margin),
-                "--pool", str(pool), "--played-by", played_by, "--depth", str(depth),
-                "--chair", str(chair), "--device", "cuda",
-            ],
+            command,
             cwd="/src",
             env=_environment(),
             capture_output=True,
             text=True,
         )
+        if record and records.exists():
+            # Kept on the volume by checkpoint, search settings and chair,
+            # so the chairs of one measurement sit side by side.
+            name = f"{validate_run(run)}--{which.replace('/', '--')}--{played_by}-d{depth}-w{worlds}"
+            target = VOLUME / "searched-records" / name / (f"chair{chair}" if chair >= 0 else "all")
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(records, target)
+            volume.commit()
+            print(f"records kept at {target}", flush=True)
     answer = (result.stdout or "") + (result.stderr or "")
     print(answer, flush=True)
     return answer
