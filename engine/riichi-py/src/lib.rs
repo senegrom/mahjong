@@ -42,6 +42,9 @@ use riichi_core::search;
 use riichi_core::table::Table;
 use riichi_core::Wind;
 
+/// Native leaf bytes, per-game counts, settled rewards and wanted-value mask.
+type LeafBatch<'py> = (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>);
+
 /// One game, and where its next decision sits.
 struct Seat {
     table: Table,
@@ -579,7 +582,7 @@ impl Arena {
         worlds: usize,
         candidates: usize,
         hurried: bool,
-    ) -> PyResult<(Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>)> {
+    ) -> PyResult<LeafBatch<'py>> {
         let effort = search::Effort {
             worlds,
             candidates,
@@ -701,7 +704,7 @@ impl Arena {
         weights: Vec<Vec<f32>>,
         candidates: usize,
         hurried: bool,
-    ) -> PyResult<(Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>)> {
+    ) -> PyResult<LeafBatch<'py>> {
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
         assert_eq!(kept.len(), games, "one list of kept worlds per game");
@@ -998,10 +1001,7 @@ impl Arena {
     /// The leaves of every lookahead, as [`Arena::leaves_from`] gives
     /// them, ready for [`Arena::decide`]. A slot still waiting on a
     /// decision does not count. The lookaheads are spent.
-    fn lookahead_leaves<'py>(
-        &mut self,
-        py: Python<'py>,
-    ) -> PyResult<(Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>)> {
+    fn lookahead_leaves<'py>(&mut self, py: Python<'py>) -> PyResult<LeafBatch<'py>> {
         for (_, lookahead) in self.lookaheads.iter().flatten() {
             lookahead
                 .validate_finished()
