@@ -890,6 +890,81 @@ def duel(
 @app.function(
     gpu="L40S",
     cpu=8.0,
+    memory=49152,
+    timeout=4 * 60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def teach(
+    recordings: list[str],
+    checkpoint: str = "leashed-run/latest",
+    out: str = "taught/latest",
+    epochs: int = 4,
+    lr: float = 1e-4,
+    batch: int = 128,
+    temperature: float = 0.1,
+    leash: float = 0.1,
+    hold: str = "mortal+ours",
+    weighted: bool = False,
+    duel_games: int = 0,
+    seed: int = 555_000,
+) -> str:
+    """Teaches the policy what the search found (`neural.teach`) from
+    recordings on the volume, keeps the taught checkpoint at `out`, and
+    with `duel_games` sits it against the network it was taught from at
+    one table, which is the figure that settles whether the lesson was
+    worth learning.
+    """
+    volume.reload()
+    folders = [VOLUME / name for name in recordings]
+    for folder in folders:
+        if not (folder / "meta.json").exists():
+            return f"no recording at {folder}"
+    run = checkpoint.rpartition("/")[0] or DEFAULT_RUN
+    source = _checkpoint(run, checkpoint.rpartition("/")[2])
+    if not source.exists():
+        return f"no checkpoint at {source}"
+    answer = ""
+    with workspace("teach") as where:
+        copied = where / "network.pt"
+        copy_checkpoint(source, copied, require_generation=True)
+        taught = where / "taught.pt"
+        command = [
+            sys.executable, "-m", "neural.teach", *[str(folder) for folder in folders],
+            str(copied), "--out", str(taught), "--epochs", str(epochs), "--lr", str(lr),
+            "--batch", str(batch), "--temperature", str(temperature), "--leash", str(leash),
+            "--hold", hold, "--device", "cuda",
+        ]
+        if weighted:
+            command.append("--weighted")
+        print(" ".join(command), flush=True)
+        result = subprocess.run(command, cwd="/src", env=_environment(8), capture_output=True, text=True)
+        answer += (result.stdout or "") + (result.stderr or "")
+        if result.returncode != 0 or not taught.exists():
+            print(answer, flush=True)
+            return answer
+        target = VOLUME / (out + ".pt")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(taught, target)
+        volume.commit()
+        answer += f"\ntaught network kept at {target}"
+        if duel_games:
+            # The taught policy against the one it was taught from, same
+            # deals, one table: what the lesson was actually worth.
+            duelled = subprocess.run(
+                [
+                    sys.executable, "-m", "neural.duel", str(taught), str(copied),
+                    "--games", str(duel_games), "--seed", str(seed),
+                ],
+                cwd="/src", env=_environment(8), capture_output=True, text=True,
+            )
+            answer += "\n" + (duelled.stdout or "") + (duelled.stderr or "" if duelled.returncode else "")
+    print(answer, flush=True)
+    return answer
+
+
+@app.function(
+    gpu="L40S",
+    cpu=8.0,
     memory=32768,
     timeout=2 * 60 * 60,
     volumes={str(VOLUME): volume},
