@@ -6,6 +6,7 @@ the way it will be used.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -38,6 +39,45 @@ class SiblingHeadTests(unittest.TestCase):
             np.testing.assert_allclose(targets[0], [1.0 - 0.3, -0.5 - 0.3, 0.4 - 0.3], rtol=1e-5, atol=1e-6)
             np.testing.assert_allclose(targets[1][:2], [0.2, -0.2], rtol=1e-5, atol=1e-6)
             self.assertTrue(np.isnan(targets[1][2]), "a missing candidate is no target")
+
+    def test_a_recording_is_kept_as_the_search_runs_and_read_back_whole(self):
+        """Written partially every interval while the search runs, marked
+        incomplete, and whole at the end; each write is swapped in at once,
+        so a reader never sees half of one. The policy's confidence at each
+        root comes along, gathered recordings keep it, and a head keeps the
+        gate its recordings were made under."""
+        previous = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            torch.manual_seed(5)
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            served = contract.serve(net)
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+                folder = Path(tmp) / "rec"
+                meta = {"note": "test", "sure": 0.9}
+                recording = searched.Recording(folder, meta, every=0.0)
+                searched.play(net, 1, 4, 0, 2, 2, 0.0, pool=1, device="cpu", served=served, recording=recording)
+                self.assertGreater(len(recording), 0)
+                partial = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+                self.assertFalse(partial["complete"], "written while the search ran")
+                self.assertEqual(partial["rows"], len(recording))
+                self.assertFalse(folder.with_name("rec.writing").exists())
+                self.assertFalse(folder.with_name("rec.previous").exists())
+                recording.save(folder, meta)
+                recorded = sibling_head.Recorded(folder)
+                self.assertTrue(recorded.meta["complete"])
+                self.assertEqual(len(recorded), len(recording))
+                self.assertEqual(len(recorded.sure), len(recorded))
+                self.assertTrue(np.all((recorded.sure > 0) & (recorded.sure <= 1)))
+                joined = sibling_head.gathered([recorded, recorded])
+                self.assertEqual(len(joined.sure), 2 * len(recorded))
+                self.assertEqual(joined.meta["sure"], 0.9)
+                head = sibling_head.Ranker(net.channels)
+                sibling_head.save(head, Path(tmp) / "head.pt", {"sure": recorded.meta["sure"]})
+                _loaded, meta_back = sibling_head.load(Path(tmp) / "head.pt", "cpu")
+                self.assertEqual(meta_back["sure"], 0.9)
+        finally:
+            torch.set_num_threads(previous)
 
     def test_the_head_learns_a_recording_and_is_measured_against_the_rollouts(self):
         previous = torch.get_num_threads()

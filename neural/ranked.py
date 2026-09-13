@@ -5,7 +5,9 @@ search's recordings (`neural.sibling_head`) says how much better or worse
 each is than the others, and its favourite is taken when it beats the
 policy's choice by a margin in the units the rollouts spoke in -- hand
 points over four thousand. Otherwise the policy's choice stands, as it
-does with a head that has learned nothing.
+does with a head that has learned nothing, and wherever the policy is
+sure of its move: the head learned from decisions the search was asked
+about, and is asked about the same.
 
 It costs one head on top of the pass the policy makes anyway, where the
 search that taught the head costs a hand played out in every world; if
@@ -36,18 +38,22 @@ class RankedPlayer:
     the duel seats: `choose(views, rows, players, legal)` in our moves."""
 
     def __init__(self, net, head: sibling_head.Ranker, k: int = 4, margin: float = 0.05,
-                 device: str = "cuda") -> None:
+                 device: str = "cuda", sure: float = 1.0) -> None:
         self.served = contract.serve(net)
         self.net = self.served.net
         self.head = head.to(device).eval()
         self.k = k
         self.margin = margin
+        #: The policy's probability on its first move at or above which the
+        #: head is not asked; one asks it everywhere.
+        self.sure = sure
         self.device = device
         self.kind = self.served.contract.reads
         self.planes = self.served.contract.planes
         self.actions = self.served.contract.answers
         self.asked = 0
         self.overrode = 0
+        self.taken_sure = 0
 
     def eval(self) -> RankedPlayer:
         self.net.eval()
@@ -75,8 +81,11 @@ class RankedPlayer:
         games = int(rows.max()) + 1 if len(rows) else 0
         mask = np.zeros((games, ACTIONS), dtype=bool)
         mask[rows] = legal
-        order, _logits, _value, _guessed = contract.root_order(
+        order, logits, _value, _guessed = contract.root_order(
             self.served, None, views, rows, players, mask, self.device
+        )
+        top = np.nan_to_num(
+            torch.softmax(logits.float(), dim=1).max(dim=1).values.cpu().numpy(), nan=1.0
         )
         planes, _mask = self.served.root(None, views, rows, players, mask, self.device)
         features, pooled = sibling_head.features_of(self.net, planes)
@@ -88,6 +97,10 @@ class RankedPlayer:
             candidates = candidates[mask[game][candidates]]
             if len(candidates) == 0:
                 choice[at] = int(np.nonzero(mask[game])[0][0]) if mask[game].any() else 0
+                continue
+            if len(candidates) < 2 or top[at] >= self.sure:
+                self.taken_sure += 1
+                choice[at] = int(candidates[0])
                 continue
             self.asked += 1
             worth = scores[at][candidates]
@@ -108,6 +121,14 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=555_000)
     parser.add_argument("--k", type=int, default=4)
     parser.add_argument("--margin", type=float, default=0.05)
+    parser.add_argument(
+        "--sure",
+        type=float,
+        default=None,
+        help="the policy's probability on its first move at or above which "
+        "the head is not asked; by default what the head's recordings were "
+        "gated at, one for everywhere",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
@@ -115,12 +136,13 @@ def main() -> None:
 
     plain = zoo.load_player(args.checkpoint, args.device)
     net = contract.unwrap(zoo.load_player(args.checkpoint, args.device))
-    head, _meta = sibling_head.load(args.head, args.device)
-    ranked = RankedPlayer(net, head, k=args.k, margin=args.margin, device=args.device)
+    head, meta = sibling_head.load(args.head, args.device)
+    sure = float(meta.get("sure", 1.0)) if args.sure is None else args.sure
+    ranked = RankedPlayer(net, head, k=args.k, margin=args.margin, device=args.device, sure=sure)
     result = duel.duel(ranked, plain, args.games, args.seed, device=args.device)
-    result["challenger"] = f"{args.checkpoint} with {args.head} (k={args.k}, margin={args.margin})"
+    result["challenger"] = f"{args.checkpoint} with {args.head} (k={args.k}, margin={args.margin}, sure={sure})"
     result["incumbent"] = str(args.checkpoint)
-    result["overrides"] = f"{ranked.overrode} of {ranked.asked}"
+    result["overrides"] = f"{ranked.overrode} of {ranked.asked}, {ranked.taken_sure} more taken sure"
     result["verdict"] = duel.verdict(result)
     print(json.dumps(result, indent=1))
 

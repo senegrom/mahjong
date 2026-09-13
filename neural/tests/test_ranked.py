@@ -62,8 +62,8 @@ class RankedPlayerTests(unittest.TestCase):
         views.prepare(rows, deciding)
         legal = np.frombuffer(arena.legal_mask(), dtype=np.uint8).reshape(games, riichi_py.ACTIONS).astype(bool)
 
-        for margin in (0.0, 10.0):
-            player = ranked.RankedPlayer(self.net, Fixed(), k=4, margin=margin, device="cpu")
+        for margin, sure in ((0.0, 1.0), (10.0, 1.0), (0.0, 0.0)):
+            player = ranked.RankedPlayer(self.net, Fixed(), k=4, margin=margin, device="cpu", sure=sure)
             choice = player.choose(views, rows, deciding, legal[rows])
             order, _l, _v, _g = contract.root_order(player.served, None, views, rows, deciding, legal, "cpu")
             for at, game in enumerate(rows):
@@ -71,11 +71,15 @@ class RankedPlayerTests(unittest.TestCase):
                 candidates = candidates[legal[game][candidates]]
                 worth = fixed[candidates].numpy()
                 best = int(np.argmax(worth))
-                expected = candidates[best] if best and worth[best] - worth[0] > margin else candidates[0]
-                self.assertEqual(int(choice[at]), int(expected), f"game {game} at margin {margin}")
+                asked = sure > 0.0 and len(candidates) > 1
+                expected = candidates[best] if asked and best and worth[best] - worth[0] > margin else candidates[0]
+                self.assertEqual(int(choice[at]), int(expected), f"game {game} at margin {margin}, sure {sure}")
                 self.assertTrue(legal[game][choice[at]], "the choice is legal")
             if margin == 10.0:
                 self.assertEqual(player.overrode, 0, "nothing clears a margin of ten")
+            if sure == 0.0:
+                self.assertEqual(player.asked, 0, "a policy sure of every move is never second-guessed")
+                self.assertEqual(player.taken_sure, len(rows))
 
 
 if __name__ == "__main__":

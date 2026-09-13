@@ -29,6 +29,7 @@ is what the desktop supervisor already assumes.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -691,8 +692,16 @@ def searched(
     depth: int = 0,
     chair: int = -1,
     record: bool = False,
+    sure: float = 1.0,
+    save_every: int = 600,
 ) -> str:
     """Whether one ply of search beats the policy that supplies it.
+
+    `sure` gates the search on the policy's confidence: an own decision
+    where the policy puts that much probability on its first move is
+    taken at its word, unsearched and unrecorded (`neural.searched
+    --sure`). With `record`, the searched decisions are copied to the
+    volume every `save_every` seconds as well as at the end.
 
     Its own container, and a large one: the search clones a hand per
     candidate per world per game and plays each of them forward, which is
@@ -719,29 +728,63 @@ def searched(
             "--games", str(games), "--worlds", str(worlds),
             "--candidates", str(candidates), "--margin", str(margin),
             "--pool", str(pool), "--played-by", played_by, "--depth", str(depth),
-            "--chair", str(chair), "--device", "cuda",
+            "--chair", str(chair), "--sure", str(sure), "--save-every", str(save_every),
+            "--device", "cuda",
         ]
         records = where / "records"
+        # Kept on the volume by checkpoint, search settings and chair, so
+        # the chairs of one measurement sit side by side; copied whenever
+        # the search has written more, so a container killed mid-run (the
+        # spend limit took eight at once, hours in) leaves its decisions
+        # behind. The search swaps each write in whole, and a copy that
+        # catches it halfway is retried at the next look.
+        gate = f"-s{sure:g}" if sure < 1.0 else ""
+        name = f"{validate_run(run)}--{which.replace('/', '--')}--{played_by}-d{depth}-w{worlds}{gate}"
+        target = VOLUME / "searched-records" / name / (f"chair{chair}" if chair >= 0 else "all")
+        kept_rows = -1
+
+        def keep_records() -> None:
+            nonlocal kept_rows
+            meta = records / "meta.json"
+            if not meta.exists():
+                return
+            try:
+                rows = int(json.loads(meta.read_text(encoding="utf-8")).get("rows", 0))
+                if rows == kept_rows:
+                    return
+                staging = target.with_name(target.name + ".writing")
+                if staging.exists():
+                    shutil.rmtree(staging)
+                shutil.copytree(records, staging)
+                if target.exists():
+                    shutil.rmtree(target)
+                staging.rename(target)
+                volume.commit()
+            except (OSError, ValueError) as error:
+                print(f"records not kept this time: {error}", flush=True)
+                return
+            kept_rows = rows
+            print(f"{rows} recorded decisions kept at {target}", flush=True)
+
         if record:
             command += ["--record", str(records)]
-        result = subprocess.run(
-            command,
-            cwd="/src",
-            env=_environment(SEARCH_CPUS),
-            capture_output=True,
-            text=True,
-        )
-        if record and records.exists():
-            # Kept on the volume by checkpoint, search settings and chair,
-            # so the chairs of one measurement sit side by side.
-            name = f"{validate_run(run)}--{which.replace('/', '--')}--{played_by}-d{depth}-w{worlds}"
-            target = VOLUME / "searched-records" / name / (f"chair{chair}" if chair >= 0 else "all")
             if target.exists():
                 shutil.rmtree(target)
-            shutil.copytree(records, target)
-            volume.commit()
-            print(f"records kept at {target}", flush=True)
-    answer = (result.stdout or "") + (result.stderr or "")
+        log = where / "searched.log"
+        with open(log, "w", encoding="utf-8") as sink:
+            with managed_process(subprocess.Popen(
+                command, cwd="/src", env=_environment(SEARCH_CPUS), stdout=sink, stderr=subprocess.STDOUT,
+            )) as process:
+                while True:
+                    try:
+                        process.wait(timeout=60)
+                        break
+                    except subprocess.TimeoutExpired:
+                        if record:
+                            keep_records()
+        if record:
+            keep_records()
+        answer = log.read_text(encoding="utf-8", errors="replace")
     print(answer, flush=True)
     return answer
 
@@ -766,14 +809,16 @@ def duel(
     challenger_head: str | None = None,
     head_k: int = 4,
     head_margin: float = 0.05,
+    head_sure: float | None = None,
 ) -> str:
     """Sits two checkpoints from the volume at the same table.
 
     With `challenger_head`, a sibling head on the volume (a `.pt` written
     by `neural.sibling_head`, named by its path from the volume's root),
     the challenger plays with the head's second opinion over its first
-    `head_k` moves, taking the head's favourite past `head_margin`; see
-    `neural.ranked`.
+    `head_k` moves, taking the head's favourite past `head_margin`, and
+    only where the policy's confidence is below `head_sure` (by default
+    the gate the head's recordings were made under); see `neural.ranked`.
 
     Measuring each against the heuristic players and subtracting has a
     floor of about 0.024 on the difference, so two close networks never
@@ -822,6 +867,8 @@ def duel(
             "--games", str(games), "--seed", str(seed),
             "--k", str(head_k), "--margin", str(head_margin),
         ]
+        if head_sure is not None:
+            command += ["--sure", str(head_sure)]
     result = subprocess.run(
         command,
         cwd="/src",

@@ -96,6 +96,10 @@ class Recorded:
         meta_path = folder / "meta.json"
         self.meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
         rows = len(self.roots)
+        # How sure the policy was of its first move at each root; one
+        # where an older recording did not keep it.
+        sure_path = folder / "sure.npy"
+        self.sure = np.load(sure_path) if sure_path.exists() else np.ones(rows, dtype=np.float32)
         if not (len(self.candidates) == len(self.values) == len(self.policy) == rows):
             raise ValueError(f"{folder}: the recording's arrays do not agree on the row count")
 
@@ -252,8 +256,10 @@ def main() -> None:
     head, history = train(
         recorded, net, epochs=args.epochs, lr=args.lr, batch=args.batch, device=args.device, log=sys.stderr
     )
+    # The head is consulted where the search was: below the confidence
+    # the recordings were gated at, which the player reads back.
     save(head, args.out, {"checkpoint": str(args.checkpoint), "recordings": [str(p) for p in args.recording],
-                          "history": history})
+                          "history": history, "sure": float(recorded.meta.get("sure", 1.0))})
     print(json.dumps({"out": str(args.out), "final": history[-1] if history else None}, indent=1))
 
 
@@ -279,7 +285,11 @@ def gathered(parts: list[Recorded]) -> Recorded:
     offsets = np.cumsum([0] + [int(part.game.max()) + 1 if len(part.game) else 0 for part in parts[:-1]])
     joined.game = np.concatenate([part.game + offset for part, offset in zip(parts, offsets)])
     joined.chair = np.concatenate([part.chair for part in parts])
-    joined.meta = {"parts": [part.meta for part in parts]}
+    joined.sure = np.concatenate([part.sure for part in parts])
+    joined.meta = {
+        "parts": [part.meta for part in parts],
+        "sure": max(float(part.meta.get("sure", 1.0)) for part in parts),
+    }
     return joined
 
 

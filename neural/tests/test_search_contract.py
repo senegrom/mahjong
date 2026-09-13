@@ -144,10 +144,12 @@ class SearchContractTests(unittest.TestCase):
         finally:
             torch.set_num_threads(previous)
         self.assertGreater(len(recording), 0, "nothing was recorded")
-        # The tally counts every decision the engine was asked to decide,
-        # the other seats' single-candidate ones included; a row is kept
-        # only where there was something to compare.
-        self.assertLess(len(recording), tally[0])
+        # The tally counts the decisions with something to compare, and
+        # every one of them is a row: the other seats' single choices and
+        # the forced moves cost no worlds and are in neither.
+        self.assertEqual(len(recording), tally[0])
+        self.assertEqual(len(recording.sure), len(recording))
+        self.assertTrue(all(0.0 < sure <= 1.0 for sure in recording.sure), "a probability a row")
         for candidates, values, worlds, policy, search in zip(
             recording.candidates, recording.values, recording.per_world, recording.policy, recording.search
         ):
@@ -164,6 +166,32 @@ class SearchContractTests(unittest.TestCase):
             per_world = np.load(Path(folder) / "per_world.npy")
             self.assertEqual(per_world.shape[0], len(recording))
             self.assertEqual(per_world.shape[2], 3)
+
+    def test_a_sure_policy_is_taken_at_its_word_and_costs_no_worlds(self):
+        """Gated at zero the policy is sure of everything: nothing is
+        searched, no world is played, and the games are the ones a search
+        that never overrides plays; the tally and the health say so."""
+        previous = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            torch.manual_seed(9)
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            served = contract.serve(net)
+            health: dict = {}
+            never, tally_never = searched.play(
+                net, 2, 4, 0, 2, 2, 0.0, pool=1, device="cpu", served=served, sure=0.0, health=health,
+            )
+            always, tally_always = searched.play(
+                net, 2, 4, 0, 2, 2, 1e9, pool=1, device="cpu", served=served,
+            )
+        finally:
+            torch.set_num_threads(previous)
+        self.assertEqual(tally_never, (0, 0), "a sure policy is never asked")
+        self.assertGreater(health["own"], 0)
+        self.assertEqual(health["sure"], health["own"], "every own decision was taken sure")
+        self.assertGreater(tally_always[0], 0, "ungated, the hesitant decisions were searched")
+        self.assertEqual(tally_always[1], 0, "nothing clears a margin that large")
+        np.testing.assert_array_equal(never, always)
 
     def test_the_exception_is_one_class_wherever_it_is_raised(self):
         self.assertIs(searched.UnsupportedSearchLayout, contract.UnsupportedSearchLayout)

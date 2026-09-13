@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import shutil
 import statistics
 import sys
 import time
@@ -198,6 +199,13 @@ def search_with_value_head(
                 continue
             scores = plausible[offset : offset + count]
             offset += count
+            if len(ranked[game]) < 2:
+                # Nothing to compare: no worlds are kept, the engine builds
+                # this game no lookahead, and its one move comes straight
+                # back. Rolling the other seats' single choices out to the
+                # end of the hand was most of the search's cost and none of
+                # its answer.
+                continue
             chosen = worlds_module.resample(scores, worlds, picker)
             kept[game] = chosen.kept
             weights[game] = chosen.weights
@@ -272,6 +280,8 @@ def play(
     served=None,
     max_steps: int = 4000,
     recording: "Recording | None" = None,
+    sure: float = 1.0,
+    health: dict | None = None,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -283,6 +293,14 @@ def play(
     `searcher` is the place that thinks ahead, or None for nobody. Everyone
     else plays the network's first choice, so the only thing that differs
     between the two arms is whether that choice was checked.
+
+    `sure` is how sure the policy must be of its first move, as its
+    probability, for that move to be taken at its word without a search;
+    one searches every decision of the searcher's. Only its own decisions
+    with two or more legal moves cost worlds at all: the other seats' and
+    the forced ones are answered straight from the order. `health`, when
+    given, is filled with how many own decisions there were (`own`) and
+    how many were taken sure (`sure`).
     """
     require_training_engine()
     validate_budget(games, max_steps)
@@ -313,7 +331,7 @@ def play(
     # How much of each proposal the reader's weights actually used. A
     # search whose worlds all come from a handful of proposals is not
     # searching the number of worlds it was asked for.
-    health: dict[str, list] = {}
+    health = {} if health is None else health
     steps = 0
     while not arena.all_finished() and steps < max_steps:
         steps += 1
@@ -334,25 +352,43 @@ def play(
         # The root as this network reads it, through the same contract as
         # the leaves below: its order over our moves, with a reach's second
         # question asked wherever one is legal (`contract.root_order`).
-        order, _logits, _value, guessed = contract_module.root_order(
+        order, logits, _value, guessed = contract_module.root_order(
             served, arena, views, rows, deciding, mask, device
         )
         belief = np.zeros((games, HANDS), dtype=np.float32)
         belief[rows] = torch.softmax(guessed.float(), dim=2).reshape(len(rows), HANDS).cpu().numpy()
+        # How sure the policy is of its first move: the probability it put
+        # on it, in whichever moves it answers in.
+        top = np.ones(games, dtype=np.float32)
+        top[rows] = np.nan_to_num(
+            torch.softmax(logits.float(), dim=1).max(dim=1).values.cpu().numpy(), nan=1.0
+        )
 
         if searcher is None:
             choice = order[:, 0].tolist()
         else:
-            # Only the searching player's own turns are searched; the others
-            # take the network's first choice, which is what `ranked` gives
-            # back when a game is not theirs to think about.
+            # Only the searching player's own turns are searched, and only
+            # those where the policy hesitates and has a choice; the others
+            # take the network's first move, which is what `ranked` gives
+            # back when a game is not theirs to think about. A single
+            # candidate costs no worlds (`search_with_value_head`), and the
+            # candidates are the legal head of the order: the order's tail
+            # names every move so a caller may read only its head.
             ranked = []
             for game in range(games):
                 seat = int(seats[game])
-                thinking = seat != 0xFF and int(players[game][seat]) == searcher
-                ranked.append(
-                    [int(index) for index in order[game][: candidates if thinking else 1]]
-                )
+                own = seat != 0xFF and int(players[game][seat]) == searcher
+                thinking = own and top[game] < sure
+                if own:
+                    health["own"] = health.get("own", 0) + 1
+                    if not thinking:
+                        health["sure"] = health.get("sure", 0) + 1
+                if thinking:
+                    first = order[game][:candidates]
+                    first = first[mask[game][first]]
+                else:
+                    first = order[game][:1]
+                ranked.append([int(index) for index in first] or [int(order[game][0])])
             choice = search_with_value_head(
                 net,
                 arena,
@@ -385,12 +421,20 @@ def play(
                     root, _own = views.sparse_and_masks(rows[at : at + 1], deciding[at : at + 1])
                     recording.add(
                         root, judged, int(order[game][0]), int(choice[game]),
-                        int(searcher), int(game), steps,
+                        int(searcher), int(game), steps, sure=float(top[game]),
                     )
+                recording.checkpoint()
         arena.step(list(choice))
 
     require_finished(arena, steps=steps, context="search evaluation")
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
+    if sure < 1.0 and health.get("own"):
+        print(
+            f"  sure: {health.get('sure', 0)} of {health['own']} own decisions were taken at "
+            f"the policy's word, its first move above {sure:.2f}",
+            file=sys.stderr,
+            flush=True,
+        )
     if health.get("efficiency"):
         mean = float(np.mean(health["efficiency"]))
         print(
@@ -417,9 +461,14 @@ class Recording:
     The raw material for a critic that ranks siblings: every row is a
     position with several moves tried in the same worlds, which is what
     self-play never shows a value head.
+
+    Given a `folder` and `meta`, `checkpoint()` writes what is recorded so
+    far there every `every` seconds, marked incomplete, so a search killed
+    mid-run leaves its decisions behind rather than nothing; `save` at the
+    end writes the whole, marked complete.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, folder=None, meta: dict | None = None, every: float = 600.0) -> None:
         self.roots: list = []
         self.candidates: list[list[int]] = []
         self.values: list[list[float]] = []
@@ -429,11 +478,21 @@ class Recording:
         self.chair: list[int] = []
         self.game: list[int] = []
         self.step: list[int] = []
+        #: How sure the policy was of its first move there: its probability.
+        self.sure: list[float] = []
+        self.folder = Path(folder) if folder is not None else None
+        self.meta = dict(meta or {})
+        self.every = every
+        self.saved_at = time.perf_counter()
+        self.saved_rows = 0
 
     def __len__(self) -> int:
         return len(self.candidates)
 
-    def add(self, root, judged, policy: int, search: int, chair: int, game: int, step: int) -> None:
+    def add(
+        self, root, judged, policy: int, search: int, chair: int, game: int, step: int,
+        sure: float = 1.0,
+    ) -> None:
         self.roots.append(root)
         self.candidates.append([int(index) for index, _value, _worlds in judged])
         self.values.append([float(value) for _index, value, _worlds in judged])
@@ -443,12 +502,41 @@ class Recording:
         self.chair.append(int(chair))
         self.game.append(int(game))
         self.step.append(int(step))
+        self.sure.append(float(sure))
 
-    def save(self, folder, meta: dict) -> None:
+    def checkpoint(self) -> bool:
+        """Writes what is recorded so far to the folder given at
+        construction, when there is one, something new, and the interval
+        has passed."""
+        if self.folder is None or len(self) == self.saved_rows:
+            return False
+        if time.perf_counter() - self.saved_at < self.every:
+            return False
+        self.save(self.folder, self.meta, complete=False)
+        return True
+
+    def save(self, folder, meta: dict, complete: bool = True) -> None:
+        folder = Path(folder)
+        # Written beside the folder and swapped in whole, so whoever reads
+        # or copies it while the search runs never sees half a recording.
+        writing = folder.with_name(folder.name + ".writing")
+        previous = folder.with_name(folder.name + ".previous")
+        for stale in (writing, previous):
+            if stale.exists():
+                shutil.rmtree(stale)
+        writing.mkdir(parents=True)
+        self._write(writing, {**meta, "complete": bool(complete)})
+        if folder.exists():
+            folder.rename(previous)
+        writing.rename(folder)
+        if previous.exists():
+            shutil.rmtree(previous)
+        self.saved_at = time.perf_counter()
+        self.saved_rows = len(self)
+
+    def _write(self, folder: Path, meta: dict) -> None:
         from .observe import Planes
 
-        folder = Path(folder)
-        folder.mkdir(parents=True, exist_ok=True)
         rows = len(self)
         width = max((len(c) for c in self.candidates), default=0)
         worlds = max((len(w) for c in self.per_world for w in c), default=0)
@@ -461,7 +549,11 @@ class Recording:
             values[at, :n] = self.values[at]
             for k, w in enumerate(self.per_world[at]):
                 per_world[at, k, : len(w)] = w
-        Planes.cat(self.roots).save(folder, "root")
+        # `cat` frees the blocks it joins, so the joined block takes their
+        # place: compact, and still here for the next write.
+        joined = Planes.cat(self.roots)
+        self.roots = [joined]
+        joined.save(folder, "root")
         np.save(folder / "candidates.npy", candidates)
         np.save(folder / "values.npy", values)
         np.save(folder / "per_world.npy", per_world)
@@ -470,6 +562,7 @@ class Recording:
         np.save(folder / "chair.npy", np.asarray(self.chair, dtype=np.int64))
         np.save(folder / "game.npy", np.asarray(self.game, dtype=np.int64))
         np.save(folder / "step.npy", np.asarray(self.step, dtype=np.int64))
+        np.save(folder / "sure.npy", np.asarray(self.sure, dtype=np.float32))
         (folder / "meta.json").write_text(json.dumps({**meta, "rows": rows}, indent=1), encoding="utf-8")
 
 
@@ -547,6 +640,23 @@ def main() -> None:
         "measurement can run side by side; the deals are the same, so "
         "their per-deal placements pair up afterwards",
     )
+    parser.add_argument(
+        "--sure",
+        type=float,
+        default=1.0,
+        help="how sure the policy must be of its first move, as its "
+        "probability, for the move to be taken at its word without a "
+        "search: one searches every own decision; nine tenths searches "
+        "only where the policy hesitates, which is where a search has "
+        "ever changed anything, at a fraction of the cost",
+    )
+    parser.add_argument(
+        "--save-every",
+        type=float,
+        default=600.0,
+        help="seconds between partial writes of the recording, so a run "
+        "killed halfway leaves its decisions behind",
+    )
     args = parser.parse_args()
 
     # Loaded whole, then asked what it reads and answers in. The server
@@ -559,11 +669,27 @@ def main() -> None:
 
     per_chair = []
     per_deal = []
-    asked = overrode = 0
+    asked = overrode = own = taken_sure = 0
     chairs = [args.chair] if 0 <= args.chair < SEATS else list(range(SEATS))
-    recording = Recording() if args.record is not None else None
+    meta = {
+        "checkpoint": str(args.checkpoint),
+        "contract": served.contract.describe(),
+        "games": args.games,
+        "seed": args.seed,
+        "worlds": args.worlds,
+        "pool": args.pool,
+        "candidates": args.candidates,
+        "margin": args.margin,
+        "played_by": args.played_by,
+        "depth": args.depth,
+        "valued_by": args.valued_by,
+        "sure": args.sure,
+        "chairs": chairs,
+    }
+    recording = Recording(args.record, meta, every=args.save_every) if args.record is not None else None
     for chair in chairs:
         began = time.perf_counter()
+        health: dict = {}
         scores, tally = play(
             net,
             games=args.games,
@@ -580,13 +706,18 @@ def main() -> None:
             valued_by=args.valued_by,
             served=served,
             recording=recording,
+            sure=args.sure,
+            health=health,
         )
         asked += tally[0]
         overrode += tally[1]
+        own += health.get("own", 0)
+        taken_sure += health.get("sure", 0)
         got = placements(scores, chair)
         print(
             f"chair {chair}: placement {got.mean():.3f} over {args.games} games, "
             f"search changed {tally[1]} of {tally[0]} decisions, "
+            f"{health.get('sure', 0)} of {health.get('own', 0)} own decisions taken sure, "
             f"{time.perf_counter() - began:.0f}s",
             file=sys.stderr,
             flush=True,
@@ -602,23 +733,7 @@ def main() -> None:
         per_deal.append(got.astype(float))
 
     if recording is not None:
-        recording.save(
-            args.record,
-            {
-                "checkpoint": str(args.checkpoint),
-                "contract": served.contract.describe(),
-                "games": args.games,
-                "seed": args.seed,
-                "worlds": args.worlds,
-                "pool": args.pool,
-                "candidates": args.candidates,
-                "margin": args.margin,
-                "played_by": args.played_by,
-                "depth": args.depth,
-                "valued_by": args.valued_by,
-                "chairs": chairs,
-            },
-        )
+        recording.save(args.record, meta)
         print(f"recorded {len(recording)} searched decisions to {args.record}", file=sys.stderr, flush=True)
 
     overall = statistics.fmean(row["placement"] for row in per_chair)
@@ -639,6 +754,7 @@ def main() -> None:
                 "temperature": args.temperature,
                 "candidates": args.candidates,
                 "margin": args.margin,
+                "sure": args.sure,
                 "games_total": args.games * len(chairs),
                 "chairs": chairs,
                 "device": args.device,
@@ -652,7 +768,12 @@ def main() -> None:
                 # deals exactly, so subtracting these elementwise gives a
                 # paired difference whose error is the honest one.
                 "by_deal": [round(float(value), 4) for value in paired],
+                # Asked counts the decisions with two or more legal moves
+                # that were searched; the other seats' and the forced ones
+                # cost nothing and are not in it.
                 "overrides": f"{overrode} of {asked}, {100.0 * overrode / max(asked, 1):.1f}%",
+                "own_decisions": own,
+                "taken_sure": taken_sure,
                 "verdict": (
                     "searching helps"
                     if sigmas > 2
