@@ -158,7 +158,11 @@ def _manifest(folder: Path) -> None:
     files = {}
     for name in FILES:
         path = folder / name
-        with path.open('rb') as stream:
+        # Windows refuses to flush a handle opened for reading alone
+        # ("Bad file descriptor"), and these files were just written, so
+        # the handle that forces them to the disk is a writing one.
+        with path.open('r+b') as stream:
+            stream.flush()
             os.fsync(stream.fileno())
         files[name] = {'bytes': path.stat().st_size, 'sha256': digest_file(path)}
     atomic_json(folder / 'manifest.json', {'format': FORMAT, 'files': files})
