@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K. He then selected Blazing Dawn (East A) for East and the corrected Wind Ribbons companion (North B) for North and requested deployment. The later L is the active white dragon; F remains a study.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. The later L is the active white dragon; F and D remain studies.",
   "fallback": "classic",
   "sources": [
     {
@@ -33,6 +33,11 @@
       "id": "north",
       "source": "docs/design/van-gogh/studies/04-north-wind-ribbons.png",
       "sha256": "3a51fc2f26cbd476cce085d93b52a5a81c5a17d14d4bcf00a0597a402435588e"
+    },
+    {
+      "id": "characters",
+      "source": "docs/design/van-gogh/studies/06-three-characters-new-directions.png",
+      "sha256": "a0d0c325a5f63f6121555e099afcbba65cfaeb2941aee3962572b371282bfdd7"
     }
   ],
   "tiles": [
@@ -88,21 +93,21 @@
       "pngSha256": "dc023785e7e8afde9b8e044a8d58818f05b196ae8f1d1a2034bf4f25e36f9c4a"
     },
     {
-      "candidate": "D",
+      "candidate": "Characters A",
       "tile": "3m",
       "name": "Man3",
       "label": "Three characters",
-      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+      "source": "docs/design/van-gogh/studies/06-three-characters-new-directions.png",
       "status": "approved",
       "png": "approved/Man3.png",
       "svg": "approved/Man3.svg",
       "crop": {
-        "x": 54,
-        "y": 649,
-        "width": 357,
-        "height": 473
+        "x": 25,
+        "y": 93,
+        "width": 523,
+        "height": 782
       },
-      "pngSha256": "8d96326eda016abdfcf3e8c0c38c332edcd8f8c4785b02bc896443c895bb9bf4"
+      "pngSha256": "41d6556d517c846747618eb2a6e288e7950130dd66a7c04f2dc4d3799b842448"
     },
     {
       "candidate": "E",
@@ -254,6 +259,12 @@
       "candidate": "F",
       "tile": "5z",
       "activeCandidate": "L",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png"
+    },
+    {
+      "candidate": "D",
+      "tile": "3m",
+      "activeCandidate": "Characters A",
       "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png"
     }
   ],
