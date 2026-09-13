@@ -119,21 +119,57 @@
       }
     },
     {
+      "name": "Man7",
+      "tile": "7m",
+      "label": "7 characters",
+      "direction": "The Sleeping Seven — A",
+      "status": "approved",
+      "png": "approved/Man7.png",
+      "svg": "approved/Man7.svg",
+      "source": "docs/design/dali/studies/seven-characters-a-approved.png",
+      "sourceSha256": "fd1feb8ae270699bcbb2b16aeecc41e3f5a25a4bac5c63be2853351845615841",
+      "pngSha256": "fd1feb8ae270699bcbb2b16aeecc41e3f5a25a4bac5c63be2853351845615841",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
       "name": "Man8",
       "tile": "8m",
       "label": "8 characters",
-      "direction": "Impossible Stone",
+      "direction": "The Window in Reality — B",
       "status": "approved",
       "png": "approved/Man8.png",
       "svg": "approved/Man8.svg",
-      "source": "docs/design/dali/studies/01-first-six-approved.png",
-      "sourceSha256": "2a1a78feab93db38967f93ba90368be8013907a9183b78b31c9e13d4657a4680",
-      "pngSha256": "f000355bd79ea565eff55eef64dde9a23062e0c1ec709a5acf9b87f6df9a3c73",
+      "source": "docs/design/dali/studies/eight-characters-b-approved.png",
+      "sourceSha256": "5d226e6348162f00d8fb8db81adb07499933ddaf1671547239fce8539c8a50e3",
+      "pngSha256": "5d226e6348162f00d8fb8db81adb07499933ddaf1671547239fce8539c8a50e3",
       "crop": {
-        "x": 441,
-        "y": 656,
-        "width": 374,
-        "height": 513
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
+      "name": "Man9",
+      "tile": "9m",
+      "label": "9 characters",
+      "direction": "Sapphire Suspension — C",
+      "status": "approved",
+      "png": "approved/Man9.png",
+      "svg": "approved/Man9.svg",
+      "source": "docs/design/dali/studies/nine-characters-c-approved.png",
+      "sourceSha256": "7538ff201578b9ad3f963a614250115c80a87ba5e65050750fd179d51c59f1b1",
+      "pngSha256": "7538ff201578b9ad3f963a614250115c80a87ba5e65050750fd179d51c59f1b1",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
       }
     },
     {
@@ -178,14 +214,6 @@
     },
     {
       "tile": "6m",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "7m",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "9m",
       "svg": "placeholders/placeholder.svg"
     },
     {
