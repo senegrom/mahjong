@@ -107,6 +107,16 @@ class SiblingHeadTests(unittest.TestCase):
                 self.assertEqual(len(training) + len(held), len(recorded))
                 head, history = sibling_head.train(recorded, net, epochs=4, lr=3e-3, batch=32, device="cpu")
                 self.assertEqual(len(history), 4)
+                # The pre-duel reading: how often a player taking the head's
+                # favourite past each margin would override, and what the
+                # rollouts say it would gain; a wider margin overrides less.
+                by_margin = history[-1]["held_out"]["by_margin"]
+                self.assertEqual(list(by_margin), ["0", "0.02", "0.05", "0.1", "0.2"])
+                self.assertGreaterEqual(by_margin["0"]["overrides"], by_margin["0.2"]["overrides"])
+                for reading in by_margin.values():
+                    self.assertAlmostEqual(
+                        reading["gain_per_decision"], reading["overrides"] * reading["gain_when_overriding"], places=4
+                    )
                 weighted, weighed = sibling_head.train(
                     recorded, net, epochs=1, lr=3e-3, batch=32, device="cpu", weighted=True
                 )

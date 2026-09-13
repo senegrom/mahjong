@@ -186,6 +186,22 @@ def measure(head: Ranker, net, recorded: Recorded, rows: np.ndarray, device: str
     policy_worth = targets[:, 0]
     best_worth = filled.max(dim=1).values
     loss = nn.functional.mse_loss(picked[valid], targets[valid])
+    # What a player that takes the head's favourite past a margin would
+    # have gained on these rows, on the rollouts' own scale: held out of
+    # the fit, an unbiased estimate of the ranked player's worth per asked
+    # decision, to read before a duel is paid for. A head from too few
+    # rows shows here as overriding often and gaining nothing.
+    advantage = picked[at, by_head] - picked[:, 0]
+    by_margin = {}
+    for margin in (0.0, 0.02, 0.05, 0.1, 0.2):
+        overriding = (by_head != 0) & (advantage > margin)
+        rate = float(overriding.float().mean())
+        gain = float((head_worth - policy_worth)[overriding].mean()) if bool(overriding.any()) else 0.0
+        by_margin[f"{margin:g}"] = {
+            "overrides": round(rate, 4),
+            "gain_when_overriding": round(gain, 5),
+            "gain_per_decision": round(rate * gain, 5),
+        }
     return {
         "rows": int(len(rows)),
         "loss": round(float(loss), 5),
@@ -194,6 +210,7 @@ def measure(head: Ranker, net, recorded: Recorded, rows: np.ndarray, device: str
         "worth_of_heads_pick": round(float(head_worth.mean()), 5),
         "worth_of_policys_pick": round(float(policy_worth.mean()), 5),
         "worth_of_best": round(float(best_worth.mean()), 5),
+        "by_margin": by_margin,
     }
 
 
