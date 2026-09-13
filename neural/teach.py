@@ -16,6 +16,14 @@ are not claimed to be bad; they are held where they were by the leash,
 the same KL to the starting policy that keeps self-play from eroding this
 lineage (`neural.train_combined`).
 
+A lesson about one decision in fourteen cannot be taught to a shared
+head without moving the rest: reaching a tenth of the overrides on
+held-back deals costs changing the move played on a fifth of the
+decisions the search left alone. Those are all decisions the policy was
+unsure of -- the gate saw to that -- so the flips are cheap, but the
+reading to watch is `plays_its_old_move` beside `plays_the_lesson`, and
+only a duel says whether the trade was worth making.
+
 Which move the rollouts taught is not the one with the best average.
 Four candidates valued over a handful of worlds have a best by luck: on
 an eight-world recording, choosing on one half of the worlds and scoring
@@ -251,7 +259,7 @@ def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, 
     was = net.training
     net.eval()
     agreed = worth = drift = 0.0
-    best_worth = policy_worth = taught = 0.0
+    best_worth = policy_worth = taught = kept_move = 0.0
     counted = 0
     for start in range(0, len(rows), step):
         picks = rows[start : start + step]
@@ -283,6 +291,13 @@ def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, 
         if reference is not None:
             before, _v, _h = reference.everything(planes, allowed)
             drift += float(leash_to(before, logits, allowed)) * len(picks)
+            # Whether the move actually played is the one the policy
+            # played before. A lesson about one decision in fourteen that
+            # moves the move played on a third of them has changed far
+            # more than it was taught, and nats do not say so.
+            kept_move += float(
+                (before.float().argmax(dim=1) == logits.float().argmax(dim=1)).float().sum()
+            )
         counted += len(picks)
     if was:
         net.train()
@@ -298,6 +313,7 @@ def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, 
     }
     if reference is not None:
         out["leash_kl"] = round(drift / counted, 5)
+        out["plays_its_old_move"] = round(kept_move / counted, 4)
     if split_by_change:
         # The lesson lives in the rows the search changed; the rest teach
         # the move the policy already made, and a policy that learned
@@ -305,8 +321,8 @@ def measure(net, lesson: Lesson, rows: np.ndarray, device: str, reference=None, 
         changed = lesson.changed[rows]
         for name, which in (("where_it_changed", changed), ("where_it_agreed", ~changed)):
             if which.any():
-                out[name] = measure(net, lesson, rows[which], device, step=step,
-                                    split_by_change=False)
+                out[name] = measure(net, lesson, rows[which], device, reference=reference,
+                                    step=step, split_by_change=False)
     return out
 
 
@@ -400,7 +416,7 @@ def main() -> None:
     parser.add_argument("recording", type=Path, nargs="+", help="recording directories, taken together")
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--epochs", type=int, default=8)
+    parser.add_argument("--epochs", type=int, default=6)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=128)
     parser.add_argument(
@@ -424,14 +440,15 @@ def main() -> None:
     parser.add_argument(
         "--leash",
         type=float,
-        default=1.0,
+        default=4.0,
         help="how hard the starting policy is held on to, in nats; this "
         "lineage erodes without one (neural.train_combined). Swept on a "
-        "ten-thousand-decision recording: at a rate of a thousandth, a "
-        "leash of one tenth drifts a nat and loses ground on the "
-        "decisions the search left alone, a leash of four learns almost "
-        "nothing, and a leash of one learns a fifth of the overrides for "
-        "a third of a nat",
+        "ten-thousand-decision recording at a rate of a thousandth: a "
+        "leash of one tenth drifts a nat and changes the move played on "
+        "half the hesitant decisions, a leash of one reaches a fifth of "
+        "the lesson having changed a third of them, and a leash of four "
+        "reaches a tenth of it having changed a fifth. The last is the "
+        "best trade measured and the default",
     )
     parser.add_argument(
         "--hold",
@@ -501,6 +518,14 @@ def main() -> None:
         "learner": "combined",
         "generation": int(payload.get("generation", 0)),
         "training_api_version": payload.get("training_api_version"),
+        # Carried from the network this was taught from, so a taught
+        # checkpoint can go back into self-play rather than being a leaf:
+        # the shapes are identical, and the moments of a policy that has
+        # moved a third of a nat are still a better start than none.
+        "optimizer_state": payload.get("optimizer_state"),
+        "random_state": payload.get("random_state"),
+        "smoothed": payload.get("smoothed"),
+        "training_controls": payload.get("training_controls"),
         "taught": {
             "from": str(args.checkpoint),
             "recordings": [str(folder) for folder in args.recording],
