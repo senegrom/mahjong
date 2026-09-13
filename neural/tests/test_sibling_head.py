@@ -63,7 +63,7 @@ class SiblingHeadTests(unittest.TestCase):
             served = contract.serve(net)
             with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
                 folder = Path(tmp) / "rec"
-                meta = {"note": "test", "sure": 0.9}
+                meta = {"note": "test", "sure": 0.9, "seed": 4, "games": 1}
                 recording = searched.Recording(folder, meta, every=0.0)
                 searched.play(net, 1, 4, 0, 2, 2, 0.0, pool=1, device="cpu", served=served, recording=recording)
                 self.assertGreater(len(recording), 0)
@@ -81,6 +81,16 @@ class SiblingHeadTests(unittest.TestCase):
                 joined = sibling_head.gathered([recorded, recorded])
                 self.assertEqual(len(joined.sure), 2 * len(recorded))
                 self.assertEqual(joined.meta["sure"], 0.9)
+                # Two chairs of the same deals keep their game numbers, so a
+                # held-out deal is held out in both; other deals follow on.
+                n = len(recorded)
+                np.testing.assert_array_equal(joined.game[:n], joined.game[n:])
+                other = sibling_head.Recorded(folder)
+                other.meta = {**other.meta, "seed": 999}
+                apart = sibling_head.gathered([recorded, other])
+                self.assertEqual(int(apart.game[n:].min()), int(recorded.game.max()) + 1)
+                training, held = apart.split()
+                self.assertTrue(set(apart.game[held]).isdisjoint(set(apart.game[training])))
                 head = sibling_head.Ranker(net.channels)
                 sibling_head.save(head, Path(tmp) / "head.pt", {"sure": recorded.meta["sure"]})
                 _loaded, meta_back = sibling_head.load(Path(tmp) / "head.pt", "cpu")

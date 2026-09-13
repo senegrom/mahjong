@@ -143,10 +143,11 @@ class Recorded:
         return np.where(valid, 1.0 / (error + floor**2), np.nan).astype(np.float32)
 
     def split(self, held_out_every: int = 10) -> tuple[np.ndarray, np.ndarray]:
-        """Rows to train on and rows to hold out, split by game and chair
-        rather than by row, since a game's decisions are not independent."""
-        key = self.game * 4 + self.chair
-        held = (key % held_out_every) == 0
+        """Rows to train on and rows to hold out, split by deal rather than
+        by row: a deal's decisions are not independent, and the chairs of
+        one measurement play the same deals, so a held-out deal is held
+        out in every chair."""
+        held = (self.game % held_out_every) == 0
         return np.nonzero(~held)[0], np.nonzero(held)[0]
 
 
@@ -355,7 +356,20 @@ def gathered(parts: list[Recorded]) -> Recorded:
         joined.per_world = None
     joined.policy = np.concatenate([part.policy for part in parts])
     joined.search = np.concatenate([part.search for part in parts])
-    offsets = np.cumsum([0] + [int(part.game.max()) + 1 if len(part.game) else 0 for part in parts[:-1]])
+    # The chairs of one measurement play the same deals, so their games
+    # keep their numbers and a held-out deal is held out in every chair;
+    # recordings of other deals are numbered on from the ones before.
+    offsets = []
+    by_deals: dict[tuple, int] = {}
+    next_offset = 0
+    for part in parts:
+        deals = (part.meta.get("seed"), part.meta.get("games"))
+        if None not in deals and deals in by_deals:
+            offsets.append(by_deals[deals])
+            continue
+        by_deals[deals] = next_offset
+        offsets.append(next_offset)
+        next_offset += int(part.game.max()) + 1 if len(part.game) else 0
     joined.game = np.concatenate([part.game + offset for part, offset in zip(parts, offsets)])
     joined.chair = np.concatenate([part.chair for part in parts])
     joined.sure = np.concatenate([part.sure for part in parts])
