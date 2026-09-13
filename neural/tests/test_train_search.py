@@ -181,11 +181,14 @@ class Tests(unittest.TestCase):
 
     def test_missing_nonfinite_or_wrong_shaped_optimizer_history_is_rejected(self):
         learner = make_learner(); learner.epoch(); saved = learner.checkpoint()
-        for kind in ("empty", "shape", "nan", "lr", "counter"):
+        for kind in ("empty", "partial", "shape", "nan", "lr", "counter", "reordered", "unknown"):
             bad = deepcopy(saved)
             optimizer = bad["search_training"]["optimizer"]
             first = next(iter(optimizer["state"].values()))
             if kind == "empty": optimizer["state"] = {}
+            elif kind == "partial": del optimizer["state"][next(iter(optimizer["state"]))]
+            elif kind == "reordered": optimizer["param_groups"][0]["params"].reverse()
+            elif kind == "unknown": optimizer["state"][9999] = deepcopy(first)
             elif kind == "shape": first["exp_avg"] = torch.zeros(1)
             elif kind == "nan": first["exp_avg"].fill_(float("nan"))
             elif kind == "lr": optimizer["param_groups"][0]["lr"] *= 2
@@ -263,6 +266,19 @@ class Tests(unittest.TestCase):
                 step.assert_not_called()
             with self.assertRaises(RuntimeError): learner.checkpoint()
 
+    def test_low_level_split_configuration_mismatch_is_rejected(self):
+        net = TinyNet()
+        with patch.object(torch.optim, "AdamW") as optimizer, self.assertRaisesRegex(ValueError, "split"):
+            training.Learner(net, training.Dataset([Replay()], 5),
+                             training.Options(validation_every=0), initial_sha256="a" * 64)
+        optimizer.assert_not_called()
+
+    def test_missing_active_parameter_manifest_is_not_an_exact_resume(self):
+        learner = make_learner(); learner.epoch(); saved = learner.checkpoint()
+        del saved["search_training"]["optimizer_active_parameters"]
+        with self.assertRaisesRegex(ValueError, "per-parameter"):
+            make_learner(saved=saved)
+
     def test_wrong_network_contract_fails_before_optimizer_creation(self):
         net = TinyNet(); net.actions = 78
         with patch.object(torch.optim, "AdamW") as optimizer, self.assertRaises(ValueError):
@@ -298,6 +314,17 @@ class Tests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.controlled_run(next_path, root / "mismatch", resume=True, overrides={"lr": .1})
             self.assertFalse((root / "mismatch").exists())
+
+    def test_outer_resume_generation_and_native_version_must_agree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            learner = make_learner(); learner.epoch()
+            for key, value in (("generation", 999), ("training_api_version", 999)):
+                payload = learner.checkpoint(); payload[key] = value
+                path = root / f"{key}.pt"; atomic_save(payload, path)
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError, "metadata"):
+                    self.controlled_run(path, root / key, resume=True)
+                self.assertFalse((root / key).exists())
 
     def test_interrupted_publication_preserves_previous_completed_epoch(self):
         with tempfile.TemporaryDirectory() as temporary:

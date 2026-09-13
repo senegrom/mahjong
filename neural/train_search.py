@@ -118,6 +118,7 @@ class Dataset:
             raise ValueError("Duplicate replay content would silently reweight training")
         self.replays = [replay for _, replay in keyed]
         self.contract = deepcopy(contract)
+        self.validation_every = validation_every
         self.training, self.validation = [], []
         for replay in self.replays:
             game_seeds = np.uint64(replay.metadata["seed"]) + replay.arrays["game"].astype(np.uint64)
@@ -197,6 +198,8 @@ class Learner:
     def __init__(self, net, dataset: Dataset, options: Options, *, device="cpu",
                  initial_sha256: str, initial_generation: int = 0, resume=None):
         options.validate()
+        if dataset.validation_every != options.validation_every:
+            raise ValueError("Dataset split does not match the learner's validation settings")
         _integer(initial_generation, "initial_generation")
         if (not isinstance(initial_sha256, str) or len(initial_sha256) != 64
                 or any(c not in "0123456789abcdef" for c in initial_sha256)):
@@ -251,7 +254,21 @@ class Learner:
         # reset missing/incompatible Adam moments or a missing shuffle stream.
         groups = [{k: v for k, v in group.items() if k != "params"}
                   for group in self.optimizer.param_groups]
-        self.optimizer.load_state_dict(saved["optimizer"])
+        optimizer = saved["optimizer"]
+        # PyTorch binds loaded state by the supplied parameter-list order. A
+        # matching model signature alone does not detect reordered slot IDs.
+        expected_slots = [group["params"] for group in self.optimizer.state_dict()["param_groups"]]
+        if (not isinstance(optimizer, dict) or not isinstance(optimizer.get("state"), dict)
+                or _json([group.get("params") for group in optimizer.get("param_groups", [])])
+                != _json(expected_slots)):
+            raise ValueError("Resume optimizer parameter slots changed")
+        all_slots = {slot for group in expected_slots for slot in group}
+        if any(type(slot) is not int or slot not in all_slots for slot in optimizer["state"]):
+            raise ValueError("Resume optimizer has unknown parameter slots")
+        self.optimizer.load_state_dict(optimizer)
+        active = [name for name, p in self.net.named_parameters() if p in self.optimizer.state]
+        if _json(saved.get("optimizer_active_parameters")) != _json(active):
+            raise ValueError("Resume has missing or unexpected per-parameter optimizer history")
         if groups != [{k: v for k, v in group.items() if k != "params"}
                       for group in self.optimizer.param_groups]:
             raise ValueError("Resume optimizer settings disagree with the saved options")
@@ -334,7 +351,10 @@ class Learner:
                  "parameters": self.parameter_signature,
                  "initial_sha256": self.initial_sha256, "initial_generation": self.initial_generation,
                  "epochs": self.epochs, "updates": self.updates, "metrics": self.metrics,
-                 "optimizer": self.optimizer.state_dict(), "shuffle": self.shuffle.bit_generator.state,
+                 "optimizer": self.optimizer.state_dict(),
+                 "optimizer_active_parameters": [name for name, p in self.net.named_parameters()
+                                                   if p in self.optimizer.state],
+                 "shuffle": self.shuffle.bit_generator.state,
                  "torch_rng": torch.get_rng_state(),
                  "cuda_rng": torch.cuda.get_rng_state(self.device) if self.device.type == "cuda" else None}
         result = {**_model_payload(self.net), "learner": "search_supervised",
@@ -357,6 +377,13 @@ def run(source: Path, replays, out: Path, *, epochs: int = 2, resume: bool = Fal
         saved = payload.get("search_training") if resume else None
         if resume and (payload.get("learner") != "search_supervised" or not isinstance(saved, dict)):
             raise ValueError("--resume needs this trainer's complete checkpoint; use --checkpoint to initialize")
+        if saved is not None:
+            _integer(saved.get("initial_generation"), "saved initial_generation")
+            _integer(saved.get("epochs"), "saved epochs", 1)
+            if (type(payload.get("training_api_version")) is not int
+                    or payload["training_api_version"] != TRAINING_API_VERSION
+                    or payload.get("generation") != saved["initial_generation"] + saved["epochs"]):
+                raise ValueError("Resume checkpoint metadata disagrees with its training state")
         settings = dict(saved["options"]) if saved is not None else asdict(Options())
         settings.update(overrides or {})
         options = Options(**settings)

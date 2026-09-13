@@ -75,6 +75,11 @@ Continuation restores Adam moments, step counts, a private NumPy shuffle stream,
 Torch CPU randomness, and the selected CUDA device's generator state. It checks
 the tensor parameter order/shapes, runtime signature, exact data fingerprints,
 semantic contracts, source revision, value-head choice, and training settings.
+An explicit active-parameter manifest also detects partial deletion of Adam
+history; saved slot ordering is checked before PyTorch binds moments to weights.
+The configured holdout must match the actual dataset split, including through
+the low-level Python API. Outer generation/native metadata must agree with the
+nested resume state.
 It refuses missing/reset optimizer history, malformed/nonfinite moments, changed
 hyperparameters or modified replay bytes rather than silently starting over.
 Settings omitted on the command line inherit their saved values. Reordering the
