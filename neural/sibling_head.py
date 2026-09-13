@@ -85,7 +85,10 @@ class Recorded:
     """A recording as `neural.searched --record` wrote it."""
 
     def __init__(self, folder: Path) -> None:
-        folder = Path(folder)
+        from .recordings import resolve_recording, validate_snapshot
+
+        folder = resolve_recording(folder)
+        validate_snapshot(folder)
         self.folder = folder
         self.roots = Planes.load(folder, "root", mmap=False)
         self.candidates = np.load(folder / "candidates.npy")

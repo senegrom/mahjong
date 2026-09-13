@@ -22,6 +22,17 @@ def require_training_engine() -> None:
         )
 
 
+
+def require_search_engine() -> None:
+    """Old native backups added later hands' rewards; never use them silently."""
+    import riichi_py
+
+    if getattr(riichi_py, "SEARCH_API_VERSION", 0) != 1:
+        raise RuntimeError(
+            "Rebuild and reinstall riichi_py: search requires API version 1 "
+            "(root-hand rewards, terminal placement and strict atomic lookahead actions)"
+        )
+
 def benchmark_history(payload: dict) -> tuple[float | None, float]:
     """Do not compare benchmarks produced under incompatible native semantics.
 

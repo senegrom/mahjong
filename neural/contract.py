@@ -113,6 +113,25 @@ def of(net) -> Contract:
     )
 
 
+
+DEFAULT_LEAF_BATCH = 256
+
+
+def leaf_slots(counts, wanted, batch_size):
+    """Validate native leaf metadata and return the slots needing a value."""
+    if type(batch_size) is not int or batch_size <= 0:
+        raise ValueError("leaf_batch must be a positive integer")
+    if any(type(count) is not int or count < 0 for count in counts):
+        raise ValueError("Native leaf counts must be nonnegative integers")
+    total = sum(counts)
+    if wanted is None:
+        raise UnsupportedSearchLayout("Continuations require the native wanted-value mask")
+    raw = (np.frombuffer(wanted, dtype=np.uint8)
+           if isinstance(wanted, (bytes, bytearray, memoryview)) else np.asarray(wanted))
+    if raw.shape != (total,) or not np.isin(raw, (0, 1)).all():
+        raise ValueError("Native wanted-value mask has the wrong shape or values")
+    return np.flatnonzero(raw)
+
 class EngineServed:
     """A network that reads our own planes and answers in our own moves.
 
@@ -133,12 +152,22 @@ class EngineServed:
             torch.from_numpy(legal[rows]).to(device),
         )
 
+    def leaf_batches(self, arena, leaf_bytes, counts, device, *, wanted, batch_size=DEFAULT_LEAF_BATCH):
+        """Transfer only one bounded batch of wanted native leaves at a time."""
+        live = leaf_slots(counts, wanted, batch_size)
+        planes = np.frombuffer(leaf_bytes, dtype=np.float32).reshape(
+            sum(counts), ENGINE_PLANES, POSITIONS
+        )
+        for start in range(0, len(live), batch_size):
+            slots = live[start:start + batch_size]
+            yield slots, torch.from_numpy(planes[slots].copy()).to(device)
+
     def leaves(self, arena, leaf_bytes, counts, device, *, wanted=None):
-        total = sum(counts)
-        planes = np.frombuffer(leaf_bytes, dtype=np.float32)
-        return torch.from_numpy(
-            planes.reshape(total, ENGINE_PLANES, POSITIONS).copy()
-        ).to(device)
+        """Small-call compatibility helper; search itself uses leaf_batches."""
+        out = torch.zeros(sum(counts), ENGINE_PLANES, POSITIONS, device=device)
+        for slots, planes in self.leaf_batches(arena, leaf_bytes, counts, device, wanted=wanted):
+            out[torch.as_tensor(slots, device=device)] = planes
+        return out
 
     def to_engine(self, action: int, legal_row: np.ndarray, after_reach: bool = False) -> int:
         return int(action) if legal_row[action] else -1
@@ -198,52 +227,46 @@ class MortalServed:
             raise ValueError("Search roots must each have a legal action")
         return planes.dense(device), torch.from_numpy(allowed).to(device)
 
-    def leaves(self, arena, leaf_bytes, counts, device, *, wanted=None):
-        """Every leaf as Mortal sees it, built from its own continuation.
+    def leaf_batches(self, arena, leaf_bytes, counts, device, *, wanted, batch_size=DEFAULT_LEAF_BATCH):
+        """Reconstruct, encode, densify and transfer bounded batches together.
 
-        The native bridge carries completed-hand and new-hand events across
-        hand boundaries. Only terminal/broken slots may omit event history.
-        Missing nonterminal history is an error, never a fabricated zero input.
+        Only root-hand positions reach the hybrid critic. Completed worlds
+        already contain root-hand reward plus terminal placement and need
+        neither a synthetic zero observation nor another network forward.
         """
         from .observe import Planes
 
+        live = leaf_slots(counts, wanted, batch_size)
         total = sum(counts)
         players, lines = arena.leaves_mjai()
-        game_of = np.repeat(np.arange(len(counts)), counts)
         if len(players) != total or len(lines) != total:
             raise ValueError("Native continuation metadata does not match the leaf count")
-        if wanted is None:
-            raise UnsupportedSearchLayout("Mortal continuations require the native wanted-value mask")
-        # PyO3 exposes Vec<u8> as bytes; controlled callers may supply lists.
-        raw_wanted = (np.frombuffer(wanted, dtype=np.uint8)
-                      if isinstance(wanted, (bytes, bytearray, memoryview)) else wanted)
-        wants = np.asarray(raw_wanted, dtype=bool)
-        if wants.shape != (total,):
-            raise ValueError("Native wanted-value mask has the wrong shape")
-        unsupported = [at for at in range(total) if wants[at] and not lines[at]]
-        if unsupported:
+        if any(not lines[at] for at in live):
             raise UnsupportedSearchLayout(
-                f"{len(unsupported)} nonterminal search leaves have no reconstructible "
-                "Mortal history. Refusing invented zero observations; "
-                "rebuild the native bridge and check its continuation metadata."
+                "nonterminal search leaves have no reconstructible Mortal history; "
+                "refusing invented zero observations"
             )
-        live = [at for at in range(total) if wants[at]]
-        if self.count_crossings:
-            self.crossed += sum(
-                1 for at in live if any('"start_kyoku"' in line for line in lines[at])
+        boundaries = np.cumsum(counts)
+        for start in range(0, len(live), batch_size):
+            slots = live[start:start + batch_size]
+            game_of = np.searchsorted(boundaries, slots, side="right")
+            copies = self._Imagined.from_follower(
+                arena_follower(arena),
+                [(int(game), int(players[at])) for game, at in zip(game_of, slots)],
+                4,
             )
-        out = torch.zeros(total, self.contract.planes, POSITIONS, device=device)
-        if not live:
-            return out
-        copies = self._Imagined.from_follower(
-            arena_follower(arena),
-            [(int(game_of[at]), int(players[at])) for at in live],
-            4,
-        )
-        copies.feed([lines[at] for at in live])
-        indptr, indices, values, _masks = copies.encode()
-        built = Planes.from_follower(indptr, indices, values).dense(device)
-        out[torch.tensor(live, device=device)] = built
+            copies.feed([lines[at] for at in slots])
+            indptr, indices, values, _masks = copies.encode()
+            del copies
+            yield slots, Planes.from_follower(indptr, indices, values).dense(device)
+
+    def leaves(self, arena, leaf_bytes, counts, device, *, wanted=None):
+        """Small-call compatibility helper; large searches use leaf_batches."""
+        # Validate before allocating, including when every slot is terminal.
+        leaf_slots(counts, wanted, DEFAULT_LEAF_BATCH)
+        out = torch.zeros(sum(counts), self.contract.planes, POSITIONS, device=device)
+        for slots, planes in self.leaf_batches(arena, leaf_bytes, counts, device, wanted=wanted):
+            out[torch.as_tensor(slots, device=device)] = planes
         return out
 
     def to_engine(self, action: int, legal_row: np.ndarray, after_reach: bool = False) -> int:
@@ -325,7 +348,7 @@ class MortalServed:
         _logits, value, _hands = self.net.everything(planes, mask)
         return value
 
-    def play_lookahead(self, arena, device="cuda", temperature=0.0, passes=400) -> int:
+    def play_lookahead(self, arena, device="cuda", temperature=0.0, passes=8000) -> int:
         """The network moving every seat inside the lookahead, on Mortal's
         planes.
 
@@ -373,6 +396,8 @@ class MortalServed:
         while taken < passes:
             games, slots, players, masks_bytes, lines = arena.lookahead_owed_mjai()
             count = len(games)
+            if self.count_crossings:
+                self.crossed += sum('"start_kyoku"' in line for new in lines for line in new)
             if count == 0:
                 break
             taken += 1
@@ -395,9 +420,9 @@ class MortalServed:
             planes = Planes.from_follower(indptr, indices, values)
             # What our engine allows, named in Mortal's moves, as the table
             # asks it (`zoo.choose_in_mortal_space`).
-            allowed = zoo.translatable(masks)
-            orphan = ~allowed.any(axis=1)
-            allowed[orphan, zoo.MORTAL_PASS] = True
+            allowed = masks if self.contract.speaks_our_moves else zoo.translatable(masks)
+            if not allowed.any(axis=1).all():
+                raise UnsupportedSearchLayout("An imagined decision has no translatable legal move")
             best = np.empty(count, dtype=np.int64)
             step = 4096
             for start in range(0, count, step):
@@ -412,9 +437,11 @@ class MortalServed:
                 else:
                     picked = logits.argmax(dim=1)
                 best[rows] = picked.cpu().numpy()
-            actions = zoo.first_meaning(best, masks)
-            actions = np.where(orphan | (actions < 0), masks.argmax(axis=1), actions)
-            second = np.nonzero((best == zoo.MORTAL_RIICHI) & ~orphan)[0]
+            actions = best.copy() if self.contract.speaks_our_moves else zoo.first_meaning(best, masks)
+            if np.any(actions < 0):
+                raise UnsupportedSearchLayout("The imagined policy chose an untranslatable action")
+            second = (np.empty(0, dtype=np.int64) if self.contract.speaks_our_moves
+                      else np.nonzero(best == zoo.MORTAL_RIICHI)[0])
             if len(second):
                 asked = copies.clone_some([deciding[at] for at in second])
                 asked.feed(
@@ -436,6 +463,8 @@ class MortalServed:
                     tile = ranked.argmax(dim=1)
                 actions[second] = zoo.RIICHI_DISCARD + tile.cpu().numpy()
             arena.lookahead_apply(actions.tolist())
+        # The native leaf boundary rejects remaining/broken worlds, without
+        # consuming the lookahead. A caller may continue with a larger budget.
         return taken
 
 

@@ -8,6 +8,8 @@ import { normalizeTileFace } from './tile-faces.js';
 export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
 const VERSION = 1;
+// Mortal action schema: never reuse the engine-space pass (70) here.
+const MORTAL_PASS = 45;
 const MAX_COMMANDS = 20000;
 const MAX_SAVE_BYTES = 2_000_000;
 const DIFFICULTIES = OPPONENT_TYPES;
@@ -114,8 +116,8 @@ export class MatchSession {
         // human call. Preserve those historical decisions as explicit legal
         // passes, never by asking a new network to rewrite the past.
         while (legacyCall && !session.over && session.view.phase === 'call' && session.engine.needs_opponent_move()) {
-          require(session.engine.opponent_mask()[70], 'Cannot migrate a historical claim');
-          session.apply({ type: 'opponent', action: 70 });
+          require(session.engine.opponent_mask_mortal()[MORTAL_PASS], 'Cannot migrate a historical claim');
+          session.apply({ type: 'opponent', action: MORTAL_PASS });
           session.advance(false);
         }
       }

@@ -585,9 +585,8 @@ pub struct Leaves {
     /// One observation per slot, [`OBSERVATION`] numbers each, from the
     /// searching player's viewpoint. Slots that want no valuing hold zeros.
     pub observations: Vec<f32>,
-    /// What is already known of each slot's worth, in the value head's
-    /// units: what the hands that ended on the way moved for the searching
-    /// player, and the placement if the game ended.
+    /// Root-hand score change once it ends, plus terminal placement if the
+    /// match ends. Later hands' score changes are not additional rewards.
     pub settled: Vec<f64>,
     /// Whether each slot's observation is a position the network should
     /// value, to be added to `settled`.
@@ -666,7 +665,13 @@ enum Advance {
 
 /// Runs the other players round to `seat`'s next decision, or to the end
 /// of the hand.
-fn advance_to_decision(world: &mut Hand, seat: Wind, style: Style, seed: u64) -> Advance {
+fn advance_to_decision(
+    world: &mut Hand,
+    seat: Wind,
+    style: Style,
+    seed: u64,
+    stop_at_decision: bool,
+) -> Advance {
     let mut bots: Vec<Bot> = (0..4)
         .map(|index| Bot::with_style(seed.wrapping_add(index), style))
         .collect();
@@ -678,7 +683,7 @@ fn advance_to_decision(world: &mut Hand, seat: Wind, style: Style, seed: u64) ->
         }
         match world.phase {
             Phase::Over => break,
-            Phase::Act if world.turn == seat => return Advance::Decision,
+            Phase::Act if stop_at_decision && world.turn == seat => return Advance::Decision,
             Phase::Draw => {
                 if world.draw().is_err() {
                     return Advance::Broken;
@@ -743,67 +748,41 @@ fn placement_value(table: &Table, player: usize) -> f64 {
         / tied as f64
 }
 
-/// Plays an imagined world on from just after a candidate move until the
-/// searching player has a decision to make, through the end of a hand and
-/// into the next if need be, or until the game ends.
+/// Uses the hybrid critic only inside the root hand. Its target is that
+/// hand's points plus final placement, NOT the sum of later hands' points.
+/// Once the root hand ends, finish the game with the rollout policy and add
+/// only terminal placement. An existing hybrid-return checkpoint cannot
+/// supply a placement-only continuation at a later hand's first decision.
 fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64, from: usize) -> Leaf {
     let mut settled = 0.0;
     let mut seat = seat;
-    let mut dealt = 0;
-    let mut from = from;
-    let mut carried: Vec<(mjai::Event, [usize; 4])> = Vec::new();
-    let mut seating: [usize; 4] = [0, 1, 2, 3];
-    // A game rarely runs past a dozen hands, and the loop is here for the
-    // hand that ends before the player's first turn in it, which happens
-    // once in a very long while.
-    for extra in 0..16u64 {
-        let seed = seed.wrapping_add(extra * 4);
-        match advance_to_decision(world, seat, style, seed) {
+    for dealt in 0..512u64 {
+        let continuation_seed = seed.wrapping_add(dealt * 4);
+        match advance_to_decision(world, seat, style, continuation_seed, dealt == 0) {
             Advance::Decision => {
                 return Leaf::Position {
                     seat,
                     settled,
-                    dealt,
-                    carried,
-                    seating,
+                    dealt: 0,
+                    carried: Vec::new(),
+                    seating: [0, 1, 2, 3],
                     from,
-                }
+                };
             }
             Advance::Broken => return Leaf::Broken,
             Advance::HandOver(moved) => {
-                settled += moved;
-                // What the hand did after the cursor, kept before its log
-                // is replaced: a reader of the seat's state has to be told
-                // how this hand ended before it can be told the next began.
-                carried.extend(
-                    world.log[from.min(world.log.len())..]
-                        .iter()
-                        .map(|event| (event.clone(), seating)),
-                );
-                // The seats of the hand that just ended stand in for the
-                // players, so the player is this seat's number.
+                if dealt == 0 {
+                    settled = moved;
+                }
                 let player = seat.index();
                 let mut table = table_of(world);
                 table.finish(world);
                 if table.finished {
                     return Leaf::Settled(settled + placement_value(&table, player));
                 }
-                let mut rng = Rng::from_seed(seed ^ 0x9e37_79b9);
+                let mut rng = Rng::from_seed(continuation_seed ^ 0x9e37_79b9);
                 *world = table.deal(&mut rng);
-                // Who sits where now, written in the seats of the hand the
-                // search began in: the table numbers people by the seats
-                // of the hand that just ended, which the seating so far
-                // maps back.
-                let next = table.seating();
-                seating = [
-                    seating[next[0]],
-                    seating[next[1]],
-                    seating[next[2]],
-                    seating[next[3]],
-                ];
                 seat = table.seat_of(player);
-                from = 0;
-                dealt += 1;
             }
         }
     }
@@ -1186,10 +1165,9 @@ struct Slot {
     /// How many more turns to act the searching player takes with the
     /// policy before the position is valued.
     depth: usize,
-    /// Whether the world is played to the end of the hand the search began
-    /// in, whatever the depth, and valued at the searching player's first
-    /// decision of the next: the hand's own result is then banked in
-    /// `settled` rather than guessed by a critic.
+    /// Bypass the root-hand critic and play to terminal placement. Only
+    /// the root hand's score change is banked in `settled`; later hands
+    /// are played for placement, not added as extra hand rewards.
     until_hand_ends: bool,
     /// Seats still to answer the claim on the table, in order, and the
     /// answers so far, as the arena keeps them.
@@ -1259,7 +1237,11 @@ impl Slot {
             }
             match self.world.phase {
                 Phase::Act => {
-                    if self.world.turn == self.seat && self.depth == 0 {
+                    if self.world.turn == self.seat
+                        && self.depth == 0
+                        && self.dealt == 0
+                        && !self.until_hand_ends
+                    {
                         self.state = SlotState::Leaf;
                     }
                     return;
@@ -1294,7 +1276,11 @@ impl Slot {
     fn next_hand(&mut self) {
         let player = self.seat.index();
         let moved = self.world.players[player].score - self.world.opening[player];
-        self.settled += moved as f64 / POINTS_PER_UNIT as f64;
+        // A decision is paid its own hand once. Later hands affect its
+        // placement, but their points are not additional reward terms.
+        if self.dealt == 0 {
+            self.settled = moved as f64 / POINTS_PER_UNIT as f64;
+        }
         // What the hand did after the cursor, kept before its log goes; see
         // `play_to_leaf`. A caller keeping states in step may have been
         // given part of it already, so its cursor into `carried` moves
@@ -1316,7 +1302,7 @@ impl Slot {
             return;
         }
         self.dealt += 1;
-        if self.dealt > 16 {
+        if self.dealt > 512 {
             self.state = SlotState::Broken;
             return;
         }
@@ -1332,12 +1318,8 @@ impl Slot {
         self.seat = table.seat_of(player);
         self.logged = 0;
         self.exported = 0;
-        if self.until_hand_ends {
-            // The hand the search began in is over and paid; the first
-            // decision of this one is the leaf.
-            self.depth = 0;
-            self.until_hand_ends = false;
-        }
+        // No hybrid critic is consulted after this boundary. Finish the
+        // match under the rollout policy to obtain placement alone.
     }
 
     /// What the slot's world invented since this was last asked: the
@@ -1359,17 +1341,15 @@ impl Slot {
         out
     }
 
-    /// Applies the caller's decision, an index into the action space, and
-    /// advances. An index the engine will not take is read as a pass, or
-    /// as the first legal move, the way the arena reads one.
+    /// Applies a decision already checked by `Lookahead::validate_actions`.
+    /// Invalid caller moves never become substitute moves in a scored world.
     fn apply(&mut self, index: usize) {
         if self.state != SlotState::Running {
             return;
         }
         if let Some(seat) = self.asking.pop_front() {
             let call = encoding::decode_call(&self.world, seat, index)
-                .or_else(|| encoding::decode_call(&self.world, seat, encoding::PASS))
-                .unwrap_or(Call::Pass);
+                .expect("the lookahead call was validated before mutation");
             self.answers.push((seat, call));
             if self.asking.is_empty() {
                 let answers = std::mem::take(&mut self.answers);
@@ -1382,12 +1362,8 @@ impl Slot {
             return;
         }
         if matches!(self.world.phase, Phase::Act) {
-            let Some(action) = encoding::decode_action(&self.world, index)
-                .or_else(|| self.world.legal_actions().into_iter().next())
-            else {
-                self.state = SlotState::Broken;
-                return;
-            };
+            let action = encoding::decode_action(&self.world, index)
+                .expect("the lookahead action was validated before mutation");
             // The searching player's own turn, played by the policy on the
             // way to a deeper leaf.
             if self.world.turn == self.seat {
@@ -1475,9 +1451,7 @@ impl Lookahead {
                     world: trial,
                     seat,
                     settled: 0.0,
-                    // More turns than a hand has, so the leaf comes only
-                    // once the hand has ended and the depth is reset.
-                    depth: if until_hand_ends { 1_000 } else { depth },
+                    depth,
                     until_hand_ends,
                     asking: VecDeque::new(),
                     answers: Vec::new(),
@@ -1572,9 +1546,9 @@ impl Lookahead {
 
     /// Applies one decision per waiting slot, in the order
     /// [`Lookahead::owed`] listed them, and advances every slot again.
-    pub fn apply(&mut self, actions: &[usize]) {
+    pub fn apply(&mut self, actions: &[usize]) -> Result<(), String> {
+        self.validate_actions(actions)?;
         let owed = self.owed();
-        assert_eq!(actions.len(), owed.len(), "one action per waiting slot");
         let mut chosen: Vec<Option<usize>> = vec![None; self.slots.len()];
         for ((index, _), action) in owed.iter().zip(actions) {
             chosen[*index] = Some(*action);
@@ -1584,6 +1558,43 @@ impl Lookahead {
                 slot.apply(action);
             }
         });
+        Ok(())
+    }
+
+    /// Validate a whole batch without changing worlds or event cursors.
+    /// The Python arena calls this for ALL games before advancing ANY.
+    pub fn validate_actions(&self, actions: &[usize]) -> Result<(), String> {
+        let owed = self.owed();
+        if actions.len() != owed.len() {
+            return Err(format!(
+                "expected {} actions, got {}",
+                owed.len(),
+                actions.len()
+            ));
+        }
+        for ((index, seat), action) in owed.iter().zip(actions) {
+            let mut mask = [false; ACTIONS];
+            encoding::legal_mask(&self.slots[*index].world, *seat, &mut mask);
+            if mask.get(*action) != Some(&true) {
+                return Err(format!("illegal lookahead action {action} in slot {index}"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Unfinished or broken simulations must not masquerade as a smaller
+    /// sample of successful worlds (which would bias the candidate mean).
+    pub fn validate_finished(&self) -> Result<(), String> {
+        if self
+            .slots
+            .iter()
+            .any(|slot| matches!(slot.state, SlotState::Running | SlotState::Broken))
+        {
+            return Err(
+                "lookahead has unfinished or broken worlds; no values were published".into(),
+            );
+        }
+        Ok(())
     }
 
     /// Whether no slot is waiting on a decision.
@@ -1931,14 +1942,14 @@ mod tests {
         let mut passes = 0;
         while !lookahead.finished() {
             passes += 1;
-            assert!(passes < 1000, "a lookahead ends");
+            assert!(passes < 8000, "a lookahead ends");
             let mut observations = Vec::new();
             let mut masks = Vec::new();
             let count = lookahead.observe_into(&mut observations, &mut masks);
             assert_eq!(count, lookahead.owed().len());
             assert_eq!(observations.len(), count * OBSERVATION);
             assert_eq!(masks.len(), count * ACTIONS);
-            lookahead.apply(&first_legal(&masks));
+            lookahead.apply(&first_legal(&masks)).unwrap();
         }
         passes
     }
@@ -1962,7 +1973,7 @@ mod tests {
         let mut passes = 0;
         while !lookahead.finished() {
             passes += 1;
-            assert!(passes < 1000, "a lookahead ends");
+            assert!(passes < 8000, "a lookahead ends");
             let owed = lookahead.owed_events();
             for (index, _seat, events) in &owed {
                 if streamed[*index].is_empty() {
@@ -1981,7 +1992,7 @@ mod tests {
                 owed.len(),
                 "events and observations name the same slots"
             );
-            lookahead.apply(&first_legal(&masks));
+            lookahead.apply(&first_legal(&masks)).unwrap();
         }
         let got = lookahead.leaves();
         let mut checked = 0;
@@ -2011,41 +2022,85 @@ mod tests {
         assert!(checked > 0, "no leaf to check");
     }
 
-    /// Played until the hand ends, every leaf is the first decision of a
-    /// later hand or the game's end, and what the hand paid is banked.
+    /// No successor hand's hybrid value or score change may enter the
+    /// root decision's target, even through multiple boundaries/repeats.
     #[test]
-    fn until_the_hand_ends_every_leaf_is_in_the_next_hand() {
-        let table = Table::new();
+    fn cross_hand_lookahead_banks_only_the_root_hand_and_terminal_placement() {
         let mut rng = Rng::from_seed(2026);
-        let hand = table.deal(&mut rng);
+        let hand = Table::new().deal(&mut rng);
         let seat = hand.turn;
         let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
-        let mut rng = Rng::from_seed(9);
-        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
-        let weights = vec![1.0; 3];
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, true);
-        drive(&mut lookahead);
-        let got = lookahead.leaves();
-        let mut leaves = 0;
-        for (index, slot) in lookahead.slots.iter().enumerate() {
-            match slot.state {
-                SlotState::Leaf => {
-                    leaves += 1;
-                    assert!(
-                        slot.dealt >= 1,
-                        "slot {index} is a leaf in the hand it began in"
-                    );
-                    assert!(got.wanted[index]);
-                    assert!(
-                        !got.carried[index].is_empty(),
-                        "slot {index} carries how the first hand ended"
+        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 2);
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &[1.0; 2], 0, true);
+        let mut root_rewards = vec![None; lookahead.slots()];
+        for _ in 0..8000 {
+            if lookahead.finished() {
+                break;
+            }
+            let mut observations = Vec::new();
+            let mut masks = Vec::new();
+            lookahead.observe_into(&mut observations, &mut masks);
+            lookahead.apply(&first_legal(&masks)).unwrap();
+            for (slot, root_reward) in lookahead.slots.iter().zip(&mut root_rewards) {
+                if slot.dealt > 0 && root_reward.is_none() {
+                    *root_reward = Some(slot.settled);
+                }
+                if slot.dealt > 0 && slot.state == SlotState::Running {
+                    assert_eq!(
+                        slot.settled,
+                        root_reward.unwrap(),
+                        "later hands are not extra reward"
                     );
                 }
-                SlotState::Settled => assert!(!got.wanted[index]),
-                SlotState::Running | SlotState::Broken => {}
             }
         }
-        assert!(leaves > 0, "no world reached the next hand");
+        lookahead.validate_finished().unwrap();
+        let got = lookahead.leaves();
+        assert!(
+            got.wanted.iter().all(|wanted| !wanted),
+            "no successor hybrid critic"
+        );
+        for (index, slot) in lookahead.slots.iter().enumerate() {
+            assert_eq!(slot.state, SlotState::Settled);
+            assert!(slot.dealt >= 2, "several hand boundaries were exercised");
+            let mut table = table_of(&slot.world);
+            table.finish(&slot.world);
+            assert!(table.finished);
+            let expected =
+                root_rewards[index].unwrap() + placement_value(&table, slot.seat.index());
+            assert!((got.settled[index] - expected).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn invalid_lookahead_batches_leave_every_world_and_cursor_unchanged() {
+        let mut rng = Rng::from_seed(2026);
+        let hand = Table::new().deal(&mut rng);
+        let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
+        let mut lookahead = Lookahead::begin(
+            hand.turn,
+            &candidates,
+            std::slice::from_ref(&hand),
+            &[1.0],
+            1,
+            false,
+        );
+        let mut observations = Vec::new();
+        let mut masks = Vec::new();
+        lookahead.observe_into(&mut observations, &mut masks);
+        let good = first_legal(&masks);
+        assert!(good.len() >= 2);
+        let mut illegal = good.clone();
+        *illegal.last_mut().unwrap() = ACTIONS;
+        let mut too_long = good.clone();
+        too_long.push(good[0]);
+        for bad in [illegal, good[..good.len() - 1].to_vec(), too_long] {
+            let before = format!("{lookahead:?}");
+            assert!(lookahead.apply(&bad).is_err());
+            assert_eq!(format!("{lookahead:?}"), before);
+        }
+        assert!(lookahead.validate_finished().is_err());
+        lookahead.apply(&good).unwrap();
     }
 
     /// A lookahead played by the caller reaches the same kind of leaves as
@@ -2211,118 +2266,72 @@ mod tests {
         }
     }
 
-    /// A hand that has ended is not a position the network can value. The
-    /// search banks what it moved and plays the world into the next hand,
-    /// to the same player's first decision there, so that every leaf
-    /// carries a placement.
+    /// Independent complete-game accounting for the club continuation.
+    /// The rollout seeds and actual game outcomes are identical, but only
+    /// the first hand is paid; all later hands affect placement alone.
+    fn terminal_target(mut world: Hand, mut seat: Wind, seed: u64) -> (f64, usize) {
+        let mut root_reward = 0.0;
+        for dealt in 0..512u64 {
+            let continuation_seed = seed.wrapping_add(dealt * 4);
+            run_out(&mut world, continuation_seed);
+            if dealt == 0 {
+                root_reward = (world.players[seat.index()].score - world.opening[seat.index()])
+                    as f64
+                    / POINTS_PER_UNIT as f64;
+            }
+            let player = seat.index();
+            let mut table = table_of(&world);
+            table.finish(&world);
+            if table.finished {
+                return (
+                    root_reward + placement_value(&table, player),
+                    dealt as usize,
+                );
+            }
+            world = table.deal(&mut Rng::from_seed(continuation_seed ^ 0x9e37_79b9));
+            seat = table.seat_of(player);
+        }
+        panic!("reference game did not finish");
+    }
+
     #[test]
-    fn a_finished_hand_is_played_into_the_next_one() {
+    fn finished_root_hands_use_terminal_placement_not_a_later_hybrid_value() {
         let mut rng = Rng::from_seed(11);
         let mut world = Table::new().deal(&mut rng);
         let seat = Wind::South;
-        let before = world.players[seat.index()].score;
         run_out(&mut world, 5);
-        let after = world.players[seat.index()].score;
-        let moved = (after - before) as f64 / POINTS_PER_UNIT as f64;
-
-        // East 1 cannot be the last hand, so the world goes on.
+        let (expected, boundaries) = terminal_target(world.clone(), seat, 77);
+        assert!(boundaries >= 2);
         match play_to_leaf(&mut world, seat, Style::rollout(), 77, 0) {
-            Leaf::Position {
-                seat: now,
-                settled,
-                dealt,
-                carried,
-                seating,
-                from,
-            } => {
-                assert!(
-                    (settled - moved).abs() < 1e-9,
-                    "what the hand moved is banked"
-                );
-                // The log of the hand that ended was replaced by this
-                // one's, so a caller holding a cursor into the old one must
-                // be told. This is what says so.
-                assert_eq!(dealt, 1, "the world dealt a new hand");
-                assert!(
-                    matches!(world.phase, Phase::Act) && world.turn == now,
-                    "the player is on turn in the new hand"
-                );
-                assert!(world.discards_made <= 8, "the new hand has only just begun");
-                assert_eq!(
-                    world.players[now.index()].score,
-                    after,
-                    "the player's points came with them"
-                );
-                // A reader of the seat's state is told how the old hand
-                // ended, then the whole of the new one, and who sits where.
-                assert_eq!(from, 0, "the new hand's log is wholly invented");
-                assert!(
-                    matches!(carried.last(), Some((mjai::Event::EndKyoku, _))),
-                    "the hand that ended is carried to its end"
-                );
-                assert!(
-                    carried.iter().all(|(_, under)| *under == [0, 1, 2, 3]),
-                    "the hand that ended was logged under the original seats"
-                );
-                assert!(
-                    matches!(world.log.first(), Some(mjai::Event::StartKyoku { .. })),
-                    "the new hand begins with its deal"
-                );
-                assert_eq!(
-                    seating[now.index()],
-                    seat.index(),
-                    "the searcher's original seat sits at the new one"
-                );
-                let mut seen = seating;
-                seen.sort_unstable();
-                assert_eq!(seen, [0, 1, 2, 3], "the seating is a permutation");
-            }
-            Leaf::Settled(_) => panic!("the game cannot end at East 1"),
-            Leaf::Broken => panic!("the world could be played on"),
+            Leaf::Settled(worth) => assert!((worth - expected).abs() < 1e-9),
+            _ => panic!(
+                "a crossed-hand world must finish instead of consulting another hybrid value"
+            ),
         }
     }
 
-    /// When the hand that ended was the last of the game there is no next
-    /// position: the leaf is worth what the hand moved plus the place the
-    /// game finished in.
     #[test]
-    fn the_last_hand_settles_with_the_placement() {
-        let mut settled_once = false;
-        let mut went_on_once = false;
+    fn final_hands_and_dealer_repeats_preserve_the_same_root_objective() {
+        let mut final_seen = false;
+        let mut repeat_seen = false;
         for seed in 0..12u64 {
             let mut table = Table::new();
             table.round = Wind::South;
             table.first_dealer = 1;
-            assert_eq!(table.kyoku(), 4, "player 0 is East at South 4");
-            let mut rng = Rng::from_seed(100 + seed);
-            let mut world = table.deal(&mut rng);
+            let mut world = table.deal(&mut Rng::from_seed(100 + seed));
             let seat = Wind::West;
-            let before = world.players[seat.index()].score;
             run_out(&mut world, seed);
-            let moved =
-                (world.players[seat.index()].score - before) as f64 / POINTS_PER_UNIT as f64;
-            let mut after = table_of(&world);
-            after.finish(&world);
-
-            match play_to_leaf(&mut world.clone(), seat, Style::rollout(), seed, 0) {
-                Leaf::Settled(worth) => {
-                    assert!(after.finished, "settled only when the game is over");
-                    let expected = moved + placement_value(&after, seat.index());
-                    assert!((worth - expected).abs() < 1e-9, "the placement is banked");
-                    settled_once = true;
+            let (expected, repeats) = terminal_target(world.clone(), seat, seed);
+            final_seen |= repeats == 0;
+            repeat_seen |= repeats > 0;
+            match play_to_leaf(&mut world, seat, Style::rollout(), seed, 0) {
+                Leaf::Settled(worth) => assert!((worth - expected).abs() < 1e-9),
+                _ => {
+                    panic!("the complete continuation supplies placement, including dealer repeats")
                 }
-                Leaf::Position { .. } => {
-                    assert!(
-                        !after.finished,
-                        "the dealer kept the deal, so the game went on"
-                    );
-                    went_on_once = true;
-                }
-                Leaf::Broken => panic!("the world could be played on"),
             }
         }
-        assert!(settled_once, "some game ended at South 4");
-        assert!(went_on_once, "some dealer kept the deal at South 4");
+        assert!(final_seen && repeat_seen);
     }
 
     /// Final scores determine placement; tied players share the rewards

@@ -17,6 +17,7 @@ import torch
 
 from neural import contract, searched
 from neural.model import MORTAL_PLANES, PolicyValueNet
+from neural.recordings import resolve_recording
 
 
 class SearchContractTests(unittest.TestCase):
@@ -65,27 +66,37 @@ class SearchContractTests(unittest.TestCase):
         with self.assertRaisesRegex(searched.UnsupportedSearchLayout, "Mortal event history"):
             searched.play_lookahead(mortal, None, device="cpu")
 
-    def test_the_network_moves_every_seat_inside_the_search_on_mortals_planes(self):
-        """The strong searchers' way: the seats between the candidate and
-        the leaf are played by the network itself, here through a copy of
-        each seat's state kept in step with what its world invents; every
-        such decision is answered in Mortal's moves and translated back
-        under the engine's legality, hand boundaries included."""
+    def test_the_network_moves_every_seat_to_terminal_placement(self):
+        """One root with multiple worlds crosses hands without a hybrid leaf."""
+        from neural.observe import Views
+
         previous = torch.get_num_threads()
         torch.set_num_threads(1)
         try:
-            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            torch.manual_seed(8)
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46).eval()
             served = contract.serve(net)
             served.count_crossings = True
-            scores, tally = searched.play(
-                net, 2, 8, 0, 2, 2, 0.0, pool=1, device="cpu", played_by="network", depth=-1,
-                served=served,
-            )
+            arena = riichi_py.Arena(games=1, seed=8, bot_places=[])
+            views = Views(arena, 1, {'mortal'})
+            views.advance()
+            contract.remember_follower(arena, views.observer.follower)
+            mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
+            ranked = [np.flatnonzero(mask)[:2].tolist()]
+            with patch.object(served, 'value', side_effect=AssertionError('successor hybrid value')):
+                choice = searched.search_with_value_head(
+                    net, arena, ranked, [1.] * riichi_py.HANDS, worlds=2, candidates=2,
+                    margin=0., hurried=True, pool=1, device='cpu', played_by='network',
+                    depth=-1, served=served, leaf_batch=1,
+                )
+            self.assertIn(choice[0], ranked[0])
+            self.assertGreater(served.crossed, 0)
+            judged = arena.judgements()[0]
+            self.assertEqual(len(judged), 2)
+            self.assertTrue(all(np.isfinite(value) and np.isfinite(worlds).all()
+                                for _action, value, worlds in judged))
         finally:
             torch.set_num_threads(previous)
-        self.assertEqual(scores.shape, (2, 4))
-        self.assertGreater(tally[0], 0, "nothing was searched")
-        self.assertGreater(served.crossed, 0, "no imagined world played into the next hand")
 
     def test_the_club_played_search_serves_mortals_planes(self):
         """The reason the contract exists: the current lineage reads
@@ -99,29 +110,29 @@ class SearchContractTests(unittest.TestCase):
         self.assertEqual(served.contract.answers, 46)
         self.assertFalse(served.contract.speaks_our_moves)
 
-    def test_a_world_that_deals_on_is_served_across_the_hand_boundary(self):
-        """Worlds that end the hand inside the search used to reach the
-        network as blank positions, which it valued at +0.49 against a
-        real average near zero, and the search preferred whatever ended
-        the hand. Now the copy is told how the hand ended and dealt the
-        next; the leaf is served, and counted here."""
+    def test_club_search_never_values_a_successor_hand_with_the_hybrid_critic(self):
         previous = torch.get_num_threads()
         torch.set_num_threads(1)
         try:
+            torch.manual_seed(5)
             net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
             served = contract.serve(net)
-            served.count_crossings = True
-            scores, tally = searched.play(
-                net, 2, 5, 0, 2, 2, 0.0, pool=1, device="cpu", served=served
-            )
+            original = served.leaf_batches
+
+            def checked(arena, leaf_bytes, counts, device, *, wanted, batch_size):
+                _players, lines = arena.leaves_mjai()
+                for want, events in zip(wanted, lines):
+                    if want:
+                        self.assertFalse(any('"start_kyoku"' in line for line in events))
+                yield from original(arena, leaf_bytes, counts, device, wanted=wanted, batch_size=batch_size)
+
+            with patch.object(served, 'leaf_batches', checked):
+                scores, tally = searched.play(net, 1, 5, 0, 2, 2, 0., pool=1,
+                                             device='cpu', served=served, leaf_batch=8)
+            self.assertEqual(scores.shape, (1, 4))
+            self.assertGreater(tally[0], 0)
         finally:
             torch.set_num_threads(previous)
-        self.assertEqual(scores.shape, (2, 4))
-        self.assertGreater(tally[0], 0, "nothing was searched")
-        self.assertGreater(
-            served.crossed, 0,
-            "no imagined world played into the next hand, so the boundary went untested",
-        )
 
     def test_a_recording_keeps_every_searched_decision_with_its_worlds(self):
         """The root as the network read it, the candidates, what each came
@@ -166,7 +177,8 @@ class SearchContractTests(unittest.TestCase):
             self.assertTrue(all(len(w) == 3 for w in worlds), "a worth for each of the three worlds")
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             recording.save(folder, {"note": "test"})
-            roots = Planes.load(Path(folder), "root", mmap=False)
+            folder = resolve_recording(Path(folder))
+            roots = Planes.load(folder, "root", mmap=False)
             self.assertEqual(len(roots), len(recording))
             self.assertEqual(roots.dense("cpu").shape[1], MORTAL_PLANES)
             per_world = np.load(Path(folder) / "per_world.npy")

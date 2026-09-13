@@ -42,6 +42,9 @@ use riichi_core::search;
 use riichi_core::table::Table;
 use riichi_core::Wind;
 
+/// Native leaf bytes, per-game counts, settled rewards and wanted-value mask.
+type LeafBatch<'py> = (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>);
+
 /// One game, and where its next decision sits.
 struct Seat {
     table: Table,
@@ -579,7 +582,7 @@ impl Arena {
         worlds: usize,
         candidates: usize,
         hurried: bool,
-    ) -> (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>) {
+    ) -> PyResult<LeafBatch<'py>> {
         let effort = search::Effort {
             worlds,
             candidates,
@@ -624,18 +627,23 @@ impl Arena {
                 &belief,
                 &mut seat.search_rng,
             );
+            if got.counted.iter().any(|counted| !counted) {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "search has broken worlds; no candidate evidence was published",
+                ));
+            }
             counts.push(got.counted.len());
             observations.extend_from_slice(&got.observations);
             settled.extend(got.settled.iter().map(|worth| *worth as f32));
             wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
             self.pending[game] = Some((shortlist, got));
         }
-        (
+        Ok((
             PyBytes::new(py, bytemuck_cast(&observations)),
             counts,
             settled,
             wanted,
-        )
+        ))
     }
 
     /// The first step of a weighed search. For every live game that owes a
@@ -696,7 +704,7 @@ impl Arena {
         weights: Vec<Vec<f32>>,
         candidates: usize,
         hurried: bool,
-    ) -> (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>) {
+    ) -> PyResult<LeafBatch<'py>> {
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
         assert_eq!(kept.len(), games, "one list of kept worlds per game");
@@ -744,18 +752,23 @@ impl Arena {
                 .collect();
             let world_weights: Vec<f64> = weights[game].iter().map(|w| *w as f64).collect();
             let got = search::leaves_from(wind, &shortlist, &worlds, &world_weights, effort);
+            if got.counted.iter().any(|counted| !counted) {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "search has broken worlds; no candidate evidence was published",
+                ));
+            }
             counts.push(got.counted.len());
             observations.extend_from_slice(&got.observations);
             settled.extend(got.settled.iter().map(|worth| *worth as f32));
             wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
             self.pending[game] = Some((shortlist, got));
         }
-        (
+        Ok((
             PyBytes::new(py, bytemuck_cast(&observations)),
             counts,
             settled,
             wanted,
-        )
+        ))
     }
 
     /// Begins, for every live game that owes a move, a lookahead in which
@@ -954,24 +967,33 @@ impl Arena {
     /// [`Arena::lookahead_owed`] gave them, and every lookahead advances
     /// to the next decision it owes.
     fn lookahead_apply(&mut self, actions: Vec<usize>) -> PyResult<()> {
-        let mut offset = 0;
-        for (_, lookahead) in self.lookaheads.iter_mut().flatten() {
-            let waiting = lookahead.owed().len();
-            if offset + waiting > actions.len() {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "expected at least {} actions, got {}",
-                    offset + waiting,
-                    actions.len()
-                )));
-            }
-            lookahead.apply(&actions[offset..offset + waiting]);
-            offset += waiting;
-        }
-        if offset != actions.len() {
+        let expected: usize = self
+            .lookaheads
+            .iter()
+            .flatten()
+            .map(|(_, lookahead)| lookahead.owed().len())
+            .sum();
+        if actions.len() != expected {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "expected {offset} actions, got {}",
+                "expected {expected} actions, got {}",
                 actions.len()
             )));
+        }
+        let mut offset = 0;
+        for (_, lookahead) in self.lookaheads.iter().flatten() {
+            let waiting = lookahead.owed().len();
+            lookahead
+                .validate_actions(&actions[offset..offset + waiting])
+                .map_err(pyo3::exceptions::PyValueError::new_err)?;
+            offset += waiting;
+        }
+        offset = 0;
+        for (_, lookahead) in self.lookaheads.iter_mut().flatten() {
+            let waiting = lookahead.owed().len();
+            lookahead
+                .apply(&actions[offset..offset + waiting])
+                .map_err(pyo3::exceptions::PyValueError::new_err)?;
+            offset += waiting;
         }
         Ok(())
     }
@@ -979,10 +1001,12 @@ impl Arena {
     /// The leaves of every lookahead, as [`Arena::leaves_from`] gives
     /// them, ready for [`Arena::decide`]. A slot still waiting on a
     /// decision does not count. The lookaheads are spent.
-    fn lookahead_leaves<'py>(
-        &mut self,
-        py: Python<'py>,
-    ) -> (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>) {
+    fn lookahead_leaves<'py>(&mut self, py: Python<'py>) -> PyResult<LeafBatch<'py>> {
+        for (_, lookahead) in self.lookaheads.iter().flatten() {
+            lookahead
+                .validate_finished()
+                .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        }
         let games = self.seats.len();
         let mut observations: Vec<f32> = Vec::new();
         let mut counts = Vec::with_capacity(games);
@@ -1001,12 +1025,12 @@ impl Arena {
             wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
             self.pending[game] = Some((shortlist, got));
         }
-        (
+        Ok((
             PyBytes::new(py, bytemuck_cast(&observations)),
             counts,
             settled,
             wanted,
-        )
+        ))
     }
 
     /// For every leaf the last [`Arena::leaves_from`] or
@@ -1371,6 +1395,7 @@ fn cast_i32(values: &[i32]) -> &[u8] {
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
     module.add("TRAINING_API_VERSION", 2u32)?;
+    module.add("SEARCH_API_VERSION", 1u32)?;
     module.add("PLANES", PLANES)?;
     module.add("POSITIONS", POSITIONS)?;
     module.add("OBSERVATION", OBSERVATION)?;

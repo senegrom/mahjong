@@ -16,6 +16,7 @@ import torch
 
 from neural import contract, searched, sibling_head
 from neural.model import MORTAL_PLANES, PolicyValueNet
+from neural.recordings import resolve_recording
 
 
 class SiblingHeadTests(unittest.TestCase):
@@ -67,7 +68,7 @@ class SiblingHeadTests(unittest.TestCase):
                 recording = searched.Recording(folder, meta, every=0.0)
                 searched.play(net, 1, 4, 0, 2, 2, 0.0, pool=1, device="cpu", served=served, recording=recording)
                 self.assertGreater(len(recording), 0)
-                partial = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+                partial = json.loads((resolve_recording(folder) / "meta.json").read_text(encoding="utf-8"))
                 self.assertFalse(partial["complete"], "written while the search ran")
                 self.assertEqual(partial["rows"], len(recording))
                 self.assertFalse(folder.with_name("rec.writing").exists())
