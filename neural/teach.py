@@ -81,7 +81,14 @@ class Lesson:
     by declaring the reach and then being asked.
     """
 
-    def __init__(self, recorded: Recorded, temperature: float = 0.1, weighted: bool = False) -> None:
+    def __init__(self, recorded: Recorded, temperature: float = 0.1, weighted: bool = False,
+                 without_mask: bool = False) -> None:
+        if recorded.legal is None and not without_mask:
+            raise ValueError(
+                "this recording did not keep the table's mask, and the fusion reads the mask "
+                "itself: asked under the moves that were compared alone it answers something "
+                "the table never asked. Record again, or pass without_mask to teach anyway"
+            )
         self.recorded = recorded
         self.temperature = float(temperature)
         rows, width = recorded.candidates.shape
@@ -120,9 +127,10 @@ class Lesson:
             self.weights = (weight / max(np.nanmean(weight[self.rows]), 1e-6)).astype(np.float32)
         else:
             self.weights = np.ones(rows, dtype=np.float32)
-        # What the table allowed, in Mortal's moves, for the leash to hold
-        # the policy over. A recording made before the mask was kept leashes
-        # over what it compared, which is weaker and says so.
+        # What the table allowed, in Mortal's moves: the question the
+        # network is asked, not only what the leash holds it over. The
+        # fusion's correction reads the mask as an input (`combined.Fuse`),
+        # so a narrower one moves the logits of the moves that remain.
         if recorded.legal is not None:
             self.allowed = zoo.translatable(recorded.legal.astype(bool))
             self.whole_mask = True
@@ -341,6 +349,14 @@ def main() -> None:
         action="store_true",
         help="count each row by how much its worlds agreed on it",
     )
+    parser.add_argument(
+        "--without-mask",
+        action="store_true",
+        help="teach from a recording that did not keep the table's mask, "
+        "asking the network under the moves that were compared alone. The "
+        "fusion reads the mask, so that is a different question from the "
+        "one the table asked; for recordings made before the mask was kept",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
@@ -350,7 +366,8 @@ def main() -> None:
     recorded = Recorded(args.recording[0])
     if len(args.recording) > 1:
         recorded = gathered([Recorded(folder) for folder in args.recording])
-    lesson = Lesson(recorded, temperature=args.temperature, weighted=args.weighted)
+    lesson = Lesson(recorded, temperature=args.temperature, weighted=args.weighted,
+                    without_mask=args.without_mask)
     print(
         json.dumps({
             "rows": len(lesson), "of": len(recorded), "whole_mask": lesson.whole_mask,

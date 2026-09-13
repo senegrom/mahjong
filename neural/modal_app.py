@@ -905,6 +905,7 @@ def teach(
     leash: float = 0.1,
     hold: str = "mortal+ours",
     weighted: bool = False,
+    without_mask: bool = False,
     duel_games: int = 0,
     seed: int = 555_000,
 ) -> str:
@@ -936,6 +937,8 @@ def teach(
         ]
         if weighted:
             command.append("--weighted")
+        if without_mask:
+            command.append("--without-mask")
         print(" ".join(command), flush=True)
         result = subprocess.run(command, cwd="/src", env=_environment(8), capture_output=True, text=True)
         answer += (result.stdout or "") + (result.stderr or "")

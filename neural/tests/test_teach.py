@@ -75,6 +75,35 @@ class LessonTests(unittest.TestCase):
         self.assertTrue(lesson.whole_mask, "the recording kept the table's mask")
         self.assertTrue(lesson.allowed[0][zoo.MORTAL_RIICHI] and lesson.allowed[0][3])
 
+    def test_a_recording_without_the_tables_mask_is_refused(self):
+        """The fusion's correction reads the mask itself, so a network
+        asked under the compared moves alone answers a question the table
+        never asked; such a recording is refused unless the caller says
+        plainly that it wants the narrower question."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            recorded = a_recording(Path(folder))
+            recorded.legal = None
+            with self.assertRaisesRegex(ValueError, "did not keep the table's mask"):
+                teach.Lesson(recorded)
+            lesson = teach.Lesson(recorded, without_mask=True)
+            self.assertFalse(lesson.whole_mask)
+            self.assertGreater(len(lesson), 0)
+
+    def test_the_mask_the_table_had_is_the_question_asked(self):
+        """Under the table's own mask the fusion answers differently from
+        under the compared moves alone: the mask is an input to it, which
+        is why the recording keeps it."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            recorded = a_recording(Path(folder))
+            whole = teach.Lesson(recorded)
+            narrow = teach.Lesson(recorded, without_mask=True)
+            narrow.allowed = np.zeros_like(narrow.allowed)
+            for row in range(len(narrow.moves)):
+                narrow.allowed[row, narrow.moves[row][narrow.valid[row]]] = True
+            self.assertTrue((whole.allowed.sum(axis=1) >= narrow.allowed.sum(axis=1)).all())
+            self.assertGreater(whole.allowed.sum(), narrow.allowed.sum(),
+                               "the table allowed more than the search compared")
+
     def test_a_colder_lesson_is_a_sharper_one(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             recorded = a_recording(Path(folder))
