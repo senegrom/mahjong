@@ -663,13 +663,18 @@ def arena(
     return answer
 
 
+#: Processors for the search container. `_environment` must be told, or
+#: the engine's thread pool stays at sixteen whatever the container has.
+SEARCH_CPUS = 32
+
+
 @app.function(
     gpu="L40S",
     # The search with the network moving every seat is bound by Mortal's
     # encoder, which runs on the processors: a chair of a hundred deals at
     # sixteen worlds, each played to the end of its hand, took 5.8 hours
     # on sixteen of them.
-    cpu=32.0,
+    cpu=SEARCH_CPUS,
     memory=65536,
     timeout=12 * 60 * 60,
     volumes={str(VOLUME): volume},
@@ -722,7 +727,7 @@ def searched(
         result = subprocess.run(
             command,
             cwd="/src",
-            env=_environment(),
+            env=_environment(SEARCH_CPUS),
             capture_output=True,
             text=True,
         )
