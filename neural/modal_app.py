@@ -836,6 +836,56 @@ def duel(
 
 @app.function(
     gpu="L40S",
+    cpu=8.0,
+    memory=32768,
+    timeout=2 * 60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def train_head(
+    recordings: list[str],
+    checkpoint: str = "leashed-run/latest",
+    out: str = "heads/latest-sibling",
+    epochs: int = 10,
+    lr: float = 1e-3,
+    batch: int = 256,
+) -> str:
+    """Trains the sibling head (`neural.sibling_head`) on recordings the
+    search kept on the volume -- directories under `searched-records/`,
+    named by their path from the volume's root -- against the network the
+    recordings were made with, and keeps the head at `out` on the volume.
+    """
+    volume.reload()
+    folders = [VOLUME / name for name in recordings]
+    for folder in folders:
+        if not (folder / "meta.json").exists():
+            return f"no recording at {folder}"
+    source = _checkpoint(checkpoint.rpartition("/")[0] or DEFAULT_RUN, checkpoint.rpartition("/")[2])
+    if not source.exists():
+        return f"no checkpoint at {source}"
+    with workspace("train-head") as where:
+        copied = where / "network.pt"
+        copy_checkpoint(source, copied, require_generation=True)
+        head = where / "head.pt"
+        command = [
+            sys.executable, "-m", "neural.sibling_head", *[str(folder) for folder in folders],
+            str(copied), "--out", str(head), "--epochs", str(epochs), "--lr", str(lr),
+            "--batch", str(batch), "--device", "cuda",
+        ]
+        print(" ".join(command), flush=True)
+        result = subprocess.run(command, cwd="/src", env=_environment(8), capture_output=True, text=True)
+        answer = (result.stdout or "") + (result.stderr or "")
+        if result.returncode == 0 and head.exists():
+            target = VOLUME / (out + ".pt")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(head, target)
+            volume.commit()
+            answer += f"\nhead kept at {target}"
+    print(answer, flush=True)
+    return answer
+
+
+@app.function(
+    gpu="L40S",
     cpu=16.0,
     memory=32768,
     timeout=60 * 60,
