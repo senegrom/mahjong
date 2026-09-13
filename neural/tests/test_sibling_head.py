@@ -1,0 +1,83 @@
+"""The head that ranks siblings learns from a recording and is measured
+the way it will be used.
+
+    python -m unittest neural.tests.test_sibling_head -v
+"""
+
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+import numpy as np
+import torch
+
+from neural import contract, searched, sibling_head
+from neural.model import MORTAL_PLANES, PolicyValueNet
+
+
+class SiblingHeadTests(unittest.TestCase):
+    def test_a_fresh_head_ranks_every_move_even(self):
+        head = sibling_head.Ranker(8)
+        scores = head(torch.randn(3, 8, 34), torch.randn(3, 8))
+        self.assertEqual(scores.shape, (3, sibling_head.ACTIONS))
+        self.assertTrue(torch.all(scores == 0), "a head that has learned nothing scores every move zero")
+
+    def test_targets_are_differences_from_the_mean_over_the_candidates(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            recording = searched.Recording()
+            from neural.observe import Planes
+
+            root = Planes(np.array([0, 1], dtype=np.int64), np.zeros(1, dtype=np.uint16), np.ones(1, dtype=np.float16))
+            recording.add(root, [(3, 1.0, [1.0, 1.0]), (7, -0.5, [-1.0, 0.0]), (9, 0.4, [0.4, 0.4])], 3, 3, 0, 0, 1)
+            recording.add(root, [(1, 0.2, [0.2]), (2, -0.2, [-0.2])], 1, 2, 0, 0, 2)
+            recording.save(folder, {"note": "test"})
+            recorded = sibling_head.Recorded(Path(folder))
+            targets = recorded.targets
+            np.testing.assert_allclose(targets[0], [1.0 - 0.3, -0.5 - 0.3, 0.4 - 0.3], rtol=1e-5, atol=1e-6)
+            np.testing.assert_allclose(targets[1][:2], [0.2, -0.2], rtol=1e-5, atol=1e-6)
+            self.assertTrue(np.isnan(targets[1][2]), "a missing candidate is no target")
+
+    def test_the_head_learns_a_recording_and_is_measured_against_the_rollouts(self):
+        previous = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            torch.manual_seed(4)
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            served = contract.serve(net)
+            recording = searched.Recording()
+            searched.play(net, 2, 4, 0, 3, 3, 0.0, pool=1, device="cpu", served=served, recording=recording)
+            self.assertGreater(len(recording), 20)
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+                recording.save(folder, {"note": "test"})
+                recorded = sibling_head.Recorded(Path(folder))
+                training, held = recorded.split()
+                self.assertGreater(len(held), 0, "some game is held out")
+                self.assertGreater(len(training), 0, "some game is trained on")
+                self.assertEqual(len(training) + len(held), len(recorded))
+                head, history = sibling_head.train(recorded, net, epochs=4, lr=3e-3, batch=32, device="cpu")
+                self.assertEqual(len(history), 4)
+                self.assertLess(
+                    history[-1]["train_loss"], history[0]["train_loss"],
+                    "the head fits the differences it is shown",
+                )
+                measured = history[-1]["held_out"]
+                for key in ("head_agrees_with_rollouts", "policy_agrees_with_rollouts",
+                            "worth_of_heads_pick", "worth_of_policys_pick", "worth_of_best"):
+                    self.assertIn(key, measured)
+                self.assertGreaterEqual(measured["worth_of_best"], measured["worth_of_policys_pick"])
+                out = Path(folder) / "head.pt"
+                sibling_head.save(head, out, {"note": "test"})
+                loaded, meta = sibling_head.load(out)
+                self.assertEqual(meta["note"], "test")
+                rows = np.arange(min(5, len(recorded)))
+                before = sibling_head.scored(head, net, recorded.roots, rows, "cpu")
+                after = sibling_head.scored(loaded, net, recorded.roots, rows, "cpu")
+                self.assertTrue(torch.allclose(before, after))
+        finally:
+            torch.set_num_threads(previous)
+
+
+if __name__ == "__main__":
+    unittest.main()
