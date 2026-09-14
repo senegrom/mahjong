@@ -1,0 +1,49 @@
+name: Runtime maintenance checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/runtime/**'
+      - 'web/scripts/*runtime_publication.py'
+      - 'web/scripts/check-model-operators.py'
+      - '.github/workflows/runtime-tools.yml'
+      - '.github/workflows/reduce-onnx-runtime.yml'
+  pull_request:
+    paths:
+      - 'web/runtime/**'
+      - 'web/scripts/*runtime_publication.py'
+      - 'web/scripts/check-model-operators.py'
+      - '.github/workflows/runtime-tools.yml'
+      - '.github/workflows/reduce-onnx-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: web/runtime/requirements-build.txt
+      - name: Replay offline Git publication regressions
+        run: python -m unittest discover -s web/scripts -p test_runtime_publication.py -v
+      - name: Install the runtime tool manifest
+        run: python -m pip install -r web/runtime/requirements-build.txt
+      - name: Verify dependency consistency and shipped model operators
+        run: |
+          python -m pip check
+          python web/scripts/check-model-operators.py
+      # No runtime rebuild, branch push, pull request creation or deployment here.
