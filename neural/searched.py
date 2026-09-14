@@ -338,7 +338,6 @@ def play(
         from .observe import Views
 
         views = Views(arena, games, {served.contract.reads})
-        contract_module.remember_follower(arena, views.observer.follower)
     else:
         views = None
     # How much of each proposal the reader's weights actually used. A
@@ -346,100 +345,103 @@ def play(
     # searching the number of worlds it was asked for.
     health = {} if health is None else health
     steps = 0
-    while not arena.all_finished() and steps < max_steps:
-        steps += 1
-        seats = np.frombuffer(arena.seats(), dtype=np.uint8)
-        if not (seats != 0xFF).any():
-            break
+    # The follower is the search's to copy leaf states from, and only
+    # while the search runs.
+    with contract_module.following(arena, None if views is None else views.observer.follower):
+        while not arena.all_finished() and steps < max_steps:
+            steps += 1
+            seats = np.frombuffer(arena.seats(), dtype=np.uint8)
+            if not (seats != 0xFF).any():
+                break
 
-        mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
-        mask = mask.reshape(games, ACTIONS).astype(bool)
-        players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, SEATS)
-        live = seats != 0xFF
-        rows = np.nonzero(live)[0]
-        deciding = players[rows, np.minimum(seats[rows], 3)].astype(np.int64)
-        if views is not None:
-            views.advance()
-            views.prepare(rows, deciding)
+            mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
+            mask = mask.reshape(games, ACTIONS).astype(bool)
+            players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, SEATS)
+            live = seats != 0xFF
+            rows = np.nonzero(live)[0]
+            deciding = players[rows, np.minimum(seats[rows], 3)].astype(np.int64)
+            if views is not None:
+                views.advance()
+                views.prepare(rows, deciding)
 
-        # The root as this network reads it, through the same contract as
-        # the leaves below: its order over our moves, with a reach's second
-        # question asked wherever one is legal (`contract.root_order`).
-        order, logits, _value, guessed = contract_module.root_order(
-            served, arena, views, rows, deciding, mask, device
-        )
-        belief = np.zeros((games, HANDS), dtype=np.float32)
-        belief[rows] = torch.softmax(guessed.float(), dim=2).reshape(len(rows), HANDS).cpu().numpy()
-        # How sure the policy is of its first move: the probability it put
-        # on it, in whichever moves it answers in.
-        top = np.ones(games, dtype=np.float32)
-        top[rows] = np.nan_to_num(
-            torch.softmax(logits.float(), dim=1).max(dim=1).values.cpu().numpy(), nan=1.0
-        )
-
-        if searcher is None:
-            choice = order[:, 0].tolist()
-        else:
-            # Only the searching player's own turns are searched, and only
-            # those where the policy hesitates and has a choice; the others
-            # take the network's first move, which is what `ranked` gives
-            # back when a game is not theirs to think about. A single
-            # candidate costs no worlds (`search_with_value_head`), and the
-            # candidates are the legal head of the order: the order's tail
-            # names every move so a caller may read only its head.
-            ranked = []
-            for game in range(games):
-                seat = int(seats[game])
-                own = seat != 0xFF and int(players[game][seat]) == searcher
-                thinking = own and top[game] < sure
-                if own:
-                    health["own"] = health.get("own", 0) + 1
-                    if not thinking:
-                        health["sure"] = health.get("sure", 0) + 1
-                if thinking:
-                    first = order[game][:candidates]
-                    first = first[mask[game][first]]
-                else:
-                    first = order[game][:1]
-                ranked.append([int(index) for index in first] or [int(order[game][0])])
-            choice = search_with_value_head(
-                net,
-                arena,
-                ranked,
-                belief.reshape(-1).tolist(),
-                worlds=worlds,
-                candidates=candidates,
-                margin=margin,
-                hurried=hurried,
-                device=device,
-                pool=pool,
-                played_by=played_by,
-                depth=depth,
-                temperature=temperature,
-                valued_by=valued_by,
-                health=health,
-                served=served,
-                leaf_batch=leaf_batch,
+            # The root as this network reads it, through the same contract as
+            # the leaves below: its order over our moves, with a reach's second
+            # question asked wherever one is legal (`contract.root_order`).
+            order, logits, _value, guessed = contract_module.root_order(
+                served, arena, views, rows, deciding, mask, device
             )
-            if recording is not None:
-                if views is None:
-                    raise UnsupportedSearchLayout(
-                        "a recording keeps the root as sparse Mortal planes; this network "
-                        "reads the engine's, which nothing here records"
-                    )
-                judgements = arena.judgements()
-                for at, game in enumerate(rows):
-                    judged = judgements[game]
-                    if len(judged) < 2:
-                        continue
-                    root, _own = views.sparse_and_masks(rows[at : at + 1], deciding[at : at + 1])
-                    recording.add(
-                        root, judged, int(order[game][0]), int(choice[game]),
-                        int(searcher), int(game), steps, sure=float(top[game]),
-                        legal=mask[game],
-                    )
-                recording.checkpoint()
-        arena.step(list(choice))
+            belief = np.zeros((games, HANDS), dtype=np.float32)
+            belief[rows] = torch.softmax(guessed.float(), dim=2).reshape(len(rows), HANDS).cpu().numpy()
+            # How sure the policy is of its first move: the probability it put
+            # on it, in whichever moves it answers in.
+            top = np.ones(games, dtype=np.float32)
+            top[rows] = np.nan_to_num(
+                torch.softmax(logits.float(), dim=1).max(dim=1).values.cpu().numpy(), nan=1.0
+            )
+
+            if searcher is None:
+                choice = order[:, 0].tolist()
+            else:
+                # Only the searching player's own turns are searched, and only
+                # those where the policy hesitates and has a choice; the others
+                # take the network's first move, which is what `ranked` gives
+                # back when a game is not theirs to think about. A single
+                # candidate costs no worlds (`search_with_value_head`), and the
+                # candidates are the legal head of the order: the order's tail
+                # names every move so a caller may read only its head.
+                ranked = []
+                for game in range(games):
+                    seat = int(seats[game])
+                    own = seat != 0xFF and int(players[game][seat]) == searcher
+                    thinking = own and top[game] < sure
+                    if own:
+                        health["own"] = health.get("own", 0) + 1
+                        if not thinking:
+                            health["sure"] = health.get("sure", 0) + 1
+                    if thinking:
+                        first = order[game][:candidates]
+                        first = first[mask[game][first]]
+                    else:
+                        first = order[game][:1]
+                    ranked.append([int(index) for index in first] or [int(order[game][0])])
+                choice = search_with_value_head(
+                    net,
+                    arena,
+                    ranked,
+                    belief.reshape(-1).tolist(),
+                    worlds=worlds,
+                    candidates=candidates,
+                    margin=margin,
+                    hurried=hurried,
+                    device=device,
+                    pool=pool,
+                    played_by=played_by,
+                    depth=depth,
+                    temperature=temperature,
+                    valued_by=valued_by,
+                    health=health,
+                    served=served,
+                    leaf_batch=leaf_batch,
+                )
+                if recording is not None:
+                    if views is None:
+                        raise UnsupportedSearchLayout(
+                            "a recording keeps the root as sparse Mortal planes; this network "
+                            "reads the engine's, which nothing here records"
+                        )
+                    judgements = arena.judgements()
+                    for at, game in enumerate(rows):
+                        judged = judgements[game]
+                        if len(judged) < 2:
+                            continue
+                        root, _own = views.sparse_and_masks(rows[at : at + 1], deciding[at : at + 1])
+                        recording.add(
+                            root, judged, int(order[game][0]), int(choice[game]),
+                            int(searcher), int(game), steps, sure=float(top[game]),
+                            legal=mask[game],
+                        )
+                    recording.checkpoint()
+            arena.step(list(choice))
 
     require_finished(arena, steps=steps, context="search evaluation")
     scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()

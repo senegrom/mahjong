@@ -201,9 +201,9 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
         require_finished(arena, steps=steps, context="search training collection")
         returns = account.close(arena)
     finally:
-        # contract currently retains followers in an id-keyed registry. Do not
-        # retain an entire completed/failed collection in that temporary cache.
-        contract._FOLLOWERS.pop(id(arena), None)
+        # The follower is remembered by the arena; forgotten, a finished or
+        # failed collection is not held for good.
+        contract.forget_follower(arena)
     if not len(returns):
         raise ValueError("Search collection produced no decisions")
     observations = Planes.cat(blocks)

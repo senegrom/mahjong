@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import contextlib
+
 import numpy as np
 import torch
 
@@ -541,23 +543,47 @@ def root_order(served, arena, views, rows, deciding, mask, device):
     return order, logits, value, guessed
 
 
-#: Where the follower lives on a `Views`. Set by `serve`, because the
-#: server needs it and the arena does not carry one.
-_FOLLOWERS: dict[int, object] = {}
+#: Where the follower lives on a `Views`, by the arena it follows. Set by
+#: the search, because the server needs it and the arena does not carry
+#: one. The arena is kept beside its follower so that its identity cannot
+#: pass to another arena while the entry stands, and whoever remembers a
+#: follower forgets it when the search is over (`following`).
+_FOLLOWERS: dict[int, tuple[object, object]] = {}
 
 
 def remember_follower(arena, follower) -> None:
-    _FOLLOWERS[id(arena)] = follower
+    _FOLLOWERS[id(arena)] = (arena, follower)
+
+
+def forget_follower(arena) -> None:
+    entry = _FOLLOWERS.get(id(arena))
+    if entry is not None and entry[0] is arena:
+        del _FOLLOWERS[id(arena)]
+
+
+@contextlib.contextmanager
+def following(arena, follower):
+    """The follower remembered for the arena while a search runs and
+    forgotten after, whatever happens: an entry left behind would hold a
+    finished arena and its follower for good."""
+    if follower is None:
+        yield
+        return
+    remember_follower(arena, follower)
+    try:
+        yield
+    finally:
+        forget_follower(arena)
 
 
 def arena_follower(arena):
-    follower = _FOLLOWERS.get(id(arena))
-    if follower is None:
+    entry = _FOLLOWERS.get(id(arena))
+    if entry is None or entry[0] is not arena:
         raise RuntimeError(
             "this search has no follower to copy a seat's state from; call "
             "contract.remember_follower(arena, views.observer.follower) first"
         )
-    return follower
+    return entry[1]
 
 
 def placement_value(served, planes):

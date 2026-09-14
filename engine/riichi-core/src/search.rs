@@ -823,7 +823,12 @@ fn play_to_leaf(
                 let mut rng = Rng::from_seed(continuation_seed ^ 0x9e37_79b9);
                 *world = table.deal(&mut rng);
                 let next = table.seating();
-                seating = [seating[next[0]], seating[next[1]], seating[next[2]], seating[next[3]]];
+                seating = [
+                    seating[next[0]],
+                    seating[next[1]],
+                    seating[next[2]],
+                    seating[next[3]],
+                ];
                 seat = table.seat_of(player);
                 from = 0;
             }
@@ -925,7 +930,14 @@ pub fn leaves_from(
         if trial.act(candidates[candidate]).is_err() {
             return Sprout::valueless(0.0, false, seat);
         }
-        match play_to_leaf(&mut trial, seat, style, world as u64 * 977 + 13, from, effort.boundary) {
+        match play_to_leaf(
+            &mut trial,
+            seat,
+            style,
+            world as u64 * 977 + 13,
+            from,
+            effort.boundary,
+        ) {
             Leaf::Position {
                 seat: viewpoint,
                 settled,
@@ -2161,16 +2173,30 @@ mod tests {
                         matches!(slot.world.phase, Phase::Act) && slot.world.turn == slot.seat,
                         "the leaf is the searching player's own decision"
                     );
-                    assert!(!got.carried[index].is_empty(), "the ended hand's tail is carried");
-                    assert!(!got.invented[index].is_empty(), "the new hand is what the world invented");
+                    assert!(
+                        !got.carried[index].is_empty(),
+                        "the ended hand's tail is carried"
+                    );
+                    assert!(
+                        !got.invented[index].is_empty(),
+                        "the new hand is what the world invented"
+                    );
                     let banked = root_rewards[index].expect("the root hand ended");
-                    assert!((got.settled[index] - banked).abs() < 1e-9, "only the root hand is banked");
+                    assert!(
+                        (got.settled[index] - banked).abs() < 1e-9,
+                        "only the root hand is banked"
+                    );
                 }
-                SlotState::Settled => assert!(!got.wanted[index], "a finished match has its placement"),
+                SlotState::Settled => {
+                    assert!(!got.wanted[index], "a finished match has its placement")
+                }
                 other => panic!("a boundary slot ends as a leaf or settled, not {other:?}"),
             }
         }
-        assert!(leaves > 0, "some world reached the next hand's first decision");
+        assert!(
+            leaves > 0,
+            "some world reached the next hand's first decision"
+        );
     }
 
     #[test]
@@ -2426,14 +2452,29 @@ mod tests {
             _ => panic!("without the boundary the world plays on to its placement"),
         }
         match play_to_leaf(&mut world, seat, Style::rollout(), 77, 0, true) {
-            Leaf::Position { seat: viewpoint, settled, dealt, carried, from, .. } => {
+            Leaf::Position {
+                seat: viewpoint,
+                settled,
+                dealt,
+                carried,
+                from,
+                ..
+            } => {
                 assert!(dealt >= 1, "the leaf lies past the boundary");
-                assert!((settled - banked).abs() < 1e-9, "only the root hand is banked");
-                assert!(!carried.is_empty(), "the ended hand is carried for a reader of the seat");
+                assert!(
+                    (settled - banked).abs() < 1e-9,
+                    "only the root hand is banked"
+                );
+                assert!(
+                    !carried.is_empty(),
+                    "the ended hand is carried for a reader of the seat"
+                );
                 assert_eq!(from, 0, "a hand the world dealt itself is invented whole");
                 assert!(matches!(world.phase, Phase::Act) && world.turn == viewpoint);
             }
-            _ => panic!("the boundary leaf is the searching player's first decision of the next hand"),
+            _ => panic!(
+                "the boundary leaf is the searching player's first decision of the next hand"
+            ),
         }
     }
 

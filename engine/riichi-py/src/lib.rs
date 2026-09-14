@@ -701,6 +701,7 @@ impl Arena {
     /// searching player's first decision of the hand after it, for a
     /// placement-only head to judge with the root hand's result banked.
     #[pyo3(signature = (ranked, kept, weights, candidates=4, hurried=true, boundary=false))]
+    #[allow(clippy::too_many_arguments)]
     fn leaves_from<'py>(
         &mut self,
         py: Python<'py>,
@@ -797,6 +798,7 @@ impl Arena {
     /// the hand after the root hand, which is played out and banked first
     /// (`until_hand_ends` is implied), for a placement-only head to judge.
     #[pyo3(signature = (ranked, kept, weights, candidates=4, depth=0, until_hand_ends=false, boundary=false))]
+    #[allow(clippy::too_many_arguments)]
     fn lookahead_begin(
         &mut self,
         ranked: Vec<Vec<usize>>,

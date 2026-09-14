@@ -360,7 +360,8 @@ class CollectorContract(unittest.TestCase):
         modules = {
             "riichi_py": module("riichi_py", Arena=Arena, HANDS=102),
             "neural.contract": module("neural.contract", serve=Served, root_order=root_order,
-                                     remember_follower=remember, _FOLLOWERS=registry),
+                                     remember_follower=remember, _FOLLOWERS=registry,
+                                     forget_follower=lambda arena: registry.pop(id(arena), None)),
             "neural.ledger": module("neural.ledger", Ledger=Ledger, REWARD_VERSION=1, HAND_SCALE=1 / 4000),
             "neural.searched": module("neural.searched", search_with_value_head=search),
             "neural.observe": module("neural.observe", Planes=Sparse, Views=Views),
