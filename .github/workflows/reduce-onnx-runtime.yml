@@ -1,21 +1,15 @@
 name: reduced ONNX runtime
 
-# Builds the browser's ONNX Runtime with only the operators our networks
-# need, and commits the result. Run it after widening
-# web/runtime/reduced-ops.config, which is kept by hand so that adding an
-# operator and shipping the network that needs it can happen in either order.
-#
-# The loader beside the binary carries three edits of ours that bound the
-# heap for phones, so this build refuses to overwrite it blindly: it
-# compares what the build emits against the unpatched loader kept as
-# ort-wasm-simd-threaded.stock.mjs and stops if they differ, leaving both
-# for someone to re-apply the edits knowingly.
-
+# Rebuild the browser runtime from the reviewed operator list on main.
+# The loader patcher must recognize its memory-bounding edits. A tested
+# candidate is proposed by PR; this workflow never rebases or pushes main.
+# Approve the PR's checks when GitHub requests approval, and merge only
+# after they pass. Do not bypass review or enable automatic merging here.
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: reduced-onnx-runtime
@@ -23,39 +17,47 @@ concurrency:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install tracked runtime build tools in an isolated environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/runtime-venv"
+          "$RUNNER_TEMP/runtime-venv/bin/python" -m pip install -r web/runtime/requirements-build.txt
+          "$RUNNER_TEMP/runtime-venv/bin/python" -m pip check
+          echo "$RUNNER_TEMP/runtime-venv/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Install the locked web dependencies
+        run: npm ci --prefix web
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-
       - name: Check every shipped model against the operator list
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python3 -m pip install --user onnx
-          python3 web/scripts/check-model-operators.py
-
+        run: python3 web/scripts/check-model-operators.py
       - name: Build the runtime from that operator list
         shell: bash
         run: |
           set -euxo pipefail
-          python3 -m pip install --user ninja onnx flatbuffers
           ORT="$RUNNER_TEMP/onnxruntime"
           git clone --depth 1 --branch v1.29.0 --recurse-submodules --shallow-submodules https://github.com/microsoft/onnxruntime.git "$ORT"
-          echo 'Building for these operators:'
           cat web/runtime/reduced-ops.config
           "$ORT/build.sh" \
             --config MinSizeRel \
@@ -73,34 +75,28 @@ jobs:
             --include_ops_by_config "$GITHUB_WORKSPACE/web/runtime/reduced-ops.config" \
             --parallel \
             --skip_submodule_sync
-          wasm=$(find "$ORT/build" -type f -name 'ort-wasm-simd-threaded.wasm' | head -n1)
-          loader=$(find "$ORT/build" -type f -name 'ort-wasm-simd-threaded.mjs' | head -n1)
+          wasm=$(find "$ORT/build" -type f -name 'ort-wasm-simd-threaded.wasm' -print -quit)
+          loader=$(find "$ORT/build" -type f -name 'ort-wasm-simd-threaded.mjs' -print -quit)
           test -n "$wasm" && test -f "$wasm"
           test -n "$loader" && test -f "$loader"
           cp "$wasm" "$RUNNER_TEMP/built.wasm"
           cp "$loader" "$RUNNER_TEMP/built.mjs"
-
-      - name: Take the binary, and bound the loader's memory again
+      - name: Take the binary and restore the loader memory bounds
         shell: bash
         run: |
           set -euxo pipefail
           cp "$RUNNER_TEMP/built.wasm" web/runtime/ort-wasm-simd-threaded.wasm
-          # The loader we ship is the emitted one with three edits that bound
-          # the heap, without which phones refuse the reservation and the tab
-          # dies. The script makes them again by pattern and stops if the
-          # loader has changed shape, so a rebuild cannot quietly drop them.
           cp "$RUNNER_TEMP/built.mjs" "$RUNNER_TEMP/loader-emitted.mjs"
           diff -u web/runtime/ort-wasm-simd-threaded.stock.mjs "$RUNNER_TEMP/built.mjs" > "$RUNNER_TEMP/loader.diff" || true
           cp "$RUNNER_TEMP/built.mjs" web/runtime/ort-wasm-simd-threaded.stock.mjs
           python3 web/scripts/patch-ort-loader.py \
             web/runtime/ort-wasm-simd-threaded.stock.mjs \
             web/runtime/ort-wasm-simd-threaded.mjs
-          generic=$(stat -c %s web/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm 2>/dev/null || echo 0)
+          generic=$(stat -c %s web/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm)
           reduced=$(stat -c %s web/runtime/ort-wasm-simd-threaded.wasm)
           echo "reduced_bytes=$reduced" | tee /tmp/runtime-size.txt
           echo "generic_bytes=$generic" | tee -a /tmp/runtime-size.txt
-
-      - name: Build and run every web regression
+      - name: Build the web app
         shell: bash
         run: |
           set -euxo pipefail
@@ -108,41 +104,60 @@ jobs:
             cargo install wasm-pack --version 0.15.0 --locked
           fi
           cd web
-          npm ci
           npm run wasm
           npm run build
+      - name: Record the exact tree that will be tested
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: python3 web/scripts/runtime_publication.py snapshot /tmp/runtime-receipt.json --expected-head "$SOURCE_SHA"
+      - name: Run every web regression
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd web
           npm run test:unit 2>&1 | tee /tmp/runtime-unit.txt
           npm run test:browser 2>&1 | tee /tmp/runtime-browser.txt
-
-      - name: Commit the tested build to main
+      - name: Propose the unchanged tested tree by pull request
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
-          set -euxo pipefail
-          git add web/runtime
+          set -euo pipefail
+          python3 web/scripts/runtime_publication.py verify /tmp/runtime-receipt.json --expected-head "$SOURCE_SHA"
           if git diff --cached --quiet; then
-            echo 'nothing changed'
+            echo 'No runtime changes to propose.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-            commit -m 'Rebuild the browser runtime with the wider operator list'
-          git fetch origin main
-          git rebase origin/main
-          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:main
+          tested_tree=$(git write-tree)
+          git -c core.hooksPath=/dev/null -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'Rebuild the tested reduced browser runtime'
+          test "$(git rev-parse 'HEAD^{tree}')" = "$tested_tree"
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          git diff --quiet
+          branch="automation/reduced-runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+            push origin "HEAD:refs/heads/$branch"
           git rev-parse HEAD | tee /tmp/runtime-commit.txt
-
+          printf 'Runtime rebuilt and web regressions passed on source `%s`, tree `%s`.\n\nNo rebase or main-branch push occurred. Approve workflows if GitHub requests it and merge only after the PR checks pass. Evidence: %s/%s/actions/runs/%s\n' \
+            "$SOURCE_SHA" "$tested_tree" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/runtime-pr.md"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+            --title 'Rebuild the tested reduced browser runtime' --body-file "$RUNNER_TEMP/runtime-pr.md" \
+            | tee /tmp/runtime-pr.txt
+          cat /tmp/runtime-pr.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: reduced-onnx-runtime
+          name: reduced-onnx-runtime-${{ github.run_attempt }}
           path: |
             /tmp/runtime-size.txt
             /tmp/runtime-unit.txt
             /tmp/runtime-browser.txt
+            /tmp/runtime-receipt.json
             /tmp/runtime-commit.txt
+            /tmp/runtime-pr.txt
             ${{ runner.temp }}/loader-emitted.mjs
             ${{ runner.temp }}/loader.diff
             web/runtime/reduced-ops.config

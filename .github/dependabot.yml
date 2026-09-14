@@ -54,3 +54,13 @@ updates:
       actions:
         applies-to: version-updates
         patterns: ['*']
+  - package-ecosystem: pip
+    directory: /web/runtime
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      runtime-tools-minor-patch:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: [minor, patch]
