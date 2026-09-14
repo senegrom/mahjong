@@ -157,6 +157,15 @@ def search_with_value_head(
     require_search_engine()
     if type(leaf_batch) is not int or leaf_batch <= 0:
         raise ValueError("leaf_batch must be a positive integer")
+    # A placement-only head judges where the standings lead from the hand
+    # after the root hand, so the root hand is played out and banked first
+    # and the leaf is the first decision of the next (`Effort::boundary`).
+    boundary = valued_by == "placement"
+    if boundary and played_by == "network" and depth >= 0:
+        raise ValueError(
+            "a placement-only head judges the hand after the root hand, so the search must "
+            "play the root hand out first: use --depth -1 with --valued-by placement"
+        )
     if played_by == "network" and served.contract.reads != "mortal":
         require_native_search(net)
     games = len(ranked)
@@ -221,7 +230,7 @@ def search_with_value_head(
         # adding later hands' score changes to this decision's reward.
         arena.lookahead_begin(
             ranked, kept, weights, candidates=candidates, depth=max(depth, 0),
-            until_hand_ends=depth < 0,
+            until_hand_ends=depth < 0, boundary=boundary,
         )
         # The seats inside the lookahead are moved by the network on the
         # planes it reads: the engine's own, or Mortal's through copies
@@ -233,7 +242,7 @@ def search_with_value_head(
         planes_bytes, counts, _settled, _wanted = arena.lookahead_leaves()
     else:
         planes_bytes, counts, _settled, _wanted = arena.leaves_from(
-            ranked, kept, weights, candidates=candidates, hurried=hurried
+            ranked, kept, weights, candidates=candidates, hurried=hurried, boundary=boundary,
         )
     total = sum(counts)
     if total == 0:
@@ -599,17 +608,27 @@ def main() -> None:
         help="with the network moving the other seats, how many of the "
         "searching player's own turns it plays before the position is "
         "valued; zero values the next one in this hand. Below zero bypasses "
-        "the critic. Any crossed-hand world plays on to terminal placement",
+        "the critic. Any crossed-hand world plays on to terminal placement, "
+        "unless a placement head judges the boundary (--valued-by placement)",
     )
     parser.add_argument(
         "--valued-by",
-        choices=("critic", "public", "mean"),
+        choices=("critic", "public", "mean", "placement"),
         default="critic",
         help="which head judges the leaves: the critic with a tower of its "
         "own, the public head on the policy tower's pooled features, or "
         "their mean. Every generation measures all three on a fresh round "
         "before updating them, under public_error, oracle_error and "
-        "critic_error in the training log",
+        "critic_error in the training log. `placement` is a placement-only head "
+        "(--placement-head) on the policy tower's features, asked at the first "
+        "decision of the hand after the root hand, which is played out first",
+    )
+    parser.add_argument(
+        "--placement-head",
+        type=Path,
+        default=None,
+        help="a head written by neural.placement, fitted to this checkpoint's features; "
+        "what --valued-by placement judges the leaves with",
     )
     parser.add_argument(
         "--temperature",
@@ -678,7 +697,15 @@ def _run(args, checkpoint: Path, generation: int | None) -> None:
     # continuation alike; a network nothing here can serve is refused by
     # name rather than approximated with another's planes.
     net = zoo.load_player(checkpoint, args.device, args.channels, args.blocks)
-    served = contract_module.serve(net, str(args.checkpoint))
+    placement_head = head_meta = None
+    if args.valued_by == "placement":
+        if args.placement_head is None:
+            raise ValueError("--valued-by placement needs --placement-head")
+        from . import placement as placement_module
+
+        placement_head, head_meta = placement_module.load(args.placement_head, args.device)
+        placement_module.require_head_for(head_meta, contract_module.unwrap(net))
+    served = contract_module.serve(net, str(args.checkpoint), placement_head=placement_head)
     print(json.dumps({"contract": served.contract.describe()}), flush=True)
 
     per_chair = []
@@ -705,6 +732,10 @@ def _run(args, checkpoint: Path, generation: int | None) -> None:
         "played_by": args.played_by,
         "depth": args.depth,
         "valued_by": args.valued_by,
+        "placement_head": None if head_meta is None else {
+            "path": str(args.placement_head), "features": head_meta.get("features"),
+            "held_out": (head_meta.get("history") or [{}])[-1].get("held_out"),
+        },
         "sure": args.sure,
         "chairs": chairs,
     }

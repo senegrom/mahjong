@@ -115,6 +115,14 @@ pub struct Effort {
     /// losing anything is a question for the duel, so this is off until
     /// that has been measured.
     pub hurried: bool,
+    /// Whether the leaf is the searching player's first decision of the
+    /// hand after the one the search began in, rather than a position in
+    /// this hand. The root hand is then played to its end and its result
+    /// banked, so what a value head is asked at the leaf is only where the
+    /// standings lead: the question a placement-only head answers. Off, a
+    /// world that crosses the boundary plays on to the end of the match
+    /// and settles its placement without asking any head.
+    pub boundary: bool,
 }
 
 impl Effort {
@@ -126,6 +134,7 @@ impl Effort {
             turns: None,
             margin: 2.0,
             hurried: false,
+            boundary: false,
         }
     }
 
@@ -137,6 +146,7 @@ impl Effort {
             turns: None,
             margin: 2.0,
             hurried: false,
+            boundary: false,
         }
     }
 }
@@ -753,19 +763,38 @@ fn placement_value(table: &Table, player: usize) -> f64 {
 /// Once the root hand ends, finish the game with the rollout policy and add
 /// only terminal placement. An existing hybrid-return checkpoint cannot
 /// supply a placement-only continuation at a later hand's first decision.
-fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64, from: usize) -> Leaf {
+/// With `boundary`, the root hand is played to its end by the rollout policy
+/// and the leaf is the searching player's first decision of a later hand,
+/// with the ended hands' events carried for a reader of the seat's state;
+/// see [`Effort::boundary`].
+fn play_to_leaf(
+    world: &mut Hand,
+    seat: Wind,
+    style: Style,
+    seed: u64,
+    from: usize,
+    boundary: bool,
+) -> Leaf {
     let mut settled = 0.0;
     let mut seat = seat;
+    let mut from = from;
+    let mut carried: Vec<(mjai::Event, [usize; 4])> = Vec::new();
+    let mut seating: [usize; 4] = [0, 1, 2, 3];
     for dealt in 0..512u64 {
         let continuation_seed = seed.wrapping_add(dealt * 4);
-        match advance_to_decision(world, seat, style, continuation_seed, dealt == 0) {
+        // The searching player's own decisions stop the world in the root
+        // hand, or, past the boundary, in any hand after it. The loop past
+        // the boundary is for a hand that ends before the player's first
+        // turn in it, which happens once in a long while.
+        let stops = if boundary { dealt > 0 } else { dealt == 0 };
+        match advance_to_decision(world, seat, style, continuation_seed, stops) {
             Advance::Decision => {
                 return Leaf::Position {
                     seat,
                     settled,
-                    dealt: 0,
-                    carried: Vec::new(),
-                    seating: [0, 1, 2, 3],
+                    dealt: dealt as usize,
+                    carried,
+                    seating,
                     from,
                 };
             }
@@ -780,9 +809,23 @@ fn play_to_leaf(world: &mut Hand, seat: Wind, style: Style, seed: u64, from: usi
                 if table.finished {
                     return Leaf::Settled(settled + placement_value(&table, player));
                 }
+                if boundary {
+                    // What the hand did after the cursor, kept before its
+                    // log goes: a reader of the seat's state has to be told
+                    // how this hand ended before it can be told the next
+                    // began.
+                    carried.extend(
+                        world.log[from.min(world.log.len())..]
+                            .iter()
+                            .map(|event| (event.clone(), seating)),
+                    );
+                }
                 let mut rng = Rng::from_seed(continuation_seed ^ 0x9e37_79b9);
                 *world = table.deal(&mut rng);
+                let next = table.seating();
+                seating = [seating[next[0]], seating[next[1]], seating[next[2]], seating[next[3]]];
                 seat = table.seat_of(player);
+                from = 0;
             }
         }
     }
@@ -882,7 +925,7 @@ pub fn leaves_from(
         if trial.act(candidates[candidate]).is_err() {
             return Sprout::valueless(0.0, false, seat);
         }
-        match play_to_leaf(&mut trial, seat, style, world as u64 * 977 + 13, from) {
+        match play_to_leaf(&mut trial, seat, style, world as u64 * 977 + 13, from, effort.boundary) {
             Leaf::Position {
                 seat: viewpoint,
                 settled,
@@ -1169,6 +1212,9 @@ struct Slot {
     /// the root hand's score change is banked in `settled`; later hands
     /// are played for placement, not added as extra hand rewards.
     until_hand_ends: bool,
+    /// See [`Effort::boundary`]: once the root hand has ended, the
+    /// searching player's first decision of a later hand is the leaf.
+    boundary: bool,
     /// Seats still to answer the claim on the table, in order, and the
     /// answers so far, as the arena keeps them.
     asking: VecDeque<Wind>,
@@ -1239,8 +1285,8 @@ impl Slot {
                 Phase::Act => {
                     if self.world.turn == self.seat
                         && self.depth == 0
-                        && self.dealt == 0
-                        && !self.until_hand_ends
+                        && ((self.dealt == 0 && !self.until_hand_ends)
+                            || (self.dealt > 0 && self.boundary))
                     {
                         self.state = SlotState::Leaf;
                     }
@@ -1318,8 +1364,11 @@ impl Slot {
         self.seat = table.seat_of(player);
         self.logged = 0;
         self.exported = 0;
-        // No hybrid critic is consulted after this boundary. Finish the
-        // match under the rollout policy to obtain placement alone.
+        // No hybrid critic is consulted after this boundary. Either the
+        // match is finished under the rollout policy to obtain placement
+        // alone, or, when the boundary is the leaf, the searching player's
+        // first decision of this hand is handed back for a placement-only
+        // head to judge, the root hand's result already banked.
     }
 
     /// What the slot's world invented since this was last asked: the
@@ -1428,6 +1477,7 @@ impl Lookahead {
         weights: &[f64],
         depth: usize,
         until_hand_ends: bool,
+        boundary: bool,
     ) -> Lookahead {
         assert!(!candidates.is_empty(), "there is always something to do");
         assert_eq!(worlds.len(), weights.len(), "one weight per world");
@@ -1453,6 +1503,7 @@ impl Lookahead {
                     settled: 0.0,
                     depth,
                     until_hand_ends,
+                    boundary,
                     asking: VecDeque::new(),
                     answers: Vec::new(),
                     dealt: 0,
@@ -1803,6 +1854,7 @@ mod tests {
             turns: None,
             margin: 2.0,
             hurried: true,
+            boundary: false,
         };
 
         let mut rng = Rng::from_seed(9);
@@ -1892,6 +1944,7 @@ mod tests {
             turns: None,
             margin: 2.0,
             hurried: true,
+            boundary: false,
         };
         let mut rng = Rng::from_seed(5);
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 4);
@@ -1967,7 +2020,7 @@ mod tests {
         let mut rng = Rng::from_seed(9);
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
         let weights = vec![1.0; 3];
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 1, false);
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 1, false, false);
         let slots = lookahead.slots();
         let mut streamed: Vec<Vec<(mjai::Event, [usize; 4])>> = vec![Vec::new(); slots];
         let mut passes = 0;
@@ -2031,7 +2084,7 @@ mod tests {
         let seat = hand.turn;
         let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 2);
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &[1.0; 2], 0, true);
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &[1.0; 2], 0, true, false);
         let mut root_rewards = vec![None; lookahead.slots()];
         for _ in 0..8000 {
             if lookahead.finished() {
@@ -2073,6 +2126,54 @@ mod tests {
     }
 
     #[test]
+    fn a_boundary_lookahead_hands_back_the_first_decision_of_the_next_hand() {
+        let mut rng = Rng::from_seed(2026);
+        let hand = Table::new().deal(&mut rng);
+        let seat = hand.turn;
+        let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
+        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 2);
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &[1.0; 2], 0, true, true);
+        let mut root_rewards = vec![None; lookahead.slots()];
+        for _ in 0..8000 {
+            if lookahead.finished() {
+                break;
+            }
+            let mut observations = Vec::new();
+            let mut masks = Vec::new();
+            lookahead.observe_into(&mut observations, &mut masks);
+            lookahead.apply(&first_legal(&masks)).unwrap();
+            for (slot, root_reward) in lookahead.slots.iter().zip(&mut root_rewards) {
+                if slot.dealt > 0 && root_reward.is_none() {
+                    *root_reward = Some(slot.settled);
+                }
+            }
+        }
+        lookahead.validate_finished().unwrap();
+        let got = lookahead.leaves();
+        let mut leaves = 0;
+        for (index, slot) in lookahead.slots.iter().enumerate() {
+            match slot.state {
+                SlotState::Leaf => {
+                    leaves += 1;
+                    assert!(slot.dealt >= 1, "the root hand was played to its end first");
+                    assert!(got.wanted[index], "the boundary leaf wants a value");
+                    assert!(
+                        matches!(slot.world.phase, Phase::Act) && slot.world.turn == slot.seat,
+                        "the leaf is the searching player's own decision"
+                    );
+                    assert!(!got.carried[index].is_empty(), "the ended hand's tail is carried");
+                    assert!(!got.invented[index].is_empty(), "the new hand is what the world invented");
+                    let banked = root_rewards[index].expect("the root hand ended");
+                    assert!((got.settled[index] - banked).abs() < 1e-9, "only the root hand is banked");
+                }
+                SlotState::Settled => assert!(!got.wanted[index], "a finished match has its placement"),
+                other => panic!("a boundary slot ends as a leaf or settled, not {other:?}"),
+            }
+        }
+        assert!(leaves > 0, "some world reached the next hand's first decision");
+    }
+
+    #[test]
     fn invalid_lookahead_batches_leave_every_world_and_cursor_unchanged() {
         let mut rng = Rng::from_seed(2026);
         let hand = Table::new().deal(&mut rng);
@@ -2083,6 +2184,7 @@ mod tests {
             std::slice::from_ref(&hand),
             &[1.0],
             1,
+            false,
             false,
         );
         let mut observations = Vec::new();
@@ -2119,7 +2221,7 @@ mod tests {
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 5);
         let weights = vec![0.1, 0.2, 0.3, 0.2, 0.2];
 
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false);
+        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false, false);
         let passes = drive(&mut lookahead);
         assert!(
             passes >= 3,
@@ -2181,9 +2283,9 @@ mod tests {
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 4);
         let weights = vec![1.0; 4];
 
-        let mut shallow = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false);
+        let mut shallow = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false, false);
         let near_passes = drive(&mut shallow);
-        let mut deep = Lookahead::begin(seat, &candidates, &worlds, &weights, 1, false);
+        let mut deep = Lookahead::begin(seat, &candidates, &worlds, &weights, 1, false, false);
         let far_passes = drive(&mut deep);
         assert!(
             far_passes > near_passes,
@@ -2224,7 +2326,7 @@ mod tests {
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
         let weights = vec![1.0; 3];
 
-        let lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false);
+        let lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false, false);
         assert!(!lookahead.finished(), "the next player has a turn to take");
         let got = lookahead.leaves();
         assert!(
@@ -2302,11 +2404,36 @@ mod tests {
         run_out(&mut world, 5);
         let (expected, boundaries) = terminal_target(world.clone(), seat, 77);
         assert!(boundaries >= 2);
-        match play_to_leaf(&mut world, seat, Style::rollout(), 77, 0) {
+        match play_to_leaf(&mut world, seat, Style::rollout(), 77, 0, false) {
             Leaf::Settled(worth) => assert!((worth - expected).abs() < 1e-9),
             _ => panic!(
                 "a crossed-hand world must finish instead of consulting another hybrid value"
             ),
+        }
+    }
+
+    #[test]
+    fn a_boundary_club_leaf_is_the_first_decision_of_the_next_hand() {
+        let mut rng = Rng::from_seed(11);
+        let mut world = Table::new().deal(&mut rng);
+        let seat = Wind::South;
+        run_out(&mut world, 5);
+        let banked = (world.players[seat.index()].score - world.opening[seat.index()]) as f64
+            / POINTS_PER_UNIT as f64;
+        let mut finished = world.clone();
+        match play_to_leaf(&mut finished, seat, Style::rollout(), 77, 0, false) {
+            Leaf::Settled(_) => {}
+            _ => panic!("without the boundary the world plays on to its placement"),
+        }
+        match play_to_leaf(&mut world, seat, Style::rollout(), 77, 0, true) {
+            Leaf::Position { seat: viewpoint, settled, dealt, carried, from, .. } => {
+                assert!(dealt >= 1, "the leaf lies past the boundary");
+                assert!((settled - banked).abs() < 1e-9, "only the root hand is banked");
+                assert!(!carried.is_empty(), "the ended hand is carried for a reader of the seat");
+                assert_eq!(from, 0, "a hand the world dealt itself is invented whole");
+                assert!(matches!(world.phase, Phase::Act) && world.turn == viewpoint);
+            }
+            _ => panic!("the boundary leaf is the searching player's first decision of the next hand"),
         }
     }
 
@@ -2324,7 +2451,7 @@ mod tests {
             let (expected, repeats) = terminal_target(world.clone(), seat, seed);
             final_seen |= repeats == 0;
             repeat_seen |= repeats > 0;
-            match play_to_leaf(&mut world, seat, Style::rollout(), seed, 0) {
+            match play_to_leaf(&mut world, seat, Style::rollout(), seed, 0, false) {
                 Leaf::Settled(worth) => assert!((worth - expected).abs() < 1e-9),
                 _ => {
                     panic!("the complete continuation supplies placement, including dealer repeats")
@@ -2402,6 +2529,7 @@ mod tests {
             turns: Some(20),
             margin: 2.0,
             hurried: false,
+            boundary: false,
         };
         let picked = best(
             &hand,
@@ -2433,6 +2561,7 @@ mod tests {
                 turns: Some(12),
                 margin: 2.0,
                 hurried: false,
+                boundary: false,
             },
         );
         let mut second = Searcher::new(
@@ -2443,6 +2572,7 @@ mod tests {
                 turns: Some(12),
                 margin: 2.0,
                 hurried: false,
+                boundary: false,
             },
         );
         assert_eq!(first.act(&hand), second.act(&hand));

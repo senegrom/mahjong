@@ -21,10 +21,18 @@ bypasses the root-hand critic and obtains terminal placement by playing on.
 This is compatible with existing checkpoints, but crossing a hand boundary can
 be substantially more expensive than the previous incorrect bootstrap. It is
 not a claim that the rollout policy estimates optimal continuation. A separately
-trained, versioned placement-only head could replace the terminal rollout later;
-an existing hybrid head cannot do that merely by changing its label.
+trained, versioned placement-only head now replaces the terminal rollout on
+request: `neural.placement` fits one to the placement part of self-play returns
+(`neural.selfplay --out round.pt` keeps a round's positions and labels), and
+`neural.searched --valued-by placement --placement-head head.pt` stops every
+world at the hand boundary (`boundary` on `lookahead_begin`/`leaves_from`,
+`SEARCH_API_VERSION = 2`), banks the root hand, and asks the head where the
+standings lead from the searching player's first decision of the next hand. The
+head records a fingerprint of the features it was fitted to and is refused
+beside any other network. An existing hybrid head cannot do this merely by
+changing its label.
 
-Rebuild `riichi-py`: search requires `SEARCH_API_VERSION = 1`, independently of the
+Rebuild `riichi-py`: search requires `SEARCH_API_VERSION = 2`, independently of the
 unchanged training API. Recordings carry `search_backup_version = 2`. Earlier
 recordings remain available for diagnostic inspection but are refused as targets
 by `Recorded` and therefore the sibling-head and teaching trainers. Do not relabel

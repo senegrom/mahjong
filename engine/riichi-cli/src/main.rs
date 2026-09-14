@@ -84,6 +84,7 @@ fn main() -> ExitCode {
                 // Given as tenths, so --margin 20 is two standard errors.
                 margin: value(&args, "--margin").unwrap_or(20) as f64 / 10.0,
                 hurried: args.iter().any(|arg| arg == "--hurried"),
+                boundary: false,
             });
             duel::duel(games, seed, challenger, defender, thinking);
             ExitCode::SUCCESS

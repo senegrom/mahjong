@@ -699,8 +699,13 @@ def searched(
     temperature: float = 0.0,
     valued_by: str = "critic",
     leaf_batch: int = 256,
+    placement_head: str | None = None,
 ) -> str:
     """Evaluate search, keeping progress separate from successful complete runs.
+
+    `placement_head` names a head written by `neural.placement` on the volume,
+    by its path from the root or the run; `valued_by="placement"` judges the
+    leaves with it at the hand after the root hand.
 
     Every invocation has an immutable identity bound to the copied checkpoint
     digest and its complete configuration. Progress survives interruption under
@@ -710,7 +715,7 @@ def searched(
     back to overwriting a live recording in place.
     """
     import math
-    from neural.recordings import validate_snapshot
+    from neural.recordings import digest_file, validate_snapshot
 
     validate_run(run)
     for name, value in (("games", games), ("worlds", worlds), ("candidates", candidates),
@@ -726,8 +731,10 @@ def searched(
             raise ValueError(f"{name} must be finite and nonnegative")
     if not math.isfinite(sure) or not 0 <= sure <= 1:
         raise ValueError("sure must be a probability")
-    if played_by not in ("club", "network") or valued_by not in ("critic", "public", "mean"):
+    if played_by not in ("club", "network") or valued_by not in ("critic", "public", "mean", "placement"):
         raise ValueError("invalid rollout policy or value head")
+    if (valued_by == "placement") != (placement_head is not None):
+        raise ValueError("valued_by placement needs a placement head, and a head needs that valuing")
     volume.reload()
     source = _checkpoint(run, which)
     if not source.exists():
@@ -735,11 +742,19 @@ def searched(
     with workspace("searched") as where:
         copied = where / "checkpoint.pt"
         generation = copy_checkpoint(source, copied, require_generation=True)
+        head_copy = None
+        if placement_head is not None:
+            head_source = _checkpoint(run, placement_head)
+            if not head_source.exists():
+                raise FileNotFoundError(f"no placement head at {head_source}")
+            head_copy = where / "placement.pt"
+            shutil.copyfile(head_source, head_copy)
         settings = dict(run=run, which=which, games=games, seed=seed, worlds=worlds,
                         candidates=candidates, margin=margin, pool=pool, played_by=played_by,
                         depth=depth, chair=chair, sure=sure, save_every=save_every,
                         temperature=temperature, valued_by=valued_by, leaf_batch=leaf_batch,
-                        device="cuda")
+                        device="cuda", placement_head=placement_head,
+                        placement_head_sha256=None if head_copy is None else digest_file(head_copy))
         identity = experiment(copied, generation, settings)
         target = VOLUME / "searched-records" / identity["experiment_id"]
         if record:
@@ -754,6 +769,8 @@ def searched(
             "--temperature", str(temperature), "--valued-by", valued_by,
             "--leaf-batch", str(leaf_batch), "--device", "cuda",
         ]
+        if head_copy is not None:
+            command += ["--placement-head", str(head_copy)]
         records = where / "records"
         kept_snapshot = None
 

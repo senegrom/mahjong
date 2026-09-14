@@ -143,6 +143,7 @@ class EngineServed:
     def __init__(self, net, contract: Contract) -> None:
         self.net = net
         self.contract = contract
+        self.placement_head = None
 
     def root(self, arena, views, rows, deciding, legal, device):
         planes = np.frombuffer(arena.observations(), dtype=np.float32)
@@ -186,8 +187,12 @@ class EngineServed:
 
         A network with a choice of heads is asked for the one named; one
         with a single value head answers with that, and saying otherwise
-        would be inventing a distinction it does not have.
+        would be inventing a distinction it does not have. `placement` is
+        none of the network's heads but the placement-only judge served
+        beside it (`neural.placement`), asked on the same features.
         """
+        if head == "placement":
+            return placement_value(self, planes)
         if hasattr(self.net, "value_only"):
             return self.net.value_only(planes, head=head)
         mask = torch.ones(
@@ -216,6 +221,7 @@ class MortalServed:
         # Retain upstream's opt-in count of reconstructed hand boundaries.
         self.count_crossings = False
         self.crossed = 0
+        self.placement_head = None
 
     def root(self, arena, views, rows, deciding, legal, device):
         from . import zoo
@@ -338,8 +344,12 @@ class MortalServed:
 
         A network with a choice of heads is asked for the one named; one
         with a single value head answers with that, and saying otherwise
-        would be inventing a distinction it does not have.
+        would be inventing a distinction it does not have. `placement` is
+        none of the network's heads but the placement-only judge served
+        beside it (`neural.placement`), asked on the same features.
         """
+        if head == "placement":
+            return placement_value(self, planes)
         if hasattr(self.net, "value_only"):
             return self.net.value_only(planes, head=head)
         mask = torch.ones(
@@ -550,8 +560,29 @@ def arena_follower(arena):
     return follower
 
 
-def serve(net, checkpoint: str = "the checkpoint"):
+def placement_value(served, planes):
+    """Where the standings lead from these positions, by the placement-only
+    head served beside the network. A search asks this at a hand boundary,
+    where the hand's own result is already banked, and nowhere else."""
+    head = getattr(served, "placement_head", None)
+    if head is None:
+        raise ValueError(
+            "the search was asked to value leaves by placement, but no placement head "
+            "was served beside the network: give `contract.serve` one (--placement-head)"
+        )
+    from . import placement
+
+    features, pooled = placement.features_of(served.net, planes)
+    return head(features, pooled)
+
+
+def serve(net, checkpoint: str = "the checkpoint", placement_head=None):
     """The server for this network, or an explicit refusal.
+
+    `placement_head` is a judge from `neural.placement`, fitted to this
+    network's features, served beside it for a search that values leaves by
+    placement; whether it was fitted to this network is the caller's to
+    check (`placement.require_head_for`).
 
     A refusal names what the network reads and what is missing. It is not a
     limit to work around by padding an input or editing a constant: a
@@ -578,15 +609,20 @@ def serve(net, checkpoint: str = "the checkpoint"):
                 "leaves have no Mortal event history. It cannot be searched here; "
                 "do not pad or relabel engine planes."
             )
-        return EngineServed(net, contract)
+        return _with_head(EngineServed(net, contract), placement_head)
     if contract.reads == "mortal":
         if contract.planes != 1012 or contract.answers not in (46, ENGINE_ACTIONS):
             raise UnsupportedSearchLayout(
                 f"{checkpoint} has unsupported Mortal layout: {contract.planes} planes, "
                 f"{contract.answers} actions; expected 1012 planes and 46 or {ENGINE_ACTIONS} actions"
             )
-        return MortalServed(net, contract)
+        return _with_head(MortalServed(net, contract), placement_head)
     raise UnsupportedSearchLayout(
         f"{checkpoint} reads {contract.reads!r}, which no server here builds. "
         "Add one rather than approximating it with another's planes."
     )
+
+
+def _with_head(served, placement_head):
+    served.placement_head = placement_head
+    return served

@@ -504,6 +504,7 @@ impl Arena {
             turns: None,
             margin,
             hurried,
+            boundary: false,
         };
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
@@ -589,6 +590,7 @@ impl Arena {
             turns: None,
             margin: 2.0,
             hurried,
+            boundary: false,
         };
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
@@ -695,7 +697,10 @@ impl Arena {
     /// moves of `ranked` in every kept world, and returns the leaves as
     /// [`Arena::leaves`] does. A game that imagined no worlds, or keeps
     /// none, contributes no slots and comes back as its first move.
-    #[pyo3(signature = (ranked, kept, weights, candidates=4, hurried=true))]
+    /// With `boundary`, the club plays the root hand out and the leaf is the
+    /// searching player's first decision of the hand after it, for a
+    /// placement-only head to judge with the root hand's result banked.
+    #[pyo3(signature = (ranked, kept, weights, candidates=4, hurried=true, boundary=false))]
     fn leaves_from<'py>(
         &mut self,
         py: Python<'py>,
@@ -704,6 +709,7 @@ impl Arena {
         weights: Vec<Vec<f32>>,
         candidates: usize,
         hurried: bool,
+        boundary: bool,
     ) -> PyResult<LeafBatch<'py>> {
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
@@ -715,6 +721,7 @@ impl Arena {
             turns: None,
             margin: 2.0,
             hurried,
+            boundary,
         };
         let mut observations: Vec<f32> = Vec::new();
         let mut counts = Vec::with_capacity(games);
@@ -785,7 +792,11 @@ impl Arena {
     /// alternates [`Arena::lookahead_owed`] and [`Arena::lookahead_apply`]
     /// until nothing is owed, and takes the leaves with
     /// [`Arena::lookahead_leaves`] for [`Arena::decide`].
-    #[pyo3(signature = (ranked, kept, weights, candidates=4, depth=0, until_hand_ends=false))]
+    ///
+    /// With `boundary`, the leaf is the searching player's first decision of
+    /// the hand after the root hand, which is played out and banked first
+    /// (`until_hand_ends` is implied), for a placement-only head to judge.
+    #[pyo3(signature = (ranked, kept, weights, candidates=4, depth=0, until_hand_ends=false, boundary=false))]
     fn lookahead_begin(
         &mut self,
         ranked: Vec<Vec<usize>>,
@@ -794,6 +805,7 @@ impl Arena {
         candidates: usize,
         depth: usize,
         until_hand_ends: bool,
+        boundary: bool,
     ) -> usize {
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
@@ -835,7 +847,8 @@ impl Arena {
                 &worlds,
                 &world_weights,
                 depth,
-                until_hand_ends,
+                until_hand_ends || boundary,
+                boundary,
             );
             self.lookaheads[game] = Some((shortlist, lookahead));
             running += 1;
@@ -1395,7 +1408,7 @@ fn cast_i32(values: &[i32]) -> &[u8] {
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
     module.add("TRAINING_API_VERSION", 2u32)?;
-    module.add("SEARCH_API_VERSION", 1u32)?;
+    module.add("SEARCH_API_VERSION", 2u32)?;
     module.add("PLANES", PLANES)?;
     module.add("POSITIONS", POSITIONS)?;
     module.add("OBSERVATION", OBSERVATION)?;

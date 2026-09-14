@@ -134,6 +134,69 @@ class SearchContractTests(unittest.TestCase):
         finally:
             torch.set_num_threads(previous)
 
+    def test_a_placement_head_judges_only_the_hand_after_the_root_hand(self):
+        """Valued by placement, the search plays the root hand out, banks it,
+        and asks the head about the first decision of the next hand: every
+        leaf it values lies past a hand boundary, and only the head is asked."""
+        from neural import placement
+
+        class Counting(placement.Judge):
+            asked = 0
+
+            def forward(self, features, pooled):
+                Counting.asked += int(features.shape[0])
+                return super().forward(features, pooled)
+
+        previous = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            torch.manual_seed(5)
+            net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+            served = contract.serve(net, placement_head=Counting(net.channels))
+            original = served.leaf_batches
+
+            def checked(arena, leaf_bytes, counts, device, *, wanted, batch_size):
+                _players, lines = arena.leaves_mjai()
+                for want, events in zip(wanted, lines):
+                    if want:
+                        self.assertTrue(any('"start_kyoku"' in line for line in events),
+                                        "a leaf valued by placement lies in the hand after the root hand")
+                yield from original(arena, leaf_bytes, counts, device, wanted=wanted, batch_size=batch_size)
+
+            with patch.object(served, 'leaf_batches', checked),                     patch.object(served, 'value', wraps=served.value) as value:
+                scores, tally = searched.play(net, 1, 5, 0, 2, 2, 0., pool=1, device='cpu',
+                                             served=served, leaf_batch=8, valued_by='placement')
+            self.assertEqual(scores.shape, (1, 4))
+            self.assertGreater(tally[0], 0)
+            self.assertGreater(Counting.asked, 0)
+            self.assertTrue(value.call_args_list)
+            self.assertTrue(all(call.kwargs.get('head') == 'placement' for call in value.call_args_list))
+        finally:
+            torch.set_num_threads(previous)
+
+    def test_a_placement_head_needs_the_root_hand_played_out(self):
+        """At depth zero the leaf is still in the root hand, whose points are
+        not banked, and a head that reads only the standings would be asked
+        the wrong question; the refusal comes before any world is imagined."""
+        from neural import placement
+
+        net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+        served = contract.serve(net, placement_head=placement.Judge(net.channels))
+        arena = riichi_py.Arena(games=1, seed=8, bot_places=[])
+        with self.assertRaisesRegex(ValueError, "play the root hand out"):
+            searched.search_with_value_head(
+                net, arena, [[0, 1]], [1.] * riichi_py.HANDS, worlds=2, candidates=2, margin=0.,
+                hurried=True, pool=1, device='cpu', played_by='network', depth=0,
+                valued_by='placement', served=served, leaf_batch=1,
+            )
+
+    def test_valuing_by_placement_without_a_head_is_refused_by_name(self):
+        net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+        served = contract.serve(net)
+        planes = torch.zeros(1, MORTAL_PLANES, riichi_py.POSITIONS)
+        with self.assertRaisesRegex(ValueError, "no placement head"):
+            served.value(planes, head='placement')
+
     def test_a_recording_keeps_every_searched_decision_with_its_worlds(self):
         """The root as the network read it, the candidates, what each came
         to in every world, and both choices, one row a searched decision;
