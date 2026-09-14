@@ -69,6 +69,37 @@ reward version 1 = points moved in the decision's hand / 4000
 ```
 
 This remains the existing hybrid objective, not pure final-placement utility.
+
+## What the teacher was measured to be worth
+
+Collect with these settings and you are copying a teacher that has been
+measured, on this lineage, to play worse than the student it is copied
+from. The example above is one ply valued by the critic, which placed
+2.76 against a level of 2.50 over two hundred deals. Playing the worlds
+out to the end of the match with the club heuristic instead, which the
+corrected search does at `--depth -1`, placed 2.574 over a hundred deals
+in the cloud and 2.616 over another hundred on a desktop: about a tenth
+of a placement worse than not searching, at two and a half standard
+errors together. That same search reports gaining 0.028 of a unit a
+decision by its own reckoning, with the worlds split so that one half
+decides and the other scores (`neural.worth`), which is why an
+estimator's confidence in itself settles nothing.
+
+No configuration of this search has yet been measured to beat the policy
+at the table. Until one is, a shard collected here is material for
+studying the pipeline, not supervision known to be worth learning.
+
+Two further cautions for whoever fits this:
+
+- The improvement target is applied at every decision, including the
+  thirteen in fourteen where a margin-gated search agrees with the actor.
+  Asking there for more mass on the move the actor already chose is a
+  demand to sharpen rather than to keep, and sharpening is what took
+  three earlier lineages backwards (`neural.teach --rows changed` teaches
+  only the decisions the search overrode for that reason).
+- There is no leash to the frozen actor in the loss. The `(1 - improve)`
+  term anchors a single fit, but it does not hold across rounds of
+  collect-and-fit the way the KL in `neural.train_combined` does.
 Changing the objective requires a new supported reward contract and new data;
 these shards must not be relabelled or silently mixed with another objective.
 
