@@ -19,19 +19,33 @@ from neural.model import MORTAL_PLANES, PolicyValueNet
 from neural.observe import Planes
 
 
+def a_round(games: int = 2, seed: int = 11, on_mortal_planes: bool = False):
+    """A cheap round: every seat takes the first legal move. On Mortal's
+    planes it keeps the observations a head reads; on the engine's it
+    keeps none, which is what training does."""
+    from neural.tests.test_selfplay_contract import FirstLegal
+
+    class OnMortalPlanes(FirstLegal):
+        kind = "mortal"
+
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        return selfplay.play(OnMortalPlanes() if on_mortal_planes else FirstLegal(),
+                             games=games, seed=seed, device="cpu")
+    finally:
+        torch.set_num_threads(previous)
+
+
 class SelfPlayLabelsTests(unittest.TestCase):
     def test_a_round_keeps_the_placement_apart_from_the_points(self):
         """The return is the hand's points and the placement together, and
         a boundary needs the second alone; self-play now keeps both."""
-        from neural.tests.test_selfplay_contract import FirstLegal
-
-        previous = torch.get_num_threads()
-        torch.set_num_threads(1)
-        try:
-            batch = selfplay.play(FirstLegal(), games=2, seed=11, device="cpu")
-        finally:
-            torch.set_num_threads(previous)
+        batch = a_round()
         self.assertEqual(len(batch.placements), batch.decisions)
+        # And each decision knows its game, so a head can hold whole games out.
+        self.assertEqual(len(batch.game_of), batch.decisions)
+        self.assertEqual(sorted(set(batch.game_of.tolist())), [0, 1])
         # Every value is one of the four the placement bonus can take, or
         # a mean of them where a game was shared.
         allowed = set(float(value) for value in selfplay.PLACEMENT_VALUE)
@@ -45,6 +59,39 @@ class SelfPlayLabelsTests(unittest.TestCase):
         # them leaves the hand points, which are small.
         points = batch.returns - batch.placements
         self.assertLess(float(points.abs().max()), 25.0)
+
+    def test_a_saved_round_reads_back_with_its_games_kept_apart(self):
+        """What `selfplay.save_round` writes, `placement.load_rounds` reads:
+        the planes, the placements and the games, and a second round's
+        games are numbered after the first's so a hold-out by game holds."""
+        batch = a_round(on_mortal_planes=True)
+        self.assertEqual(len(batch.observations), batch.decisions)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            path = Path(folder) / "round.pt"
+            selfplay.save_round(batch, path, {"seed": 11})
+            positions = placement.load_rounds([path, path])
+            self.assertEqual(len(positions), 2 * batch.decisions)
+            self.assertEqual(int(positions.games.max()), 3)
+            np.testing.assert_array_equal(positions.placements[: batch.decisions], batch.placements.numpy())
+            np.testing.assert_array_equal(positions.games[batch.decisions :], batch.game_of.numpy() + 2)
+            training, held = positions.split(held_out_every=2)
+            self.assertTrue(set(positions.games[training]).isdisjoint(set(positions.games[held])))
+            self.assertEqual(len(training) + len(held), len(positions))
+            # The planes came through: the same rows, dense, as the round had.
+            wanted = batch.observations.rows(np.arange(3)).dense("cpu")
+            self.assertTrue(torch.equal(positions.planes.rows(np.arange(3)).dense("cpu"), wanted))
+            payload = torch.load(path, map_location="cpu", weights_only=False)
+            payload["round_version"] = selfplay.ROUND_VERSION + 1
+            torch.save(payload, path)
+            with self.assertRaisesRegex(ValueError, "round version"):
+                placement.load_rounds([path])
+
+    def test_a_round_without_planes_cannot_be_saved_for_a_head(self):
+        """A round played on the engine's planes kept no observations, and
+        a file with placements and no positions would be a trap."""
+        batch = a_round()
+        with self.assertRaisesRegex(ValueError, "no planes"):
+            selfplay.save_round(batch, Path(tempfile.gettempdir()) / "never-written.pt")
 
 
 class JudgeTests(unittest.TestCase):
@@ -100,6 +147,19 @@ class JudgeTests(unittest.TestCase):
             torch.save(payload, path)
             with self.assertRaisesRegex(ValueError, "placement version"):
                 placement.load(path, "cpu")
+
+    def test_a_head_says_whose_features_it_read_and_refuses_another_network(self):
+        torch.manual_seed(7)
+        net = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+        first = placement.fingerprint(net)
+        self.assertEqual(first, placement.fingerprint(net), "the same network reads the same")
+        other = PolicyValueNet(8, 1, planes=MORTAL_PLANES, actions=46)
+        self.assertNotEqual(first, placement.fingerprint(other))
+        placement.require_head_for({"features": first}, net)
+        with self.assertRaisesRegex(ValueError, "fitted to a network"):
+            placement.require_head_for({"features": first}, other)
+        with self.assertRaisesRegex(ValueError, "does not say"):
+            placement.require_head_for({}, net)
 
     def test_a_round_without_the_labels_is_refused_rather_than_guessed(self):
         class Older:

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -188,6 +189,10 @@ class Batch:
     #: and the follower, the encoder, the network, the seated others, and
     #: the bookkeeping. For finding what to make faster.
     timing: dict[str, float] = field(default_factory=dict)
+    #: Which game each decision belongs to. A head trained on a round
+    #: holds whole games out with it: the decisions of one game share
+    #: its result and are not independent samples of it.
+    game_of: torch.Tensor | None = None
 
 
 def imagine(arena, beliefs: np.ndarray) -> bytes:
@@ -572,12 +577,14 @@ def play(
     # learns it alone judges standings rather than standings plus the
     # hand's points, and only the first of those is wanted at a boundary.
     placement_only = [0.0] * len(rewards)
+    game_of = np.full(len(rewards), -1, dtype=np.int64)
     for game in range(games):
         for person in range(4):
             value = float(bonuses[game, person])
             for step_index in everything[game][person]:
                 rewards[step_index] += value
                 placement_only[step_index] = value
+                game_of[step_index] = game
 
     decisions = len(actions)
     if decisions == 0:
@@ -614,6 +621,7 @@ def play(
         after_exploration=torch.tensor(after_exploration, dtype=torch.bool),
         returns=torch.tensor(rewards, dtype=torch.float32),
         placements=torch.tensor(placement_only, dtype=torch.float32),
+        game_of=torch.from_numpy(game_of),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,
         hands=hands,
@@ -709,3 +717,82 @@ def measure(
         "wins": float(win_shares(scores)[:, 0].mean()),
         "hands": hands,
     }
+
+
+#: What `save_round` writes, so a reader can refuse a file written by
+#: something else and called a round.
+ROUND_VERSION = 1
+
+
+def save_round(batch: Batch, path: Path, meta: dict | None = None) -> None:
+    """Keeps the part of a round a head can be trained on afterwards: the
+    planes, sparse and in halves, the placement each decision led to and
+    the return it was part of, and which game each belongs to. Nothing
+    the policy gradient wants is kept, so a few hundred games are a
+    couple of gigabytes rather than ten."""
+    if batch.game_of is None:
+        raise ValueError("this round does not say which game each decision belongs to")
+    if len(batch.observations) != batch.decisions:
+        raise ValueError(
+            "this round kept no planes to train a head on: the network that played "
+            "sees the engine's planes, which nothing trains on any more"
+        )
+    payload = {
+        "round_version": ROUND_VERSION,
+        "reward_version": int(batch.reward_version),
+        "observations": {name: np.ascontiguousarray(array)
+                         for name, array in batch.observations.arrays().items()},
+        "placements": batch.placements.numpy().astype(np.float32, copy=False),
+        "returns": batch.returns.numpy().astype(np.float32, copy=False),
+        "games_of": batch.game_of.numpy().astype(np.int64, copy=False),
+        "games": int(batch.games),
+        "hands": int(batch.hands),
+        "decisions": int(batch.decisions),
+        "final_scores": np.asarray(batch.final_scores),
+        **(meta or {}),
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, path)
+
+
+def main() -> None:
+    """Plays a round from a checkpoint and keeps what a head trains on.
+
+        python -m neural.selfplay checkpoint.pt --games 256 --seed 1 --out round.pt
+    """
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("checkpoint", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--games", type=int, default=256)
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--amp", action="store_true", help="bfloat16 forward passes on the card")
+    parser.add_argument("--greedy", action="store_true",
+                        help="every seat plays its first choice rather than sampling")
+    parser.add_argument("--max-steps", type=int, default=4000)
+    args = parser.parse_args()
+
+    from . import contract
+
+    net = contract.unwrap(zoo.load_player(args.checkpoint, args.device))
+    began = time.time()
+    batch = play(net, games=args.games, seed=args.seed, device=args.device, greedy=args.greedy,
+                 max_steps=args.max_steps, amp=args.amp and args.device == "cuda")
+    save_round(batch, args.out, {"checkpoint": str(args.checkpoint), "seed": int(args.seed),
+                                 "greedy": bool(args.greedy)})
+    print(json.dumps({
+        "out": str(args.out), "games": batch.games, "hands": batch.hands, "decisions": batch.decisions,
+        "seconds": round(time.time() - began, 1),
+        "placement_spread": round(float(batch.placements.var(unbiased=False)), 4),
+        "timing": {name: round(value, 1) for name, value in batch.timing.items()},
+    }, indent=1))
+    print(json.dumps({"saved": str(args.out)}), file=sys.stderr, flush=True)
+
+
+if __name__ == "__main__":
+    main()

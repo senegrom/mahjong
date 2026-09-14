@@ -17,7 +17,8 @@ alone, reading the same frozen features the policy reads, answers the
 boundary question and nothing else -- and it costs one pass instead of a
 match played out move by move.
 
-    python -m neural.placement round.pt checkpoint.pt --out placement.pt
+    python -m neural.selfplay checkpoint.pt --games 256 --out round.pt
+    python -m neural.placement checkpoint.pt round.pt [round.pt ...] --out placement.pt
 
 It is not the hybrid critic relabelled: that head was trained on points
 plus placement and cannot be told to forget the points.
@@ -26,6 +27,7 @@ plus placement and cannot be told to forget the points.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -104,13 +106,66 @@ class Positions:
                 "collected before they were kept apart, and points cannot be subtracted "
                 "out of a return after the fact"
             )
-        return cls(batch.observations, np.asarray(placements, dtype=np.float32))
+        games = getattr(batch, "game_of", None)
+        return cls(batch.observations, np.asarray(placements, dtype=np.float32),
+                   None if games is None else np.asarray(games, dtype=np.int64))
 
     def split(self, held_out_every: int = 10) -> tuple[np.ndarray, np.ndarray]:
         """Positions to fit and positions to hold back, by game: the
         decisions of one game share its result and are not independent."""
         held = (self.games % held_out_every) == 0
         return np.nonzero(~held)[0], np.nonzero(held)[0]
+
+
+@torch.no_grad()
+def fingerprint(net) -> str:
+    """Which network's features a head reads, as a digest of the backbone's
+    weights. A head fitted to one network's features says nothing about
+    another's, and a checkpoint's name does not say which it was."""
+    digest = hashlib.sha256()
+    for name, tensor in sorted(backbone(net).state_dict().items()):
+        digest.update(name.encode("utf-8"))
+        digest.update(tensor.detach().cpu().float().contiguous().numpy().tobytes())
+    return digest.hexdigest()[:16]
+
+
+def require_head_for(meta: dict, net) -> None:
+    """Refuses a head that was fitted to another network's features."""
+    fitted = meta.get("features")
+    if fitted is None:
+        raise ValueError(
+            "this head does not say which network's features it was fitted to; train it again"
+        )
+    have = fingerprint(net)
+    if fitted != have:
+        raise ValueError(
+            f"this head was fitted to a network with features {fitted}, and the network "
+            f"served has {have}: a head reads one network's features and no other's"
+        )
+
+
+def load_rounds(paths: list[Path]) -> Positions:
+    """The positions of one or more rounds written by `selfplay.save_round`,
+    their games numbered apart so a hold-out by game stays one."""
+    from .selfplay import ROUND_VERSION
+
+    blocks, placements, games, offset = [], [], [], 0
+    for path in paths:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+        if int(payload.get("round_version", 0)) != ROUND_VERSION:
+            raise ValueError(
+                f"{path} is not a round this reads: it says round version "
+                f"{payload.get('round_version')}, and this is version {ROUND_VERSION}"
+            )
+        if payload.get("games_of") is None:
+            raise ValueError(f"{path} does not say which game each decision belongs to")
+        blocks.append(Planes(*(np.asarray(payload["observations"][name]) for name in Planes.ARRAYS)))
+        placements.append(np.asarray(payload["placements"], dtype=np.float32))
+        played = np.asarray(payload["games_of"], dtype=np.int64)
+        games.append(played + offset)
+        counted = payload.get("games")
+        offset += played.max().item() + 1 if counted is None else counted
+    return Positions(Planes.cat(blocks), np.concatenate(placements), np.concatenate(games))
 
 
 @torch.no_grad()
@@ -209,8 +264,8 @@ def load(path: Path, device: str = "cpu") -> tuple[Judge, dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("round", type=Path, help="a self-play round saved by neural.selfplay")
     parser.add_argument("checkpoint", type=Path)
+    parser.add_argument("rounds", type=Path, nargs="+", help="self-play rounds saved by neural.selfplay")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -221,17 +276,15 @@ def main() -> None:
     from . import contract, zoo
 
     net = contract.unwrap(zoo.load_player(args.checkpoint, args.device))
-    payload = torch.load(args.round, map_location="cpu", weights_only=False)
-    positions = Positions(
-        Planes(*(payload["observations"][name] for name in Planes.ARRAYS)),
-        np.asarray(payload["placements"], dtype=np.float32),
-        np.asarray(payload.get("games_of"), dtype=np.int64) if payload.get("games_of") is not None else None,
-    )
-    print(json.dumps({"positions": len(positions)}), file=sys.stderr, flush=True)
+    positions = load_rounds(args.rounds)
+    training, held = positions.split()
+    print(json.dumps({"positions": len(positions), "games": int(positions.games.max()) + 1,
+                      "training": len(training), "held_out": len(held)}),
+          file=sys.stderr, flush=True)
     head, history = train(positions, net, epochs=args.epochs, lr=args.lr, batch=args.batch,
                           device=args.device, log=sys.stderr)
-    save(head, args.out, {"checkpoint": str(args.checkpoint), "round": str(args.round),
-                          "history": history})
+    save(head, args.out, {"checkpoint": str(args.checkpoint), "rounds": [str(path) for path in args.rounds],
+                          "features": fingerprint(net), "history": history})
     print(json.dumps({"out": str(args.out), "final": history[-1] if history else None}, indent=1))
 
 
