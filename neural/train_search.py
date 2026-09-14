@@ -9,6 +9,8 @@ This is supervised policy/value learning, not PPO or automatic promotion.
 Resume requires the same data bytes, semantic contracts and training options.
 Every invocation writes a NEW directory, so a failed restart cannot destroy its
 input. Repeat epochs on one dataset are not new generations of self-play.
+Use --policy-mode changed --actor-kl 1 for opt-in conservative fitting; see
+docs/CONSERVATIVE_SEARCH_LEARNING.md. Legacy defaults remain unchanged.
 """
 from __future__ import annotations
 
@@ -26,6 +28,7 @@ import torch
 
 from .checkpoints import atomic_save, copy_checkpoint
 from .training_safety import TRAINING_API_VERSION
+from .search_objective import replay_loss, validate_policy_options
 
 STATE_VERSION = 1
 
@@ -48,8 +51,11 @@ class Options:
     max_grad_norm: float = 1.0
     validation_every: int = 5
     seed: int = 20260913
+    policy_mode: str = "all"
+    actor_kl: float = 0.0
 
     def validate(self):
+        validate_policy_options(self.policy_mode, self.actor_kl)
         _integer(self.batch, "batch", 2)
         _integer(self.validation_every, "validation_every")
         if self.validation_every >= 2**64:
@@ -64,6 +70,27 @@ class Options:
             if (type(value) not in (float, int) or not math.isfinite(value) or value < 0
                     or key in ("lr", "max_grad_norm") and value == 0):
                 raise ValueError(f"Invalid {key}")
+
+
+def _saved_options(saved):
+    """Migrate only pre-objective checkpoints to their EXACT legacy loss.
+
+    New checkpoints must retain both settings and the objective marker. Missing
+    options in a new run are corruption, not permission to switch objectives.
+    """
+    options = saved.get("options")
+    if not isinstance(options, dict):
+        raise ValueError("Resume has no training options")
+    options = dict(options)
+    fields = {"policy_mode", "actor_kl"}
+    if "policy_objective_version" not in saved:
+        if fields & options.keys():
+            raise ValueError("Resume policy objective marker is missing")
+        options.update(policy_mode="all", actor_kl=0.0)
+    elif (type(saved["policy_objective_version"]) is not int
+          or saved["policy_objective_version"] != 1 or not fields <= options.keys()):
+        raise ValueError("Resume policy objective is incomplete or unsupported")
+    return options
 
 
 def fingerprint(replay) -> str:
@@ -243,7 +270,8 @@ class Learner:
                               ("parameters", self.parameter_signature),
                               ("initial_sha256", self.initial_sha256),
                               ("initial_generation", self.initial_generation)):
-            if _json(saved.get(key)) != _json(expected):
+            actual = _saved_options(saved) if key == "options" else saved.get(key)
+            if _json(actual) != _json(expected):
                 raise ValueError(f"Resume {key} changed; use --checkpoint and a new run for a new experiment")
         _integer(saved.get("epochs"), "saved epochs", 1)
         _integer(saved.get("updates"), "saved updates", 1)
@@ -298,6 +326,13 @@ class Learner:
         self.epochs, self.updates = saved["epochs"], saved["updates"]
         self.metrics = deepcopy(saved["metrics"])
 
+    def _loss(self, replay, rows):
+        if self.options.policy_mode == "all" and self.options.actor_kl == 0:
+            # Keep the existing path numerically unchanged for legacy runs.
+            return replay.loss(self.net, rows, str(self.device), self.options.value_weight)
+        return replay_loss(replay, self.net, rows, str(self.device), self.options.value_weight,
+                           policy_mode=self.options.policy_mode, actor_kl=self.options.actor_kl)
+
     @torch.no_grad()
     def evaluate(self):
         self.net.eval()
@@ -305,7 +340,7 @@ class Learner:
         for replay, rows in zip(self.data.replays, self.data.validation):
             for start in range(0, len(rows), self.options.batch):
                 picks = rows[start:start + self.options.batch]
-                loss = replay.loss(self.net, picks, str(self.device), self.options.value_weight)
+                loss = self._loss(replay, picks)
                 if not torch.isfinite(loss):
                     raise FloatingPointError("Nonfinite validation loss")
                 total += float(loss) * len(picks)
@@ -322,7 +357,7 @@ class Learner:
             indices = order[start:start + self.options.batch]
             self.optimizer.zero_grad(set_to_none=True)
             for replay, rows in self.data.groups(indices):
-                loss = replay.loss(self.net, rows, str(self.device), self.options.value_weight)
+                loss = self._loss(replay, rows)
                 if not torch.isfinite(loss):
                     raise FloatingPointError("Nonfinite search loss; optimizer step refused")
                 # Weight per row, not per shard. Tiny shards must not count as
@@ -346,7 +381,8 @@ class Learner:
     def checkpoint(self):
         if not self.ready or not self.epochs:
             raise RuntimeError("Only a completed, nonempty training epoch can be checkpointed")
-        state = {"version": STATE_VERSION, "data": self.data.identities, "contract": self.data.contract,
+        state = {"version": STATE_VERSION, "policy_objective_version": 1,
+                 "data": self.data.identities, "contract": self.data.contract,
                  "options": asdict(self.options), "runtime": self.runtime,
                  "parameters": self.parameter_signature,
                  "initial_sha256": self.initial_sha256, "initial_generation": self.initial_generation,
@@ -384,7 +420,7 @@ def run(source: Path, replays, out: Path, *, epochs: int = 2, resume: bool = Fal
                     or payload["training_api_version"] != TRAINING_API_VERSION
                     or payload.get("generation") != saved["initial_generation"] + saved["epochs"]):
                 raise ValueError("Resume checkpoint metadata disagrees with its training state")
-        settings = dict(saved["options"]) if saved is not None else asdict(Options())
+        settings = _saved_options(saved) if saved is not None else asdict(Options())
         settings.update(overrides or {})
         options = Options(**settings)
         options.validate()
@@ -417,6 +453,10 @@ def main():
     parser.add_argument("--epochs", type=int, default=2, help="additional complete fitting epochs, not self-play rounds")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     for key in Options.__dataclass_fields__:
+        if key == "policy_mode":
+            parser.add_argument("--policy-mode", choices=("all", "changed"), default=None,
+                                help="preserve actor probabilities on search-agreement rows with changed")
+            continue
         parser.add_argument("--" + key.replace("_", "-"),
                             type=int if key in ("batch", "validation_every", "seed") else float,
                             default=None, help="inherits the saved value on resume")
