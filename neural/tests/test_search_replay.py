@@ -97,7 +97,7 @@ class ActionTargets(unittest.TestCase):
 class ShardValidation(unittest.TestCase):
     def test_roundtrip_is_checksummed_and_memory_mapped(self):
         replay = example()
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             folder = Path(temporary) / "round"
             replay.save(folder)
             reopened = SearchReplay.load(folder)
@@ -109,7 +109,7 @@ class ShardValidation(unittest.TestCase):
             self.assertEqual(len(manifest["sha256"]), len(replay.arrays))
 
     def test_existing_shard_is_never_overwritten(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             folder = Path(temporary) / "round"
             example().save(folder)
             before = (folder / "manifest.json").read_bytes()
@@ -118,7 +118,7 @@ class ShardValidation(unittest.TestCase):
             self.assertEqual(before, (folder / "manifest.json").read_bytes())
 
     def test_publish_failure_leaves_no_complete_manifest(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             folder = Path(temporary) / "round"
             with patch("neural.search_replay.os.replace", side_effect=OSError("interrupted")):
                 with self.assertRaises(OSError):
@@ -128,7 +128,7 @@ class ShardValidation(unittest.TestCase):
                 SearchReplay.load(folder)
 
     def test_checksum_rejects_changed_payload(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             folder = Path(temporary) / "round"
             example().save(folder)
             with (folder / "returns.npy").open("ab") as stream:
@@ -146,7 +146,7 @@ class ShardValidation(unittest.TestCase):
             replay.metadata.update(change)
             with self.subTest(change=change), self.assertRaises(ValueError):
                 replay.validate()
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             Path(temporary, "meta.json").write_text('{"complete": true}')
             with self.assertRaises(FileNotFoundError):
                 SearchReplay.load(Path(temporary))
@@ -441,7 +441,7 @@ class NativeIntegration(unittest.TestCase):
                          actor_sha256="a" * 64, source_revision="b" * 40)
         self.assertEqual(len(contract._FOLLOWERS), before)
         self.assertGreater(replay.metadata["rows"], 0)
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             folder = Path(temporary) / "game"
             replay.save(folder)
             reopened = SearchReplay.load(folder)

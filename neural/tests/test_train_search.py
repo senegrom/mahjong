@@ -109,7 +109,7 @@ class Tests(unittest.TestCase):
         expected = continuous.checkpoint()
         split = make_learner()
         split.epoch()
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
             path = Path(directory) / "latest.pt"
             atomic_save(split.checkpoint(), path)
             saved = torch.load(path, weights_only=True)
@@ -296,7 +296,7 @@ class Tests(unittest.TestCase):
                                 overrides=overrides)
 
     def test_actual_runner_writes_loadable_checkpoints_and_resumes_to_a_new_directory(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             root = Path(temporary); source = root / "actor.pt"
             atomic_save({**TinyNet().state(), "generation": 4}, source)
             original = source.read_bytes()
@@ -316,7 +316,7 @@ class Tests(unittest.TestCase):
             self.assertFalse((root / "mismatch").exists())
 
     def test_outer_resume_generation_and_native_version_must_agree(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             root = Path(temporary)
             learner = make_learner(); learner.epoch()
             for key, value in (("generation", 999), ("training_api_version", 999)):
@@ -327,7 +327,7 @@ class Tests(unittest.TestCase):
                 self.assertFalse((root / key).exists())
 
     def test_interrupted_publication_preserves_previous_completed_epoch(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             root = Path(temporary); source = root / "actor.pt"
             atomic_save({**TinyNet().state(), "generation": 0}, source)
             from neural import checkpoints
@@ -363,7 +363,7 @@ class NativeTests(unittest.TestCase):
         from neural import combined, model, mortal_model
         from neural.tests.test_search_replay import example
         for joined in (False, True):
-            with self.subTest(joined=joined), tempfile.TemporaryDirectory() as temporary:
+            with self.subTest(joined=joined), tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
                 root = Path(temporary)
                 ours = model.PolicyValueNet(8, 1, actions=46)
                 net = combined.Combined(ours, mortal_model.build(16, 1)) if joined else ours
@@ -389,7 +389,7 @@ class NativeTests(unittest.TestCase):
     def test_completed_multi_candidate_native_collection_trains_a_loadable_checkpoint(self):
         from neural import model
         from neural.collect_search import collect, SearchSettings
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
             root = Path(temporary)
             net = model.PolicyValueNet(8, 1, actions=46)
             atomic_save({**training._model_payload(net), "generation": 0}, root / "actor.pt")
