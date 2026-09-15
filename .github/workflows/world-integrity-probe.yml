@@ -1,0 +1,37 @@
+name: world integrity probes
+on:
+  push:
+    branches: [validation/world-integrity-wheels-20260915]
+    paths: [.github/workflows/world-integrity-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 740d2601d09b357496ebf8a0a9c198c8e2ed77b3
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+      - name: Build native probes
+        run: cargo test --locked --release -p riichi-core --no-run
+      - name: Isolate waiting-shape and joint-constraint cases
+        run: |
+          mkdir -p /tmp/probes
+          failed=0
+          for name in three_declared_hands_are_reserved_jointly every_wait_family_and_concealed_quads live_riichi_samples; do
+            timeout 40s cargo test --locked --release -p riichi-core "$name" -- --nocapture > "/tmp/probes/$name.log" 2>&1 || failed=1
+            tail -20 "/tmp/probes/$name.log"
+          done
+          find target/release/deps -maxdepth 1 -type f -executable \( -name 'riichi_core-*' -o -name 'riichi_worlds-*' \) -exec cp {} /tmp/probes/ \;
+          exit "$failed"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: sampler-probes
+          path: /tmp/probes/
+          retention-days: 2
