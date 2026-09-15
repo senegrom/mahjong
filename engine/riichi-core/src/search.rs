@@ -70,6 +70,8 @@
 //! weights give exactly the unweighted numbers, so a search with no reader
 //! is the sampled search it grew out of.
 
+mod sampling;
+
 use std::collections::VecDeque;
 
 use crate::bot::{Bot, Style};
@@ -313,19 +315,55 @@ pub fn imagine(hand: &Hand, seat: Wind, belief: &Belief, rng: &mut Rng) -> Hand 
     }
     rng.shuffle(&mut pool);
 
+    let reserved = sampling::reserve(hand, seat, belief, rng, &mut pool);
     let mut world = hand.clone();
     for offset in 1..=OPPONENTS {
         let other = seat.plus(offset);
         let wanted = hand.players[other.index()].hand.len();
-        let mut dealt = TileSet::new();
-        for _ in 0..wanted {
+        let mut dealt = reserved[other.index()];
+        assert!(
+            dealt.len() <= wanted,
+            "riichi concealed hand has the wrong size"
+        );
+        let mut drawn = None;
+        for _ in dealt.len()..wanted {
             let taken = draw_weighted(&mut pool, belief, offset, rng);
             dealt.add(taken);
+            drawn = Some(taken);
+        }
+        if other == world.turn && matches!(world.phase, Phase::Act) {
+            world.drawn = drawn;
         }
         world.players[other.index()].hand = dealt;
         // What they are waiting for and whether they are furiten follow
         // from the tiles, so both are worked out again for the new hand.
-        world.players[other.index()].refresh_furiten();
+        if hand.players[other.index()].has_riichi() {
+            let player = &hand.players[other.index()];
+            let body = reserved[other.index()];
+            let mut visible = body;
+            for meld in &player.melds {
+                for tile in meld.tiles() {
+                    visible.add(tile);
+                }
+            }
+            let waits = crate::shanten::waits(&body, player.melds.len(), &visible);
+            let latest = hand
+                .players
+                .iter()
+                .flat_map(|p| &p.discards)
+                .map(|d| d.order)
+                .max();
+            let passed = hand.players.iter().flat_map(|p| &p.discards).any(|d| {
+                player.riichi_order.is_some_and(|order| d.order > order)
+                    && !(hand.phase == Phase::CallWindow && Some(d.order) == latest)
+                    && waits.count(d.tile) > 0
+            });
+            let from_pond = player.discards.iter().any(|d| waits.count(d.tile) > 0);
+            world.players[other.index()].furiten = passed || from_pond;
+            world.players[other.index()].temporary_furiten = false;
+        } else {
+            world.players[other.index()].refresh_furiten();
+        }
     }
 
     // Whatever nobody was dealt is the rest of the wall. It is already
@@ -1724,6 +1762,40 @@ impl Lookahead {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_margin_matches_shared_independent_world_fixtures() {
+        for row in include_str!("../tests/fixtures/search_margin.tsv").lines() {
+            let fields: Vec<_> = row.split('\t').collect();
+            let margin: f64 = fields[1].parse().unwrap();
+            let differences: Vec<f64> = fields[2].split(',').map(|v| v.parse().unwrap()).collect();
+            let weights: Vec<f64> = fields[3].split(',').map(|v| v.parse().unwrap()).collect();
+            let judged = |action, values: Vec<Option<f64>>| Judged {
+                action: Action::Discard(Tile::new(action)),
+                value: 0.0,
+                worlds: values.iter().filter(|v| v.is_some()).count(),
+                per_world: values,
+                weights: weights.clone(),
+            };
+            let choices = [
+                judged(0, vec![Some(0.0); differences.len()]),
+                judged(
+                    1,
+                    differences
+                        .iter()
+                        .map(|v| v.is_finite().then_some(*v))
+                        .collect(),
+                ),
+            ];
+            let picked = pick_by_margin(&choices, margin).unwrap();
+            assert_eq!(
+                picked.action,
+                Action::Discard(Tile::new(fields[4].parse().unwrap())),
+                "{}",
+                fields[0]
+            );
+        }
+    }
 
     /// An imagined world has to be a world: every tile accounted for, none
     /// of them five times over, and everything the player can see left

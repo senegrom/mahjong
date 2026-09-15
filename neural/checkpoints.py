@@ -149,3 +149,26 @@ def publish_training_snapshot(source: Path, target: Path, minimum_generation: in
             os.replace(marker, target / "generation.txt")
         sync_directory(target)
     return generation
+
+
+def atomic_artifact(payload: dict, destination: Path, validator) -> None:
+    """Publish a head or round using its own schema, without truncating old data.
+
+    The validator reads the staged bytes. Validation, serialization and pre-rename
+    sync failures leave the old destination untouched; a post-rename failure may
+    expose only the complete new file. This is a single-writer replacement API.
+    """
+    import torch
+
+    destination = Path(destination)
+    with staging_file(destination) as staged:
+        with staged.open("wb") as stream:
+            torch.save(payload, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Validators may construct a head to check parameter names and shapes.
+        # Saving must not consume the training/collection random stream.
+        with torch.random.fork_rng(devices=[]):
+            validator(staged)
+        os.replace(staged, destination)
+        sync_directory(destination.parent)

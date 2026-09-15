@@ -69,6 +69,7 @@ class Contract:
     #: What the checkpoint actually held, so a loader that quietly built
     #: half of it can be told from one that built all of it.
     parts: tuple[str, ...]
+    reader_planes: int | None = None
 
     def describe(self) -> dict:
         return {
@@ -79,6 +80,8 @@ class Contract:
             "has_value": self.has_value,
             "has_belief": self.has_belief,
             "parts": list(self.parts),
+            "world_reader": self.reads if self.reader_planes is not None else "uniform",
+            "reader_planes": self.reader_planes,
         }
 
 
@@ -112,8 +115,56 @@ def of(net) -> Contract:
         has_value=hasattr(net, "everything"),
         has_belief=hasattr(net, "everything"),
         parts=tuple(parts),
+        reader_planes=int(planes) if callable(getattr(net, "read_plausibility", None)) else None,
     )
 
+
+
+@torch.no_grad()
+def proposal_scores(served, arena, hands_bytes, counts, device, batch_size=256):
+    """Serve the reader's OWN layout, in bounded batches and native world order.
+
+    Uniform weights are an explicit capability fallback, never a side effect of
+    the observation layout. The hands stay in the encoder's relative-seat order.
+    """
+    if type(batch_size) is not int or batch_size <= 0:
+        raise ValueError("reader batch size must be positive")
+    total = sum(counts)
+    if getattr(served.contract, "reader_planes", None) is None:
+        return np.zeros(total, dtype=np.float32)
+    if served.contract.reader_planes != served.contract.planes:
+        raise UnsupportedSearchLayout("reader observation layout does not match its server")
+    hands = np.frombuffer(hands_bytes, dtype=np.float32).reshape(total, riichi_py.HIDDEN_HANDS_PLANES, POSITIONS)
+    game_of = np.repeat(np.arange(len(counts)), counts)
+    result = np.empty(total, dtype=np.float32)
+    public = None
+    if served.contract.reads == "engine":
+        public = np.frombuffer(arena.observations(), dtype=np.float32).reshape(len(counts), ENGINE_PLANES, POSITIONS)
+    elif served.contract.reads == "mortal":
+        from .observe import Planes
+        seats = np.frombuffer(arena.seats(), dtype=np.uint8)
+        players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(len(counts), 4)
+        follower = arena_follower(arena)
+    else:
+        raise UnsupportedSearchLayout("no encoder for this reader")
+    for start in range(0, total, batch_size):
+        stop = min(start + batch_size, total)
+        games = game_of[start:stop]
+        if public is not None:
+            planes = torch.from_numpy(public[games].copy()).to(device)
+        else:
+            unique, inverse = np.unique(games, return_inverse=True)
+            if np.any(seats[unique] >= 4):
+                raise ValueError("proposals came from a game with no deciding seat")
+            who = [(int(game), int(players[game, seats[game]])) for game in unique]
+            indptr, indices, values, _masks = follower.encode(who)
+            planes = Planes.from_follower(indptr, indices, values).rows(inverse).dense(device)
+        shown = torch.from_numpy(hands[start:stop].copy()).to(device)
+        said = served.net.read_plausibility(planes, shown).float().cpu().numpy()
+        if said.shape != (stop - start,) or not np.isfinite(said).all():
+            raise ValueError("world reader must return one finite log weight per proposal")
+        result[start:stop] = said
+    return result
 
 
 DEFAULT_LEAF_BATCH = 256

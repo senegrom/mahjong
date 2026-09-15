@@ -180,26 +180,12 @@ def search_with_value_head(
     kept = [[] for _ in range(games)]
     weights = [[] for _ in range(games)]
     if total:
-        weighs = served.contract.reads == "engine" and hasattr(net, "read_plausibility")
-        if weighs:
-            hands = np.frombuffer(hands_bytes, dtype=np.float32)
-            hands = hands.reshape(total, HIDDEN_HANDS_PLANES, POSITIONS)
-            public = np.frombuffer(arena.observations(), dtype=np.float32)
-            public = public.reshape(games, PLANES, POSITIONS)
-            game_of = np.repeat(np.arange(games), counts)
-            plausible = np.empty(total, dtype=np.float32)
-            step = 4096
-            for start in range(0, total, step):
-                rows = slice(start, start + step)
-                position = torch.from_numpy(public[game_of[rows]]).to(device)
-                shown = torch.from_numpy(hands[rows]).to(device)
-                plausible[rows] = net.read_plausibility(position, shown).float().cpu().numpy()
-        else:
-            # The reader that weighs a world reads our own planes beside the
-            # hands, and a network on Mortal's planes has no such reader.
-            # Its worlds count evenly, which is what a reader that had
-            # learned nothing would give: the unweighted estimator.
-            plausible = np.zeros(total, dtype=np.float32)
+        plausible = contract_module.proposal_scores(served, arena, hands_bytes, counts, device,
+                                                   batch_size=leaf_batch)
+        if health is not None:
+            health["world_reader"] = (served.contract.reads
+                                      if getattr(served.contract, "reader_planes", None) is not None
+                                      else "uniform")
         offset = 0
         # Drawn in proportion to the reader's weights rather than taken from
         # the top of them: see `neural.worlds`. Keeping the likeliest worlds
@@ -430,6 +416,7 @@ def play(
                             "reads the engine's, which nothing here records"
                         )
                     judgements = arena.judgements()
+                    world_weights = arena.judgement_weights()
                     for at, game in enumerate(rows):
                         judged = judgements[game]
                         if len(judged) < 2:
@@ -438,7 +425,7 @@ def play(
                         recording.add(
                             root, judged, int(order[game][0]), int(choice[game]),
                             int(searcher), int(game), steps, sure=float(top[game]),
-                            legal=mask[game],
+                            legal=mask[game], weights=world_weights[game],
                         )
                     recording.checkpoint()
             arena.step(list(choice))
@@ -490,6 +477,7 @@ class Recording:
         self.candidates: list[list[int]] = []
         self.values: list[list[float]] = []
         self.per_world: list[list[list[float]]] = []
+        self.world_weights: list[list[float]] = []
         self.policy: list[int] = []
         self.search: list[int] = []
         self.chair: list[int] = []
@@ -511,8 +499,12 @@ class Recording:
 
     def add(
         self, root, judged, policy: int, search: int, chair: int, game: int, step: int,
-        sure: float = 1.0, legal=None,
+        sure: float = 1.0, legal=None, weights=None,
     ) -> None:
+        count = max((len(worlds) for _, _, worlds in judged), default=0)
+        self.world_weights.append([1.0] * count if weights is None else list(weights))
+        if len(self.world_weights[-1]) != count:
+            raise ValueError("one weight per independent recorded world")
         self.roots.append(root)
         self.candidates.append([int(index) for index, _value, _worlds in judged])
         self.values.append([float(value) for _index, value, _worlds in judged])
@@ -554,7 +546,9 @@ class Recording:
         candidates = np.full((rows, width), -1, dtype=np.int64)
         values = np.full((rows, width), np.nan, dtype=np.float32)
         per_world = np.full((rows, width, worlds), np.nan, dtype=np.float32)
+        weights = np.zeros((rows, worlds), dtype=np.float64)
         for at in range(rows):
+            weights[at, :len(self.world_weights[at])] = self.world_weights[at]
             n = len(self.candidates[at])
             candidates[at, :n] = self.candidates[at]
             values[at, :n] = self.values[at]
@@ -568,6 +562,7 @@ class Recording:
         np.save(folder / "candidates.npy", candidates)
         np.save(folder / "values.npy", values)
         np.save(folder / "per_world.npy", per_world)
+        np.save(folder / "world_weights.npy", weights)
         np.save(folder / "policy.npy", np.asarray(self.policy, dtype=np.int64))
         np.save(folder / "search.npy", np.asarray(self.search, dtype=np.int64))
         np.save(folder / "chair.npy", np.asarray(self.chair, dtype=np.int64))

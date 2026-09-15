@@ -95,6 +95,7 @@ class Recorded:
         self.values = np.load(folder / "values.npy")
         per_world = folder / "per_world.npy"
         self.per_world = np.load(per_world) if per_world.exists() else None
+        self.world_weights = np.load(folder / "world_weights.npy")
         self.policy = np.load(folder / "policy.npy")
         self.search = np.load(folder / "search.npy")
         self.game = np.load(folder / "game.npy")
@@ -155,9 +156,14 @@ class Recorded:
             # of the candidates tried there, then its variance over worlds.
             centred = worlds - np.nanmean(worlds, axis=1, keepdims=True)
             counted = (~np.isnan(centred)).sum(axis=2)
-            spread = np.nanvar(centred, axis=2)
-        spread = np.where(counted > 1, spread, 0.0)
-        error = spread / np.maximum(counted, 1)
+        mass = np.where(np.isfinite(centred), self.world_weights[:, None, :], 0.0)
+        total = mass.sum(axis=2, keepdims=True)
+        mass = np.divide(mass, total, out=np.zeros_like(mass), where=total > 0)
+        mean = np.nansum(centred * mass, axis=2, keepdims=True)
+        concentration = np.square(mass).sum(axis=2)
+        spread = np.nansum(np.square(mass) * np.square(centred - mean), axis=2)
+        error = np.divide(spread, 1 - concentration, out=np.full_like(spread, np.inf),
+                          where=(counted > 1) & (concentration < 1))
         return np.where(valid, 1.0 / (error + floor**2), np.nan).astype(np.float32)
 
     def split(self, held_out_every: int = 10) -> tuple[np.ndarray, np.ndarray]:
@@ -301,7 +307,10 @@ def train(
     candidates_all = torch.from_numpy(recorded.candidates)
     if weighted:
         precision = recorded.precision()
-        precision = precision / np.nanmean(precision)
+        positive = precision[np.isfinite(precision) & (precision > 0)]
+        if not len(positive):
+            raise ValueError("weighted fitting needs independent-world uncertainty evidence")
+        precision = precision / positive.mean()
         weights_all = torch.from_numpy(np.nan_to_num(precision, nan=0.0))
     else:
         weights_all = torch.ones_like(targets_all)
@@ -353,12 +362,20 @@ def train(
 
 
 def save(head: Ranker, path: Path, meta: dict) -> None:
-    torch.save({"ranker": head.state_dict(), "channels": head.rest.in_features, **meta}, path)
+    from .checkpoints import atomic_artifact
+    if {"ranker", "channels"} & meta.keys():
+        raise ValueError("metadata cannot replace the sibling head schema")
+    atomic_artifact({**meta, "ranker": head.state_dict(), "channels": head.rest.in_features},
+                    path, lambda staged: load(staged, "cpu"))
 
 
 def load(path: Path, device: str = "cpu") -> tuple[Ranker, dict]:
     payload = torch.load(path, map_location=device, weights_only=True)
-    head = Ranker(int(payload["channels"]))
+    if type(payload.get("channels")) is not int or payload["channels"] <= 0:
+        raise ValueError("invalid sibling head dimensions")
+    if any(not torch.isfinite(t).all() for t in payload["ranker"].values()):
+        raise ValueError("nonfinite sibling head weights")
+    head = Ranker(payload["channels"])
     head.load_state_dict(payload["ranker"])
     head.to(device).eval()
     return head, {k: v for k, v in payload.items() if k not in ("ranker", "channels")}
@@ -435,6 +452,9 @@ def gathered(parts: list[Recorded]) -> Recorded:
             block[:, : part.per_world.shape[1], : part.per_world.shape[2]] = part.per_world
             blocks.append(block)
         joined.per_world = np.concatenate(blocks)
+        joined.world_weights = np.concatenate([
+            np.pad(part.world_weights, ((0, 0), (0, worlds - part.world_weights.shape[1])))
+            for part in parts])
     else:
         joined.per_world = None
     joined.policy = np.concatenate([part.policy for part in parts])
