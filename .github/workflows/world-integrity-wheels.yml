@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 740d2601d09b357496ebf8a0a9c198c8e2ed77b3
+          ref: aead32fa9aaeba5983797210ac76598b51634117
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -26,14 +26,19 @@ jobs:
             . -> target
             engine/libriichi -> target
           save-if: false
-      - name: Build engines
+      - name: Build engines and native test binaries
         run: |
           python -m pip install 'maturin>=1.7,<2'
           (cd engine/riichi-py && maturin build --release --locked --out ../../wheels)
           (cd engine/libriichi && maturin build --release --locked --out ../../wheels)
+          cargo test --locked --release -p riichi-core --no-run
           git rev-parse HEAD > wheels/source-commit.txt
+          find target/release/deps -maxdepth 1 -type f -executable \( -name 'riichi_core-*' -o -name 'riichi_worlds-*' \) -exec cp {} wheels/ \;
+      - name: Time the joint declaration stress case
+        run: timeout 40s cargo test --locked --release -p riichi-core three_declared_hands -- --nocapture > wheels/joint-stress.log 2>&1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
-          name: pinned-world-integrity-wheels
+          name: final-world-integrity-wheels
           path: wheels/
           retention-days: 2
