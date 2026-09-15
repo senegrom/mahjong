@@ -21,12 +21,12 @@ from uuid import uuid4
 
 from .checkpoints import staging_file, sync_directory
 
-FORMAT = 2
+FORMAT = 3
 SEARCH_BACKUP_VERSION = 2
 REWARD_VERSION = 1
 ARRAYS = (
     'root-indptr', 'root-indices', 'root-values', 'candidates', 'values',
-    'per_world', 'policy', 'search', 'chair', 'game', 'step', 'sure', 'legal',
+    'per_world', 'world_weights', 'policy', 'search', 'chair', 'game', 'step', 'sure', 'legal',
 )
 FILES = tuple(f'{name}.npy' for name in ARRAYS) + ('meta.json',)
 
@@ -66,7 +66,7 @@ def resolve_recording(folder: Path) -> Path:
     if pointer.exists():
         state = json.loads(pointer.read_text(encoding='utf-8'))
         name = state.get('snapshot') if isinstance(state, dict) else None
-        if (not isinstance(state, dict) or state.get('format') != FORMAT or not isinstance(name, str)
+        if (not isinstance(state, dict) or state.get('format') not in (2, FORMAT) or not isinstance(name, str)
                 or re.fullmatch(r'[0-9a-f]{32}', name) is None):
             raise ValueError('Invalid recording publication pointer')
         snapshot = folder / 'snapshots' / name
@@ -121,6 +121,11 @@ def validate_snapshot(folder: Path, *, require_complete: bool = True,
             or values.dtype != np.float32 or values.shape != candidates.shape
             or worlds.dtype != np.float32 or worlds.ndim != 3 or worlds.shape[:2] != candidates.shape):
         raise ValueError('Invalid candidate/value/world array schema')
+    weights = data['world_weights']
+    if (weights.dtype != np.float64 or weights.shape != (rows, worlds.shape[2])
+            or not np.isfinite(weights).all() or np.any(weights < 0)
+            or np.any(weights.sum(1) <= 0)):
+        raise ValueError('Invalid independent-world weights')
     for name in ('policy', 'search', 'chair', 'game', 'step'):
         if data[name].dtype != np.int64 or data[name].shape != (rows,):
             raise ValueError(f'Invalid recording array: {name}')

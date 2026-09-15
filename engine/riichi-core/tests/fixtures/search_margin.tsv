@@ -1,0 +1,10 @@
+constant_positive	2	1,1,1,1,1,1	1,1,1,1,1,1	1
+constant_negative	2	-1,-1,-1,-1	1,1,1,1	0
+tie	2	0,0,0,0	1,1,1,1	0
+two_proposals	2	1,3	16,16	0
+missing_world	2	1,nan,1,1	1,1,1,1	1
+weighted_negative	2	-1,0,4	8,1,1	0
+noisy_positive	2	-1,1,3,1	1,1,1,1	0
+strong_positive	2	3,4,5	1,1,1	1
+zero_margin	0	1,1,1	1,1,1	1
+zero_weight	2	1,1,1,0	1,1,1,0	1

@@ -193,6 +193,7 @@ class Batch:
     #: holds whole games out with it: the decisions of one game share
     #: its result and are not independent samples of it.
     game_of: torch.Tensor | None = None
+    seed: int | None = None
 
 
 def imagine(arena, beliefs: np.ndarray) -> bytes:
@@ -622,6 +623,7 @@ def play(
         returns=torch.tensor(rewards, dtype=torch.float32),
         placements=torch.tensor(placement_only, dtype=torch.float32),
         game_of=torch.from_numpy(game_of),
+        seed=int(seed),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,
         hands=hands,
@@ -737,7 +739,21 @@ def save_round(batch: Batch, path: Path, meta: dict | None = None) -> None:
             "this round kept no planes to train a head on: the network that played "
             "sees the engine's planes, which nothing trains on any more"
         )
+    from .checkpoints import atomic_artifact
+    from .placement import validate_round
+    extra = dict(meta or {})
+    seed = batch.seed
+    if seed is None:
+        seed = extra.get("seed")
+    if "seed" in extra and extra["seed"] != seed:
+        raise ValueError("round metadata cannot change the environment seed")
+    extra.pop("seed", None)
+    reserved = {"round_version", "reward_version", "observations", "placements", "returns",
+                "games_of", "games", "hands", "decisions", "final_scores"}
+    if reserved & extra.keys():
+        raise ValueError("round metadata cannot replace schema or collected data")
     payload = {
+        "seed": seed,
         "round_version": ROUND_VERSION,
         "reward_version": int(batch.reward_version),
         "observations": {name: np.ascontiguousarray(array)
@@ -749,11 +765,9 @@ def save_round(batch: Batch, path: Path, meta: dict | None = None) -> None:
         "hands": int(batch.hands),
         "decisions": int(batch.decisions),
         "final_scores": np.asarray(batch.final_scores),
-        **(meta or {}),
+        **extra,
     }
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(payload, path)
+    atomic_artifact(payload, Path(path), validate_round)
 
 
 def main() -> None:

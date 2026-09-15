@@ -91,8 +91,14 @@ class Positions:
             raise ValueError("one placement a position")
         self.planes = planes
         self.placements = np.asarray(placements, dtype=np.float32)
-        self.games = (np.asarray(games, dtype=np.int64) if games is not None
-                      else np.arange(len(placements), dtype=np.int64))
+        if games is None:
+            raise ValueError("placement positions require stable environment game identities")
+        identities = np.asarray(games)
+        if (identities.shape != (len(placements),) or identities.dtype.kind not in "iu"
+                or np.any(identities < 0) or self.placements.shape != (len(planes),)
+                or not np.isfinite(self.placements).all()):
+            raise ValueError("invalid placement labels or game identities")
+        self.games = identities.astype(np.uint64)
 
     def __len__(self) -> int:
         return len(self.placements)
@@ -107,13 +113,18 @@ class Positions:
                 "out of a return after the fact"
             )
         games = getattr(batch, "game_of", None)
+        seed = getattr(batch, "seed", None)
+        if games is None or type(seed) is not int or not 0 <= seed < 2**64:
+            raise ValueError("this round does not carry its environment game seeds")
         return cls(batch.observations, np.asarray(placements, dtype=np.float32),
-                   None if games is None else np.asarray(games, dtype=np.int64))
+                   np.asarray(games, dtype=np.uint64) + np.uint64(seed))
 
     def split(self, held_out_every: int = 10) -> tuple[np.ndarray, np.ndarray]:
         """Positions to fit and positions to hold back, by game: the
         decisions of one game share its result and are not independent."""
-        held = (self.games % held_out_every) == 0
+        if type(held_out_every) is not int or not 2 <= held_out_every < 2**64:
+            raise ValueError("held_out_every must be an integer from 2 to 2**64-1")
+        held = (self.games % np.uint64(held_out_every)) == 0
         return np.nonzero(~held)[0], np.nonzero(held)[0]
 
 
@@ -144,27 +155,67 @@ def require_head_for(meta: dict, net) -> None:
         )
 
 
-def load_rounds(paths: list[Path]) -> Positions:
-    """The positions of one or more rounds written by `selfplay.save_round`,
-    their games numbered apart so a hold-out by game stays one."""
-    from .selfplay import ROUND_VERSION
+def validate_round(path: Path) -> dict:
+    """Validate a round's arrays and real seed provenance before fitting/publishing.
 
-    blocks, placements, games, offset = [], [], [], 0
+    Version-1 rounds contain NumPy arrays, so these files must come from a trusted
+    local collector (the existing round format is not an untrusted interchange).
+    """
+    from .selfplay import ROUND_VERSION
+    from .ledger import REWARD_VERSION
+
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    if not isinstance(payload, dict) or payload.get("round_version") != ROUND_VERSION:
+        raise ValueError(f"{path}: unsupported round version")
+    if payload.get("reward_version") != REWARD_VERSION:
+        raise ValueError("round reward version is incompatible")
+    for name, minimum in (("seed", 0), ("games", 1), ("decisions", 1), ("hands", 1)):
+        if type(payload.get(name)) is not int or payload[name] < minimum:
+            raise ValueError(f"round needs a valid {name}")
+    if payload["seed"] + payload["games"] > 2**64:
+        raise ValueError("round game seeds overflow u64")
+    n = payload["decisions"]
+    observations = payload.get("observations")
+    if not isinstance(observations, dict) or set(observations) != set(Planes.ARRAYS):
+        raise ValueError("invalid round observations")
+    Planes(*(np.asarray(observations[name]) for name in Planes.ARRAYS)).validate(expected_rows=n)
+    for name in ("placements", "returns"):
+        value = np.asarray(payload.get(name))
+        if value.dtype != np.float32 or value.shape != (n,) or not np.isfinite(value).all():
+            raise ValueError(f"invalid round {name}")
+    from .ledger import PLACEMENT_VALUE
+    if (np.any(payload["placements"] < min(PLACEMENT_VALUE))
+            or np.any(payload["placements"] > max(PLACEMENT_VALUE))):
+        raise ValueError("round placements are outside the placement reward range")
+    played = np.asarray(payload.get("games_of"))
+    if (played.dtype != np.int64 or played.shape != (n,)
+            or np.any((played < 0) | (played >= payload["games"]))):
+        raise ValueError("invalid round games_of")
+    scores = np.asarray(payload.get("final_scores"))
+    if scores.shape != (payload["games"], 4) or scores.dtype.kind not in "iu":
+        raise ValueError("invalid round final scores")
+    return payload
+
+
+def load_rounds(paths: list[Path]) -> Positions:
+    """Split by actual environment seed, never input order or mutable paths.
+
+    Overlapping seed ranges are rejected, including duplicate round bytes under
+    different names. This deliberately refuses repeated deals under other actors
+    too: they need an explicit weighting policy, not accidental double counting.
+    """
+    if not paths:
+        raise ValueError("at least one round is required")
+    blocks, placements, games, ranges = [], [], [], []
     for path in paths:
-        payload = torch.load(path, map_location="cpu", weights_only=False)
-        if int(payload.get("round_version", 0)) != ROUND_VERSION:
-            raise ValueError(
-                f"{path} is not a round this reads: it says round version "
-                f"{payload.get('round_version')}, and this is version {ROUND_VERSION}"
-            )
-        if payload.get("games_of") is None:
-            raise ValueError(f"{path} does not say which game each decision belongs to")
+        payload = validate_round(path)
+        lo, hi = payload["seed"], payload["seed"] + payload["games"]
+        if any(lo < end and begin < hi for begin, end in ranges):
+            raise ValueError("duplicate or overlapping environment game seeds in rounds")
+        ranges.append((lo, hi))
         blocks.append(Planes(*(np.asarray(payload["observations"][name]) for name in Planes.ARRAYS)))
         placements.append(np.asarray(payload["placements"], dtype=np.float32))
-        played = np.asarray(payload["games_of"], dtype=np.int64)
-        games.append(played + offset)
-        counted = payload.get("games")
-        offset += played.max().item() + 1 if counted is None else counted
+        games.append(np.asarray(payload["games_of"], dtype=np.uint64) + np.uint64(lo))
     return Positions(Planes.cat(blocks), np.concatenate(placements), np.concatenate(games))
 
 
@@ -244,9 +295,12 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
 
 
 def save(head: Judge, path: Path, meta: dict) -> None:
-    torch.save({"judge": head.state_dict(), "channels": head.body[0].in_features // 2,
-                "hidden": head.body[0].out_features, "placement_version": PLACEMENT_VERSION,
-                **meta}, path)
+    from .checkpoints import atomic_artifact
+    if {"judge", "channels", "hidden", "placement_version"} & meta.keys():
+        raise ValueError("metadata cannot replace the placement head schema")
+    atomic_artifact({**meta, "judge": head.state_dict(), "channels": head.body[0].in_features // 2,
+                     "hidden": head.body[0].out_features, "placement_version": PLACEMENT_VERSION},
+                    path, lambda staged: load(staged, "cpu"))
 
 
 def load(path: Path, device: str = "cpu") -> tuple[Judge, dict]:
@@ -256,7 +310,11 @@ def load(path: Path, device: str = "cpu") -> tuple[Judge, dict]:
             f"{path} was trained against placement version "
             f"{payload.get('placement_version')}, and this is version {PLACEMENT_VERSION}"
         )
-    head = Judge(int(payload["channels"]), int(payload.get("hidden", 64)))
+    if any(type(payload.get(key)) is not int or payload[key] <= 0 for key in ("channels", "hidden")):
+        raise ValueError("invalid placement head dimensions")
+    if any(not torch.isfinite(t).all() for t in payload["judge"].values()):
+        raise ValueError("nonfinite placement head weights")
+    head = Judge(payload["channels"], payload["hidden"])
     head.load_state_dict(payload["judge"])
     head.to(device).eval()
     return head, {k: v for k, v in payload.items() if k not in ("judge", "channels", "hidden")}

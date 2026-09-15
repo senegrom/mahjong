@@ -27,11 +27,11 @@ def require_search_engine() -> None:
     """Old native backups added later hands' rewards; never use them silently."""
     import riichi_py
 
-    if getattr(riichi_py, "SEARCH_API_VERSION", 0) != 2:
+    if getattr(riichi_py, "SEARCH_API_VERSION", 0) != 3:
         raise RuntimeError(
-            "Rebuild and reinstall riichi_py: search requires API version 2 "
+            "Rebuild and reinstall riichi_py: search requires API version 3 "
             "(root-hand rewards, terminal placement, strict atomic lookahead actions, "
-            "and a boundary leaf for a placement-only head)"
+            "boundary placement leaves and independent constrained proposals)"
         )
 
 def benchmark_history(payload: dict) -> tuple[float | None, float]:

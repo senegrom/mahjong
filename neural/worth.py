@@ -11,7 +11,7 @@ So the worlds are split here. Half of them decide -- the paired mean, its
 standard error and the margin, exactly as `search::compare` and
 `pick_by_margin` do it -- and the other half scores the move that was
 picked against the policy's own. Averaged over many splits, the
-difference is an unbiased estimate of what the rule gains a decision, in
+difference is a held-out estimate of what the rule gains a decision, in
 the units the rollouts spoke in: hand points over four thousand plus the
 placement the hand led to. Deciding on half the worlds, it understates a
 search that decides on all of them.
@@ -45,22 +45,34 @@ REPEATS = 16
 LEAST_WORLDS = 6
 
 
-def edge_and_error(mine: np.ndarray, theirs: np.ndarray) -> tuple[float, float]:
-    """A candidate's paired mean against the incumbent over the worlds
-    both were tried in, and its standard error, as the engine counts them
-    with even weights (`search::compare`). An error of infinity means too
-    few worlds to say."""
-    paired = mine - theirs
-    paired = paired[np.isfinite(paired)]
+def edge_and_error(mine: np.ndarray, theirs: np.ndarray, weights=None) -> tuple[float, float]:
+    """Native weighted comparison over INDEPENDENT proposals, not repeats."""
+    paired = np.asarray(mine, dtype=np.float64) - np.asarray(theirs, dtype=np.float64)
+    weight = np.ones_like(paired) if weights is None else np.asarray(weights, dtype=np.float64)
+    if weight.shape != paired.shape or not np.isfinite(weight).all() or np.any(weight < 0):
+        raise ValueError("invalid world weights")
+    live = np.isfinite(paired) & (weight > 0)
+    paired, weight = paired[live], weight[live]
     if len(paired) < 3:
         return 0.0, float("inf")
-    mean = float(paired.mean())
-    spread = float(((paired - mean) ** 2).sum()) / len(paired) ** 2
-    return mean, float(np.sqrt(spread / (1.0 - 1.0 / len(paired))))
+    weight = weight / weight.sum()
+    mean = float((paired * weight).sum())
+    concentration = float(np.square(weight).sum())
+    if concentration >= 1:
+        return 0.0, float("inf")
+    spread = float((np.square(weight) * np.square(paired - mean)).sum())
+    return mean, float(np.sqrt(spread / (1 - concentration)))
+
+
+def weighted_means(table, weights):
+    mass = np.where(np.isfinite(table), weights, 0.0)
+    totals = mass.sum(axis=1)
+    return np.divide((np.nan_to_num(table) * mass).sum(axis=1), totals,
+                     out=np.full(len(table), np.nan), where=totals > 0)
 
 
 def picked_by_margin(table: np.ndarray, valid: np.ndarray, worlds: np.ndarray,
-                     margin: float = MARGIN) -> int:
+                     margin: float = MARGIN, weights=None) -> int:
     """Which candidate the engine's rule takes, judging on the worlds
     named: the one with the largest edge over the policy's move that
     clears the margin, or the policy's move."""
@@ -68,8 +80,9 @@ def picked_by_margin(table: np.ndarray, valid: np.ndarray, worlds: np.ndarray,
     for candidate in range(1, len(valid)):
         if not valid[candidate]:
             continue
-        edge, error = edge_and_error(table[candidate, worlds], table[0, worlds])
-        if np.isfinite(error) and error > 0 and edge > margin * error and edge > best:
+        edge, error = edge_and_error(table[candidate, worlds], table[0, worlds],
+                                     None if weights is None else weights[worlds])
+        if np.isfinite(error) and edge > margin * error and edge > best:
             chose, best = candidate, edge
     return chose
 
@@ -88,13 +101,17 @@ def measure(folder: Path, margin: float = MARGIN, repeats: int = REPEATS,
     game = np.load(folder / "game.npy")
     drawer = np.random.default_rng(seed)
     rows, width, _count = per_world.shape
+    weight_file = folder / "world_weights.npy"
+    weights = np.load(weight_file) if weight_file.exists() else np.ones((rows, _count))
+    if weights.shape != (rows, _count) or not np.isfinite(weights).all() or np.any(weights < 0):
+        raise ValueError("invalid recorded world weights")
     by_margin, by_best, fired = [], [], []
     for row in range(rows):
         table = per_world[row]
         valid = ~np.isnan(values[row])
         if valid.sum() < 2 or not valid[0]:
             continue
-        which = np.nonzero((~np.isnan(table)).any(axis=0))[0]
+        which = np.nonzero((~np.isnan(table)).any(axis=0) & (weights[row] > 0))[0]
         if len(which) < LEAST_WORLDS:
             continue
         margins, bests, fires = [], [], []
@@ -104,11 +121,11 @@ def measure(folder: Path, margin: float = MARGIN, repeats: int = REPEATS,
             deciding, scoring = shuffled[:half], shuffled[half:]
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                scored = np.nanmean(table[:, scoring], axis=1)
-                decided = np.nanmean(table[:, deciding], axis=1)
+                scored = weighted_means(table[:, scoring], weights[row, scoring])
+                decided = weighted_means(table[:, deciding], weights[row, deciding])
             if not np.isfinite(scored[0]):
                 continue
-            chose = picked_by_margin(table, valid, deciding, margin)
+            chose = picked_by_margin(table, valid, deciding, margin, weights=weights[row])
             if np.isfinite(scored[chose]):
                 margins.append(scored[chose] - scored[0])
                 fires.append(chose != 0)
@@ -141,6 +158,7 @@ def measure(folder: Path, margin: float = MARGIN, repeats: int = REPEATS,
     return {
         "recording": str(folder),
         "search_backup_version": meta.get("search_backup_version", 1),
+        "independent_worlds": weight_file.exists(),
         "worlds": meta.get("worlds"),
         "sure": meta.get("sure"),
         "complete": meta.get("complete"),

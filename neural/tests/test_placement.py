@@ -69,11 +69,16 @@ class SelfPlayLabelsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             path = Path(folder) / "round.pt"
             selfplay.save_round(batch, path, {"seed": 11})
-            positions = placement.load_rounds([path, path])
-            self.assertEqual(len(positions), 2 * batch.decisions)
-            self.assertEqual(int(positions.games.max()), 3)
+            with self.assertRaisesRegex(ValueError, "duplicate or overlapping"):
+                placement.load_rounds([path, path])
+            second = Path(folder) / "other.pt"
+            other = a_round(seed=14, on_mortal_planes=True)
+            selfplay.save_round(other, second)
+            positions = placement.load_rounds([path, second])
+            self.assertEqual(len(positions), batch.decisions + other.decisions)
+            self.assertEqual(int(positions.games.max()), 15)
             np.testing.assert_array_equal(positions.placements[: batch.decisions], batch.placements.numpy())
-            np.testing.assert_array_equal(positions.games[batch.decisions :], batch.game_of.numpy() + 2)
+            np.testing.assert_array_equal(positions.games[batch.decisions :], other.game_of.numpy() + 14)
             training, held = positions.split(held_out_every=2)
             self.assertTrue(set(positions.games[training]).isdisjoint(set(positions.games[held])))
             self.assertEqual(len(training) + len(held), len(positions))
