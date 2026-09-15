@@ -22,23 +22,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: 1.98.1
-      - name: Package the reviewed source
-        run: |
-          mkdir -p review-workspace
-          git archive HEAD neural engine Cargo.toml Cargo.lock docs .github web/runtime/reduced-ops.config | gzip > review-workspace/source.tar.gz
-          git rev-parse HEAD > review-workspace/revision.txt
+          components: rustfmt, clippy
       - name: Install the native build tool
         run: python -m pip install 'maturin>=1.7,<2'
-      - name: Build both Python engines
+      - name: Fetch both locked dependency graphs
         run: |
-          cd engine/riichi-py
-          maturin build --release --locked --out ../../review-workspace
-          cd ../libriichi
-          maturin build --release --locked --out ../../review-workspace
-      - name: Upload the isolated review workspace
+          cargo fetch --locked
+          cargo fetch --locked --manifest-path engine/libriichi/Cargo.toml
+      - name: Package offline compiler and public dependencies only
+        run: |
+          mkdir -p review-tools
+          cp "$(command -v maturin)" review-tools/maturin
+          tar -C "$HOME/.rustup/toolchains" -czf review-tools/toolchain.tar.gz 1.98.1-x86_64-unknown-linux-gnu
+          tar -C "$HOME/.cargo" -czf review-tools/registry.tar.gz registry
+          sha256sum review-tools/* > review-tools/SHA256SUMS
+      - name: Upload the offline test toolchain
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: teacher-review-workspace
-          path: review-workspace
+          name: teacher-review-tools
+          path: review-tools
           retention-days: 1
           if-no-files-found: error
