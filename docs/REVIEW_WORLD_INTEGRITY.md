@@ -20,8 +20,11 @@ playing strength remeasured against the new proposal. Impossible public constrai
 fail instead of falling back to the actual hidden hand or an invalid random deal.
 Joint backtracking can cost more in tightly constrained positions. When the last
 constrained hand must consume exactly the remaining pool, its body is checked
-directly instead of enumerating its decompositions again. This pruning does not
-remove any feasible deal or consult hidden information.
+directly instead of enumerating its decompositions again. A tight multi-hand pool
+uses exact cover across all hands, assigning the scarcest tile first rather than
+committing an entire early hand. Costly trial orders may restart after rolling back
+all reservations; a final exhaustive attempt retains completeness. Neither path
+consults hidden identities or turns a search-budget failure into an invalid deal.
 
 ## Independent-world confidence
 
@@ -74,5 +77,6 @@ come from a trusted collector, not an untrusted download.
 
 Tests include live accepted declarations, all waiting-shape families, concealed
 quads, exhausted waits, joint constraints, conservation and hidden-input independence;
-native repeated-proposal paths; reader layout/batch checks; copied/overlapping round
-rejection and near-u64 seed boundaries; and serialization/validation/rename faults.
+rollback of interrupted ordinary and exact-cover allocations; native repeated-proposal
+paths; reader layout/batch checks; copied/overlapping round rejection and near-u64
+seed boundaries; and serialization/validation/rename faults.
