@@ -136,6 +136,98 @@ struct Dealer {
 }
 
 impl Dealer {
+    /// With no spare tiles, choose a shape per hand and cover the pool jointly.
+    /// Assigning the scarcest tile first avoids committing a whole early hand
+    /// whose locally legal shape strands every possible later allocation.
+    fn tight_shapes(
+        &mut self,
+        at: usize,
+        pending: &mut Vec<(usize, usize)>,
+        distinct: &mut [bool],
+    ) -> bool {
+        if self.exhausted {
+            return false;
+        }
+        if at == self.plans.len() {
+            return self.cover(pending, distinct);
+        }
+        for shape in self.plans[at].shapes.clone() {
+            let before = pending.len();
+            distinct[at] = shape.len() == 7;
+            pending.extend(shape.iter().map(|kind| (at, *kind)));
+            if self.tight_shapes(at + 1, pending, distinct) {
+                return true;
+            }
+            pending.truncate(before);
+            if self.exhausted {
+                return false;
+            }
+        }
+        false
+    }
+
+    fn cover(&mut self, pending: &mut Vec<(usize, usize)>, distinct: &[bool]) -> bool {
+        if let Some(left) = &mut self.remaining {
+            if *left == 0 {
+                self.exhausted = true;
+                return false;
+            }
+            *left -= 1;
+        }
+        if pending.is_empty() {
+            return self.available.is_empty()
+                && self
+                    .plans
+                    .iter()
+                    .all(|p| p.accepts(&self.hands[p.seat.index()]));
+        }
+        let mut choices: [Vec<(usize, TileSet)>; KINDS] = std::array::from_fn(|_| Vec::new());
+        for (position, &(at, kind)) in pending.iter().enumerate() {
+            // Identical slots of one hand are interchangeable, not new branches.
+            if pending[..position].contains(&(at, kind)) {
+                continue;
+            }
+            let plan = &self.plans[at];
+            let held = &self.hands[plan.seat.index()];
+            for &group in &plan.catalogs[kind] {
+                if group.tiles().any(|t| {
+                    group.count(t) > self.available.count(t) || (distinct[at] && held.count(t) > 0)
+                }) {
+                    continue;
+                }
+                for tile in Tile::all().filter(|t| group.count(*t) > 0) {
+                    choices[tile.idx()].push((position, group));
+                }
+            }
+        }
+        let Some(tile) = Tile::all()
+            .filter(|t| self.available.count(*t) > 0)
+            .min_by_key(|t| choices[t.idx()].len())
+        else {
+            return false;
+        };
+        for (position, group) in std::mem::take(&mut choices[tile.idx()]) {
+            let part = pending.remove(position);
+            let seat = self.plans[part.0].seat.index();
+            for tile in group.tiles() {
+                self.available.remove(tile);
+                self.hands[seat].add(tile);
+            }
+            if self.cover(pending, distinct) {
+                return true;
+            }
+            for tile in group.tiles() {
+                self.available.add(tile);
+                self.hands[seat].remove(tile);
+            }
+            pending.insert(position, part);
+            if self.exhausted {
+                return false;
+            }
+        }
+        false
+    }
+
     fn next(&mut self, at: usize) -> bool {
         if self.exhausted {
             return false;
@@ -265,7 +357,15 @@ pub(super) fn reserve(
             remaining: (attempt < 24).then_some(2048 << (attempt / 8)),
             exhausted: false,
         };
-        if dealer.next(0) {
+        let needed: usize = dealer.plans.iter().map(|p| 13 - 3 * p.melds).sum();
+        let tight = dealer.plans.len() > 1 && dealer.available.len() == needed;
+        let found = if tight {
+            let mut distinct = vec![false; dealer.plans.len()];
+            dealer.tight_shapes(0, &mut Vec::new(), &mut distinct)
+        } else {
+            dealer.next(0)
+        };
+        if found {
             *pool = dealer.available.tiles().collect();
             rng.shuffle(pool);
             return dealer.hands;
@@ -305,6 +405,35 @@ mod tests {
         assert!(!dealer.parts(0, &[0, 2, 2, 2, 2], 0, 0, TileSet::new()));
         assert!(dealer.exhausted);
         assert_eq!(dealer.available, body);
+    }
+
+    #[test]
+    fn interrupted_exact_cover_restores_hands_pool_and_slots() {
+        let hand = Table::new().deal(&mut Rng::from_seed(5));
+        let pool: TileSet = "123456789m123456789p123456789s111233345556z"
+            .parse()
+            .unwrap();
+        let mut rng = Rng::from_seed(1);
+        let plans = Wind::ALL[1..]
+            .iter()
+            .map(|seat| Plan::new(&hand, *seat, Wind::East, &Belief::even(), &mut rng))
+            .collect();
+        let mut dealer = Dealer {
+            plans,
+            available: pool,
+            hands: [TileSet::new(); 4],
+            remaining: Some(1),
+            exhausted: false,
+        };
+        let mut pending: Vec<_> = (0..3)
+            .flat_map(|at| [0, 2, 2, 2, 2].into_iter().map(move |kind| (at, kind)))
+            .collect();
+        let original = pending.clone();
+        assert!(!dealer.cover(&mut pending, &[false; 3]));
+        assert!(dealer.exhausted);
+        assert_eq!(dealer.available, pool);
+        assert_eq!(dealer.hands, [TileSet::new(); 4]);
+        assert_eq!(pending, original);
     }
 
     #[test]
