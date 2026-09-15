@@ -18,7 +18,10 @@ The constructive sampler is a proposal, **not an exact posterior over histories*
 Its shape distribution has changed; the likelihood reader should be retrained and
 playing strength remeasured against the new proposal. Impossible public constraints
 fail instead of falling back to the actual hidden hand or an invalid random deal.
-Joint backtracking can cost more in tightly constrained positions.
+Joint backtracking can cost more in tightly constrained positions. When the last
+constrained hand must consume exactly the remaining pool, its body is checked
+directly instead of enumerating its decompositions again. This pruning does not
+remove any feasible deal or consult hidden information.
 
 ## Independent-world confidence
 
@@ -33,10 +36,13 @@ remain separate; identity is not guessed from tile equality.
 Recordings now use format 3 and retain `world_weights.npy`, one mass per independent
 proposal. The offline selector uses the same weighted comparison, including positive
 zero-error differences, and shared TSV fixtures test Python/native parity. Sibling
-precision uses weighted independent-world errors. Old format-2 pointers remain
-resolvable for diagnostics, but training readers require new format-3 records: old
-records cannot establish which repeats were independent. Backed-up reward semantics
-remain version 2, and training reward/API semantics remain unchanged.
+precision uses weighted independent-world errors. A single independent world has
+zero precision, not maximum confidence; weighted fitting refuses a dataset with no
+estimable independent-world uncertainty rather than normalizing zero weights.
+Old format-2 pointers remain resolvable for diagnostics, but training readers require
+new format-3 records: old records cannot establish which repeats were independent.
+Backed-up reward semantics remain version 2, and training reward/API semantics
+remain unchanged.
 
 Rebuild `riichi-py` for **SEARCH_API_VERSION=3**. Existing policy checkpoints remain
 loadable. Recollect search labels rather than relabelling old confidence evidence.
