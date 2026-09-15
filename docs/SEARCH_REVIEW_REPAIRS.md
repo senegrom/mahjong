@@ -32,7 +32,8 @@ head records a fingerprint of the features it was fitted to and is refused
 beside any other network. An existing hybrid head cannot do this merely by
 changing its label.
 
-Rebuild `riichi-py`: search requires `SEARCH_API_VERSION = 2`, independently of the
+Rebuild `riichi-py`: search now requires `SEARCH_API_VERSION = 3` (see
+`REVIEW_WORLD_INTEGRITY.md` for independent-world recording format 3), independently of the
 unchanged training API. Recordings carry `search_backup_version = 2`. Earlier
 recordings remain available for diagnostic inspection but are refused as targets
 by `Recorded` and therefore the sibling-head and teaching trainers. Do not relabel

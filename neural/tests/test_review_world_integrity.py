@@ -100,8 +100,6 @@ class IndependentWorldTests(unittest.TestCase):
                 self.assertEqual(got, int(expected))
 
 
-if __name__ == '__main__': unittest.main()
-
 class RecordedWorldTests(unittest.TestCase):
     def test_nonuniform_independent_mass_survives_recording_and_loading(self):
         import tempfile
@@ -120,3 +118,22 @@ class RecordedWorldTests(unittest.TestCase):
             np.testing.assert_array_equal(loaded.world_weights, [[.25, .75]])
             np.testing.assert_allclose(worth.weighted_means(loaded.per_world[0], loaded.world_weights[0]), loaded.values[0])
             self.assertTrue(np.isfinite(loaded.precision()).all())
+
+    def test_weighted_training_refuses_only_singleton_evidence(self):
+        import tempfile
+        from neural.searched import Recording
+        from neural import sibling_head
+        from neural.observe import Planes
+        record = Recording()
+        record.add(Planes.from_follower([0, 1], [0], [1.]),
+                   [(0, 0., [0.]), (1, 1., [1.])], 0, 1, 0, 1, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            record.save(tmp, {})
+            recorded = sibling_head.Recorded(Path(tmp))
+            net = PolicyValueNet(8, 1, planes=1012, actions=78)
+            with self.assertRaisesRegex(ValueError, 'independent-world'):
+                sibling_head.train(recorded, net, weighted=True, target='values', epochs=1)
+
+
+if __name__ == '__main__':
+    unittest.main()

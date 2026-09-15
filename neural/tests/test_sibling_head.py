@@ -41,13 +41,13 @@ class SiblingHeadTests(unittest.TestCase):
             np.testing.assert_allclose(targets[1][:2], [0.2, -0.2], rtol=1e-5, atol=1e-6)
             self.assertTrue(np.isnan(targets[1][2]), "a missing candidate is no target")
             # The first row's worlds disagree about the second candidate
-            # and agree about the first; the second row has one world, so
-            # only the floor speaks.
+            # and agree about the first. One world cannot estimate its own
+            # uncertainty, so the second row has zero precision, not maximum.
             precision = recorded.precision(floor=0.1)
             self.assertTrue(np.isfinite(precision[0][:3]).all())
             self.assertTrue(np.isnan(precision[0][3:]).all() if precision.shape[1] > 3 else True)
             self.assertGreater(precision[0][0], precision[0][1], "a candidate the worlds agreed on is trusted more")
-            np.testing.assert_allclose(precision[1][:2], [100.0, 100.0], rtol=1e-4)
+            np.testing.assert_allclose(precision[1][:2], [0.0, 0.0], rtol=1e-4)
             self.assertTrue(np.isnan(precision[1][2]))
 
     def test_a_recording_is_kept_as_the_search_runs_and_read_back_whole(self):

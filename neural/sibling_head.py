@@ -156,7 +156,6 @@ class Recorded:
             # of the candidates tried there, then its variance over worlds.
             centred = worlds - np.nanmean(worlds, axis=1, keepdims=True)
             counted = (~np.isnan(centred)).sum(axis=2)
-            spread = np.nanvar(centred, axis=2)
         mass = np.where(np.isfinite(centred), self.world_weights[:, None, :], 0.0)
         total = mass.sum(axis=2, keepdims=True)
         mass = np.divide(mass, total, out=np.zeros_like(mass), where=total > 0)
@@ -308,7 +307,10 @@ def train(
     candidates_all = torch.from_numpy(recorded.candidates)
     if weighted:
         precision = recorded.precision()
-        precision = precision / np.nanmean(precision)
+        positive = precision[np.isfinite(precision) & (precision > 0)]
+        if not len(positive):
+            raise ValueError("weighted fitting needs independent-world uncertainty evidence")
+        precision = precision / positive.mean()
         weights_all = torch.from_numpy(np.nan_to_num(precision, nan=0.0))
     else:
         weights_all = torch.ones_like(targets_all)
