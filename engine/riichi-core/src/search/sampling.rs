@@ -131,10 +131,15 @@ struct Dealer {
     plans: Vec<Plan>,
     available: TileSet,
     hands: [TileSet; 4],
+    remaining: Option<usize>,
+    exhausted: bool,
 }
 
 impl Dealer {
     fn next(&mut self, at: usize) -> bool {
+        if self.exhausted {
+            return false;
+        }
         if at == self.plans.len() {
             return true;
         }
@@ -154,6 +159,9 @@ impl Dealer {
             if self.parts(at, &shape, 0, 0, TileSet::new()) {
                 return true;
             }
+            if self.exhausted {
+                break;
+            }
         }
         false
     }
@@ -166,6 +174,13 @@ impl Dealer {
         first: usize,
         held: TileSet,
     ) -> bool {
+        if let Some(left) = &mut self.remaining {
+            if *left == 0 {
+                self.exhausted = true;
+                return false;
+            }
+            *left -= 1;
+        }
         if step == shape.len() {
             let plan = &self.plans[at];
             if !plan.accepts(&held) {
@@ -211,6 +226,9 @@ impl Dealer {
             for tile in group.tiles() {
                 self.available.add(tile);
             }
+            if self.exhausted {
+                return false;
+            }
         }
         false
     }
@@ -230,23 +248,34 @@ pub(super) fn reserve(
     if seats.is_empty() {
         return [TileSet::new(); 4];
     }
-    rng.shuffle(&mut seats);
-    let plans = seats
-        .into_iter()
-        .map(|seat| Plan::new(hand, seat, observer, belief, rng))
-        .collect();
-    let mut dealer = Dealer {
-        plans,
-        available: TileSet::from_tiles(pool.iter().copied()),
-        hands: [TileSet::new(); 4],
-    };
-    assert!(
-        dealer.next(0),
-        "public riichi constraints have no feasible concealed deal"
-    );
-    *pool = dealer.available.tiles().collect();
-    rng.shuffle(pool);
-    dealer.hands
+    // An unlucky early shape can make the later hands impossible. Try
+    // different public-only orders before exhaustively disproving that shape.
+    // Each abort unwinds its reservations; the caller's pool is untouched.
+    // The final unbounded attempt retains completeness, including rare waits.
+    for attempt in 0..=24 {
+        rng.shuffle(&mut seats);
+        let plans = seats
+            .iter()
+            .map(|seat| Plan::new(hand, *seat, observer, belief, rng))
+            .collect();
+        let mut dealer = Dealer {
+            plans,
+            available: TileSet::from_tiles(pool.iter().copied()),
+            hands: [TileSet::new(); 4],
+            remaining: (attempt < 24).then_some(2048 << (attempt / 8)),
+            exhausted: false,
+        };
+        if dealer.next(0) {
+            *pool = dealer.available.tiles().collect();
+            rng.shuffle(pool);
+            return dealer.hands;
+        }
+        assert!(
+            dealer.exhausted,
+            "public riichi constraints have no feasible concealed deal"
+        );
+    }
+    unreachable!("the final exhaustive allocation either succeeds or proves infeasibility")
 }
 
 #[cfg(test)]
@@ -254,6 +283,29 @@ mod tests {
     use super::*;
     use crate::hand::Meld;
     use crate::score::Riichi;
+
+    #[test]
+    fn interrupted_joint_attempt_restores_every_reserved_tile() {
+        let hand = Table::new().deal(&mut Rng::from_seed(5));
+        let body: TileSet = "123m123p123s1112z".parse().unwrap();
+        let plan = Plan::new(
+            &hand,
+            Wind::South,
+            Wind::East,
+            &Belief::even(),
+            &mut Rng::from_seed(0),
+        );
+        let mut dealer = Dealer {
+            plans: vec![plan],
+            available: body,
+            hands: [TileSet::new(); 4],
+            remaining: Some(1),
+            exhausted: false,
+        };
+        assert!(!dealer.parts(0, &[0, 2, 2, 2, 2], 0, 0, TileSet::new()));
+        assert!(dealer.exhausted);
+        assert_eq!(dealer.available, body);
+    }
 
     #[test]
     fn three_declared_hands_are_reserved_jointly_from_the_same_pool() {
@@ -340,6 +392,8 @@ mod tests {
                     plans: vec![plan],
                     available: body,
                     hands: [TileSet::new(); 4],
+                    remaining: None,
+                    exhausted: false,
                 };
                 assert!(dealer.parts(0, &shape, 0, 0, TileSet::new()));
             }
