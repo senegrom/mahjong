@@ -1,0 +1,32 @@
+name: review source transfer
+on:
+  push:
+    branches: [fix/review-sampling-20260915]
+    paths: [.github/workflows/review-source-transfer.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b801a3fdbb9ff1be1bdf3e66ef320ee7b09fa9cb
+          persist-credentials: false
+      - name: Archive pinned source and tests
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess, tarfile
+          paths = subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
+          with tarfile.open('/tmp/source.tar.gz','w:gz') as out:
+              for name in paths:
+                  p = pathlib.Path(name)
+                  if p.is_file() and p.stat().st_size < 1000000:
+                      out.add(p, arcname=name)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pinned-review-source
+          path: /tmp/source.tar.gz
+          retention-days: 2
