@@ -46,6 +46,15 @@ fn ordered(
 }
 
 impl Plan {
+    fn accepts(&self, held: &TileSet) -> bool {
+        let mut visible = *held;
+        for tile in self.called.tiles() {
+            visible.add(tile);
+        }
+        // Public ponds are deliberately excluded: waits may be exhausted.
+        shanten::is_tenpai(held, self.melds, &visible)
+    }
+
     fn new(hand: &Hand, seat: Wind, observer: Wind, belief: &Belief, rng: &mut Rng) -> Self {
         let player = &hand.players[seat.index()];
         let melds = player.melds.len();
@@ -129,6 +138,18 @@ impl Dealer {
         if at == self.plans.len() {
             return true;
         }
+        let plan = &self.plans[at];
+        if at + 1 == self.plans.len() && self.available.len() == 13 - 3 * plan.melds {
+            // With no free tiles left the last hand is forced. Checking it
+            // once avoids enumerating every decomposition for each rejected
+            // preceding hand in tightly constrained multi-riichi positions.
+            if !plan.accepts(&self.available) {
+                return false;
+            }
+            self.hands[plan.seat.index()] = self.available;
+            self.available = TileSet::new();
+            return true;
+        }
         for shape in self.plans[at].shapes.clone() {
             if self.parts(at, &shape, 0, 0, TileSet::new()) {
                 return true;
@@ -147,13 +168,7 @@ impl Dealer {
     ) -> bool {
         if step == shape.len() {
             let plan = &self.plans[at];
-            let mut visible = held;
-            for t in plan.called.tiles() {
-                visible.add(t);
-            }
-            // Do not check the public pond or the unseen pool for live waits:
-            // a legally declared hand can now have all its waits exhausted.
-            if !shanten::is_tenpai(&held, plan.melds, &visible) {
+            if !plan.accepts(&held) {
                 return false;
             }
             self.hands[plan.seat.index()] = held;
@@ -305,6 +320,28 @@ mod tests {
                 );
                 assert_eq!(got[1], body, "{text}, {quads} quads");
                 assert!(pool.is_empty()); // the completing tile need not remain unseen
+                let plan = Plan::new(
+                    &hand,
+                    Wind::South,
+                    Wind::East,
+                    &Belief::even(),
+                    &mut Rng::from_seed(seed),
+                );
+                let shape = if text == "112233m445566p7z" {
+                    vec![0, 1, 1, 1, 1, 1, 1]
+                } else if text == "19m19p19s1234567z" || text == "119m19p19s123456z" {
+                    vec![4]
+                } else {
+                    let mut shape = vec![0];
+                    shape.extend(vec![2; 4 - quads as usize]);
+                    shape
+                };
+                let mut dealer = Dealer {
+                    plans: vec![plan],
+                    available: body,
+                    hands: [TileSet::new(); 4],
+                };
+                assert!(dealer.parts(0, &shape, 0, 0, TileSet::new()));
             }
         }
     }
