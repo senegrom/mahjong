@@ -1,0 +1,45 @@
+name: teacher native verification tools
+
+on:
+  push:
+    branches: [learning/teacher-repairs-20260915]
+    paths: [.github/workflows/teacher-local-tools.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: rustfmt
+      - name: Prepare public pinned dependencies
+        run: |
+          python -m pip install 'maturin>=1.7,<2'
+          cargo fetch --locked
+          cargo fetch --locked --manifest-path engine/libriichi/Cargo.toml
+          maturin build --release --locked --manifest-path engine/riichi-py/Cargo.toml --out wheels
+          maturin build --release --locked --manifest-path engine/libriichi/Cargo.toml --out wheels
+          mkdir -p teacher-tools
+          cp -r wheels teacher-tools/
+          cp "$(command -v maturin)" teacher-tools/maturin
+          cp -r "$HOME/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu" teacher-tools/rust
+          rm -rf teacher-tools/rust/share/doc
+          mkdir -p teacher-tools/cargo
+          cp -r "$HOME/.cargo/registry" teacher-tools/cargo/registry
+          tar -czf teacher-tools.tar.gz teacher-tools
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: teacher-native-tools
+          path: teacher-tools.tar.gz
+          retention-days: 1
