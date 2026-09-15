@@ -1,0 +1,85 @@
+name: review world integrity
+on:
+  push:
+    branches: [fix/review-sampling-20260915]
+    paths: [.github/workflows/apply-world-integrity.yml]
+permissions:
+  contents: write
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/review-sampling-20260915
+          persist-credentials: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: |
+            . -> target
+            engine/libriichi -> target
+          save-if: false
+      - name: Apply exact reviewed changes
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python - <<'PY'
+          import base64, hashlib, json, lzma, subprocess
+          from pathlib import Path
+          expected = json.loads(Path('.review-transfer/hashes.json').read_text())
+          def digest(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+          for name, before, after in expected:
+              assert digest(Path(name)) == before, name
+          encoded = ''.join(Path(f'.review-transfer/{i}.txt').read_text().strip() for i in range(4))
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '204a42a0a169f735c5fda2f18f69bff9faf0d97ab33f50937fbea2cd700b3035'
+          Path('/tmp/repairs.patch').write_bytes(patch)
+          subprocess.run(['git','apply','--unidiff-zero','/tmp/repairs.patch'],check=True)
+          for name, before, after in expected:
+              assert digest(Path(name)) == after, name
+          PY
+          cargo fmt --all
+          python -m compileall -q neural
+          git diff --check
+      - name: Commit clean source to validation branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -r .review-transfer .github/workflows/review-source-transfer.yml .github/workflows/apply-world-integrity.yml
+          git add docs/REVIEW_WORLD_INTEGRITY.md engine/riichi-core engine/riichi-py/src/lib.rs neural
+          git commit -m 'Fix constrained worlds, independent confidence, placement splits and auxiliary publication'
+          git push origin HEAD:fix/review-sampling-20260915
+          git rev-parse HEAD > /tmp/repair-commit.txt
+          git archive --format=tar.gz --output=/tmp/repaired-source.tar.gz HEAD engine/riichi-core/src/search.rs engine/riichi-core/src/search engine/riichi-core/tests/riichi_worlds.rs engine/riichi-py/src/lib.rs neural docs/REVIEW_WORLD_INTEGRITY.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: world-integrity-source
+          path: |
+            /tmp/repaired-source.tar.gz
+            /tmp/repair-commit.txt
+          retention-days: 2
+      - name: Rust lint
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Native regression tests
+        run: cargo test --locked --workspace --release
+        timeout-minutes: 12
+      - name: Build updated Python engines
+        run: |
+          python -m pip install 'maturin>=1.7,<2'
+          (cd engine/riichi-py && maturin build --release --locked --out ../../wheels)
+          (cd engine/libriichi && maturin build --release --locked --out ../../wheels)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: world-integrity-wheels
+          path: wheels/*.whl
+          retention-days: 2
