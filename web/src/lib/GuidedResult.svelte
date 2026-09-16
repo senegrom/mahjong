@@ -6,6 +6,7 @@
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
+  import { tilesFor, noteFor } from './yaku.js';
 
   /** Physical facts consumed by the Rust settlement adapter.
    * @typedef {object} PhysicalSettlementInput
@@ -48,6 +49,14 @@
   }
   const signed = value => `${value >= 0 ? '+' : ''}${value.toLocaleString()}`;
   const viewMelds = player => player.melds.map(m => ({ kind: m.kind, tiles: setTiles(m), from: ['self', 'right', 'across', 'left'][m.from] }));
+  // Which yaku the reader is asking about, and the tiles that make it.
+  let asking = $state(null);
+  let shape = $derived(asking ? new Set(tilesFor(asking.name, asking.win)) : null);
+  const handOf = winner => ({ hand: winner.hand, winning_tile: winner.winning_tile,
+    melds: viewMelds(p.players[winner.seat]) });
+  const ask = (winner, name) => { asking = { seat: winner.seat, name, win: handOf(winner) }; };
+  const stopAsking = () => { asking = null; };
+  const showing = (winner, name) => asking?.seat === winner.seat && asking?.name === name;
 </script>
 
 <section class="guided-result" aria-label="Guided hand settlement">
@@ -93,10 +102,28 @@
     {#each result.winners as winner (winner.seat)}
       <article aria-label={`${WINDS[winner.seat]} scored hand`}>
         <h4>{WINDS[winner.seat]} · {winner.limit ?? `${winner.han} han · ${winner.fu} fu`}</h4>
-        <div class="tiles">{#each winner.hand as tile, i (i)}<Tile {tile} size="tiny" />{/each}</div>
-        <Melds melds={viewMelds(p.players[winner.seat])} size="tiny" />
-        <p>Winning tile <Tile tile={winner.winning_tile} size="tiny" /></p>
-        <ul>{#each winner.yaku as yaku, i (i)}<li>{yaku.name} · {yaku.yakuman ? 'yakuman' : `${yaku.han} han`}</li>{/each}</ul>
+        <div class="tiles">{#each winner.hand as tile, i (i)}<Tile {tile} size="tiny"
+          inShape={asking?.seat === winner.seat && Boolean(shape?.has(`hand:${i}`))} />{/each}</div>
+        <Melds melds={viewMelds(p.players[winner.seat])} size="tiny"
+          shape={asking?.seat === winner.seat ? shape : null} />
+        <p>Winning tile <Tile tile={winner.winning_tile} size="tiny"
+          inShape={asking?.seat === winner.seat && Boolean(shape?.has('won'))} /></p>
+        <ul class="yaku">{#each winner.yaku as yaku, i (i)}
+          <li>
+            <button type="button" class="yaku-name" class:asking={showing(winner, yaku.name)}
+              onmouseenter={() => ask(winner, yaku.name)} onmouseleave={stopAsking}
+              onfocus={() => ask(winner, yaku.name)} onblur={stopAsking}
+              onclick={() => (showing(winner, yaku.name) ? stopAsking() : ask(winner, yaku.name))}>
+              {yaku.name} · {yaku.yakuman ? 'yakuman' : `${yaku.han} han`}
+            </button>
+            {#if showing(winner, yaku.name)}
+              <p class="yaku-note" role="status">{noteFor(yaku.name)}
+                {#if shape?.size}<span class="lit">The tiles that make it are lifted above.</span>
+                {:else}<span class="lit">It is about how the hand was won, so no tile makes it.</span>{/if}
+              </p>
+            {/if}
+          </li>
+        {/each}</ul>
         <p>Dora: {winner.dora} han · Ura-dora: {winner.ura_dora} han · Total: {winner.han} han</p>
         {#if winner.limit === 'yakuman'}<p>Dora do not increase this yakuman payment.</p>{/if}
         <div class="tiles" role="group" aria-label={`${WINDS[winner.seat]} dora indicators`}><span>Dora indicators</span>{#each winner.indicators as tile, i (i)}<Tile {tile} size="tiny" />{/each}</div>
@@ -117,6 +144,16 @@
 </section>
 
 <style>
+  /* The yaku name is the control: hovering or tabbing to it explains the
+     yaku and lifts the tiles that make it. */
+  .yaku { list-style: none; margin: 0; padding: 0; }
+  .yaku-name { display: block; width: 100%; padding: 1px 0; border: 0; background: none;
+    color: inherit; font: inherit; text-align: left; cursor: help; }
+  .yaku-name:hover, .yaku-name.asking { color: var(--gold, #d8a12a); }
+  .yaku-name:focus-visible { outline: 2px solid var(--gold, #d8a12a); outline-offset: 2px; border-radius: 4px; }
+  .yaku-note { margin: 2px 0 6px; font-size: .85rem; line-height: 1.35; opacity: .9; }
+  .yaku-note .lit { display: block; opacity: .7; font-size: .8rem; }
+
   .guided-result, article { display: grid; gap: 12px; min-width: 0; }
   h4, p, ul { margin: 0; }
   h4 { font-size: 1rem; } p, li, label, table { font-size: .84rem; line-height: 1.5; }

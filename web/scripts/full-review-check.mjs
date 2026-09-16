@@ -144,6 +144,41 @@ try{
   assert.ok(await p.evaluate(()=>[...document.querySelectorAll('.indicator-row img,.ura-indicators img')].every(img=>img.complete&&img.naturalWidth>0)));
   await shot(p,`ura-dora-result-${[3,16,248][index]}`);noErrors(p);
  });
+ await check('a yaku explains itself and lifts the tiles that make it',async()=>{
+  // Prefer a hand whose yaku has a shape, so the lifting is exercised and
+  // not only the sentence.
+  const SHAPED=['All Simples','Pinfu','Pure Double Sequence','Half Flush','Full Flush','All Triplets',
+   'Mixed Triple Sequence','Pure Straight','Dragon Triplet','Seven Pairs','Half Outside Hand',
+   'Seat Wind Triplet','Round Wind Triplet','Full Outside Hand','Triple Triplet'];
+  const shapedFirst=[...wins].sort((a,b)=>{
+   const has=snapshot=>JSON.parse(snapshot.state)[0].outcome.wins
+    .some(win=>win.yaku.some(yaku=>SHAPED.includes(yaku.name)))?0:1;
+   return has(a)-has(b);
+  });
+  const snapshot=shapedFirst[0],view=JSON.parse(snapshot.state)[0];
+  const p=await open(snapshot,{hints:false,width:1100,height:900});
+  const names=await p.$$eval('.win .yaku-name span:first-child',els=>els.map(el=>el.textContent.trim()));
+  assert.deepEqual(names,view.outcome.wins[0].yaku.map(yaku=>yaku.name),'every yaku is a control');
+  assert.equal(await p.$('.yaku-note'),null,'nothing is explained until it is asked about');
+  // Hovering the name explains it; a yaku with a shape lifts its own tiles.
+  const shaped=await p.evaluate(list=>{
+   const rows=[...document.querySelectorAll('.win .yaku-name')];
+   return rows.findIndex(row=>list.includes(row.querySelector('span').textContent.trim()));
+  },SHAPED);
+  const index=shaped>=0?shaped:0;
+  await p.$$eval('.win .yaku-name',(els,i)=>els[i].dispatchEvent(new MouseEvent('mouseenter')),index);
+  await p.waitForSelector('.yaku-note');
+  const note=await p.$eval('.yaku-note',el=>el.textContent.trim());
+  assert.ok(note.length>20,'the explanation is a sentence');
+  const lit=await p.$$eval('.win .tile.in-shape',els=>els.length);
+  if(shaped>=0)assert.ok(lit>0,`${names[index]} lights the tiles that make it`);
+  await shot(p,'yaku-explained');
+  // Leaving puts the hand back as it was.
+  await p.$$eval('.win .yaku-name',(els,i)=>els[i].dispatchEvent(new MouseEvent('mouseleave')),index);
+  await p.waitForFunction(()=>!document.querySelector('.yaku-note'));
+  assert.equal(await p.$$eval('.win .tile.in-shape',els=>els.length),0);
+  noErrors(p);
+ });
  await check('final standings retain event history, an open review and export controls',async()=>{
   const p=await open(final.before);await p.click('.screen .quiet');await p.waitForSelector('.review');
   await p.click('.screen .primary');await p.waitForSelector('.standings');

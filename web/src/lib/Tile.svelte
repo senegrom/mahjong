@@ -66,6 +66,9 @@
     drawn = false,
     discardShanten = null,
     size = 'normal',
+    /** Part of the shape a yaku is being explained by. Dimming the rest
+     * would hide the artwork, so the tiles that belong are lifted instead. */
+    inShape = false,
     onclick = null,
     disabled = false,
     muted = disabled,
@@ -138,6 +141,7 @@
     aria-pressed={selected}
     type="button"
     class:ringed={marks.length > 0}
+    class:in-shape={inShape}
     style:--ring={ring}
     {disabled}
     title={title || words}
@@ -166,6 +170,7 @@
     class:dimmed
     class:muted
     class:ringed={marks.length > 0}
+    class:in-shape={inShape}
     style:--ring={ring}
     role="img"
     aria-label={title || words}
@@ -186,6 +191,21 @@
 {/if}
 
 <style>
+  /* A tile that makes the yaku being explained: lifted and lit, so the
+     shape reads at a glance without dimming the rest of the hand. */
+  .tile.in-shape {
+    transform: translateY(-6px);
+    box-shadow: 0 6px 14px rgba(216, 161, 42, .45);
+    outline: 2px solid var(--gold, #d8a12a);
+    outline-offset: 1px;
+    border-radius: 6px;
+    z-index: 2;
+  }
+  .tile.in-shape.rotated { transform: translateY(-6px) rotate(90deg); }
+  @media (prefers-reduced-motion: no-preference) {
+    .tile { transition: transform 120ms ease, box-shadow 120ms ease; }
+  }
+
   .tile {
     /* The ring and the sheen are placed against the tile's own box, and
        the box is its own stacking context so the ring, which sits behind

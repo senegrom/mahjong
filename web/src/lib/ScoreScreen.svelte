@@ -1,6 +1,7 @@
 <script>
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
+  import { tilesFor, noteFor } from './yaku.js';
 
   let {
     outcome,
@@ -20,6 +21,13 @@
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
   let minimized = $state(false);
+  // Which yaku the reader is asking about, and the tiles that make it. A
+  // yaku about how the hand was won lights nothing, and says why instead.
+  let asking = $state(null);
+  let shape = $derived(asking ? new Set(tilesFor(asking.name, asking.win)) : null);
+  const ask = (win, name) => { asking = { win, name }; };
+  const stopAsking = () => { asking = null; };
+  const showing = (win, name) => asking?.win === win && asking?.name === name;
   let primaryWin = $derived(outcome?.wins?.[0] ?? null);
 
   function reveal(node) {
@@ -82,13 +90,16 @@
       </div>
       <div class="tiles">
         {#each win.hand as tile, index (tile + index)}
-          <Tile {tile} size="small" dora={hints && (win.dora_types ?? dora).includes(tile)} />
+          <Tile {tile} size="small" dora={hints && (win.dora_types ?? dora).includes(tile)}
+            inShape={asking?.win === win && Boolean(shape?.has(`hand:${index}`))} />
         {/each}
         <span class="gap"></span>
-        <span class="winning"><Tile tile={win.winning_tile} size="small" dora={hints && (win.dora_types ?? dora).includes(win.winning_tile)} /></span>
+        <span class="winning"><Tile tile={win.winning_tile} size="small" dora={hints && (win.dora_types ?? dora).includes(win.winning_tile)}
+          inShape={asking?.win === win && Boolean(shape?.has('won'))} /></span>
         {#if win.melds.length}
           <span class="gap"></span>
-          <Melds melds={win.melds} size="small" dora={hints ? (win.dora_types ?? dora) : []} />
+          <Melds melds={win.melds} size="small" dora={hints ? (win.dora_types ?? dora) : []}
+            shape={asking?.win === win ? shape : null} />
         {/if}
       </div>
 
@@ -111,7 +122,24 @@
 
       <div class="working">
         <ul class="yaku">
-          {#each win.yaku as yaku (yaku.name)}<li><span>{yaku.name}</span><b>{yaku.han}</b></li>{/each}
+          {#each win.yaku as yaku (yaku.name)}
+            <li>
+              <button type="button" class="yaku-name" class:asking={showing(win, yaku.name)}
+                aria-describedby={showing(win, yaku.name) ? 'yaku-note' : undefined}
+                onmouseenter={() => ask(win, yaku.name)} onmouseleave={stopAsking}
+                onfocus={() => ask(win, yaku.name)} onblur={stopAsking}
+                onclick={() => (showing(win, yaku.name) ? stopAsking() : ask(win, yaku.name))}>
+                <span>{yaku.name}</span><b>{yaku.han}</b>
+              </button>
+              {#if showing(win, yaku.name)}
+                <p class="yaku-note" id="yaku-note" role="status">
+                  {noteFor(yaku.name)}
+                  {#if shape?.size}<span class="lit">The tiles that make it are lifted above.</span>
+                  {:else}<span class="lit">It is about how the hand was won, so no tile makes it.</span>{/if}
+                </p>
+              {/if}
+            </li>
+          {/each}
           {#if win.dora || win.ura_indicators?.length}<li class="dora-count"><span>Dora</span><b>{win.dora - (win.ura_dora ?? 0)}</b></li>{/if}
           {#if win.ura_indicators?.length}<li class="ura-count"><span>Ura-dora</span><b>{win.ura_dora ?? 0}</b></li>{/if}
         </ul>
@@ -180,7 +208,16 @@
   .final-caption { align-self: center; font-size: .85rem; }
   .working { display: grid; gap: 4px; }
   .yaku { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,210px),1fr)); gap: 1px 18px; font-size: .88rem; }
-  .yaku li { display: flex; justify-content: space-between; gap: 12px; padding: 1px 0; border-bottom: 1px dotted rgba(255,255,255,.16); }
+  .yaku li { display: block; padding: 1px 0; border-bottom: 1px dotted rgba(255,255,255,.16); }
+  /* The name is the control: hovering or tabbing to it explains the yaku and
+     lifts the tiles that make it. It must not look like a button in a row of
+     numbers, so it keeps the row's own shape. */
+  .yaku-name { display: flex; width: 100%; justify-content: space-between; gap: 12px; padding: 1px 0;
+    border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: help; }
+  .yaku-name:hover, .yaku-name.asking { color: var(--gold, #d8a12a); }
+  .yaku-name:focus-visible { outline: 2px solid var(--gold, #d8a12a); outline-offset: 2px; border-radius: 4px; }
+  .yaku-note { margin: 2px 0 6px; font-size: .82rem; line-height: 1.35; opacity: .9; }
+  .yaku-note .lit { display: block; opacity: .7; font-size: .78rem; }
   .total { margin: 4px 0 0; font-size: 1rem; }
   .fu { opacity: .85; }
   .limit { margin-left: 8px; color: var(--gold); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; }
