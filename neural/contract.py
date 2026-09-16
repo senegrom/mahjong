@@ -446,15 +446,20 @@ class MortalServed:
         # every world.
         which: list[int] = []
         hands: list[list[str]] = []
-        for (game, slot), dealt in zip(base, (
-            by_player
-            for per_game in arena.lookahead_hands()
-            for by_player in per_game
-        )):
+        furiten: list[bool] = []
+        initial = [state for per_game in arena.lookahead_initial_state() for state in per_game]
+        for ((game, slot), dealt, (observer, flags)) in zip(base, (
+            by_player for per_game in arena.lookahead_hands() for by_player in per_game
+        ), initial):
             for player in range(4):
+                if player == observer:
+                    continue  # Preserve every field of the observer's known private state.
                 which.append(base[(game, slot)] + player)
                 hands.append(list(dealt[player]))
+                furiten.append(flags[player])
         copies.replace_concealed(which, hands)
+        copies.reset_search_private(which, furiten)
+        needs_initial_decision = set(which)
         taken = 0
         while taken < passes:
             games, slots, players, masks_bytes, lines = arena.lookahead_owed_mjai()
@@ -478,7 +483,18 @@ class MortalServed:
                     told.append(new)
             if which:
                 copies.feed_some(which, told)
+                needs_initial_decision.difference_update(which)
             deciding = [base[(game, slot)] + int(player) for game, slot, player in zip(games, slots, players)]
+            # A root call can owe another response before any new event exists.
+            # Only that initial reaction needs rebuilding explicitly. All later
+            # action features come from normal events on the sampled state, not
+            # expensive repeated reconstruction or changes to known observations.
+            empty = [at for at, copy in enumerate(deciding) if copy in needs_initial_decision]
+            if empty:
+                flags, drawn = arena.lookahead_decision_state()
+                copies.synchronize_search_decisions([deciding[at] for at in empty],
+                    masks[empty].tolist(), [flags[at] for at in empty], [drawn[at] for at in empty])
+                needs_initial_decision.difference_update(deciding[at] for at in empty)
             indptr, indices, values, _own = copies.encode_some(deciding)
             planes = Planes.from_follower(indptr, indices, values)
             # What our engine allows, named in Mortal's moves, as the table
@@ -490,7 +506,7 @@ class MortalServed:
             step = 4096
             for start in range(0, count, step):
                 rows = np.arange(start, min(start + step, count))
-                logits, _value = net(
+                logits = policy_logits(net,
                     planes.rows(rows).dense(device), torch.from_numpy(allowed[rows]).to(device)
                 )
                 logits = logits.float()
@@ -515,7 +531,7 @@ class MortalServed:
                 tiles = masks[second, zoo.RIICHI_DISCARD : zoo.TSUMO]
                 allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
                 allowed_after[:, :POSITIONS] = tiles
-                logits_after, _value = net(after, torch.from_numpy(allowed_after).to(device))
+                logits_after = policy_logits(net, after, torch.from_numpy(allowed_after).to(device))
                 logits_after = logits_after.float()[:, :POSITIONS]
                 ranked = torch.where(
                     torch.from_numpy(tiles).to(device), logits_after, torch.full_like(logits_after, -np.inf)
@@ -529,6 +545,12 @@ class MortalServed:
         # The native leaf boundary rejects remaining/broken worlds, without
         # consuming the lookahead. A caller may continue with a larger budget.
         return taken
+
+
+def policy_logits(net, planes, legal):
+    """Use a verified fast path where available, without changing old models."""
+    fast = getattr(net, "policy_only", None)
+    return fast(planes, legal) if callable(fast) else net(planes, legal)[0]
 
 
 def root_order(served, arena, views, rows, deciding, mask, device):
@@ -649,7 +671,7 @@ def placement_value(served, planes):
         )
     from . import placement
 
-    features, pooled = placement.features_of(served.net, planes)
+    features, pooled = placement.features_of(served.net, planes, head.feature_version)
     return head(features, pooled)
 
 

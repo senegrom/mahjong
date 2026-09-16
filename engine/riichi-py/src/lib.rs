@@ -351,13 +351,13 @@ pub struct Arena {
     judgement_weights: Vec<Vec<f64>>,
     /// For each game, the candidates and leaves of a search whose values
     /// have been asked for and not yet given back.
-    pending: Vec<Option<(Vec<Action>, search::Leaves)>>,
+    pending: Vec<Option<(Vec<usize>, search::Leaves)>>,
     /// For each game, the worlds imagined for a weighed search and not yet
     /// weighed.
     imagined: Vec<Vec<Hand>>,
     /// For each game, a lookahead the caller is playing the other seats
     /// of, with its candidates.
-    lookaheads: Vec<Option<(Vec<Action>, search::Lookahead)>>,
+    lookaheads: Vec<Option<(Vec<usize>, search::Lookahead)>>,
 }
 
 /// Collapse resampling multiplicities before simulation. One proposal is one
@@ -668,7 +668,10 @@ impl Arena {
             observations.extend_from_slice(&got.observations);
             settled.extend(got.settled.iter().map(|worth| *worth as f32));
             wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
-            self.pending[game] = Some((shortlist, got));
+            self.pending[game] = Some((
+                shortlist.iter().copied().map(action_to_index).collect(),
+                got,
+            ));
         }
         Ok((
             PyBytes::new(py, bytemuck_cast(&observations)),
@@ -685,15 +688,21 @@ impl Arena {
     /// another, with how many each game contributed. The marginals are
     /// only a proposal; the reader weighs the worlds and
     /// [`Arena::leaves_from`] takes the ones to keep.
-    #[pyo3(signature = (beliefs, worlds=800))]
+    #[pyo3(signature = (beliefs, worlds=800, active=None, search_calls=false))]
     fn imagine<'py>(
         &mut self,
         py: Python<'py>,
         beliefs: Vec<f32>,
         worlds: usize,
+        active: Option<Vec<bool>>,
+        search_calls: bool,
     ) -> (Bound<'py, PyBytes>, Vec<usize>) {
         let games = self.seats.len();
         assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
+        assert!(
+            active.as_ref().is_none_or(|flags| flags.len() == games),
+            "one active flag per game"
+        );
         let mut planes: Vec<f32> = Vec::new();
         let mut counts = Vec::with_capacity(games);
         for (game, stored) in self.imagined.iter_mut().enumerate() {
@@ -703,7 +712,9 @@ impl Arena {
                 counts.push(0);
                 continue;
             };
-            if !seat.asking.is_empty() {
+            if (!search_calls && !seat.asking.is_empty())
+                || active.as_ref().is_some_and(|flags| !flags[game])
+            {
                 counts.push(0);
                 continue;
             }
@@ -730,7 +741,7 @@ impl Arena {
     /// With `boundary`, the club plays the root hand out and the leaf is the
     /// searching player's first decision of the hand after it, for a
     /// placement-only head to judge with the root hand's result banked.
-    #[pyo3(signature = (ranked, kept, weights, candidates=4, hurried=true, boundary=false))]
+    #[pyo3(signature = (ranked, kept, weights, candidates=4, hurried=true, boundary=false, placement_only=false))]
     #[allow(clippy::too_many_arguments)]
     fn leaves_from<'py>(
         &mut self,
@@ -741,7 +752,13 @@ impl Arena {
         candidates: usize,
         hurried: bool,
         boundary: bool,
+        placement_only: bool,
     ) -> PyResult<LeafBatch<'py>> {
+        if placement_only && !boundary {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "placement-only search needs boundary leaves",
+            ));
+        }
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
         assert_eq!(kept.len(), games, "one list of kept worlds per game");
@@ -800,7 +817,10 @@ impl Arena {
             observations.extend_from_slice(&got.observations);
             settled.extend(got.settled.iter().map(|worth| *worth as f32));
             wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
-            self.pending[game] = Some((shortlist, got));
+            self.pending[game] = Some((
+                shortlist.iter().copied().map(action_to_index).collect(),
+                got,
+            ));
         }
         Ok((
             PyBytes::new(py, bytemuck_cast(&observations)),
@@ -828,7 +848,7 @@ impl Arena {
     /// With `boundary`, the leaf is the searching player's first decision of
     /// the hand after the root hand, which is played out and banked first
     /// (`until_hand_ends` is implied), for a placement-only head to judge.
-    #[pyo3(signature = (ranked, kept, weights, candidates=4, depth=0, until_hand_ends=false, boundary=false))]
+    #[pyo3(signature = (ranked, kept, weights, candidates=4, depth=0, until_hand_ends=false, boundary=false, placement_only=false, search_calls=false))]
     #[allow(clippy::too_many_arguments)]
     fn lookahead_begin(
         &mut self,
@@ -839,7 +859,14 @@ impl Arena {
         depth: usize,
         until_hand_ends: bool,
         boundary: bool,
+        placement_only: bool,
+        search_calls: bool,
     ) -> PyResult<usize> {
+        if placement_only && !boundary {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "placement-only search needs boundary leaves",
+            ));
+        }
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
         assert_eq!(kept.len(), games, "one list of kept worlds per game");
@@ -859,12 +886,22 @@ impl Arena {
             let Some(wind) = seat.pending() else {
                 continue;
             };
-            if !seat.asking.is_empty() || imagined.is_empty() || selected[game].0.is_empty() {
+            if (!search_calls && !seat.asking.is_empty())
+                || imagined.is_empty()
+                || selected[game].0.is_empty()
+            {
                 continue;
             }
-            let shortlist: Vec<Action> = ranking
+            let shortlist: Vec<(usize, search::RootMove)> = ranking
                 .iter()
-                .filter_map(|index| encoding::decode_action(&seat.hand, *index))
+                .filter_map(|index| {
+                    if seat.asking.is_empty() {
+                        encoding::decode_action(&seat.hand, *index).map(search::RootMove::Turn)
+                    } else {
+                        encoding::decode_call(&seat.hand, wind, *index).map(search::RootMove::Claim)
+                    }
+                    .map(|action| (*index, action))
+                })
                 .take(candidates.max(1))
                 .collect();
             if shortlist.is_empty() {
@@ -875,16 +912,23 @@ impl Arena {
                 .iter()
                 .map(|index| imagined[*index].clone())
                 .collect();
-            let lookahead = search::Lookahead::begin(
+            let lookahead = search::Lookahead::begin_moves(
                 wind,
-                &shortlist,
+                &shortlist
+                    .iter()
+                    .map(|(_, action)| *action)
+                    .collect::<Vec<_>>(),
                 &worlds,
                 world_weights,
                 depth,
                 until_hand_ends || boundary,
                 boundary,
+                placement_only,
             );
-            self.lookaheads[game] = Some((shortlist, lookahead));
+            self.lookaheads[game] = Some((
+                shortlist.iter().map(|(index, _)| *index).collect(),
+                lookahead,
+            ));
             running += 1;
         }
         Ok(running)
@@ -956,6 +1000,42 @@ impl Arena {
                     .collect()
             })
             .collect()
+    }
+
+    /// Initial searcher identity and sampled furiten flags, in real-player order.
+    fn lookahead_initial_state(&self) -> Vec<Vec<(usize, [bool; 4])>> {
+        self.lookaheads
+            .iter()
+            .enumerate()
+            .filter_map(|(game, entry)| {
+                let (_, lookahead) = entry.as_ref()?;
+                let real = self.seats[game].table.seating();
+                Some(
+                    lookahead
+                        .initial_state()
+                        .into_iter()
+                        .map(|(seat, flags)| {
+                            let mut mapped = [false; 4];
+                            for p in 0..4 {
+                                mapped[real[p]] = flags[p];
+                            }
+                            (real[seat.index()], mapped)
+                        })
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// Sampled deciding-seat furiten and drawn tile, aligned with owed_mjai.
+    /// These belong to the hypothetical worlds, not the actual hidden hands.
+    fn lookahead_decision_state(&self) -> (Vec<bool>, Vec<Option<String>>) {
+        self.lookaheads
+            .iter()
+            .flatten()
+            .flat_map(|(_, lookahead)| lookahead.decision_state())
+            .map(|(furiten, drawn)| (furiten, drawn.map(mjai::name)))
+            .unzip()
     }
 
     /// The decisions the lookaheads are waiting on, for a network that
@@ -1146,7 +1226,14 @@ impl Arena {
     /// gave them, and returns the move each game came to. Games that
     /// contributed no slots come back as the first entry of their ranking,
     /// or [`PASS`] when there was none.
-    fn decide(&mut self, valued: Vec<f32>, margin: f64, ranked: Vec<Vec<usize>>) -> Vec<usize> {
+    #[pyo3(signature = (valued, margin, ranked, count_tally=true))]
+    fn decide(
+        &mut self,
+        valued: Vec<f32>,
+        margin: f64,
+        ranked: Vec<Vec<usize>>,
+        count_tally: bool,
+    ) -> Vec<usize> {
         let games = self.seats.len();
         assert_eq!(ranked.len(), games, "one ranking per game");
         let mut offset = 0;
@@ -1165,14 +1252,16 @@ impl Arena {
                 .map(|value| *value as f64)
                 .collect();
             offset += slots;
-            self.searched.asked += 1;
+            if count_tally {
+                self.searched.asked += 1;
+            }
             self.judgement_weights[game] = leaves.weights.clone();
             let judged = search::judge_all(&candidates, &leaves, &values);
             self.judgements[game] = judged
                 .iter()
                 .map(|entry| {
                     (
-                        action_to_index(entry.action),
+                        entry.action,
                         entry.value,
                         entry
                             .per_world
@@ -1184,8 +1273,8 @@ impl Arena {
                 .collect();
             match search::pick_by_margin(&judged, margin) {
                 Some(judged) => {
-                    let picked = action_to_index(judged.action);
-                    if Some(picked) != ranking.first().copied() {
+                    let picked = judged.action;
+                    if count_tally && Some(picked) != ranking.first().copied() {
                         self.searched.overrode += 1;
                     }
                     chosen.push(picked);
@@ -1201,6 +1290,41 @@ impl Arena {
     /// game: the move's index, its weighted mean over the worlds, and its
     /// worth in each world in the order the worlds were made, NaN where
     /// the move could not be tried there. Empty for a game not searched.
+    /// Record a completed multi-stage search exactly once, not each pilot.
+    fn record_search_tally(&mut self, asked: usize, overrode: usize) -> PyResult<()> {
+        if overrode > asked {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "overrides exceed searched decisions",
+            ));
+        }
+        self.searched.asked += asked;
+        self.searched.overrode += overrode;
+        Ok(())
+    }
+
+    /// Independent search-stream seeds for resampling; no environment RNG is used.
+    fn search_resample_seeds(&mut self, active: Vec<bool>) -> PyResult<Vec<u64>> {
+        if active.len() != self.seats.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "one search eligibility flag per game",
+            ));
+        }
+        Ok(self
+            .seats
+            .iter_mut()
+            .zip(active)
+            .map(
+                |(seat, yes)| {
+                    if yes {
+                        seat.search_rng.next_u64()
+                    } else {
+                        0
+                    }
+                },
+            )
+            .collect())
+    }
+
     fn judgement_weights(&self) -> Vec<Vec<f64>> {
         self.judgement_weights.clone()
     }
@@ -1448,7 +1572,7 @@ fn cast_i32(values: &[i32]) -> &[u8] {
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
     module.add("TRAINING_API_VERSION", 2u32)?;
-    module.add("SEARCH_API_VERSION", 3u32)?;
+    module.add("SEARCH_API_VERSION", 4u32)?;
     module.add("PLANES", PLANES)?;
     module.add("POSITIONS", POSITIONS)?;
     module.add("OBSERVATION", OBSERVATION)?;

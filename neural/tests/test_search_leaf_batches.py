@@ -75,10 +75,17 @@ class LeafBatchTests(unittest.TestCase):
         self.assertEqual(list(served.leaf_batches(arena, b'', [2], 'cpu', wanted=b'\0\0', batch_size=1)), [])
 
     def test_real_search_uses_the_batched_contract_not_the_dense_helper(self):
+        received = []
         class Arena:
+            def search_resample_seeds(self, active): return [1]
+            def judgements(self): return [[]]
+            def judgement_weights(self): return [[]]
+            def record_search_tally(self, *args): pass
             def imagine(self, *args, **kwargs): return b'', [1]
             def leaves_from(self, *args, **kwargs): return b'', [3], [0., 0., 0.], [1, 0, 1]
-            def decide(self, values, *args): return values
+            def decide(self, values, *args, **kwargs):
+                received.extend(values)
+                return [0]
 
         def batches(*args, **kwargs):
             self.assertEqual(kwargs['batch_size'], 1)
@@ -90,7 +97,8 @@ class LeafBatchTests(unittest.TestCase):
                                  value=lambda x, head: x[:, 0, 0])
         values = searched.search_with_value_head(object(), Arena(), [[0, 1]], [], worlds=1,
             candidates=2, margin=0., hurried=True, device='cpu', pool=1, served=served, leaf_batch=1)
-        self.assertEqual(values, [1., 0., 3.])
+        self.assertEqual(values, [0])
+        self.assertEqual(received, [1., 0., 3.])
 
     def test_bad_metadata_and_batch_limits_fail_before_reconstruction(self):
         for size in (0, -1, True, 1.5):

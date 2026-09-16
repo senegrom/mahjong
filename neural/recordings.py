@@ -94,6 +94,16 @@ def validate_snapshot(folder: Path, *, require_complete: bool = True,
             or meta.get('search_backup_version') != SEARCH_BACKUP_VERSION
             or meta.get('reward_version') != REWARD_VERSION):
         raise ValueError('Legacy or incompatible search targets; collect a new recording')
+    # The existing hybrid reward version alone cannot describe a placement-only
+    # teacher. New utility names are explicit, never inferred from head filenames.
+    utility = meta.get('teacher_objective', 'hybrid')
+    if utility not in ('hybrid', 'placement'):
+        raise ValueError('Unknown teacher objective')
+    if utility == 'placement':
+        head = meta.get('placement_head')
+        if (meta.get('valued_by') != 'placement' or not isinstance(head, dict)
+                or re.fullmatch(r'[0-9a-f]{64}', str(head.get('sha256', ''))) is None):
+            raise ValueError('Placement-only evidence needs its value-head provenance')
     rows = meta.get('rows')
     if type(rows) is not int or rows < 0 or type(meta.get('complete')) is not bool:
         raise ValueError('Invalid recording row count or completeness flag')

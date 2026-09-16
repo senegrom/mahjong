@@ -13,14 +13,16 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, dataclass
 import hashlib
+import shutil
 from pathlib import Path
 import tempfile
 
 import numpy as np
 import torch
 
+from .teacher_actions import representable_moves
 from .search_replay import (
-    ACTIONS, ENGINE_ACTIONS, PLANES, POSITIONS, REWARD, VERSION, DENSE,
+    ACTIONS, ENGINE_ACTIONS, PLANES, POSITIONS, REWARD, VERSION, TEACHER_VERSION, DENSE,
     SearchReplay, action_contract, improvement_policy, validate_metadata,
 )
 
@@ -38,12 +40,19 @@ class SearchSettings:
     hurried: bool = False
     improve: float = .5
     max_steps: int = 4000
+    objective: str = "hybrid"
+    search_calls: bool = False
+    confirm_worlds: int = 0
+    extra_candidates: int = 0
+    audit_share: float = 0.0
+    sure: float = 1.0
 
 
 def metadata(*, games: int, seed: int, settings: SearchSettings,
-             actor_sha256: str, source_revision: str, training_api_version: int) -> dict:
+             actor_sha256: str, source_revision: str, training_api_version: int,
+             head_provenance: dict | None = None) -> dict:
     m = {
-        "version": VERSION, "complete": True, "rows": 1,
+        "version": TEACHER_VERSION, "complete": True, "rows": 1,
         "reward": dict(REWARD),
         "observation": {"planes": PLANES, "positions": POSITIONS, "encoder_version": 4},
         "actions": {"policy": ACTIONS, "engine": ENGINE_ACTIONS},
@@ -54,6 +63,9 @@ def metadata(*, games: int, seed: int, settings: SearchSettings,
         "source_revision": source_revision,
         "training_api_version": training_api_version,
         "games": games, "seed": seed, "search": asdict(settings),
+        "teacher": {"version": 1, "search_api_version": 4, "objective": settings.objective,
+                    "placement_head": head_provenance,
+                    "student_value_head": "critic" if settings.valued_by == "placement" else settings.valued_by},
     }
     validate_metadata(m)
     return m
@@ -96,7 +108,8 @@ def _sparse(planes):
 
 @torch.no_grad()
 def collect(net, *, games: int, seed: int, settings: SearchSettings,
-            actor_sha256: str, source_revision: str, device: str = "cpu") -> SearchReplay:
+            actor_sha256: str, source_revision: str, device: str = "cpu",
+            placement_head: Path | None = None) -> SearchReplay:
     """Freeze one actor for a collection; every seat searches and every game ends.
 
     Each actual engine transition is recorded once at its ordinary decision,
@@ -110,13 +123,36 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
     from .training_safety import TRAINING_API_VERSION, require_training_engine
     import riichi_py
 
+    from .teacher_options import validate_controls, candidate_set
+    validate_controls(**{name: getattr(settings, name) for name in (
+        "objective", "valued_by", "played_by", "depth", "search_calls", "confirm_worlds",
+        "extra_candidates", "audit_share")})
+    head = provenance = None
+    if settings.valued_by == "placement":
+        if placement_head is None:
+            raise ValueError("placement teacher requires --placement-head")
+        from . import placement
+        # Hash and load the SAME private snapshot even if the original is replaced.
+        with tempfile.TemporaryDirectory(prefix="mahjong-teacher-head-") as folder:
+            snapshot = Path(folder) / "head.pt"
+            with Path(placement_head).open("rb") as source, snapshot.open("xb") as target:
+                shutil.copyfileobj(source, target)
+            with snapshot.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            head, head_meta = placement.load(snapshot, device)
+            placement.require_head_for(head_meta, contract.unwrap(net))
+        provenance = {"sha256": digest, "features": head_meta["features"],
+                      "feature_version": head.feature_version}
+    elif placement_head is not None:
+        raise ValueError("a placement head was supplied to a different teacher")
     m = metadata(games=games, seed=seed, settings=settings, actor_sha256=actor_sha256,
-                 source_revision=source_revision, training_api_version=TRAINING_API_VERSION)
+                 source_revision=source_revision, training_api_version=TRAINING_API_VERSION,
+                 head_provenance=provenance)
     validate_budget(games, settings.max_steps)
     require_training_engine()
     if ledger.REWARD_VERSION != REWARD["version"] or ledger.HAND_SCALE != 1 / 4000:
         raise ValueError("The engine reward no longer matches search replay version 1")
-    served = contract.serve(net)
+    served = contract.serve(net) if head is None else contract.serve(net, placement_head=head)
     if (served.contract.reads != "mortal" or served.contract.planes != PLANES
             or served.contract.answers != ACTIONS):
         raise contract.UnsupportedSearchLayout("Search replay v1 requires Mortal-v4 observations and 46 actions")
@@ -129,6 +165,7 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
     account = ledger.Ledger(games)
     blocks = []
     dense = {name: [] for name in DENSE if name != "returns"}
+    candidate_rng = [np.random.default_rng(seed + game) for game in range(games)]
     steps = 0
 
     def record(planes, legal, actor, actions, rows, players, stage, engine_legal):
@@ -166,15 +203,21 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
                 captured, arena, views, rows, deciding, legal, device
             )
             ranked = [[int(order[game, 0])] for game in range(games)]
-            for game in rows:
-                ranked[game] = [int(a) for a in order[game] if legal[game, a]][:settings.candidates]
+            top = torch.softmax(logits.float(), dim=1).max(dim=1).values.cpu().numpy()
+            searchable = representable_moves(legal)
+            for at, game in enumerate(rows):
+                if top[at] < settings.sure or candidate_rng[game].random() < settings.audit_share:
+                    ranked[game] = candidate_set(order[game], searchable[game], settings.candidates,
+                                                 settings.extra_candidates, candidate_rng[game])
             belief = np.zeros((games, riichi_py.HANDS), dtype=np.float32)
             belief[rows] = torch.softmax(guessed.float(), dim=2).reshape(len(rows), -1).cpu().numpy()
             choices = np.asarray(searched.search_with_value_head(
                 net, arena, ranked, belief.reshape(-1).tolist(), worlds=settings.worlds,
-                candidates=settings.candidates, margin=settings.margin, hurried=settings.hurried,
+                candidates=min(ENGINE_ACTIONS, settings.candidates + settings.extra_candidates), margin=settings.margin, hurried=settings.hurried,
                 device=device, pool=settings.pool, played_by=settings.played_by, depth=settings.depth,
                 temperature=settings.temperature, valued_by=settings.valued_by, served=served,
+                objective=settings.objective, search_calls=settings.search_calls,
+                confirm_worlds=settings.confirm_worlds,
             ))
             if (choices.shape != (games,) or choices.dtype.kind not in "iu"
                     or np.any((choices < 0) | (choices >= ENGINE_ACTIONS))):
@@ -229,13 +272,20 @@ def main() -> None:
     for name in ("margin", "temperature", "improve"):
         parser.add_argument("--" + name, type=float, default=getattr(SearchSettings(), name))
     parser.add_argument("--played-by", choices=("network", "club"), default="network")
-    parser.add_argument("--valued-by", choices=("critic", "public", "mean"), default="critic")
+    parser.add_argument("--valued-by", choices=("critic", "public", "mean", "placement"), default="critic")
     parser.add_argument("--hurried", action="store_true")
+    from .teacher_options import add_arguments, validate_controls
+    add_arguments(parser)
+    parser.add_argument("--placement-head", type=Path)
+    parser.add_argument("--sure", type=float, default=1.0)
     args = parser.parse_args()
     settings = SearchSettings(**{name: getattr(args, name) for name in SearchSettings.__dataclass_fields__})
     # Validate cheap settings before loading checkpoints or creating output.
-    metadata(games=args.games, seed=args.seed, settings=settings, actor_sha256="0" * 64,
-             source_revision=args.source_revision, training_api_version=1)
+    validate_controls(**{name: getattr(settings, name) for name in (
+        "objective", "valued_by", "played_by", "depth", "search_calls", "confirm_worlds",
+        "extra_candidates", "audit_share")})
+    if (settings.valued_by == "placement") != (args.placement_head is not None):
+        raise ValueError("--placement-head must be supplied exactly for --valued-by placement")
     if args.out.exists():
         raise FileExistsError(f"Refusing to overwrite search replay: {args.out}")
     from .checkpoints import copy_checkpoint
@@ -248,7 +298,8 @@ def main() -> None:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
         net = zoo.load_player(snapshot, args.device)
         replay = collect(net, games=args.games, seed=args.seed, settings=settings,
-                         actor_sha256=digest, source_revision=args.source_revision, device=args.device)
+                         actor_sha256=digest, source_revision=args.source_revision, device=args.device,
+                         placement_head=args.placement_head)
         replay.save(args.out)
     print(f"Wrote {replay.metadata['rows']} supervised decisions from {args.games} complete games to {args.out}")
 

@@ -737,6 +737,99 @@ impl PlayerState {
         Ok(())
     }
 
+    /// Forget caches derived from an opponent's original private hand after
+    /// replacing it. The observer's own known hand is never passed here.
+    pub fn reset_search_private(&mut self, furiten: bool) {
+        self.at_furiten = furiten;
+        self.to_mark_same_cycle_furiten = None;
+        self.last_self_tsumo = None;
+        self.ankan_candidates.clear();
+        self.kakan_candidates.clear();
+        self.last_cans = ActionCandidate {
+            target_actor: self.last_cans.target_actor,
+            ..Default::default()
+        };
+    }
+
+    /// Refresh private derived fields from the sampled decision's engine state.
+    /// Called only on Imagined copies. Real followers and actual game state stay
+    /// untouched; root known furiten is retained by passing the engine's value.
+    pub fn synchronize_search_decision(
+        &mut self,
+        legal: &[bool],
+        furiten: bool,
+        drawn: Option<Tile>,
+    ) -> Result<()> {
+        ensure!(legal.len() == 78, "expected engine search action mask");
+        if let Some(tile) = drawn {
+            ensure!(
+                tile.deaka().as_usize() < 34 && self.tehai[tile.deaka().as_usize()] > 0,
+                "sampled drawn tile is not in the hand"
+            );
+        }
+        let discarding = legal[..34].iter().any(|&yes| yes);
+        let held: u8 = self.tehai.iter().sum();
+        ensure!(
+            (discarding && held % 3 == 2) || (!discarding && held % 3 == 1),
+            "sampled decision and concealed hand size disagree"
+        );
+        self.last_self_tsumo = drawn;
+        self.to_mark_same_cycle_furiten = None;
+        // Refresh waits from the pre-draw body, not the old private hand.
+        self.last_cans.can_discard = false;
+        if held % 3 == 1 {
+            self.update_shanten();
+            self.update_waits_and_furiten();
+        } else if let Some(tile) = drawn {
+            let kind = tile.deaka().as_usize();
+            self.tehai[kind] -= 1;
+            self.tiles_seen[kind] -= 1;
+            self.update_shanten();
+            self.update_waits_and_furiten();
+            self.tehai[kind] += 1;
+            self.tiles_seen[kind] += 1;
+        } else {
+            self.update_shanten();
+            self.waits.fill(false);
+        }
+        let target_actor = if discarding {
+            self.player_id
+        } else {
+            self.last_cans.target_actor
+        };
+        self.last_cans = ActionCandidate {
+            can_discard: discarding,
+            can_riichi: legal[34..68].iter().any(|&yes| yes),
+            can_tsumo_agari: legal[68],
+            can_ron_agari: legal[69],
+            can_chi_low: legal[73],
+            can_chi_mid: legal[72],
+            can_chi_high: legal[71],
+            can_pon: legal[74],
+            can_daiminkan: legal[75],
+            can_ankan: legal[76],
+            can_kakan: legal[77],
+            can_ryukyoku: false,
+            target_actor,
+        };
+        self.ankan_candidates.clear();
+        self.kakan_candidates.clear();
+        for (kind, &count) in self.tehai.iter().enumerate() {
+            let tile = must_tile!(kind);
+            if legal[76] && count == 4 && (!self.riichi_accepted[0] || drawn == Some(tile)) {
+                self.ankan_candidates.push(tile);
+            }
+            if legal[77] && count > 0 && self.pons.contains(&(kind as u8)) {
+                self.kakan_candidates.push(tile);
+            }
+        }
+        if discarding && !self.riichi_accepted[0] {
+            self.update_shanten_discards();
+        }
+        self.at_furiten = furiten;
+        Ok(())
+    }
+
     pub(super) fn witness_tile(&mut self, tile: Tile) -> Result<()> {
         ensure!(
             !tile.is_unknown(),

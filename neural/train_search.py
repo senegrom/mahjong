@@ -124,7 +124,7 @@ class Dataset:
             if (type(m.get("training_api_version")) is not int
                     or m["training_api_version"] != TRAINING_API_VERSION):
                 raise ValueError("Replay training API is incompatible; regenerate under the current engine")
-            expected = {"version": 1,
+            expected = {
                         "reward": {"version": 1, "name": "hand_points_over_4000_plus_placement"},
                         "observation": {"planes": 1012, "positions": 34, "encoder_version": 4},
                         "actions": {"policy": 46, "engine": 78},
@@ -135,6 +135,8 @@ class Dataset:
                 "version", "reward", "observation", "actions", "target_kind", "source_revision",
             )}
             semantics["valued_by"] = m["search"]["valued_by"]
+            if m["version"] == 2:
+                semantics["teacher"] = m["teacher"]
             if contract is not None and _json(semantics) != _json(contract):
                 raise ValueError("Do not mix replay objectives, evaluators, encoders or source revisions")
             contract = semantics

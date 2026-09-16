@@ -79,17 +79,22 @@ class SiblingHeadTests(unittest.TestCase):
                 self.assertEqual(len(recorded), len(recording))
                 self.assertEqual(len(recorded.sure), len(recorded))
                 self.assertTrue(np.all((recorded.sure > 0) & (recorded.sure <= 1)))
-                joined = sibling_head.gathered([recorded, recorded])
+                # Repeating the same immutable snapshot is now rejected instead
+                # of silently doubling its weight. Separate chair snapshots may
+                # share environment seeds, but remain in the same held-out split.
+                with self.assertRaisesRegex(ValueError, "duplicate"):
+                    sibling_head.gathered([recorded, recorded])
+                other = sibling_head.Recorded(folder)
+                other.meta = {**other.meta, "snapshot_id": "f" * 32}
+                other.chair = (other.chair + 1) % 4
+                joined = sibling_head.gathered([recorded, other])
                 self.assertEqual(len(joined.sure), 2 * len(recorded))
                 self.assertEqual(joined.meta["sure"], 0.9)
-                # Two chairs of the same deals keep their game numbers, so a
-                # held-out deal is held out in both; other deals follow on.
                 n = len(recorded)
                 np.testing.assert_array_equal(joined.game[:n], joined.game[n:])
-                other = sibling_head.Recorded(folder)
                 other.meta = {**other.meta, "seed": 999}
                 apart = sibling_head.gathered([recorded, other])
-                self.assertEqual(int(apart.game[n:].min()), int(recorded.game.max()) + 1)
+                self.assertEqual(int(apart.game[n:].min()), 999)
                 training, held = apart.split()
                 self.assertTrue(set(apart.game[held]).isdisjoint(set(apart.game[training])))
                 head = sibling_head.Ranker(net.channels)

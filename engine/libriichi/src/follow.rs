@@ -394,6 +394,63 @@ impl Imagined {
         Ok(())
     }
 
+    /// Reset only the newly sampled opponents, not the observer's own state.
+    fn reset_search_private(&mut self, which: Vec<usize>, furiten: Vec<bool>) -> PyResult<()> {
+        if which.len() != furiten.len() || which.iter().any(|&slot| slot >= self.states.len()) {
+            return Err(PyValueError::new_err(
+                "invalid sampled private-state metadata",
+            ));
+        }
+        for (slot, value) in which.into_iter().zip(furiten) {
+            self.states[slot].reset_search_private(value);
+        }
+        Ok(())
+    }
+
+    /// Match derived private fields and action features to the sampled engine.
+    fn synchronize_search_decisions(
+        &mut self,
+        which: Vec<usize>,
+        masks: Vec<Vec<bool>>,
+        furiten: Vec<bool>,
+        drawn: Vec<Option<String>>,
+    ) -> PyResult<()> {
+        if [masks.len(), furiten.len(), drawn.len()]
+            .iter()
+            .any(|&n| n != which.len())
+        {
+            return Err(PyValueError::new_err(
+                "search decision metadata lengths disagree",
+            ));
+        }
+        // Validate and stage all copies before mutating any caller-visible state.
+        let mut staged = Vec::with_capacity(which.len());
+        let mut seen = std::collections::HashSet::new();
+        for (at, &slot) in which.iter().enumerate() {
+            if !seen.insert(slot) {
+                return Err(PyValueError::new_err("duplicate search slot"));
+            }
+            let mut state = self
+                .states
+                .get(slot)
+                .ok_or_else(|| PyValueError::new_err("unknown search slot"))?
+                .clone();
+            let tile = drawn[at]
+                .as_ref()
+                .map(|name| name.parse::<Tile>())
+                .transpose()
+                .map_err(|_| PyValueError::new_err("invalid sampled drawn tile"))?;
+            state
+                .synchronize_search_decision(&masks[at], furiten[at], tile)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?;
+            staged.push((slot, state));
+        }
+        for (slot, state) in staged {
+            self.states[slot] = state;
+        }
+        Ok(())
+    }
+
     /// Copies of the named slots, as a new set: what a question asked
     /// ahead of the table -- which tile a reach throws -- is put to, so the
     /// slot itself is not told a reach the search may decide against.

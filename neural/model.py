@@ -321,6 +321,13 @@ class PolicyValueNet(nn.Module):
         logits = logits.masked_fill(~legal, float("-inf"))
         return logits, self.value(pooled).squeeze(1)
 
+    def policy_only(self, planes: torch.Tensor, legal: torch.Tensor) -> torch.Tensor:
+        """Policy-only continuation, with the same arithmetic as forward()."""
+        features = self.tail(self.tower(self.stem(planes)))
+        tiles = self.policy_tiles(features).reshape(planes.shape[0], -1)
+        logits = torch.cat([tiles, self.policy_pooled(features.mean(dim=2))], dim=1)
+        return logits.masked_fill(~legal, float("-inf"))
+
     def value_only(self, planes: torch.Tensor, head: str = "critic") -> torch.Tensor:
         """What each position is worth, in the reward's units, and nothing
         else. The search values thousands of positions a decision and wants
