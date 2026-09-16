@@ -36,7 +36,7 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
 
   const baselines = new Map();
   for (const name of Array(3).fill(network)) {
-    let session, input;
+    let session, input, mask;
     try {
       const bytes = new Uint8Array(await readFile(name));
       session = await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
@@ -48,7 +48,7 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
       // be a number is the moves it was allowed.
       const wants = session.inputNames.includes('legal');
       const allowed = Array.from({ length: 46 }, (_, index) => index < 14);
-      const mask = wants
+      mask = wants
         ? new ort.Tensor('float32', Float32Array.from(allowed, can => (can ? 1 : 0)), [1, allowed.length])
         : null;
       for (let turn = 0; turn < 12; turn++) {
@@ -65,6 +65,7 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
       }
     } finally {
       input?.dispose();
+      mask?.dispose();
       await session?.release();
     }
   }
@@ -74,5 +75,5 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
   // reservation. A fifth of it was a whole model when the page carried a
   // small one; with a 116 MB network it is the margin that matters.
   assert.ok(peak < limit * 0.8, `model switching needs headroom inside the reservation; heap reached ${peak} bytes`);
-  t.diagnostic(`72 inferences across 6 model loads; WASM heap ${(peak / 1048576).toFixed(1)} MiB`);
+  t.diagnostic(`36 inferences across 3 model loads; WASM heap ${(peak / 1048576).toFixed(1)} MiB`);
 });

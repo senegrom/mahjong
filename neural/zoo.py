@@ -224,9 +224,8 @@ class MortalSpacePlayer:
         players = np.array([player for _game, player in who], dtype=np.int64)
         sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
         mask = torch.from_numpy(allowed).to(self.device)
-        with torch.no_grad(), torch.autocast(
-            "cuda", dtype=torch.bfloat16, enabled=str(self.device).startswith("cuda")
-        ):
+        from . import policy_inference
+        with torch.no_grad(), policy_inference.context(self.net, self.device):
             logits, _value = self.forward(sparse.dense(self.device), mask)
         return logits.float().cpu().numpy(), masks
 
@@ -275,9 +274,8 @@ class MortalPlayer:
         sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
         planes = sparse.dense(self.device)
         mask = torch.from_numpy(allowed).to(self.device)
-        with torch.no_grad(), torch.autocast(
-            "cuda", dtype=torch.bfloat16, enabled=str(self.device).startswith("cuda")
-        ):
+        from . import policy_inference
+        with torch.no_grad(), policy_inference.context(self, self.device):
             q = self.forward(planes, mask)
         return q.float().cpu().numpy(), masks
 
@@ -311,10 +309,12 @@ def choose(
     its best move."""
     if hasattr(player, "choose"):
         return player.choose(views, rows, players, legal)
-    logits, _value = player(
-        views.dense(player.kind, rows, players, device),
-        torch.from_numpy(legal).to(device),
-    )
+    from . import policy_inference
+    with policy_inference.context(player, device):
+        logits, _value = player(
+            views.dense(player.kind, rows, players, device),
+            torch.from_numpy(legal).to(device),
+        )
     if greedy:
         return logits.argmax(dim=1).cpu().numpy()
     return torch.distributions.Categorical(logits=logits.float()).sample().cpu().numpy()

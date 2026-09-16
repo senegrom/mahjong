@@ -21,6 +21,7 @@ import numpy as np
 import torch
 
 from .training_safety import SEARCH_API_VERSION
+from . import policy_inference
 from .teacher_actions import representable_moves
 from .search_replay import (
     ACTIONS, ENGINE_ACTIONS, PLANES, POSITIONS, REWARD, VERSION, TEACHER_VERSION, DENSE,
@@ -47,11 +48,13 @@ class SearchSettings:
     extra_candidates: int = 0
     audit_share: float = 0.0
     sure: float = 1.0
+    policy_precision: str = "auto"
+    rollout_batch: int = policy_inference.DEFAULT_ROLLOUT_BATCH
 
 
 def metadata(*, games: int, seed: int, settings: SearchSettings,
              actor_sha256: str, source_revision: str, training_api_version: int,
-             head_provenance: dict | None = None) -> dict:
+             head_provenance: dict | None = None, device: str = "cpu") -> dict:
     m = {
         "version": TEACHER_VERSION, "complete": True, "rows": 1,
         "reward": dict(REWARD),
@@ -66,6 +69,10 @@ def metadata(*, games: int, seed: int, settings: SearchSettings,
         "games": games, "seed": seed, "search": asdict(settings),
         "teacher": {"version": 1, "search_api_version": SEARCH_API_VERSION, "objective": settings.objective,
                     "placement_head": head_provenance,
+                    "policy_inference": {"version": policy_inference.VERSION,
+                        "requested": settings.policy_precision,
+                        "resolved": policy_inference.resolved(settings.policy_precision, device),
+                        "tie_break": "first_policy_index"},
                     "student_value_head": "critic" if settings.valued_by == "placement" else settings.valued_by},
     }
     validate_metadata(m)
@@ -128,6 +135,7 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
     validate_controls(**{name: getattr(settings, name) for name in (
         "objective", "valued_by", "played_by", "depth", "search_calls", "confirm_worlds",
         "extra_candidates", "audit_share")})
+    policy_inference.validate(settings.policy_precision, settings.rollout_batch)
     head = provenance = None
     if settings.valued_by == "placement":
         if placement_head is None:
@@ -148,7 +156,7 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
         raise ValueError("a placement head was supplied to a different teacher")
     m = metadata(games=games, seed=seed, settings=settings, actor_sha256=actor_sha256,
                  source_revision=source_revision, training_api_version=TRAINING_API_VERSION,
-                 head_provenance=provenance)
+                 head_provenance=provenance, device=device)
     validate_budget(games, settings.max_steps)
     require_training_engine()
     if ledger.REWARD_VERSION != REWARD["version"] or ledger.HAND_SCALE != 1 / 4000:
@@ -158,6 +166,7 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
             or served.contract.answers != ACTIONS):
         raise contract.UnsupportedSearchLayout("Search replay v1 requires Mortal-v4 observations and 46 actions")
     net = served.net
+    policy_inference.configure(net, settings.policy_precision, device)
     net.eval()
     torch.manual_seed(seed)
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
@@ -218,7 +227,7 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
                 device=device, pool=settings.pool, played_by=settings.played_by, depth=settings.depth,
                 temperature=settings.temperature, valued_by=settings.valued_by, served=served,
                 objective=settings.objective, search_calls=settings.search_calls,
-                confirm_worlds=settings.confirm_worlds,
+                confirm_worlds=settings.confirm_worlds, rollout_batch=settings.rollout_batch,
             ))
             if (choices.shape != (games,) or choices.dtype.kind not in "iu"
                     or np.any((choices < 0) | (choices >= ENGINE_ACTIONS))):
@@ -236,7 +245,8 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
                 lookup = {int(game): i for i, game in enumerate(captured.reach_rows)}
                 indices = torch.tensor([lookup[int(game)] for game in rows[second]], device=device)
                 after, after_legal = (tensor[indices] for tensor in captured.reach_inputs)
-                after_logits, _v, _hands = net.everything(after, after_legal)
+                with policy_inference.context(net, after.device):
+                    after_logits, _v, _hands = net.everything(after, after_legal)
                 actor_after = torch.softmax(after_logits.float(), dim=1).cpu().numpy()
                 record(after, after_legal.cpu().numpy(), actor_after, choices[rows[second]],
                        rows[second], deciding[second], 1, legal[rows[second]])
@@ -281,6 +291,7 @@ def main() -> None:
     parser.add_argument("--sure", type=float, default=1.0)
     args = parser.parse_args()
     settings = SearchSettings(**{name: getattr(args, name) for name in SearchSettings.__dataclass_fields__})
+    policy_inference.validate(settings.policy_precision, settings.rollout_batch)
     # Validate cheap settings before loading checkpoints or creating output.
     validate_controls(**{name: getattr(settings, name) for name in (
         "objective", "valued_by", "played_by", "depth", "search_calls", "confirm_worlds",

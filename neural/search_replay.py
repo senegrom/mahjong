@@ -168,7 +168,7 @@ def validate_metadata(m: dict) -> None:
         raise ValueError("Invalid search settings")
 
     if m["version"] == VERSION and ("teacher" in m or any(key in s for key in (
-            "objective", "search_calls", "confirm_worlds", "extra_candidates", "audit_share", "sure"))):
+            "objective", "search_calls", "confirm_worlds", "extra_candidates", "audit_share", "sure", "policy_precision", "rollout_batch"))):
         raise ValueError("new teacher semantics cannot be relabelled as legacy replay")
 
     if m["version"] == TEACHER_VERSION:
@@ -185,6 +185,20 @@ def validate_metadata(m: dict) -> None:
                 or teacher["search_api_version"] != SEARCH_API_VERSION or teacher.get("objective") != s["objective"]
                 or teacher.get("student_value_head") != ("critic" if s["valued_by"] == "placement" else s["valued_by"])):
             raise ValueError("teacher provenance/value-target contract is incomplete")
+        controls = {"policy_precision", "rollout_batch"}
+        if controls & s.keys() or "policy_inference" in teacher:
+            from . import policy_inference
+            if not controls <= s.keys():
+                raise ValueError("incomplete policy inference settings")
+            policy_inference.validate(s["policy_precision"], s["rollout_batch"])
+            info = teacher.get("policy_inference", {})
+            if (not isinstance(info, dict) or type(info.get("version")) is not int
+                    or info["version"] != policy_inference.VERSION
+                    or info.get("requested") != s["policy_precision"]
+                    or info.get("resolved") not in ("float32", "bfloat16")
+                    or info.get("tie_break") != "first_policy_index"
+                    or s["policy_precision"] != "auto" and info["resolved"] != s["policy_precision"]):
+                raise ValueError("incomplete or inconsistent policy inference contract")
         head = teacher.get("placement_head")
         if s["valued_by"] == "placement":
             if (not isinstance(head, dict)

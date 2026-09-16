@@ -26,6 +26,8 @@ deals and are nowhere near independent.
 
 from __future__ import annotations
 
+from . import policy_inference
+
 import argparse
 import json
 from pathlib import Path
@@ -78,13 +80,15 @@ def require_native_search(net) -> None:
 
 
 @torch.no_grad()
-def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
+def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000,
+                   batch_size=policy_inference.DEFAULT_ROLLOUT_BATCH):
     """Plays every decision the lookaheads are waiting on with the policy
     until none is left: the network moving the other seats inside the
     search, and the searching player's own turns beyond the first when a
     depth was asked for. Its best move at temperature zero, a sample
     otherwise. Returns how many passes of the policy it took; a slot still
     waiting after `passes` is given up on and does not count."""
+    policy_inference.validate(rollout_batch=batch_size)
     require_native_search(net)
     taken = 0
     while taken < passes:
@@ -95,11 +99,10 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
         planes = np.frombuffer(planes_bytes, dtype=np.float32).reshape(count, PLANES, POSITIONS)
         masks = np.frombuffer(masks_bytes, dtype=np.uint8).reshape(count, ACTIONS).astype(bool)
         actions = np.empty(count, dtype=np.int64)
-        step = 8192
-        for start in range(0, count, step):
-            rows = slice(start, start + step)
+        for start in range(0, count, batch_size):
+            rows = slice(start, start + batch_size)
             logits = contract_module.policy_logits(net,
-                torch.from_numpy(planes[rows]).to(device),
+                torch.from_numpy(planes[rows].copy()).to(device),
                 torch.from_numpy(masks[rows]).to(device),
             )
             if temperature > 0:
@@ -133,6 +136,7 @@ def _search_once(
     served=None,
     leaf_batch=contract_module.DEFAULT_LEAF_BATCH,
     objective="hybrid", search_calls=False,
+    rollout_batch=policy_inference.DEFAULT_ROLLOUT_BATCH,
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -156,6 +160,7 @@ def _search_once(
     moves are its best (zero) or sampled. `valued_by` names the head that
     judges the leaves.
     """
+    policy_inference.validate(rollout_batch=rollout_batch)
     served = served or contract_module.serve(net)
     require_search_engine()
     validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
@@ -233,9 +238,9 @@ def _search_once(
         # planes it reads: the engine's own, or Mortal's through copies
         # of every seat's state kept in step (`MortalServed`).
         if served.contract.reads == "mortal":
-            served.play_lookahead(arena, device=device, temperature=temperature)
+            served.play_lookahead(arena, device=device, temperature=temperature, batch_size=rollout_batch)
         else:
-            play_lookahead(net, arena, device=device, temperature=temperature)
+            play_lookahead(net, arena, device=device, temperature=temperature, batch_size=rollout_batch)
         planes_bytes, counts, _settled, _wanted = arena.lookahead_leaves()
     else:
         planes_bytes, counts, _settled, _wanted = arena.leaves_from(
@@ -277,7 +282,7 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
                            depth=0, temperature=0.0, valued_by="critic", health=None,
                            served=None, leaf_batch=contract_module.DEFAULT_LEAF_BATCH,
                            objective="hybrid", search_calls=False, confirm_worlds=0,
-                           evidence=None):
+                           evidence=None, rollout_batch=policy_inference.DEFAULT_ROLLOUT_BATCH):
     """Pilot search plus optional independent, fixed-budget confirmation.
 
     Select at most one challenger per root on the discovery worlds. Compare it
@@ -287,6 +292,7 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
     """
     validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
                       depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds)
+    policy_inference.validate(rollout_batch=rollout_batch)
     for name, number in (("worlds", worlds), ("candidates", candidates), ("pool", pool)):
         if type(number) is not int or number < 1:
             raise ValueError(f"{name} must be a positive integer")
@@ -296,7 +302,7 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
     options = dict(margin=margin, hurried=hurried, device=device, pool=pool,
                    played_by=played_by, depth=depth, temperature=temperature,
                    valued_by=valued_by, health=health, served=served, leaf_batch=leaf_batch,
-                   objective=objective, search_calls=search_calls)
+                   objective=objective, search_calls=search_calls, rollout_batch=rollout_batch)
     choices = _search_once(net, arena, ranked, belief_flat, worlds=worlds,
                            candidates=candidates, **options)
     judged = arena.judgements()
@@ -348,6 +354,8 @@ def play(
     health: dict | None = None,
     objective: str = "hybrid", search_calls: bool = False, confirm_worlds: int = 0,
     extra_candidates: int = 0, audit_share: float = 0.0,
+    rollout_batch: int = policy_inference.DEFAULT_ROLLOUT_BATCH,
+    policy_precision: str | None = None,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -368,6 +376,9 @@ def play(
     given, is filled with how many own decisions there were (`own`) and
     how many were taken sure (`sure`).
     """
+    policy_inference.validate("auto" if policy_precision is None else policy_precision, rollout_batch)
+    if policy_precision is not None:
+        policy_inference.configure(net, policy_precision, device)
     require_training_engine()
     validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
                       depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds,
@@ -400,6 +411,9 @@ def play(
     # search whose worlds all come from a handful of proposals is not
     # searching the number of worlds it was asked for.
     health = {} if health is None else health
+    if recording is not None:
+        recording.meta.update(policy_inference=policy_inference.describe(net, device),
+                              rollout_batch=rollout_batch)
     steps = 0
     candidate_rng = [np.random.default_rng(seed + game) for game in range(games)]
     # The follower is the search's to copy leaf states from, and only
@@ -480,7 +494,7 @@ def play(
                     health=health,
                     served=served,
                     leaf_batch=leaf_batch, objective=objective, search_calls=search_calls,
-                    confirm_worlds=confirm_worlds, evidence=evidence,
+                    confirm_worlds=confirm_worlds, evidence=evidence, rollout_batch=rollout_batch,
                 )
                 if recording is not None:
                     if views is None:
@@ -750,6 +764,7 @@ def main() -> None:
     )
     add_arguments(parser)
     args = parser.parse_args()
+    policy_inference.validate(args.policy_precision, args.rollout_batch)
 
     # Pin the bytes before loading or recording a digest. A trainer may
     # replace the caller's latest.pt while this long measurement runs.
@@ -772,6 +787,7 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
     # continuation alike; a network nothing here can serve is refused by
     # name rather than approximated with another's planes.
     net = zoo.load_player(checkpoint, args.device, args.channels, args.blocks)
+    policy_inference.configure(net, args.policy_precision, args.device)
     placement_head = head_meta = None
     if args.valued_by == "placement":
         if args.placement_head is None:
@@ -795,6 +811,8 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
         "checkpoint_generation": generation,
         "temperature": args.temperature,
         "leaf_batch": args.leaf_batch,
+        "rollout_batch": args.rollout_batch,
+        "policy_inference": policy_inference.describe(net, args.device),
         "device": args.device,
         "save_every": args.save_every,
         "contract": served.contract.describe(),
@@ -843,7 +861,8 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
             sure=args.sure,
             health=health, objective=args.objective, search_calls=args.search_calls,
             confirm_worlds=args.confirm_worlds, extra_candidates=args.extra_candidates,
-            audit_share=args.audit_share,
+            audit_share=args.audit_share, rollout_batch=args.rollout_batch,
+            policy_precision=args.policy_precision,
         )
         asked += tally[0]
         overrode += tally[1]

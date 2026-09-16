@@ -508,6 +508,9 @@ def gathered(parts: list[Recorded]) -> Recorded:
     if any(part.meta.get("teacher_objective", "hybrid") != utility
            or part.meta.get("placement_head") != head for part in parts):
         raise ValueError("do not mix different teacher objectives or placement heads")
+    for field in ("policy_inference", "rollout_batch"):
+        if any(part.meta.get(field) != first.meta.get(field) for part in parts):
+            raise ValueError("do not mix different or unrecorded policy inference contracts")
     snapshots = [part.meta.get("snapshot_id") for part in parts]
     known = [name for name in snapshots if name is not None]
     if len(known) != len(set(known)):
@@ -578,6 +581,9 @@ def gathered(parts: list[Recorded]) -> Recorded:
         "teacher_objective": utility, "placement_head": head,
         "sure": max(float(part.meta.get("sure", 1.0)) for part in parts),
     }
+    for field in ("policy_inference", "rollout_batch"):
+        if field in first.meta:
+            joined.meta[field] = first.meta[field]
     return joined
 
 

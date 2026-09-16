@@ -707,6 +707,8 @@ def searched(
     confirm_worlds: int = 0,
     extra_candidates: int = 0,
     audit_share: float = 0.0,
+    policy_precision: str = "auto",
+    rollout_batch: int = 256,
 ) -> str:
     """Evaluate search, keeping progress separate from successful complete runs.
 
@@ -724,6 +726,8 @@ def searched(
     import math
     from neural.recordings import digest_file, validate_snapshot
 
+    from neural.policy_inference import validate as validate_inference
+    validate_inference(policy_precision, rollout_batch)
     from neural.teacher_options import validate_controls
     validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
                       depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds,
@@ -767,6 +771,7 @@ def searched(
                         device="cuda", placement_head=placement_head,
                         objective=objective, search_api_version=SEARCH_API_VERSION, search_calls=search_calls, confirm_worlds=confirm_worlds,
                         extra_candidates=extra_candidates, audit_share=audit_share,
+                        policy_precision=policy_precision, rollout_batch=rollout_batch,
                         placement_head_sha256=None if head_copy is None else digest_file(head_copy))
         identity = experiment(copied, generation, settings)
         target = VOLUME / "searched-records" / identity["experiment_id"]
@@ -781,6 +786,7 @@ def searched(
             "--chair", str(chair), "--sure", str(sure), "--save-every", str(save_every),
             "--temperature", str(temperature), "--valued-by", valued_by,
             "--leaf-batch", str(leaf_batch), "--device", "cuda",
+            "--rollout-batch", str(rollout_batch), "--policy-precision", policy_precision,
             "--objective", objective, "--confirm-worlds", str(confirm_worlds),
             "--extra-candidates", str(extra_candidates), "--audit-share", str(audit_share),
         ]

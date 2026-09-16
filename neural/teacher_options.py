@@ -30,6 +30,10 @@ def validate_controls(*, objective="hybrid", valued_by="critic", played_by="netw
 
 
 def add_arguments(parser):
+    parser.add_argument("--policy-precision", choices=("auto", "float32", "bfloat16"), default="auto",
+                        help="shared ordinary/root/continuation policy arithmetic; recorded with the experiment")
+    parser.add_argument("--rollout-batch", type=int, default=256,
+                        help="maximum rows per imagined policy encoding/forward, including riichi stage two")
     parser.add_argument("--objective", choices=("hybrid", "placement"), default="hybrid",
                         help="teacher utility; placement omits the separate root-hand points bonus")
     parser.add_argument("--search-calls", action="store_true", help="compare claims using normal simultaneous resolution")
