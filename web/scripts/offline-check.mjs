@@ -11,14 +11,14 @@ import { createHash } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
-import { MODEL_FILES } from '../src/lib/model-package.js';
+import { MANIFEST } from '../src/lib/model-manifest.js';
 import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
 const manifest = JSON.parse(await readFile(resolve(dist, 'offline-manifest.json'), 'utf8'));
 const source = await readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8');
-const modelPath = MODEL_FILES.full, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
+const modelPath = MANIFEST.object, networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
 const count = new Map(), refused = [], overrides = new Map();
 let unavailable = false, failPath = null, holdPath = null, holdResolve = null, holdSeenResolve = null;
 const mime = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css',
@@ -62,6 +62,13 @@ async function page(browser, { seed = true, offline = false, strength = 'neural'
   }
   const p = await browser.newPage(); p.errors = [];
   p.on('pageerror', error => p.errors.push(error.message));
+  // The network comes from its bucket, not from this fixture server, so its
+  // downloads are counted here and land in the same tally as everything else.
+  p.on('request', request => {
+    if (request.url() === networkUrl && request.method() === 'GET') {
+      count.set(modelPath, (count.get(modelPath) ?? 0) + 1);
+    }
+  });
   await p.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
   await p.setCacheEnabled(false);
   if (offline) await p.setOfflineMode(true);
@@ -220,8 +227,16 @@ try {
     }))).every(Boolean), art));
     // Native SW update probes may occur; the game itself must not hit network.
     assert.deepEqual(refused.filter(name=>name!=='sw.js'), []);
+    // The opponents are the real network, so a hand can end inside those
+    // moves; its result covers the settings panel until it is dismissed.
+    if (await cold.$('.screen')) {
+      await cold.click('.screen .buttons .primary');
+      await cold.waitForFunction(() => !document.querySelector('.screen'), { timeout: 45000 });
+      await hand(cold);
+    }
     const beforeRestart = await saved(cold); cold.on('dialog', d=>void d.accept());
-    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game'); await hand(cold); await play(cold, 3);
+    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game');
+    await hand(cold); await play(cold, 3);
     assert.notEqual((await saved(cold)).seed, beforeRestart.seed);
     assert.deepEqual(refused.filter(name=>name!=='sw.js'), []);
     await cold.screenshot({path:resolve(output,'offline-plane-real-ai.png'),fullPage:true});
@@ -239,7 +254,9 @@ try {
     });
     // Allow outstanding successful sibling requests to be written before retry.
     await new Promise(done=>setTimeout(done,200));
-    assert.equal(count.get(modelPath),1);
+    // The runtime is saved before the network is fetched, so a runtime that
+    // cannot be saved spends none of the network's 116 MB.
+    assert.equal(count.get(modelPath) ?? 0,0);
     failPath=null; overrides.clear();
     await p.click('.settings-trigger'); await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p); await p.click('.mobile-preferences-head button');
     assert.equal(count.get(modelPath),1); assert.ok(count.get(runtimePath)>=1);
