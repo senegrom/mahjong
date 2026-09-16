@@ -13,7 +13,7 @@ import math
 import numpy as np
 import torch
 
-from .search_replay import action_contract
+from .search_replay import action_contract, student_value_head
 
 
 def validate_policy_options(policy_mode: str, actor_kl: float) -> None:
@@ -104,7 +104,7 @@ def replay_loss(replay, net, rows: np.ndarray, device: str = "cpu",
         "legal", "actor_policy", "policy_target", "returns"))
     logits, value, _ = net.everything(x, legal)
     if hasattr(net, "value_only"):
-        value = net.value_only(x, head=replay.metadata["search"]["valued_by"])
+        value = net.value_only(x, head=student_value_head(replay.metadata))
     if logits.shape != target.shape or value.shape != returns.shape:
         raise ValueError("Learner outputs do not match the replay action/value contract")
     terms = policy_terms(logits, actor, target, legal,

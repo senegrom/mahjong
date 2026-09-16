@@ -108,6 +108,21 @@ class SearchCloudPublicationTests(unittest.TestCase):
                     self.assertEqual(calls[0][calls[0].index(flag) + 1], str(value))
             self.assertEqual(configurations[0], configurations[1])
 
+    def test_teacher_options_are_in_the_child_command_and_experiment_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            volume = self.prepare(Path(temp))
+            options = dict(played_by='network', search_calls=True, confirm_worlds=32,
+                           extra_candidates=2, audit_share=.1, objective='hybrid')
+            calls = self.run_controller(volume, **options)
+            attempt = next((volume / 'searched-records').iterdir())
+            settings = json.loads((attempt / 'experiment.json').read_text())['settings']
+            self.assertIn('--search-calls', calls[0])
+            for key, value in options.items():
+                self.assertEqual(settings[key], value)
+                if key != 'search_calls':
+                    flag = '--' + key.replace('_', '-')
+                    self.assertEqual(calls[0][calls[0].index(flag) + 1], str(value))
+
     def test_nonrecording_failures_are_not_returned_as_success(self):
         with tempfile.TemporaryDirectory() as temp:
             volume = self.prepare(Path(temp))

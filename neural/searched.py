@@ -31,6 +31,7 @@ import json
 from pathlib import Path
 import tempfile
 import statistics
+import shutil
 import sys
 import time
 
@@ -44,6 +45,7 @@ import riichi_py
 from . import contract as contract_module
 from . import worlds as worlds_module
 from . import zoo
+from .teacher_options import validate_controls, add_arguments, candidate_set
 from .contract import UnsupportedSearchLayout
 from .training_safety import require_training_engine, require_search_engine
 
@@ -96,7 +98,7 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
         step = 8192
         for start in range(0, count, step):
             rows = slice(start, start + step)
-            logits, _value = net(
+            logits = contract_module.policy_logits(net,
                 torch.from_numpy(planes[rows]).to(device),
                 torch.from_numpy(masks[rows]).to(device),
             )
@@ -111,7 +113,7 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
 
 
 @torch.no_grad()
-def search_with_value_head(
+def _search_once(
     net,
     arena,
     ranked,
@@ -130,6 +132,7 @@ def search_with_value_head(
     health=None,
     served=None,
     leaf_batch=contract_module.DEFAULT_LEAF_BATCH,
+    objective="hybrid", search_calls=False,
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -138,9 +141,9 @@ def search_with_value_head(
 
     The hidden hands are weighed, not only sampled. The engine imagines
     `pool` times `worlds` worlds from the belief's per-tile marginals,
-    which is only a proposal; the reader says of each how much more likely
-    its hidden hands are than the proposal made them; the `worlds` most
-    plausible are kept with those weights and the rest dropped. The engine
+    which is only a proposal. A reader calibrated for this proposal can
+    correct it by likelihood ratios, with proportional resampling rather
+    than discarding the low-probability tail. The engine
     makes the moves in the kept worlds, the network values every resulting
     position in a single pass, and the engine picks, keeping the first move
     unless another beats it by `margin` standard errors of the weighted
@@ -155,6 +158,10 @@ def search_with_value_head(
     """
     served = served or contract_module.serve(net)
     require_search_engine()
+    validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
+                      depth=depth, search_calls=search_calls)
+    if valued_by == "placement" and getattr(served, "placement_head", None) is None:
+        raise ValueError("placement search requires a validated placement head")
     if type(leaf_batch) is not int or leaf_batch <= 0:
         raise ValueError("leaf_batch must be a positive integer")
     # A placement-only head judges where the standings lead from the hand
@@ -169,30 +176,33 @@ def search_with_value_head(
     if played_by == "network" and served.contract.reads != "mortal":
         require_native_search(net)
     games = len(ranked)
-    # A stream of its own for choosing worlds, so which ones are drawn does
-    # not depend on, or disturb, anything else. The seed moves with the
-    # position so two identical calls agree and successive ones do not.
-    seed_for_worlds = 0x51ED ^ (len(ranked) * 1_000_003) ^ int(sum(map(len, ranked)))
+    # Eligibility is applied before generating proposals, including forced
+    # decisions and other seats. Each environment owns its own search RNG.
+    active = [len(actions) > 1 for actions in ranked]
+    seeds = arena.search_resample_seeds(active)
     efficiency: list[float] = []
     distinct: list[int] = []
-    hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds)
+    hands_bytes, counts = arena.imagine(belief_flat, worlds=pool * worlds,
+                                       active=active, search_calls=search_calls)
     total = sum(counts)
     kept = [[] for _ in range(games)]
     weights = [[] for _ in range(games)]
     if total:
-        plausible = contract_module.proposal_scores(served, arena, hands_bytes, counts, device,
-                                                   batch_size=leaf_batch)
+        # A likelihood ratio learned for an older proposal is not a correction
+        # for the new kind-mass/constrained sampler. Never silently reuse it.
+        reader_ready = (getattr(served.contract, "reader_planes", None) is not None
+                        and getattr(served.net, "reader_proposal_version", None) == 4)
+        plausible = (contract_module.proposal_scores(served, arena, hands_bytes, counts, device,
+                                                    batch_size=leaf_batch)
+                     if reader_ready else np.zeros(total, dtype=np.float32))
         if health is not None:
-            health["world_reader"] = (served.contract.reads
-                                      if getattr(served.contract, "reader_planes", None) is not None
-                                      else "uniform")
+            health["world_reader"] = served.contract.reads if reader_ready else "uniform_unverified_proposal"
         offset = 0
         # Drawn in proportion to the reader's weights rather than taken from
         # the top of them: see `neural.worlds`. Keeping the likeliest worlds
         # and renormalising throws away the mass below the cut, and in this
         # game the hand that decides whether a discard was a mistake is
         # usually the unlikely one.
-        picker = np.random.default_rng(seed_for_worlds)
         for game, count in enumerate(counts):
             if count == 0:
                 continue
@@ -205,7 +215,7 @@ def search_with_value_head(
                 # end of the hand was most of the search's cost and none of
                 # its answer.
                 continue
-            chosen = worlds_module.resample(scores, worlds, picker)
+            chosen = worlds_module.resample(scores, worlds, np.random.default_rng(seeds[game]))
             kept[game] = chosen.kept
             weights[game] = chosen.weights
             efficiency.append(chosen.efficiency)
@@ -217,6 +227,7 @@ def search_with_value_head(
         arena.lookahead_begin(
             ranked, kept, weights, candidates=candidates, depth=max(depth, 0),
             until_hand_ends=depth < 0, boundary=boundary,
+            placement_only=objective == "placement", search_calls=search_calls,
         )
         # The seats inside the lookahead are moved by the network on the
         # planes it reads: the engine's own, or Mortal's through copies
@@ -229,10 +240,11 @@ def search_with_value_head(
     else:
         planes_bytes, counts, _settled, _wanted = arena.leaves_from(
             ranked, kept, weights, candidates=candidates, hurried=hurried, boundary=boundary,
+            placement_only=objective == "placement",
         )
     total = sum(counts)
     if total == 0:
-        return arena.decide([], margin, ranked)
+        return arena.decide([], margin, ranked, count_tally=False)
     # The leaves as *this* network reads them. The engine writes its own
     # ninety-seven planes for every one, which is right for a network of
     # its own lineage and useless for one that reads Mortal's thousand and
@@ -256,7 +268,60 @@ def search_with_value_head(
         # and its margin is measuring the spread of those few.
         health.setdefault("efficiency", []).extend(efficiency)
         health.setdefault("distinct", []).extend(distinct)
-    return arena.decide(valued.tolist(), margin, ranked)
+    return arena.decide(valued.tolist(), margin, ranked, count_tally=False)
+
+
+@torch.no_grad()
+def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidates,
+                           margin, hurried, device="cuda", pool=4, played_by="club",
+                           depth=0, temperature=0.0, valued_by="critic", health=None,
+                           served=None, leaf_batch=contract_module.DEFAULT_LEAF_BATCH,
+                           objective="hybrid", search_calls=False, confirm_worlds=0,
+                           evidence=None):
+    """Pilot search plus optional independent, fixed-budget confirmation.
+
+    Select at most one challenger per root on the discovery worlds. Compare it
+    only to the original policy on FRESH worlds; never add discovery evidence to
+    that confirmation test or retry until it passes. This addresses selection
+    bias, not model bias; the paired-SE margin is not a formal coverage guarantee.
+    """
+    validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
+                      depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds)
+    for name, number in (("worlds", worlds), ("candidates", candidates), ("pool", pool)):
+        if type(number) is not int or number < 1:
+            raise ValueError(f"{name} must be a positive integer")
+    if (any(type(value) not in (int, float) for value in (margin, temperature))
+            or not np.isfinite(margin) or margin < 0 or not np.isfinite(temperature) or temperature < 0):
+        raise ValueError("search margin and temperature must be finite and nonnegative")
+    options = dict(margin=margin, hurried=hurried, device=device, pool=pool,
+                   played_by=played_by, depth=depth, temperature=temperature,
+                   valued_by=valued_by, health=health, served=served, leaf_batch=leaf_batch,
+                   objective=objective, search_calls=search_calls)
+    choices = _search_once(net, arena, ranked, belief_flat, worlds=worlds,
+                           candidates=candidates, **options)
+    judged = arena.judgements()
+    weights = arena.judgement_weights()
+    confirmed = [False] * len(ranked)
+    initial = [len(row) > 1 for row in judged]
+    if confirm_worlds:
+        proposed = [bool(initial[g] and int(choices[g]) != row[0]) for g, row in enumerate(ranked)]
+        if any(proposed):
+            checks = [[row[0], int(choices[g])] if proposed[g] else [row[0]]
+                      for g, row in enumerate(ranked)]
+            final = _search_once(net, arena, checks, belief_flat, worlds=confirm_worlds,
+                                 candidates=2, **options)
+            checked, checked_weights = arena.judgements(), arena.judgement_weights()
+            for game, needed in enumerate(proposed):
+                if needed:
+                    choices[game] = final[game]
+                    judged[game], weights[game] = checked[game], checked_weights[game]
+                    confirmed[game] = final[game] != ranked[game][0]
+    changed = [initial[g] and int(choice) != ranked[g][0] for g, choice in enumerate(choices)]
+    arena.record_search_tally(sum(initial), sum(changed))
+    if evidence is not None:
+        evidence.update(judgements=judged, weights=weights, confirmed=confirmed,
+                        choices=list(choices))
+    return choices
 
 
 @torch.no_grad()
@@ -281,6 +346,8 @@ def play(
     recording: "Recording | None" = None,
     sure: float = 1.0,
     health: dict | None = None,
+    objective: str = "hybrid", search_calls: bool = False, confirm_worlds: int = 0,
+    extra_candidates: int = 0, audit_share: float = 0.0,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -302,6 +369,9 @@ def play(
     how many were taken sure (`sure`).
     """
     require_training_engine()
+    validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
+                      depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds,
+                      extra_candidates=extra_candidates, audit_share=audit_share)
     validate_budget(games, max_steps)
     if searcher is None:
         from . import duel
@@ -331,6 +401,7 @@ def play(
     # searching the number of worlds it was asked for.
     health = {} if health is None else health
     steps = 0
+    candidate_rng = [np.random.default_rng(seed + game) for game in range(games)]
     # The follower is the search's to copy leaf states from, and only
     # while the search runs.
     with contract_module.following(arena, None if views is None else views.observer.follower):
@@ -379,24 +450,25 @@ def play(
                 for game in range(games):
                     seat = int(seats[game])
                     own = seat != 0xFF and int(players[game][seat]) == searcher
-                    thinking = own and top[game] < sure
+                    thinking = own and (top[game] < sure or candidate_rng[game].random() < audit_share)
                     if own:
                         health["own"] = health.get("own", 0) + 1
                         if not thinking:
                             health["sure"] = health.get("sure", 0) + 1
                     if thinking:
-                        first = order[game][:candidates]
-                        first = first[mask[game][first]]
+                        first = candidate_set(order[game], mask[game], candidates,
+                                              extra_candidates, candidate_rng[game])
                     else:
                         first = order[game][:1]
                     ranked.append([int(index) for index in first] or [int(order[game][0])])
+                evidence = {}
                 choice = search_with_value_head(
                     net,
                     arena,
                     ranked,
                     belief.reshape(-1).tolist(),
                     worlds=worlds,
-                    candidates=candidates,
+                    candidates=min(ACTIONS, candidates + extra_candidates),
                     margin=margin,
                     hurried=hurried,
                     device=device,
@@ -407,7 +479,8 @@ def play(
                     valued_by=valued_by,
                     health=health,
                     served=served,
-                    leaf_batch=leaf_batch,
+                    leaf_batch=leaf_batch, objective=objective, search_calls=search_calls,
+                    confirm_worlds=confirm_worlds, evidence=evidence,
                 )
                 if recording is not None:
                     if views is None:
@@ -415,8 +488,8 @@ def play(
                             "a recording keeps the root as sparse Mortal planes; this network "
                             "reads the engine's, which nothing here records"
                         )
-                    judgements = arena.judgements()
-                    world_weights = arena.judgement_weights()
+                    judgements = evidence["judgements"]
+                    world_weights = evidence["weights"]
                     for at, game in enumerate(rows):
                         judged = judgements[game]
                         if len(judged) < 2:
@@ -585,8 +658,7 @@ def main() -> None:
         type=int,
         default=4,
         help="how many worlds are imagined for each one kept: the reader "
-        "weighs the pool and keeps the most plausible. A pool of one is "
-        "the sampled search, with no weighing at all",
+        "can reweight its calibrated proposal by proportional resampling",
     )
     parser.add_argument("--margin", type=float, default=2.0)
     parser.add_argument("--leaf-batch", type=int, default=contract_module.DEFAULT_LEAF_BATCH,
@@ -676,6 +748,7 @@ def main() -> None:
         help="seconds between partial writes of the recording, so a run "
         "killed halfway leaves its decisions behind",
     )
+    add_arguments(parser)
     args = parser.parse_args()
 
     # Pin the bytes before loading or recording a digest. A trainer may
@@ -685,10 +758,15 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="mahjong-searched-") as folder:
         checkpoint = Path(folder) / "checkpoint.pt"
         generation = copy_checkpoint(Path(args.checkpoint), checkpoint)
-        _run(args, checkpoint, generation)
+        pinned_head = None
+        if args.placement_head is not None:
+            pinned_head = Path(folder) / "placement-head.pt"
+            with Path(args.placement_head).open("rb") as source, pinned_head.open("xb") as target:
+                shutil.copyfileobj(source, target)
+        _run(args, checkpoint, generation, pinned_head)
 
 
-def _run(args, checkpoint: Path, generation: int | None) -> None:
+def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | None = None) -> None:
     # Loaded whole, then asked what it reads and answers in. The server
     # that comes back builds the planes for the root and for every imagined
     # continuation alike; a network nothing here can serve is refused by
@@ -700,7 +778,7 @@ def _run(args, checkpoint: Path, generation: int | None) -> None:
             raise ValueError("--valued-by placement needs --placement-head")
         from . import placement as placement_module
 
-        placement_head, head_meta = placement_module.load(args.placement_head, args.device)
+        placement_head, head_meta = placement_module.load(pinned_head or args.placement_head, args.device)
         placement_module.require_head_for(head_meta, contract_module.unwrap(net))
     served = contract_module.serve(net, str(args.checkpoint), placement_head=placement_head)
     print(json.dumps({"contract": served.contract.describe()}), flush=True)
@@ -731,9 +809,14 @@ def _run(args, checkpoint: Path, generation: int | None) -> None:
         "valued_by": args.valued_by,
         "placement_head": None if head_meta is None else {
             "path": str(args.placement_head), "features": head_meta.get("features"),
+            "sha256": digest_file(pinned_head or args.placement_head),
+            "feature_version": placement_head.feature_version,
             "held_out": (head_meta.get("history") or [{}])[-1].get("held_out"),
         },
         "sure": args.sure,
+        "teacher_objective": args.objective, "search_api_version": 4,
+        "search_calls": args.search_calls, "confirm_worlds": args.confirm_worlds,
+        "extra_candidates": args.extra_candidates, "audit_share": args.audit_share,
         "chairs": chairs,
     }
     recording = Recording(args.record, meta, every=args.save_every) if args.record is not None else None
@@ -758,7 +841,9 @@ def _run(args, checkpoint: Path, generation: int | None) -> None:
             leaf_batch=args.leaf_batch,
             recording=recording,
             sure=args.sure,
-            health=health,
+            health=health, objective=args.objective, search_calls=args.search_calls,
+            confirm_worlds=args.confirm_worlds, extra_candidates=args.extra_candidates,
+            audit_share=args.audit_share,
         )
         asked += tally[0]
         overrode += tally[1]

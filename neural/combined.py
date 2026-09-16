@@ -289,6 +289,20 @@ class Combined(nn.Module):
         logits, value, _guessed = self.everything(planes, legal)
         return logits, value
 
+    def policy_only(self, planes: torch.Tensor, legal: torch.Tensor) -> torch.Tensor:
+        """Identical policy logits without unused belief/value inference.
+
+        Training/export retain their existing forwards. Search continuation needs
+        only decisions, not the expensive auxiliary towers at every imagined turn.
+        """
+        ours = self.ours
+        features = ours.tail(ours.tower(ours.stem(planes)))
+        tiles = ours.policy_tiles(features).reshape(planes.shape[0], -1)
+        a1 = torch.cat([tiles, ours.policy_pooled(features.mean(dim=2))], dim=1)
+        phi = self.mortal.features(planes)
+        q = self.mortal.dqn(phi, legal)
+        return self.fuse(phi.float(), q.float(), features.float(), a1.float(), legal)
+
     @torch.no_grad()
     def choose(
         self, views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray

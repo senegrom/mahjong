@@ -41,6 +41,7 @@ from .observe import Planes
 #: What this head is trained to predict, so a checkpoint cannot be
 #: mistaken for one trained against a different target.
 PLACEMENT_VERSION = 1
+FEATURE_VERSION = 2
 
 
 class Judge(nn.Module):
@@ -53,10 +54,19 @@ class Judge(nn.Module):
     read off them at all.
     """
 
-    def __init__(self, channels: int, hidden: int = 64) -> None:
+    def __init__(self, channels: int, hidden: int = 64, *, context_channels: int | None = None,
+                 feature_version: int = FEATURE_VERSION) -> None:
         super().__init__()
+        self.channels = channels
+        self.context_channels = channels if context_channels is None else context_channels
+        if (type(feature_version) is not int or feature_version not in (1, FEATURE_VERSION)
+                or any(type(n) is not int or n <= 0 for n in (channels, hidden, self.context_channels))):
+            raise ValueError("invalid placement head feature contract")
+        if feature_version == 1 and self.context_channels != channels:
+            raise ValueError("legacy placement features have one duplicated pooled vector")
+        self.feature_version = feature_version
         self.body = nn.Sequential(
-            nn.Linear(2 * channels, hidden),
+            nn.Linear(channels + self.context_channels, hidden),
             nn.GELU(),
             nn.Linear(hidden, 1),
         )
@@ -64,8 +74,12 @@ class Judge(nn.Module):
         nn.init.zeros_(self.body[2].bias)
 
     def forward(self, features: torch.Tensor, pooled: torch.Tensor) -> torch.Tensor:
-        # Both what the tower says per tile, averaged, and what it says
-        # about the position as a whole: the standings live in the second.
+        # New heads receive distinct mean/max summaries and, for combined
+        # policies, Mortal's global features. Legacy heads retain their exact
+        # old inputs; changing feature meaning underneath saved weights is unsafe.
+        if (features.ndim != 3 or features.shape[1] != self.channels
+                or pooled.shape != (features.shape[0], self.context_channels)):
+            raise ValueError("placement head inputs do not match its feature contract")
         joined = torch.cat([features.mean(dim=2), pooled], dim=1)
         return self.body(joined).squeeze(1)
 
@@ -76,10 +90,27 @@ def backbone(net):
 
 
 @torch.no_grad()
-def features_of(net, planes: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def features_of(net, planes: torch.Tensor, feature_version: int = FEATURE_VERSION
+                ) -> tuple[torch.Tensor, torch.Tensor]:
     ours = backbone(net)
-    features = ours.tail(ours.tower(ours.stem(planes)))
-    return features.float(), features.mean(dim=2).float()
+    features = ours.tail(ours.tower(ours.stem(planes))).float()
+    if feature_version == 1:
+        return features, features.mean(dim=2)
+    if feature_version != FEATURE_VERSION:
+        raise ValueError("unsupported placement feature version")
+    context = features.amax(dim=2)
+    if hasattr(net, "mortal"):
+        context = torch.cat([context, net.mortal.features(planes).float()], dim=1)
+    return features, context
+
+
+def new_head(net) -> Judge:
+    channels = backbone(net).channels
+    context = channels
+    if hasattr(net, "mortal"):
+        context += int(net.fuse.phi_proj[0].in_features)
+    return Judge(channels, context_channels=context)
+
 
 
 class Positions:
@@ -129,12 +160,17 @@ class Positions:
 
 
 @torch.no_grad()
-def fingerprint(net) -> str:
+def fingerprint(net, feature_version: int = 1) -> str:
     """Which network's features a head reads, as a digest of the backbone's
     weights. A head fitted to one network's features says nothing about
     another's, and a checkpoint's name does not say which it was."""
+    if feature_version not in (1, FEATURE_VERSION):
+        raise ValueError("unsupported placement feature version")
     digest = hashlib.sha256()
-    for name, tensor in sorted(backbone(net).state_dict().items()):
+    # Legacy digests are unchanged. New heads bind the entire combined model,
+    # not just ours, since Mortal's encoder is part of their representation.
+    source = backbone(net) if feature_version == 1 else net
+    for name, tensor in sorted(source.state_dict().items()):
         digest.update(name.encode("utf-8"))
         digest.update(tensor.detach().cpu().float().contiguous().numpy().tobytes())
     return digest.hexdigest()[:16]
@@ -147,7 +183,7 @@ def require_head_for(meta: dict, net) -> None:
         raise ValueError(
             "this head does not say which network's features it was fitted to; train it again"
         )
-    have = fingerprint(net)
+    have = fingerprint(net, meta.get("feature_version", 1))
     if fitted != have:
         raise ValueError(
             f"this head was fitted to a network with features {fitted}, and the network "
@@ -191,13 +227,17 @@ def validate_round(path: Path) -> dict:
     if (played.dtype != np.int64 or played.shape != (n,)
             or np.any((played < 0) | (played >= payload["games"]))):
         raise ValueError("invalid round games_of")
+    if "boundary" in payload:
+        boundary = np.asarray(payload["boundary"])
+        if boundary.dtype != np.bool_ or boundary.shape != (n,):
+            raise ValueError("invalid boundary decision labels")
     scores = np.asarray(payload.get("final_scores"))
     if scores.shape != (payload["games"], 4) or scores.dtype.kind not in "iu":
         raise ValueError("invalid round final scores")
     return payload
 
 
-def load_rounds(paths: list[Path]) -> Positions:
+def load_rounds(paths: list[Path], *, boundary_only: bool = False) -> Positions:
     """Split by actual environment seed, never input order or mutable paths.
 
     Overlapping seed ranges are rejected, including duplicate round bytes under
@@ -213,9 +253,13 @@ def load_rounds(paths: list[Path]) -> Positions:
         if any(lo < end and begin < hi for begin, end in ranges):
             raise ValueError("duplicate or overlapping environment game seeds in rounds")
         ranges.append((lo, hi))
-        blocks.append(Planes(*(np.asarray(payload["observations"][name]) for name in Planes.ARRAYS)))
-        placements.append(np.asarray(payload["placements"], dtype=np.float32))
-        games.append(np.asarray(payload["games_of"], dtype=np.uint64) + np.uint64(lo))
+        if boundary_only and "boundary" not in payload:
+            raise ValueError("boundary-only fitting needs recollected rounds with boundary labels")
+        rows = (np.nonzero(payload["boundary"])[0] if boundary_only
+                else np.arange(payload["decisions"], dtype=np.int64))
+        blocks.append(Planes(*(np.asarray(payload["observations"][name]) for name in Planes.ARRAYS)).rows(rows))
+        placements.append(np.asarray(payload["placements"], dtype=np.float32)[rows])
+        games.append((np.asarray(payload["games_of"], dtype=np.uint64) + np.uint64(lo))[rows])
     return Positions(Planes.cat(blocks), np.concatenate(placements), np.concatenate(games))
 
 
@@ -233,7 +277,7 @@ def measure(head: Judge, net, positions: Positions, rows: np.ndarray, device: st
     for start in range(0, len(rows), step):
         picks = rows[start : start + step]
         planes = positions.planes.rows(picks).dense(device)
-        features, pooled = features_of(net, planes)
+        features, pooled = features_of(net, planes, head.feature_version)
         said.append(head(features, pooled).float().cpu())
         wanted.append(torch.from_numpy(positions.placements[picks]))
     if was:
@@ -260,7 +304,7 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
     """Fits the head on the positions and reads it on the held-back games
     after every pass."""
     net.eval()
-    head = head or Judge(backbone(net).channels)
+    head = head or new_head(net)
     head.to(device)
     optimiser = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=1e-4)
     training, held = positions.split()
@@ -276,7 +320,7 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
         for start in range(0, len(order), batch):
             picks = np.sort(order[start : start + batch])
             planes = positions.planes.rows(picks).dense(device)
-            features, pooled = features_of(net, planes)
+            features, pooled = features_of(net, planes, head.feature_version)
             said = head(features, pooled)
             loss = nn.functional.mse_loss(said, wanted_all[picks].to(device))
             optimiser.zero_grad(set_to_none=True)
@@ -296,9 +340,10 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
 
 def save(head: Judge, path: Path, meta: dict) -> None:
     from .checkpoints import atomic_artifact
-    if {"judge", "channels", "hidden", "placement_version"} & meta.keys():
+    if {"judge", "channels", "hidden", "placement_version", "feature_version", "context_channels"} & meta.keys():
         raise ValueError("metadata cannot replace the placement head schema")
-    atomic_artifact({**meta, "judge": head.state_dict(), "channels": head.body[0].in_features // 2,
+    atomic_artifact({**meta, "judge": head.state_dict(), "channels": head.channels,
+                     "context_channels": head.context_channels, "feature_version": head.feature_version,
                      "hidden": head.body[0].out_features, "placement_version": PLACEMENT_VERSION},
                     path, lambda staged: load(staged, "cpu"))
 
@@ -314,7 +359,9 @@ def load(path: Path, device: str = "cpu") -> tuple[Judge, dict]:
         raise ValueError("invalid placement head dimensions")
     if any(not torch.isfinite(t).all() for t in payload["judge"].values()):
         raise ValueError("nonfinite placement head weights")
-    head = Judge(payload["channels"], payload["hidden"])
+    head = Judge(payload["channels"], payload["hidden"],
+                 context_channels=payload.get("context_channels", payload["channels"]),
+                 feature_version=payload.get("feature_version", 1))
     head.load_state_dict(payload["judge"])
     head.to(device).eval()
     return head, {k: v for k, v in payload.items() if k not in ("judge", "channels", "hidden")}
@@ -325,6 +372,7 @@ def main() -> None:
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("rounds", type=Path, nargs="+", help="self-play rounds saved by neural.selfplay")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--boundary-only", action="store_true", help="fit only first turn-to-act positions after hand boundaries")
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=256)
@@ -334,7 +382,7 @@ def main() -> None:
     from . import contract, zoo
 
     net = contract.unwrap(zoo.load_player(args.checkpoint, args.device))
-    positions = load_rounds(args.rounds)
+    positions = load_rounds(args.rounds, boundary_only=args.boundary_only)
     training, held = positions.split()
     print(json.dumps({"positions": len(positions), "games": int(positions.games.max()) + 1,
                       "training": len(training), "held_out": len(held)}),
@@ -342,7 +390,7 @@ def main() -> None:
     head, history = train(positions, net, epochs=args.epochs, lr=args.lr, batch=args.batch,
                           device=args.device, log=sys.stderr)
     save(head, args.out, {"checkpoint": str(args.checkpoint), "rounds": [str(path) for path in args.rounds],
-                          "features": fingerprint(net), "history": history})
+                          "features": fingerprint(net, head.feature_version), "boundary_only": args.boundary_only, "history": history})
     print(json.dumps({"out": str(args.out), "final": history[-1] if history else None}, indent=1))
 
 

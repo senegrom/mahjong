@@ -423,13 +423,26 @@ def main() -> None:
     # the recordings were gated at, which the player reads back.
     save(head, args.out, {"checkpoint": str(args.checkpoint), "recordings": [str(p) for p in args.recording],
                           "history": history, "sure": float(recorded.meta.get("sure", 1.0)),
-                          "weighted": bool(args.weighted), "target": args.target})
+                          "weighted": bool(args.weighted), "target": args.target,
+                          "teacher_objective": recorded.meta.get("teacher_objective", "hybrid"),
+                          "placement_head": recorded.meta.get("placement_head")})
     print(json.dumps({"out": str(args.out), "final": history[-1] if history else None}, indent=1))
 
 
 def gathered(parts: list[Recorded]) -> Recorded:
     """Several recordings as one, their games kept apart for the split."""
+    if not parts:
+        raise ValueError("at least one recording is required")
     first = parts[0]
+    utility = first.meta.get("teacher_objective", "hybrid")
+    head = first.meta.get("placement_head")
+    if any(part.meta.get("teacher_objective", "hybrid") != utility
+           or part.meta.get("placement_head") != head for part in parts):
+        raise ValueError("do not mix different teacher objectives or placement heads")
+    snapshots = [part.meta.get("snapshot_id") for part in parts]
+    known = [name for name in snapshots if name is not None]
+    if len(known) != len(set(known)):
+        raise ValueError("duplicate recording snapshot would silently reweight training")
     joined = Recorded.__new__(Recorded)
     joined.folder = first.folder
     joined.roots = Planes.cat([part.roots for part in parts])
@@ -473,13 +486,27 @@ def gathered(parts: list[Recorded]) -> Recorded:
         by_deals[deals] = next_offset
         offsets.append(next_offset)
         next_offset += int(part.game.max()) + 1 if len(part.game) else 0
-    joined.game = np.concatenate([part.game + offset for part, offset in zip(parts, offsets)])
+    if all(type(part.meta.get("seed")) is int and type(part.meta.get("games")) is int for part in parts):
+        identities = []
+        for part in parts:
+            seed, count = part.meta["seed"], part.meta["games"]
+            if not (0 <= seed < 2**64 and count > 0 and seed + count <= 2**64):
+                raise ValueError("invalid recorded environment seed range")
+            if np.any((part.game < 0) | (part.game >= count)):
+                raise ValueError("recorded game is outside its seed range")
+            identities.append(part.game.astype(np.uint64) + np.uint64(seed))
+        joined.game = np.concatenate(identities)
+    else:
+        if any(part.meta.get("search_api_version", 0) >= 4 for part in parts):
+            raise ValueError("new teacher recordings require environment seed provenance")
+        joined.game = np.concatenate([part.game + offset for part, offset in zip(parts, offsets)])
     joined.chair = np.concatenate([part.chair for part in parts])
     joined.sure = np.concatenate([part.sure for part in parts])
     joined.legal = (np.concatenate([part.legal for part in parts])
                     if all(part.legal is not None for part in parts) else None)
     joined.meta = {
         "parts": [part.meta for part in parts],
+        "teacher_objective": utility, "placement_head": head,
         "sure": max(float(part.meta.get("sure", 1.0)) for part in parts),
     }
     return joined

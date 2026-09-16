@@ -137,7 +137,7 @@ class ShardValidation(unittest.TestCase):
                 SearchReplay.load(folder)
 
     def test_legacy_recordings_and_unknown_versions_are_not_relabelled(self):
-        for change in ({"version": 2}, {"version": True}, {"complete": False},
+        for change in ({"version": 999}, {"version": True}, {"complete": False},
                        {"actor_sha256": "latest.pt"}, {"source_revision": "main"},
                        {"reward": {"version": 2, "name": "placement_only"}},
                        {"actions": {"policy": 78, "engine": 78}},

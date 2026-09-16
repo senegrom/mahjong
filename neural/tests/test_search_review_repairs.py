@@ -82,10 +82,16 @@ class SearchLearningTests(unittest.TestCase):
 
     def test_selected_head_and_native_wanted_mask_are_forwarded(self):
         for head, result in [('critic',1.),('public',2.),('mean',3.)]:
+            received=[]
             class Arena:
                 def imagine(self,*a,**kw):return b'',[1]
                 def leaves_from(self,*a,**kw):return b'',[1],[0.],[1]
-                def decide(self,values,*a):return values
+                def search_resample_seeds(self,active):return [1]
+                def decide(self,values,*a,**kw):
+                    received.extend(values); return [0]
+                def judgements(self):return [[]]
+                def judgement_weights(self):return [[]]
+                def record_search_tally(self,*args):pass
             calls=[]
             def leaves(*args,**kwargs):
                 self.assertEqual(kwargs['wanted'],[1])
@@ -95,7 +101,7 @@ class SearchLearningTests(unittest.TestCase):
             served=SimpleNamespace(contract=SimpleNamespace(reads='mortal'),leaf_batches=leaves,value=value)
             got=searched.search_with_value_head(object(),Arena(),[[0]],[],worlds=1,candidates=1,
                 margin=2.,hurried=True,device='cpu',pool=1,valued_by=head,served=served)
-            self.assertEqual(got,[result]);self.assertEqual(calls,[head])
+            self.assertEqual(got,[0]);self.assertEqual(received,[result]);self.assertEqual(calls,[head])
 
 
 class ContinuationTests(unittest.TestCase):

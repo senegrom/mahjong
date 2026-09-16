@@ -194,6 +194,8 @@ class Batch:
     #: its result and are not independent samples of it.
     game_of: torch.Tensor | None = None
     seed: int | None = None
+    # First turn-to-act per player per hand, matching boundary search leaves.
+    boundary: torch.Tensor | None = None
 
 
 def imagine(arena, beliefs: np.ndarray) -> bytes:
@@ -298,6 +300,8 @@ def play(
     wandered: list[np.ndarray] = []
     coefficients: list[np.ndarray] = []
     after_exploration: list[bool] = []
+    boundary_rows: list[bool] = []
+    seen_turn = np.zeros((games, 4), dtype=bool)
     last_forced = np.zeros((games, 4), dtype=bool)
     actions: list[int] = []
     log_probs: list[float] = []
@@ -336,6 +340,7 @@ def play(
         for game in np.nonzero(ended)[0]:
             counted += 1
             last_forced[game] = False
+            seen_turn[game] = False
             for person in range(4):
                 value = float(results[game][person]) * HAND_SCALE
                 for step_index in pending[game][person]:
@@ -502,6 +507,9 @@ def play(
             game = int(index[record_slots[record]])
             seat = int(seats[game])
             person = int(players[game][seat])
+            turn = bool(mask[game, :34].any())
+            boundary_rows.append(turn and not seen_turn[game, person])
+            seen_turn[game, person] |= turn
             after_exploration.append(bool(last_forced[game, person] or forced_this_step[game, person]))
             forced_this_step[game, person] |= bool(record_forced[record])
             step_index = len(actions)
@@ -624,6 +632,7 @@ def play(
         placements=torch.tensor(placement_only, dtype=torch.float32),
         game_of=torch.from_numpy(game_of),
         seed=int(seed),
+        boundary=torch.tensor(boundary_rows, dtype=torch.bool),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,
         hands=hands,
@@ -749,7 +758,7 @@ def save_round(batch: Batch, path: Path, meta: dict | None = None) -> None:
         raise ValueError("round metadata cannot change the environment seed")
     extra.pop("seed", None)
     reserved = {"round_version", "reward_version", "observations", "placements", "returns",
-                "games_of", "games", "hands", "decisions", "final_scores"}
+                "games_of", "games", "hands", "decisions", "final_scores", "boundary"}
     if reserved & extra.keys():
         raise ValueError("round metadata cannot replace schema or collected data")
     payload = {
@@ -767,6 +776,9 @@ def save_round(batch: Batch, path: Path, meta: dict | None = None) -> None:
         "final_scores": np.asarray(batch.final_scores),
         **extra,
     }
+    boundary = getattr(batch, "boundary", None)
+    if boundary is not None:
+        payload["boundary"] = boundary.numpy().astype(np.bool_, copy=False)
     atomic_artifact(payload, Path(path), validate_round)
 
 

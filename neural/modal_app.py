@@ -700,6 +700,11 @@ def searched(
     valued_by: str = "critic",
     leaf_batch: int = 256,
     placement_head: str | None = None,
+    objective: str = "hybrid",
+    search_calls: bool = False,
+    confirm_worlds: int = 0,
+    extra_candidates: int = 0,
+    audit_share: float = 0.0,
 ) -> str:
     """Evaluate search, keeping progress separate from successful complete runs.
 
@@ -717,6 +722,10 @@ def searched(
     import math
     from neural.recordings import digest_file, validate_snapshot
 
+    from neural.teacher_options import validate_controls
+    validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
+                      depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds,
+                      extra_candidates=extra_candidates, audit_share=audit_share)
     validate_run(run)
     for name, value in (("games", games), ("worlds", worlds), ("candidates", candidates),
                         ("pool", pool), ("leaf_batch", leaf_batch)):
@@ -754,6 +763,8 @@ def searched(
                         depth=depth, chair=chair, sure=sure, save_every=save_every,
                         temperature=temperature, valued_by=valued_by, leaf_batch=leaf_batch,
                         device="cuda", placement_head=placement_head,
+                        objective=objective, search_api_version=4, search_calls=search_calls, confirm_worlds=confirm_worlds,
+                        extra_candidates=extra_candidates, audit_share=audit_share,
                         placement_head_sha256=None if head_copy is None else digest_file(head_copy))
         identity = experiment(copied, generation, settings)
         target = VOLUME / "searched-records" / identity["experiment_id"]
@@ -768,7 +779,11 @@ def searched(
             "--chair", str(chair), "--sure", str(sure), "--save-every", str(save_every),
             "--temperature", str(temperature), "--valued-by", valued_by,
             "--leaf-batch", str(leaf_batch), "--device", "cuda",
+            "--objective", objective, "--confirm-worlds", str(confirm_worlds),
+            "--extra-candidates", str(extra_candidates), "--audit-share", str(audit_share),
         ]
+        if search_calls:
+            command += ["--search-calls"]
         if head_copy is not None:
             command += ["--placement-head", str(head_copy)]
         records = where / "records"

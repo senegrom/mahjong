@@ -13,8 +13,8 @@ standard error and the margin, exactly as `search::compare` and
 picked against the policy's own. Averaged over many splits, the
 difference is a held-out estimate of what the rule gains a decision, in
 the units the rollouts spoke in: hand points over four thousand plus the
-placement the hand led to. Deciding on half the worlds, it understates a
-search that decides on all of them.
+placement the hand led to. This describes a half-budget diagnostic, not a guaranteed lower bound
+on the gain at a larger search budget.
 
 It is still the critic's yardstick, not the table's: a leaf is worth
 what the value head says, so a rule that gains here has gained by the
@@ -30,6 +30,9 @@ import argparse
 import json
 import warnings
 from pathlib import Path
+import math
+
+from .teacher_statistics import validation_summary
 
 import numpy as np
 
@@ -93,6 +96,10 @@ def measure(folder: Path, margin: float = MARGIN, repeats: int = REPEATS,
     decision on the recording named."""
     from .recordings import resolve_recording
 
+    if type(repeats) is not int or repeats < 1:
+        raise ValueError("repeats must be a positive integer")
+    if not math.isfinite(margin) or margin < 0:
+        raise ValueError("margin must be finite and nonnegative")
     folder = resolve_recording(folder)
     meta_path = folder / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
@@ -106,6 +113,9 @@ def measure(folder: Path, margin: float = MARGIN, repeats: int = REPEATS,
     if weights.shape != (rows, _count) or not np.isfinite(weights).all() or np.any(weights < 0):
         raise ValueError("invalid recorded world weights")
     by_margin, by_best, fired = [], [], []
+    margin_games, best_games = [], []
+    if game.shape != (rows,) or game.dtype.kind not in "iu" or np.any(game < 0):
+        raise ValueError("one nonnegative environment game identity per recorded decision is required")
     for row in range(rows):
         table = per_world[row]
         valid = ~np.isnan(values[row])
@@ -134,29 +144,25 @@ def measure(folder: Path, margin: float = MARGIN, repeats: int = REPEATS,
                 bests.append(scored[greedy] - scored[0])
         if margins:
             by_margin.append(float(np.mean(margins)))
+            margin_games.append(game[row])
             fired.append(float(np.mean(fires)))
         if bests:
             by_best.append(float(np.mean(bests)))
+            best_games.append(game[row])
     deals = max(len(np.unique(game)), 1)
 
-    def spoken(gains: list[float]) -> dict:
-        gains = np.asarray(gains)
-        if len(gains) < 2:
-            return {"rows": int(len(gains))}
-        error = float(gains.std(ddof=1) / len(gains) ** 0.5)
-        return {
-            "rows": int(len(gains)),
-            "a_decision": round(float(gains.mean()), 5),
-            "standard_error": round(error, 5),
-            "standard_errors": round(float(gains.mean()) / error if error else 0.0, 2),
-            "a_deal_so_far": round(float(gains.sum()) / deals, 4),
-        }
+    def spoken(gains, identities):
+        return validation_summary(gains, np.asarray(identities, dtype=game.dtype),
+                                  total_deals=deals)
 
     naive = float(
         np.nanmean(np.where(~np.isnan(values), values, -np.inf).max(axis=1) - values[:, 0])
-    ) if rows else float("nan")
+    ) if rows else None
     return {
         "recording": str(folder),
+        "teacher_objective": meta.get("teacher_objective", "hybrid"),
+        "confirmation_worlds": meta.get("confirm_worlds", 0),
+        "diagnostic_rule": "margin on a split of the recorded worlds; not a full two-stage replay",
         "search_backup_version": meta.get("search_backup_version", 1),
         "independent_worlds": weight_file.exists(),
         "worlds": meta.get("worlds"),
@@ -166,11 +172,11 @@ def measure(folder: Path, margin: float = MARGIN, repeats: int = REPEATS,
         "searched_decisions_a_deal": round(rows / deals, 1),
         # What the rule the engine plays gains, decided on half the worlds
         # and scored on the other.
-        "by_margin": spoken(by_margin),
+        "by_margin": spoken(by_margin, margin_games),
         "fired": round(float(np.mean(fired)), 4) if fired else None,
         # What taking the best average gains, likewise: the sibling head's
         # ceiling, and near zero wherever the worlds are few.
-        "by_best": spoken(by_best),
+        "by_best": spoken(by_best, best_games),
         # And what the same difference reads as when the worlds that chose
         # also score, which is what a recording invites you to believe.
         "naive_gap": round(naive, 5),

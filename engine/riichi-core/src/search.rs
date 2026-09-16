@@ -168,6 +168,8 @@ impl Effort {
 pub struct Belief {
     /// Row-major, three rows of [`POSITIONS`] weights.
     pub weights: Vec<f32>,
+    /// True for predicted tile-kind mass, false for a per-physical-copy prior.
+    pub kind_mass: bool,
 }
 
 impl Belief {
@@ -175,6 +177,7 @@ impl Belief {
     pub fn even() -> Belief {
         Belief {
             weights: vec![1.0; OPPONENTS * POSITIONS],
+            kind_mass: false,
         }
     }
 
@@ -187,7 +190,17 @@ impl Belief {
             "a belief is three rows of thirty-four"
         );
         Belief {
-            weights: weights.iter().map(|weight| weight.max(0.0)).collect(),
+            weights: weights
+                .iter()
+                .map(|weight| {
+                    if weight.is_finite() {
+                        weight.max(0.0)
+                    } else {
+                        0.0
+                    }
+                })
+                .collect(),
+            kind_mass: true,
         }
     }
 
@@ -200,9 +213,9 @@ impl Belief {
 
 /// What one candidate move came to.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Judged {
+pub struct Judged<A = Action> {
     /// The move.
-    pub action: Action,
+    pub action: A,
     /// The average points the hand moved for the searching player, over
     /// every world it was tried in.
     pub value: f64,
@@ -230,7 +243,7 @@ pub struct Judged {
 /// the weights' concentration taken out, Kish's effective sample size, so
 /// that even weights give the usual n-1 and a few heavy worlds are not
 /// mistaken for many.
-fn compare(candidate: &Judged, against: &Judged) -> Option<(f64, f64)> {
+fn compare<A>(candidate: &Judged<A>, against: &Judged<A>) -> Option<(f64, f64)> {
     let paired: Vec<(f64, f64)> = candidate
         .per_world
         .iter()
@@ -355,14 +368,19 @@ pub fn imagine(hand: &Hand, seat: Wind, belief: &Belief, rng: &mut Rng) -> Hand 
                 .max();
             let passed = hand.players.iter().flat_map(|p| &p.discards).any(|d| {
                 player.riichi_order.is_some_and(|order| d.order > order)
-                    && !(hand.phase == Phase::CallWindow && Some(d.order) == latest)
+                    && !(hand.phase == Phase::CallWindow
+                        && hand.robbable_quad.is_none()
+                        && Some(d.order) == latest)
                     && waits.count(d.tile) > 0
             });
             let from_pond = player.discards.iter().any(|d| waits.count(d.tile) > 0);
-            world.players[other.index()].furiten = passed || from_pond;
+            let passed_kan = sampled_riichi_kan_pass(&world, other, &body, &waits);
+            world.players[other.index()].furiten = passed || from_pond || passed_kan;
             world.players[other.index()].temporary_furiten = false;
         } else {
             world.players[other.index()].refresh_furiten();
+            world.players[other.index()].temporary_furiten =
+                sampled_temporary_furiten(&world, other);
         }
     }
 
@@ -370,6 +388,104 @@ pub fn imagine(hand: &Hand, seat: Wind, belief: &Belief, rng: &mut Rng) -> Hand 
     // shuffled, and the belief has no say in the order it comes out.
     world.wall = hand.wall.with_hidden(&pool);
     world
+}
+
+/// A passed kan-robbery opportunity after an accepted declaration also persists.
+/// This supplements discard history using public events, never real private flags.
+fn sampled_riichi_kan_pass(world: &Hand, seat: Wind, body: &TileSet, waits: &TileSet) -> bool {
+    let Some(declared) = world
+        .log
+        .iter()
+        .rposition(|event| matches!(event, mjai::Event::ReachAccepted { actor } if *actor == seat))
+    else {
+        return false;
+    };
+    let unresolved = (world.phase == Phase::CallWindow)
+        .then(|| {
+            world.log.iter().rposition(|event| {
+                matches!(
+                    event,
+                    mjai::Event::Dahai { .. }
+                        | mjai::Event::Kakan { .. }
+                        | mjai::Event::Ankan { .. }
+                )
+            })
+        })
+        .flatten();
+    world
+        .log
+        .iter()
+        .enumerate()
+        .skip(declared + 1)
+        .any(|(at, event)| {
+            if Some(at) == unresolved {
+                return false;
+            }
+            match event {
+                mjai::Event::Kakan { actor, tile, .. } => *actor != seat && waits.count(*tile) > 0,
+                mjai::Event::Ankan { actor, consumed } if *actor != seat => {
+                    consumed.first().is_some_and(|tile| {
+                        let mut complete = *body;
+                        complete.add(*tile);
+                        crate::shanten::thirteen_orphans(
+                            &complete,
+                            world.players[seat.index()].melds.len(),
+                        ) == crate::shanten::COMPLETE
+                    })
+                }
+                _ => false,
+            }
+        })
+}
+
+/// Reconstruct same-cycle furiten from public events and the sampled hand.
+/// The original hidden hand's flags are not information the searcher owns.
+fn sampled_temporary_furiten(world: &Hand, seat: Wind) -> bool {
+    let waits = world.players[seat.index()].waits();
+    let unresolved = (world.phase == Phase::CallWindow)
+        .then(|| {
+            world.log.iter().rposition(|event| {
+                matches!(
+                    event,
+                    mjai::Event::Dahai { .. }
+                        | mjai::Event::Kakan { .. }
+                        | mjai::Event::Ankan { .. }
+                )
+            })
+        })
+        .flatten();
+    for (at, event) in world.log.iter().enumerate().rev() {
+        match event {
+            mjai::Event::Tsumo { actor, .. }
+            | mjai::Event::Chi { actor, .. }
+            | mjai::Event::Pon { actor, .. }
+            | mjai::Event::Daiminkan { actor, .. }
+                if *actor == seat =>
+            {
+                return false
+            }
+            mjai::Event::Dahai { actor, tile, .. } | mjai::Event::Kakan { actor, tile, .. }
+                if *actor != seat && Some(at) != unresolved && waits.count(*tile) > 0 =>
+            {
+                return true
+            }
+            mjai::Event::Ankan { actor, consumed } if *actor != seat && Some(at) != unresolved => {
+                if let Some(tile) = consumed.first() {
+                    let mut completed = world.players[seat.index()].hand;
+                    completed.add(*tile);
+                    if crate::shanten::thirteen_orphans(
+                        &completed,
+                        world.players[seat.index()].melds.len(),
+                    ) == crate::shanten::COMPLETE
+                    {
+                        return true;
+                    }
+                }
+            }
+            _ => (),
+        }
+    }
+    false
 }
 
 /// Takes one tile from `pool`, chosen in proportion to what `belief` says
@@ -380,17 +496,32 @@ pub fn imagine(hand: &Hand, seat: Wind, belief: &Belief, rng: &mut Rng) -> Hand 
 /// about a hand and there is nothing else to deal.
 fn draw_weighted(pool: &mut Vec<Tile>, belief: &Belief, offset: usize, rng: &mut Rng) -> Tile {
     assert!(!pool.is_empty(), "there is always a tile left to deal");
-    let total: f32 = pool.iter().map(|tile| belief.weight(offset, *tile)).sum();
+    // A network predicts mass per KIND (count / hand size), not per copy.
+    // Divide it among the available physical copies. Belief::even deliberately
+    // retains a uniform physical-copy prior. Neither is an exact hand posterior.
+    let mut available = [0usize; KINDS];
+    for tile in pool.iter() {
+        available[tile.idx()] += 1;
+    }
+    let weight = |tile: Tile| {
+        let mass = belief.weight(offset, tile);
+        if belief.kind_mass {
+            mass / available[tile.idx()] as f32
+        } else {
+            mass
+        }
+    };
+    let total: f32 = pool.iter().map(|tile| weight(*tile)).sum();
     // A belief that puts no weight on anything left, or that has gone to
     // pieces and produced a not-a-number, falls back to an even draw.
-    if total.is_nan() || total <= 0.0 {
+    if !total.is_finite() || total <= 0.0 {
         return pool.swap_remove(rng.below(pool.len()));
     }
     // A weighted draw, walking the pool until the running total passes a
     // point chosen along it.
     let mut point = (rng.next_u64() as f64 / u64::MAX as f64) as f32 * total;
     for index in 0..pool.len() {
-        point -= belief.weight(offset, pool[index]);
+        point -= weight(pool[index]);
         if point <= 0.0 {
             return pool.swap_remove(index);
         }
@@ -805,6 +936,7 @@ fn placement_value(table: &Table, player: usize) -> f64 {
 /// and the leaf is the searching player's first decision of a later hand,
 /// with the ended hands' events carried for a reader of the seat's state;
 /// see [`Effort::boundary`].
+#[cfg(test)]
 fn play_to_leaf(
     world: &mut Hand,
     seat: Wind,
@@ -812,6 +944,18 @@ fn play_to_leaf(
     seed: u64,
     from: usize,
     boundary: bool,
+) -> Leaf {
+    play_to_leaf_for_objective(world, seat, style, seed, from, boundary, false)
+}
+
+fn play_to_leaf_for_objective(
+    world: &mut Hand,
+    seat: Wind,
+    style: Style,
+    seed: u64,
+    from: usize,
+    boundary: bool,
+    placement_only: bool,
 ) -> Leaf {
     let mut settled = 0.0;
     let mut seat = seat;
@@ -838,7 +982,7 @@ fn play_to_leaf(
             }
             Advance::Broken => return Leaf::Broken,
             Advance::HandOver(moved) => {
-                if dealt == 0 {
+                if dealt == 0 && !placement_only {
                     settled = moved;
                 }
                 let player = seat.index();
@@ -945,6 +1089,22 @@ pub fn leaves_from(
     weights: &[f64],
     effort: Effort,
 ) -> Leaves {
+    leaves_from_for_objective(seat, candidates, worlds, weights, effort, false)
+}
+
+/// As `leaves_from`, with an explicitly placement-only root objective.
+pub fn leaves_from_for_objective(
+    seat: Wind,
+    candidates: &[Action],
+    worlds: &[Hand],
+    weights: &[f64],
+    effort: Effort,
+    placement_only: bool,
+) -> Leaves {
+    assert!(
+        !placement_only || effort.boundary,
+        "placement-only search needs boundary leaves"
+    );
     assert!(!candidates.is_empty(), "there is always something to do");
     assert_eq!(worlds.len(), weights.len(), "one weight per world");
     let style = if effort.hurried {
@@ -968,13 +1128,14 @@ pub fn leaves_from(
         if trial.act(candidates[candidate]).is_err() {
             return Sprout::valueless(0.0, false, seat);
         }
-        match play_to_leaf(
+        match play_to_leaf_for_objective(
             &mut trial,
             seat,
             style,
             world as u64 * 977 + 13,
             from,
             effort.boundary,
+            placement_only,
         ) {
             Leaf::Position {
                 seat: viewpoint,
@@ -1068,7 +1229,7 @@ pub fn decide(
 /// What every candidate came to: its worth in each world, and the weighted
 /// mean over the worlds it was tried in, in candidate order. What
 /// [`decide`] picks from, and what a recording keeps.
-pub fn judge_all(candidates: &[Action], leaves: &Leaves, valued: &[f64]) -> Vec<Judged> {
+pub fn judge_all<A: Clone>(candidates: &[A], leaves: &Leaves, valued: &[f64]) -> Vec<Judged<A>> {
     assert_eq!(valued.len(), leaves.counted.len(), "one value per slot");
     (0..leaves.candidates)
         .map(|candidate| {
@@ -1093,7 +1254,7 @@ pub fn judge_all(candidates: &[Action], leaves: &Leaves, valued: &[f64]) -> Vec<
                     (sum + value, mass + weight)
                 });
             Judged {
-                action: candidates[candidate],
+                action: candidates[candidate].clone(),
                 value: if counted == 0 || weight <= 0.0 {
                     f64::NEG_INFINITY
                 } else {
@@ -1108,7 +1269,7 @@ pub fn judge_all(candidates: &[Action], leaves: &Leaves, valued: &[f64]) -> Vec<
 }
 
 /// The first playable candidate, unless another beats it by the margin.
-pub fn pick_by_margin(judged: &[Judged], margin: f64) -> Option<Judged> {
+pub fn pick_by_margin<A: Clone>(judged: &[Judged<A>], margin: f64) -> Option<Judged<A>> {
     let incumbent = judged.iter().find(|entry| entry.worlds > 0)?;
     let mut best = incumbent;
     let mut best_edge = 0.0;
@@ -1217,6 +1378,16 @@ impl Searcher {
     }
 }
 
+/// A root decision, including simultaneous claims. The simulator never borrows
+/// another seat's queued real answer to resolve a hypothetical claim.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RootMove {
+    /// An action by the seat whose turn it is.
+    Turn(Action),
+    /// One response to the current simultaneous claim window.
+    Claim(Call),
+}
+
 /// A lookahead whose decisions on the way are made by the caller: the
 /// network, in practice, rather than the heuristic player.
 ///
@@ -1262,6 +1433,8 @@ struct Slot {
     /// the root hand's score change is banked in `settled`; later hands
     /// are played for placement, not added as extra hand rewards.
     until_hand_ends: bool,
+    /// Exclude root-hand points from a placement-only teacher.
+    placement_only: bool,
     /// See [`Effort::boundary`]: once the root hand has ended, the
     /// searching player's first decision of a later hand is the leaf.
     boundary: bool,
@@ -1280,6 +1453,8 @@ struct Slot {
     /// in: the tiles a copy of a seat's state is given before the world's
     /// events. See [`Lookahead::hands`].
     opening: [[u8; KINDS]; 4],
+    opening_furiten: [bool; 4],
+    opening_seat: Wind,
     /// What the next hand's deal is seeded from.
     seed: u64,
     /// How much of `world.log` was already there when the search began, so
@@ -1374,7 +1549,7 @@ impl Slot {
         let moved = self.world.players[player].score - self.world.opening[player];
         // A decision is paid its own hand once. Later hands affect its
         // placement, but their points are not additional reward terms.
-        if self.dealt == 0 {
+        if self.dealt == 0 && !self.placement_only {
             self.settled = moved as f64 / POINTS_PER_UNIT as f64;
         }
         // What the hand did after the cursor, kept before its log goes; see
@@ -1529,6 +1704,37 @@ impl Lookahead {
         until_hand_ends: bool,
         boundary: bool,
     ) -> Lookahead {
+        let moves: Vec<_> = candidates.iter().copied().map(RootMove::Turn).collect();
+        Self::begin_moves(
+            seat,
+            &moves,
+            worlds,
+            weights,
+            depth,
+            until_hand_ends,
+            boundary,
+            false,
+        )
+    }
+
+    /// Start legal turns or claims under an explicit objective. All responders
+    /// to a root claim are re-asked from the sampled world, not from the real
+    /// arena's hidden response queue. Resolution still uses `Hand::resolve_calls`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_moves(
+        seat: Wind,
+        candidates: &[RootMove],
+        worlds: &[Hand],
+        weights: &[f64],
+        depth: usize,
+        until_hand_ends: bool,
+        boundary: bool,
+        placement_only: bool,
+    ) -> Lookahead {
+        assert!(
+            !placement_only || boundary,
+            "placement-only search needs boundary leaves"
+        );
         assert!(!candidates.is_empty(), "there is always something to do");
         assert_eq!(worlds.len(), weights.len(), "one weight per world");
         let mut slots: Vec<Slot> = (0..candidates.len())
@@ -1542,10 +1748,39 @@ impl Lookahead {
                 for seat in Wind::ALL {
                     opening[seat.index()] = *trial.players[seat.index()].hand.counts();
                 }
-                let state = if trial.act(candidates[candidate]).is_err() {
-                    SlotState::Broken
-                } else {
+                let opening_furiten = std::array::from_fn(|p| trial.players[p].is_furiten());
+                let mut asking = VecDeque::new();
+                let mut answers = Vec::new();
+                let valid = match candidates[candidate] {
+                    RootMove::Turn(action) => trial.act(action).is_ok(),
+                    RootMove::Claim(call) => {
+                        let offered = trial.legal_calls();
+                        if !offered
+                            .iter()
+                            .any(|(who, allowed)| *who == seat && allowed.contains(&call))
+                        {
+                            false
+                        } else {
+                            answers.push((seat, call));
+                            asking.extend(
+                                offered
+                                    .iter()
+                                    .filter_map(|(who, _)| (*who != seat).then_some(*who)),
+                            );
+                            if asking.is_empty() {
+                                let result = trial.resolve_calls(&answers).is_ok();
+                                answers.clear();
+                                result
+                            } else {
+                                true
+                            }
+                        }
+                    }
+                };
+                let state = if valid {
                     SlotState::Running
+                } else {
+                    SlotState::Broken
                 };
                 Slot {
                     world: trial,
@@ -1553,13 +1788,16 @@ impl Lookahead {
                     settled: 0.0,
                     depth,
                     until_hand_ends,
+                    placement_only,
                     boundary,
-                    asking: VecDeque::new(),
-                    answers: Vec::new(),
+                    asking,
+                    answers,
                     dealt: 0,
                     carried: Vec::new(),
                     seating: [0, 1, 2, 3],
                     opening,
+                    opening_furiten,
+                    opening_seat: seat,
                     seed: world as u64 * 977 + 13,
                     logged,
                     exported_carried: 0,
@@ -1583,6 +1821,32 @@ impl Lookahead {
             .iter()
             .enumerate()
             .filter_map(|(index, slot)| slot.owed().map(|seat| (index, seat)))
+            .collect()
+    }
+
+    /// Known observer and sampled private flags as the root world began.
+    pub fn initial_state(&self) -> Vec<(Wind, [bool; 4])> {
+        self.slots
+            .iter()
+            .map(|slot| (slot.opening_seat, slot.opening_furiten))
+            .collect()
+    }
+
+    /// Private state of the SAMPLED deciding seat, never the real opponents.
+    /// A Mortal copy uses this after replacing concealed tiles to clear cached
+    /// information derived from the original private hand. Order matches owed().
+    pub fn decision_state(&self) -> Vec<(bool, Option<Tile>)> {
+        self.owed()
+            .iter()
+            .map(|(slot, seat)| {
+                let world = &self.slots[*slot].world;
+                let drawn = if world.phase == Phase::Act && world.turn == *seat {
+                    world.drawn
+                } else {
+                    None
+                };
+                (world.players[seat.index()].is_furiten(), drawn)
+            })
             .collect()
     }
 
@@ -2689,6 +2953,162 @@ mod tests {
             },
         );
         assert_eq!(first.act(&hand), second.act(&hand));
+    }
+    #[test]
+    fn sampled_riichi_furiten_includes_passed_but_not_unresolved_kan_robbery() {
+        let mut hand = Table::new().deal(&mut Rng::from_seed(9));
+        let seat = Wind::South;
+        let tile = Tile::new(0);
+        let body = hand.players[seat.index()].hand;
+        let mut waits = TileSet::new();
+        waits.add(tile);
+        hand.log.push(mjai::Event::ReachAccepted { actor: seat });
+        hand.log.push(mjai::Event::Kakan {
+            actor: Wind::East,
+            tile,
+            consumed: vec![tile; 3],
+        });
+        hand.phase = Phase::CallWindow;
+        assert!(!sampled_riichi_kan_pass(&hand, seat, &body, &waits));
+        hand.phase = Phase::Draw;
+        assert!(sampled_riichi_kan_pass(&hand, seat, &body, &waits));
+        hand.log.push(mjai::Event::ReachAccepted { actor: seat });
+        assert!(!sampled_riichi_kan_pass(&hand, seat, &body, &waits));
+    }
+
+    #[test]
+    fn predicted_kind_mass_is_not_multiplied_by_remaining_copies() {
+        let a = Tile::new(0);
+        let b = Tile::new(1);
+        let mut weights = vec![0.0; OPPONENTS * POSITIONS];
+        weights[0] = 0.5;
+        weights[1] = 0.5;
+        let predicted = Belief::from(&weights);
+        let mut rng = Rng::from_seed(941);
+        let mut kind_a = 0;
+        let mut even_a = 0;
+        for _ in 0..10_000 {
+            let mut pool = vec![a, a, a, a, b];
+            kind_a += usize::from(draw_weighted(&mut pool, &predicted, 1, &mut rng) == a);
+            let mut pool = vec![a, a, a, a, b];
+            even_a += usize::from(draw_weighted(&mut pool, &Belief::even(), 1, &mut rng) == a);
+        }
+        assert!((4700..5300).contains(&kind_a), "kind mass: {kind_a}");
+        assert!((7700..8300).contains(&even_a), "physical prior: {even_a}");
+    }
+
+    #[test]
+    fn non_riichi_private_furiten_cannot_leak_into_sampled_worlds() {
+        let mut hand = Table::new().deal(&mut Rng::from_seed(991));
+        let observer = hand.turn;
+        hand.players[observer.index()].temporary_furiten = true;
+        let mut changed = hand.clone();
+        for seat in Wind::ALL {
+            if seat != observer {
+                changed.players[seat.index()].temporary_furiten = true;
+                changed.players[seat.index()].furiten = true;
+            }
+        }
+        let a = imagine(&hand, observer, &Belief::even(), &mut Rng::from_seed(7));
+        let b = imagine(&changed, observer, &Belief::even(), &mut Rng::from_seed(7));
+        for seat in Wind::ALL {
+            assert_eq!(a.players[seat.index()], b.players[seat.index()]);
+        }
+        assert!(
+            a.players[observer.index()].temporary_furiten,
+            "own known state stays"
+        );
+    }
+
+    fn finish_search(lookahead: &mut Lookahead) {
+        for _ in 0..8000 {
+            if lookahead.finished() {
+                break;
+            }
+            let mut observations = Vec::new();
+            let mut masks = Vec::new();
+            lookahead.observe_into(&mut observations, &mut masks);
+            assert_eq!(lookahead.decision_state().len(), lookahead.owed().len());
+            lookahead.apply(&first_legal(&masks)).unwrap();
+        }
+        lookahead.validate_finished().unwrap();
+    }
+
+    #[test]
+    fn placement_only_boundary_never_banks_a_separate_hand_bonus() {
+        let mut rng = Rng::from_seed(2026);
+        let hand = Table::new().deal(&mut rng);
+        let seat = hand.turn;
+        let candidates: Vec<_> = hand
+            .legal_actions()
+            .into_iter()
+            .take(2)
+            .map(RootMove::Turn)
+            .collect();
+        let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 2);
+        let mut pure =
+            Lookahead::begin_moves(seat, &candidates, &worlds, &[1.0; 2], 0, true, true, true);
+        let mut hybrid =
+            Lookahead::begin_moves(seat, &candidates, &worlds, &[1.0; 2], 0, true, true, false);
+        finish_search(&mut pure);
+        finish_search(&mut hybrid);
+        for (a, b) in pure.slots.iter().zip(&hybrid.slots) {
+            assert_eq!(
+                a.world, b.world,
+                "objective does not change continuation policy"
+            );
+            if a.state == SlotState::Leaf {
+                assert_eq!(a.settled, 0.0, "hand points are not a placement reward");
+            } else {
+                assert!((-1.5..=1.5).contains(&a.settled));
+            }
+        }
+    }
+
+    #[test]
+    fn call_root_applies_the_selected_claim_through_normal_resolution() {
+        let mut fixture = None;
+        'find: for seed in 0..128 {
+            let hand = Table::new().deal(&mut Rng::from_seed(seed));
+            for action in hand.legal_actions() {
+                let mut world = hand.clone();
+                world.act(action).unwrap();
+                for (seat, calls) in world.legal_calls() {
+                    if let Some(call) = calls
+                        .iter()
+                        .find(|c| matches!(c, Call::Pon | Call::Chii(_)))
+                    {
+                        fixture = Some((world.clone(), seat, *call));
+                        break 'find;
+                    }
+                }
+            }
+        }
+        let (world, seat, call) = fixture.expect("a callable discard");
+        let before = world.clone();
+        let mut lookahead = Lookahead::begin_moves(
+            seat,
+            &[RootMove::Claim(Call::Pass), RootMove::Claim(call)],
+            &[world.clone(), world.clone(), world],
+            &[1.0; 3],
+            0,
+            false,
+            false,
+            false,
+        );
+        finish_search(&mut lookahead);
+        assert!(lookahead.leaves().counted.iter().all(|yes| *yes));
+        for slot in &lookahead.slots[3..] {
+            assert!(
+                slot.world.players[seat.index()].melds.len()
+                    > before.players[seat.index()].melds.len()
+            );
+        }
+        let numbers = [70usize, 74];
+        let leaves = lookahead.leaves();
+        let judged = judge_all(&numbers, &leaves, &vec![0.0; leaves.counted.len()]);
+        assert_eq!(judged[0].action, 70);
+        assert_eq!(judged[1].action, 74);
     }
 }
 

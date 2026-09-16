@@ -18,7 +18,8 @@ import re
 
 import numpy as np
 
-VERSION = 1
+VERSION = 1  # Original supervised format remains resumable without relabelling.
+TEACHER_VERSION = 2
 PLANES, POSITIONS, ACTIONS, ENGINE_ACTIONS = 1012, 34, 46, 78
 REWARD = {"version": 1, "name": "hand_points_over_4000_plus_placement"}
 # Schema-v1 meanings, in exactly the priority order used by neural.zoo.
@@ -131,7 +132,7 @@ def validate_metadata(m: dict) -> None:
     """Validate settings and provenance before allocating or loading a collection."""
     if not isinstance(m, dict):
         raise ValueError("Search replay metadata must be an object")
-    if (type(m.get("version")) is not int or m.get("version") != VERSION or m.get("complete") is not True
+    if (type(m.get("version")) is not int or m.get("version") not in (VERSION, TEACHER_VERSION) or m.get("complete") is not True
             or m.get("reward") != REWARD
             or m.get("observation") != {"planes": PLANES, "positions": POSITIONS, "encoder_version": 4}
             or m.get("actions") != {"policy": ACTIONS, "engine": ENGINE_ACTIONS}
@@ -160,9 +161,48 @@ def validate_metadata(m: dict) -> None:
             raise ValueError(f"Invalid {key}")
     if (s["improve"] > 1 or s["candidates"] > ENGINE_ACTIONS
             or s.get("played_by") not in ("network", "club")
-            or s.get("valued_by") not in ("critic", "public", "mean")
+            or s.get("valued_by") not in (("critic", "public", "mean", "placement") if m["version"] == TEACHER_VERSION else ("critic", "public", "mean"))
             or type(s.get("hurried")) is not bool):
         raise ValueError("Invalid search settings")
+
+    if m["version"] == VERSION and ("teacher" in m or any(key in s for key in (
+            "objective", "search_calls", "confirm_worlds", "extra_candidates", "audit_share", "sure"))):
+        raise ValueError("new teacher semantics cannot be relabelled as legacy replay")
+
+    if m["version"] == TEACHER_VERSION:
+        from .teacher_options import validate_controls
+        validate_controls(**{name: s.get(name) for name in (
+            "objective", "valued_by", "played_by", "depth", "search_calls", "confirm_worlds",
+            "extra_candidates", "audit_share")})
+        sure = s.get("sure")
+        if type(sure) not in (int, float) or not math.isfinite(sure) or not 0 <= sure <= 1:
+            raise ValueError("invalid teacher confidence shortcut")
+        teacher = m.get("teacher")
+        if (not isinstance(teacher, dict) or type(teacher.get("version")) is not int
+                or teacher["version"] != 1 or type(teacher.get("search_api_version")) is not int
+                or teacher["search_api_version"] != 4 or teacher.get("objective") != s["objective"]
+                or teacher.get("student_value_head") != ("critic" if s["valued_by"] == "placement" else s["valued_by"])):
+            raise ValueError("teacher provenance/value-target contract is incomplete")
+        head = teacher.get("placement_head")
+        if s["valued_by"] == "placement":
+            if (not isinstance(head, dict)
+                    or re.fullmatch(r"[0-9a-f]{64}", str(head.get("sha256", ""))) is None
+                    or re.fullmatch(r"[0-9a-f]{16}", str(head.get("features", ""))) is None
+                    or type(head.get("feature_version")) is not int or head["feature_version"] not in (1, 2)):
+                raise ValueError("placement teacher needs immutable head provenance")
+        elif head is not None:
+            raise ValueError("non-placement teacher must not name an unused placement head")
+
+
+def student_value_head(metadata: dict) -> str:
+    """The learner's value label is explicitly separate from the teacher's utility.
+
+    V2 still supervises the student's hybrid critic with completed hybrid returns.
+    A placement-only teacher changes policy labels, not the meaning of that head.
+    """
+    if metadata["version"] == TEACHER_VERSION:
+        return metadata["teacher"]["student_value_head"]
+    return metadata["search"]["valued_by"]
 
 
 @dataclass
@@ -288,7 +328,7 @@ class SearchReplay:
         return Planes(*(self.arrays[name] for name in SPARSE))
 
     def loss(self, net, rows: np.ndarray, device: str = "cpu", value_weight: float = .5):
-        """A supervised policy/value loss, with the SAME evaluator search used.
+        """A supervised policy/value loss using the explicit student value contract.
 
         Call validate/load once before training; this gathers one minibatch.
         It never uses a PPO ratio or invents a search behavior log-probability.
@@ -305,7 +345,7 @@ class SearchReplay:
         legal, target, returns = (tensor(name) for name in ("legal", "policy_target", "returns"))
         logits, value, _ = net.everything(x, legal)
         if hasattr(net, "value_only"):
-            value = net.value_only(x, head=self.metadata["search"]["valued_by"])
+            value = net.value_only(x, head=student_value_head(self.metadata))
         if logits.shape != target.shape or value.shape != returns.shape:
             raise ValueError("Learner outputs do not match the replay action/value contract")
         logp = torch.log_softmax(logits.float().masked_fill(~legal, -torch.inf), dim=1)
