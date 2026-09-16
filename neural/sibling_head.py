@@ -446,7 +446,8 @@ def load(path: Path, device: str = "cpu") -> tuple[Ranker, dict]:
     # as verified heads. Their mutable checkpoint path is not proof of identity.
     head.load_state_dict(payload["ranker"])
     head.to(device).eval()
-    return head, {k: v for k, v in payload.items() if k not in ("ranker", "channels")}
+    return head, {k: v for k, v in payload.items()
+                  if k not in ("ranker", "channels", "feature_contract")}
 
 
 def main() -> None:
