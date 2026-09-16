@@ -227,13 +227,15 @@ def check_runs(
             if tuple(ours.shape) != shape or tuple(theirs.shape) != shape:
                 raise SystemExit(f"Wrong {name} output shape; expected {shape}")
             if name == "policy":
-                # A fusion answers negative infinity for a move the rules
-                # forbid. The two must refuse exactly the same moves, and
-                # every move they do answer must be a number.
+                # Only negative infinity on an illegal move is a mask sentinel.
+                # Check each side first: matching NaN/+inf is never a valid mask,
+                # and a corrupt legal logit must name the side that produced it.
+                for side, logits in (("reference", ours), ("exported", theirs)):
+                    valid = torch.isfinite(logits) | (torch.isneginf(logits) & ~allowed)
+                    if not valid.all():
+                        raise SystemExit(f"Non-finite {side} policy output outside masked moves")
                 if not torch.equal(torch.isfinite(ours), torch.isfinite(theirs)):
                     raise SystemExit("The exported policy answers a different set of moves")
-                if not torch.isfinite(ours[allowed]).all():
-                    raise SystemExit("Non-finite reference policy on a legal move")
             else:
                 if not torch.isfinite(ours).all():
                     raise SystemExit(f"Non-finite reference {name} output")
