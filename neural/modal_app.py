@@ -667,18 +667,20 @@ def arena(
 
 #: Processors for the search container. `_environment` must be told, or
 #: the engine's thread pool stays at sixteen whatever the container has.
-SEARCH_CPUS = 32
+SEARCH_CPUS = 16
 
 
 @app.function(
-    gpu="L40S",
-    # The search with the network moving every seat is bound by Mortal's
-    # encoder, which runs on the processors: a chair of a hundred deals at
-    # sixteen worlds, each played to the end of its hand, took 5.8 hours
-    # on sixteen of them.
+    # Any of these cards will do: the search with the network moving every
+    # seat is bound by Mortal's encoder, which runs on the processors, and a
+    # chair of a hundred deals at sixteen worlds, each played to the end of
+    # its hand, took 5.8 hours on sixteen of them. Thirty-two processors
+    # with 64 GB beside an L40S was a shape Modal could not place for a day.
+    gpu=["L40S", "A10G", "A100-40GB"],
     cpu=SEARCH_CPUS,
-    memory=65536,
-    timeout=12 * 60 * 60,
+    memory=32768,
+    # A half-chair of fifty deals at sixty-four worlds, on sixteen processors.
+    timeout=24 * 60 * 60,
     volumes={str(VOLUME): volume},
 )
 def searched(
