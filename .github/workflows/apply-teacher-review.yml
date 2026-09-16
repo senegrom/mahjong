@@ -1,0 +1,55 @@
+name: apply verified teacher review
+
+on:
+  push:
+    branches: [fix/teacher-review-20260916]
+    paths: [.github/workflows/apply-teacher-review.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/fix/teacher-review-20260916'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/teacher-review-20260916
+          persist-credentials: true
+      - name: Verify immutable source patch and destination paths
+        run: |
+          python3 - <<'PY'
+          import base64, bz2, hashlib, pathlib
+          encoded = ''.join(pathlib.Path(f'.teacher-patch-{i}.b64').read_text().strip() for i in range(4))
+          patch = bz2.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '176c76b6c13ea7140006dc9da5b1dab468b6a588054cbc827140c08d98ba92c5', 'Patch digest mismatch'
+          paths = []
+          for line in patch.decode('utf-8').splitlines():
+              if line.startswith('diff --git '):
+                  _, _, a, b = line.split()
+                  assert a.startswith('a/') and b.startswith('b/') and a[2:] == b[2:]
+                  p = pathlib.PurePosixPath(a[2:])
+                  assert p.parts[0] in ('docs', 'engine', 'neural') and '..' not in p.parts
+                  paths.append(str(p))
+          assert len(paths) == len(set(paths)) == 32, 'Unexpected file set'
+          pathlib.Path('/tmp/teacher-review.patch').write_bytes(patch)
+          pathlib.Path('/tmp/teacher-paths.txt').write_text('\n'.join(paths) + '\n')
+          PY
+      - name: Refuse any concurrent source edits
+        run: |
+          git fetch --no-tags --depth=1 origin 28fceeb8892ac68d5289b1b0a4afa501994ae5e5
+          git diff --exit-code 28fceeb8892ac68d5289b1b0a4afa501994ae5e5 HEAD -- docs engine neural
+          git apply --check --unidiff-zero /tmp/teacher-review.patch
+      - name: Apply tested source and remove transport files
+        run: |
+          git apply --unidiff-zero /tmp/teacher-review.patch
+          python3 -m compileall -q neural
+          git diff --check
+          git add --pathspec-from-file=/tmp/teacher-paths.txt
+          git rm .teacher-patch-0.b64 .teacher-patch-1.b64 .teacher-patch-2.b64 .teacher-patch-3.b64
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Repair teacher utility, sampled state, call search and evidence contracts'
+          git push origin HEAD:refs/heads/fix/teacher-review-20260916
