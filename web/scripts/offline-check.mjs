@@ -11,14 +11,14 @@ import { createHash } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
-import { MODEL_FILES } from '../src/lib/model-package.js';
+import { MANIFEST as NETWORK } from '../src/lib/model-manifest.js';
 import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
 const manifest = JSON.parse(await readFile(resolve(dist, 'offline-manifest.json'), 'utf8'));
 const source = await readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8');
-const modelPath = MODEL_FILES.full, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
+const modelPath = `${NETWORK.origin}/${NETWORK.object}`, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
 const count = new Map(), refused = [], overrides = new Map();
 let unavailable = false, failPath = null, holdPath = null, holdResolve = null, holdSeenResolve = null;
 const mime = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css',
@@ -62,6 +62,13 @@ async function page(browser, { seed = true, offline = false, strength = 'neural'
   }
   const p = await browser.newPage(); p.errors = [];
   p.on('pageerror', error => p.errors.push(error.message));
+  // The model moved off Pages. Count the real cross-origin fetch, including
+  // worker requests, rather than an undefined entry in the local file list.
+  p.on('request', request => {
+    if (request.url() !== modelPath || request.method() !== 'GET') return;
+    count.set(modelPath, (count.get(modelPath) ?? 0) + 1);
+    if (unavailable || offline) refused.push(modelPath);
+  });
   await p.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
   await p.setCacheEnabled(false);
   if (offline) await p.setOfflineMode(true);
@@ -100,7 +107,15 @@ async function play(p, turns = 5) {
 async function check(name, fn) {
   unavailable = false; failPath = null; holdPath = null; overrides.clear(); count.clear(); refused.length = 0;
   try { await fn(); results.push({ name, passed:true }); console.log(`PASS ${name}`); }
-  catch (error) { results.push({ name, passed:false, error:error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
+  catch (error) {
+    const pages = (await Promise.all([...browsers].map(browser => browser.pages()))).flat();
+    const states = await Promise.all(pages.map(async p => {
+      try { return await p.evaluate(key => ({ url: location.href, text: document.body.innerText,
+        save: localStorage.getItem(key) }), SAVE_KEY); } catch { return null; }
+    }));
+    results.push({ name, passed:false, error:error.stack, states });
+    console.error(`FAIL ${name}\n${error.stack}`);
+  }
   finally { holdResolve?.(); holdResolve = null; holdSeenResolve = null; for (const b of [...browsers]) await close(b); }
 }
 async function profile() { const dir = await mkdtemp(join(tmpdir(), 'mahjong-offline-browser-')); dirs.push(dir); return dir; }
@@ -119,6 +134,7 @@ try {
         cache.match(new URL(`__offline_content__/${e.hash}`, location.href).href)))).every(Boolean);
     }, manifest.entries), 'Every core resource must be saved without interacting');
     for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0, entry.url);
+    assert.equal(count.get(modelPath) ?? 0, 0, 'Built-in opponents must not fetch the external model');
     const beforeFaceChange = await saved(p);
     await p.click('.settings-trigger'); await p.click('.options summary');
     for (const face of ['matisse', 'classic', 'matisse']) {
@@ -134,10 +150,11 @@ try {
     assert.equal(await cold.$eval('select[aria-label="Tile face"]', select => select.value), 'matisse');
     assert.ok(await cold.$$eval('.hand img', images => images.length > 0 && images.every(image => image.src.includes('/matisse/') && image.complete && image.naturalWidth > 0)));
     await play(cold, 4);
-    const before = await saved(cold);
-    assert.ok(!before.commands.some(command => command.type === 'opponent'), 'Built-in game must not request the network');
-    cold.on('dialog', dialog => void dialog.accept());
-    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game'); await hand(cold); await play(cold, 3);
+    const before = await saved(cold); cold.on('dialog', dialog => void dialog.accept());
+    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game');
+    await cold.waitForFunction((key, oldSeed) => JSON.parse(localStorage.getItem(key))?.seed !== oldSeed,
+      { timeout: 45000 }, SAVE_KEY, before.seed);
+    await hand(cold); await play(cold, 3);
     assert.notEqual((await saved(cold)).seed, before.seed);
     const art = manifest.entries.filter(e => e.url.endsWith('.svg') || e.url.includes('white-dragon')).map(e => e.url);
     assert.ok(await cold.evaluate(async urls => (await Promise.all(urls.map(async url => {
@@ -221,7 +238,12 @@ try {
     // Native SW update probes may occur; the game itself must not hit network.
     assert.deepEqual(refused.filter(name=>name!=='sw.js'), []);
     const beforeRestart = await saved(cold); cold.on('dialog', d=>void d.accept());
-    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game'); await hand(cold); await play(cold, 3);
+    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game');
+    // The old hand/result can remain in the DOM until the confirmed restart
+    // acquires its save transaction. Do not play/assert against that old view.
+    await cold.waitForFunction((key, oldSeed) => JSON.parse(localStorage.getItem(key))?.seed !== oldSeed,
+      { timeout: 45000 }, SAVE_KEY, beforeRestart.seed);
+    await hand(cold); await play(cold, 3);
     assert.notEqual((await saved(cold)).seed, beforeRestart.seed);
     assert.deepEqual(refused.filter(name=>name!=='sw.js'), []);
     await cold.screenshot({path:resolve(output,'offline-plane-real-ai.png'),fullPage:true});
