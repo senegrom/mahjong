@@ -48,7 +48,7 @@ async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false
   if(mock || missing) await p.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'serviceWorker', { value: undefined }));
   await p.setRequestInterception(true);
   p.on('request',req=>{
-    if(missing&&req.url().endsWith(`/${MODEL_FILES.full}`))void req.respond({status:404,body:''});
+    if(missing&&req.url()===networkUrl)void req.respond({status:404,body:''});
     else if(mock&&req.url().includes('/assets/policy.worker-'))void req.respond({status:200,contentType:'text/javascript',body:fail
       ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,error:"Test network failure"});'
       : 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[43]?43:d.mask[45]?45:d.mask.findIndex(Boolean)});'});
