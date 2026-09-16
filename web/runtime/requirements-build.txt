@@ -1,5 +1,5 @@
 # Direct build-tool pins; transitive dependencies are resolved by pip.
 # Install with Python 3.12. These tools do not run model inference.
 onnx==1.22.0
-ninja==1.13.0
+ninja==1.13.2
 flatbuffers==25.12.19
