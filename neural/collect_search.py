@@ -20,6 +20,7 @@ import tempfile
 import numpy as np
 import torch
 
+from .teacher_actions import representable_moves
 from .search_replay import (
     ACTIONS, ENGINE_ACTIONS, PLANES, POSITIONS, REWARD, VERSION, TEACHER_VERSION, DENSE,
     SearchReplay, action_contract, improvement_policy, validate_metadata,
@@ -203,9 +204,10 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
             )
             ranked = [[int(order[game, 0])] for game in range(games)]
             top = torch.softmax(logits.float(), dim=1).max(dim=1).values.cpu().numpy()
+            searchable = representable_moves(legal)
             for at, game in enumerate(rows):
                 if top[at] < settings.sure or candidate_rng[game].random() < settings.audit_share:
-                    ranked[game] = candidate_set(order[game], legal[game], settings.candidates,
+                    ranked[game] = candidate_set(order[game], searchable[game], settings.candidates,
                                                  settings.extra_candidates, candidate_rng[game])
             belief = np.zeros((games, riichi_py.HANDS), dtype=np.float32)
             belief[rows] = torch.softmax(guessed.float(), dim=2).reshape(len(rows), -1).cpu().numpy()
