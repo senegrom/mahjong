@@ -149,19 +149,21 @@ test('production inventory classifies the external model/runtime package', async
   const files = { 'index.html': 'game', 'assets/worker-hash.js': 'worker', 'assets/riichi_bg-hash.wasm': 'engine',
     'tiles/Back.svg': '<svg/>', 'tiles/Haku.svg': '<svg>white</svg>', 'assets/white-dragon-hash.webp': 'dragon',
     'tiles/matisse/approved/Man7.svg': '<svg>cut-out</svg>', 'tiles/matisse/placeholders/Haku.svg': '<svg>white dragon</svg>',
-    'model-full.onnx': 'network', 'ort/ort-wasm-simd-threaded.wasm': 'wasm',
+    'ort/ort-wasm-simd-threaded.wasm': 'wasm',
     'ort/ort-wasm-simd-threaded.mjs': 'loader', 'ort/memory-budget.mjs': 'memory controls' };
   for (const [path, body] of Object.entries(files)) { await mkdir(join(root, path, '..'), { recursive: true }); await writeFile(join(root, path), body); }
   const first = await buildOffline(root), second = await buildOffline(root);
   assert.deepEqual(first, second);
   assert.equal(first.entries.length, Object.keys(files).length);
-  assert.equal(first.entries.filter(e => e.group === 'ai').length, 4);
+  // The trained network itself is not here: it is fetched from its bucket and
+  // kept in Cache Storage, so the AI group carries only the runtime that runs it.
+  assert.equal(first.entries.filter(e => e.group === 'ai').length, 3);
   assert.equal(first.hasModel, true);
-  assert.equal(first.entries.find(e => e.url === 'model-full.onnx').group, 'ai');
+  assert.equal(first.entries.some(e => e.url.endsWith('.onnx')), false);
   // Feed the generated inventory to the worker, not a hand-written approximation.
   const generated = worker({ files, config: first });
   await generated.install();
-  assert.equal(generated.counts.has('model-full.onnx'), false);
+  assert.equal(generated.counts.has('ort/ort-wasm-simd-threaded.wasm'), false);
   await download(generated);
   assert.equal((await status(generated)).aiReady, true);
   assert.equal(first.entries.filter(e => e.url.startsWith('tiles/matisse/') && e.group === 'core').length, 2);

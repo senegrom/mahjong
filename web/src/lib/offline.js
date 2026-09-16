@@ -1,5 +1,6 @@
 /** Offline preparation and honest, cache-backed download status. No localStorage
  * flag is accepted as proof that a model or its runtime is actually present. */
+import { networkBytes, networkIsStored } from './network-store.js';
 const base = new URL('./', document.baseURI);
 const script = new URL('sw.js', base).href;
 let worker = null;
@@ -149,12 +150,18 @@ export function prepareOfflineAi() {
     // its own automatic startup/reconnect path and is not opt-in.
     const info = await request('MAHJONG_STATUS');
     update(info);
-    if (info.aiReady) return info;
+    if (info.aiReady && await networkIsStored()) return info;
     update({ phase: 'ai', progress: 0, warning: '' });
     try {
+      // The runtime that runs the network is saved by the service worker; the
+      // network itself is 116 MB from its own bucket, kept in Cache Storage.
+      // The runtime is the smaller half of the wait, so it takes the first
+      // fifth of the bar and the network the rest.
       const ready = await request('MAHJONG_PREPARE_AI', ({ bytes, total }) => {
-        update({ progress: total ? Math.floor(100 * bytes / total) : 0 });
+        update({ progress: total ? Math.floor(20 * bytes / total) : 0 });
       });
+      await networkBytes({ onProgress: ({ bytes, total }) =>
+        update({ progress: 20 + (total ? Math.floor(80 * bytes / total) : 0) }) });
       update({ ...ready, phase: 'ready', progress: 100, warning: '' });
       void persistentStorage();
       return ready;

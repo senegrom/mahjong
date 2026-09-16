@@ -5,12 +5,15 @@ import vm from 'node:vm';
 import { MessageChannel } from 'node:worker_threads';
 
 const source = (await readFile(new URL('../src/lib/offline.js', import.meta.url), 'utf8'))
+  .replace("import { networkBytes, networkIsStored } from './network-store.js';", '')
   .replaceAll('import.meta.env.DEV', 'false').replaceAll('export ', '');
 
 // Exercise the real coordinator against the service-worker message contract.
 // No browser globals or state are shared between tests.
-function coordinator({ coreReady = false, aiReady = false, failCore = false, failAi = false, registered = true } = {}) {
+function coordinator({ coreReady = false, aiReady = false, failCore = false, failAi = false,
+  registered = true, held = true } = {}) {
   const calls = [], info = { coreReady, aiReady, hasModel: true, version: 'test' };
+  let fetched = 0;
   const faults = { core: failCore, ai: failAi, registration: false };
   let latest, registrations = 0;
   const active = {
@@ -41,10 +44,19 @@ function coordinator({ coreReady = false, aiReady = false, failCore = false, fai
     },
   } };
   const context = vm.createContext({ document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
-    URL, MessageChannel, setTimeout, clearTimeout, caches: {}, isSecureContext: true });
+    URL, MessageChannel, setTimeout, clearTimeout, caches: {}, isSecureContext: true,
+    // The trained network comes from its bucket, not from the service worker;
+    // here it is already held, so an AI download is the runtime alone.
+    networkIsStored: async () => held,
+    networkBytes: async ({ onProgress } = {}) => {
+      fetched += 1;
+      onProgress?.({ bytes: 1, total: 1 });
+      return new Uint8Array(1);
+    } });
   vm.runInContext(source + '\nglobalThis.api = { startOffline, refreshOffline, prepareOfflineAi, watchOffline };', context);
   context.api.watchOffline(value => latest = value);
-  return { api: context.api, calls, info, faults, state: () => latest, registrations: () => registrations };
+  return { api: context.api, calls, info, faults, state: () => latest, registrations: () => registrations,
+    fetched: () => fetched };
 }
 
 test('startup automatically fills a missing game/graphics cache without requesting AI', async () => {

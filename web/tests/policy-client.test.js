@@ -4,12 +4,12 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
-import { MODEL_FILES } from '../src/lib/model-package.js';
+import { NETWORK, NETWORK_URL } from '../src/lib/network-store.js';
 
 const source = (await readFile(new URL('../src/lib/policy.js', import.meta.url), 'utf8'))
-  .replace("import { startOffline, prepareOfflineAi } from './offline.js';", '')
+  .replace("import { prepareOfflineAi } from './offline.js';", '')
   .replace("import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';", '')
-  .replace("import { MODEL_FILES } from './model-package.js';", '')
+  .replace("import { NETWORK, NETWORK_URL, networkIsStored } from './network-store.js';", '')
   .replaceAll('import.meta.url', "'https://test.invalid/mahjong/policy.js'")
   .replaceAll('export ', '');
 
@@ -25,7 +25,8 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, MODEL_FILES,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK, NETWORK_URL,
+    networkIsStored: async () => false,
     startOffline: async () => null,
     prepareOfflineAi: (model) => new Promise(resolve => downloads.push({ model, resolve })),
   });
@@ -42,7 +43,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   downloads[0].resolve();
   await setImmediate();
   const worker = workers[0], initial = worker.messages[0];
-  assert.match(initial.url, /\/model-full\.onnx$/);
+  assert.equal(initial.url, NETWORK_URL);
 
   // The shipped network is the only choice, so reselecting it changes nothing.
   assert.equal(api.useModel('full'), 'full');
@@ -58,8 +59,8 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   await setImmediate();
   assert.equal(workers.length, 1, 'a move and a review share one worker without interrupting each other');
   const [move, detailed] = worker.messages.slice(1);
-  assert.match(move.url, /\/model-full\.onnx$/);
-  assert.match(detailed.url, /\/model-full\.onnx$/);
+  assert.equal(move.url, NETWORK_URL);
+  assert.equal(detailed.url, NETWORK_URL);
   assert.equal(move.details, false);
   assert.equal(detailed.details, true);
   worker.answer(move, { action: 0 });
@@ -82,7 +83,8 @@ test('memory errors discard the worker even after cancellation, and retry starts
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, MODEL_FILES,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK, NETWORK_URL,
+    networkIsStored: async () => false,
     startOffline: async () => null, prepareOfflineAi: async () => null,
   });
   vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, resetPolicy };', context);
@@ -109,7 +111,7 @@ test('memory errors discard the worker even after cancellation, and retry starts
   await setImmediate();
   const fresh = workers[1];
   assert.ok(fresh, 'physical/watch retries must create a fresh worker automatically');
-  assert.match(fresh.messages[0].url, /\/model-full\.onnx$/);
+  assert.equal(fresh.messages[0].url, NETWORK_URL);
   first.answer(originalId, { error: 'late old failure' });
   assert.equal(fresh.terminated, false);
   fresh.answer(fresh.messages[0].id, { analysis: { action: 1, weights: [0.2, 0.8] } });
@@ -130,7 +132,8 @@ function memoryClient(t) {
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, MODEL_FILES,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK, NETWORK_URL,
+    networkIsStored: async () => false,
     startOffline: async () => null, prepareOfflineAi: async () => null,
   });
   vm.runInContext(source + '\nglobalThis.api = { analyzePolicy, resetPolicy };', context);
@@ -158,18 +161,18 @@ test('memory-limit retries replay only unresolved choices with their original ob
   original.answer(done.id, { analysis: { action: 1 } });
   await completed;
   abort.abort(); await cancellation;
-  original.fail(pending, 'limit', 200);
+  original.fail(pending, 'limit', MEMORY_LIMITS_MIB[0] + 16);
   assert.equal(original.terminated, true);
   const larger = workers[1];
   assert.deepEqual(larger.messages.map(m => m.id), [pending.id, behind.id]);
-  assert.ok(larger.messages.every(m => m.memoryLimitMiB === 256));
+  assert.ok(larger.messages.every(m => m.memoryLimitMiB === MEMORY_LIMITS_MIB[1]));
   assert.deepEqual(Array.from(larger.messages[0].planes), expected, 'transferred buffers remain replayable');
-  assert.match(larger.messages[1].url, /model-full\.onnx$/);
+  assert.equal(larger.messages[1].url, NETWORK_URL);
   original.answer(pending.id, { analysis: { action: 99 } }); // Old-worker results are ignored.
-  larger.fail(larger.messages[0], 'limit', 300);
+  larger.fail(larger.messages[0], 'limit', MEMORY_LIMITS_MIB[1] + 16);
   assert.equal(larger.terminated, true);
   const final = workers[2];
-  assert.ok(final.messages.every(m => m.memoryLimitMiB === 384));
+  assert.ok(final.messages.every(m => m.memoryLimitMiB === MEMORY_LIMITS_MIB[2]));
   assert.deepEqual(Array.from(final.messages[0].planes), expected);
   final.answer(pending.id, { analysis: { action: 0 } });
   final.answer(behind.id, { analysis: { action: 1 } });
@@ -182,16 +185,17 @@ test('browser refusal and the final memory ceiling stop retries and allow a fres
     const { ask, workers } = memoryClient(t);
     const pending = ask(), rejected = assert.rejects(pending, /Out of memory/);
     await setImmediate();
-    workers[0].fail(workers[0].messages[0], 'limit', 200);
-    if (!refusedByBrowser) workers[1].fail(workers[1].messages[0], 'limit', 300);
+    workers[0].fail(workers[0].messages[0], 'limit', MEMORY_LIMITS_MIB[0] + 16);
+    if (!refusedByBrowser) workers[1].fail(workers[1].messages[0], 'limit', MEMORY_LIMITS_MIB[1] + 16);
     const last = workers.at(-1), count = workers.length;
-    last.fail(last.messages[0], refusedByBrowser ? 'browser' : 'limit', refusedByBrowser ? 256 : 400);
+    last.fail(last.messages[0], refusedByBrowser ? 'browser' : 'limit',
+      refusedByBrowser ? MEMORY_LIMITS_MIB[1] : MEMORY_LIMITS_MIB[1] + 16);
     await rejected;
     assert.equal(last.terminated, true);
     assert.equal(workers.length, count, 'do not keep asking for unavailable memory');
     const retry = ask(); await setImmediate();
     const fresh = workers.at(-1);
-    assert.equal(fresh.messages[0].memoryLimitMiB, 192);
+    assert.equal(fresh.messages[0].memoryLimitMiB, MEMORY_LIMITS_MIB[0]);
     fresh.answer(fresh.messages[0].id, { analysis: { action: 1 } });
     await retry;
   }
@@ -200,17 +204,17 @@ test('browser refusal and the final memory ceiling stop retries and allow a fres
 test('a memory ceiling that was found to work survives an ordinary reset', async t => {
   const { ask, workers, api } = memoryClient(t);
   const first = ask(); await setImmediate();
-  workers[0].fail(workers[0].messages[0], 'limit', 200);
+  workers[0].fail(workers[0].messages[0], 'limit', MEMORY_LIMITS_MIB[0] + 16);
   await setImmediate();
   const grown = workers[1];
-  assert.equal(grown.messages[0].memoryLimitMiB, 256);
+  assert.equal(grown.messages[0].memoryLimitMiB, MEMORY_LIMITS_MIB[1]);
   grown.answer(grown.messages[0].id, { analysis: { action: 1 } });
   await first;
   // A retry after some other failure keeps the size that worked, instead of
   // failing at the small size and growing again.
   api.resetPolicy(new Error('a timeout'));
   const again = ask(); await setImmediate();
-  assert.equal(workers.at(-1).messages[0].memoryLimitMiB, 256);
+  assert.equal(workers.at(-1).messages[0].memoryLimitMiB, MEMORY_LIMITS_MIB[1]);
   workers.at(-1).answer(workers.at(-1).messages[0].id, { analysis: { action: 0 } });
   await again;
 });

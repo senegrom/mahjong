@@ -11,6 +11,7 @@
 // times larger, for a network this small to gain nothing from.
 import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from './policy-weights.js';
+import { networkBytes } from './network-store.js';
 import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';
 
 ort.env.wasm.numThreads = 1;
@@ -34,7 +35,7 @@ const queued = new Map();
 let running = false;
 let failed = false;
 
-async function load(url, runtimeBase, memoryLimitMiB) {
+async function load(url, runtimeBase, memoryLimitMiB, onProgress) {
   if (!runtimeMemory) {
     // The bundler renames the runtime's own WebAssembly, which its loader
     // then cannot find. It is served from a known folder instead.
@@ -55,7 +56,10 @@ async function load(url, runtimeBase, memoryLimitMiB) {
     sessions.delete(oldest);
     await session.release();
   }
-  const session = await ort.InferenceSession.create(url, {
+  // The bytes rather than the address: the network comes from a bucket on
+  // another origin and is kept in Cache Storage, which the runtime knows
+  // nothing about. What it is handed has already been hashed.
+  const session = await ort.InferenceSession.create(await networkBytes({ url, onProgress }), {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });
@@ -98,13 +102,19 @@ function pick(logits, mask, temperature) {
 }
 
 async function infer({ id, url, runtimeBase, planes, mask, temperature, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
-  let input, output;
+  let input, output, allowed;
   try {
     self.postMessage({ id, progress: 'loading the network' });
-    const model = await load(url, runtimeBase, memoryLimitMiB);
+    const model = await load(url, runtimeBase, memoryLimitMiB, ({ bytes, total }) =>
+      self.postMessage({ id, progress: `saving the network ${Math.floor(100 * bytes / total)}%` }));
     self.postMessage({ id, progress: 'network ready' });
     input = new ort.Tensor('float32', planes, [1, planes.length / POSITIONS, POSITIONS]);
-    output = await model.run({ planes: input });
+    // The fused network's head reads the legality mask, so the graph takes it
+    // too. An older single-input network is still served the planes alone.
+    allowed = model.inputNames.includes('legal')
+      ? new ort.Tensor('float32', Float32Array.from(mask, can => (can ? 1 : 0)), [1, mask.length])
+      : null;
+    output = await model.run(allowed ? { planes: input, legal: allowed } : { planes: input });
     const logits = output.policy.data;
     const analysis = policyWeights(logits, mask);
     // The network answers all three questions in one pass, so the value and
@@ -118,6 +128,7 @@ async function infer({ id, url, runtimeBase, planes, mask, temperature, details,
       ...(details ? { analysis: { ...analysis, ...read } } : {}) });
   } finally {
     input?.dispose();
+    allowed?.dispose();
     for (const tensor of Object.values(output ?? {})) tensor.dispose();
   }
 }

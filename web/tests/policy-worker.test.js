@@ -10,6 +10,7 @@ const source = (await readFile(new URL('../src/lib/policy.worker.js', import.met
   .replace("import * as ort from 'onnxruntime-web/wasm';", '')
   .replace("import { policyWeights } from './policy-weights.js';", '')
   .replace("import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';", '')
+  .replace("import { networkBytes } from './network-store.js';", '')
   .replace('import(/* @vite-ignore */ controls)', 'loadMemoryControls(controls)');
 const MODEL = 'model-full.onnx';
 const deferred = () => {
@@ -18,7 +19,7 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-function harness({ loadGate, runGate, invalidOutput = false, runError = false, memoryFailure = null } = {}) {
+function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, runError = false, memoryFailure = null } = {}) {
   const loads = [], releases = [], runs = [], tensors = [], messages = [];
   let live = 0, active = 0;
   const memoryBudget = new MemoryBudget();
@@ -30,11 +31,14 @@ function harness({ loadGate, runGate, invalidOutput = false, runError = false, m
     env: { wasm: {} }, Tensor,
     InferenceSession: { create: async url => {
       loads.push(url);
+      const inputNames = takesMask ? ['planes', 'legal'] : ['planes'];
       assert.ok(live++ < 1, 'only the one network the page carries may be resident');
       await loadGate?.promise;
       return {
-        run: async () => {
+        inputNames,
+        run: async given => {
           assert.equal(active++, 0, 'inferences must not overlap');
+          assert.deepEqual(Object.keys(given), inputNames, 'the graph is given what it asks for');
           runs.push(url);
           await runGate?.promise;
           active--;
@@ -50,6 +54,9 @@ function harness({ loadGate, runGate, invalidOutput = false, runError = false, m
   };
   const self = { postMessage: message => messages.push(message) };
   vm.runInNewContext(source, { ort, policyWeights, self, URL, MEMORY_LIMITS_MIB, isMemoryError,
+    // The network arrives as bytes from its bucket; the address stands in for
+    // them here, so what loaded is still recognisable.
+    networkBytes: async ({ url }) => url,
     loadMemoryControls: async url => {
       assert.equal(url, 'https://test.invalid/ort/memory-budget.mjs');
       return { memoryBudget };
@@ -117,7 +124,7 @@ test('runtime failures identify application limits separately from browser alloc
     const h = harness({ runError: true, memoryFailure: failure });
     await h.send(1);
     const error = h.messages.find(message => message.error);
-    assert.deepEqual({ ...error.memory }, { ...failure, limitMiB: 192 });
+    assert.deepEqual({ ...error.memory }, { ...failure, limitMiB: MEMORY_LIMITS_MIB[0] });
     assert.ok(h.tensors.every(tensor => tensor.disposed));
   }
   const h = harness({ runError: true });

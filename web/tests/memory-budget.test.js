@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { MemoryBudget, nextMemoryLimit } from '../src/lib/memory-budget.js';
+import { MEMORY_LIMITS_MIB, MemoryBudget, nextMemoryLimit } from '../src/lib/memory-budget.js';
 
 const MIB = 1048576, PAGE = 65536;
 
@@ -26,28 +26,28 @@ test('browser allocation failures never request a larger reservation', () => {
   const memory = { buffer: { byteLength: 16 * MIB }, grow() { throw new RangeError('Out of memory'); } };
   assert.equal(budget.grow(memory, needed, () => assert.fail('No views to refresh')), false);
   assert.deepEqual(budget.failure, { kind: 'browser', requestedBytes: needed });
-  assert.equal(nextMemoryLimit(192, budget.failure), null);
+  assert.equal(nextMemoryLimit(MEMORY_LIMITS_MIB[0], budget.failure), null);
   budget.beginRequest();
   assert.equal(budget.failure, null, 'a successful later request must not inherit an earlier failure');
 });
 
 test('only an exceeded application ceiling qualifies for bounded extra headroom', () => {
-  const budget = new MemoryBudget(), needed = 200 * MIB;
+  const budget = new MemoryBudget(), needed = (MEMORY_LIMITS_MIB[0] + 8) * MIB;
   const memory = { buffer: { byteLength: 16 * MIB }, grow() { assert.fail('Do not exceed the configured ceiling'); } };
   assert.equal(budget.grow(memory, needed, () => {}), false);
   assert.deepEqual(budget.failure, { kind: 'limit', requestedBytes: needed });
-  assert.equal(nextMemoryLimit(192, budget.failure), 256);
-  assert.equal(nextMemoryLimit(192, { kind: 'limit', requestedBytes: 300 * MIB }), 384);
-  assert.equal(nextMemoryLimit(256, { kind: 'limit', requestedBytes: 300 * MIB }), 384);
-  for (const requestedBytes of [0, 16 * MIB, NaN, Infinity, 400 * MIB]) {
-    assert.equal(nextMemoryLimit(192, { kind: 'limit', requestedBytes }), null);
+  assert.equal(nextMemoryLimit(MEMORY_LIMITS_MIB[0], budget.failure), MEMORY_LIMITS_MIB[1]);
+  assert.equal(nextMemoryLimit(MEMORY_LIMITS_MIB[0], { kind: 'limit', requestedBytes: (MEMORY_LIMITS_MIB[1] + 1) * MIB }), MEMORY_LIMITS_MIB[2]);
+  assert.equal(nextMemoryLimit(MEMORY_LIMITS_MIB[1], { kind: 'limit', requestedBytes: (MEMORY_LIMITS_MIB[1] + 1) * MIB }), MEMORY_LIMITS_MIB[2]);
+  for (const requestedBytes of [0, 16 * MIB, NaN, Infinity, (MEMORY_LIMITS_MIB[2] + 1) * MIB]) {
+    assert.equal(nextMemoryLimit(MEMORY_LIMITS_MIB[0], { kind: 'limit', requestedBytes }), null);
   }
-  assert.equal(nextMemoryLimit(384, { kind: 'limit', requestedBytes: 400 * MIB }), null);
+  assert.equal(nextMemoryLimit(MEMORY_LIMITS_MIB[2], { kind: 'limit', requestedBytes: (MEMORY_LIMITS_MIB[2] + 16) * MIB }), null);
   assert.throws(() => budget.configure(4096), /Invalid/);
 });
 
 test('the shipped allocator reports its limit, grows after a fresh bounded restart, and respects browser refusal', () => {
-  function probe(limit, browserLimit = null) {
+  function probe(limit, browserLimit = null, wanted = MEMORY_LIMITS_MIB[0] + 32) {
     // Each run gets a fresh module and reservation, just as a replacement worker does.
     const source = `
       import { readFileSync } from 'node:fs';
@@ -65,7 +65,7 @@ test('the shipped allocator reports its limit, grows after a fresh bounded resta
       memoryBudget.configure(${limit});
       try {
         const runtime = await factory({ numThreads: 1, wasmBinary: new Uint8Array(readFileSync('./dist/ort/ort-wasm-simd-threaded.wasm')) });
-        const pointer = runtime._malloc(200 * 1048576);
+        const pointer = runtime._malloc(${wanted} * 1048576);
         console.log(JSON.stringify({ pointer, failure: memoryBudget.failure, heap: memoryBudget.memory.buffer.byteLength }));
         if (pointer) runtime._free(pointer);
       } catch (error) {
@@ -76,17 +76,17 @@ test('the shipped allocator reports its limit, grows after a fresh bounded resta
       input: source, encoding: 'utf8', cwd: new URL('../', import.meta.url), timeout: 20000,
     }));
   }
-  const limited = probe(192);
+  const limited = probe(MEMORY_LIMITS_MIB[0]);
   assert.equal(limited.pointer, 0);
   assert.equal(limited.failure.kind, 'limit');
-  assert.equal(nextMemoryLimit(192, limited.failure), 256);
+  assert.equal(nextMemoryLimit(MEMORY_LIMITS_MIB[0], limited.failure), MEMORY_LIMITS_MIB[1]);
   assert.equal(limited.heap, 16 * MIB, 'a rejected request does not eagerly allocate its maximum');
-  const expanded = probe(256);
+  const expanded = probe(MEMORY_LIMITS_MIB[1]);
   assert.ok(expanded.pointer > 0);
   assert.equal(expanded.failure, null);
-  assert.ok(expanded.heap > 192 * MIB && expanded.heap <= 256 * MIB);
-  const refused = probe(256, 192);
+  assert.ok(expanded.heap > MEMORY_LIMITS_MIB[0] * MIB && expanded.heap <= MEMORY_LIMITS_MIB[1] * MIB);
+  const refused = probe(MEMORY_LIMITS_MIB[1], MEMORY_LIMITS_MIB[0]);
   assert.match(refused.error, /Out of memory/);
   assert.equal(refused.failure.kind, 'browser');
-  assert.equal(nextMemoryLimit(256, refused.failure), null);
+  assert.equal(nextMemoryLimit(MEMORY_LIMITS_MIB[1], refused.failure), null);
 });

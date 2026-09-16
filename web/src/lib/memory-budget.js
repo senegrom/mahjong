@@ -1,6 +1,12 @@
 // These are reservation ceilings, not allocations. Start at 16 MiB and grow
 // only when malloc needs it. A fresh worker is required to raise the ceiling.
-export const MEMORY_LIMITS_MIB = Object.freeze([192, 256, 384]);
+//
+// The floor is 384 MiB because of what the page now plays: the fusion is
+// 116 MB of float weights, and measured against the browser's own runtime it
+// aborts at 192, fits at 256 with about a twentieth of the reservation to
+// spare, and has room to be swapped at 384. A ceiling can only be raised
+// after a failure, never lowered, so the floor has to be a size that works.
+export const MEMORY_LIMITS_MIB = Object.freeze([384, 512, 768]);
 const MIB = 1048576;
 const PAGE = 65536;
 

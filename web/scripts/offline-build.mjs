@@ -27,10 +27,11 @@ export async function buildOffline(root) {
   if (entries.some(entry => entry.url.endsWith('.onnx') && !supported.includes(entry.url))) {
     throw new Error('Offline build contains an unsupported network');
   }
-  const hasModel = supported.every(file => entries.some(entry => entry.url === file));
-  if (hasModel) for (const name of RUNTIME_FILES) {
-    if (!entries.some(entry => entry.url === `ort/${name}`)) throw new Error(`Missing AI runtime ${name}`);
-  }
+  // The trained network is fetched from its bucket and kept in Cache Storage
+  // (web/src/lib/network-store.js), so what this group carries is the runtime
+  // that runs it. Without that runtime there is nothing to save for the AI.
+  const hasModel = RUNTIME_FILES.every(name => entries.some(entry => entry.url === `ort/${name}`));
+  if (!hasModel) throw new Error('Offline build is missing the AI runtime');
   const version = createHash('sha256').update(JSON.stringify(entries)).digest('hex').slice(0, 20);
   const manifest = { version, hasModel, entries };
   const template = await readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8');

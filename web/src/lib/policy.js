@@ -1,16 +1,15 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
-import { startOffline, prepareOfflineAi } from './offline.js';
-import { MODEL_FILES } from './model-package.js';
+import { prepareOfflineAi } from './offline.js';
+import { NETWORK, NETWORK_URL, networkIsStored } from './network-store.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
 
 /** The trained opponent: the network itself, not a small copy taught to
  * imitate it. It reads Mortal's 1012 planes, which the engine in this page
  * builds, and answers in Mortal's forty-six moves, which the engine turns
  * back into moves it can play. */
-export const MODEL_URLS = Object.freeze(Object.fromEntries(
-  Object.entries(MODEL_FILES).map(([name, file]) => [name, new URL(file, document.baseURI).href]),
-));
+export const MODEL_URLS = Object.freeze({ full: NETWORK_URL });
+export const MODEL_GENERATION = NETWORK.generation;
 export const MODEL_CHOICES = Object.freeze(Object.keys(MODEL_URLS));
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
 let chosen = 'full';
@@ -89,8 +88,9 @@ export function chosenModel() { return chosen; }
 
 export async function modelIsAvailable(which = chosen) {
   try {
-    const offline = await startOffline();
-    if (offline) return Boolean(offline.hasModel);
+    // Held here already, or the bucket answers. The runtime that runs it is
+    // the service worker's business; this is about the network itself.
+    if (await networkIsStored(MODEL_URLS[which])) return true;
     const response = await fetch(MODEL_URLS[which], { method: 'HEAD', signal: AbortSignal.timeout(10000) });
     return response.ok;
   } catch { return false; }
