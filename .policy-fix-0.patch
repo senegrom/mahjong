@@ -1,0 +1,446 @@
+diff --git a/.github/workflows/neural.yml b/.github/workflows/neural.yml
+index bf006523bcc49b296170016e87c1aaf5b2f8d3c8..5667667eff36b374cbd544f87e413b2535f879c7 100644
+--- a/.github/workflows/neural.yml
++++ b/.github/workflows/neural.yml
+@@ -13 +13,7 @@ on:
+-      - "web/runtime/reduced-ops.config"
++      - "web/runtime/**"
++      - "web/src/lib/policy.worker.js"
++      - "web/src/lib/policy-weights.js"
++      - "web/src/lib/network-store.js"
++      - "web/src/lib/memory-budget.js"
++      - "web/scripts/policy-export-check.mjs"
++      - "web/package*.json"
+@@ -23 +29,7 @@ on:
+-      - "web/runtime/reduced-ops.config"
++      - "web/runtime/**"
++      - "web/src/lib/policy.worker.js"
++      - "web/src/lib/policy-weights.js"
++      - "web/src/lib/network-store.js"
++      - "web/src/lib/memory-budget.js"
++      - "web/scripts/policy-export-check.mjs"
++      - "web/package*.json"
+@@ -96,0 +109,8 @@ jobs:
++      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6.3.0
++        with:
++          node-version: "22"
++      - name: Install locked browser regression dependencies
++        working-directory: web
++        run: npm ci --ignore-scripts
++      - name: Real ONNX exports through the browser worker and reduced runtime
++        run: node web/scripts/policy-export-check.mjs
+ diff --git a/docs/POLICY_PARITY_AND_BATCHING.md b/docs/POLICY_PARITY_AND_BATCHING.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9e279955a70dc1bd27572094e4e95c683e503c03
+--- /dev/null
++++ b/docs/POLICY_PARITY_AND_BATCHING.md
+@@ -0,0 +1,99 @@
++# Ordinary play, search and the browser share a policy contract
++
++Follow-up to the review of `b40b2d5`, built on `6778666`. The browser already had
++the two-input fix and the new network store at this base. Those changes, runtime
++binaries, production manifest/model, checkpoints and tile artwork are preserved.
++This patch adds durable end-to-end coverage rather than replacing that work.
++
++## Deterministic ties
++
++Both serving adapters and the conditional riichi-discard ranking use stable
++sorting. Equal policy logits retain their original policy-index order, matching
++ordinary `argmax` play before engine translation and alias deduplication. Search
++that is bypassed no longer substitutes a different tied move for its incumbent.
++Tests include ordinary discards, red/plain aliases, calls, forced actions, both
++riichi questions, and complete native games with deliberately tied logits.
++
++## Shared inference arithmetic
++
++`neural.policy_inference.context` is used by ordinary evaluation adapters, search
++roots, conditional roots and policy-only imagined continuation. It overrides and
++then restores ambient autocast instead of inheriting a caller's accidental mode.
++It does not modify training forwards, gradient settings, weights or training AMP.
++
++`--policy-precision auto` preserves ordinary defaults: Mortal-space policies use
++bfloat16 autocast on CUDA and float32 on CPU; legacy engine-action policies use
++float32. `--policy-precision float32` or `bfloat16` explicitly selects a mode for
++the whole evaluation player. Explicit CPU bfloat16 is supported for experiments;
++it is not the default or a claim of better accuracy. Programmatic callers can use
++`policy_inference.configure(player, precision, device)` once on the frozen player.
++The runtime setting is not silently serialized as a checkpoint weight.
++
++The requested and resolved modes, tie rule and inference-contract version are
++recorded with new teacher replay and diagnostic recordings. Modal forwards the
++setting and includes it in the immutable experiment identity. Historical replay
++is not relabelled as having this contract; new marked data rejects missing or
++inconsistent controls. Dataset/resume identities include the teacher contract.
++Sibling evidence cannot mix changed/missing precision or batch declarations.
++
++These controls align the algorithmic precision policy; they do not promise
++bitwise equivalence across hardware, Torch versions, compiled/uncompiled kernels
++or arbitrary batch shapes. Compare matched implementations and measure CUDA
++parity on the hardware used for an experiment. The CUDA-specific regression skips
++explicitly when no GPU is present. CPU tests exercise real float32 and bfloat16
++ordinary/full/fast inference, not only mocked context flags.
++
++## Bounded rollout inference
++
++`--rollout-batch` defaults to **256** and bounds each imagined policy encoding,
++dense input and forward, including the separate conditional discard after riichi.
++It replaces the hard-coded 4096/8192-row forwards and the unbounded second-stage
++forward. The same limit is forwarded to discovery and fresh confirmation, native
++engine-plane and Mortal-plane rollout adapters, the collector and Modal.
++`--leaf-batch` still separately limits value-leaf/reader work.
++
++This is a per-inference limit, **not a cap on total process or GPU memory**.
++Native worlds and follower copies still scale with games, candidates and worlds.
++At nonzero rollout temperature, changing batching may also change random draws;
++the batch setting is therefore recorded as an experiment setting. Tests assert
++that all first/second-stage calls obey small limits and retain action mapping,
++including incomplete tail batches and a native search without live-state mutation.
++
++Example (new output directory and fresh evidence):
++
++```sh
++python -m neural.collect_search actor.pt --out runs/policy-parity-replay \
++  --source-revision <40-character-commit> --games 2 --worlds 8 \
++  --policy-precision float32 --rollout-batch 128
++```
++
++The native search API stays at **5** and training at **2**; there are no Rust
++changes in this patch. Recollect comparisons affected by tie handling or GPU
++precision rather than attributing old/new differences to search strength alone.
++
++## Actual exported graph through the worker
++
++```sh
++python -m unittest neural.tests.test_policy_parity -v
++cd web
++node --test tests/policy-worker.test.js
++node scripts/policy-export-check.mjs
++```
++
++The last command requires the native Python engines, Torch/ONNX dependencies,
++locked npm dependencies and Chrome/Chromium (`CHROME_BIN` may name the binary).
++The neural CI workflow installs them and runs it. It creates temporary standalone
++and combined checkpoints, invokes the production exporter, and serves their graphs
++to the actual worker using the committed reduced WASM runtime. Native follower
++observations include a riichi root and its conditional discard. Actions, policy
++weights, values and belief outputs are compared with the reference, repeatedly.
++Only the module-import resolution and test manifest are changed in the temporary
++site; no inference/runtime test doubles or production model edits are used.
++
++The synthetic exporter fixtures permit removable Identity operators; actual
++compatibility is tested against the committed reduced runtime, not a generic
++expanded runtime. They are not published as production exports. Unit tests also
++verify mask tensor type/shape and disposal after success and failure, and the
++optional memory regression now releases that tensor too.
++
++No trained-model promotion or playing-strength claim follows from these tests.
+diff --git a/neural/collect_search.py b/neural/collect_search.py
+index 652c60e955af35c32bf1fb71b39aed7102d4bc47..34f86b4e9a3a4eea2c8e57e5894024f215992a24 100644
+--- a/neural/collect_search.py
++++ b/neural/collect_search.py
+@@ -23,0 +24 @@ from .training_safety import SEARCH_API_VERSION
++from . import policy_inference
+@@ -49,0 +51,2 @@ class SearchSettings:
++    policy_precision: str = "auto"
++    rollout_batch: int = policy_inference.DEFAULT_ROLLOUT_BATCH
+@@ -54 +57 @@ def metadata(*, games: int, seed: int, settings: SearchSettings,
+-             head_provenance: dict | None = None) -> dict:
++             head_provenance: dict | None = None, device: str = "cpu") -> dict:
+@@ -68,0 +72,4 @@ def metadata(*, games: int, seed: int, settings: SearchSettings,
++                    "policy_inference": {"version": policy_inference.VERSION,
++                        "requested": settings.policy_precision,
++                        "resolved": policy_inference.resolved(settings.policy_precision, device),
++                        "tie_break": "first_policy_index"},
+@@ -130,0 +138 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
++    policy_inference.validate(settings.policy_precision, settings.rollout_batch)
+@@ -151 +159 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
+-                 head_provenance=provenance)
++                 head_provenance=provenance, device=device)
+@@ -160,0 +169 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
++    policy_inference.configure(net, settings.policy_precision, device)
+@@ -221 +230 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
+-                confirm_worlds=settings.confirm_worlds,
++                confirm_worlds=settings.confirm_worlds, rollout_batch=settings.rollout_batch,
+@@ -239 +248,2 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
+-                after_logits, _v, _hands = net.everything(after, after_legal)
++                with policy_inference.context(net, after.device):
++                    after_logits, _v, _hands = net.everything(after, after_legal)
+@@ -283,0 +294 @@ def main() -> None:
++    policy_inference.validate(settings.policy_precision, settings.rollout_batch)
+diff --git a/neural/combined.py b/neural/combined.py
+index a19aceab8070764a42de93141e82c728848616a7..7b7d0a25f5572e51b8ce629e4ea985fdda5c461e 100644
+--- a/neural/combined.py
++++ b/neural/combined.py
+@@ -323 +323,2 @@ class Combined(nn.Module):
+-        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.startswith("cuda")):
++        from . import policy_inference
++        with policy_inference.context(self, device):
+diff --git a/neural/contract.py b/neural/contract.py
+index fd1cdbf9ac53daf981a7d7f96d8930021c193125..36e52d6a4b4cfbf7321d4e263211013b7966e6aa 100644
+--- a/neural/contract.py
++++ b/neural/contract.py
+@@ -35,0 +36 @@ import riichi_py
++from . import policy_inference
+@@ -236 +237 @@ class EngineServed:
+-        return torch.argsort(logits, dim=1, descending=True).cpu().numpy()
++        return policy_inference.order(logits).cpu().numpy()
+@@ -366 +367 @@ class MortalServed:
+-        return torch.argsort(logits, dim=1, descending=True).cpu().numpy()
++        return policy_inference.order(logits).cpu().numpy()
+@@ -414 +415,2 @@ class MortalServed:
+-    def play_lookahead(self, arena, device="cuda", temperature=0.0, passes=8000) -> int:
++    def play_lookahead(self, arena, device="cuda", temperature=0.0, passes=8000,
++                       batch_size=policy_inference.DEFAULT_ROLLOUT_BATCH) -> int:
+@@ -429,0 +432 @@ class MortalServed:
++        policy_inference.validate(rollout_batch=batch_size)
+@@ -498,2 +500,0 @@ class MortalServed:
+-            indptr, indices, values, _own = copies.encode_some(deciding)
+-            planes = Planes.from_follower(indptr, indices, values)
+@@ -506,6 +507,6 @@ class MortalServed:
+-            step = 4096
+-            for start in range(0, count, step):
+-                rows = np.arange(start, min(start + step, count))
+-                logits = policy_logits(net,
+-                    planes.rows(rows).dense(device), torch.from_numpy(allowed[rows]).to(device)
+-                )
++            for start in range(0, count, batch_size):
++                rows = np.arange(start, min(start + batch_size, count))
++                indptr, indices, values, _own = copies.encode_some([deciding[at] for at in rows])
++                planes = Planes.from_follower(indptr, indices, values)
++                logits = policy_logits(net, planes.dense(device),
++                                       torch.from_numpy(allowed[rows]).to(device))
+@@ -524,2 +525,3 @@ class MortalServed:
+-            if len(second):
+-                asked = copies.clone_some([deciding[at] for at in second])
++            for start in range(0, len(second), batch_size):
++                picks = second[start:start + batch_size]
++                asked = copies.clone_some([deciding[at] for at in picks])
+@@ -527 +529 @@ class MortalServed:
+-                    [[json.dumps({"type": "reach", "actor": int(players[at])})] for at in second]
++                    [[json.dumps({"type": "reach", "actor": int(players[at])})] for at in picks]
+@@ -531,2 +533,2 @@ class MortalServed:
+-                tiles = masks[second, zoo.RIICHI_DISCARD : zoo.TSUMO]
+-                allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
++                tiles = masks[picks, zoo.RIICHI_DISCARD : zoo.TSUMO]
++                allowed_after = np.zeros((len(picks), zoo.MORTAL_ACTIONS), dtype=bool)
+@@ -543 +545 @@ class MortalServed:
+-                actions[second] = zoo.RIICHI_DISCARD + tile.cpu().numpy()
++                actions[picks] = zoo.RIICHI_DISCARD + tile.cpu().numpy()
+@@ -553 +555,3 @@ def policy_logits(net, planes, legal):
+-    return fast(planes, legal) if callable(fast) else net(planes, legal)[0]
++    with policy_inference.context(net, planes.device):
++        logits = fast(planes, legal) if callable(fast) else net(planes, legal)[0]
++    return logits.float()
+@@ -577 +581,2 @@ def root_order(served, arena, views, rows, deciding, mask, device):
+-    logits, value, guessed = net.everything(root_planes, root_mask)
++    with policy_inference.context(net, root_planes.device):
++        logits, value, guessed = net.everything(root_planes, root_mask)
+@@ -592 +597,2 @@ def root_order(served, arena, views, rows, deciding, mask, device):
+-            after_logits, _after_value, _after_hands = net.everything(after_planes, after_mask)
++            with policy_inference.context(net, after_planes.device):
++                after_logits, _after_value, _after_hands = net.everything(after_planes, after_mask)
+@@ -594 +600 @@ def root_order(served, arena, views, rows, deciding, mask, device):
+-                torch.argsort(after_logits[:, :POSITIONS].float(), dim=1, descending=True)
++                policy_inference.order(after_logits[:, :POSITIONS].float())
+diff --git a/neural/modal_app.py b/neural/modal_app.py
+index 3996cd5b044bfb0898d265a0a6ab950ff4d2dc53..97a9a59add50f9cdf36347cf0eeadeef2842d231 100644
+--- a/neural/modal_app.py
++++ b/neural/modal_app.py
+@@ -709,0 +710,2 @@ def searched(
++    policy_precision: str = "auto",
++    rollout_batch: int = 256,
+@@ -726,0 +729,2 @@ def searched(
++    from neural.policy_inference import validate as validate_inference
++    validate_inference(policy_precision, rollout_batch)
+@@ -769,0 +774 @@ def searched(
++                        policy_precision=policy_precision, rollout_batch=rollout_batch,
+@@ -783,0 +789 @@ def searched(
++            "--rollout-batch", str(rollout_batch), "--policy-precision", policy_precision,
+diff --git a/neural/policy_inference.py b/neural/policy_inference.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..fa63049b6d4f4f19af843fc108bba646b43a91d4
+--- /dev/null
++++ b/neural/policy_inference.py
+@@ -0,0 +1,74 @@
++"""One explicit arithmetic and tie-breaking contract for evaluation policies.
++
++This module is importable on thin cloud launchers; Torch is imported only when
++an inference context is entered. Runtime precision is not a checkpoint weight or
++a training-autocast setting. Configure the frozen evaluation player once per run.
++"""
++from __future__ import annotations
++
++from contextlib import contextmanager
++
++VERSION = 1
++DEFAULT_ROLLOUT_BATCH = 256
++PRECISIONS = ("auto", "float32", "bfloat16")
++
++
++def validate(precision="auto", rollout_batch=DEFAULT_ROLLOUT_BATCH):
++    if not isinstance(precision, str) or precision not in PRECISIONS:
++        raise ValueError("policy_precision must be auto, float32 or bfloat16")
++    if type(rollout_batch) is not int or rollout_batch <= 0:
++        raise ValueError("rollout_batch must be a positive integer")
++
++
++def underlying(net):
++    # The normal Mortal-space player wraps the same network the teacher serves.
++    return net.net if not hasattr(net, "everything") and hasattr(getattr(net, "net", None), "everything") else net
++
++
++def resolved(precision, device, actions=46):
++    validate(precision)
++    kind = str(device).split(":", 1)[0]
++    if precision == "auto":
++        # Preserve ordinary-play defaults: Mortal policies use BF16 on CUDA;
++        # legacy engine-action networks and CPU evaluation use float32.
++        return "bfloat16" if kind == "cuda" and actions == 46 else "float32"
++    if precision == "bfloat16" and kind not in ("cpu", "cuda"):
++        raise ValueError("bfloat16 policy inference requires CPU or CUDA")
++    return precision
++
++
++def describe(net, device):
++    net = underlying(net)
++    precision = getattr(net, "policy_precision", "auto")
++    actions = getattr(net, "actions", 46)
++    return {"version": VERSION, "requested": precision,
++            "resolved": resolved(precision, device, actions),
++            "tie_break": "first_policy_index"}
++
++
++def configure(net, precision, device):
++    """Apply an explicitly requested runtime setting to the frozen player."""
++    net = underlying(net)
++    resolved(precision, device, getattr(net, "actions", 46))
++    net.policy_precision = precision
++    return describe(net, device)
++
++
++@contextmanager
++def context(net, device):
++    """Override ambient autocast identically in ordinary play and search.
++
++    Do not change gradient settings or training forwards here. Outputs are cast
++    to float32 by the calling adapter before probabilities and comparisons.
++    """
++    import torch
++    kind = torch.device(device).type
++    mixed = describe(net, device)["resolved"] == "bfloat16"
++    with torch.autocast(kind, dtype=torch.bfloat16, enabled=mixed):
++        yield
++
++
++def order(logits):
++    """Descending policy order; exact ties use argmax's first-index rule."""
++    import torch
++    return torch.argsort(logits, dim=1, descending=True, stable=True)
+diff --git a/neural/search_replay.py b/neural/search_replay.py
+index b53ac20a06c037d9c9c96785c15350d1cd352021..6a90e17d7651c5a17b709a484e2088b271339582 100644
+--- a/neural/search_replay.py
++++ b/neural/search_replay.py
+@@ -171 +171 @@ def validate_metadata(m: dict) -> None:
+-            "objective", "search_calls", "confirm_worlds", "extra_candidates", "audit_share", "sure"))):
++            "objective", "search_calls", "confirm_worlds", "extra_candidates", "audit_share", "sure", "policy_precision", "rollout_batch"))):
+@@ -187,0 +188,14 @@ def validate_metadata(m: dict) -> None:
++        controls = {"policy_precision", "rollout_batch"}
++        if controls & s.keys() or "policy_inference" in teacher:
++            from . import policy_inference
++            if not controls <= s.keys():
++                raise ValueError("incomplete policy inference settings")
++            policy_inference.validate(s["policy_precision"], s["rollout_batch"])
++            info = teacher.get("policy_inference", {})
++            if (not isinstance(info, dict) or type(info.get("version")) is not int
++                    or info["version"] != policy_inference.VERSION
++                    or info.get("requested") != s["policy_precision"]
++                    or info.get("resolved") not in ("float32", "bfloat16")
++                    or info.get("tie_break") != "first_policy_index"
++                    or s["policy_precision"] != "auto" and info["resolved"] != s["policy_precision"]):
++                raise ValueError("incomplete or inconsistent policy inference contract")
+diff --git a/neural/searched.py b/neural/searched.py
+index 2aaa558f9e3a4f63446b48641adb7ca53c3a056e..d9341e27ba9fbc9e182f50987b311519cc233f7d 100644
+--- a/neural/searched.py
++++ b/neural/searched.py
+@@ -28,0 +29,2 @@ from __future__ import annotations
++from . import policy_inference
++
+@@ -81 +83,2 @@ def require_native_search(net) -> None:
+-def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
++def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000,
++                   batch_size=policy_inference.DEFAULT_ROLLOUT_BATCH):
+@@ -87,0 +91 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
++    policy_inference.validate(rollout_batch=batch_size)
+@@ -98,3 +102,2 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
+-        step = 8192
+-        for start in range(0, count, step):
+-            rows = slice(start, start + step)
++        for start in range(0, count, batch_size):
++            rows = slice(start, start + batch_size)
+@@ -102 +105 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
+-                torch.from_numpy(planes[rows]).to(device),
++                torch.from_numpy(planes[rows].copy()).to(device),
+@@ -135,0 +139 @@ def _search_once(
++    rollout_batch=policy_inference.DEFAULT_ROLLOUT_BATCH,
+@@ -158,0 +163 @@ def _search_once(
++    policy_inference.validate(rollout_batch=rollout_batch)
+@@ -236 +241 @@ def _search_once(
+-            served.play_lookahead(arena, device=device, temperature=temperature)
++            served.play_lookahead(arena, device=device, temperature=temperature, batch_size=rollout_batch)
+@@ -238 +243 @@ def _search_once(
+-            play_lookahead(net, arena, device=device, temperature=temperature)
++            play_lookahead(net, arena, device=device, temperature=temperature, batch_size=rollout_batch)
+@@ -280 +285 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
+-                           evidence=None):
++                           evidence=None, rollout_batch=policy_inference.DEFAULT_ROLLOUT_BATCH):
+@@ -289,0 +295 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
++    policy_inference.validate(rollout_batch=rollout_batch)
+@@ -299 +305 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
+-                   objective=objective, search_calls=search_calls)
++                   objective=objective, search_calls=search_calls, rollout_batch=rollout_batch)
+@@ -350,0 +357,2 @@ def play(
++    rollout_batch: int = policy_inference.DEFAULT_ROLLOUT_BATCH,
++    policy_precision: str | None = None,
+@@ -370,0 +379,3 @@ def play(
++    policy_inference.validate("auto" if policy_precision is None else policy_precision, rollout_batch)
++    if policy_precision is not None:
++        policy_inference.configure(net, policy_precision, device)
+@@ -402,0 +414,3 @@ def play(
++    if recording is not None:
++        recording.meta.update(policy_inference=policy_inference.describe(net, device),
++                              rollout_batch=rollout_batch)
+@@ -483 +497 @@ def play(
+-                    confirm_worlds=confirm_worlds, evidence=evidence,
++                    confirm_worlds=confirm_worlds, evidence=evidence, rollout_batch=rollout_batch,
+@@ -752,0 +767 @@ def main() -> None:
++    policy_inference.validate(args.policy_precision, args.rollout_batch)
+@@ -774,0 +790 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
++    policy_inference.configure(net, args.policy_precision, args.device)
+@@ -797,0 +814,2 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
++        "rollout_batch": args.rollout_batch,
++        "policy_inference": policy_inference.describe(net, args.device),
+@@ -846 +864,2 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
+-            audit_share=args.audit_share,
++            audit_share=args.audit_share, rollout_batch=args.rollout_batch,
++            policy_precision=args.policy_precision,
+diff --git a/neural/sibling_head.py b/neural/sibling_head.py
+index c5ffb4091dd5b219eb4c4e2f23438b7b4d730f28..fc2ca1a4eb9cadbf275e0258023bd86eb98532a4 100644
+--- a/neural/sibling_head.py
++++ b/neural/sibling_head.py
+@@ -510,0 +511,3 @@ def gathered(parts: list[Recorded]) -> Recorded:
++    for field in ("policy_inference", "rollout_batch"):
++        if any(part.meta.get(field) != first.meta.get(field) for part in parts):
++            raise ValueError("do not mix different or unrecorded policy inference contracts")
+@@ -580,0 +584,3 @@ def gathered(parts: list[Recorded]) -> Recorded:
++    for field in ("policy_inference", "rollout_batch"):
++        if field in first.meta:
++            joined.meta[field] = first.meta[field]
+diff --git a/neural/teacher_options.py b/neural/teacher_options.py
+index 96a904d2a48c682fcd62bf742c37a2b5d630394b..614a9eddcb6c0a41869a77feed7e77087f7f934c 100644
+--- a/neural/teacher_options.py
++++ b/neural/teacher_options.py
+@@ -32,0 +33,4 @@ def add_arguments(parser):
++    parser.add_argument("--policy-precision", choices=("auto", "float32", "bfloat16"), default="auto",
++                        help="shared ordinary/root/continuation policy arithmetic; recorded with the experiment")
++    parser.add_argument("--rollout-batch", type=int, default=256,
++                        help="maximum rows per imagined policy encoding/forward, including riichi stage two")
