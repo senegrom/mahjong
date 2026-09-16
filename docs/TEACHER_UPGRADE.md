@@ -3,7 +3,8 @@
 This follows `REVIEW_WORLD_INTEGRITY.md`; it preserves those repairs, policy
 checkpoints, existing artwork and the production opponent. No new trained model is
 published by these source changes. **Rebuild both native Python engines. Search
-requires API 4; training remains API 2.**
+requires API 5; training remains API 2.** The follow-up in
+`REVIEW_BOUNDARY_CONTRACTS.md` adds fresh continuation chance and persisted reader/head contracts.
 
 ## What is repaired
 

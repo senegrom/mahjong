@@ -32,7 +32,7 @@ class RankedPlayerTests(unittest.TestCase):
         """With every move scored even, the player is the policy, move for
         move: the same deals against the same opponent end the same way."""
         plain = zoo.MortalSpacePlayer(self.net, "cpu")
-        head = sibling_head.Ranker(self.net.channels)
+        head = sibling_head.new_head(self.net)
         player = ranked.RankedPlayer(self.net, head, k=4, margin=0.05, device="cpu")
         with_head = duel.table(player, plain, games=2, seed=31, place=0, device="cpu")
         without = duel.table(plain, plain, games=2, seed=31, place=0, device="cpu")
@@ -48,6 +48,8 @@ class RankedPlayerTests(unittest.TestCase):
         fixed[:34] = torch.linspace(0.0, 1.0, 34)  # later discards score higher
 
         class Fixed(nn.Module):
+            feature_contract = sibling_head.feature_contract(self.net)
+
             def forward(self, features, pooled):
                 return fixed.unsqueeze(0).expand(features.shape[0], -1)
 

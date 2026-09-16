@@ -10,6 +10,7 @@ import math
 import warnings
 
 TRAINING_API_VERSION = 2
+SEARCH_API_VERSION = 5
 
 
 def require_training_engine() -> None:
@@ -27,11 +28,11 @@ def require_search_engine() -> None:
     """Old native backups added later hands' rewards; never use them silently."""
     import riichi_py
 
-    if getattr(riichi_py, "SEARCH_API_VERSION", 0) != 4:
+    if getattr(riichi_py, "SEARCH_API_VERSION", 0) != SEARCH_API_VERSION:
         raise RuntimeError(
-            "Rebuild and reinstall riichi_py: search requires API version 4 "
+            "Rebuild and reinstall riichi_py: search requires API version 5 "
             "(root-hand rewards, terminal placement, strict atomic lookahead actions, "
-            "boundary/placement-only leaves, calls and sampled private decision state)"
+            "boundary/placement-only leaves, calls, sampled private state and fresh continuation chance)"
         )
 
 def benchmark_history(payload: dict) -> tuple[float | None, float]:

@@ -18,6 +18,8 @@ import re
 
 import numpy as np
 
+from .training_safety import SEARCH_API_VERSION
+
 VERSION = 1  # Original supervised format remains resumable without relabelling.
 TEACHER_VERSION = 2
 PLANES, POSITIONS, ACTIONS, ENGINE_ACTIONS = 1012, 34, 46, 78
@@ -180,7 +182,7 @@ def validate_metadata(m: dict) -> None:
         teacher = m.get("teacher")
         if (not isinstance(teacher, dict) or type(teacher.get("version")) is not int
                 or teacher["version"] != 1 or type(teacher.get("search_api_version")) is not int
-                or teacher["search_api_version"] != 4 or teacher.get("objective") != s["objective"]
+                or teacher["search_api_version"] != SEARCH_API_VERSION or teacher.get("objective") != s["objective"]
                 or teacher.get("student_value_head") != ("critic" if s["valued_by"] == "placement" else s["valued_by"])):
             raise ValueError("teacher provenance/value-target contract is incomplete")
         head = teacher.get("placement_head")

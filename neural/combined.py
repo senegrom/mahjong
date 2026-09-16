@@ -400,6 +400,10 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
         state.get("actions", ACTIONS),
     ).to(device)
     load_weights(ours, state["model"])
+    # The flat model metadata describes ours. It does not declare a reader
+    # on the combined policy, which has no compatible likelihood head.
+    from .reader_contract import restore as restore_reader
+    restore_reader(ours, state)
     mortal = mortal_model.build(**mortal_model.shape_of(state))
     mortal.brain.load_state_dict(state["mortal"])
     mortal.dqn.load_state_dict(state["current_dqn"])

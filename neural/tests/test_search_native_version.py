@@ -11,10 +11,10 @@ class SearchNativeVersionTests(unittest.TestCase):
     def test_rebuilt_engine_supports_both_training_and_corrected_search(self):
         require_training_engine()
         require_search_engine()
-        self.assertEqual(riichi_py.SEARCH_API_VERSION, 4)
+        self.assertEqual(riichi_py.SEARCH_API_VERSION, 5)
 
     def test_old_or_unknown_search_api_is_refused_without_breaking_training(self):
-        for version in (0, 1, 2, 3, None):
+        for version in (0, 1, 2, 3, 4, 999, None):
             with self.subTest(version=version), patch.object(riichi_py, 'SEARCH_API_VERSION', version):
                 require_training_engine()
                 with self.assertRaisesRegex(RuntimeError, 'Rebuild and reinstall'):

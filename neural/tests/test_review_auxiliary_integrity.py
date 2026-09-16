@@ -9,7 +9,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from neural import checkpoints, placement, selfplay, sibling_head
+from neural import checkpoints, placement, selfplay, sibling_head, model
 from neural.observe import Planes
 
 
@@ -22,7 +22,7 @@ def batch(seed=11):
 
 class ArtifactTests(unittest.TestCase):
     def test_all_auxiliary_writers_preserve_old_bytes_on_serialization_failure(self):
-        head, ranker = placement.Judge(8), sibling_head.Ranker(8)
+        head, ranker = placement.Judge(8), sibling_head.new_head(model.PolicyValueNet(8, 1, actions=46))
         writers = [lambda path: placement.save(head, path, {}),
                    lambda path: sibling_head.save(ranker, path, {}),
                    lambda path: selfplay.save_round(batch(), path)]

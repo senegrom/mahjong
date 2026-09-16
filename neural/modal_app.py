@@ -39,7 +39,7 @@ from pathlib import Path
 
 import modal
 
-from neural.training_safety import training_control_arguments
+from neural.training_safety import SEARCH_API_VERSION, training_control_arguments
 from neural.checkpoints import copy_checkpoint, publish_training_snapshot, validate_checkpoint
 from neural.cloud_runs import workspace, validate_run, managed_process
 from neural.cloud_requests import validate_cloud_request, stage_opponents
@@ -765,7 +765,7 @@ def searched(
                         depth=depth, chair=chair, sure=sure, save_every=save_every,
                         temperature=temperature, valued_by=valued_by, leaf_batch=leaf_batch,
                         device="cuda", placement_head=placement_head,
-                        objective=objective, search_api_version=4, search_calls=search_calls, confirm_worlds=confirm_worlds,
+                        objective=objective, search_api_version=SEARCH_API_VERSION, search_calls=search_calls, confirm_worlds=confirm_worlds,
                         extra_candidates=extra_candidates, audit_share=audit_share,
                         placement_head_sha256=None if head_copy is None else digest_file(head_copy))
         identity = experiment(copied, generation, settings)

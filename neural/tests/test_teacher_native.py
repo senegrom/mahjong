@@ -14,7 +14,7 @@ from neural.train_search import run
 from neural.checkpoints import atomic_save
 
 
-@unittest.skipUnless(getattr(riichi_py, 'SEARCH_API_VERSION', 0) == 4, 'requires rebuilt search API 4')
+@unittest.skipUnless(getattr(riichi_py, 'SEARCH_API_VERSION', 0) == 5, 'requires rebuilt search API 5')
 class NativeTeacherTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

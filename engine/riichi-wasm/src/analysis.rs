@@ -402,30 +402,36 @@ impl Position {
                 takers.push(((index + offset) % 4, could_take));
             }
         }
-        for (index, player) in hand.players.iter().enumerate() {
-            for discard in player.discards.iter().filter(|d| d.claimed) {
-                // A set that names exactly this tile first, so a sequence's
-                // three possible tiles stay for the discards only it explains.
-                let found = takers
+        // A chii can explain more than one tile kind. Find an injective
+        // matching rather than greedily consuming the first possible set:
+        // an earlier assignment may have to move to make room for this one.
+        // This never reorders the recorded meld history or reuses a set.
+        let claims: Vec<_> = hand
+            .players
+            .iter()
+            .enumerate()
+            .flat_map(|(seat, player)| {
+                player
+                    .discards
                     .iter()
-                    .position(|(who, tiles)| *who == index && tiles == &[discard.tile])
-                    .or_else(|| {
-                        takers
-                            .iter()
-                            .position(|(who, tiles)| *who == index && tiles.contains(&discard.tile))
-                    });
-                match found {
-                    Some(at) => {
-                        takers.swap_remove(at);
-                    }
-                    None => {
-                        return Err(format!(
-                            "{}'s claimed {} needs a called set that took it",
-                            ["East", "South", "West", "North"][index],
-                            discard.tile
-                        ))
-                    }
-                }
+                    .filter(|d| d.claimed)
+                    .map(move |d| (seat, d.tile))
+            })
+            .collect();
+        let mut owners = vec![None; takers.len()];
+        for (claim, &(seat, tile)) in claims.iter().enumerate() {
+            if !assign_claim(
+                claim,
+                &claims,
+                &takers,
+                &mut owners,
+                &mut vec![false; takers.len()],
+            ) {
+                return Err(format!(
+                    "{}'s claimed {} needs a called set that took it",
+                    ["East", "South", "West", "North"][seat],
+                    tile
+                ));
             }
         }
         // The editor keeps the flag through the kan's robbery window, so the
@@ -623,6 +629,33 @@ pub(super) fn concealed_counts(hand: &Hand, seat: Wind) -> Vec<u32> {
         .collect()
 }
 
+/// Augment the claimed-discard/meld matching. The visited set bounds a
+/// search to the public meld count (at most sixteen), including cycles.
+fn assign_claim(
+    claim: usize,
+    claims: &[(usize, Tile)],
+    takers: &[(usize, Vec<Tile>)],
+    owners: &mut [Option<usize>],
+    visited: &mut [bool],
+) -> bool {
+    let (seat, tile) = claims[claim];
+    for (meld, (from, tiles)) in takers.iter().enumerate() {
+        if visited[meld] || *from != seat || !tiles.contains(&tile) {
+            continue;
+        }
+        visited[meld] = true;
+        let available = match owners[meld] {
+            None => true,
+            Some(previous) => assign_claim(previous, claims, takers, owners, visited),
+        };
+        if available {
+            owners[meld] = Some(claim);
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -686,6 +719,73 @@ mod tests {
             after_quad: false,
             first_turns: false,
         }
+    }
+
+    fn overlapping_chii() -> Position {
+        let mut position = acting();
+        position.seat = 1;
+        position.turn = 1;
+        position.players[0] = seat("");
+        position.players[1] = seat("1s 1s 1s 5z 5z");
+        position.players[1].melds = vec![
+            set("chii", "1p", 3),
+            set("chii", "1m", 3),
+            set("chii", "3m", 3),
+        ];
+        position.players[0].discards = vec![
+            thrown("1p", 0, true),
+            thrown("3m", 4, true),
+            thrown("5m", 8, true),
+        ];
+        position
+    }
+
+    #[test]
+    fn complete_chii_matching_is_independent_of_meld_and_discard_order() {
+        let permutations = [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ];
+        for meld_order in permutations {
+            for discard_order in permutations {
+                let mut position = overlapping_chii();
+                let tiles = ["1p", "1m", "3m"];
+                position.players[1].melds = meld_order.map(|i| set("chii", tiles[i], 3)).into();
+                let claimed = ["1p", "3m", "5m"];
+                position.players[0].discards = discard_order
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &kind)| thrown(claimed[kind], (4 * i) as u32, true))
+                    .collect();
+                // Exercise the position-builder used by physical advice AND settlement.
+                for require_hand in [true, false] {
+                    let (hand, _) = position.build_selected(require_hand).unwrap();
+                    let actual: Vec<_> = hand.players[1].melds.iter().map(|m| m.tile).collect();
+                    let expected: Vec<_> = meld_order
+                        .iter()
+                        .map(|&i| tile(tiles[i]).unwrap())
+                        .collect();
+                    assert_eq!(actual, expected, "validation must preserve meld history");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn complete_matching_still_rejects_reused_unexplained_and_wrong_source_claims() {
+        let mut position = overlapping_chii();
+        position.players[0].discards.push(thrown("1p", 12, true));
+        assert!(position.build().unwrap_err().contains("needs a called set"));
+        let mut position = overlapping_chii();
+        position.players[0].discards[2].tile = "9p".into();
+        assert!(position.build().unwrap_err().contains("needs a called set"));
+        let mut position = overlapping_chii();
+        position.players[2].discards = std::mem::take(&mut position.players[0].discards);
+        assert!(position.build().unwrap_err().contains("needs a called set"));
     }
 
     #[test]
