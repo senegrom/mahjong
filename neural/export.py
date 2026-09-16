@@ -1,12 +1,21 @@
 """Export a browser-compatible network to checked ONNX, quantised by default.
 
 The browser uses Mortal's version-4 observations and action space. Legacy
-engine-plane students and fused checkpoints need a different adapter and
-are refused rather than silently replacing the playable model. The policy,
-value and opponent-hand heads are exported; training-only heads stay out.
+engine-plane students are refused rather than silently replacing the playable
+model. The policy, value and opponent-hand heads are exported; training-only
+heads stay out.
+
+A fused checkpoint is exported whole. It carries our own half under `model`
+beside the fusion under `combined`, and reading the first alone gives a
+network that was never a policy: in the joined head our half is weighed
+about 0.02 against Mortal's 1.00, so alone it agrees with the network that
+actually plays on about a fifth of its moves. The browser shipped exactly
+that from 10 to 16 September 2026. The fusion's head reads the legality
+mask, so its graph takes the mask as a second input.
 
 Usage:
   python -m neural.export network.pt web/public/model-full.onnx
+  python -m neural.export fused.pt web/public/model-full.onnx --float32
   python -m neural.export network.pt measured.onnx --float32 --allow-any-operator
 """
 
@@ -107,8 +116,8 @@ def check_operators(destination: Path, insist: bool = True) -> None:
 
 def validate_browser_model(net, payload: dict) -> None:
     """Validate both sides of the browser contract before touching the output."""
-    if "combined" in payload:
-        raise SystemExit("A fused checkpoint needs a fusion exporter; refusing to drop its head")
+    if ("combined" in payload) != is_fusion(net):
+        raise SystemExit("A fused checkpoint must be exported as the fusion, head and all")
     if net.planes != BROWSER_PLANES or net.actions != BROWSER_ACTIONS:
         raise SystemExit(
             f"The browser requires {BROWSER_PLANES} Mortal planes and {BROWSER_ACTIONS} "
@@ -116,13 +125,22 @@ def validate_browser_model(net, payload: dict) -> None:
         )
 
 
+def is_fusion(net) -> bool:
+    """Whether this is our network and a Mortal beneath one head."""
+    return all(hasattr(net, part) for part in ("ours", "mortal", "fuse"))
+
+
 def load_network(checkpoint: Path):
     from .model import from_payload
 
     payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
-    # Reject fusion before loading its standalone subnetwork.
     if "combined" in payload:
-        raise SystemExit("A fused checkpoint needs a fusion exporter; refusing to drop its head")
+        # `model` in a fused checkpoint is our half alone, which is not the
+        # network that plays; load the fusion rather than that half.
+        from .combined import load as load_fusion
+
+        net, _state = load_fusion(checkpoint, "cpu")
+        return net.eval(), payload
     return from_payload(payload, "cpu", 192, 10).eval(), payload
 
 
@@ -183,18 +201,23 @@ def check_runs(
             or not legal.any(dim=1).all() or not torch.isfinite(trial).all()):
         raise SystemExit("Invalid browser validation positions or legal masks")
     session = onnxruntime.InferenceSession(str(graph), providers=["CPUExecutionProvider"])
-    inputs = session.get_inputs()
-    if len(inputs) != 1 or inputs[0].name != "planes":
-        raise SystemExit("The browser requires one input named planes")
+    names = [entry.name for entry in session.get_inputs()]
+    if names not in (["planes"], ["planes", "legal"]):
+        raise SystemExit("The browser requires an input named planes, and a fusion also legal")
     if [output.name for output in session.get_outputs()] != list(OUTPUTS):
         raise SystemExit("The browser requires policy, value and hands outputs in order")
     expected_chunks, answered_chunks = [], []
     # Browser-size batches also check the dynamic axis, without a large CPU peak.
     for start in range(0, len(trial), 4):
         chunk = trial[start:start + 4]
+        allowed = legal[start:start + 4].cpu()
+        arguments = (chunk,) if len(names) == 1 else (chunk, allowed.float())
+        feed = {"planes": chunk.cpu().numpy()}
+        if len(names) == 2:
+            feed["legal"] = allowed.numpy().astype(np.float32)
         with torch.no_grad():
-            expected = tuple(answer.detach().cpu().float() for answer in wrapped(chunk))
-        given = session.run(list(OUTPUTS), {"planes": chunk.cpu().numpy()})
+            expected = tuple(answer.detach().cpu().float() for answer in wrapped(*arguments))
+        given = session.run(list(OUTPUTS), feed)
         if len(expected) != 3 or len(given) != 3:
             raise SystemExit("Expected all three playable heads")
         shapes = ((len(chunk), BROWSER_ACTIONS), (len(chunk), 1), (len(chunk), 3, POSITIONS))
@@ -203,10 +226,19 @@ def check_runs(
             theirs = torch.as_tensor(theirs).float()
             if tuple(ours.shape) != shape or tuple(theirs.shape) != shape:
                 raise SystemExit(f"Wrong {name} output shape; expected {shape}")
-            if not torch.isfinite(ours).all():
-                raise SystemExit(f"Non-finite reference {name} output")
-            if not torch.isfinite(theirs).all():
-                raise SystemExit(f"Non-finite exported {name} output")
+            if name == "policy":
+                # A fusion answers negative infinity for a move the rules
+                # forbid. The two must refuse exactly the same moves, and
+                # every move they do answer must be a number.
+                if not torch.equal(torch.isfinite(ours), torch.isfinite(theirs)):
+                    raise SystemExit("The exported policy answers a different set of moves")
+                if not torch.isfinite(ours[allowed]).all():
+                    raise SystemExit("Non-finite reference policy on a legal move")
+            else:
+                if not torch.isfinite(ours).all():
+                    raise SystemExit(f"Non-finite reference {name} output")
+                if not torch.isfinite(theirs).all():
+                    raise SystemExit(f"Non-finite exported {name} output")
             answered.append(theirs)
         expected_chunks.append(expected)
         answered_chunks.append(answered)
@@ -215,6 +247,9 @@ def check_runs(
     for name, ours, theirs in zip(OUTPUTS, expected, answered):
         # Double precision keeps even extreme finite outputs from overflowing
         # the error calculation and evading comparison through a NaN metric.
+        if name == "policy":
+            keep = torch.isfinite(ours)
+            ours, theirs = ours[keep], theirs[keep]
         error = float((theirs.double() - ours.double()).abs().mean())
         scale = max(float(ours.double().std(unbiased=False)), 0.01)
         print(f"{name}: mean error {error:.6f}, reference scale {scale:.6f}")
@@ -222,12 +257,37 @@ def check_runs(
             raise SystemExit(f"The exported {name} differs too far from the reference")
     choices = legal.cpu().sum(dim=1) > 1
     if choices.any():
-        ours = expected[0].masked_fill(~legal.cpu(), -torch.inf).argmax(dim=1)
-        theirs = answered[0].masked_fill(~legal.cpu(), -torch.inf).argmax(dim=1)
+        ours = expected[0].reshape(len(legal), -1).masked_fill(~legal.cpu(), -torch.inf).argmax(dim=1)
+        theirs = answered[0].reshape(len(legal), -1).masked_fill(~legal.cpu(), -torch.inf).argmax(dim=1)
         agreement = float((ours[choices] == theirs[choices]).float().mean())
         print(f"same best legal move on {agreement:.1%} of non-forced decisions")
         if agreement < 0.9:
             raise SystemExit("The exported policy changes too many best legal moves")
+
+
+class PlayableFusion(torch.nn.Module):
+    """The whole fusion: Mortal, our network and the head that joins them.
+
+    The head reads the legality mask, so the graph takes it as a second
+    input rather than inventing one; the browser has the mask already. It
+    arrives as floats because a boolean tensor is one more thing for a
+    caller to get wrong on the way in, and the value is reshaped to the
+    one-a-row the browser's contract asks for. Moves the rules forbid come
+    back as negative infinity, exactly as the network leaves them.
+    """
+
+    def __init__(self, net) -> None:
+        super().__init__()
+        self.net = net
+
+    def forward(self, planes: torch.Tensor, legal: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        logits, value, hands = self.net.everything(planes, legal > 0.5)
+        return logits, value.reshape(-1, 1), hands
+
+
+def playable(net) -> torch.nn.Module:
+    """The exportable wrapper for whichever kind of network this is."""
+    return (PlayableFusion(net) if is_fusion(net) else Playable(net)).eval()
 
 
 class Playable(torch.nn.Module):
@@ -257,9 +317,17 @@ def main() -> None:
     args = parser.parse_args()
     net, payload = load_network(args.checkpoint)
     validate_browser_model(net, payload)
-    wrapped = Playable(net).eval()
+    wrapped = playable(net)
+    fused = is_fusion(net)
     trial, legal = validation_positions()
-    example = trial[:1]
+    # A fusion reads the mask its head was trained with, so the graph takes
+    # it too; everything else reads only the planes.
+    example = (trial[:1],) if not fused else (trial[:1], legal[:1].float())
+    names = ["planes"] if not fused else ["planes", "legal"]
+    if fused and not args.float32:
+        # Eight bits cost the fused value head more than a tenth of its own
+        # spread, and the browser plays this network rather than measuring it.
+        raise SystemExit("Export a fusion with --float32; int8 blunts its value head")
     destination = args.destination
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Validate in a sibling temporary directory. Atomic replacement preserves
@@ -267,9 +335,9 @@ def main() -> None:
     with tempfile.TemporaryDirectory(dir=destination.parent) as scratch:
         full = Path(scratch) / "float32.onnx"
         torch.onnx.export(
-            wrapped, (example,), str(full), input_names=["planes"],
+            wrapped, example, str(full), input_names=names,
             output_names=list(OUTPUTS),
-            dynamic_axes={name: {0: "batch"} for name in ("planes", *OUTPUTS)},
+            dynamic_axes={name: {0: "batch"} for name in (*names, *OUTPUTS)},
             opset_version=17, dynamo=False,
         )
         made = full if args.float32 else Path(scratch) / "int8.onnx"
@@ -279,9 +347,9 @@ def main() -> None:
         check_runs(made, wrapped, trial, legal)
         made.replace(destination)
     print(
-        f"exported {args.checkpoint.name} ({net.channels}x{net.blocks}, "
-        f"generation {payload.get('generation', 0)}) -> {destination} "
-        f"({destination.stat().st_size / 1e6:.1f} MB), {net.actions} actions"
+        f"exported {args.checkpoint.name} ({'the fusion, ' if fused else ''}"
+        f"{net.channels}x{net.blocks}, generation {payload.get('generation', 0)}) -> "
+        f"{destination} ({destination.stat().st_size / 1e6:.1f} MB), {net.actions} actions"
     )
 
 
