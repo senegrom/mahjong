@@ -1,0 +1,35 @@
+name: review workspace
+on:
+  push:
+    branches: [fix/full-review-20260916]
+    paths: [.github/workflows/review-workspace.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 6a648c02e56b870f64ff6b49766c350e0f67b202
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
+      - name: Package pinned sources and offline native dependencies
+        run: |
+          mkdir -p /tmp/review-workspace
+          git archive HEAD | gzip > /tmp/review-workspace/source.tar.gz
+          git rev-parse HEAD > /tmp/review-workspace/source-commit.txt
+          cargo fetch --locked
+          cargo fetch --locked --manifest-path engine/libriichi/Cargo.toml
+          tar -czf /tmp/review-workspace/cargo-registry.tar.gz -C "$HOME/.cargo" registry
+          toolchain=$(rustc --print sysroot)
+          tar -czf /tmp/review-workspace/toolchain.tar.gz -C "$toolchain" bin lib
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pinned-review-workspace
+          path: /tmp/review-workspace/
+          retention-days: 2
