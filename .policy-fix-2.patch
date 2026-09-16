@@ -1,0 +1,172 @@
+diff --git a/neural/zoo.py b/neural/zoo.py
+index 53c35df72028d0ed4717755e24d288a1e2e7c14b..4d32a138eb8e59db96207a41ce602e1d9d14df23 100644
+--- a/neural/zoo.py
++++ b/neural/zoo.py
+@@ -227,3 +227,2 @@ class MortalSpacePlayer:
+-        with torch.no_grad(), torch.autocast(
+-            "cuda", dtype=torch.bfloat16, enabled=str(self.device).startswith("cuda")
+-        ):
++        from . import policy_inference
++        with torch.no_grad(), policy_inference.context(self.net, self.device):
+@@ -278,3 +277,2 @@ class MortalPlayer:
+-        with torch.no_grad(), torch.autocast(
+-            "cuda", dtype=torch.bfloat16, enabled=str(self.device).startswith("cuda")
+-        ):
++        from . import policy_inference
++        with torch.no_grad(), policy_inference.context(self, self.device):
+@@ -314,4 +312,6 @@ def choose(
+-    logits, _value = player(
+-        views.dense(player.kind, rows, players, device),
+-        torch.from_numpy(legal).to(device),
+-    )
++    from . import policy_inference
++    with policy_inference.context(player, device):
++        logits, _value = player(
++            views.dense(player.kind, rows, players, device),
++            torch.from_numpy(legal).to(device),
++        )
+diff --git a/web/scripts/policy-export-check.mjs b/web/scripts/policy-export-check.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..aca2f3aa4fc79681985c6e6f93f1178acb1d8c94
+--- /dev/null
++++ b/web/scripts/policy-export-check.mjs
+@@ -0,0 +1,101 @@
++/** Native encoder -> checked ONNX export -> actual worker -> reduced WASM.
++ * Uses small synthetic checkpoints; never replaces production model artifacts.
++ */
++import assert from 'node:assert/strict';
++import { createServer } from 'node:http';
++import { spawnSync } from 'node:child_process';
++import { existsSync } from 'node:fs';
++import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import { resolve } from 'node:path';
++import { fileURLToPath } from 'node:url';
++import puppeteer from 'puppeteer-core';
++import { createFixtureHandler } from './static-fixture-server.mjs';
++
++const web = fileURLToPath(new URL('../', import.meta.url));
++const where = await mkdtemp(resolve(tmpdir(), 'mahjong-worker-export-'));
++let browser, server;
++const close = async () => {
++  await browser?.close();
++  if (server) await new Promise(done => server.close(done));
++  await rm(where, { recursive: true, force: true });
++};
++try {
++  const made = spawnSync(process.env.PYTHON || 'python', ['-m', 'neural.tests.worker_fixture', where],
++    { cwd: resolve(web, '..'), encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024 });
++  process.stdout.write(made.stdout ?? '');
++  if (made.status !== 0) throw new Error(made.error?.message || made.stderr || `export exited ${made.status}`);
++  const fixtures = JSON.parse(await readFile(resolve(where, 'fixtures.json'), 'utf8'));
++  await cp(resolve(web, 'node_modules/onnxruntime-web/dist/ort.wasm.bundle.min.mjs'), resolve(where, 'ort.mjs'));
++  await mkdir(resolve(where, 'ort'));
++  for (const file of ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) {
++    await cp(resolve(web, 'runtime', file), resolve(where, 'ort', file));
++  }
++  await cp(resolve(web, 'src/lib/memory-budget.js'), resolve(where, 'ort/memory-budget.mjs'));
++  for (const fixture of fixtures) {
++    await cp(resolve(web, 'src/lib'), resolve(where, fixture.name, 'lib'), { recursive: true });
++    const workerFile = resolve(where, fixture.name, 'lib/policy.worker.js');
++    const worker = await readFile(workerFile, 'utf8');
++    // Resolve the bare package import just as a bundler does. No worker logic
++    // or inference/runtime function is replaced with a test double.
++    assert.ok(worker.includes("from 'onnxruntime-web/wasm'"));
++    await writeFile(workerFile, worker.replace("from 'onnxruntime-web/wasm'", "from '/mahjong/ort.mjs'"));
++    await writeFile(resolve(where, fixture.name, 'lib/model-manifest.js'),
++      `export const MANIFEST = ${JSON.stringify({ bytes: fixture.bytes, sha256: fixture.sha256, origin: '', object: 'model.onnx' })};\n`);
++  }
++  await writeFile(resolve(where, 'index.html'), '<!doctype html><title>Policy export regression</title>');
++  server = createServer(createFixtureHandler({ root: where, publicRoot: where }));
++  await new Promise(done => server.listen(0, '127.0.0.1', done));
++  const origin = `http://127.0.0.1:${server.address().port}`;
++  const executablePath = process.env.CHROME_BIN || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
++  assert.ok(executablePath, 'Set CHROME_BIN to Chrome/Chromium');
++  browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
++  for (const fixture of fixtures) {
++    const context = await browser.createBrowserContext();
++    try {
++      const page = await context.newPage();
++      const problems = []; page.on('pageerror', error => problems.push(error.message));
++      await page.goto(`${origin}/mahjong/`);
++      const answers = await page.evaluate(async ({ name, cases }) => {
++        const worker = new Worker(`/mahjong/${name}/lib/policy.worker.js`, { type: 'module' });
++        try {
++          const answers = [];
++          for (let repeat = 0; repeat < 2; repeat++) {
++            for (const [index, item] of cases.entries()) {
++              const raw = await (await fetch(`/mahjong/${name}/${item.name}.bin`)).arrayBuffer();
++              const id = repeat * cases.length + index;
++              answers.push(await new Promise((done, fail) => {
++                const timer = setTimeout(() => fail(new Error('policy worker timed out')), 30_000);
++                worker.onerror = event => { clearTimeout(timer); fail(new Error(event.message)); };
++                worker.onmessage = ({ data }) => {
++                  if (data.id !== id || data.progress) return;
++                  clearTimeout(timer);
++                  if (data.error) fail(new Error(data.error)); else done(data);
++                };
++                worker.postMessage({ id, url: `${location.origin}/mahjong/${name}/model.onnx`,
++                  runtimeBase: `${location.origin}/mahjong/ort/`, planes: new Float32Array(raw),
++                  mask: item.mask, temperature: 0, details: true });
++              }));
++            }
++          }
++          return answers;
++        } finally { worker.terminate(); }
++      }, fixture);
++      assert.deepEqual(problems, []);
++      assert.equal(answers.length, fixture.cases.length * 2);
++      for (const [index, answer] of answers.entries()) {
++        const expected = fixture.cases[index % fixture.cases.length];
++        assert.equal(answer.action, expected.action, `${fixture.name}/${expected.name}: reference action`);
++        assert.ok(expected.mask[answer.action]);
++        assert.ok(Math.abs(answer.value - expected.value) < 2e-4);
++        for (let i = 0; i < expected.weights.length; i++) {
++          assert.ok(Math.abs(answer.analysis.weights[i] - expected.weights[i]) < 2e-4, `policy weight ${i}`);
++        }
++        for (let i = 0; i < expected.hands.length; i++) {
++          assert.ok(Math.abs(answer.hands[i] - expected.hands[i]) < 2e-4, `belief logit ${i}`);
++        }
++      }
++      console.log(`PASS ${fixture.name}: ${answers.length} actual-worker inferences including both riichi stages`);
++    } finally { await context.close(); }
++  }
++} finally { await close(); }
+diff --git a/web/tests/policy-worker.test.js b/web/tests/policy-worker.test.js
+index 34c4b9bd911c263a6623147f35ca9f89e778eae1..ab1e6780002017870f54f63f60b605608bd12201 100644
+--- a/web/tests/policy-worker.test.js
++++ b/web/tests/policy-worker.test.js
+@@ -27 +27 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false,
+-    constructor(_type, data) { this.data = data; this.disposed = false; tensors.push(this); }
++    constructor(type, data, dims) { this.type = type; this.dims = dims; this.data = data; this.disposed = false; tensors.push(this); }
+@@ -134,0 +135,15 @@ test('runtime failures identify application limits separately from browser alloc
++
++
++test('fused inference supplies a float legality tensor and disposes it on success and failure', async () => {
++  for (const runError of [false, true]) {
++    const h = harness({ takesMask: true, runError });
++    await h.send(1);
++    const mask = h.tensors.find(tensor => tensor.dims?.length === 2);
++    assert.ok(mask, 'a separate mask tensor must reach the fused graph');
++    assert.equal(mask.type, 'float32');
++    assert.deepEqual(Array.from(mask.dims), [1, 2]);
++    assert.deepEqual(Array.from(mask.data), [1, 1]);
++    assert.ok(h.tensors.every(tensor => tensor.disposed));
++    assert.equal(h.messages.filter(message => message.error).length, Number(runError));
++  }
++});
+diff --git a/web/tests/runtime-memory.test.js b/web/tests/runtime-memory.test.js
+index aed61d1c3f3889ded79b5bb8cc17101a2fd52a6f..a468ba7c973d66e691fce5438afbc687597532af 100644
+--- a/web/tests/runtime-memory.test.js
++++ b/web/tests/runtime-memory.test.js
+@@ -39 +39 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
+-    let session, input;
++    let session, input, mask;
+@@ -51 +51 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
+-      const mask = wants
++      mask = wants
+@@ -67,0 +68 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
++      mask?.dispose();
+@@ -77 +78 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
+-  t.diagnostic(`72 inferences across 6 model loads; WASM heap ${(peak / 1048576).toFixed(1)} MiB`);
++  t.diagnostic(`36 inferences across 3 model loads; WASM heap ${(peak / 1048576).toFixed(1)} MiB`);
