@@ -150,7 +150,9 @@ try {
     assert.equal(await cold.$eval('select[aria-label="Tile face"]', select => select.value), 'matisse');
     assert.ok(await cold.$$eval('.hand img', images => images.length > 0 && images.every(image => image.src.includes('/matisse/') && image.complete && image.naturalWidth > 0)));
     await play(cold, 4);
-    const before = await saved(cold); cold.on('dialog', dialog => void dialog.accept());
+    const before = await saved(cold);
+    assert.ok(!before.commands.some(command => command.type === 'opponent'), 'Built-in game must not request the network');
+    cold.on('dialog', dialog => void dialog.accept());
     await cold.click('.settings-trigger'); await cold.click('.mobile-new-game');
     await cold.waitForFunction((key, oldSeed) => JSON.parse(localStorage.getItem(key))?.seed !== oldSeed,
       { timeout: 45000 }, SAVE_KEY, before.seed);
