@@ -97,7 +97,7 @@ class SiblingHeadTests(unittest.TestCase):
                 self.assertEqual(int(apart.game[n:].min()), 999)
                 training, held = apart.split()
                 self.assertTrue(set(apart.game[held]).isdisjoint(set(apart.game[training])))
-                head = sibling_head.Ranker(net.channels)
+                head = sibling_head.new_head(net)
                 sibling_head.save(head, Path(tmp) / "head.pt", {"sure": recorded.meta["sure"]})
                 _loaded, meta_back = sibling_head.load(Path(tmp) / "head.pt", "cpu")
                 self.assertEqual(meta_back["sure"], 0.9)

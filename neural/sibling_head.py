@@ -23,6 +23,7 @@ often the policy's first choice is.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import warnings
 import sys
@@ -53,6 +54,7 @@ class Ranker(nn.Module):
 
     def __init__(self, channels: int) -> None:
         super().__init__()
+        self.feature_contract: dict | None = None
         self.tiles = nn.Conv1d(channels, 2, 1)
         self.rest = nn.Linear(channels, ACTIONS - TILE_MOVES)
         # Starting at zero: a head that has learned nothing ranks every move
@@ -70,6 +72,64 @@ def backbone(net):
     """The network whose features the head reads: the fusion's own network
     beneath the head, or a plain one."""
     return getattr(net, "ours", net)
+
+
+FEATURE_VERSION = 1
+
+
+def feature_contract(net) -> dict:
+    """Identity of exactly the representation this head consumes, not a path.
+
+    Sibling features use only the supporting stem/tower/tail, even for a
+    combined policy. Include observation/action meanings and exact tensor
+    names, shapes, dtypes and bytes. No random state is consumed.
+    """
+    from .contract import of
+
+    layout = of(net)
+    ours = backbone(net)
+    fields = dict(version=FEATURE_VERSION, channels=ours.channels,
+                  planes=layout.planes, reads=layout.reads,
+                  policy_actions=layout.answers, actions=ACTIONS, positions=POSITIONS)
+    digest = hashlib.sha256(json.dumps(fields, sort_keys=True).encode("utf-8"))
+    for prefix in ("stem", "tower", "tail"):
+        for name, tensor in sorted(getattr(ours, prefix).state_dict().items()):
+            signature = json.dumps([prefix, name, str(tensor.dtype), list(tensor.shape)])
+            digest.update(signature.encode("utf-8") + b"\0")
+            raw = tensor.detach().cpu().contiguous().reshape(-1).view(torch.uint8)
+            digest.update(raw.numpy().tobytes())
+    return {**fields, "sha256": digest.hexdigest()}
+
+
+def validate_feature_contract(value, channels: int) -> None:
+    required = {"version", "channels", "planes", "reads", "policy_actions", "actions", "positions", "sha256"}
+    if not isinstance(value, dict) or set(value) != required:
+        raise ValueError("sibling head needs its supporting feature contract; refit the head")
+    for field in ("version", "channels", "planes", "policy_actions", "actions", "positions"):
+        if type(value[field]) is not int or value[field] <= 0:
+            raise ValueError("invalid sibling head feature contract")
+    if (value["version"] != FEATURE_VERSION or value["channels"] != channels
+            or value["actions"] != ACTIONS or value["positions"] != POSITIONS
+            or value["reads"] not in ("engine", "mortal")
+            or not isinstance(value["sha256"], str) or len(value["sha256"]) != 64
+            or any(c not in "0123456789abcdef" for c in value["sha256"])):
+        raise ValueError("invalid sibling head feature contract")
+
+
+def new_head(net) -> Ranker:
+    """Create an untrained head bound to the frozen features it will be fitted on."""
+    head = Ranker(backbone(net).channels)
+    head.feature_contract = feature_contract(net)
+    return head
+
+
+def require_head_for(head, net) -> None:
+    """Refuse absent or mismatched provenance before optimization or inference."""
+    expected = feature_contract(net)
+    fitted = getattr(head, "feature_contract", None)
+    validate_feature_contract(fitted, expected["channels"])
+    if fitted != expected:
+        raise ValueError("sibling head was fitted to different supporting features or observation/action layout")
 
 
 @torch.no_grad()
@@ -299,7 +359,8 @@ def train(
     be worth anything (`neural.worth`).
     """
     net.eval()
-    head = head or Ranker(backbone(net).channels)
+    head = head if head is not None else new_head(net)
+    require_head_for(head, net)
     head.to(device)
     optimiser = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=1e-4)
     training, held = recorded.split()
@@ -363,9 +424,11 @@ def train(
 
 def save(head: Ranker, path: Path, meta: dict) -> None:
     from .checkpoints import atomic_artifact
-    if {"ranker", "channels"} & meta.keys():
+    if {"ranker", "channels", "feature_contract"} & meta.keys():
         raise ValueError("metadata cannot replace the sibling head schema")
-    atomic_artifact({**meta, "ranker": head.state_dict(), "channels": head.rest.in_features},
+    validate_feature_contract(head.feature_contract, head.rest.in_features)
+    atomic_artifact({**meta, "ranker": head.state_dict(), "channels": head.rest.in_features,
+                     "feature_contract": head.feature_contract},
                     path, lambda staged: load(staged, "cpu"))
 
 
@@ -376,9 +439,15 @@ def load(path: Path, device: str = "cpu") -> tuple[Ranker, dict]:
     if any(not torch.isfinite(t).all() for t in payload["ranker"].values()):
         raise ValueError("nonfinite sibling head weights")
     head = Ranker(payload["channels"])
+    if "feature_contract" in payload:
+        validate_feature_contract(payload["feature_contract"], payload["channels"])
+        head.feature_contract = payload["feature_contract"].copy()
+    # Legacy files can be inspected, but cannot be attached or re-published
+    # as verified heads. Their mutable checkpoint path is not proof of identity.
     head.load_state_dict(payload["ranker"])
     head.to(device).eval()
-    return head, {k: v for k, v in payload.items() if k not in ("ranker", "channels")}
+    return head, {k: v for k, v in payload.items()
+                  if k not in ("ranker", "channels", "feature_contract")}
 
 
 def main() -> None:

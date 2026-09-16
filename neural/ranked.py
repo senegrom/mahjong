@@ -41,6 +41,7 @@ class RankedPlayer:
                  device: str = "cuda", sure: float = 1.0) -> None:
         self.served = contract.serve(net)
         self.net = self.served.net
+        sibling_head.require_head_for(head, self.net)
         self.head = head.to(device).eval()
         self.k = k
         self.margin = margin

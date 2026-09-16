@@ -1046,7 +1046,8 @@ pub fn leaves(
 ) -> Leaves {
     let worlds = imagine_worlds(hand, seat, belief, rng, effort.worlds);
     let weights = vec![1.0; worlds.len()];
-    leaves_from(seat, candidates, &worlds, &weights, effort)
+    let chance_seeds: Vec<_> = (0..worlds.len()).map(|_| rng.next_u64()).collect();
+    leaves_from(seat, candidates, &worlds, &weights, effort, &chance_seeds)
 }
 
 /// What one imagined world hands back for one candidate.
@@ -1082,14 +1083,26 @@ impl Sprout {
 /// Makes each candidate move in each of the given worlds, which the caller
 /// has imagined and weighed, and returns the positions that result for the
 /// value head to judge. `weights` says how much each world counts.
+/// `chance_seeds` belongs to the independent proposals, not their retained slot
+/// numbers: siblings share a seed, while a fresh search batch must draw new ones
+/// from its search RNG (never the real environment RNG).
 pub fn leaves_from(
     seat: Wind,
     candidates: &[Action],
     worlds: &[Hand],
     weights: &[f64],
     effort: Effort,
+    chance_seeds: &[u64],
 ) -> Leaves {
-    leaves_from_for_objective(seat, candidates, worlds, weights, effort, false)
+    leaves_from_for_objective(
+        seat,
+        candidates,
+        worlds,
+        weights,
+        effort,
+        false,
+        chance_seeds,
+    )
 }
 
 /// As `leaves_from`, with an explicitly placement-only root objective.
@@ -1100,6 +1113,7 @@ pub fn leaves_from_for_objective(
     weights: &[f64],
     effort: Effort,
     placement_only: bool,
+    chance_seeds: &[u64],
 ) -> Leaves {
     assert!(
         !placement_only || effort.boundary,
@@ -1107,6 +1121,11 @@ pub fn leaves_from_for_objective(
     );
     assert!(!candidates.is_empty(), "there is always something to do");
     assert_eq!(worlds.len(), weights.len(), "one weight per world");
+    assert_eq!(
+        worlds.len(),
+        chance_seeds.len(),
+        "one chance seed per world"
+    );
     let style = if effort.hurried {
         Style::rollout()
     } else {
@@ -1132,7 +1151,7 @@ pub fn leaves_from_for_objective(
             &mut trial,
             seat,
             style,
-            world as u64 * 977 + 13,
+            chance_seeds[world],
             from,
             effort.boundary,
             placement_only,
@@ -1695,6 +1714,7 @@ impl Lookahead {
     /// first decision somebody owes. `depth` is how many of the searching
     /// player's own turns to act the caller plays before the position is
     /// valued; zero values the next one, as [`leaves_from`] does.
+    #[allow(clippy::too_many_arguments)]
     pub fn begin(
         seat: Wind,
         candidates: &[Action],
@@ -1703,6 +1723,7 @@ impl Lookahead {
         depth: usize,
         until_hand_ends: bool,
         boundary: bool,
+        chance_seeds: &[u64],
     ) -> Lookahead {
         let moves: Vec<_> = candidates.iter().copied().map(RootMove::Turn).collect();
         Self::begin_moves(
@@ -1714,12 +1735,15 @@ impl Lookahead {
             until_hand_ends,
             boundary,
             false,
+            chance_seeds,
         )
     }
 
     /// Start legal turns or claims under an explicit objective. All responders
     /// to a root claim are re-asked from the sampled world, not from the real
     /// arena's hidden response queue. Resolution still uses `Hand::resolve_calls`.
+    /// One explicit chance seed travels with each proposal; no seed is inferred
+    /// from a slot ordinal. Fresh evidence requires fresh search-owned seeds.
     #[allow(clippy::too_many_arguments)]
     pub fn begin_moves(
         seat: Wind,
@@ -1730,6 +1754,7 @@ impl Lookahead {
         until_hand_ends: bool,
         boundary: bool,
         placement_only: bool,
+        chance_seeds: &[u64],
     ) -> Lookahead {
         assert!(
             !placement_only || boundary,
@@ -1737,6 +1762,11 @@ impl Lookahead {
         );
         assert!(!candidates.is_empty(), "there is always something to do");
         assert_eq!(worlds.len(), weights.len(), "one weight per world");
+        assert_eq!(
+            worlds.len(),
+            chance_seeds.len(),
+            "one chance seed per world"
+        );
         let mut slots: Vec<Slot> = (0..candidates.len())
             .flat_map(|candidate| (0..worlds.len()).map(move |world| (candidate, world)))
             .map(|(candidate, world)| {
@@ -1798,7 +1828,7 @@ impl Lookahead {
                     opening,
                     opening_furiten,
                     opening_seat: seat,
-                    seed: world as u64 * 977 + 13,
+                    seed: chance_seeds[world],
                     logged,
                     exported_carried: 0,
                     exported: logged,
@@ -2026,6 +2056,11 @@ impl Lookahead {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_chance_seeds(count: usize) -> Vec<u64> {
+        let mut rng = Rng::from_seed(8181);
+        (0..count).map(|_| rng.next_u64()).collect()
+    }
 
     #[test]
     fn native_margin_matches_shared_independent_world_fixtures() {
@@ -2297,7 +2332,14 @@ mod tests {
         let mut rng = Rng::from_seed(5);
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 4);
         let given = [0.5, 2.0, 1.0, 0.25];
-        let got = leaves_from(seat, &candidates, &worlds, &given, effort);
+        let got = leaves_from(
+            seat,
+            &candidates,
+            &worlds,
+            &given,
+            effort,
+            &test_chance_seeds(worlds.len()),
+        );
         assert_eq!(got.weights, given.to_vec());
         assert_eq!(got.worlds, 4);
 
@@ -2312,7 +2354,14 @@ mod tests {
         if got.counted.iter().all(|counts| *counts) {
             let mut valued = vec![0.0; 8];
             valued[4 + 1] = 5.0;
-            let heavy = leaves_from(seat, &candidates, &worlds, &[0.0, 1.0, 0.0, 0.0], effort);
+            let heavy = leaves_from(
+                seat,
+                &candidates,
+                &worlds,
+                &[0.0, 1.0, 0.0, 0.0],
+                effort,
+                &test_chance_seeds(worlds.len()),
+            );
             let picked = decide(&candidates, &heavy, &valued, 2.0).expect("a decision");
             assert_eq!(
                 picked.action, candidates[0],
@@ -2368,7 +2417,16 @@ mod tests {
         let mut rng = Rng::from_seed(9);
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
         let weights = vec![1.0; 3];
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 1, false, false);
+        let mut lookahead = Lookahead::begin(
+            seat,
+            &candidates,
+            &worlds,
+            &weights,
+            1,
+            false,
+            false,
+            &test_chance_seeds(worlds.len()),
+        );
         let slots = lookahead.slots();
         let mut streamed: Vec<Vec<(mjai::Event, [usize; 4])>> = vec![Vec::new(); slots];
         let mut passes = 0;
@@ -2432,7 +2490,16 @@ mod tests {
         let seat = hand.turn;
         let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 2);
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &[1.0; 2], 0, true, false);
+        let mut lookahead = Lookahead::begin(
+            seat,
+            &candidates,
+            &worlds,
+            &[1.0; 2],
+            0,
+            true,
+            false,
+            &test_chance_seeds(worlds.len()),
+        );
         let mut root_rewards = vec![None; lookahead.slots()];
         for _ in 0..8000 {
             if lookahead.finished() {
@@ -2480,7 +2547,16 @@ mod tests {
         let seat = hand.turn;
         let candidates: Vec<Action> = hand.legal_actions().into_iter().take(2).collect();
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 2);
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &[1.0; 2], 0, true, true);
+        let mut lookahead = Lookahead::begin(
+            seat,
+            &candidates,
+            &worlds,
+            &[1.0; 2],
+            0,
+            true,
+            true,
+            &test_chance_seeds(worlds.len()),
+        );
         let mut root_rewards = vec![None; lookahead.slots()];
         for _ in 0..8000 {
             if lookahead.finished() {
@@ -2548,6 +2624,7 @@ mod tests {
             1,
             false,
             false,
+            &test_chance_seeds(1),
         );
         let mut observations = Vec::new();
         let mut masks = Vec::new();
@@ -2583,7 +2660,16 @@ mod tests {
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 5);
         let weights = vec![0.1, 0.2, 0.3, 0.2, 0.2];
 
-        let mut lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false, false);
+        let mut lookahead = Lookahead::begin(
+            seat,
+            &candidates,
+            &worlds,
+            &weights,
+            0,
+            false,
+            false,
+            &test_chance_seeds(worlds.len()),
+        );
         let passes = drive(&mut lookahead);
         assert!(
             passes >= 3,
@@ -2645,9 +2731,27 @@ mod tests {
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 4);
         let weights = vec![1.0; 4];
 
-        let mut shallow = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false, false);
+        let mut shallow = Lookahead::begin(
+            seat,
+            &candidates,
+            &worlds,
+            &weights,
+            0,
+            false,
+            false,
+            &test_chance_seeds(worlds.len()),
+        );
         let near_passes = drive(&mut shallow);
-        let mut deep = Lookahead::begin(seat, &candidates, &worlds, &weights, 1, false, false);
+        let mut deep = Lookahead::begin(
+            seat,
+            &candidates,
+            &worlds,
+            &weights,
+            1,
+            false,
+            false,
+            &test_chance_seeds(worlds.len()),
+        );
         let far_passes = drive(&mut deep);
         assert!(
             far_passes > near_passes,
@@ -2688,7 +2792,16 @@ mod tests {
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 3);
         let weights = vec![1.0; 3];
 
-        let lookahead = Lookahead::begin(seat, &candidates, &worlds, &weights, 0, false, false);
+        let lookahead = Lookahead::begin(
+            seat,
+            &candidates,
+            &worlds,
+            &weights,
+            0,
+            false,
+            false,
+            &test_chance_seeds(worlds.len()),
+        );
         assert!(!lookahead.finished(), "the next player has a turn to take");
         let got = lookahead.leaves();
         assert!(
@@ -3046,10 +3159,28 @@ mod tests {
             .map(RootMove::Turn)
             .collect();
         let worlds = imagine_worlds(&hand, seat, &Belief::even(), &mut rng, 2);
-        let mut pure =
-            Lookahead::begin_moves(seat, &candidates, &worlds, &[1.0; 2], 0, true, true, true);
-        let mut hybrid =
-            Lookahead::begin_moves(seat, &candidates, &worlds, &[1.0; 2], 0, true, true, false);
+        let mut pure = Lookahead::begin_moves(
+            seat,
+            &candidates,
+            &worlds,
+            &[1.0; 2],
+            0,
+            true,
+            true,
+            true,
+            &test_chance_seeds(worlds.len()),
+        );
+        let mut hybrid = Lookahead::begin_moves(
+            seat,
+            &candidates,
+            &worlds,
+            &[1.0; 2],
+            0,
+            true,
+            true,
+            false,
+            &test_chance_seeds(worlds.len()),
+        );
         finish_search(&mut pure);
         finish_search(&mut hybrid);
         for (a, b) in pure.slots.iter().zip(&hybrid.slots) {
@@ -3095,6 +3226,7 @@ mod tests {
             false,
             false,
             false,
+            &test_chance_seeds(3),
         );
         finish_search(&mut lookahead);
         assert!(lookahead.leaves().counted.iter().all(|yes| *yes));

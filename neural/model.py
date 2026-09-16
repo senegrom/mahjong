@@ -414,12 +414,15 @@ class PolicyValueNet(nn.Module):
     def payload_fields(self) -> dict:
         """What a checkpoint records about the shape, so it can be rebuilt
         without being told."""
+        from .reader_contract import metadata as reader_metadata
+
         return {
             "channels": self.channels,
             "blocks": self.blocks,
             "planes": self.planes,
             "attention": self.attention,
             "actions": self.actions,
+            **reader_metadata(self),
         }
 
 
@@ -480,6 +483,8 @@ def from_payload(
     shape = shape_of(payload, channels, blocks)
     net = PolicyValueNet(**shape).to(device)
     load_weights(net, payload["model"])
+    from .reader_contract import restore as restore_reader
+    restore_reader(net, payload)
     return net
 
 

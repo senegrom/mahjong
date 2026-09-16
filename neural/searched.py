@@ -44,10 +44,10 @@ import riichi_py
 
 from . import contract as contract_module
 from . import worlds as worlds_module
-from . import zoo
+from . import zoo, reader_contract
 from .teacher_options import validate_controls, add_arguments, candidate_set
 from .contract import UnsupportedSearchLayout
-from .training_safety import require_training_engine, require_search_engine
+from .training_safety import SEARCH_API_VERSION, require_training_engine, require_search_engine
 
 PLANES = riichi_py.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -191,7 +191,7 @@ def _search_once(
         # A likelihood ratio learned for an older proposal is not a correction
         # for the new kind-mass/constrained sampler. Never silently reuse it.
         reader_ready = (getattr(served.contract, "reader_planes", None) is not None
-                        and getattr(served.net, "reader_proposal_version", None) == 4)
+                        and reader_contract.ready(served.net))
         plausible = (contract_module.proposal_scores(served, arena, hands_bytes, counts, device,
                                                     batch_size=leaf_batch)
                      if reader_ready else np.zeros(total, dtype=np.float32))
@@ -814,7 +814,7 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
             "held_out": (head_meta.get("history") or [{}])[-1].get("held_out"),
         },
         "sure": args.sure,
-        "teacher_objective": args.objective, "search_api_version": 4,
+        "teacher_objective": args.objective, "search_api_version": SEARCH_API_VERSION,
         "search_calls": args.search_calls, "confirm_worlds": args.confirm_worlds,
         "extra_candidates": args.extra_candidates, "audit_share": args.audit_share,
         "chairs": chairs,

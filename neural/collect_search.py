@@ -20,6 +20,7 @@ import tempfile
 import numpy as np
 import torch
 
+from .training_safety import SEARCH_API_VERSION
 from .teacher_actions import representable_moves
 from .search_replay import (
     ACTIONS, ENGINE_ACTIONS, PLANES, POSITIONS, REWARD, VERSION, TEACHER_VERSION, DENSE,
@@ -63,7 +64,7 @@ def metadata(*, games: int, seed: int, settings: SearchSettings,
         "source_revision": source_revision,
         "training_api_version": training_api_version,
         "games": games, "seed": seed, "search": asdict(settings),
-        "teacher": {"version": 1, "search_api_version": 4, "objective": settings.objective,
+        "teacher": {"version": 1, "search_api_version": SEARCH_API_VERSION, "objective": settings.objective,
                     "placement_head": head_provenance,
                     "student_value_head": "critic" if settings.valued_by == "placement" else settings.valued_by},
     }

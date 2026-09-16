@@ -355,6 +355,9 @@ pub struct Arena {
     /// For each game, the worlds imagined for a weighed search and not yet
     /// weighed.
     imagined: Vec<Vec<Hand>>,
+    /// Fresh continuation chance attached to proposal identity before resampling.
+    /// The real environment RNG is never used by search.
+    imagined_chance: Vec<Vec<u64>>,
     /// For each game, a lookahead the caller is playing the other seats
     /// of, with its candidates.
     lookaheads: Vec<Option<(Vec<usize>, search::Lookahead)>>,
@@ -433,6 +436,7 @@ impl Arena {
             judgement_weights: (0..games).map(|_| Vec::new()).collect(),
             pending: (0..games).map(|_| None).collect(),
             imagined: (0..games).map(|_| Vec::new()).collect(),
+            imagined_chance: (0..games).map(|_| Vec::new()).collect(),
             lookaheads: (0..games).map(|_| None).collect(),
         }
     }
@@ -707,6 +711,7 @@ impl Arena {
         let mut counts = Vec::with_capacity(games);
         for (game, stored) in self.imagined.iter_mut().enumerate() {
             stored.clear();
+            self.imagined_chance[game].clear();
             let seat = &mut self.seats[game];
             let Some(wind) = seat.pending() else {
                 counts.push(0);
@@ -727,6 +732,9 @@ impl Arena {
                 let slot = start + index * HIDDEN_HANDS;
                 encoding::hidden_hands(world, wind, &mut planes[slot..slot + HIDDEN_HANDS]);
             }
+            self.imagined_chance[game] = (0..imagined.len())
+                .map(|_| seat.search_rng.next_u64())
+                .collect();
             counts.push(imagined.len());
             *stored = imagined;
         }
@@ -784,6 +792,7 @@ impl Arena {
         for (game, ranking) in ranked.iter().enumerate() {
             self.pending[game] = None;
             let imagined = std::mem::take(&mut self.imagined[game]);
+            let chance = std::mem::take(&mut self.imagined_chance[game]);
             let seat = &mut self.seats[game];
             let Some(wind) = seat.pending() else {
                 counts.push(0);
@@ -807,7 +816,16 @@ impl Arena {
                 .iter()
                 .map(|index| imagined[*index].clone())
                 .collect();
-            let got = search::leaves_from(wind, &shortlist, &worlds, world_weights, effort);
+            let chance_seeds: Vec<_> = indices.iter().map(|index| chance[*index]).collect();
+            let got = search::leaves_from_for_objective(
+                wind,
+                &shortlist,
+                &worlds,
+                world_weights,
+                effort,
+                placement_only,
+                &chance_seeds,
+            );
             if got.counted.iter().any(|counted| !counted) {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "search has broken worlds; no candidate evidence was published",
@@ -882,6 +900,7 @@ impl Arena {
             self.pending[game] = None;
             self.lookaheads[game] = None;
             let imagined = std::mem::take(&mut self.imagined[game]);
+            let chance = std::mem::take(&mut self.imagined_chance[game]);
             let seat = &self.seats[game];
             let Some(wind) = seat.pending() else {
                 continue;
@@ -912,6 +931,7 @@ impl Arena {
                 .iter()
                 .map(|index| imagined[*index].clone())
                 .collect();
+            let chance_seeds: Vec<_> = indices.iter().map(|index| chance[*index]).collect();
             let lookahead = search::Lookahead::begin_moves(
                 wind,
                 &shortlist
@@ -924,6 +944,7 @@ impl Arena {
                 until_hand_ends || boundary,
                 boundary,
                 placement_only,
+                &chance_seeds,
             );
             self.lookaheads[game] = Some((
                 shortlist.iter().map(|(index, _)| *index).collect(),
@@ -1572,7 +1593,7 @@ fn cast_i32(values: &[i32]) -> &[u8] {
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
     module.add("TRAINING_API_VERSION", 2u32)?;
-    module.add("SEARCH_API_VERSION", 4u32)?;
+    module.add("SEARCH_API_VERSION", 5u32)?;
     module.add("PLANES", PLANES)?;
     module.add("POSITIONS", POSITIONS)?;
     module.add("OBSERVATION", OBSERVATION)?;

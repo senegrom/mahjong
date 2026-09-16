@@ -290,3 +290,26 @@ test('a disposed watcher cannot apply a late recommendation or run its autoplay 
   assert.equal(w.analysis, null);
   assert.equal(await w.step(), false);
 });
+
+test('physical chii matching accepts every equivalent meld order without changing history', () => {
+  const orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+  for (const order of orders) {
+    const p = emptyPosition();
+    Object.assign(p, { seat: 1, turn: 1, wall: 50, indicators: ['7z'], drawn: '5z', first_turns: false });
+    p.players[1].hand = parseTiles('111s55z');
+    p.players[1].melds = order.map(i => ({ kind: 'chii', tile: ['1p', '1m', '3m'][i], from: 3 }));
+    p.players[0].discards = ['1p', '3m', '5m'].map((tile, i) => ({
+      tile, order: 4 * i, drawn: true, riichi: false, claimed: true,
+    }));
+    const original = structuredClone(p);
+    inspect(p, a => assert.ok(a.agent_choices().some(choice => choice.kind === 'discard')));
+    assert.deepEqual(p, original);
+    const duplicate = structuredClone(p);
+    duplicate.players[0].discards.push({ ...duplicate.players[0].discards[0], order: 12 });
+    assert.throws(() => new PhysicalAnalysis(duplicate), /needs a called set/);
+    const wrongSource = structuredClone(p);
+    wrongSource.players[2].discards = wrongSource.players[0].discards;
+    wrongSource.players[0].discards = [];
+    assert.throws(() => new PhysicalAnalysis(wrongSource), /needs a called set/);
+  }
+});
