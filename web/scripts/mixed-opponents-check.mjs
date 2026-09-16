@@ -10,14 +10,17 @@ import puppeteer from 'puppeteer-core';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
-import { MODEL_FILES } from '../src/lib/model-package.js';
+import { MANIFEST } from '../src/lib/model-manifest.js';
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web=fileURLToPath(new URL('../', import.meta.url));
 const output=resolve(web,'test-results');
 const handler=createFixtureHandler({root:resolve(web,'dist'),publicRoot:resolve(web,'dist')});
 let modelGets=0;
+const networkUrl=`${MANIFEST.origin}/${MANIFEST.object}`;
 const server=createServer((req,res)=>{
-  if(req.url===`/mahjong/${MODEL_FILES.full}`&&req.method==='GET')modelGets++;
+  // Counted for the record: the network is fetched from its bucket, not
+  // from this server, so a request here would mean the page looked locally.
+  if(req.url===`/mahjong/${MANIFEST.object}`&&req.method==='GET')modelGets++;
   void handler(req,res);
 });
 const results=[],contexts=[];
@@ -34,7 +37,7 @@ async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false
   const context=await browser.createBrowserContext();contexts.push(context);
   const p=await context.newPage();p.errors=[];p.modelLoads=0;
   p.on('pageerror',e=>p.errors.push(e.message));
-  p.on('request',req=>{if(req.url().endsWith(`/${MODEL_FILES.full}`)&&req.method()==='GET')p.modelLoads++;});
+  p.on('request',req=>{if(req.url()===networkUrl&&req.method()==='GET')p.modelLoads++;});
   await p.setViewport({width,height,isMobile:width<500||height<500,hasTouch:width<500||height<500});
   await p.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
   await p.evaluateOnNewDocument((key,settings,snapshot)=>{
@@ -136,7 +139,10 @@ try {
       await p.waitForFunction((key,count)=>JSON.parse(localStorage.getItem(key)).commands.length>count,{},SAVE_KEY,current.commands.length);
       await settled(p);
     }
-    assert.equal(modelGets-loadsBefore,1);assert.equal(await p.$('.failure'),null);
+    // One download of the network for both trained seats, and none of it from
+    // this server: the page fetches it from the bucket the manifest names.
+    assert.equal(p.modelLoads,1);assert.equal(modelGets-loadsBefore,0);
+    assert.equal(await p.$('.failure'),null);
     const snapshot=await saved(p);assert.ok(snapshot.commands.filter(c=>c.type==='opponent').length>=4);
     assert.deepEqual(await labels(p),['neural','club','neural']);assert.deepEqual(p.errors,[]);
     const r=MatchSession.restore(Game,JSON.stringify(snapshot));try{assert.equal(r.stateKey(),snapshot.state);}finally{r.dispose();}

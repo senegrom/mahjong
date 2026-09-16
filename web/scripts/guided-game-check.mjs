@@ -1,5 +1,6 @@
 /** Guided physical games in the production UI, using the real engine and policy. */
 import assert from 'node:assert/strict';
+import { MANIFEST } from '../src/lib/model-manifest.js';
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -140,7 +141,11 @@ try {
   });
   await check('mobile guided play offers every adviser and honours a saved trained preference', async context => {
     const page = await open(context, 360), modelRequests = [];
-    page.on('request', request => { if (new URL(request.url()).pathname.endsWith('.onnx') && request.method() === 'GET') modelRequests.push(request.url()); });
+    // The network is not a file of this site any more: it comes from the
+    // bucket named in the manifest, 116 MB of it, so this is the one check
+    // that waits for a real download.
+    const network = `${MANIFEST.origin}/${MANIFEST.object}`;
+    page.on('request', request => { if (request.url() === network && request.method() === 'GET') modelRequests.push(request.url()); });
     await setup(page, '0');
     await tile(page, '4z'); await choice(page);
     const selector = '[aria-label="Guided game adviser"]';
@@ -156,7 +161,7 @@ try {
     // was saved on is advised by the real network, not rewritten.
     before.state.agent = 'full';
     await page.evaluate(({ key, text }) => localStorage.setItem(key, text), { key: GUIDED_KEY, text: GUIDED_FORMAT.encode(before) });
-    await page.reload({ waitUntil: 'networkidle0' }); await stage(page, 'decision');
+    await page.reload({ waitUntil: 'networkidle0', timeout: 180000 }); await stage(page, 'decision');
     await page.waitForSelector('.guided-controls:not(:disabled)');
     assert.equal(await page.$eval(selector, el => el.value), 'full');
     assert.equal(await page.$eval(`${selector} option[value="full"]`, el => el.disabled), false);

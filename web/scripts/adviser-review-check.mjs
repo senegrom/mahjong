@@ -8,12 +8,15 @@ import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
-import { MODEL_FILES } from '../src/lib/model-package.js';
+import { MANIFEST } from '../src/lib/model-manifest.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
-const trainedShipped = existsSync(resolve(dist, MODEL_FILES.full));
+// The network comes from its bucket, so what the page needs on disk is the
+// runtime that runs it; the network itself is fetched when it is asked for.
+const trainedShipped = existsSync(resolve(dist, 'ort', 'ort-wasm-simd-threaded.wasm'));
+const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
 const match = new MatchSession(Game, 1, 'club');
 let snapshot, notes, first, choices, translations, reachTranslations;
 try {
@@ -83,7 +86,7 @@ async function strongResults(page) {
   assert.equal(await page.$('.review .numbers'), null);
   const requests = await page.evaluate(() => window.reviewRequests);
   assert.equal(requests.length, cursor);
-  assert.ok(requests.every(request => request.url.endsWith(`/${MODEL_FILES.full}`)));
+  assert.ok(requests.every(request => request.url === networkUrl));
   assert.deepEqual({ planes: requests[0].planes, mask: requests[0].mask }, first);
   assert.deepEqual(await saved(page), snapshot);
 }
