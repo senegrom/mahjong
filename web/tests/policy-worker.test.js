@@ -24,7 +24,7 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
   let live = 0, active = 0;
   const memoryBudget = new MemoryBudget();
   class Tensor {
-    constructor(_type, data) { this.data = data; this.disposed = false; tensors.push(this); }
+    constructor(type, data, dims) { this.type = type; this.dims = dims; this.data = data; this.disposed = false; tensors.push(this); }
     dispose() { assert.equal(this.disposed, false); this.disposed = true; }
   }
   const ort = {
@@ -39,6 +39,11 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
         run: async given => {
           assert.equal(active++, 0, 'inferences must not overlap');
           assert.deepEqual(Object.keys(given), inputNames, 'the graph is given what it asks for');
+          if (takesMask) {
+            assert.equal(given.legal.type, 'float32');
+            assert.deepEqual(Array.from(given.legal.dims), [1, 2]);
+            assert.deepEqual(Array.from(given.legal.data), [1, 1]);
+          }
           runs.push(url);
           await runGate?.promise;
           active--;
@@ -132,3 +137,13 @@ test('runtime failures identify application limits separately from browser alloc
   assert.equal(h.messages.find(message => message.error).memory, undefined,
     'an unclassified error must not trigger larger memory reservations');
 });
+
+for (const runError of [false, true]) {
+  test(`two-input fusion receives its float mask and disposes it on ${runError ? 'failure' : 'success'}`, async () => {
+    const h = harness({ takesMask: true, runError });
+    await h.send(1);
+    assert.equal(h.messages.filter(message => message.error).length, runError ? 1 : 0);
+    assert.ok(h.tensors.every(tensor => tensor.disposed));
+    assert.ok(h.tensors.some(tensor => tensor.dims?.[1] === 2));
+  });
+}

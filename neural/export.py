@@ -90,6 +90,18 @@ def quantise(source: Path, destination: Path) -> None:
         onnx.save(model, str(destination))
 
 
+def strip_float_aliases(path: Path) -> None:
+    """Remove redundant alias nodes just as the quantised export does.
+
+    Named graph outputs remain intact. The reduced runtime need not carry
+    Identity for intermediate aliases emitted by Torch's float exporter.
+    """
+    import onnx
+    graph = onnx.load(str(path))
+    if without_identities(graph):
+        onnx.save(graph, str(path))
+
+
 def check_operators(destination: Path, insist: bool = True) -> None:
     """Refuse missing kernels unless explicitly exporting to widen the runtime."""
     import onnx
@@ -342,6 +354,8 @@ def main() -> None:
             dynamic_axes={name: {0: "batch"} for name in (*names, *OUTPUTS)},
             opset_version=17, dynamo=False,
         )
+        if args.float32:
+            strip_float_aliases(full)
         made = full if args.float32 else Path(scratch) / "int8.onnx"
         if not args.float32:
             quantise(full, made)

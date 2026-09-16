@@ -104,6 +104,12 @@ def validate_snapshot(folder: Path, *, require_complete: bool = True,
         if (meta.get('valued_by') != 'placement' or not isinstance(head, dict)
                 or re.fullmatch(r'[0-9a-f]{64}', str(head.get('sha256', ''))) is None):
             raise ValueError('Placement-only evidence needs its value-head provenance')
+    if ('policy_inference' in meta) != ('rollout_batch' in meta):
+        raise ValueError('Incomplete inference provenance in recording')
+    if 'policy_inference' in meta:
+        from .inference import validate_description, validate_batch
+        validate_description(meta['policy_inference'])
+        validate_batch(meta['rollout_batch'])
     rows = meta.get('rows')
     if type(rows) is not int or rows < 0 or type(meta.get('complete')) is not bool:
         raise ValueError('Invalid recording row count or completeness flag')

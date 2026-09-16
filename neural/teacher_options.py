@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import math
 
+from .inference import DEFAULT_ROLLOUT_BATCH, validate_batch
+
 
 def validate_controls(*, objective="hybrid", valued_by="critic", played_by="network",
                       depth=0, search_calls=False, confirm_worlds=0,
-                      extra_candidates=0, audit_share=0.0):
+                      extra_candidates=0, audit_share=0.0, rollout_batch=DEFAULT_ROLLOUT_BATCH):
+    validate_batch(rollout_batch)
     if objective not in ("hybrid", "placement"):
         raise ValueError("teacher objective must be hybrid or placement")
     if valued_by not in ("critic", "public", "mean", "placement"):
@@ -30,6 +33,8 @@ def validate_controls(*, objective="hybrid", valued_by="critic", played_by="netw
 
 
 def add_arguments(parser):
+    parser.add_argument("--rollout-batch", type=int, default=DEFAULT_ROLLOUT_BATCH,
+                        help="maximum policy inference rows, including conditional riichi; independent of leaf-batch")
     parser.add_argument("--objective", choices=("hybrid", "placement"), default="hybrid",
                         help="teacher utility; placement omits the separate root-hand points bonus")
     parser.add_argument("--search-calls", action="store_true", help="compare claims using normal simultaneous resolution")

@@ -701,6 +701,7 @@ def searched(
     temperature: float = 0.0,
     valued_by: str = "critic",
     leaf_batch: int = 256,
+    rollout_batch: int = 256,
     placement_head: str | None = None,
     objective: str = "hybrid",
     search_calls: bool = False,
@@ -724,10 +725,11 @@ def searched(
     import math
     from neural.recordings import digest_file, validate_snapshot
 
+    from neural.inference import CONTRACT as INFERENCE_CONTRACT
     from neural.teacher_options import validate_controls
     validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
                       depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds,
-                      extra_candidates=extra_candidates, audit_share=audit_share)
+                      extra_candidates=extra_candidates, audit_share=audit_share, rollout_batch=rollout_batch)
     validate_run(run)
     for name, value in (("games", games), ("worlds", worlds), ("candidates", candidates),
                         ("pool", pool), ("leaf_batch", leaf_batch)):
@@ -764,6 +766,7 @@ def searched(
                         candidates=candidates, margin=margin, pool=pool, played_by=played_by,
                         depth=depth, chair=chair, sure=sure, save_every=save_every,
                         temperature=temperature, valued_by=valued_by, leaf_batch=leaf_batch,
+                        rollout_batch=rollout_batch, policy_inference_contract=dict(INFERENCE_CONTRACT),
                         device="cuda", placement_head=placement_head,
                         objective=objective, search_api_version=SEARCH_API_VERSION, search_calls=search_calls, confirm_worlds=confirm_worlds,
                         extra_candidates=extra_candidates, audit_share=audit_share,
@@ -780,7 +783,7 @@ def searched(
             "--pool", str(pool), "--played-by", played_by, "--depth", str(depth),
             "--chair", str(chair), "--sure", str(sure), "--save-every", str(save_every),
             "--temperature", str(temperature), "--valued-by", valued_by,
-            "--leaf-batch", str(leaf_batch), "--device", "cuda",
+            "--leaf-batch", str(leaf_batch), "--rollout-batch", str(rollout_batch), "--device", "cuda",
             "--objective", objective, "--confirm-worlds", str(confirm_worlds),
             "--extra-candidates", str(extra_candidates), "--audit-share", str(audit_share),
         ]

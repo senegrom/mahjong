@@ -89,7 +89,7 @@ class SearchCloudPublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             volume = self.prepare(Path(temp))
             options = dict(games=2, seed=17, candidates=3, margin=1., pool=2,
-                           temperature=.2, valued_by='mean', leaf_batch=7)
+                           temperature=.2, valued_by='mean', leaf_batch=7, rollout_batch=3)
             calls = self.run_controller(volume, **options)
             self.run_controller(volume, **options)
             attempts = list((volume / 'searched-records').iterdir())
@@ -132,7 +132,7 @@ class SearchCloudPublicationTests(unittest.TestCase):
 
     def test_invalid_configuration_fails_before_starting_any_work(self):
         app = controller()
-        for options in ({'games': 0}, {'worlds': True}, {'leaf_batch': 0}, {'margin': float('nan')},
+        for options in ({'games': 0}, {'worlds': True}, {'leaf_batch': 0}, {'rollout_batch': 0}, {'rollout_batch': True}, {'margin': float('nan')},
                         {'temperature': -1.}, {'chair': 4}, {'seed': -1}, {'valued_by': 'oracle'}):
             with self.subTest(options=options), patch.object(app, 'workspace', side_effect=AssertionError('late')):
                 with self.assertRaises(ValueError):

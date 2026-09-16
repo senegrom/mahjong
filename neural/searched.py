@@ -42,6 +42,8 @@ from .outcomes import placements as tied_placements, require_finished, validate_
 
 import riichi_py
 
+from . import inference
+
 from . import contract as contract_module
 from . import worlds as worlds_module
 from . import zoo, reader_contract
@@ -78,13 +80,15 @@ def require_native_search(net) -> None:
 
 
 @torch.no_grad()
-def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
+def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000,
+                   batch_size=inference.DEFAULT_ROLLOUT_BATCH):
     """Plays every decision the lookaheads are waiting on with the policy
     until none is left: the network moving the other seats inside the
     search, and the searching player's own turns beyond the first when a
     depth was asked for. Its best move at temperature zero, a sample
     otherwise. Returns how many passes of the policy it took; a slot still
     waiting after `passes` is given up on and does not count."""
+    inference.validate_batch(batch_size)
     require_native_search(net)
     taken = 0
     while taken < passes:
@@ -95,7 +99,7 @@ def play_lookahead(net, arena, *, device="cuda", temperature=0.0, passes=8000):
         planes = np.frombuffer(planes_bytes, dtype=np.float32).reshape(count, PLANES, POSITIONS)
         masks = np.frombuffer(masks_bytes, dtype=np.uint8).reshape(count, ACTIONS).astype(bool)
         actions = np.empty(count, dtype=np.int64)
-        step = 8192
+        step = batch_size
         for start in range(0, count, step):
             rows = slice(start, start + step)
             logits = contract_module.policy_logits(net,
@@ -132,7 +136,7 @@ def _search_once(
     health=None,
     served=None,
     leaf_batch=contract_module.DEFAULT_LEAF_BATCH,
-    objective="hybrid", search_calls=False,
+    objective="hybrid", search_calls=False, rollout_batch=inference.DEFAULT_ROLLOUT_BATCH,
 ):
     """One searched decision for every live game, valued by the network.
 
@@ -159,7 +163,7 @@ def _search_once(
     served = served or contract_module.serve(net)
     require_search_engine()
     validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
-                      depth=depth, search_calls=search_calls)
+                      depth=depth, search_calls=search_calls, rollout_batch=rollout_batch)
     if valued_by == "placement" and getattr(served, "placement_head", None) is None:
         raise ValueError("placement search requires a validated placement head")
     if type(leaf_batch) is not int or leaf_batch <= 0:
@@ -233,9 +237,9 @@ def _search_once(
         # planes it reads: the engine's own, or Mortal's through copies
         # of every seat's state kept in step (`MortalServed`).
         if served.contract.reads == "mortal":
-            served.play_lookahead(arena, device=device, temperature=temperature)
+            served.play_lookahead(arena, device=device, temperature=temperature, batch_size=rollout_batch)
         else:
-            play_lookahead(net, arena, device=device, temperature=temperature)
+            play_lookahead(net, arena, device=device, temperature=temperature, batch_size=rollout_batch)
         planes_bytes, counts, _settled, _wanted = arena.lookahead_leaves()
     else:
         planes_bytes, counts, _settled, _wanted = arena.leaves_from(
@@ -277,7 +281,7 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
                            depth=0, temperature=0.0, valued_by="critic", health=None,
                            served=None, leaf_batch=contract_module.DEFAULT_LEAF_BATCH,
                            objective="hybrid", search_calls=False, confirm_worlds=0,
-                           evidence=None):
+                           evidence=None, rollout_batch=inference.DEFAULT_ROLLOUT_BATCH):
     """Pilot search plus optional independent, fixed-budget confirmation.
 
     Select at most one challenger per root on the discovery worlds. Compare it
@@ -286,7 +290,8 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
     bias, not model bias; the paired-SE margin is not a formal coverage guarantee.
     """
     validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
-                      depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds)
+                      depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds,
+                      rollout_batch=rollout_batch)
     for name, number in (("worlds", worlds), ("candidates", candidates), ("pool", pool)):
         if type(number) is not int or number < 1:
             raise ValueError(f"{name} must be a positive integer")
@@ -296,7 +301,7 @@ def search_with_value_head(net, arena, ranked, belief_flat, *, worlds, candidate
     options = dict(margin=margin, hurried=hurried, device=device, pool=pool,
                    played_by=played_by, depth=depth, temperature=temperature,
                    valued_by=valued_by, health=health, served=served, leaf_batch=leaf_batch,
-                   objective=objective, search_calls=search_calls)
+                   objective=objective, search_calls=search_calls, rollout_batch=rollout_batch)
     choices = _search_once(net, arena, ranked, belief_flat, worlds=worlds,
                            candidates=candidates, **options)
     judged = arena.judgements()
@@ -348,6 +353,7 @@ def play(
     health: dict | None = None,
     objective: str = "hybrid", search_calls: bool = False, confirm_worlds: int = 0,
     extra_candidates: int = 0, audit_share: float = 0.0,
+    rollout_batch: int = inference.DEFAULT_ROLLOUT_BATCH,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Plays `games` games out and returns the final scores.
 
@@ -371,7 +377,7 @@ def play(
     require_training_engine()
     validate_controls(objective=objective, valued_by=valued_by, played_by=played_by,
                       depth=depth, search_calls=search_calls, confirm_worlds=confirm_worlds,
-                      extra_candidates=extra_candidates, audit_share=audit_share)
+                      extra_candidates=extra_candidates, audit_share=audit_share, rollout_batch=rollout_batch)
     validate_budget(games, max_steps)
     if searcher is None:
         from . import duel
@@ -480,7 +486,7 @@ def play(
                     health=health,
                     served=served,
                     leaf_batch=leaf_batch, objective=objective, search_calls=search_calls,
-                    confirm_worlds=confirm_worlds, evidence=evidence,
+                    confirm_worlds=confirm_worlds, evidence=evidence, rollout_batch=rollout_batch,
                 )
                 if recording is not None:
                     if views is None:
@@ -794,7 +800,8 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
         "checkpoint_sha256": digest_file(checkpoint),
         "checkpoint_generation": generation,
         "temperature": args.temperature,
-        "leaf_batch": args.leaf_batch,
+        "leaf_batch": args.leaf_batch, "rollout_batch": args.rollout_batch,
+        "policy_inference": inference.describe(served.contract.reads, args.device),
         "device": args.device,
         "save_every": args.save_every,
         "contract": served.contract.describe(),
@@ -838,7 +845,7 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
             temperature=args.temperature,
             valued_by=args.valued_by,
             served=served,
-            leaf_batch=args.leaf_batch,
+            leaf_batch=args.leaf_batch, rollout_batch=args.rollout_batch,
             recording=recording,
             sure=args.sure,
             health=health, objective=args.objective, search_calls=args.search_calls,

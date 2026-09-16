@@ -129,6 +129,7 @@ class ExportTests(unittest.TestCase):
                          patch.object(export, "validation_positions", return_value=(self.trial, self.legal)), \
                          patch("torch.onnx.export", side_effect=write_graph), \
                          patch.object(export, "check_operators"), \
+                         patch.object(export, "strip_float_aliases"), \
                          patch.object(export, "check_runs", side_effect=SystemExit("bad graph") if fail else None), \
                          patch("sys.argv", ["export", "network.pt", str(destination), "--float32"]):
                         if fail:

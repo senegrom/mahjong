@@ -320,7 +320,8 @@ class Combined(nn.Module):
         sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
         device = str(next(self.parameters()).device)
         mask = torch.from_numpy(allowed).to(device)
-        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.startswith("cuda")):
+        from .inference import precision
+        with precision(self, device):
             logits, _value = self.forward(sparse.dense(device), mask)
         return logits.float().cpu().numpy(), masks
 

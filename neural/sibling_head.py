@@ -505,6 +505,9 @@ def gathered(parts: list[Recorded]) -> Recorded:
     first = parts[0]
     utility = first.meta.get("teacher_objective", "hybrid")
     head = first.meta.get("placement_head")
+    policy_inference = first.meta.get("policy_inference")
+    if any(part.meta.get("policy_inference") != policy_inference for part in parts):
+        raise ValueError("do not mix different or unrecorded policy inference contracts")
     if any(part.meta.get("teacher_objective", "hybrid") != utility
            or part.meta.get("placement_head") != head for part in parts):
         raise ValueError("do not mix different teacher objectives or placement heads")
@@ -576,6 +579,7 @@ def gathered(parts: list[Recorded]) -> Recorded:
     joined.meta = {
         "parts": [part.meta for part in parts],
         "teacher_objective": utility, "placement_head": head,
+        "policy_inference": policy_inference,
         "sure": max(float(part.meta.get("sure", 1.0)) for part in parts),
     }
     return joined
