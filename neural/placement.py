@@ -104,12 +104,12 @@ def features_of(net, planes: torch.Tensor, feature_version: int = FEATURE_VERSIO
     return features, context
 
 
-def new_head(net) -> Judge:
+def new_head(net, hidden: int = 64) -> Judge:
     channels = backbone(net).channels
     context = channels
     if hasattr(net, "mortal"):
         context += int(net.fuse.phi_proj[0].in_features)
-    return Judge(channels, context_channels=context)
+    return Judge(channels, hidden, context_channels=context)
 
 
 
@@ -373,6 +373,9 @@ def main() -> None:
     parser.add_argument("rounds", type=Path, nargs="+", help="self-play rounds saved by neural.selfplay")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--boundary-only", action="store_true", help="fit only first turn-to-act positions after hand boundaries")
+    parser.add_argument("--hidden", type=int, default=64,
+                        help="width of the head's one hidden layer; whether more of it "
+                        "reads more of the standings says if the features or the head is the limit")
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=256)
@@ -388,7 +391,7 @@ def main() -> None:
                       "training": len(training), "held_out": len(held)}),
           file=sys.stderr, flush=True)
     head, history = train(positions, net, epochs=args.epochs, lr=args.lr, batch=args.batch,
-                          device=args.device, log=sys.stderr)
+                          device=args.device, log=sys.stderr, head=new_head(net, args.hidden))
     save(head, args.out, {"checkpoint": str(args.checkpoint), "rounds": [str(path) for path in args.rounds],
                           "features": fingerprint(net, head.feature_version), "boundary_only": args.boundary_only, "history": history})
     print(json.dumps({"out": str(args.out), "final": history[-1] if history else None}, indent=1))
