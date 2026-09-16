@@ -67,6 +67,16 @@ function observeUpdates(registration) {
     registration.installing?.addEventListener('statechange', check);
   });
 }
+/** The service worker knows what it saved: the game, the graphics and the
+ * runtime that runs the network. It does not know about the network itself,
+ * which is fetched from its bucket and kept in Cache Storage, so a status
+ * that came from the worker is only half the answer about the AI. Without
+ * the network a Trained player has nothing to play with on a plane. */
+async function withNetwork(info) {
+  if (!info || !info.aiReady) return info;
+  return { ...info, aiReady: await networkIsStored() };
+}
+
 // The game and graphics are mandatory, not an optional offline pack. Repair
 // an evicted or interrupted core cache automatically, without requesting AI.
 async function prepareCore(info) {
@@ -117,7 +127,7 @@ export function startOffline() {
         });
       }
       update({ supported: true, phase: 'ready', warning: '' });
-      await prepareCore(await request('MAHJONG_STATUS'));
+      await prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
       observeUpdates(registration);
       void persistentStorage();
       // Background updates never block this version or replace it mid-match.
@@ -138,7 +148,7 @@ export async function refreshOffline() {
   if (!worker && state.phase === 'unavailable') boot = null;
   await startOffline();
   if (!worker) return null;
-  return prepareCore(await request('MAHJONG_STATUS'));
+  return prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
 }
 /** Saves the one trained network the game carries, with its runtime. It is
  * downloaded only when a Trained player is chosen, and one job runs at a time. */
@@ -148,9 +158,9 @@ export function prepareOfflineAi() {
     if (!(await startOffline())) return null; // Online-only browsers still work, with a visible warning.
     // This action adds only the trained network/runtime. Core preparation has
     // its own automatic startup/reconnect path and is not opt-in.
-    const info = await request('MAHJONG_STATUS');
+    const info = await withNetwork(await request('MAHJONG_STATUS'));
     update(info);
-    if (info.aiReady && await networkIsStored()) return info;
+    if (info.aiReady) return info;
     update({ phase: 'ai', progress: 0, warning: '' });
     try {
       // The runtime that runs the network is saved by the service worker; the
@@ -162,7 +172,7 @@ export function prepareOfflineAi() {
       });
       await networkBytes({ onProgress: ({ bytes, total }) =>
         update({ progress: 20 + (total ? Math.floor(80 * bytes / total) : 0) }) });
-      update({ ...ready, phase: 'ready', progress: 100, warning: '' });
+      update({ ...await withNetwork(ready), phase: 'ready', progress: 100, warning: '' });
       void persistentStorage();
       return ready;
     } catch (error) {

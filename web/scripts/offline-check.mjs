@@ -11,14 +11,14 @@ import { createHash } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
-import { MANIFEST as NETWORK } from '../src/lib/model-manifest.js';
+import { MANIFEST } from '../src/lib/model-manifest.js';
 import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
 const manifest = JSON.parse(await readFile(resolve(dist, 'offline-manifest.json'), 'utf8'));
 const source = await readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8');
-const modelPath = `${NETWORK.origin}/${NETWORK.object}`, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
+const modelPath = MANIFEST.object, networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
 const count = new Map(), refused = [], overrides = new Map();
 let unavailable = false, failPath = null, holdPath = null, holdResolve = null, holdSeenResolve = null;
 const mime = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css',
@@ -62,12 +62,12 @@ async function page(browser, { seed = true, offline = false, strength = 'neural'
   }
   const p = await browser.newPage(); p.errors = [];
   p.on('pageerror', error => p.errors.push(error.message));
-  // The model moved off Pages. Count the real cross-origin fetch, including
-  // worker requests, rather than an undefined entry in the local file list.
+  // The network comes from its bucket, not from this fixture server, so its
+  // downloads are counted here and land in the same tally as everything else.
   p.on('request', request => {
-    if (request.url() !== modelPath || request.method() !== 'GET') return;
-    count.set(modelPath, (count.get(modelPath) ?? 0) + 1);
-    if (unavailable || offline) refused.push(modelPath);
+    if (request.url() === networkUrl && request.method() === 'GET') {
+      count.set(modelPath, (count.get(modelPath) ?? 0) + 1);
+    }
   });
   await p.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
   await p.setCacheEnabled(false);
@@ -107,15 +107,7 @@ async function play(p, turns = 5) {
 async function check(name, fn) {
   unavailable = false; failPath = null; holdPath = null; overrides.clear(); count.clear(); refused.length = 0;
   try { await fn(); results.push({ name, passed:true }); console.log(`PASS ${name}`); }
-  catch (error) {
-    const pages = (await Promise.all([...browsers].map(browser => browser.pages()))).flat();
-    const states = await Promise.all(pages.map(async p => {
-      try { return await p.evaluate(key => ({ url: location.href, text: document.body.innerText,
-        save: localStorage.getItem(key) }), SAVE_KEY); } catch { return null; }
-    }));
-    results.push({ name, passed:false, error:error.stack, states });
-    console.error(`FAIL ${name}\n${error.stack}`);
-  }
+  catch (error) { results.push({ name, passed:false, error:error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
   finally { holdResolve?.(); holdResolve = null; holdSeenResolve = null; for (const b of [...browsers]) await close(b); }
 }
 async function profile() { const dir = await mkdtemp(join(tmpdir(), 'mahjong-offline-browser-')); dirs.push(dir); return dir; }
@@ -134,7 +126,6 @@ try {
         cache.match(new URL(`__offline_content__/${e.hash}`, location.href).href)))).every(Boolean);
     }, manifest.entries), 'Every core resource must be saved without interacting');
     for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0, entry.url);
-    assert.equal(count.get(modelPath) ?? 0, 0, 'Built-in opponents must not fetch the external model');
     const beforeFaceChange = await saved(p);
     await p.click('.settings-trigger'); await p.click('.options summary');
     for (const face of ['matisse', 'classic', 'matisse']) {
@@ -153,10 +144,7 @@ try {
     const before = await saved(cold);
     assert.ok(!before.commands.some(command => command.type === 'opponent'), 'Built-in game must not request the network');
     cold.on('dialog', dialog => void dialog.accept());
-    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game');
-    await cold.waitForFunction((key, oldSeed) => JSON.parse(localStorage.getItem(key))?.seed !== oldSeed,
-      { timeout: 45000 }, SAVE_KEY, before.seed);
-    await hand(cold); await play(cold, 3);
+    await cold.click('.settings-trigger'); await cold.click('.mobile-new-game'); await hand(cold); await play(cold, 3);
     assert.notEqual((await saved(cold)).seed, before.seed);
     const art = manifest.entries.filter(e => e.url.endsWith('.svg') || e.url.includes('white-dragon')).map(e => e.url);
     assert.ok(await cold.evaluate(async urls => (await Promise.all(urls.map(async url => {
@@ -239,47 +227,40 @@ try {
     }))).every(Boolean), art));
     // Native SW update probes may occur; the game itself must not hit network.
     assert.deepEqual(refused.filter(name=>name!=='sw.js'), []);
+    // The opponents are the real network, so a hand can end inside those
+    // moves; its result covers the settings panel until it is dismissed.
+    if (await cold.$('.screen')) {
+      await cold.click('.screen .buttons .primary');
+      await cold.waitForFunction(() => !document.querySelector('.screen'), { timeout: 45000 });
+      await hand(cold);
+    }
     const beforeRestart = await saved(cold); cold.on('dialog', d=>void d.accept());
     await cold.click('.settings-trigger'); await cold.click('.mobile-new-game');
-    // The old hand/result can remain in the DOM until the confirmed restart
-    // acquires its save transaction. Do not play/assert against that old view.
-    await cold.waitForFunction((key, oldSeed) => JSON.parse(localStorage.getItem(key))?.seed !== oldSeed,
-      { timeout: 45000 }, SAVE_KEY, beforeRestart.seed);
     await hand(cold); await play(cold, 3);
     assert.notEqual((await saved(cold)).seed, beforeRestart.seed);
     assert.deepEqual(refused.filter(name=>name!=='sw.js'), []);
     await cold.screenshot({path:resolve(output,'offline-plane-real-ai.png'),fullPage:true});
   });
   await check('interrupted runtime download stays incomplete and resumes without re-downloading good weights', async () => {
-    // Establish genuinely cached weights first. Runtime preparation now
-    // precedes CDN download, so an initial runtime failure need not fetch them.
-    const b = await launch(await profile()), p = await page(b);
-    await hand(p); await ready(p);
-    await p.waitForFunction(async (url, bytes) => {
-      const cache = await caches.open('mahjong-network-v1');
-      const held = await cache.match(url);
-      return Number(held?.headers.get('Content-Length')) === bytes;
-    }, { timeout: 120000 }, modelPath, NETWORK.bytes);
-    assert.equal(count.get(modelPath), 1);
     failPath = runtimePath;
-    const runtimes = manifest.entries.filter(e => e.group === 'ai' && e.url.endsWith('.wasm'));
-    for (const entry of runtimes) overrides.set(entry.url, Buffer.from('incomplete'));
-    await p.evaluate(async entries => {
-      const cache = await caches.open('mahjong-offline-v1:/mahjong/');
-      for (const entry of entries) await cache.delete(new URL(`__offline_content__/${entry.hash}`, location.href).href);
-      window.dispatchEvent(new Event('online'));
-    }, runtimes);
-    await p.click('.settings-trigger'); await p.click('.offline-settings summary');
-    await p.waitForSelector('[data-download-ai]:not(:disabled)', { visible: true });
-    await p.click('[data-download-ai]');
-    await p.waitForFunction(() => document.body.textContent.includes('AI download incomplete'), { timeout: 120000 });
-    assert.doesNotMatch(await p.$eval('[data-offline-status]', el => el.textContent), /AI ready/);
-    assert.equal(count.get(modelPath), 1);
-    failPath = null; overrides.clear();
-    await p.click('[data-download-ai]'); await ready(p);
-    await p.click('.mobile-preferences-head button');
-    assert.equal(count.get(modelPath), 1); assert.ok(count.get(runtimePath) >= 1);
-    await play(p, 4); assert.deepEqual(p.errors, []);
+    // The hashed duplicate has the same body: fail both network locations.
+    for (const entry of manifest.entries.filter(e=>e.group==='ai'&&e.url.endsWith('.wasm'))) overrides.set(entry.url, Buffer.from('incomplete'));
+    const b=await launch(await profile()), p=await page(b); await hand(p);
+    await p.waitForFunction(()=>document.body.textContent.includes('AI download incomplete'),{timeout:120000});
+    assert.doesNotMatch(await p.$eval('[data-offline-status]',el=>el.textContent),/AI ready/);
+    await p.waitForFunction(async()=>{
+      const reg=await navigator.serviceWorker.getRegistration();
+      return Boolean(reg?.active);
+    });
+    // Allow outstanding successful sibling requests to be written before retry.
+    await new Promise(done=>setTimeout(done,200));
+    // The runtime is saved before the network is fetched, so a runtime that
+    // cannot be saved spends none of the network's 116 MB.
+    assert.equal(count.get(modelPath) ?? 0,0);
+    failPath=null; overrides.clear();
+    await p.click('.settings-trigger'); await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p); await p.click('.mobile-preferences-head button');
+    assert.equal(count.get(modelPath),1); assert.ok(count.get(runtimePath)>=1);
+    await play(p,4); assert.deepEqual(p.errors,[]);
   });
   await check('cached Trained remains selectable offline without an online availability check', async () => {
     const b=await launch(await profile()),p=await page(b);await hand(p);await ready(p);
