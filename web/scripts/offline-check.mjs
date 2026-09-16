@@ -251,23 +251,35 @@ try {
     await cold.screenshot({path:resolve(output,'offline-plane-real-ai.png'),fullPage:true});
   });
   await check('interrupted runtime download stays incomplete and resumes without re-downloading good weights', async () => {
+    // Establish genuinely cached weights first. Runtime preparation now
+    // precedes CDN download, so an initial runtime failure need not fetch them.
+    const b = await launch(await profile()), p = await page(b);
+    await hand(p); await ready(p);
+    await p.waitForFunction(async (url, bytes) => {
+      const cache = await caches.open('mahjong-network-v1');
+      const held = await cache.match(url);
+      return Number(held?.headers.get('Content-Length')) === bytes;
+    }, { timeout: 120000 }, modelPath, NETWORK.bytes);
+    assert.equal(count.get(modelPath), 1);
     failPath = runtimePath;
-    // The hashed duplicate has the same body: fail both network locations.
-    for (const entry of manifest.entries.filter(e=>e.group==='ai'&&e.url.endsWith('.wasm'))) overrides.set(entry.url, Buffer.from('incomplete'));
-    const b=await launch(await profile()), p=await page(b); await hand(p);
-    await p.waitForFunction(()=>document.body.textContent.includes('AI download incomplete'),{timeout:120000});
-    assert.doesNotMatch(await p.$eval('[data-offline-status]',el=>el.textContent),/AI ready/);
-    await p.waitForFunction(async()=>{
-      const reg=await navigator.serviceWorker.getRegistration();
-      return Boolean(reg?.active);
-    });
-    // Allow outstanding successful sibling requests to be written before retry.
-    await new Promise(done=>setTimeout(done,200));
-    assert.equal(count.get(modelPath),1);
-    failPath=null; overrides.clear();
-    await p.click('.settings-trigger'); await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p); await p.click('.mobile-preferences-head button');
-    assert.equal(count.get(modelPath),1); assert.ok(count.get(runtimePath)>=1);
-    await play(p,4); assert.deepEqual(p.errors,[]);
+    const runtimes = manifest.entries.filter(e => e.group === 'ai' && e.url.endsWith('.wasm'));
+    for (const entry of runtimes) overrides.set(entry.url, Buffer.from('incomplete'));
+    await p.evaluate(async entries => {
+      const cache = await caches.open('mahjong-offline-v1:/mahjong/');
+      for (const entry of entries) await cache.delete(new URL(`__offline_content__/${entry.hash}`, location.href).href);
+      window.dispatchEvent(new Event('online'));
+    }, runtimes);
+    await p.click('.settings-trigger'); await p.click('.offline-settings summary');
+    await p.waitForSelector('[data-download-ai]:not(:disabled)', { visible: true });
+    await p.click('[data-download-ai]');
+    await p.waitForFunction(() => document.body.textContent.includes('AI download incomplete'), { timeout: 120000 });
+    assert.doesNotMatch(await p.$eval('[data-offline-status]', el => el.textContent), /AI ready/);
+    assert.equal(count.get(modelPath), 1);
+    failPath = null; overrides.clear();
+    await p.click('[data-download-ai]'); await ready(p);
+    await p.click('.mobile-preferences-head button');
+    assert.equal(count.get(modelPath), 1); assert.ok(count.get(runtimePath) >= 1);
+    await play(p, 4); assert.deepEqual(p.errors, []);
   });
   await check('cached Trained remains selectable offline without an online availability check', async () => {
     const b=await launch(await profile()),p=await page(b);await hand(p);await ready(p);
