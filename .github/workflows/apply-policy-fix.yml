@@ -20,8 +20,6 @@ jobs:
           python3 - <<'PY'
           import hashlib, pathlib
           data = b''.join(pathlib.Path(f'.policy-fix-{i}.patch').read_bytes() for i in range(3))
-          # Canonicalize the accidental indentation of one transport header;
-          # source lines are not modified. The canonical bytes must match.
           data = data.replace(b'\n diff --git ', b'\ndiff --git ')
           assert hashlib.sha256(data).hexdigest() == 'ddb954df2e979d3a9cab82d24f024c0f57d2515a01bc44ca7cfa196298c0a213', 'Patch digest mismatch'
           paths = []
@@ -36,14 +34,16 @@ jobs:
               paths.append(str(p))
           assert len(paths) == len(set(paths)) == 17
           pathlib.Path('/tmp/policy-fix.patch').write_bytes(data)
-          pathlib.Path('/tmp/policy-fix-paths').write_text('\n'.join(paths) + '\n')
+          # Workflow changes are made separately through the connected GitHub
+          # account. This job does not ask its token for workflow permission.
+          pathlib.Path('/tmp/policy-fix-paths').write_text('\n'.join(p for p in paths if not p.startswith('.github/')) + '\n')
           PY
-      - name: Refuse concurrent source edits and apply patch
+      - name: Refuse concurrent source edits and apply contents-only patch
         run: |
           git fetch --no-tags --depth=1 origin 6778666f7f93646f4c7564e3dc6abcaf1088f887
-          git diff --exit-code 6778666f7f93646f4c7564e3dc6abcaf1088f887 HEAD -- neural web docs .github/workflows/neural.yml
-          git apply --check --unidiff-zero /tmp/policy-fix.patch
-          git apply --unidiff-zero /tmp/policy-fix.patch
+          git diff --exit-code 6778666f7f93646f4c7564e3dc6abcaf1088f887 HEAD -- neural web docs
+          git apply --check --unidiff-zero --exclude=.github/workflows/neural.yml /tmp/policy-fix.patch
+          git apply --unidiff-zero --exclude=.github/workflows/neural.yml /tmp/policy-fix.patch
           python3 -m compileall -q neural
           git diff --check
           python3 - <<'PY'
@@ -54,10 +54,10 @@ jobs:
               actual = subprocess.check_output(['git', 'hash-object', path], text=True).strip()
               assert actual == wanted, f'Tested source mismatch: {path}'
           PY
-      - name: Commit verified source and remove one-time setup
+      - name: Commit verified source and remove patch transport
         run: |
           git add --pathspec-from-file=/tmp/policy-fix-paths
-          git rm .policy-fix-0.patch .policy-fix-1.patch .policy-fix-2.patch .github/workflows/policy-review-workspace.yml .github/workflows/apply-policy-fix.yml
+          git rm .policy-fix-0.patch .policy-fix-1.patch .policy-fix-2.patch
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'Align ordinary and search policy contracts and bound rollout inference'
