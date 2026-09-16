@@ -79,7 +79,7 @@ class NativeTeacherTests(unittest.TestCase):
 
     def test_completed_placement_teacher_replay_fits_and_resumes_hybrid_student(self):
         net=model.PolicyValueNet(8,1,actions=46).eval()
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
             root=Path(temp)
             head=placement.new_head(net)
             placement.save(head,root/'head.pt',dict(features=placement.fingerprint(net,head.feature_version)))
