@@ -32,6 +32,8 @@ import contextlib
 import numpy as np
 import torch
 
+from . import policy_inference
+
 import riichi_py
 
 ENGINE_PLANES = riichi_py.PLANES
@@ -233,7 +235,7 @@ class EngineServed:
         return np.where(legal[rows, own_order], own_order, -1)
 
     def order(self, logits) -> np.ndarray:
-        return torch.argsort(logits, dim=1, descending=True).cpu().numpy()
+        return policy_inference.order(logits).cpu().numpy()
 
     def value(self, planes, head: str = "critic"):
         """What the network makes of these positions.
@@ -363,7 +365,7 @@ class MortalServed:
         return np.where(found, best, -1)
 
     def order(self, logits) -> np.ndarray:
-        return torch.argsort(logits, dim=1, descending=True).cpu().numpy()
+        return policy_inference.order(logits).cpu().numpy()
 
     def after_reach(self, arena, rows, deciding, legal, device, follower=None):
         """The second question a reach asks, which tile to throw, put from
@@ -411,7 +413,8 @@ class MortalServed:
         _logits, value, _hands = self.net.everything(planes, mask)
         return value
 
-    def play_lookahead(self, arena, device="cuda", temperature=0.0, passes=8000) -> int:
+    def play_lookahead(self, arena, device="cuda", temperature=0.0, passes=8000,
+                       batch_size=policy_inference.DEFAULT_ROLLOUT_BATCH) -> int:
         """The network moving every seat inside the lookahead, on Mortal's
         planes.
 
@@ -429,6 +432,7 @@ class MortalServed:
         from . import zoo
         from .observe import Planes
 
+        policy_inference.validate_batch(batch_size)
         net = self.net
         follower = arena_follower(arena)
         base: dict[tuple[int, int], int] = {}
@@ -495,19 +499,19 @@ class MortalServed:
                 copies.synchronize_search_decisions([deciding[at] for at in empty],
                     masks[empty].tolist(), [flags[at] for at in empty], [drawn[at] for at in empty])
                 needs_initial_decision.difference_update(deciding[at] for at in empty)
-            indptr, indices, values, _own = copies.encode_some(deciding)
-            planes = Planes.from_follower(indptr, indices, values)
             # What our engine allows, named in Mortal's moves, as the table
             # asks it (`zoo.choose_in_mortal_space`).
             allowed = masks if self.contract.speaks_our_moves else zoo.translatable(masks)
             if not allowed.any(axis=1).all():
                 raise UnsupportedSearchLayout("An imagined decision has no translatable legal move")
             best = np.empty(count, dtype=np.int64)
-            step = 4096
-            for start in range(0, count, step):
-                rows = np.arange(start, min(start + step, count))
+            for start in range(0, count, batch_size):
+                stop = min(start + batch_size, count)
+                rows = np.arange(start, stop)
+                indptr, indices, values, _own = copies.encode_some(deciding[start:stop])
+                planes = Planes.from_follower(indptr, indices, values)
                 logits = policy_logits(net,
-                    planes.rows(rows).dense(device), torch.from_numpy(allowed[rows]).to(device)
+                    planes.dense(device), torch.from_numpy(allowed[rows]).to(device)
                 )
                 logits = logits.float()
                 if temperature > 0:
@@ -521,15 +525,16 @@ class MortalServed:
                 raise UnsupportedSearchLayout("The imagined policy chose an untranslatable action")
             second = (np.empty(0, dtype=np.int64) if self.contract.speaks_our_moves
                       else np.nonzero(best == zoo.MORTAL_RIICHI)[0])
-            if len(second):
-                asked = copies.clone_some([deciding[at] for at in second])
+            for start in range(0, len(second), batch_size):
+                group = second[start:start + batch_size]
+                asked = copies.clone_some([deciding[at] for at in group])
                 asked.feed(
-                    [[json.dumps({"type": "reach", "actor": int(players[at])})] for at in second]
+                    [[json.dumps({"type": "reach", "actor": int(players[at])})] for at in group]
                 )
                 indptr, indices, values, _masks = asked.encode()
                 after = Planes.from_follower(indptr, indices, values).dense(device)
-                tiles = masks[second, zoo.RIICHI_DISCARD : zoo.TSUMO]
-                allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
+                tiles = masks[group, zoo.RIICHI_DISCARD : zoo.TSUMO]
+                allowed_after = np.zeros((len(group), zoo.MORTAL_ACTIONS), dtype=bool)
                 allowed_after[:, :POSITIONS] = tiles
                 logits_after = policy_logits(net, after, torch.from_numpy(allowed_after).to(device))
                 logits_after = logits_after.float()[:, :POSITIONS]
@@ -540,7 +545,7 @@ class MortalServed:
                     tile = torch.multinomial(torch.softmax(ranked / temperature, dim=1), 1).squeeze(1)
                 else:
                     tile = ranked.argmax(dim=1)
-                actions[second] = zoo.RIICHI_DISCARD + tile.cpu().numpy()
+                actions[group] = zoo.RIICHI_DISCARD + tile.cpu().numpy()
             arena.lookahead_apply(actions.tolist())
         # The native leaf boundary rejects remaining/broken worlds, without
         # consuming the lookahead. A caller may continue with a larger budget.
@@ -549,8 +554,7 @@ class MortalServed:
 
 def policy_logits(net, planes, legal):
     """Use a verified fast path where available, without changing old models."""
-    fast = getattr(net, "policy_only", None)
-    return fast(planes, legal) if callable(fast) else net(planes, legal)[0]
+    return policy_inference.policy_logits(net, planes, legal)
 
 
 def root_order(served, arena, views, rows, deciding, mask, device):
@@ -574,7 +578,7 @@ def root_order(served, arena, views, rows, deciding, mask, device):
     net = served.net
     games = mask.shape[0]
     root_planes, root_mask = served.root(arena, views, rows, deciding, mask, device)
-    logits, value, guessed = net.everything(root_planes, root_mask)
+    logits, value, guessed = policy_inference.everything(net, root_planes, root_mask)
     own_order = served.order(logits.float())
     named = served.to_engine_rows(own_order, mask[rows])
     reach_at: dict[int, int] = {}
@@ -589,9 +593,9 @@ def root_order(served, arena, views, rows, deciding, mask, device):
             after_planes, after_mask = served.after_reach(
                 arena, rows[second], deciding[second], mask, device, follower=follower
             )
-            after_logits, _after_value, _after_hands = net.everything(after_planes, after_mask)
+            after_logits, _after_value, _after_hands = policy_inference.everything(net, after_planes, after_mask)
             tile_order = (
-                torch.argsort(after_logits[:, :POSITIONS].float(), dim=1, descending=True)
+                policy_inference.order(after_logits[:, :POSITIONS])
                 .cpu()
                 .numpy()
             )

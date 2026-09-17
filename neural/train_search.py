@@ -135,7 +135,7 @@ class Dataset:
                 "version", "reward", "observation", "actions", "target_kind", "source_revision",
             )}
             semantics["valued_by"] = m["search"]["valued_by"]
-            if m["version"] == 2:
+            if m["version"] in (2, 3):
                 semantics["teacher"] = m["teacher"]
             if contract is not None and _json(semantics) != _json(contract):
                 raise ValueError("Do not mix replay objectives, evaluators, encoders or source revisions")
