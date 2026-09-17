@@ -8,11 +8,15 @@ import vm from 'node:vm';
 import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { MEMORY_LIMITS_MIB, isMemoryError } from '../src/lib/memory-budget.js';
+import { copyRuntime } from '../scripts/copy-runtime.mjs';
 
 const folder = resolve(process.argv[2]);
 const cases = JSON.parse(await readFile(resolve(folder, 'inputs.json'), 'utf8'));
 assert.ok(cases.some(row => row.takes_legal && row.stage === 'riichi-discard'));
 assert.ok(cases.some(row => !row.takes_legal));
+// public/ort is generated, not tracked. Use the same checksum-checked copier
+// as the production build; never fall back to the package's generic runtime.
+await copyRuntime();
 const runtimeBase = new URL('../public/ort/', import.meta.url).href;
 const source = (await readFile(new URL('../src/lib/policy.worker.js', import.meta.url), 'utf8'))
   .replace("import * as ort from 'onnxruntime-web/wasm';", '')
@@ -20,7 +24,7 @@ const source = (await readFile(new URL('../src/lib/policy.worker.js', import.met
   .replace("import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';", '')
   .replace("import { networkBytes } from './network-store.js';", '')
   .replace('import(/* @vite-ignore */ controls)', 'loadMemoryControls(controls)');
-const tensors = [], sessions = [], messages = [];
+const tensors = [], messages = [];
 let current;
 function track(tensor) {
   const entry = { disposed: false };
@@ -43,7 +47,6 @@ const bridge = {
   Tensor: function(type, data, dims) { return track(new ort.Tensor(type, data, dims)); },
   InferenceSession: { create: async (bytes, options) => {
     const session = await ort.InferenceSession.create(bytes, options);
-    sessions.push(session);
     return {
       inputNames: session.inputNames,
       release: () => session.release(),
