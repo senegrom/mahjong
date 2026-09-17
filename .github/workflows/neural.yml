@@ -11,6 +11,9 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "web/runtime/reduced-ops.config"
+      - "web/src/lib/policy.worker.js"
+      - "web/tests/policy-export-parity.mjs"
+      - "web/public/ort/**"
       - ".github/workflows/neural.yml"
   pull_request:
     paths:
@@ -21,6 +24,9 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "web/runtime/reduced-ops.config"
+      - "web/src/lib/policy.worker.js"
+      - "web/tests/policy-export-parity.mjs"
+      - "web/public/ort/**"
       - ".github/workflows/neural.yml"
   schedule:
     - cron: '23 6 * * 1'
@@ -94,3 +100,11 @@ jobs:
         run: python -m pip install wheels/*.whl
       - name: Test training resume, model export and teacher translation
         run: python -m unittest discover -s neural/tests -v
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - name: Test exported policies through the worker and reduced WASM runtime
+        run: |
+          npm ci --prefix web
+          python -m neural.tests.export_worker_fixture "$RUNNER_TEMP/policy-fixture"
+          node web/tests/policy-export-parity.mjs "$RUNNER_TEMP/policy-fixture"
