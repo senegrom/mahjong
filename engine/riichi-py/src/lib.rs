@@ -42,6 +42,8 @@ use riichi_core::search;
 use riichi_core::table::Table;
 use riichi_core::Wind;
 
+mod learning_labels;
+
 /// Native leaf bytes, per-game counts, settled rewards and wanted-value mask.
 type LeafBatch<'py> = (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>);
 
@@ -438,6 +440,19 @@ impl Arena {
             imagined: (0..games).map(|_| Vec::new()).collect(),
             imagined_chance: (0..games).map(|_| Vec::new()).collect(),
             lookaheads: (0..games).map(|_| None).collect(),
+        }
+    }
+
+    /// Privileged supervised targets, never used by policy inference.
+    fn learning_defence<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, bytemuck_cast(&learning_labels::collect(&self.seats)))
+    }
+
+    /// Independent experiment randomness; never reset the real dealing stream.
+    fn learning_seed_search(&mut self, seed: u64) {
+        for (index, seat) in self.seats.iter_mut().enumerate() {
+            seat.search_rng =
+                Rng::from_seed(seed.wrapping_add(index as u64) ^ 0x4C41_4252_4541_4E41);
         }
     }
 
@@ -1594,6 +1609,7 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
     module.add("TRAINING_API_VERSION", 2u32)?;
     module.add("SEARCH_API_VERSION", 5u32)?;
+    module.add("LEARNING_LABEL_API_VERSION", 1u32)?;
     module.add("PLANES", PLANES)?;
     module.add("POSITIONS", POSITIONS)?;
     module.add("OBSERVATION", OBSERVATION)?;
