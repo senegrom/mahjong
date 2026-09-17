@@ -669,10 +669,9 @@ def placement_value(served, planes):
             "the search was asked to value leaves by placement, but no placement head "
             "was served beside the network: give `contract.serve` one (--placement-head)"
         )
-    from . import placement
-
-    features, pooled = placement.features_of(served.net, planes, head.feature_version)
-    return head(features, pooled)
+    # How the judge reads a position is the judge's own business: the
+    # policy's frozen tower, or one of its own.
+    return head.judge(served.net, planes)
 
 
 def serve(net, checkpoint: str = "the checkpoint", placement_head=None):
