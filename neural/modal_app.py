@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -603,6 +604,86 @@ def train_combined(
         else:
             print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
         return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
+
+
+@app.function(
+    # Self-play is bound by Mortal's encoder on the processors, so any card
+    # will do for the network's share of it.
+    gpu=["L40S", "A10G", "A100-40GB"],
+    cpu=16.0,
+    memory=32768,
+    timeout=24 * 60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def collect_rounds(
+    which: str = "latest",
+    run: str = DEFAULT_RUN,
+    rounds: int = 16,
+    games: int = 256,
+    seed: int = 100_000,
+    keep: str = "boundary",
+    tag: str = "judge",
+) -> str:
+    """Labelled self-play rounds, kept on the volume for a placement judge.
+
+    What such a judge learns from is games -- one placement each -- and the
+    measured curve is about four hundredths of the held-out placement per
+    quadrupling of them. So this plays games and keeps, by default, only the
+    positions a search actually asks a judge about: the first turn to act of
+    a hand, one row in sixteen and a twentieth of the bytes.
+
+    Each call owns a block of environment seeds, `seed` to `seed + rounds *
+    games`, and refuses to write over a round that is already there, so
+    calls may run beside each other as long as their blocks do not overlap.
+    Every round is committed as it is made: a container that loses its place
+    leaves behind everything it finished.
+    """
+    validate_run(run)
+    for name, value in (("rounds", rounds), ("games", games)):
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+    if type(seed) is not int or seed < 0 or seed + rounds * games > 2**64:
+        raise ValueError("seed block must fit unsigned 64-bit game seeds")
+    if keep not in ("all", "boundary"):
+        raise ValueError("keep must be all or boundary")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", tag):
+        raise ValueError("invalid round tag")
+    volume.reload()
+    source = _checkpoint(run, which)
+    if not source.exists():
+        raise FileNotFoundError(f"no checkpoint at {source}")
+    target = VOLUME / "rounds" / tag
+    target.mkdir(parents=True, exist_ok=True)
+    with workspace("rounds") as where:
+        copied = where / "checkpoint.pt"
+        generation = copy_checkpoint(source, copied, require_generation=True)
+        made, skipped = [], 0
+        for index in range(rounds):
+            at = seed + index * games
+            out = target / f"{tag}-s{at}.pt"
+            if out.exists():
+                skipped += 1
+                continue
+            staged = where / f"{tag}-s{at}.pt"
+            command = [
+                sys.executable, "-m", "neural.selfplay", str(copied),
+                "--games", str(games), "--seed", str(at), "--amp",
+                "--device", "cuda", "--keep", keep, "--out", str(staged),
+            ]
+            result = subprocess.run(command, cwd="/src", env=_environment(16),
+                                    capture_output=True, text=True)
+            if result.returncode or not staged.exists():
+                raise subprocess.CalledProcessError(
+                    result.returncode, command, output=(result.stdout or "") + (result.stderr or ""))
+            shutil.move(str(staged), str(out))
+            volume.commit()
+            made.append(out.name)
+            print(f"{out.name} ({out.stat().st_size / 1e6:.0f} MB)", flush=True)
+    answer = json.dumps({"checkpoint": f"{run}/{which}", "generation": generation, "tag": tag,
+                         "games_each": games, "seeds": [seed, seed + rounds * games],
+                         "kept": keep, "written": len(made), "already_there": skipped}, indent=1)
+    print(answer, flush=True)
+    return answer
 
 
 @app.function(
