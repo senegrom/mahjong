@@ -237,8 +237,12 @@ def fingerprint(net, feature_version: int = 1) -> str:
     """Which network's features a head reads, as a digest of the backbone's
     weights. A head fitted to one network's features says nothing about
     another's, and a checkpoint's name does not say which it was."""
-    if feature_version not in (1, FEATURE_VERSION):
+    if feature_version not in (1, 2, READS_TILES, OWN_TOWER):
         raise ValueError("unsupported placement feature version")
+    if feature_version == OWN_TOWER:
+        # It reads the planes, not the network, so what it must agree with is
+        # the shape of the observation rather than anyone's weights.
+        return f"planes-{int(backbone(net).planes)}"
     digest = hashlib.sha256()
     # Legacy digests are unchanged. New heads bind the entire combined model,
     # not just ours, since Mortal's encoder is part of their representation.
