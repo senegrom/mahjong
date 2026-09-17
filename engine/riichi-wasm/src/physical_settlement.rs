@@ -2,6 +2,7 @@
 //! Hand::act / Hand::resolve_calls / Hand::draw (only on an empty wall).
 //! Unknown hands and wall tiles are never filled in or simulated.
 use super::*;
+use crate::yaku_view;
 use riichi_core::game::{Action, Error, Outcome};
 use riichi_core::score::{FuReason, Score};
 
@@ -31,6 +32,8 @@ struct Input {
 
 #[derive(Serialize, Debug)]
 struct YakuLine {
+    id: String,
+    tile: Option<String>,
     name: &'static str,
     han: u8,
     yakuman: bool,
@@ -42,6 +45,7 @@ struct WinResult {
     winning_tile: String,
     hand: Vec<String>,
     yaku: Vec<YakuLine>,
+    scoring: Option<yaku_view::ScoringView>,
     han: u8,
     fu: u32,
     fu_detail: Vec<(String, u32)>,
@@ -356,14 +360,24 @@ fn win_result(hand: &Hand, seat: Wind, score: &Score, ron: bool) -> WinResult {
             .map(|indicator| all_tiles.iter().filter(|t| **t == indicator.dora()).count() as u8)
             .sum()
     };
+    // Match the ordinary result schema: show the winning tile once, apart
+    // from the standing hand. Scoring/dora above still use all the tiles.
+    let mut standing = player.hand;
+    if !ron {
+        standing.remove(score.winning_tile);
+    }
+    let standing: Vec<_> = standing.tiles().collect();
     WinResult {
         seat: seat.index(),
         winning_tile: score.winning_tile.to_string(),
-        hand: concealed.iter().map(ToString::to_string).collect(),
+        hand: standing.iter().map(ToString::to_string).collect(),
+        scoring: yaku_view::scoring_view(score, &standing, &player.melds, ron),
         yaku: score
             .yaku
             .iter()
             .map(|(y, han)| YakuLine {
+                id: yaku_view::identity(*y),
+                tile: yaku_view::value_tile(*y, seat, hand.round),
                 name: y.name(),
                 han: *han,
                 yakuman: y.is_yakuman(),

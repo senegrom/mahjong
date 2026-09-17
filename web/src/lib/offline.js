@@ -1,6 +1,6 @@
 /** Offline preparation and honest, cache-backed download status. No localStorage
  * flag is accepted as proof that a model or its runtime is actually present. */
-import { networkBytes, networkIsStored } from './network-store.js';
+import { networkIsStored } from './network-store.js';
 const base = new URL('./', document.baseURI);
 const script = new URL('sw.js', base).href;
 let worker = null;
@@ -23,14 +23,19 @@ export function watchOffline(listener) {
 function request(type, progress) {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();
-    const timer = setTimeout(() => finish(new Error('Offline preparation timed out. Please reconnect and retry.')), 180000);
+    const timer = setTimeout(() => finish(new Error('Offline preparation timed out. Please reconnect and retry.')),
+      type === 'MAHJONG_PREPARE_AI' ? 31 * 60 * 1000 : 180000);
     const finish = (error, value) => {
       clearTimeout(timer); channel.port1.close();
       if (error) reject(error); else resolve(value);
     };
     channel.port1.onmessage = ({ data }) => {
       if (data.progress) progress?.(data.progress);
-      else finish(data.error ? new Error(data.error) : null, data.value);
+      else {
+        const error = data.error ? new Error(data.error) : null;
+        if (error && data.storage) error.name = 'NetworkStorageError';
+        finish(error, data.value);
+      }
     };
     try { worker.postMessage({ type }, [channel.port2]); }
     catch (error) { finish(error); }
@@ -163,19 +168,19 @@ export function prepareOfflineAi() {
     if (info.aiReady) return info;
     update({ phase: 'ai', progress: 0, warning: '' });
     try {
-      // The runtime that runs the network is saved by the service worker; the
-      // network itself is 116 MB from its own bucket, kept in Cache Storage.
-      // The runtime is the smaller half of the wait, so it takes the first
-      // fifth of the bar and the network the rest.
-      const ready = await request('MAHJONG_PREPARE_AI', ({ bytes, total }) => {
-        update({ progress: total ? Math.floor(20 * bytes / total) : 0 });
+      const ready = await request('MAHJONG_PREPARE_AI', ({ bytes, total, group }) => {
+        update({ progress: (group === 'network' ? 20 : 0)
+          + (total ? Math.floor((group === 'network' ? 80 : 20) * bytes / total) : 0) });
       });
-      await networkBytes({ onProgress: ({ bytes, total }) =>
-        update({ progress: 20 + (total ? Math.floor(80 * bytes / total) : 0) }) });
-      update({ ...await withNetwork(ready), phase: 'ready', progress: 100, warning: '' });
+      const verified = await withNetwork(ready);
+      update({ ...verified, phase: 'ready', progress: 100, warning: '' });
       void persistentStorage();
-      return ready;
+      return verified;
     } catch (error) {
+      if (error.name === 'NetworkStorageError') {
+        update({ aiReady: false, phase: 'incomplete', warning: `${error.message} Online play is still available; reconnect before playing offline.` });
+        return null;
+      }
       update({ aiReady: false, phase: 'incomplete', warning: `AI download incomplete: ${error.message}` });
       throw error;
     }

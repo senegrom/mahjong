@@ -5,13 +5,13 @@ import vm from 'node:vm';
 import { MessageChannel } from 'node:worker_threads';
 
 const source = (await readFile(new URL('../src/lib/offline.js', import.meta.url), 'utf8'))
-  .replace("import { networkBytes, networkIsStored } from './network-store.js';", '')
+  .replace("import { networkIsStored } from './network-store.js';", '')
   .replaceAll('import.meta.env.DEV', 'false').replaceAll('export ', '');
 
 // Exercise the real coordinator against the service-worker message contract.
 // No browser globals or state are shared between tests.
 function coordinator({ coreReady = false, aiReady = false, failCore = false, failAi = false,
-  registered = true, held = true } = {}) {
+  registered = true, held = true, storageFailure = false } = {}) {
   const calls = [], info = { coreReady, aiReady, hasModel: true, version: 'test' };
   let fetched = 0;
   const faults = { core: failCore, ai: failAi, registration: false };
@@ -22,7 +22,7 @@ function coordinator({ coreReady = false, aiReady = false, failCore = false, fai
       calls.push(type);
       queueMicrotask(() => {
         if (type === 'MAHJONG_PREPARE_CORE' && faults.core) port.postMessage({ error: 'Connection lost' });
-        else if (type === 'MAHJONG_PREPARE_AI' && faults.ai) port.postMessage({ error: 'AI interrupted' });
+        else if (type === 'MAHJONG_PREPARE_AI' && faults.ai) port.postMessage({ error: 'AI interrupted', storage: storageFailure });
         else {
           if (type === 'MAHJONG_PREPARE_CORE') info.coreReady = true;
           if (type === 'MAHJONG_PREPARE_AI') info.aiReady = true;
@@ -116,4 +116,15 @@ test('optional AI download and retry touch only the AI group, not already comple
   assert.equal(c.state().aiReady, true);
   assert.equal(c.calls.filter(type => type === 'MAHJONG_PREPARE_AI').length, 2);
   assert.equal(c.calls.includes('MAHJONG_PREPARE_CORE'), false);
+});
+
+test('storage failure is a visible offline warning, not a prohibition on online inference', async () => {
+  const c = coordinator({ coreReady: true, failAi: true, storageFailure: true });
+  await c.api.startOffline();
+  assert.equal(await c.api.prepareOfflineAi(), null);
+  assert.equal(c.state().aiReady, false);
+  assert.match(c.state().warning, /Online play is still available/);
+  c.faults.ai = false;
+  await c.api.prepareOfflineAi();
+  assert.equal(c.state().aiReady, true);
 });

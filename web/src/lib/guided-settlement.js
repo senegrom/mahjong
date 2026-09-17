@@ -89,11 +89,28 @@ export function applySettlement(state, input, score) {
 }
 
 /** Recompute saved results on read, without applying them. A balanced but
- * altered ledger or yaku list is not an authoritative saved settlement. */
+ * altered ledger or yaku list is not an authoritative saved settlement.
+ * The old result presentation included the winning tile in hand and lacked
+ * scorer attribution. Migrate only after its exact former representation and
+ * all payouts match; never change balances or apply settlement a second time. */
 export function verifySettlement(state, score) {
   if (!state.settlement) return true;
   if (!state.settlement.input || typeof score !== 'function') return false;
   const actual = score(structuredClone(state.ending), structuredClone(state.settlement.input));
-  return validSettlement(actual, state.ending)
-    && Object.keys(actual).every(key => same(actual[key], state.settlement[key]));
+  if (!validSettlement(actual, state.ending)) return false;
+  const matches = expected => Object.keys(expected).every(key => same(expected[key], state.settlement[key]));
+  if (matches(actual)) return true;
+  if (!actual.winners.length || actual.winners.length !== state.settlement.winners.length
+    || state.settlement.winners.some(w => Object.hasOwn(w, 'scoring')
+      || w.yaku.some(y => Object.hasOwn(y, 'id') || Object.hasOwn(y, 'tile')))
+    || actual.winners.some(w => !Object.hasOwn(w, 'scoring'))) return false;
+  const legacy = structuredClone(actual);
+  for (const win of legacy.winners) {
+    delete win.scoring;
+    for (const yaku of win.yaku) { delete yaku.id; delete yaku.tile; }
+    win.hand = [...win.hand, win.winning_tile].sort((a, b) => TILES.indexOf(a) - TILES.indexOf(b));
+  }
+  if (!matches(legacy)) return false;
+  state.settlement.winners = structuredClone(actual.winners);
+  return true;
 }

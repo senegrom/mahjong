@@ -86,7 +86,7 @@ export class MatchSession {
   stateKey() { return JSON.stringify([this.view, this.choices, this.over]); }
 
   snapshot() {
-    return { version: VERSION, format: 5, seed: this.seed, difficulty: this.initialDifficulty, opponents: [...this.initialOpponents],
+    return { version: VERSION, format: 6, seed: this.seed, difficulty: this.initialDifficulty, opponents: [...this.initialOpponents],
       commands: this.commands.map((command) => ({ ...command })), state: this.stateKey() };
   }
 
@@ -94,7 +94,7 @@ export class MatchSession {
     require(typeof text === 'string' && text.length <= MAX_SAVE_BYTES, 'Saved match is too large');
     const saved = JSON.parse(text);
     const format = saved?.format ?? 0;
-    require(saved?.version === VERSION && [0, 2, 3, 4, 5].includes(format) && Array.isArray(saved.commands), 'Unsupported saved match');
+    require(saved?.version === VERSION && [0, 2, 3, 4, 5, 6].includes(format) && Array.isArray(saved.commands), 'Unsupported saved match');
     require(saved.commands.length <= MAX_COMMANDS && typeof saved.state === 'string', 'Invalid saved match');
     require(format >= 4 || !saved.commands.some(command => command?.type === 'opponent-club'), 'Unsupported legacy controller change');
     // Up to format 4 a trained opponent's move was recorded in our own
@@ -126,8 +126,15 @@ export class MatchSession {
       // Divergent rules/commands still fail closed and leave the save untouched.
       const state = session.stateKey();
       const comparable = (value) => {
-        if (format >= 4) return value;
+        if (format >= 6) return value;
         const data = JSON.parse(value);
+        // Format 6 adds scorer-owned tile attribution, not a rules change.
+        // Old saved hands still verify all tiles, yaku/han and payments.
+        for (const win of data[0].outcome?.wins ?? []) {
+          delete win.scoring;
+          for (const yaku of win.yaku ?? []) { delete yaku.id; delete yaku.tile; }
+        }
+        if (format >= 4) return JSON.stringify(data);
         // Only new identity/controller metadata is ignored for old saves. The
         // original uniform controllers are replayed, never inferred from UI.
         for (const seat of data[0].seats ?? []) { delete seat.player; delete seat.controller; }

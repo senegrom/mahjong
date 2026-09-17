@@ -33,7 +33,7 @@ export const YAKU_NOTES = Object.freeze({
   'Half Outside Hand': 'Every set and the pair holds a terminal or an honour, with at least one sequence.',
   'Full Outside Hand': 'Every set and the pair holds a terminal, with at least one sequence and no honours.',
   'Triple Triplet': 'The same number as a triplet in each of the three suits.',
-  'Three Concealed Triplets': 'Three triplets or quads that were never called.',
+  'Three Concealed Triplets': 'Three concealed triplets or quads. A triplet completed by a claimed discard does not count.',
   'Three Quads': 'Three quads declared in one hand.',
   'All Triplets': 'Four triplets or quads and a pair: no sequence anywhere.',
   'Little Three Dragons': 'Two dragon triplets and a pair of the third dragon.',
@@ -45,7 +45,7 @@ export const YAKU_NOTES = Object.freeze({
   'Nine Gates': 'One suit held as 1112345678999 plus any tile of that suit, concealed.',
   'Blessing of Heaven': 'The dealer wins on their very first draw.',
   'Blessing of Earth': 'A non-dealer wins on their first draw, uninterrupted by a call.',
-  'Four Concealed Triplets': 'Four triplets or quads, none of them called.',
+  'Four Concealed Triplets': 'Four concealed triplets or quads. A discard win must complete the pair, not a triplet.',
   'Four Quads': 'All four sets are quads.',
   'All Green': 'Only green tiles: 2, 3, 4, 6 and 8 of bamboo, and the green dragon.',
   'All Terminals': 'Every tile is a 1 or a 9.',
@@ -157,8 +157,16 @@ export function splittings(places) {
 
 /** Every reading of the whole hand: called sets are fixed, the rest splits. */
 export function readings(win) {
+  // New native results retain the actual highest-scoring decomposition and
+  // the winning block. Legacy saved results may only have raw tiles.
+  if (win.scoring) return [win.scoring];
   const melds = called(win).map(setOfMeld);
-  return splittings(concealed(win)).map(({ sets, pair }) => ({ sets: [...melds, ...sets], pair }));
+  return splittings(concealed(win)).map(({ sets, pair }) => ({
+    sets: [...melds, ...sets.map(set => ({ ...set,
+      concealed: !(set.kind === 'triplet' && ['discard', 'ron'].includes(win.by)
+        && set.tiles.some(place => place.at === AT_WON)),
+    }))], pair,
+  }));
 }
 
 const everything = win => [...concealed(win), ...called(win).flatMap(meld => meld.tiles)];
@@ -167,7 +175,9 @@ const numbersOf = run => run.faces.map(rank).join('-');
 
 /** Which tiles make this yaku, as the places the screen draws them in, or
  * nothing where the yaku is about how the hand was won. */
-export function tilesFor(name, win) {
+export function tilesFor(yaku, win) {
+  const name = typeof yaku === 'string' ? yaku : yaku.name;
+  const valueTile = typeof yaku === 'object' ? yaku.tile : null;
   if (!win) return [];
   const all = () => everything(win).map(place => place.at);
   const runs = reading => reading.sets.filter(set => set.kind === 'run');
@@ -202,8 +212,8 @@ export function tilesFor(name, win) {
           const key = run.faces.join();
           counted.set(key, [...(counted.get(key) ?? []), run]);
         }
-        const doubled = [...counted.values()].filter(list => list.length >= 2);
-        return doubled.length >= 2 ? doubled.flat() : null;
+        const paired = [...counted.values()].flatMap(list => list.slice(0, 2 * Math.floor(list.length / 2)));
+        return paired.length >= 4 ? paired.slice(0, 4) : null;
       });
     case 'Mixed Triple Sequence':
       return pick(reading => {
@@ -258,11 +268,11 @@ export function tilesFor(name, win) {
       return pick(reading => reading.sets.filter(set => set.kind === 'quad'));
     case 'Dragon Triplet':
       return pick(reading => reading.sets.filter(
-        set => set.kind !== 'run' && DRAGONS.includes(set.faces[0])));
+        set => set.kind !== 'run' && (valueTile ? set.faces[0] === valueTile : DRAGONS.includes(set.faces[0]))));
     case 'Seat Wind Triplet': case 'Round Wind Triplet':
       return pick(reading => {
-        const winds = reading.sets.filter(set => set.kind !== 'run' && WINDS.includes(set.faces[0]));
-        return winds.length ? [winds[0]] : null;
+        const actual = valueTile ?? windTile(name === 'Seat Wind Triplet' ? win.seat : win.round);
+        return reading.sets.filter(set => set.kind !== 'run' && set.faces[0] === actual);
       });
     case 'Little Three Dragons':
       return pick(reading => {
@@ -280,4 +290,16 @@ export function tilesFor(name, win) {
 
 export function noteFor(name) {
   return YAKU_NOTES[name] ?? '';
+}
+
+function windTile(wind) {
+  if (Number.isInteger(wind) && wind >= 0 && wind < 4) return WINDS[wind];
+  const index = ['east', 'south', 'west', 'north'].indexOf(String(wind).toLowerCase());
+  return index < 0 ? null : WINDS[index];
+}
+
+export function isCircumstance(name) {
+  return ['Riichi', 'Double Riichi', 'Ippatsu', 'Fully Concealed Hand', 'After a Quad',
+    'Robbing a Quad', 'Under the Sea', 'Under the River', 'Blessing of Man',
+    'Blessing of Heaven', 'Blessing of Earth'].includes(name);
 }

@@ -152,3 +152,27 @@ test('remaining-copy hints count public information once, including claimed tile
   assert.equal(left.get('6z'), 3);
   assert.equal(left.get('9s'), 4);
 });
+
+class ScoredGame extends FakeGame {
+  view() { return { ...super.view(), outcome: { wins: [{ hand: ['1z'], winning_tile: '1z',
+    han: 1, payment: '1000', scoring: { sets: [], pair: null },
+    yaku: [{ name: 'Round Wind Triplet', han: 1, id: 'YakuhaiRoundWind', tile: '1z' }] }] } }; }
+}
+test('saved completed matches migrate old attribution only and keep strict new-format checking', () => {
+  const match = new MatchSession(ScoredGame, 1, 'club');
+  try {
+    const current = match.snapshot();
+    assert.equal(current.format, 6);
+    const old = { ...current, format: 5 }, data = JSON.parse(old.state), win = data[0].outcome.wins[0];
+    delete win.scoring; delete win.yaku[0].id; delete win.yaku[0].tile;
+    old.state = JSON.stringify(data);
+    const read = MatchSession.restore(ScoredGame, JSON.stringify(old));
+    try { assert.deepEqual(read.snapshot(), current); } finally { read.dispose(); }
+    for (const change of [w => { w.hand[0] = '2z'; }, w => { w.payment = '2000'; },
+      w => { w.yaku[0].han = 2; }]) {
+      const bad = JSON.parse(old.state); change(bad[0].outcome.wins[0]);
+      assert.throws(() => MatchSession.restore(ScoredGame, JSON.stringify({ ...old, state: JSON.stringify(bad) })), /does not match/);
+    }
+    assert.throws(() => MatchSession.restore(ScoredGame, JSON.stringify({ ...old, format: 6 })), /does not match/);
+  } finally { match.dispose(); }
+});

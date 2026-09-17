@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { observeServiceWorkerRequests } from './service-worker-network.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { emptyPosition, parseTiles, PHYSICAL_KEY } from '../src/lib/physical-position.js';
 import { GUIDED_KEY, GUIDED_FORMAT, emptyGuided, guidedEvent } from '../src/lib/guided-game.js';
@@ -145,7 +146,9 @@ try {
     // bucket named in the manifest, 116 MB of it, so this is the one check
     // that waits for a real download.
     const network = `${MANIFEST.origin}/${MANIFEST.object}`;
-    page.on('request', request => { if (request.url() === network && request.method() === 'GET') modelRequests.push(request.url()); });
+    const stopObserving = await observeServiceWorkerRequests(context, request => {
+      if (request.url === network && request.method === 'GET') modelRequests.push(request.url);
+    });
     await setup(page, '0');
     await tile(page, '4z'); await choice(page);
     const selector = '[aria-label="Guided game adviser"]';
@@ -166,7 +169,8 @@ try {
     assert.equal(await page.$eval(selector, el => el.value), 'full');
     assert.equal(await page.$eval(`${selector} option[value="full"]`, el => el.disabled), false);
     await page.waitForSelector('.record-best', { timeout: 90000 });
-    assert.ok(modelRequests.length > 0, 'trained advice loads the network');
+    await stopObserving();
+    assert.equal(modelRequests.length, 1, 'trained advice saves exactly one verified network');
     assert.notEqual(await page.$('.weight-row meter'), null, 'a trained suggestion carries its weight');
     assert.equal(await page.$('.failure'), null);
     assert.deepEqual(await saved(page), before, 'loading must preserve the entire saved game');
