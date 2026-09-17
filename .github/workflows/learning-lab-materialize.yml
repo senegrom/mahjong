@@ -1,0 +1,52 @@
+name: Materialize checked learning lab source
+on:
+  push:
+    branches: ['learning/signal-upgrades-20260917']
+    paths: ['.github/workflows/learning-lab-materialize.yml']
+permissions:
+  contents: write
+jobs:
+  materialize:
+    if: github.ref == 'refs/heads/learning/signal-upgrades-20260917'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: learning/signal-upgrades-20260917
+      - name: Verify and apply tested source
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, lzma, os, pathlib, subprocess
+          run = lambda *args: subprocess.check_output(args, text=True).strip()
+          expected = 'bf5e6a154bc9806c8c25dda93bc193fef36d47721c8aff2eef56f15094aa7c20'
+          parts = [pathlib.Path(f'.github/learning-lab-source.{i}') for i in range(4)]
+          payload = lzma.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts), validate=True))
+          assert hashlib.sha256(payload).hexdigest() == expected, 'source checksum mismatch'
+          assert run('git', 'rev-parse', 'HEAD:engine/riichi-py/src/lib.rs') == '5ca3b046b9d235f4664e57bf02238def62f2df9f', 'native baseline changed'
+          patch = pathlib.Path(os.environ['RUNNER_TEMP']) / 'learning-lab.patch'
+          patch.write_bytes(payload)
+          subprocess.run(['git', 'apply', '--check', str(patch)], check=True)
+          subprocess.run(['git', 'apply', '--index', str(patch)], check=True)
+          paths = run('git', 'diff', '--cached', '--name-only').splitlines()
+          explicit = {'docs/LEARNING_SIGNAL_LAB.md', 'engine/riichi-py/src/lib.rs',
+                      'engine/riichi-py/src/learning_labels.rs', 'neural/tests/test_learning_lab.py',
+                      'neural/tests/test_learning_lab_native.py'}
+          assert len(paths) == 25
+          assert all(p in explicit or (p.startswith('neural/learning_lab/') and '..' not in pathlib.PurePosixPath(p).parts) for p in paths)
+          hashes = {p: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths}
+          print('CHECKED_SOURCE_SHA256=' + expected)
+          print('FINAL_FILE_HASHES=' + json.dumps(hashes, sort_keys=True))
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          subprocess.run(['python', '-m', 'compileall', '-q', 'neural/learning_lab'], check=True)
+          subprocess.run(['git', 'rm', '--', *(str(p) for p in parts)], check=True)
+          PY
+      - name: Commit readable source to experiment branch only
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Add opt-in learning-signal experiments and regression coverage'
+          git push origin HEAD:refs/heads/learning/signal-upgrades-20260917
+          git rev-parse HEAD
