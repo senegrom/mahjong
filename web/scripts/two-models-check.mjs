@@ -11,14 +11,16 @@ import puppeteer from 'puppeteer-core';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
-import { MODEL_FILES } from '../src/lib/model-package.js';
+import { MANIFEST } from '../src/lib/model-manifest.js';
+import { observeServiceWorkerRequests } from './service-worker-network.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const match = new MatchSession(Game, 81, 'neural');
 let initial;
 try { match.advance(false); initial = match.snapshot(); } finally { match.dispose(); }
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist');
-for (const file of Object.values(MODEL_FILES)) assert.ok(existsSync(resolve(dist, file)), `Missing trained network ${file}`);
+const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
+assert.ok(existsSync(resolve(dist, 'ort/ort-wasm-simd-threaded.wasm')), 'Missing trained runtime');
 const handler = createFixtureHandler({ root: dist, publicRoot: dist });
 const downloads = [];
 const server = createServer((request, response) => {
@@ -86,14 +88,19 @@ try {
   for (const storedModel of ['full', 'quick', 'strong']) {
     await check(`${storedModel} preference uses only the shipped trained network and preserves replay`, async () => {
       const context = await browser.createBrowserContext(), before = downloads.length;
+      const remote = [];
+      const stopObserving = await observeServiceWorkerRequests(context, request => {
+        if (request.url === networkUrl && request.method === 'GET') remote.push(request.url);
+      });
       try {
         const page = await open(context, base, storedModel);
         assert.equal(await page.$('select[aria-label="Trained opponent"]'), null,
           'One shipped network must not offer the retired network selector');
         await play(page, 12);
         const fetched = downloads.slice(before);
-        assert.ok(fetched.includes(MODEL_FILES.full), 'The actual trained network was never fetched');
-        assert.ok(fetched.every(name => Object.values(MODEL_FILES).includes(name)), 'A retired or unknown network was fetched');
+        await stopObserving();
+        assert.deepEqual(remote, [networkUrl], 'The actual model must be fetched exactly once');
+        assert.deepEqual(fetched, [], 'No retired same-origin model may be requested');
         assert.deepEqual(page.errors, []);
         const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
         assert.ok(saved.commands.filter(command => command.type === 'opponent').length >= 2,

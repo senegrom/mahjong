@@ -83,3 +83,17 @@ Regressions cover native-to-JavaScript attribution, ambiguous highest-scoring
 readings, both wind triplets, ron/tsumo, four identical sequences, multiple dragon
 triplets, poisoned caches, interrupted upgrades, bounded stalled/overlong streams,
 quota failures, publication interleaving, and placement replay consumer paths.
+
+## Saved-result compatibility
+
+Regular match format 6 carries the scorer's added presentation fields. Formats
+0/2/3/4/5 still replay their exact commands, tiles, yaku and payments before only
+the newly added attribution is regenerated. Modern-format state remains strict.
+Guided saved settlements and undo snapshots similarly migrate their old full-hand
+presentation only after recomputation matches every prior ledger and score field;
+no settlement is applied again and no stored balance changes. Partially modern or
+altered score metadata is rejected, not silently repaired.
+
+Browser model-download assertions observe the service-worker network target,
+which now owns durable preparation. They still require a real single download
+and trained inference; no network or offline checks are skipped.

@@ -7,6 +7,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { observeServiceWorkerRequests } from './service-worker-network.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
@@ -37,7 +38,9 @@ async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false
   const context=await browser.createBrowserContext();contexts.push(context);
   const p=await context.newPage();p.errors=[];p.modelLoads=0;
   p.on('pageerror',e=>p.errors.push(e.message));
-  p.on('request',req=>{if(req.url()===networkUrl&&req.method()==='GET')p.modelLoads++;});
+  p.stopNetworkObservation=await observeServiceWorkerRequests(context,request=>{
+    if(request.url===networkUrl&&request.method==='GET')p.modelLoads++;
+  });
   await p.setViewport({width,height,isMobile:width<500||height<500,hasTouch:width<500||height<500});
   await p.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
   await p.evaluateOnNewDocument((key,settings,snapshot)=>{
@@ -141,6 +144,7 @@ try {
     }
     // One download of the network for both trained seats, and none of it from
     // this server: the page fetches it from the bucket the manifest names.
+    await p.stopNetworkObservation();
     assert.equal(p.modelLoads,1);assert.equal(modelGets-loadsBefore,0);
     assert.equal(await p.$('.failure'),null);
     const snapshot=await saved(p);assert.ok(snapshot.commands.filter(c=>c.type==='opponent').length>=4);

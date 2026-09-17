@@ -2,8 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import init, { settle_physical } from '../src/wasm/riichi.js';
+import init, { Game, settle_physical } from '../src/wasm/riichi.js';
 import { emptyPosition, parseTiles } from '../src/lib/physical-position.js';
+import { MatchSession } from '../src/lib/session.js';
 import { tilesFor } from '../src/lib/yaku.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -63,4 +64,30 @@ test('ambiguous tiles follow the selected score, not the first JavaScript decomp
   const winner = win('111222333m456p5s', '5s');
   assert.equal(winner.scoring.sets.filter(g => g.kind === 'triplet').length, 3);
   assert.equal(selected(winner, 'Three Concealed Triplets').length, 9);
+});
+
+test('real finished-match replay upgrades pre-attribution saves without changing game state', () => {
+  const match = new MatchSession(Game, 3, 'club');
+  try {
+    match.advance(false);
+    for (let step = 0; step < 250 && match.view.phase !== 'over'; step++) {
+      const choices = match.choices;
+      const choice = choices.find(c => ['ron', 'tsumo'].includes(c.kind))
+        ?? choices.find(c => c.kind === 'riichi') ?? choices.find(c => c.kind === 'pass')
+        ?? choices.find(c => c.kind === 'discard' && c.tile === match.view.seats[0].drawn)
+        ?? choices.find(c => c.kind === 'discard') ?? choices[0];
+      match.apply({ type: 'choose', kind: choice.kind, tile: choice.tile ?? null }); match.advance(false);
+    }
+    assert.ok(match.view.outcome.wins.length);
+    const current = match.snapshot(), old = { ...current, format: 5 }, state = JSON.parse(old.state);
+    for (const winner of state[0].outcome.wins) {
+      delete winner.scoring;
+      for (const yaku of winner.yaku) { delete yaku.id; delete yaku.tile; }
+    }
+    old.state = JSON.stringify(state);
+    const restored = MatchSession.restore(Game, JSON.stringify(old));
+    try { assert.deepEqual(restored.snapshot(), current); } finally { restored.dispose(); }
+    state[0].outcome.wins[0].han++;
+    assert.throws(() => MatchSession.restore(Game, JSON.stringify({ ...old, state: JSON.stringify(state) })), /does not match/);
+  } finally { match.dispose(); }
 });

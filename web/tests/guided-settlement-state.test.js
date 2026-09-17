@@ -136,3 +136,33 @@ test('invalid winner timing and premature exhaustive draws are refused', () => {
   assert.throws(() => guidedEvent(g, { type: 'finish', kind: 'tsumo', result: 'Tsumo', winner: 3 }), /actual draw/);
   assert.throws(() => guidedEvent(g, { type: 'finish', kind: 'draw', result: 'Exhaustive draw' }), /final discard/);
 });
+
+function attributedResult() {
+  const r = result(), w = r.winners[0];
+  w.hand.splice(w.hand.lastIndexOf(w.winning_tile), 1);
+  w.scoring = { sets: [], pair: null };
+  w.yaku[0] = { ...w.yaku[0], id: 'YakuhaiRoundWind', tile: '1z' };
+  return r;
+}
+test('old settled presentation migrates only after exact ledger verification, including undo', () => {
+  const old = settle(ron(beforeRon()));
+  const original = GUIDED_FORMAT.encode(old);
+  const read = parseGuided(original, attributedResult);
+  assert.ok(read);
+  assert.deepEqual(read.state.settlement.winners, attributedResult().winners);
+  assert.deepEqual(read.state.position, old.state.position);
+  assert.deepEqual(read.log, old.log);
+  assert.throws(() => settle(read), /already been settled/);
+  const next = guidedEvent(old, { type: 'next-hand', repeat: false });
+  const resumed = parseGuided(GUIDED_FORMAT.encode(next), attributedResult);
+  assert.deepEqual(undoGuided(resumed).state.settlement.winners, attributedResult().winners);
+  assert.equal(GUIDED_FORMAT.encode(old), original, 'reading does not mutate the caller or stored bytes');
+});
+test('presentation migration rejects changed tiles, yaku, payments and partially modern metadata', () => {
+  for (const mutate of [w => { w.hand[0] = '9m'; }, w => { w.yaku[0].han++; },
+    w => { w.hand_payment++; }, w => { w.scoring = null; }, w => { w.yaku[0].id = 'Invented'; }]) {
+    const paid = settle(ron(beforeRon()));
+    mutate(paid.state.settlement.winners[0]);
+    assert.equal(parseGuided(GUIDED_FORMAT.encode(paid), attributedResult), null);
+  }
+});

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { settle_physical } from '../src/wasm/riichi.js';
-import { emptyPosition, parseTiles } from '../src/lib/physical-position.js';
+import { emptyPosition, parseTiles, TILES } from '../src/lib/physical-position.js';
 import { emptyGuided, guidedEvent, parseGuided, GUIDED_FORMAT, undoGuided } from '../src/lib/guided-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -220,4 +220,22 @@ test('real scorer: guided application, save verification, undo and next hand rec
   assert.deepEqual(undoGuided(g), before);
   const next = guidedEvent(g, { type: 'next-hand', repeat: false });
   assert.equal(next.state.position.riichi_sticks, 0); assert.equal(next.state.position.players[2].score, 32600);
+});
+
+test('real scorer migrates old saved winning tiles and attribution without paying twice', () => {
+  let game = emptyGuided(); game.state.position = ron().position; game.state.stage = 'decision';
+  game = guidedEvent(game, { type: 'choice', choice: { kind: 'ron' }, choices: [{ kind: 'ron' }] });
+  const paid = guidedEvent(game, { type: 'settle', input: { winners: [3] } }, undefined, settle_physical);
+  const old = structuredClone(paid);
+  for (const winner of old.state.settlement.winners) {
+    winner.hand.push(winner.winning_tile);
+    winner.hand.sort((a, b) => TILES.indexOf(a) - TILES.indexOf(b));
+    delete winner.scoring;
+    for (const yaku of winner.yaku) { delete yaku.id; delete yaku.tile; }
+  }
+  const read = parseGuided(GUIDED_FORMAT.encode(old), settle_physical);
+  assert.deepEqual(read, paid);
+  assert.throws(() => guidedEvent(read, { type: 'settle', input: { winners: [3] } }, undefined, settle_physical), /already been settled/);
+  old.state.settlement.winners[0].yaku[0].han++;
+  assert.equal(parseGuided(GUIDED_FORMAT.encode(old), settle_physical), null);
 });
