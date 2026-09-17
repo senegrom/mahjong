@@ -10,6 +10,8 @@ not claim MCTS, a stronger teacher, or a fully automated AlphaZero loop.
 """
 from __future__ import annotations
 
+from . import policy_inference
+
 import argparse
 from dataclasses import asdict, dataclass
 import hashlib
@@ -23,7 +25,7 @@ import torch
 from .training_safety import SEARCH_API_VERSION
 from .teacher_actions import representable_moves
 from .search_replay import (
-    ACTIONS, ENGINE_ACTIONS, PLANES, POSITIONS, REWARD, VERSION, TEACHER_VERSION, DENSE,
+    ACTIONS, ENGINE_ACTIONS, PLANES, POSITIONS, REWARD, VERSION, TEACHER_VERSION, INFERENCE_VERSION, DENSE,
     SearchReplay, action_contract, improvement_policy, validate_metadata,
 )
 
@@ -47,13 +49,14 @@ class SearchSettings:
     extra_candidates: int = 0
     audit_share: float = 0.0
     sure: float = 1.0
+    rollout_batch: int = 256
 
 
 def metadata(*, games: int, seed: int, settings: SearchSettings,
              actor_sha256: str, source_revision: str, training_api_version: int,
-             head_provenance: dict | None = None) -> dict:
+             head_provenance: dict | None = None, device: str = "cpu") -> dict:
     m = {
-        "version": TEACHER_VERSION, "complete": True, "rows": 1,
+        "version": INFERENCE_VERSION, "complete": True, "rows": 1,
         "reward": dict(REWARD),
         "observation": {"planes": PLANES, "positions": POSITIONS, "encoder_version": 4},
         "actions": {"policy": ACTIONS, "engine": ENGINE_ACTIONS},
@@ -66,6 +69,7 @@ def metadata(*, games: int, seed: int, settings: SearchSettings,
         "games": games, "seed": seed, "search": asdict(settings),
         "teacher": {"version": 1, "search_api_version": SEARCH_API_VERSION, "objective": settings.objective,
                     "placement_head": head_provenance,
+                    "policy_inference": policy_inference.describe(device, ACTIONS),
                     "student_value_head": "critic" if settings.valued_by == "placement" else settings.valued_by},
     }
     validate_metadata(m)
@@ -127,7 +131,7 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
     from .teacher_options import validate_controls, candidate_set
     validate_controls(**{name: getattr(settings, name) for name in (
         "objective", "valued_by", "played_by", "depth", "search_calls", "confirm_worlds",
-        "extra_candidates", "audit_share")})
+        "extra_candidates", "audit_share", "rollout_batch")})
     head = provenance = None
     if settings.valued_by == "placement":
         if placement_head is None:
@@ -148,7 +152,7 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
         raise ValueError("a placement head was supplied to a different teacher")
     m = metadata(games=games, seed=seed, settings=settings, actor_sha256=actor_sha256,
                  source_revision=source_revision, training_api_version=TRAINING_API_VERSION,
-                 head_provenance=provenance)
+                 head_provenance=provenance, device=device)
     validate_budget(games, settings.max_steps)
     require_training_engine()
     if ledger.REWARD_VERSION != REWARD["version"] or ledger.HAND_SCALE != 1 / 4000:
@@ -218,7 +222,7 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
                 device=device, pool=settings.pool, played_by=settings.played_by, depth=settings.depth,
                 temperature=settings.temperature, valued_by=settings.valued_by, served=served,
                 objective=settings.objective, search_calls=settings.search_calls,
-                confirm_worlds=settings.confirm_worlds,
+                confirm_worlds=settings.confirm_worlds, rollout_batch=settings.rollout_batch,
             ))
             if (choices.shape != (games,) or choices.dtype.kind not in "iu"
                     or np.any((choices < 0) | (choices >= ENGINE_ACTIONS))):
@@ -236,7 +240,7 @@ def collect(net, *, games: int, seed: int, settings: SearchSettings,
                 lookup = {int(game): i for i, game in enumerate(captured.reach_rows)}
                 indices = torch.tensor([lookup[int(game)] for game in rows[second]], device=device)
                 after, after_legal = (tensor[indices] for tensor in captured.reach_inputs)
-                after_logits, _v, _hands = net.everything(after, after_legal)
+                after_logits, _v, _hands = policy_inference.everything(net, after, after_legal)
                 actor_after = torch.softmax(after_logits.float(), dim=1).cpu().numpy()
                 record(after, after_legal.cpu().numpy(), actor_after, choices[rows[second]],
                        rows[second], deciding[second], 1, legal[rows[second]])
@@ -284,7 +288,7 @@ def main() -> None:
     # Validate cheap settings before loading checkpoints or creating output.
     validate_controls(**{name: getattr(settings, name) for name in (
         "objective", "valued_by", "played_by", "depth", "search_calls", "confirm_worlds",
-        "extra_candidates", "audit_share")})
+        "extra_candidates", "audit_share", "rollout_batch")})
     if (settings.valued_by == "placement") != (args.placement_head is not None):
         raise ValueError("--placement-head must be supplied exactly for --valued-by placement")
     if args.out.exists():

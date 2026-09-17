@@ -10,7 +10,12 @@ on:
       - "engine/riichi-core/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "web/runtime/reduced-ops.config"
+      - "web/runtime/**"
+      - "web/src/lib/policy.worker.js"
+      - "web/src/lib/memory-budget.js"
+      - "web/scripts/copy-runtime.mjs"
+      - "web/package*.json"
+      - "web/tests/policy-export-parity.mjs"
       - ".github/workflows/neural.yml"
   pull_request:
     paths:
@@ -20,7 +25,12 @@ on:
       - "engine/riichi-core/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "web/runtime/reduced-ops.config"
+      - "web/runtime/**"
+      - "web/src/lib/policy.worker.js"
+      - "web/src/lib/memory-budget.js"
+      - "web/scripts/copy-runtime.mjs"
+      - "web/package*.json"
+      - "web/tests/policy-export-parity.mjs"
       - ".github/workflows/neural.yml"
   schedule:
     - cron: '23 6 * * 1'
@@ -92,5 +102,15 @@ jobs:
         run: maturin build --release --locked --out ../../wheels
       - name: Install the real Python engines
         run: python -m pip install wheels/*.whl
+      - name: Test acting-policy parity and both bounded rollout stages
+        run: python -m unittest neural.tests.test_policy_search_parity -v
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - name: Test exported policies through the worker and reduced WASM runtime
+        run: |
+          npm ci --prefix web
+          python -m neural.tests.export_worker_fixture "$RUNNER_TEMP/policy-fixture"
+          node web/tests/policy-export-parity.mjs "$RUNNER_TEMP/policy-fixture"
       - name: Test training resume, model export and teacher translation
         run: python -m unittest discover -s neural/tests -v

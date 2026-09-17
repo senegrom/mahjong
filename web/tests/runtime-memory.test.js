@@ -36,7 +36,7 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
 
   const baselines = new Map();
   for (const name of Array(3).fill(network)) {
-    let session, input;
+    let session, input, mask;
     try {
       const bytes = new Uint8Array(await readFile(name));
       session = await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
@@ -48,7 +48,7 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
       // be a number is the moves it was allowed.
       const wants = session.inputNames.includes('legal');
       const allowed = Array.from({ length: 46 }, (_, index) => index < 14);
-      const mask = wants
+      mask = wants
         ? new ort.Tensor('float32', Float32Array.from(allowed, can => (can ? 1 : 0)), [1, allowed.length])
         : null;
       for (let turn = 0; turn < 12; turn++) {
@@ -65,6 +65,7 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
       }
     } finally {
       input?.dispose();
+      mask?.dispose();
       await session?.release();
     }
   }

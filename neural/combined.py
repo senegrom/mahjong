@@ -20,6 +20,8 @@ everything, so it loads wherever a player of ours does.
 
 from __future__ import annotations
 
+from . import policy_inference
+
 from pathlib import Path
 
 import numpy as np
@@ -320,7 +322,7 @@ class Combined(nn.Module):
         sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
         device = str(next(self.parameters()).device)
         mask = torch.from_numpy(allowed).to(device)
-        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.startswith("cuda")):
+        with policy_inference.autocast(device, self.actions):
             logits, _value = self.forward(sparse.dense(device), mask)
         return logits.float().cpu().numpy(), masks
 

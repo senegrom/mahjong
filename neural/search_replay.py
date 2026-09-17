@@ -22,6 +22,7 @@ from .training_safety import SEARCH_API_VERSION
 
 VERSION = 1  # Original supervised format remains resumable without relabelling.
 TEACHER_VERSION = 2
+INFERENCE_VERSION = 3  # Explicit acting precision, tie order and rollout budget.
 PLANES, POSITIONS, ACTIONS, ENGINE_ACTIONS = 1012, 34, 46, 78
 REWARD = {"version": 1, "name": "hand_points_over_4000_plus_placement"}
 # Schema-v1 meanings, in exactly the priority order used by neural.zoo.
@@ -134,7 +135,7 @@ def validate_metadata(m: dict) -> None:
     """Validate settings and provenance before allocating or loading a collection."""
     if not isinstance(m, dict):
         raise ValueError("Search replay metadata must be an object")
-    if (type(m.get("version")) is not int or m.get("version") not in (VERSION, TEACHER_VERSION) or m.get("complete") is not True
+    if (type(m.get("version")) is not int or m.get("version") not in (VERSION, TEACHER_VERSION, INFERENCE_VERSION) or m.get("complete") is not True
             or m.get("reward") != REWARD
             or m.get("observation") != {"planes": PLANES, "positions": POSITIONS, "encoder_version": 4}
             or m.get("actions") != {"policy": ACTIONS, "engine": ENGINE_ACTIONS}
@@ -163,7 +164,7 @@ def validate_metadata(m: dict) -> None:
             raise ValueError(f"Invalid {key}")
     if (s["improve"] > 1 or s["candidates"] > ENGINE_ACTIONS
             or s.get("played_by") not in ("network", "club")
-            or s.get("valued_by") not in (("critic", "public", "mean", "placement") if m["version"] == TEACHER_VERSION else ("critic", "public", "mean"))
+            or s.get("valued_by") not in (("critic", "public", "mean", "placement") if m["version"] in (TEACHER_VERSION, INFERENCE_VERSION) else ("critic", "public", "mean"))
             or type(s.get("hurried")) is not bool):
         raise ValueError("Invalid search settings")
 
@@ -171,7 +172,7 @@ def validate_metadata(m: dict) -> None:
             "objective", "search_calls", "confirm_worlds", "extra_candidates", "audit_share", "sure"))):
         raise ValueError("new teacher semantics cannot be relabelled as legacy replay")
 
-    if m["version"] == TEACHER_VERSION:
+    if m["version"] in (TEACHER_VERSION, INFERENCE_VERSION):
         from .teacher_options import validate_controls
         validate_controls(**{name: s.get(name) for name in (
             "objective", "valued_by", "played_by", "depth", "search_calls", "confirm_worlds",
@@ -185,6 +186,17 @@ def validate_metadata(m: dict) -> None:
                 or teacher["search_api_version"] != SEARCH_API_VERSION or teacher.get("objective") != s["objective"]
                 or teacher.get("student_value_head") != ("critic" if s["valued_by"] == "placement" else s["valued_by"])):
             raise ValueError("teacher provenance/value-target contract is incomplete")
+        inference = teacher.get("policy_inference")
+        if m["version"] == INFERENCE_VERSION:
+            if (not isinstance(inference, dict)
+                    or set(inference) != {"version", "precision", "tie_break"}
+                    or type(inference.get("version")) is not int or inference["version"] != 1
+                    or inference.get("precision") not in ("float32", "bfloat16")
+                    or inference.get("tie_break") != "first_policy_index"):
+                raise ValueError("incomplete acting-policy inference contract")
+            _integer(s.get("rollout_batch"), "rollout_batch", 1)
+        elif inference is not None or "rollout_batch" in s:
+            raise ValueError("new inference contract cannot be downgraded to old teacher replay")
         head = teacher.get("placement_head")
         if s["valued_by"] == "placement":
             from .placement_contract import validate_provenance
@@ -199,7 +211,7 @@ def student_value_head(metadata: dict) -> str:
     V2 still supervises the student's hybrid critic with completed hybrid returns.
     A placement-only teacher changes policy labels, not the meaning of that head.
     """
-    if metadata["version"] == TEACHER_VERSION:
+    if metadata["version"] in (TEACHER_VERSION, INFERENCE_VERSION):
         return metadata["teacher"]["student_value_head"]
     return metadata["search"]["valued_by"]
 
