@@ -1,7 +1,9 @@
 from pathlib import Path
-p = Path('neural/modal_app.py')
+p = Path('.review/apply-policy-parity.py')
 s = p.read_text()
-old = '"policy_inference": {"version": 1, "precision": "bfloat16", "tie_break": "first_policy_index"},'
-new = '"policy_inference_rule": {"version": 1, "cuda_46": "bfloat16", "other": "float32", "tie_break": "first_policy_index"},'
-assert s.count(old) == 1
-p.write_text(s.replace(old, new))
+start = s.index("    part = rep(part, '\"audit_share\": audit_share,',")
+end = s.index('    return s[:begin]', start)
+s = s[:start] + '''    part = rep(part, 'extra_candidates=extra_candidates, audit_share=audit_share,',
+               'extra_candidates=extra_candidates, audit_share=audit_share, rollout_batch=rollout_batch,\\n                        policy_inference_rule=dict(version=1, cuda_46="bfloat16", other="float32", tie_break="first_policy_index"),')
+''' + s[end:]
+exec(compile(s, str(p), 'exec'))

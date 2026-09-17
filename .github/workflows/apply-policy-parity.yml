@@ -24,7 +24,6 @@ jobs:
           git diff --exit-code 5106125ff2f95214be537e8ee520ef99d9fcf861 HEAD -- neural/contract.py neural/combined.py neural/zoo.py neural/searched.py neural/teacher_options.py neural/collect_search.py neural/search_replay.py neural/train_search.py neural/modal_app.py web/tests/runtime-memory.test.js .github/workflows/neural.yml
       - name: Apply exact-context edits and validate syntax
         run: |
-          python .review/apply-policy-parity.py
           python .review/finalize-policy-parity.py
           python -m compileall -q neural
           node --check web/tests/policy-export-parity.mjs
