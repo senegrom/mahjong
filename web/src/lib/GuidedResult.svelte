@@ -6,7 +6,7 @@
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
-  import { tilesFor, noteFor } from './yaku.js';
+  import { tilesFor, noteFor, isCircumstance } from './yaku.js';
 
   /** Physical facts consumed by the Rust settlement adapter.
    * @typedef {object} PhysicalSettlementInput
@@ -51,12 +51,13 @@
   const viewMelds = player => player.melds.map(m => ({ kind: m.kind, tiles: setTiles(m), from: ['self', 'right', 'across', 'left'][m.from] }));
   // Which yaku the reader is asking about, and the tiles that make it.
   let asking = $state(null);
-  let shape = $derived(asking ? new Set(tilesFor(asking.name, asking.win)) : null);
+  let shape = $derived(asking ? new Set(tilesFor(asking.yaku, asking.win)) : null);
   const handOf = winner => ({ hand: winner.hand, winning_tile: winner.winning_tile,
+    scoring: winner.scoring, by: ending.kind, seat: winner.seat, round: p.round,
     melds: viewMelds(p.players[winner.seat]) });
-  const ask = (winner, name) => { asking = { seat: winner.seat, name, win: handOf(winner) }; };
+  const ask = (winner, yaku) => { asking = { seat: winner.seat, yaku, win: handOf(winner) }; };
   const stopAsking = () => { asking = null; };
-  const showing = (winner, name) => asking?.seat === winner.seat && asking?.name === name;
+  const showing = (winner, yaku) => asking?.seat === winner.seat && asking?.yaku === yaku;
 </script>
 
 <section class="guided-result" aria-label="Guided hand settlement">
@@ -108,18 +109,19 @@
           shape={asking?.seat === winner.seat ? shape : null} />
         <p>Winning tile <Tile tile={winner.winning_tile} size="tiny"
           inShape={asking?.seat === winner.seat && Boolean(shape?.has('won'))} /></p>
-        <ul class="yaku">{#each winner.yaku as yaku, i (i)}
+        <ul class="yaku">{#each winner.yaku as yaku, i (yaku.id ?? `${yaku.name}:${i}`)}
           <li>
-            <button type="button" class="yaku-name" class:asking={showing(winner, yaku.name)}
-              onmouseenter={() => ask(winner, yaku.name)} onmouseleave={stopAsking}
-              onfocus={() => ask(winner, yaku.name)} onblur={stopAsking}
-              onclick={() => (showing(winner, yaku.name) ? stopAsking() : ask(winner, yaku.name))}>
+            <button type="button" class="yaku-name" class:asking={showing(winner, yaku)}
+              onmouseenter={() => ask(winner, yaku)} onmouseleave={stopAsking}
+              onfocus={() => ask(winner, yaku)} onblur={stopAsking}
+              onclick={() => ask(winner, yaku)}>
               {yaku.name} · {yaku.yakuman ? 'yakuman' : `${yaku.han} han`}
             </button>
-            {#if showing(winner, yaku.name)}
+            {#if showing(winner, yaku)}
               <p class="yaku-note" role="status">{noteFor(yaku.name)}
                 {#if shape?.size}<span class="lit">The tiles that make it are lifted above.</span>
-                {:else}<span class="lit">It is about how the hand was won, so no tile makes it.</span>{/if}
+                {:else if isCircumstance(yaku.name)}<span class="lit">It is about how the hand was won, so no tile makes it.</span>
+                {:else}<span class="lit">Tile attribution is unavailable for this saved result.</span>{/if}
               </p>
             {/if}
           </li>

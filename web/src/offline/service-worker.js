@@ -1,5 +1,6 @@
 /** Build substitutes the complete, hashed inventory here. Kept self-contained
  * so starting the service worker while offline needs no imported scripts. */
+const networkTransfer = /* NETWORK_TRANSFER */ null;
 const CONFIG = /* OFFLINE_CONFIG */ null;
 const scope = new URL(self.registration.scope);
 // GitHub Pages projects share an origin. Never touch another app's caches.
@@ -17,8 +18,10 @@ async function cached(cache, entry) {
   return response?.headers.get('X-Mahjong-SHA256') === entry.hash
     && Number(response.headers.get('Content-Length')) === entry.bytes ? response : null;
 }
-async function ensure(entry) {
-  const cache = await caches.open(CACHE), hit = await cached(cache, entry);
+async function ensure(entry, durable = true) {
+  let cache, hit;
+  try { cache = await caches.open(CACHE); hit = await cached(cache, entry); }
+  catch (error) { if (durable) throw networkTransfer.storageError(error); }
   if (hit) return hit;
   if (!downloads.has(entry.hash)) {
     const task = (async () => {
@@ -27,23 +30,40 @@ async function ensure(entry) {
       const body = await response.arrayBuffer();
       const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', body))]
         .map(byte => byte.toString(16).padStart(2, '0')).join('');
-      // A captive portal, truncated connection or mismatched deploy must not
-      // replace a good asset or be presented as a completed offline download.
       if (body.byteLength !== entry.bytes || hash !== entry.hash) throw new Error(`Incomplete or outdated download: ${entry.url}`);
       const type = mimeTypes[entry.url.split('.').pop()] ?? response.headers.get('Content-Type') ?? 'application/octet-stream';
       const saved = new Response(body, { headers: { 'Content-Type': type, 'Content-Length': String(entry.bytes),
         'X-Mahjong-SHA256': hash, 'X-Content-Type-Options': 'nosniff' } });
-      await cache.put(keyFor(entry), saved);
+      try {
+        if (!cache) throw networkTransfer.storageError();
+        await cache.put(keyFor(entry), saved.clone());
+        return { response: saved, stored: true };
+      } catch (error) { return { response: saved, stored: false, error }; }
     })().finally(() => downloads.delete(entry.hash));
     downloads.set(entry.hash, task);
   }
-  await downloads.get(entry.hash);
-  return cached(cache, entry);
+  const answer = await downloads.get(entry.hash);
+  if (durable && !answer.stored) throw networkTransfer.storageError(answer.error);
+  return answer.response.clone();
 }
+const networkUrl = () => `${CONFIG.network.origin}/${CONFIG.network.object}`;
+async function networkReady() {
+  // Older hand-written inventories with a same-origin model remain supported.
+  return !CONFIG.network || await networkTransfer.verifiedNetworkIsStored(networkUrl(), CONFIG.network);
+}
+async function prepareNetwork(progress) {
+  if (!CONFIG.network) return;
+  await networkTransfer.verifiedNetworkBytes({ url: networkUrl(), expect: CONFIG.network, requireStored: true,
+    onProgress: value => progress({ ...value, group: 'network' }) });
+}
+
 async function status() {
-  const cache = await caches.open(CACHE);
   const complete = { core: true, ai: CONFIG.hasModel };
-  for (const entry of CONFIG.entries) if (!(await cached(cache, entry))) complete[entry.group] = false;
+  try {
+    const cache = await caches.open(CACHE);
+    for (const entry of CONFIG.entries) if (!(await cached(cache, entry))) complete[entry.group] = false;
+    if (complete.ai && !(await networkReady())) complete.ai = false;
+  } catch { complete.core = false; complete.ai = false; }
   return { coreReady: complete.core, aiReady: complete.ai,
     hasModel: CONFIG.hasModel, version: CONFIG.version };
 }
@@ -61,7 +81,8 @@ async function prepare(group, progress = () => {}) {
       bytes += entry.bytes;
       progress({ bytes, total, group });
     }
-  })).finally(() => groups.delete(group));
+  })).then(async () => { if (group === 'ai') await prepareNetwork(progress); })
+    .finally(() => groups.delete(group));
   groups.set(group, task);
   await task;
   return status();
@@ -91,6 +112,10 @@ self.addEventListener('install', event => {
 });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
+    // Recheck at activation: a model may have been evicted while this worker
+    // waited. Do not prune the previous version's recoverable bytes on failure.
+    const cache = await caches.open(CACHE);
+    if (CONFIG.hasModel && await cache.match(new URL('__offline_meta__/ai-requested', scope))) await prepare('ai');
     await pruneObsoleteContent();
     await self.clients.claim();
   })());
@@ -103,13 +128,16 @@ self.addEventListener('message', event => {
   const work = (async () => {
     if (event.data.type === 'MAHJONG_STATUS') return status();
     if (event.data.type === 'MAHJONG_PREPARE_AI') {
-      const cache = await caches.open(CACHE);
-      await cache.put(new URL('__offline_meta__/ai-requested', scope), new Response('requested'));
+      try {
+        const cache = await caches.open(CACHE);
+        await cache.put(new URL('__offline_meta__/ai-requested', scope), new Response('requested'));
+      } catch (error) { throw networkTransfer.storageError(error); }
     }
     return prepare(groupOf[event.data.type], progress);
   })();
   event.waitUntil(work.then(value => port.postMessage({ value }))
-    .catch(error => port.postMessage({ error: error.message })));
+    .catch(error => port.postMessage({ error: error.message, storage: error.name === 'NetworkStorageError'
+      || ['QuotaExceededError', 'SecurityError', 'InvalidStateError'].includes(error.name) })));
 });
 self.addEventListener('fetch', event => {
   const request = event.request, url = new URL(request.url);
@@ -118,7 +146,7 @@ self.addEventListener('fetch', event => {
   const path = url.pathname === scope.pathname ? new URL('index.html', scope).pathname : url.pathname;
   const entry = entries.get(path);
   if (!entry) return; // Unknown resources never receive HTML disguised as JS/WASM.
-  event.respondWith(ensure(entry).then(response => request.method === 'HEAD'
+  event.respondWith(ensure(entry, false).then(response => request.method === 'HEAD'
     ? new Response(null, { headers: response.headers }) : response)
     .catch(() => new Response('Not saved offline. Reconnect and finish the download.', { status: 503 })));
 });

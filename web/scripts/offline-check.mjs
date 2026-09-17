@@ -12,12 +12,13 @@ import puppeteer from 'puppeteer-core';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
+import { serviceWorkerTemplate } from './offline-build.mjs';
 import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
 const manifest = JSON.parse(await readFile(resolve(dist, 'offline-manifest.json'), 'utf8'));
-const source = await readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8');
+const source = await serviceWorkerTemplate();
 const modelPath = MANIFEST.object, networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
 const count = new Map(), refused = [], overrides = new Map();
 let unavailable = false, failPath = null, holdPath = null, holdResolve = null, holdSeenResolve = null;
@@ -51,6 +52,18 @@ const results = [], browsers = new Set(), dirs = [];
 async function launch(profile) {
   const browser = await puppeteer.launch({ executablePath: chrome, userDataDir: profile, headless: true,
     args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  // The model is prepared by the service worker, not a page fetch. Observe
+  // that target directly so first-download/reuse assertions remain real.
+  browser.on('targetcreated', target => {
+    if (target.type() !== 'service_worker') return;
+    void (async () => {
+      const session = await target.createCDPSession();
+      session.on('Network.requestWillBeSent', ({ request }) => {
+        if (request.url === networkUrl && request.method === 'GET') count.set(modelPath, (count.get(modelPath) ?? 0) + 1);
+      });
+      await session.send('Network.enable');
+    })().catch(() => {}); // A closing browser may already have disposed it.
+  });
   browsers.add(browser); return browser;
 }
 async function close(browser) { await browser.close(); browsers.delete(browser); }
@@ -62,13 +75,6 @@ async function page(browser, { seed = true, offline = false, strength = 'neural'
   }
   const p = await browser.newPage(); p.errors = [];
   p.on('pageerror', error => p.errors.push(error.message));
-  // The network comes from its bucket, not from this fixture server, so its
-  // downloads are counted here and land in the same tally as everything else.
-  p.on('request', request => {
-    if (request.url() === networkUrl && request.method() === 'GET') {
-      count.set(modelPath, (count.get(modelPath) ?? 0) + 1);
-    }
-  });
   await p.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
   await p.setCacheEnabled(false);
   if (offline) await p.setOfflineMode(true);

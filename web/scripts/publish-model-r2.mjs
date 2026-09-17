@@ -1,18 +1,11 @@
-// Publishes an exported network to the R2 bucket the page reads it from, under
-// a content-addressed key, and writes the manifest the page ships.
-//
-//   node web/scripts/publish-model-r2.mjs fusion.onnx --generation 36 \
-//     --source leashed-run/latest --origin https://mahjong-model.<account>.workers.dev
-//
-// The bytes are hashed before anything is uploaded and the key carries that
-// digest, so one URL can only ever answer with one network and a response may
-// be immutable. The object is stored gzipped because R2 serves exactly the
-// bytes it holds and compresses nothing on the way out.
+// Publish a checked ONNX export under its digest, then atomically publish its
+// manifest. Uploading does not certify export parity or playing strength.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, open, rename, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { gzip } from 'node:zlib';
 import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -34,48 +27,63 @@ async function uploadR2(bucket, key, file) {
   process.stdout.write(stdout || stderr);
 }
 
+/** A complete, synced manifest is the publication boundary. Concurrent writers
+ * can finish in either order, but every visible manifest is a complete snapshot. */
+export async function atomicManifest(path, body, io = { open, rename, mkdir, mkdtemp, rm }) {
+  path = resolve(path);
+  await io.mkdir(dirname(path), { recursive: true });
+  const dir = await io.mkdtemp(join(dirname(path), '.model-manifest-'));
+  try {
+    const staged = join(dir, 'manifest.js');
+    const file = await io.open(staged, 'wx');
+    try { await file.writeFile(body, 'utf8'); await file.sync(); }
+    finally { await file.close(); }
+    await io.rename(staged, path);
+    if (process.platform !== 'win32') {
+      const parent = await io.open(dirname(path), 'r');
+      try { await parent.sync(); } finally { await parent.close(); }
+    }
+  } finally { await io.rm(dir, { recursive: true, force: true }); }
+}
+
 export async function publish({ modelPath, generation, source, origin,
   bucket = process.env.R2_BUCKET ?? 'mahjong-models', manifestPath = MANIFEST,
   upload = uploadR2 } = {}) {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(bucket)) throw new Error('Invalid R2 bucket name.');
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(String(generation))) throw new Error('Invalid generation.');
+  // Validate before reading/staging/uploading anything. Never coerce undefined
+  // into a key or NaN into a manifest's null generation.
+  if (typeof bucket !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(bucket)) throw new Error('Invalid R2 bucket name.');
+  if ((typeof generation !== 'number' && !(typeof generation === 'string' && /^[0-9]+$/.test(generation)))
+      || !Number.isSafeInteger(Number(generation)) || Number(generation) < 0) throw new Error('Invalid generation.');
+  generation = Number(generation);
+  if (typeof modelPath !== 'string' || !modelPath) throw new Error('Name the exported network to publish.');
+  if (typeof source !== 'string' || !source.trim()) throw new Error('Name the source checkpoint.');
+  let address;
+  try { address = new URL(origin); } catch { throw new Error('A valid HTTPS model origin is required.'); }
+  if (address.protocol !== 'https:' || address.username || address.password
+      || address.pathname !== '/' || address.search || address.hash) throw new Error('A bare HTTPS model origin is required.');
+  origin = address.origin;
   const bytes = await readFile(resolve(modelPath));
+  if (!bytes.length || bytes.length > 512 * 1024 * 1024) throw new Error('Unsupported model byte size.');
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const key = `models/g${generation}/${sha256}`;
   const packed = await compress(bytes, { level: 9 });
-  const staged = join(ROOT, 'web', 'model-upload.gz');
-  await writeFile(staged, packed);
-  await upload(bucket, key, staged);
-  const manifest = {
-    source, generation: Number(generation),
-    precision: 'float32', bytes: bytes.length, storedBytes: packed.length,
-    origin, object: key, sha256,
-  };
-  // A module rather than JSON: every tool here reads one without an import
-  // attribute, and the page's bundler inlines it.
-  const note = `/** Which trained network this page plays, and where its bytes are.
- *
- * Written by web/scripts/publish-model-r2.mjs when a network is published. The
- * key carries the network's own digest, so the response may be immutable and a
- * different export is a different address; network-store.js checks that digest
- * again before anything runs.
- */
-`;
-  const body = `${note}export const MANIFEST = Object.freeze(${JSON.stringify(manifest, null, 2)});
-`;
-  await writeFile(manifestPath, body, 'utf8');
-  return manifest;
+  const scratch = await mkdtemp(join(tmpdir(), 'mahjong-model-upload-'));
+  try {
+    const staged = join(scratch, 'network.gz');
+    const file = await open(staged, 'wx');
+    try { await file.writeFile(packed); await file.sync(); } finally { await file.close(); }
+    await upload(bucket, key, staged);
+    const manifest = { source, generation, precision: 'float32', bytes: bytes.length,
+      storedBytes: packed.length, origin, object: key, sha256 };
+    await atomicManifest(manifestPath,
+      `/** Published model identity; verify bytes before use. */\nexport const MANIFEST = Object.freeze(${JSON.stringify(manifest, null, 2)});\n`);
+    return manifest;
+  } finally { await rm(scratch, { recursive: true, force: true }); }
 }
 
 const invoked = process.argv[1] ? process.argv[1].split(/[/\\]/).pop() : '';
 if (invoked === 'publish-model-r2.mjs') {
-  const modelPath = process.argv[2];
-  if (!modelPath) throw new Error('Name the exported network to publish.');
-  const manifest = await publish({
-    modelPath,
-    generation: option('generation'),
-    source: option('source', 'unknown'),
-    origin: option('origin'),
-  });
+  const manifest = await publish({ modelPath: process.argv[2], generation: option('generation'),
+    source: option('source', 'unknown'), origin: option('origin') });
   process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
 }

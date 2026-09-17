@@ -177,6 +177,10 @@ pub struct Payments {
 /// A fully scored hand.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Score {
+    /// The exact decomposition selected by scoring, for truthful explanations.
+    pub reading: Reading,
+    /// The block completed by the separately displayed winning tile.
+    pub completed_block: usize,
     /// The tile that completed the hand, which a score screen has to show
     /// and which a hand won by discard does not otherwise hold.
     pub winning_tile: Tile,
@@ -521,6 +525,8 @@ fn score_one(
     let payments = payments(base, situation);
 
     Ok(Score {
+        reading: reading.clone(),
+        completed_block: completed,
         winning_tile: situation.winning_tile,
         yaku: yaku_list,
         han,

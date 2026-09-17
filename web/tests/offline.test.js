@@ -5,9 +5,9 @@ import { createHash, webcrypto } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import { buildOffline } from '../scripts/offline-build.mjs';
+import { buildOffline, serviceWorkerTemplate } from '../scripts/offline-build.mjs';
 
-const template = await readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8');
+const template = await serviceWorkerTemplate();
 const sha = body => createHash('sha256').update(body).digest('hex');
 const base = 'https://test.invalid/mahjong/';
 const bodies = { 'index.html': '<html>Game</html>', 'app.js': 'game', 'tiles/Haku.svg': '<svg>dragon</svg>',
@@ -26,15 +26,18 @@ function storage() {
       async keys() { return [...entries.keys()].map(url => new Request(url)); } };
   } };
 }
-function worker({ files = bodies, caches = storage(), config = manifest(files), network } = {}) {
+function worker({ files = bodies, caches = storage(), config = manifest(files), network, remote = 'weights', deadlines } = {}) {
   const events = {}, counts = new Map();
   const self = { registration: { scope: base }, clients: { async claim() {} }, addEventListener: (type, fn) => events[type] = fn };
   vm.runInNewContext(template.replace('/* OFFLINE_CONFIG */ null', JSON.stringify(config)), {
-    self, URL, Request, Response, Map, Set, caches, crypto: webcrypto, AbortSignal,
+    self, URL, Request, Response, Map, Set, caches, crypto: webcrypto, AbortSignal, AbortController, DOMException,
+    setTimeout: deadlines ? (fn, ms) => setTimeout(fn, ms >= 60000 ? deadlines : ms) : setTimeout, clearTimeout,
     fetch: async url => {
-      const name = new URL(url).pathname.slice('/mahjong/'.length);
+      const address = new URL(url);
+      const name = address.origin === new URL(base).origin ? address.pathname.slice('/mahjong/'.length) : address.href;
       counts.set(name, (counts.get(name) ?? 0) + 1);
       if (network) return network(name);
+      if (config.network && name === `${config.network.origin}/${config.network.object}`) return new Response(remote);
       return new Response(files[name], { status: name in files ? 200 : 404 });
     },
   });
@@ -152,7 +155,7 @@ test('production inventory classifies the external model/runtime package', async
     'ort/ort-wasm-simd-threaded.wasm': 'wasm',
     'ort/ort-wasm-simd-threaded.mjs': 'loader', 'ort/memory-budget.mjs': 'memory controls' };
   for (const [path, body] of Object.entries(files)) { await mkdir(join(root, path, '..'), { recursive: true }); await writeFile(join(root, path), body); }
-  const first = await buildOffline(root), second = await buildOffline(root);
+  const first = await buildOffline(root, { network: external('weights') }), second = await buildOffline(root, { network: external('weights') });
   assert.deepEqual(first, second);
   assert.equal(first.entries.length, Object.keys(files).length);
   // The trained network itself is not here: it is fetched from its bucket and
@@ -168,4 +171,67 @@ test('production inventory classifies the external model/runtime package', async
   assert.equal((await status(generated)).aiReady, true);
   assert.equal(first.entries.filter(e => e.url.startsWith('tiles/matisse/') && e.group === 'core').length, 2);
   assert.ok((await readFile(join(root, 'sw.js'), 'utf8')).includes(JSON.stringify(first)));
+});
+
+function external(body, generation = 1) {
+  return { origin: 'https://model.invalid', object: `models/g${generation}/${sha(body)}`,
+    sha256: sha(body), bytes: Buffer.byteLength(body) };
+}
+const externalUrl = model => `${model.origin}/${model.object}`;
+const runtimeOnly = Object.fromEntries(Object.entries(bodies).filter(([name]) => !name.endsWith('.onnx')));
+function externalWorker(body, { files = runtimeOnly, generation = 1, ...options } = {}) {
+  return worker({ files, remote: body, config: { ...manifest(files), network: external(body, generation) }, ...options });
+}
+
+test('a remote-model-changing upgrade must save the replacement before discarding the working app', async () => {
+  const old = externalWorker('old weights'); await old.install(); await download(old);
+  const files = { ...runtimeOnly, 'index.html': 'new app, new model' };
+  const model = external('new weights', 2);
+  const failed = externalWorker('new weights', { generation: 2, files, caches: old.caches,
+    network: name => new Response(files[name] ?? '', { status: name === externalUrl(model) ? 503 : 200 }) });
+  await assert.rejects(failed.install(), /could not be fetched/);
+  assert.equal((await status(old)).aiReady, true);
+  assert.equal(await (await old.get('index.html')).text(), runtimeOnly['index.html']);
+  const update = externalWorker('new weights', { generation: 2, files, caches: old.caches });
+  await update.install(); await update.activate();
+  assert.equal((await status(update)).aiReady, true);
+  const cold = externalWorker('new weights', { generation: 2, files, caches: old.caches,
+    network: () => { throw new Error('offline'); } });
+  assert.equal((await status(cold)).aiReady, true);
+  assert.equal(await (await cold.get('index.html')).text(), 'new app, new model');
+  assert.equal(cold.counts.size, 0);
+});
+
+test('UI-only remote-model upgrades never redownload verified weights', async () => {
+  const old = externalWorker('weights'); await old.install(); await download(old);
+  const update = externalWorker('weights', { files: { ...runtimeOnly, 'app.js': 'new UI only' }, caches: old.caches });
+  await update.install(); await update.activate();
+  assert.equal((await status(update)).aiReady, true);
+  assert.deepEqual([...update.counts.keys()], ['app.js']);
+});
+
+test('remote cache tampering is not offline readiness and failed upgrade retains the old shell', async () => {
+  const old = externalWorker('weights'); await old.install(); await download(old);
+  const cache = await old.caches.open('mahjong-network-v1');
+  await cache.put(externalUrl(external('other!!', 2)), new Response('wrong!!'));
+  const update = externalWorker('other!!', { generation: 2, caches: old.caches,
+    network: () => new Response('', { status: 503 }) });
+  await assert.rejects(update.install(), /could not be fetched/);
+  assert.equal(await (await old.get('index.html')).text(), runtimeOnly['index.html']);
+  assert.equal((await status(old)).aiReady, true);
+});
+
+test('a timed-out shared service-worker download clears its job and can be retried', async () => {
+  let stalled = true;
+  const w = externalWorker('weights', { deadlines: 15, network: name => {
+    if (name.startsWith('https:')) return stalled
+      ? new Response(new ReadableStream({ pull() {} })) : new Response('weights');
+    return new Response(runtimeOnly[name]);
+  } });
+  await w.install();
+  await assert.rejects(download(w), /timed out/);
+  assert.equal((await status(w)).aiReady, false);
+  stalled = false; await download(w);
+  assert.equal((await status(w)).aiReady, true);
+  assert.equal(w.counts.get(externalUrl(external('weights'))), 2);
 });

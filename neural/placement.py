@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -37,6 +38,7 @@ import torch
 from torch import nn
 
 from .observe import Planes
+from .placement_contract import FEATURE_VERSIONS, validate_features
 
 #: What this head is trained to predict, so a checkpoint cannot be
 #: mistaken for one trained against a different target.
@@ -74,14 +76,14 @@ class Judge(nn.Module):
         # judge is given, or, for one with a tower of its own, the number of
         # planes it reads.
         self.context_channels = channels if context_channels is None else context_channels
-        if (type(feature_version) is not int or feature_version not in (1, 2, READS_TILES, OWN_TOWER)
+        if (type(feature_version) is not int or feature_version not in FEATURE_VERSIONS
                 or any(type(n) is not int or n <= 0 for n in (channels, hidden, self.context_channels))
                 or type(looks) is not int or looks <= 0):
             raise ValueError("invalid placement head feature contract")
         if feature_version == 1 and self.context_channels != channels:
             raise ValueError("legacy placement features have one duplicated pooled vector")
         self.feature_version = feature_version
-        self.looks = looks if feature_version == READS_TILES else 0
+        self.looks = looks if feature_version in (READS_TILES, OWN_TOWER) else 0
         if feature_version == OWN_TOWER:
             # Its own eyes. The policy's tower was trained to choose a move,
             # and what it keeps about the standings is what it keeps; a tower
@@ -176,7 +178,7 @@ def new_head(net, hidden: int = 64, feature_version: int = FEATURE_VERSION, look
         return Judge(channels, hidden, context_channels=int(backbone(net).planes),
                      feature_version=feature_version, looks=looks)
     context = channels
-    if hasattr(net, "mortal"):
+    if feature_version != 1 and hasattr(net, "mortal"):
         context += int(net.fuse.phi_proj[0].in_features)
     return Judge(channels, hidden, context_channels=context,
                  feature_version=feature_version, looks=looks)
@@ -237,7 +239,7 @@ def fingerprint(net, feature_version: int = 1) -> str:
     """Which network's features a head reads, as a digest of the backbone's
     weights. A head fitted to one network's features says nothing about
     another's, and a checkpoint's name does not say which it was."""
-    if feature_version not in (1, 2, READS_TILES, OWN_TOWER):
+    if feature_version not in FEATURE_VERSIONS:
         raise ValueError("unsupported placement feature version")
     if feature_version == OWN_TOWER:
         # It reads the planes, not the network, so what it must agree with is
@@ -260,7 +262,9 @@ def require_head_for(meta: dict, net) -> None:
         raise ValueError(
             "this head does not say which network's features it was fitted to; train it again"
         )
-    have = fingerprint(net, meta.get("feature_version", 1))
+    version = meta.get("feature_version", 1)
+    validate_features(fitted, version, planes=int(backbone(net).planes))
+    have = fingerprint(net, version)
     if fitted != have:
         raise ValueError(
             f"this head was fitted to a network with features {fitted}, and the network "
@@ -429,19 +433,27 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
 
 def save(head: Judge, path: Path, meta: dict) -> None:
     from .checkpoints import atomic_artifact
-    if {"judge", "channels", "hidden", "placement_version", "feature_version", "context_channels",
-            "looks"} & meta.keys():
+    schema = {"channels": head.channels, "hidden": head.body[0].out_features,
+              "context_channels": head.context_channels, "feature_version": head.feature_version,
+              "looks": head.looks, "placement_version": PLACEMENT_VERSION}
+    # A load/resave round trip may carry these descriptive fields. They are
+    # owned by the head: matching copies are harmless, replacements are not.
+    if "judge" in meta or any(key in meta and (type(meta[key]) is not type(value)
+                            or meta[key] != value) for key, value in schema.items()):
         raise ValueError("metadata cannot replace the placement head schema")
-    atomic_artifact({**meta, "judge": head.state_dict(), "channels": head.channels,
-                     "context_channels": head.context_channels, "feature_version": head.feature_version,
-                     "looks": head.looks, "hidden": head.body[0].out_features,
-                     "placement_version": PLACEMENT_VERSION},
+    if "features" in meta:
+        validate_features(meta["features"], head.feature_version,
+                          planes=head.context_channels if head.feature_version == OWN_TOWER else None)
+    atomic_artifact({**meta, **schema, "judge": head.state_dict()},
                     path, lambda staged: load(staged, "cpu"))
 
 
 def load(path: Path, device: str = "cpu") -> tuple[Judge, dict]:
     payload = torch.load(path, map_location=device, weights_only=True)
-    if int(payload.get("placement_version", 0)) != PLACEMENT_VERSION:
+    if not isinstance(payload, dict):
+        raise ValueError("invalid placement head payload")
+    if (type(payload.get("placement_version")) is not int
+            or payload["placement_version"] != PLACEMENT_VERSION):
         raise ValueError(
             f"{path} was trained against placement version "
             f"{payload.get('placement_version')}, and this is version {PLACEMENT_VERSION}"
@@ -450,13 +462,29 @@ def load(path: Path, device: str = "cpu") -> tuple[Judge, dict]:
         raise ValueError("invalid placement head dimensions")
     if any(not torch.isfinite(t).all() for t in payload["judge"].values()):
         raise ValueError("nonfinite placement head weights")
+    version = payload.get("feature_version", 1)
+    looks = payload.get("looks", 4)
+    if version == OWN_TOWER and type(looks) is int and looks == 0:
+        # Early v4 files recorded zero even for a real tower. Recover its
+        # contiguous block count from the saved architecture, never guess four.
+        blocks = {int(name.split(".")[1]) for name in payload["judge"]
+                  if re.fullmatch(r"tower\.[0-9]+\..+", name)}
+        if not blocks or blocks != set(range(len(blocks))):
+            raise ValueError("invalid legacy placement tower architecture")
+        looks = len(blocks)
+    elif version in (1, 2) and type(looks) is int and looks == 0:
+        looks = 4  # Unused by pooled-only heads.
     head = Judge(payload["channels"], payload["hidden"],
                  context_channels=payload.get("context_channels", payload["channels"]),
-                 feature_version=payload.get("feature_version", 1),
-                 looks=payload.get("looks") or 4)
+                 feature_version=version, looks=looks)
+    if "features" in payload:
+        validate_features(payload["features"], version,
+                          planes=head.context_channels if version == OWN_TOWER else None)
     head.load_state_dict(payload["judge"])
     head.to(device).eval()
-    return head, {k: v for k, v in payload.items() if k not in ("judge", "channels", "hidden")}
+    meta = {k: v for k, v in payload.items() if k not in ("judge", "channels", "hidden")}
+    meta.update(feature_version=head.feature_version, looks=head.looks)
+    return head, meta
 
 
 def main() -> None:

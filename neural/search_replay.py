@@ -187,11 +187,8 @@ def validate_metadata(m: dict) -> None:
             raise ValueError("teacher provenance/value-target contract is incomplete")
         head = teacher.get("placement_head")
         if s["valued_by"] == "placement":
-            if (not isinstance(head, dict)
-                    or re.fullmatch(r"[0-9a-f]{64}", str(head.get("sha256", ""))) is None
-                    or re.fullmatch(r"[0-9a-f]{16}", str(head.get("features", ""))) is None
-                    or type(head.get("feature_version")) is not int or head["feature_version"] not in (1, 2)):
-                raise ValueError("placement teacher needs immutable head provenance")
+            from .placement_contract import validate_provenance
+            validate_provenance(head, planes=PLANES)
         elif head is not None:
             raise ValueError("non-placement teacher must not name an unused placement head")
 

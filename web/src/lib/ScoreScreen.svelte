@@ -1,7 +1,7 @@
 <script>
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
-  import { tilesFor, noteFor } from './yaku.js';
+  import { tilesFor, noteFor, isCircumstance } from './yaku.js';
 
   let {
     outcome,
@@ -24,10 +24,10 @@
   // Which yaku the reader is asking about, and the tiles that make it. A
   // yaku about how the hand was won lights nothing, and says why instead.
   let asking = $state(null);
-  let shape = $derived(asking ? new Set(tilesFor(asking.name, asking.win)) : null);
-  const ask = (win, name) => { asking = { win, name }; };
+  let shape = $derived(asking ? new Set(tilesFor(asking.yaku, asking.win)) : null);
+  const ask = (win, yaku) => { asking = { win, yaku }; };
   const stopAsking = () => { asking = null; };
-  const showing = (win, name) => asking?.win === win && asking?.name === name;
+  const showing = (win, yaku) => asking?.win === win && asking?.yaku === yaku;
   let primaryWin = $derived(outcome?.wins?.[0] ?? null);
 
   function reveal(node) {
@@ -122,20 +122,21 @@
 
       <div class="working">
         <ul class="yaku">
-          {#each win.yaku as yaku (yaku.name)}
+          {#each win.yaku as yaku, index (yaku.id ?? `${yaku.name}:${index}`)}
             <li>
-              <button type="button" class="yaku-name" class:asking={showing(win, yaku.name)}
-                aria-describedby={showing(win, yaku.name) ? 'yaku-note' : undefined}
-                onmouseenter={() => ask(win, yaku.name)} onmouseleave={stopAsking}
-                onfocus={() => ask(win, yaku.name)} onblur={stopAsking}
-                onclick={() => (showing(win, yaku.name) ? stopAsking() : ask(win, yaku.name))}>
+              <button type="button" class="yaku-name" class:asking={showing(win, yaku)}
+                aria-describedby={showing(win, yaku) ? 'yaku-note' : undefined}
+                onmouseenter={() => ask(win, yaku)} onmouseleave={stopAsking}
+                onfocus={() => ask(win, yaku)} onblur={stopAsking}
+                onclick={() => ask(win, yaku)}>
                 <span>{yaku.name}</span><b>{yaku.han}</b>
               </button>
-              {#if showing(win, yaku.name)}
+              {#if showing(win, yaku)}
                 <p class="yaku-note" id="yaku-note" role="status">
                   {noteFor(yaku.name)}
                   {#if shape?.size}<span class="lit">The tiles that make it are lifted above.</span>
-                  {:else}<span class="lit">It is about how the hand was won, so no tile makes it.</span>{/if}
+                  {:else if isCircumstance(yaku.name)}<span class="lit">It is about how the hand was won, so no tile makes it.</span>
+                  {:else}<span class="lit">Tile attribution is unavailable for this saved result.</span>{/if}
                 </p>
               {/if}
             </li>

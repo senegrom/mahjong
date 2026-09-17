@@ -76,6 +76,7 @@ fn meanings(action: usize) -> Vec<usize> {
 mod analysis;
 #[path = "mortal_log.rs"]
 mod mortal_log;
+mod yaku_view;
 
 /// Which of Mortal's moves our rules allow that seat, and, once a reach is
 /// declared, only the tiles it may discard.
@@ -279,6 +280,8 @@ pub struct WinView {
     pub winning_tile: String,
     /// The yaku, each with the han it was worth here.
     pub yaku: Vec<YakuView>,
+    /// The scorer's chosen groups and exact displayed tile locations.
+    pub scoring: Option<yaku_view::ScoringView>,
     /// Han in total, dora included.
     pub han: u8,
     /// How many of those han came from dora.
@@ -305,6 +308,10 @@ pub struct WinView {
 /// One yaku and its han.
 #[derive(Serialize)]
 pub struct YakuView {
+    /// Stable scoring identity, including the specific dragon where relevant.
+    pub id: String,
+    /// The actual tile for a dragon/seat/round value triplet.
+    pub tile: Option<String>,
     /// Its name.
     pub name: String,
     /// The han it was worth in this hand.
@@ -1714,10 +1721,18 @@ impl Game {
                                 .yaku
                                 .iter()
                                 .map(|(yaku, han)| YakuView {
+                                    id: yaku_view::identity(*yaku),
+                                    tile: yaku_view::value_tile(*yaku, *seat, self.hand.round),
                                     name: yaku.name().to_string(),
                                     han: *han,
                                 })
                                 .collect(),
+                            scoring: yaku_view::scoring_view(
+                                score,
+                                &hand.tiles().collect::<Vec<_>>(),
+                                &player.melds,
+                                discarder.is_some(),
+                            ),
                             han: score.han,
                             dora: score.dora,
                             dora_types: {
