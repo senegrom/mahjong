@@ -688,6 +688,88 @@ def collect_rounds(
 
 @app.function(
     gpu="L40S",
+    cpu=8.0,
+    # The rounds are held in memory while the judge is fitted: a hundred
+    # boundary-only rounds are about twelve gigabytes of sparse planes.
+    memory=65536,
+    timeout=12 * 60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def fit_judge(
+    tag: str = "judge",
+    which: str = "latest",
+    run: str = DEFAULT_RUN,
+    rounds: int = 0,
+    feature_version: int = 4,
+    looks: int = 4,
+    hidden: int = 256,
+    epochs: int = 8,
+    lr: float = 1e-3,
+    batch: int = 512,
+    out: str = "",
+) -> str:
+    """Fits a placement judge where the games are, on the rounds
+    `collect_rounds` kept under `rounds/<tag>/`, and keeps the pass that read
+    the held-back games best at `heads/<out>.pt`.
+
+    `rounds` takes the first so many by seed, nought for all of them, so the
+    same judge can be fitted on a quarter, a half and all of the games and the
+    slope read off: what more games buy is the question these rounds were
+    made to answer.
+    """
+    validate_run(run)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", tag):
+        raise ValueError("invalid round tag")
+    if out and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", out):
+        raise ValueError("invalid head name")
+    for name, value in (("looks", looks), ("hidden", hidden), ("epochs", epochs), ("batch", batch)):
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+    if type(rounds) is not int or rounds < 0:
+        raise ValueError("rounds must be a non-negative integer")
+    if feature_version not in (2, 3, 4):
+        raise ValueError("feature_version must be 2, 3 or 4")
+    volume.reload()
+    source = _checkpoint(run, which)
+    if not source.exists():
+        raise FileNotFoundError(f"no checkpoint at {source}")
+    folder = VOLUME / "rounds" / tag
+
+    def seed_of(path):
+        return int(path.stem.rpartition("-s")[2])
+
+    found = sorted(folder.glob(f"{tag}-s*.pt"), key=seed_of)
+    if rounds:
+        found = found[:rounds]
+    if not found:
+        raise FileNotFoundError(f"no rounds under {folder}")
+    name = out or f"{tag}-v{feature_version}-r{len(found)}"
+    with workspace("fit-judge") as where:
+        copied = where / "checkpoint.pt"
+        copy_checkpoint(source, copied, require_generation=True)
+        head = where / "head.pt"
+        command = [
+            sys.executable, "-m", "neural.placement", str(copied), *[str(path) for path in found],
+            "--boundary-only", "--keep-best", "--feature-version", str(feature_version),
+            "--looks", str(looks), "--hidden", str(hidden), "--epochs", str(epochs),
+            "--lr", str(lr), "--batch", str(batch), "--device", "cuda", "--out", str(head),
+        ]
+        print(f"fitting on {len(found)} rounds, seeds {seed_of(found[0])} to {seed_of(found[-1])}", flush=True)
+        result = subprocess.run(command, cwd="/src", env=_environment(8), capture_output=True, text=True)
+        answer = (result.stdout or "") + (result.stderr or "")
+        if result.returncode or not head.exists():
+            raise subprocess.CalledProcessError(result.returncode, command[:6], output=answer[-4000:])
+        target = VOLUME / "heads" / f"{name}.pt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(head, target)
+        volume.commit()
+    print(answer, flush=True)
+    return json.dumps({"head": f"heads/{name}.pt", "rounds": len(found),
+                       "feature_version": feature_version, "log": answer[-6000:]})
+
+
+@app.function(
+    gpu="L40S",
     cpu=16.0,
     memory=32768,
     timeout=2 * 60 * 60,

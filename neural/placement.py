@@ -387,7 +387,7 @@ def measure(head: Judge, net, positions: Positions, rows: np.ndarray, device: st
 
 def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch: int = 256,
           device: str = "cpu", head: Judge | None = None, log=None, seed: int = 3,
-          read_at_boundary: bool = False) -> tuple[Judge, list[dict]]:
+          read_at_boundary: bool = False, keep_best: bool = False) -> tuple[Judge, list[dict]]:
     """Fits the head on the positions and reads it on the held-back games
     after every pass.
 
@@ -395,7 +395,13 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
     this judge -- the first turn of the hand after the root hand -- while the
     fitting still sees every position it was given. A judge with a tower of
     its own has far more to learn than a head on frozen features, and every
-    decision of a game carries the same placement."""
+    decision of a game carries the same placement.
+
+    With `keep_best` the head handed back is the pass that read the held-back
+    games best, not the last one. A judge with its own tower was measured to
+    peak and then memorise its games -- one placement each -- so its last pass
+    is its worst. The pass is chosen on the games it is then reported on, so
+    that figure flatters it a little; the history keeps every pass."""
     net.eval()
     head = head or new_head(net)
     head.to(device)
@@ -406,6 +412,7 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
     wanted_all = torch.from_numpy(positions.placements)
     drawer = np.random.default_rng(seed)
     history: list[dict] = []
+    best = None
     for epoch in range(epochs):
         head.train()
         order = drawer.permutation(training)
@@ -427,6 +434,14 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
         history.append(record)
         if log is not None:
             print(json.dumps(record), file=log, flush=True)
+        read = record["held_out"].get("explained")
+        if keep_best and read is not None and (best is None or read > best[0]):
+            best = (read, epoch, {name: tensor.detach().clone()
+                                  for name, tensor in head.state_dict().items()})
+    if keep_best and best is not None:
+        head.load_state_dict(best[2])
+        for record in history:
+            record["kept"] = record["epoch"] == best[1]
     head.eval()
     return head, history
 
@@ -506,6 +521,9 @@ def main() -> None:
     parser.add_argument("--hidden", type=int, default=64,
                         help="width of the head's one hidden layer; whether more of it "
                         "reads more of the standings says if the features or the head is the limit")
+    parser.add_argument("--keep-best", action="store_true",
+                        help="save the pass that read the held-back games best, not the last; "
+                        "a judge with its own tower peaks and then memorises its games")
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=256)
@@ -523,7 +541,7 @@ def main() -> None:
     head, history = train(positions, net, epochs=args.epochs, lr=args.lr, batch=args.batch,
                           device=args.device, log=sys.stderr,
                           head=new_head(net, args.hidden, args.feature_version, args.looks),
-                          read_at_boundary=args.read_at_boundary)
+                          read_at_boundary=args.read_at_boundary, keep_best=args.keep_best)
     save(head, args.out, {"checkpoint": str(args.checkpoint), "rounds": [str(path) for path in args.rounds],
                           "features": fingerprint(net, head.feature_version), "boundary_only": args.boundary_only, "history": history})
     print(json.dumps({"out": str(args.out), "final": history[-1] if history else None}, indent=1))
