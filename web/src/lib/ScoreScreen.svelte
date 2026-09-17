@@ -210,6 +210,9 @@
   .working { display: grid; gap: 4px; }
   .yaku { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,210px),1fr)); gap: 1px 18px; font-size: .88rem; }
   .yaku li { display: block; padding: 1px 0; border-bottom: 1px dotted rgba(255,255,255,.16); }
+  /* The dora rows are counts, not controls, so they keep the row shape the
+     yaku rows had before their names became buttons: label left, count right. */
+  .yaku li.dora-count, .yaku li.ura-count { display: flex; justify-content: space-between; gap: 12px; }
   /* The name is the control: hovering or tabbing to it explains the yaku and
      lifts the tiles that make it. It must not look like a button in a row of
      numbers, so it keeps the row's own shape. */
