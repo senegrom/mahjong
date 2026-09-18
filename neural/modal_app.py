@@ -74,7 +74,10 @@ image = (
     .env({"PYTHONPATH": "/src", "PYTHONUNBUFFERED": "1"})
 )
 
-app = modal.App("mahjong-train", image=image)
+# The lab is deployed beside the production app under its own name, so an
+# experiment never replaces or is replaced by a production deploy; both
+# share the volume by its name.
+app = modal.App(os.environ.get("MAHJONG_MODAL_APP", "mahjong-train"), image=image)
 volume = modal.Volume.from_name("mahjong-train", create_if_missing=True)
 VOLUME = Path("/vol")
 # The lineage that sees Mortal's planes, trained from September 2026.
@@ -684,6 +687,81 @@ def collect_rounds(
                          "kept": keep, "written": len(made), "already_there": skipped}, indent=1)
     print(answer, flush=True)
     return answer
+
+
+@app.function(
+    gpu="H100",
+    cpu=16.0,
+    memory=65536,
+    timeout=24 * 60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def lab(command: str, name: str, options: list[str]) -> str:
+    """Runs one `python -m neural.learning_lab` command on the volume.
+
+    `options` are the command's own arguments; a token beginning with `vol:`
+    names a path on the volume, so `vol:leashed-run/latest.pt` is the
+    checkpoint the production runs know. The output directory is always
+    `lab/<name>/` on the volume, and the volume is committed every few
+    minutes while the command runs, so a container that loses its place
+    leaves its finished rounds behind.
+    """
+    import threading
+
+    if command not in ("train", "collect", "fit-critics", "reanalyse", "fit-ranker",
+                       "distill", "evaluate-ranker"):
+        raise ValueError("unknown learning_lab command")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", name):
+        raise ValueError("invalid lab run name")
+    if not isinstance(options, list) or not all(isinstance(option, str) for option in options):
+        raise ValueError("options must be a list of strings")
+    if "--out" in options:
+        raise ValueError("the output directory is lab/<name> on the volume; do not pass --out")
+    volume.reload()
+
+    def resolved(token: str) -> str:
+        if not token.startswith("vol:"):
+            return token
+        inner = token[4:]
+        if (not inner or inner.startswith("/") or "\\" in inner or ".." in Path(inner).parts):
+            raise ValueError(f"invalid volume path {token!r}")
+        return str(VOLUME / inner)
+
+    out = VOLUME / "lab" / name
+    if command in ("train", "collect", "reanalyse", "distill") and out.exists():
+        raise FileExistsError(f"lab/{name} already exists on the volume; the lab never overwrites a run")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    target = out if command in ("train", "collect", "reanalyse", "distill") else out.with_suffix(
+        ".json" if command == "evaluate-ranker" else ".pt")
+    arguments = [sys.executable, "-m", "neural.learning_lab", command,
+                 *[resolved(option) for option in options], "--out", str(target)]
+    print(" ".join(arguments), flush=True)
+    process = subprocess.Popen(arguments, cwd="/src", env=_environment(16),
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    lines: list[str] = []
+
+    def keep():
+        # What the command has written so far is worth keeping every few
+        # minutes: a round of training is a checkpoint on disk.
+        while process.poll() is None:
+            time.sleep(300)
+            if process.poll() is None:
+                try:
+                    volume.commit()
+                except Exception as error:  # noqa: BLE001 - keeping is best effort while it runs
+                    print(f"commit while running: {error}", flush=True)
+
+    threading.Thread(target=keep, daemon=True).start()
+    for line in process.stdout:
+        line = line.rstrip()
+        lines.append(line)
+        print(line, flush=True)
+    code = process.wait()
+    volume.commit()
+    tail = chr(10).join(lines[-80:])
+    if code:
+        raise subprocess.CalledProcessError(code, arguments[:4], output=tail[-6000:])
+    return json.dumps({"command": command, "name": name, "out": f"lab/{name}", "log": tail[-8000:]})
 
 
 @app.function(
