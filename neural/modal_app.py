@@ -690,7 +690,9 @@ def collect_rounds(
 
 
 @app.function(
-    gpu="H100",
+    # Any of these will do, and asking only for the scarcest one left four
+    # runs queued for hours behind no containers at all.
+    gpu=["H100", "A100-80GB", "A100-40GB", "L40S", "A10G"],
     cpu=16.0,
     memory=65536,
     timeout=24 * 60 * 60,
