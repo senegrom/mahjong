@@ -768,7 +768,8 @@ def lab(command: str, name: str, options: list[str]) -> str:
         for line in process.stdout:
             line = line.rstrip()
             lines.append(line)
-            print(line, flush=True)
+            # Eight arms share one log; each line says whose it is.
+            print(f"[{name}] {line}", flush=True)
         code = process.wait()
         keep_now()
     tail = chr(10).join(lines[-80:])
