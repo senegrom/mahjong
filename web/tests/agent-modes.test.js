@@ -313,3 +313,34 @@ test('physical chii matching accepts every equivalent meld order without changin
     assert.throws(() => new PhysicalAnalysis(wrongSource), /needs a called set/);
   }
 });
+
+test('autoplay waits at the end of a hand until the watcher deals the next one', async () => {
+  const w = new WatchSession(Game, 287, ['club', 'club', 'club', 'club'], { evaluate: builtin, delay: 0 });
+  try {
+    await w.prepare();
+    w.setAutoplay(true);
+    // Run the hand out under autoplay, which must stop when it ends.
+    for (let turn = 0; turn < 400 && w.match.view.phase !== 'over' && !w.match.over; turn++) {
+      await w.step();
+    }
+    assert.equal(w.match.view.phase, 'over', 'the hand ended');
+    assert.equal(w.waitingOnHandEnd, true, 'autoplay is holding at the result');
+    assert.equal(w.timer, null, 'and has scheduled nothing');
+    w.schedule();
+    assert.equal(w.timer, null, 'scheduling again keeps the hold');
+    // The watcher deals it themselves; autoplay resumes for the next hand.
+    await w.step();
+    assert.equal(w.waitingOnHandEnd, false);
+    // Turned off, autoplay carries straight on through a finished hand.
+    w.setPauseAtHandEnd(false);
+    for (let turn = 0; turn < 400 && w.match.view.phase !== 'over' && !w.match.over; turn++) {
+      await w.step();
+    }
+    if (!w.match.over) {
+      assert.equal(w.waitingOnHandEnd, false, 'nothing holds it now');
+      assert.notEqual(w.timer, null, 'the next hand is already scheduled');
+    }
+  } finally {
+    w.dispose();
+  }
+});

@@ -22,6 +22,8 @@
   let busy = $state(false);
   let failure = $state('');
   let auto = $state(false);
+  let holdAtHandEnd = $state(true);
+  let waiting = $state(false);
   let showWeights = $state(true);
   let speed = $state(1400);
   let standings = $state(null);
@@ -53,6 +55,7 @@
     busy = owner.busy;
     failure = owner.failure || owner.match.failure;
     auto = owner.autoplay;
+    waiting = owner.waitingOnHandEnd;
     log = owner.match.events;
     standings = owner.match.over ? owner.match.engine.standings() : null;
   }
@@ -63,6 +66,7 @@
       evaluate: evaluateAgent, onChange: update, delay: speed,
     });
     watch.autoplay = auto;
+    watch.pauseAtHandEnd = holdAtHandEnd;
     void watch.prepare();
   }
   function chooseAlternative(choice) {
@@ -95,6 +99,7 @@
   </details>
   <div class="watch-controls">
     <label><input type="checkbox" checked={auto} onchange={event => { auto = event.currentTarget.checked; watch?.setAutoplay(auto); }} /> Auto play</label>
+    <label><input type="checkbox" checked={holdAtHandEnd} onchange={event => { holdAtHandEnd = event.currentTarget.checked; watch?.setPauseAtHandEnd(holdAtHandEnd); }} /> Wait at the end of a hand</label>
     <label><input type="checkbox" bind:checked={showWeights} /> Show choice weights</label>
     <label>Pace<select value={speed} onchange={event => { speed = Number(event.currentTarget.value); if (watch) { watch.delay = speed; watch.schedule(); } }} aria-label="Watch pace"><option value={700}>Fast</option><option value={1400}>Normal</option><option value={3000}>Slow</option></select></label>
     {#if view}<button onclick={() => watch.step()} disabled={busy || Boolean(standings)}>{view.phase === 'over' ? 'Next hand' : 'Play this choice'}</button>{/if}
@@ -131,7 +136,9 @@
         </section>
       {/each}
     </div>
-    {#if busy}<p role="status">The agents are thinking…</p>{:else if analysis && !showWeights}<p role="status">{auto ? 'Auto play is running.' : 'Paused before the followed agent’s next choice.'}</p>{/if}
+    {#if busy}<p role="status">The agents are thinking…</p>
+    {:else if waiting}<p role="status">The hand is over. Auto play is waiting; deal the next hand when you have read it.</p>
+    {:else if analysis && !showWeights}<p role="status">{auto ? 'Auto play is running.' : 'Paused before the followed agent’s next choice.'}</p>{/if}
     {#if showWeights}<AgentWeights {analysis} onchoose={chooseAlternative} disabled={busy || Boolean(standings)} dora={shownDora} />{/if}
     {#if standings}<Standings {standings} onagain={start} />{/if}
     {#if view.phase === 'over' && view.outcome}

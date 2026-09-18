@@ -16,6 +16,9 @@ export class WatchSession {
     this.busy = false;
     this.failure = '';
     this.autoplay = false;
+    // A hand's result is the part worth reading, and autoplay would deal the
+    // next one over it. On by default: the pause is what a watcher wants.
+    this.pauseAtHandEnd = true;
     this.closed = false;
     this.timer = null;
     const opponents = lineup.slice(1).map(agent => agent === 'full' ? 'neural' : agent);
@@ -30,13 +33,22 @@ export class WatchSession {
   }
 
   notify() { if (!this.closed) this.onChange(this); }
+  /** Whether autoplay is holding at a finished hand for a person to read it. */
+  get waitingOnHandEnd() {
+    return Boolean(this.autoplay && this.pauseAtHandEnd && !this.closed && !this.busy
+      && !this.failure && !this.match.over && this.match.view?.phase === 'over');
+  }
   schedule() {
     clearTimeout(this.timer);
-    if (this.autoplay && !this.closed && !this.busy && !this.failure && !this.match.over) {
+    // Cleared means cleared: the field says whether a step is coming.
+    this.timer = null;
+    if (this.autoplay && !this.closed && !this.busy && !this.failure && !this.match.over
+        && !this.waitingOnHandEnd) {
       this.timer = setTimeout(() => { void this.step(); }, this.delay);
     }
   }
   setAutoplay(value) { this.autoplay = Boolean(value); this.schedule(); this.notify(); }
+  setPauseAtHandEnd(value) { this.pauseAtHandEnd = Boolean(value); this.schedule(); this.notify(); }
 
   async prepare(command = null) {
     if (this.closed || this.busy) return false;

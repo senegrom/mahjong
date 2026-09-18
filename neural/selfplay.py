@@ -735,6 +735,35 @@ def measure(
 ROUND_VERSION = 1
 
 
+def only_boundaries(batch: Batch) -> Batch:
+    """The same round with only the positions a search asks a placement judge
+    about: the first turn to act of a hand.
+
+    A round of 256 games is 1.8 GB, and one in sixteen of its rows is such a
+    position. What a judge learns from is games -- one placement each -- so
+    keeping those rows alone buys sixteen times the games for the same bytes.
+    """
+    from dataclasses import replace
+
+    mask = getattr(batch, "boundary", None)
+    if mask is None:
+        raise ValueError("this round does not say which positions follow a hand boundary")
+    rows = np.nonzero(mask.numpy())[0]
+    picks = torch.from_numpy(rows)
+    return replace(
+        batch,
+        observations=batch.observations.rows(rows),
+        placements=batch.placements[picks],
+        returns=batch.returns[picks],
+        game_of=batch.game_of[picks],
+        boundary=batch.boundary[picks],
+        legal=batch.legal[picks] if len(batch.legal) == batch.decisions else batch.legal,
+        actions=batch.actions[picks],
+        log_probs=batch.log_probs[picks],
+        decisions=len(rows),
+    )
+
+
 def save_round(batch: Batch, path: Path, meta: dict | None = None) -> None:
     """Keeps the part of a round a head can be trained on afterwards: the
     planes, sparse and in halves, the placement each decision led to and
@@ -798,6 +827,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--amp", action="store_true", help="bfloat16 forward passes on the card")
+    parser.add_argument("--keep", choices=("all", "boundary"), default="all",
+                        help="every decision, or only the first turn of a hand, which is what a "
+                        "placement judge is asked about and a sixteenth of the bytes")
     parser.add_argument("--greedy", action="store_true",
                         help="every seat plays its first choice rather than sampling")
     parser.add_argument("--max-steps", type=int, default=4000)
@@ -809,7 +841,9 @@ def main() -> None:
     began = time.time()
     batch = play(net, games=args.games, seed=args.seed, device=args.device, greedy=args.greedy,
                  max_steps=args.max_steps, amp=args.amp and args.device == "cuda")
-    save_round(batch, args.out, {"checkpoint": str(args.checkpoint), "seed": int(args.seed),
+    if args.keep == "boundary":
+        batch = only_boundaries(batch)
+    save_round(batch, args.out, {"checkpoint": str(args.checkpoint), "keep": args.keep, "seed": int(args.seed),
                                  "greedy": bool(args.greedy)})
     print(json.dumps({
         "out": str(args.out), "games": batch.games, "hands": batch.hands, "decisions": batch.decisions,
