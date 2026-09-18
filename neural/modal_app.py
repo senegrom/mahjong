@@ -727,37 +727,50 @@ def lab(command: str, name: str, options: list[str]) -> str:
             raise ValueError(f"invalid volume path {token!r}")
         return str(VOLUME / inner)
 
-    out = VOLUME / "lab" / name
-    if command in ("train", "collect", "reanalyse", "distill") and out.exists():
+    kept = VOLUME / "lab" / name
+    directory = command in ("train", "collect", "reanalyse", "distill")
+    if directory and kept.exists():
         raise FileExistsError(f"lab/{name} already exists on the volume; the lab never overwrites a run")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    target = out if command in ("train", "collect", "reanalyse", "distill") else out.with_suffix(
-        ".json" if command == "evaluate-ranker" else ".pt")
-    arguments = [sys.executable, "-m", "neural.learning_lab", command,
-                 *[resolved(option) for option in options], "--out", str(target)]
-    print(" ".join(arguments), flush=True)
-    process = subprocess.Popen(arguments, cwd="/src", env=_environment(16),
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    lines: list[str] = []
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    with workspace("lab") as where:
+        # The command works on the container's own disk and what it makes is
+        # copied to the volume every few minutes and at the end: the lab
+        # writes checkpoints atomically, with syncs and renames a network
+        # volume answers slowly or not at all.
+        out = where / name if directory else (where / name).with_suffix(
+            ".json" if command == "evaluate-ranker" else ".pt")
+        arguments = [sys.executable, "-m", "neural.learning_lab", command,
+                     *[resolved(option) for option in options], "--out", str(out)]
+        print(" ".join(arguments), flush=True)
+        process = subprocess.Popen(arguments, cwd="/src", env=_environment(16),
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        lines: list[str] = []
 
-    def keep():
-        # What the command has written so far is worth keeping every few
-        # minutes: a round of training is a checkpoint on disk.
-        while process.poll() is None:
-            time.sleep(300)
-            if process.poll() is None:
-                try:
-                    volume.commit()
-                except Exception as error:  # noqa: BLE001 - keeping is best effort while it runs
-                    print(f"commit while running: {error}", flush=True)
+        def keep_now():
+            if directory and out.exists():
+                shutil.copytree(out, kept, dirs_exist_ok=True)
+            elif out.exists():
+                shutil.copyfile(out, kept.with_suffix(out.suffix))
+            volume.commit()
 
-    threading.Thread(target=keep, daemon=True).start()
-    for line in process.stdout:
-        line = line.rstrip()
-        lines.append(line)
-        print(line, flush=True)
-    code = process.wait()
-    volume.commit()
+        def keep():
+            # A round of training is a checkpoint on disk, worth keeping as
+            # soon as it exists.
+            while process.poll() is None:
+                time.sleep(300)
+                if process.poll() is None:
+                    try:
+                        keep_now()
+                    except Exception as error:  # noqa: BLE001 - keeping is best effort while it runs
+                        print(f"keeping while running: {error}", flush=True)
+
+        threading.Thread(target=keep, daemon=True).start()
+        for line in process.stdout:
+            line = line.rstrip()
+            lines.append(line)
+            print(line, flush=True)
+        code = process.wait()
+        keep_now()
     tail = chr(10).join(lines[-80:])
     if code:
         raise subprocess.CalledProcessError(code, arguments[:4], output=tail[-6000:])
