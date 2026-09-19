@@ -117,6 +117,14 @@ def _generation_of(checkpoint: Path) -> int:
     return validate_checkpoint(checkpoint, require_generation=True)
 
 
+def _generation_or_zoo(checkpoint: Path) -> str:
+    """A generation to print beside a player at a table. A player from the
+    zoo -- a published Mortal -- has none, and a table is not a promotion:
+    the file is checked, and it is described rather than refused."""
+    generation = validate_checkpoint(checkpoint, require_generation=False)
+    return str(generation) if generation is not None else "none (a player from the zoo)"
+
+
 # Processors for the two trainers. The observation's efficiency lookahead
 # costs about two milliseconds a decision on one of them, and the encoder
 # spreads a step's decisions over all of them, so play is bound by their
@@ -1054,8 +1062,8 @@ def duel(
         shutil.copyfile(source, copied)
         files.append(copied)
     print(
-        f"challenger {challenger}.pt generation {_generation_of(files[0])} "
-        f"against {incumbent}.pt generation {_generation_of(files[1])}",
+        f"challenger {challenger}.pt generation {_generation_or_zoo(files[0])} "
+        f"against {incumbent}.pt generation {_generation_or_zoo(files[1])}",
         flush=True,
     )
 
