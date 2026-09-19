@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. The later L is the active white dragon; F and D remain studies.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The later L is the active white dragon; F and D remain studies.",
   "fallback": "classic",
   "sources": [
     {
@@ -38,6 +38,16 @@
       "id": "characters",
       "source": "docs/design/van-gogh/studies/06-three-characters-new-directions.png",
       "sha256": "a0d0c325a5f63f6121555e099afcbba65cfaeb2941aee3962572b371282bfdd7"
+    },
+    {
+      "id": "nightCafe",
+      "source": "docs/design/van-gogh/studies/07-two-characters-night-cafe.png",
+      "sha256": "cffc26815cb5b41382237019695be71209a7b60fdbecaad5205c1a7381defc01"
+    },
+    {
+      "id": "cypressFields",
+      "source": "docs/design/van-gogh/studies/08-four-characters-cypress-fields.png",
+      "sha256": "f46d5a84d825851849438cf09db5284941c75094845fb4a678cb6d1353022d0a"
     }
   ],
   "tiles": [
@@ -244,6 +254,40 @@
         "height": 1448
       },
       "pngSha256": "acc898620ef512f35dc9f750d0d1d74cab98fbb495b3af1096e0c3a7e6668b53"
+    },
+    {
+      "candidate": "Characters B",
+      "tile": "2m",
+      "name": "Man2",
+      "label": "Two characters",
+      "source": "docs/design/van-gogh/studies/07-two-characters-night-cafe.png",
+      "status": "approved",
+      "png": "approved/Man2.png",
+      "svg": "approved/Man2.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1022,
+        "height": 1539
+      },
+      "pngSha256": "cffc26815cb5b41382237019695be71209a7b60fdbecaad5205c1a7381defc01"
+    },
+    {
+      "candidate": "Characters C",
+      "tile": "4m",
+      "name": "Man4",
+      "label": "Four characters",
+      "source": "docs/design/van-gogh/studies/08-four-characters-cypress-fields.png",
+      "status": "approved",
+      "png": "approved/Man4.png",
+      "svg": "approved/Man4.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 1536
+      },
+      "pngSha256": "f46d5a84d825851849438cf09db5284941c75094845fb4a678cb6d1353022d0a"
     }
   ],
   "rejected": [
@@ -270,8 +314,6 @@
   ],
   "remaining": [
     "1m",
-    "2m",
-    "4m",
     "5m",
     "6m",
     "7m",
