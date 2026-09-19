@@ -2,7 +2,7 @@
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
-Carl approved all except K and requested deployment. **Van Gogh is a selectable set with twelve distinct faces**: A–C, E, G–J and L, plus Almond Branches (Characters A), Blazing Dawn (East A) and Wind Ribbons (North B). Almond Branches replaces D for 3 of characters. The later L is the active white dragon; F remains an earlier alternative. East wind K is excluded. The remaining 22 tile identities use Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
+Carl approved all except K and requested deployment. **Van Gogh is a selectable set with fourteen distinct faces**: A–C, E, G–J and L, plus Almond Branches (Characters A), Night Café (Characters B), Cypress Fields (Characters C), Blazing Dawn (East A) and Wind Ribbons (North B). Almond Branches replaces D for 3 of characters; Night Café and Cypress Fields are the approved adaptations for 2 and 4 of characters. The later L is the active white dragon; F remains an earlier alternative. East wind K is excluded. The remaining 20 tile identities use Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
 
 ![Van Gogh — six first tile studies](studies/01-van-gogh-concepts.png)
 
@@ -54,7 +54,7 @@ Carl approved deployment, then supplied the [original shared image](https://chat
 
 On 13 September 2026, Carl selected **A — Almond Branches** for 3 of characters and requested deployment. The playable `Man3` (`3m`, Characters A) is cropped directly from the approved left panel at `[25, 93, 523, 782]`. Flowering branches form 三萬 against an aquamarine field. The [complete prompt](prompt-06.md) and original sheet are preserved; the source image SHA-256 is `a0d0c325a5f63f6121555e099afcbba65cfaeb2941aee3962572b371282bfdd7`.
 
-Carl also requested recreations of **B — Night Café** for 2 of characters (`二萬`) and **C — Cypress Fields** for 4 of characters (`四萬`). Those adaptations are being developed as separate artwork. The earlier Painted Letters D remains preserved in the first study sheet.
+Carl also requested recreations of **B — Night Café** for 2 of characters (`二萬`) and **C — Cypress Fields** for 4 of characters (`四萬`), and approved their deployment. Both full-canvas adaptations are preserved as separate source images and now have playable exports: [Night Café 2](studies/07-two-characters-night-cafe.png) and [Cypress Fields 4](studies/08-four-characters-cypress-fields.png). The [deployment record](characters-two-four.md) describes the exact-source checks. The earlier Painted Letters D remains preserved in the first study sheet.
 
 ## Design language
 
@@ -75,6 +75,6 @@ The second sheet explores the bird, further bamboo rhythms and the dawn wind pal
 
 Both the [first concept sheet](studies/01-van-gogh-concepts.png) and [second concept sheet](studies/02-van-gogh-concepts.png) are unmodified image-generation outputs. They contain captions and gutters outside the faces and are not production atlases. The [manifest](manifest.json) records the study identities, source dimensions and hashes. The [first prompt](prompt.md) and [second prompt](prompt-02.md) preserve the briefs used with ChatGPT's built-in image generation tool.
 
-The deployed faces preserve the exact approved source pixels in lossless rectangular crops. Captions and presentation gutters are excluded. Their SVG wrappers follow the existing 300 × 400 canvas, 26-unit corner radius and 1% bleed conventions. The [export script](../../../web/scripts/export-van-gogh-tiles.mjs) reproduces all twelve faces and the preview. Continue the remaining artwork through all 34 tile types as further designs are selected.
+The deployed faces preserve the exact approved source pixels in lossless rectangular crops or full-canvas PNG copies. Captions and presentation gutters are excluded. Their SVG wrappers follow the existing 300 × 400 canvas, 26-unit corner radius and 1% bleed conventions. The [export script](../../../web/scripts/export-van-gogh-tiles.mjs) reproduces all fourteen faces and the preview. Use `--only=2m,4m` to export the two new character faces without re-encoding any existing artwork. Continue the remaining artwork through all 34 tile types as further designs are selected.
 
 Reference: [Matisse set and export conventions](../../../web/public/tiles/matisse/README.md).
