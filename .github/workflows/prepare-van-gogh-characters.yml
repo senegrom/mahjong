@@ -1,0 +1,140 @@
+name: Prepare approved Van Gogh characters
+on:
+  push:
+    branches: [design/van-gogh-two-four-20260919]
+    paths: ['.github/workflows/prepare-van-gogh-characters.yml']
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: design/van-gogh-two-four-20260919
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Prepare only the two approved character tiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, struct
+          def replace_once(text, old, new):
+              assert text.count(old) == 1, f'Expected one occurrence: {old!r}'
+              return text.replace(old, new, 1)
+          out = Path('web/public/tiles/van-gogh')
+          snapshot = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in (out / 'approved').glob('*') if p.suffix in ('.png', '.svg')}
+          Path('/tmp/van-gogh-before.json').write_text(json.dumps(snapshot))
+          entries = [
+              ('nightCafe', 'Characters B', '2m', 'Two characters', '07-two-characters-night-cafe.png', '5ce8e6822ece3d11b0e33b21a666b6272717adc5'),
+              ('cypressFields', 'Characters C', '4m', 'Four characters', '08-four-characters-cypress-fields.png', 'e3410ae633e835c6300a24bbce86e59e8999eab0'),
+          ]
+          source_lines, definition_lines = [], []
+          for key, candidate, tile, label, filename, expected in entries:
+              source = 'docs/design/van-gogh/studies/' + filename
+              data = Path(source).read_bytes()
+              assert hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() == expected, 'Source artwork changed'
+              assert data[:8] == b'\x89PNG\r\n\x1a\n'
+              width, height = struct.unpack('>II', data[16:24])
+              assert width > 0 and height > 0
+              source_lines.append(f"  {key}: '{source}',")
+              definition_lines.append(f"  ['{candidate}', '{tile}', '{label}', '{key}', [0, 0, {width}, {height}]],")
+              print(json.dumps({'tile': tile, 'source': source, 'width': width, 'height': height, 'sha256': hashlib.sha256(data).hexdigest()}))
+          script = Path('web/scripts/export-van-gogh-tiles.mjs')
+          text = script.read_text()
+          text = replace_once(text, '\n};\nconst definitions = [', '\n' + '\n'.join(source_lines) + '\n};\nconst definitions = [')
+          options = """const onlyArgument = process.argv.find(argument => argument.startsWith('--only='));
+          const onlyTiles = onlyArgument ? new Set(onlyArgument.slice(7).split(',')) : null;
+          if (onlyTiles && [...onlyTiles].some(tile => !definitions.some(definition => definition[1] === tile))) {
+            throw new Error('Unknown tile in --only selection');
+          }
+          const fullFaceSources = new Set(['nightCafe', 'cypressFields']);
+          """
+          text = replace_once(text, '\n];\nconst hash =', '\n' + '\n'.join(definition_lines) + '\n];\n' + options + 'const hash =')
+          text = replace_once(text, 'const raster = execFileSync(', "const raster = onlyTiles && !onlyTiles.has(tile)\n    ? readFileSync(path.join(out, png))\n    : fullFaceSources.has(sourceId)\n      ? readFileSync(path.join(root, source))\n      : execFileSync(")
+          text = replace_once(text, 'The later L is the active white dragon;', 'Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The later L is the active white dragon;')
+          text = replace_once(text, 'Characters A replaces D; East A and North B included;', 'Characters A replaces D; Characters B (2m), Characters C (4m), East A and North B included;')
+          text = replace_once(text, "const hand = [...approved, '2z', '6z'].map(tile => {", "const handTiles = ['2m', '3m', '4m', ...approved.filter(tile => !['2m', '3m', '4m'].includes(tile)).slice(0, 9), '2z', '6z'];\nconst hand = handTiles.map(tile => {")
+          text = replace_once(text, 'including Almond Branches for 3 of characters, Blazing Dawn for East', 'including Night Cafe for 2 of characters, Almond Branches for 3, Cypress Fields for 4, Blazing Dawn for East')
+          script.write_text(text)
+          tests = Path('web/tests/tile-faces.test.js')
+          text = tests.read_text()
+          text = replace_once(text, "'5z', '1z', '4z'];", "'5z', '1z', '4z', '2m', '4m'];")
+          text = replace_once(text, "'L', 'East A', 'North B']);", "'L', 'East A', 'North B', 'Characters B', 'Characters C']);")
+          text = replace_once(text, "url.startsWith('tiles/van-gogh/')).length, 12", "url.startsWith('tiles/van-gogh/')).length, 14")
+          text = replace_once(text, "for (const tile of ['1z', '4z'])", "for (const tile of ['1z', '4z', '2m', '4m'])")
+          extra = """
+          test('Van Gogh 2 and 4 characters preserve their exact approved source images', () => {
+            const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
+            assert.equal(set.remaining.length, 20);
+            for (const [tile, filename, expectedBlob] of [
+              ['2m', '07-two-characters-night-cafe.png', '5ce8e6822ece3d11b0e33b21a666b6272717adc5'],
+              ['4m', '08-four-characters-cypress-fields.png', 'e3410ae633e835c6300a24bbce86e59e8999eab0'],
+            ]) {
+              const entry = set.tiles.find(entry => entry.tile === tile);
+              assert.ok(entry);
+              assert.equal(entry.source, `docs/design/van-gogh/studies/${filename}`);
+              const source = readFileSync(new URL(`../../${entry.source}`, import.meta.url));
+              const header = Buffer.from(`blob ${source.length}\\0`);
+              assert.equal(createHash('sha1').update(header).update(source).digest('hex'), expectedBlob);
+              assert.deepEqual(readFileSync(new URL(`tiles/van-gogh/${entry.png}`, publicRoot)), source);
+              assert.deepEqual(entry.crop, { x: 0, y: 0, width: source.readUInt32BE(16), height: source.readUInt32BE(20) });
+              assert.ok(!set.remaining.includes(tile));
+              assert.ok(TILE_IMAGE_URLS.includes(tileImage(tile, 'van-gogh')));
+            }
+          });
+          """
+          tests.write_text(text.rstrip() + '\n' + extra)
+          readme = out / 'README.md'
+          text = readme.read_text().replace('The twelve approved faces', 'The fourteen approved faces').replace('The other 22 identities', 'The other 20 identities')
+          text = replace_once(text, '**Blazing Dawn (East A)**', '**Night Cafe (Characters B)** for 2 of characters, **Cypress Fields (Characters C)** for 4 of characters, **Blazing Dawn (East A)**')
+          text += '\nThe 2 and 4 of characters use exact copies of their full-canvas source PNGs. To export only these two while keeping every other face byte-for-byte unchanged:\n\n```sh\nnode web/scripts/export-van-gogh-tiles.mjs --only=2m,4m\n```\n'
+          readme.write_text(text)
+          Path('docs/design/van-gogh/characters-two-four.md').write_text('# Night Cafe 2 and Cypress Fields 4\n\nBoth tiles are approved for deployment in the Van Gogh set. Their source images were already saved in this repository; no image generation or repainting was used for this integration.\n\n- **2 of characters (Characters B):** [Night Cafe](studies/07-two-characters-night-cafe.png).\n- **4 of characters (Characters C):** [Cypress Fields](studies/08-four-characters-cypress-fields.png).\n\nThe production PNGs are byte-identical to these full-canvas sources. The self-contained SVG wrappers use the existing 300 x 400 canvas, rounded clipping and bleed. All twelve previously approved faces, including Almond Branches 3, East A and North B, are unchanged. The set now has fourteen approved faces and twenty Classic fallbacks. The export manifest records the source and production SHA-256 hashes.\n')
+          PY
+          node web/scripts/export-van-gogh-tiles.mjs --only=2m,4m
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, re, subprocess
+          before = json.loads(Path('/tmp/van-gogh-before.json').read_text())
+          for path, digest in before.items():
+              assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest, f'Existing artwork changed: {path}'
+          root = Path('web/public/tiles/van-gogh')
+          manifest = json.loads((root / 'manifest.json').read_text())
+          assert len(manifest['tiles']) == 14 and len(manifest['remaining']) == 20
+          for tile in ['2m', '4m']:
+              entry = next(entry for entry in manifest['tiles'] if entry['tile'] == tile)
+              assert (root / entry['png']).read_bytes() == Path(entry['source']).read_bytes()
+          html = (root / 'preview.html').read_text()
+          rack = re.search(r'<div class="rack" id="rack">(.*?)</div>', html).group(1)
+          assert rack.count('<img ') == 14
+          paths = ['web/public/tiles/van-gogh', 'web/src/lib/van-gogh-faces.js']
+          first = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for path in paths for p in ([Path(path)] if Path(path).is_file() else Path(path).rglob('*')) if p.is_file()}
+          subprocess.run(['node', 'web/scripts/export-van-gogh-tiles.mjs', '--only=2m,4m'], check=True)
+          for path, digest in first.items():
+              assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest, f'Non-deterministic export: {path}'
+          print('Verified exact new source images, all 12 existing PNG/SVG pairs unchanged, a 14-tile rack and deterministic re-export.')
+          PY
+      - name: Install and run tile regressions
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+          node --test tests/tile-faces.test.js tests/offline.test.js
+      - name: Commit only generated tile integration files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add web/scripts/export-van-gogh-tiles.mjs web/tests/tile-faces.test.js web/src/lib/van-gogh-faces.js web/public/tiles/van-gogh docs/design/van-gogh/characters-two-four.md
+          git diff --cached --stat
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Deploy approved Night Cafe 2 and Cypress Fields 4 without changing other tiles'
+          git push origin HEAD:design/van-gogh-two-four-20260919
