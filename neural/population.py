@@ -220,3 +220,46 @@ def matchups(seated: np.ndarray, placements: np.ndarray, members: list[Member]) 
             }
         )
     return rows
+
+
+def table_seats(games: int, members: list[Member], mix, rng: np.random.Generator) -> np.ndarray:
+    """Draw [self,self+3 frozen,3 self+1 frozen] tables by player identity.
+
+    -1 is the learner; nonnegative entries index the immutable roster. Each
+    frozen seat is drawn independently and kept for the entire match.
+    """
+    mix = np.asarray(mix, dtype=np.float64)
+    if (type(games) is not int or games <= 0 or mix.shape != (3,)
+            or not np.isfinite(mix).all() or np.any(mix < 0)
+            or not np.isclose(mix.sum(), 1.0, rtol=0, atol=1e-8)):
+        raise ValueError("table mix needs three nonnegative shares summing to one")
+    if not members and mix[1:].sum() > 0:
+        raise ValueError("mixed tables require an explicit opponent roster")
+    seats = np.full((games, 4), -1, dtype=np.int64)
+    if not members:
+        return seats
+    weights = np.asarray([member.weight for member in members], dtype=np.float64)
+    if not np.isfinite(weights).all() or np.any(weights <= 0):
+        raise ValueError("opponent weights must be finite and positive")
+    weights /= weights.sum()
+    kinds = rng.choice(3, games, p=mix)
+    for game, kind in enumerate(kinds):
+        if kind == 0:
+            continue
+        chair = int(rng.integers(4))
+        foreign = [p for p in range(4) if p != chair] if kind == 1 else [chair]
+        seats[game, foreign] = rng.choice(len(members), size=len(foreign), p=weights)
+    return seats
+
+
+def table_matchups(seats: np.ndarray, places: np.ndarray, members: list[Member]) -> list[dict]:
+    """Describe whole table compositions, not misleading one-opponent averages."""
+    groups = {}
+    for lineup, scores in zip(seats, places):
+        opponents = tuple(sorted(int(i) for i in lineup if i >= 0))
+        groups.setdefault(opponents, []).append(float(scores[lineup < 0].mean()))
+    return [{"opponents": [members[i].name for i in lineup],
+             "learner_seats": 4 - len(lineup), "games": len(values),
+             "placement": float(np.mean(values)),
+             "diagnostic_only": True}
+            for lineup, values in sorted(groups.items())]

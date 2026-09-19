@@ -119,18 +119,37 @@ def publish_training_snapshot(source: Path, target: Path, minimum_generation: in
         if generation < minimum_generation:
             raise ValueError("Checkpoint is older than the completed generation notification")
         names = []
-        for name in ("best.pt", "reference.pt"):
+        for name in ("best.pt", "candidate.pt", "reference.pt"):
             if (source / name).exists():
                 other = copy_checkpoint(source / name, staged / name)
                 # A concurrently completed best from a later round can wait
                 # for that round's notification; never pair it with this latest.
-                if other is None or other <= generation:
+                if name == "reference.pt" or other is None or other <= generation:
                     names.append(name)
-        for name in ("log.jsonl", "opponents.json"):
+        for name in ("log.jsonl", "opponents.json", "seeds.json", "experiment.json"):
             log = source / name
             if log.exists():
                 shutil.copyfile(log, staged / name)
                 names.append(name)
+        # New league checkpoints refer to immutable roster snapshots. Publish
+        # those first, so latest.pt never references a file absent on the volume.
+        if (source / "snapshots").exists():
+            import hashlib
+            for policy in sorted((source / "snapshots").glob("*.pt")):
+                expected = policy.stem
+                if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
+                    raise ValueError("invalid immutable opponent filename")
+                with policy.open("rb") as stream:
+                    actual = hashlib.file_digest(stream, "sha256").hexdigest()
+                if actual != expected:
+                    raise ValueError("immutable opponent snapshot was modified")
+                destination = target / "snapshots" / policy.name
+                if destination.exists():
+                    with destination.open("rb") as stream:
+                        if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
+                            raise ValueError("published opponent snapshot was modified")
+                else:
+                    copy_checkpoint(policy, destination)
         # All checkpoints have been fully deserialized before any live rename.
         # Retain each tenth complete generation from these exact copied bytes.
         if generation % 10 == 0:

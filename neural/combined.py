@@ -341,7 +341,7 @@ class Combined(nn.Module):
         to get there. Its moves are Mortal's, so a riichi is answered in two
         steps and both are recorded."""
         return mortal_learner.decide_in_mortal_space(
-            lambda planes, mask: self.forward(planes, mask)[0],
+            lambda planes, mask: self.policy_only(planes, mask),
             views,
             rows,
             players,

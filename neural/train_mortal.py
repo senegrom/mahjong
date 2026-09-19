@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from .seed_ledger import SeedLedger
 from .checkpoints import atomic_save
 from .training_safety import (
     TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
@@ -148,6 +149,9 @@ def main() -> None:
 
     restore_sampling_state(sampling_state, generation=start)
 
+    seeds = SeedLedger(args.seed_ledger or args.out / "seeds.json", seed=args.seed,
+                       saved=(source_state or {}).get("seed_state"))
+
     def checkpoint_payload(generation: int) -> dict:
         return {
             **net.state(),
@@ -155,6 +159,7 @@ def main() -> None:
             "learner": "mortal",
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
+            "seed_state": seeds.snapshot(),
             "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch},
             "smoothed": smoothed,
             "best_placement": best_placement,
@@ -172,7 +177,7 @@ def main() -> None:
         batch = selfplay.play(
             net,
             games=args.games,
-            seed=args.seed + generation * 1000,
+            seed=seeds.reserve("train", args.games, f"generation-{generation}")["seed"],
             device=device,
             amp=amp_enabled,
             opponents=seated,
@@ -308,7 +313,7 @@ def main() -> None:
         if (generation + 1) % args.measure_every == 0 or generation == 0:
             net.eval()
             measured = selfplay.measure(
-                net, games=args.measure_games, seed=7_000_000 + generation, device=device
+                net, games=args.measure_games, seed=seeds.reserve("validation", args.measure_games, f"measure-{generation}")["seed"], device=device
             )
             record.update(
                 {

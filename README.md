@@ -272,6 +272,13 @@ npm install -g wasm-pack
 
 ## Training
 
+For the placement-aligned PPO experiment suite, independent public/privileged
+critics, mixed-opponent tables, reproducible seed allocation and paired promotion
+evidence, see [Self-play experiments](docs/SELFPLAY_EXPERIMENTS.md). Start with
+`python -m neural.train_league --help`; the existing trainers below remain
+baselines. These experiments do not change the published browser player.
+
+
 Build the engine for Python once, with `maturin develop --release` inside
 `engine/riichi-py`, and Mortal's engine the same way inside
 `engine/libriichi` (vendored from the Mortal project under its AGPL

@@ -28,6 +28,7 @@ import numpy as np
 import torch
 import riichi_py
 
+from .seed_ledger import SeedLedger
 from .checkpoints import atomic_save
 from .training_safety import (
     TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
@@ -353,12 +354,16 @@ def main() -> None:
         if "replay_rng_state" in resume_payload:
             replay_rng.bit_generator.state = resume_payload["replay_rng_state"]
 
+    seeds = SeedLedger(args.seed_ledger or args.out / "seeds.json", seed=args.seed,
+                       saved=(resume_payload or {}).get("seed_state"))
+
     def checkpoint_payload(generation: int) -> dict:
         payload = {
             "model": net.state_dict(),
             "optimizer": optimiser.state_dict(),
             "generation": generation,
             "training_api_version": TRAINING_API_VERSION,
+            "seed_state": seeds.snapshot(),
             "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch},
             **net.payload_fields(),
             "smoothed": smoothed,
@@ -421,7 +426,7 @@ def main() -> None:
         batch = selfplay.play(
             net,
             games=args.games,
-            seed=args.seed + generation * 1000,
+            seed=seeds.reserve("train", args.games, f"generation-{generation}")["seed"],
             device=device,
             amp=args.amp,
             opponents=seated,
@@ -808,7 +813,7 @@ def main() -> None:
             measured = selfplay.measure(
                 net,
                 games=args.measure_games,
-                seed=7_000_000 + generation,
+                seed=seeds.reserve("validation", args.measure_games, f"measure-{generation}")["seed"],
                 device=device,
                 amp=args.amp,
             )

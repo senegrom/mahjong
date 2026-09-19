@@ -257,7 +257,7 @@ def train(
                     copy_checkpoint(saved, where / saved_name)
             # Carry the history forward so a resumed run appends to it rather
             # than starting a fresh record every container.
-            for name in ("log.jsonl", "train.log"):
+            for name in ("log.jsonl", "train.log", "seeds.json"):
                 history = VOLUME / run / name
                 if source.parent == VOLUME / run and history.exists():
                     shutil.copyfile(history, where / name)
@@ -420,6 +420,9 @@ def train_mortal(
                 # Cross-lineage starts must not inherit this run's old baseline.
                 if source.parent == VOLUME / run and saved.exists():
                     copy_checkpoint(saved, where / saved_name)
+            seed_history = VOLUME / run / "seeds.json"
+            if source.parent == VOLUME / run and seed_history.exists():
+                shutil.copyfile(seed_history, where / "seeds.json")
             history = VOLUME / run / "log.jsonl"
             if source.parent == VOLUME / run and history.exists():
                 shutil.copyfile(history, where / "log.jsonl")
@@ -552,6 +555,9 @@ def train_combined(
                 # Cross-lineage starts must not inherit this run's old baseline.
                 if source.parent == VOLUME / run and saved.exists():
                     copy_checkpoint(saved, where / saved_name)
+            seed_history = VOLUME / run / "seeds.json"
+            if source.parent == VOLUME / run and seed_history.exists():
+                shutil.copyfile(seed_history, where / "seeds.json")
             history = VOLUME / run / "log.jsonl"
             if source.parent == VOLUME / run and history.exists():
                 shutil.copyfile(history, where / "log.jsonl")

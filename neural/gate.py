@@ -23,11 +23,12 @@ from .training_safety import TRAINING_API_VERSION, require_training_engine
 
 
 def assess(forward: list[float], reverse: list[float], *, confidence: float = .95,
-           minimum_edge: float = 0., attempt: int = 1, minimum_deals: int = 128) -> dict:
-    """One-sided Hoeffding lower bound on the symmetric per-seed advantage.
+           minimum_edge: float = 0., attempt: int = 1, minimum_deals: int = 128, method: str = "hoeffding") -> dict:
+    """One-sided bounded-mean evidence on the symmetric per-seed advantage.
 
     Per-deal improvement = (reverse placement - forward placement) / 2,
-    in [-1.5, 1.5]. Radius = 3 sqrt(log(1/alpha_i) / (2 n)). Alpha spending
+    in [-1.5, 1.5]. Hoeffding is the compatibility default; empirical Bernstein
+    uses the sample variance (see neural.evidence). Alpha spending
     alpha_i=(1-confidence)/(i(i+1)) sums to 1-confidence across attempts.
     Attempts require fresh held-out seeds and preselected settings. The caller
     owns that ledger; reusing seeds or retrying with attempt=1 voids this claim.
@@ -47,9 +48,9 @@ def assess(forward: list[float], reverse: list[float], *, confidence: float = .9
         raise ValueError('paired placements must be finite matching vectors in [1, 4]')
     improvement = (b - a) / 2
     alpha = (1 - confidence) / (attempt * (attempt + 1))
-    radius = 3 * math.sqrt(math.log(1 / alpha) / (2 * a.size))
-    mean = float(improvement.mean())
-    lower = max(-1.5, mean - radius)
+    from .evidence import lower_mean
+    bound = lower_mean(improvement, alpha=alpha, lo=-1.5, hi=1.5, method=method)
+    radius, mean, lower = bound["radius"], bound["mean"], bound["lower"]
     enough = a.size >= minimum_deals
     promote = bool(enough and lower > minimum_edge)
     return {'promote': promote, 'reason': 'passed' if promote else
@@ -60,12 +61,13 @@ def assess(forward: list[float], reverse: list[float], *, confidence: float = .9
             'attempt': attempt, 'attempt_alpha': alpha, 'minimum_edge': minimum_edge,
             'minimum_deals': minimum_deals,
             'by_deal_improvement': improvement.tolist(),
-            'method': 'one-sided Hoeffding; paired by seed; summable alpha spending'}
+            'sample_variance': bound['sample_variance'],
+            'method': method + '; paired by seed; summable alpha spending'}
 
 
 def compare(candidate: Path, champion: Path, *, games: int, seed: int, device: str = 'cpu',
             max_steps: int = 4000, confidence: float = .95, minimum_edge: float = 0.,
-            attempt: int = 1, minimum_deals: int = 128) -> dict:
+            attempt: int = 1, minimum_deals: int = 128, method: str = "hoeffding") -> dict:
     """Evaluate immutable copies, so a running trainer cannot change the inputs."""
     from . import duel, zoo
     from .outcomes import validate_budget
@@ -74,7 +76,7 @@ def compare(candidate: Path, champion: Path, *, games: int, seed: int, device: s
     validate_budget(games, max_steps)
     # Validate the statistical settings before model loading or any game work.
     assess([2.5], [2.5], confidence=confidence, minimum_edge=minimum_edge,
-           attempt=attempt, minimum_deals=minimum_deals)
+           attempt=attempt, minimum_deals=minimum_deals, method=method)
     if type(seed) is not int or seed < 0 or seed + games > 2**64:
         raise ValueError('seed range must fit unsigned 64-bit game seeds')
     with tempfile.TemporaryDirectory(prefix='mahjong-gate-') as folder:
@@ -89,7 +91,7 @@ def compare(candidate: Path, champion: Path, *, games: int, seed: int, device: s
         forward = duel.duel(models[0], models[1], games, seed, device, max_steps=max_steps)
         reverse = duel.duel(models[1], models[0], games, seed, device, max_steps=max_steps)
     report = assess(forward['by_deal'], reverse['by_deal'], confidence=confidence,
-                    minimum_edge=minimum_edge, attempt=attempt, minimum_deals=minimum_deals)
+                    minimum_edge=minimum_edge, attempt=attempt, minimum_deals=minimum_deals, method=method)
     report.update(candidate=inputs[0], champion=inputs[1], seed=seed,
                   training_api_version=TRAINING_API_VERSION,
                   candidate_one_vs_three=forward, champion_one_vs_three=reverse,
@@ -109,6 +111,7 @@ def main() -> None:
     parser.add_argument('--confidence', type=float, default=.95)
     parser.add_argument('--minimum-edge', type=float, default=0.)
     parser.add_argument('--minimum-deals', type=int, default=128)
+    parser.add_argument('--method', choices=('hoeffding', 'empirical-bernstein'), default='hoeffding')
     parser.add_argument('--attempt', type=int, default=1, help='one-based attempt in the promotion series')
     args = parser.parse_args()
     torch.set_num_threads(2)

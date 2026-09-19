@@ -225,6 +225,11 @@ class Positions:
         return cls(batch.observations, np.asarray(placements, dtype=np.float32),
                    np.asarray(games, dtype=np.uint64) + np.uint64(seed))
 
+    def split_three(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Separate model selection from a once-only test, grouped by deal."""
+        from .evidence import split_games
+        return split_games(self.games)
+
     def split(self, held_out_every: int = 10) -> tuple[np.ndarray, np.ndarray]:
         """Positions to fit and positions to hold back, by game: the
         decisions of one game share its result and are not independent."""
@@ -388,8 +393,8 @@ def measure(head: Judge, net, positions: Positions, rows: np.ndarray, device: st
 def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch: int = 256,
           device: str = "cpu", head: Judge | None = None, log=None, seed: int = 3,
           read_at_boundary: bool = False, keep_best: bool = False) -> tuple[Judge, list[dict]]:
-    """Fits the head on the positions and reads it on the held-back games
-    after every pass.
+    """Fit on training games and select epochs on validation, never test games.
+    The independent test partition is read once after epoch selection.
 
     With `read_at_boundary` the reading is taken only where a search asks
     this judge -- the first turn of the hand after the root hand -- while the
@@ -400,13 +405,16 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
     With `keep_best` the head handed back is the pass that read the held-back
     games best, not the last one. A judge with its own tower was measured to
     peak and then memorise its games -- one placement each -- so its last pass
-    is its worst. The pass is chosen on the games it is then reported on, so
-    that figure flatters it a little; the history keeps every pass."""
+    is its worst. Epoch selection uses validation games only. The selected head is
+    then measured once on a separate test partition; all splits group whole deals."""
     net.eval()
     head = head or new_head(net)
     head.to(device)
     optimiser = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=1e-4)
-    training, held = positions.split()
+    training, held, test = positions.split_three()
+    watched = held[positions.boundary[held]] if read_at_boundary else held
+    if keep_best and not len(watched):
+        raise ValueError("keep_best requires validation games; collect more independent games")
     if len(training) == 0:
         raise ValueError("no positions to fit")
     wanted_all = torch.from_numpy(positions.placements)
@@ -430,11 +438,11 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
             seen += len(picks)
         watched = held[positions.boundary[held]] if read_at_boundary else held
         record = {"epoch": epoch, "loss": round(total / max(seen, 1), 5),
-                  "held_out": measure(head, net, positions, watched, device)}
+                  "validation": measure(head, net, positions, watched, device)}
         history.append(record)
         if log is not None:
             print(json.dumps(record), file=log, flush=True)
-        read = record["held_out"].get("explained")
+        read = record["validation"].get("explained")
         if keep_best and read is not None and (best is None or read > best[0]):
             best = (read, epoch, {name: tensor.detach().clone()
                                   for name, tensor in head.state_dict().items()})
@@ -443,6 +451,12 @@ def train(positions: Positions, net, *, epochs: int = 8, lr: float = 1e-3, batch
         for record in history:
             record["kept"] = record["epoch"] == best[1]
     head.eval()
+    # Only evaluate the test partition after epoch selection is finished.
+    tested = test[positions.boundary[test]] if read_at_boundary else test
+    if history:
+        history[-1]["test"] = measure(head, net, positions, tested, device)
+        history[-1]["selected_epoch"] = best[1] if best is not None else epochs - 1
+        history[-1]["test_evaluated_once"] = True
     return head, history
 
 
@@ -534,9 +548,9 @@ def main() -> None:
 
     net = contract.unwrap(zoo.load_player(args.checkpoint, args.device))
     positions = load_rounds(args.rounds, boundary_only=args.boundary_only)
-    training, held = positions.split()
-    print(json.dumps({"positions": len(positions), "games": int(positions.games.max()) + 1,
-                      "training": len(training), "held_out": len(held)}),
+    training, held, test = positions.split_three()
+    print(json.dumps({"positions": len(positions), "games": len(np.unique(positions.games)),
+                      "training": len(training), "validation": len(held), "test": len(test)}),
           file=sys.stderr, flush=True)
     head, history = train(positions, net, epochs=args.epochs, lr=args.lr, batch=args.batch,
                           device=args.device, log=sys.stderr,

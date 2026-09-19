@@ -11,6 +11,9 @@ import torch
 
 
 def add_training_controls(parser) -> None:
+    from pathlib import Path
+    parser.add_argument('--seed-ledger', type=Path, default=None,
+                        help='shared durable seed reservations; defaults to OUT/seeds.json')
     parser.add_argument('--target-kl', type=float, default=0.0,
                         help='stop further PPO updates above this sampled KL; 0 disables the guard')
     parser.add_argument('--baseline-batch', type=int, default=None,

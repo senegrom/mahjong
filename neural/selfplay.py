@@ -194,6 +194,13 @@ class Batch:
     #: its result and are not independent samples of it.
     game_of: torch.Tensor | None = None
     seed: int | None = None
+    # Temporal links follow the same player, through hand boundaries and both
+    # stages of riichi. They are not valid after subsampling the round.
+    player_of: torch.Tensor | None = None
+    hand_of: torch.Tensor | None = None
+    next_index: torch.Tensor | None = None
+    terminal: torch.Tensor | None = None
+    opponent_seats: np.ndarray | None = None
     # First turn-to-act per player per hand, matching boundary search leaves.
     boundary: torch.Tensor | None = None
 
@@ -238,6 +245,7 @@ def play(
     population=None,
     explore_share: float = 0.0,
     want_oracle: bool = False,
+    table_mix: tuple[float, float, float] | None = None,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -289,6 +297,30 @@ def play(
             seated_in[taken] = foreign_which[taken]
         foreign_player[taken] = picker.integers(0, 4, size=int(taken.sum()))
 
+    # Optional league layout, indexed by fixed PLAYER, not rotating wind.
+    foreign_seats = np.full((games, 4), -1, dtype=np.int64)
+    for game in range(games):
+        if foreign_player[game] >= 0:
+            foreign_seats[game, foreign_player[game]] = foreign_which[game]
+    if table_mix is not None:
+        from .population import table_seats, Member
+        if bot_places:
+            raise ValueError("table_mix cannot be combined with heuristic bot_places")
+        if opponent_share:
+            raise ValueError("choose table_mix or opponent_share, not both")
+        members = (population.members if population is not None else
+                   [Member(str(i), "recent", "explicit opponent") for i in range(len(opponents or []))])
+        if len(members) != len(opponents or []):
+            raise ValueError("roster and loaded opponents disagree")
+        foreign_seats = table_seats(games, members, table_mix,
+                                   np.random.default_rng(seed ^ 0x0DDBA11))
+        # Legacy one-seat provenance is deliberately absent for mixed tables.
+        seated_in = None
+
+    player_rows: list[int] = []
+    game_rows: list[int] = []
+    hand_rows: list[int] = []
+    hand_number = np.zeros(games, dtype=np.int64)
     # One block per step, holding the live games' rows in the order the
     # decisions are numbered below: a round is a few hundred blocks rather
     # than a few hundred thousand arrays, which the heap handles.
@@ -339,6 +371,7 @@ def play(
         counted = 0
         for game in np.nonzero(ended)[0]:
             counted += 1
+            hand_number[game] += 1
             last_forced[game] = False
             seen_turn[game] = False
             for person in range(4):
@@ -363,8 +396,12 @@ def play(
         mask = mask.reshape(games, ACTIONS).astype(bool)
         truth = np.frombuffer(arena.opponent_hands(), dtype=np.float32)
         truth = truth.reshape(games, OPPONENTS, POSITIONS)
-        hidden = np.frombuffer(arena.oracle(), dtype=np.float32)
-        hidden = hidden.reshape(games, ORACLE_PLANES, POSITIONS)
+        # Legacy collectors train an oracle/reader. Mortal-space actors do
+        # not need these bytes unless a training critic explicitly asks.
+        hidden = None
+        if want_oracle or not hasattr(net, "decide"):
+            hidden = np.frombuffer(arena.oracle(), dtype=np.float32)
+            hidden = hidden.reshape(games, ORACLE_PLANES, POSITIONS)
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
         their_choice = np.zeros(games, dtype=np.int64)
         timing["engine"] += clock() - began
@@ -377,7 +414,8 @@ def play(
         )
         # Games whose pending decision belongs to an older checkpoint are
         # answered separately and never recorded.
-        theirs = live & (deciding == foreign_player) & (foreign_player >= 0)
+        who_owns = foreign_seats[np.arange(games), np.maximum(deciding, 0)]
+        theirs = live & (who_owns >= 0)
         index = np.nonzero(live & ~theirs)[0]
         timing["other"] += clock() - began
         began = clock()
@@ -387,8 +425,8 @@ def play(
         timing["encode"] += clock() - began
         began = clock()
         if theirs.any():
-            for which in np.unique(foreign_which[theirs]):
-                rows = np.nonzero(theirs & (foreign_which == which))[0]
+            for which in np.unique(who_owns[theirs]):
+                rows = np.nonzero(theirs & (who_owns == which))[0]
                 other = opponents[int(which)]
                 with torch.autocast(
                     "cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"
@@ -513,6 +551,9 @@ def play(
             after_exploration.append(bool(last_forced[game, person] or forced_this_step[game, person]))
             forced_this_step[game, person] |= bool(record_forced[record])
             step_index = len(actions)
+            game_rows.append(game)
+            player_rows.append(person)
+            hand_rows.append(int(hand_number[game]))
             actions.append(int(record_actions[record]))
             log_probs.append(float(record_log_probs[record]))
             rewards.append(0.0)
@@ -606,15 +647,22 @@ def play(
     places = placements(final_scores)
     learner_place = np.zeros(games, dtype=np.float64)
     for game in range(games):
-        mine = [person for person in range(4) if person != foreign_player[game]]
+        mine = [person for person in range(4) if foreign_seats[game, person] < 0]
         learner_place[game] = float(np.mean([places[game][person] for person in mine]))
     against: list[dict] = []
     if population is not None and opponents:
-        from .population import matchups as _matchups
-
-        against = _matchups(seated_in, learner_place, population.members)
+        from .population import matchups as _matchups, table_matchups
+        against = (table_matchups(foreign_seats, places, population.members) if table_mix is not None
+                   else _matchups(seated_in, learner_place, population.members))
+    from .rl_objective import trajectory_links
+    links, terminal = trajectory_links(np.asarray(game_rows), np.asarray(player_rows))
 
     return Batch(
+        player_of=torch.tensor(player_rows, dtype=torch.int64),
+        hand_of=torch.tensor(hand_rows, dtype=torch.int64),
+        next_index=torch.from_numpy(links),
+        terminal=torch.from_numpy(terminal),
+        opponent_seats=foreign_seats,
         seated=seated_in,
         matchups=against,
         observations=Planes.cat(observations),
@@ -752,6 +800,15 @@ def only_boundaries(batch: Batch) -> Batch:
     picks = torch.from_numpy(rows)
     return replace(
         batch,
+        player_of=None if batch.player_of is None else batch.player_of[picks],
+        hand_of=None if batch.hand_of is None else batch.hand_of[picks],
+        next_index=None, terminal=None,  # a subsampled round is not a trajectory
+        held=batch.held[picks] if len(batch.held) == batch.decisions else batch.held,
+        oracle=batch.oracle[picks] if len(batch.oracle) == batch.decisions else batch.oracle,
+        imagined=batch.imagined[picks] if len(batch.imagined) == batch.decisions else batch.imagined,
+        explored=None if batch.explored is None else batch.explored[picks],
+        behaviour_epsilon=None if batch.behaviour_epsilon is None else batch.behaviour_epsilon[picks],
+        after_exploration=None if batch.after_exploration is None else batch.after_exploration[picks],
         observations=batch.observations.rows(rows),
         placements=batch.placements[picks],
         returns=batch.returns[picks],

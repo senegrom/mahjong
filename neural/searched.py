@@ -821,6 +821,8 @@ def _run(args, checkpoint: Path, generation: int | None, pinned_head: Path | Non
             "sha256": digest_file(pinned_head or args.placement_head),
             "feature_version": placement_head.feature_version,
             "held_out": (head_meta.get("history") or [{}])[-1].get("held_out"),
+            "validation": (head_meta.get("history") or [{}])[-1].get("validation"),
+            "test": (head_meta.get("history") or [{}])[-1].get("test"),
         },
         "sure": args.sure,
         "teacher_objective": args.objective, "search_api_version": SEARCH_API_VERSION,
