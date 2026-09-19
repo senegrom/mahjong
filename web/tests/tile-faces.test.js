@@ -15,11 +15,11 @@ const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', 
 const faces = TILE_FACE_OPTIONS.map(face => face.value);
 
 test('Van Gogh preserves selected Almond Branches, East A and North B, excludes K and uses L for white dragon', () => {
-  const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z'];
+  const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z', '2m', '4m'];
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'C', 'Characters A', 'E', 'G', 'H', 'I', 'J', 'L', 'East A', 'North B']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'C', 'Characters A', 'E', 'G', 'H', 'I', 'J', 'L', 'East A', 'North B', 'Characters B', 'Characters C']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -111,7 +111,7 @@ test('all selectable face sets are in the preload inventory with valid files', (
   assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/approved/Pin1.svg'));
   assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/placeholders/placeholder.svg'));
   assert.equal(TILE_IMAGE_URLS.some(url => url.startsWith('tiles/cubist/')), false);
-  assert.equal(TILE_IMAGE_URLS.filter(url => url.startsWith('tiles/van-gogh/')).length, 12);
+  assert.equal(TILE_IMAGE_URLS.filter(url => url.startsWith('tiles/van-gogh/')).length, 14);
   for (const face of faces) {
     for (const tile of TILE_TYPES) assert.ok(TILE_IMAGE_URLS.includes(tileImage(tile, face)));
   }
@@ -172,11 +172,31 @@ test('the real Tile component respects the selected face and hidden state', asyn
     assert.match(vanGoghWhite, /\bringed\b/);
     assert.match(vanGoghWhite, /class="foil/);
     assert.doesNotMatch(vanGoghWhite, /haku-dragon-reveal|Haku-foil/);
-    for (const tile of ['1z', '4z']) {
+    for (const tile of ['1z', '4z', '2m', '4m']) {
       const wind = show(tile, 'van-gogh', { dora: true, size: 'small' });
       assert.match(wind, /\bvan-gogh\b/);
       assert.match(wind, /\bringed\b/);
     }
     assert.doesNotMatch(show('2z', 'van-gogh'), /\bvan-gogh\b/);
+  }
+});
+
+test('Van Gogh 2 and 4 characters preserve their exact approved source images', () => {
+  const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
+  assert.equal(set.remaining.length, 20);
+  for (const [tile, filename, expectedBlob] of [
+    ['2m', '07-two-characters-night-cafe.png', '5ce8e6822ece3d11b0e33b21a666b6272717adc5'],
+    ['4m', '08-four-characters-cypress-fields.png', 'e3410ae633e835c6300a24bbce86e59e8999eab0'],
+  ]) {
+    const entry = set.tiles.find(entry => entry.tile === tile);
+    assert.ok(entry);
+    assert.equal(entry.source, `docs/design/van-gogh/studies/${filename}`);
+    const source = readFileSync(new URL(`../../${entry.source}`, import.meta.url));
+    const header = Buffer.from(`blob ${source.length}\0`);
+    assert.equal(createHash('sha1').update(header).update(source).digest('hex'), expectedBlob);
+    assert.deepEqual(readFileSync(new URL(`tiles/van-gogh/${entry.png}`, publicRoot)), source);
+    assert.deepEqual(entry.crop, { x: 0, y: 0, width: source.readUInt32BE(16), height: source.readUInt32BE(20) });
+    assert.ok(!set.remaining.includes(tile));
+    assert.ok(TILE_IMAGE_URLS.includes(tileImage(tile, 'van-gogh')));
   }
 });
