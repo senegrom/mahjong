@@ -14,6 +14,7 @@
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
   import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
+  import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
   import { acceptsHandKey, heldSafeCount, callLabel, callTiles, moveHandFocus, analyzeDiscards, unseenTileCounts } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
@@ -190,7 +191,10 @@
   onMount(() => {
     let mounted = true;
     const unwatchOffline = watchOffline(value => { if (mounted) offline = value; });
-    modelIsAvailable().then((available) => { if (mounted) trainedAvailable = available; });
+    const unwatchModel = watchModelAvailability({
+      probe: modelIsAvailable, watchOffline, refreshOffline,
+      onChange: available => { if (mounted) trainedAvailable = available; },
+    });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
     (async () => {
       await startOffline();
@@ -210,17 +214,13 @@
     const leave = () => { session?.dispose(); resetPolicy(); matchStore.close(); };
     const returnToPage = (event) => { if (event.persisted) location.reload(); };
     const storageChanged = (event) => { if (playStarted) matchStore.changed(event); };
-    const checkOffline = () => { if (document.visibilityState === 'visible') void refreshOffline().catch(() => {}); };
-    document.addEventListener('visibilitychange', checkOffline);
-    window.addEventListener('online', checkOffline);
     window.addEventListener('pagehide', leave);
     window.addEventListener('pageshow', returnToPage);
     window.addEventListener('storage', storageChanged);
     return () => {
       mounted = false;
       unwatchOffline();
-      document.removeEventListener('visibilitychange', checkOffline);
-      window.removeEventListener('online', checkOffline);
+      unwatchModel();
       window.removeEventListener('pagehide', leave);
       window.removeEventListener('pageshow', returnToPage);
       window.removeEventListener('storage', storageChanged);

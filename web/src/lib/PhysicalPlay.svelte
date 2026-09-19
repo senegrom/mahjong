@@ -22,6 +22,8 @@
   let saveConflict = $state('');
   let unreadable = $state(false);
   let history = $state([]);
+  // Consecutive keystrokes in one focused numeric field form one undo step.
+  let numericEdit = null;
   let eventSeat = $state(0);
   let eventKind = $state('draw');
   let request = null;
@@ -39,6 +41,7 @@
   async function load() {
     if (closed) return;
     loaded = false;
+    numericEdit = null;
     const saved = await store.read();
     if (closed) return;
     position = saved; unreadable = store.unreadable; saveConflict = ''; history = []; recorded = null; loaded = true;
@@ -60,16 +63,31 @@
     if (loaded && !unreadable && !saveConflict) void store.save(snapshot());
   });
   const snapshot = () => JSON.parse(JSON.stringify(position));
-  function edit(change) {
-    if (!loaded || saveConflict || unreadable) return false;
+  function edit(change, group = null) {
+    if (closed || !loaded || saveConflict || unreadable) return false;
     const before = snapshot();
     const next = structuredClone(before);
     try {
       const result = change(next) ?? next;
-      history = [...history.slice(-29), before];
+      if (JSON.stringify(result) === JSON.stringify(before)) return true;
+      if (group === null || group !== numericEdit) history = [...history.slice(-29), before];
+      numericEdit = group;
       position = result;
       return true;
     } catch (error) { failure = error.message ?? String(error); return false; }
+  }
+  function editNumber(value, field, change) {
+    // Keep Svelte's native number binding (including blank/partial input),
+    // but store incomplete numbers as null so the draft survives a reload.
+    return edit(p => { change(p, value ?? null); }, field);
+  }
+  function endNumberEdit() { numericEdit = null; }
+  function undo() {
+    if (closed || !loaded || saveConflict || unreadable || !history.length) return;
+    numericEdit = null;
+    position = history.at(-1);
+    history = history.slice(0, -1);
+    failure = '';
   }
   function appendPastDiscard(index, tile) {
     edit(p => {
@@ -129,7 +147,7 @@
 </script>
 
 <section class="physical-play" aria-label="Physical agent play">
-  <div class="physical-heading"><h2>Physical agent play</h2><button onclick={() => { if (history.length) { position = history.at(-1); history = history.slice(0, -1); } }} disabled={!history.length || !loaded || Boolean(saveConflict) || unreadable}>Undo edit / move</button><button onclick={clearTable} disabled={!loaded || Boolean(saveConflict)}>Clear table</button></div>
+  <div class="physical-heading"><h2>Physical agent play</h2><button onclick={undo} disabled={!history.length || !loaded || Boolean(saveConflict) || unreadable}>Undo edit / move</button><button onclick={clearTable} disabled={!loaded || Boolean(saveConflict)}>Clear table</button></div>
   {#if !loaded}<p role="status">Loading the saved physical table…</p>{/if}
   {#if saveConflict}<p role="alert">{saveConflict} <button onclick={load}>Reload saved table</button></p>{/if}
   {#if unreadable}<p role="alert">The saved physical table could not be read. It has been preserved. Use Clear table to start a new draft.</p>{/if}
@@ -151,24 +169,24 @@
   <details class="table-fields" open>
     <summary>Round and current decision</summary>
     <div class="fields">
-      <label>Round wind<select bind:value={position.round}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
-      <label>Hand<input type="number" min="1" max="4" bind:value={position.kyoku} /></label>
-      <label>Honba<input type="number" min="0" max="100" bind:value={position.counters} /></label>
-      <label>Riichi sticks<input type="number" min="0" max="100" bind:value={position.riichi_sticks} /></label>
-      <label>Live wall remaining<input type="number" min="0" max="70" bind:value={position.wall} /></label>
+      <label>Round wind<select value={position.round} onchange={event => edit(p => { p.round = Number(event.currentTarget.value); })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
+      <label>Hand<input type="number" min="1" max="4" bind:value={() => position.kyoku, value => editNumber(value, 'kyoku', (p, n) => { p.kyoku = n; })} onblur={endNumberEdit} /></label>
+      <label>Honba<input type="number" min="0" max="100" bind:value={() => position.counters, value => editNumber(value, 'counters', (p, n) => { p.counters = n; })} onblur={endNumberEdit} /></label>
+      <label>Riichi sticks<input type="number" min="0" max="100" bind:value={() => position.riichi_sticks, value => editNumber(value, 'riichi_sticks', (p, n) => { p.riichi_sticks = n; })} onblur={endNumberEdit} /></label>
+      <label>Live wall remaining<input type="number" min="0" max="70" bind:value={() => position.wall, value => editNumber(value, 'wall', (p, n) => { p.wall = n; })} onblur={endNumberEdit} /></label>
       <label>Decision<select value={position.phase === 'call' ? position.pending_kind : position.phase} onchange={setDecision}>
         <option value="act">After a draw / set call</option><option value="discard">Respond to discard</option><option value="extended-kan">Rob added kan</option><option value="concealed-kan">Rob concealed kan</option>
         {#if position.phase === 'draw'}<option value="draw">Waiting for a real draw</option>{/if}{#if position.phase === 'over'}<option value="over">Hand finished</option>{/if}
       </select></label>
       {#if position.phase === 'call'}
-        <label>Offered by<select bind:value={position.turn}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
-        <label>Pending tile<select bind:value={position.pending}><option value={null}>Choose tile</option>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
+        <label>Offered by<select value={position.turn} onchange={event => edit(p => { p.turn = Number(event.currentTarget.value); })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
+        <label>Pending tile<select value={position.pending ?? ''} onchange={event => edit(p => { p.pending = event.currentTarget.value || null; })}><option value="">Choose tile</option>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
       {:else if position.phase === 'act'}
         <label>Drawn tile · already in hand<select value={position.drawn ?? ''} aria-label="Drawn tile" onchange={event => edit(p => { p.drawn = event.currentTarget.value || null; if (p.drawn) p.just_claimed = null; })}><option value="">No draw · after calling a set</option>{#each [...new Set(position.players[position.seat].hand)] as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
-        {#if !position.drawn}<label>Tile just claimed<select bind:value={position.just_claimed}><option value={null}>Choose tile</option>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
+        {#if !position.drawn}<label>Tile just claimed<select value={position.just_claimed ?? ''} onchange={event => edit(p => { p.just_claimed = event.currentTarget.value || null; })}><option value="">Choose tile</option>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
       {/if}
     </div>
-    <div class="flags"><label><input type="checkbox" bind:checked={position.first_turns} /> First turns unbroken</label><label><input type="checkbox" bind:checked={position.after_quad} /> Replacement draw after kan</label></div>
+    <div class="flags"><label><input type="checkbox" checked={position.first_turns} onchange={event => edit(p => { p.first_turns = event.currentTarget.checked; })} /> First turns unbroken</label><label><input type="checkbox" checked={position.after_quad} onchange={event => edit(p => { p.after_quad = event.currentTarget.checked; })} /> Replacement draw after kan</label></div>
     <TileEntry label="Dora indicators · one plus one per completed kan" tiles={position.indicators} limit={5} onchange={tiles => edit(p => { p.indicators = tiles; })} />
   </details>
   <details class="record-event" open>
@@ -182,9 +200,9 @@
       <details class="physical-seat" open={index === position.seat}>
         <summary><strong>{WINDS[index]}</strong> · {player.hand.length ? `${player.hand.length} concealed tiles` : 'Unknown hand'} · {player.score?.toLocaleString()}</summary>
         <div class="seat-content">
-          <div class="fields"><label>Points<input type="number" min="-100000" max="200000" step="100" bind:value={player.score} /></label>
-            <label>Declaration<select bind:value={player.riichi}><option value="none">No riichi</option><option value="riichi">Riichi</option><option value="double">Double riichi</option></select></label></div>
-          <div class="flags"><label><input type="checkbox" bind:checked={player.ippatsu} /> Ippatsu active</label><label><input type="checkbox" bind:checked={player.furiten} /> Passed ron · furiten</label></div>
+          <div class="fields"><label>Points<input type="number" min="-100000" max="200000" step="100" bind:value={() => player.score, value => editNumber(value, `score-${index}`, (p, n) => { p.players[index].score = n; })} onblur={endNumberEdit} /></label>
+            <label>Declaration<select value={player.riichi} onchange={event => edit(p => { p.players[index].riichi = event.currentTarget.value; })}><option value="none">No riichi</option><option value="riichi">Riichi</option><option value="double">Double riichi</option></select></label></div>
+          <div class="flags"><label><input type="checkbox" checked={player.ippatsu} onchange={event => edit(p => { p.players[index].ippatsu = event.currentTarget.checked; })} /> Ippatsu active</label><label><input type="checkbox" checked={player.furiten} onchange={event => edit(p => { p.players[index].furiten = event.currentTarget.checked; })} /> Passed ron · furiten</label></div>
           <TileEntry label={`${WINDS[index]} concealed hand · drawn tile included`} tiles={player.hand} onchange={tiles => edit(p => { p.players[index].hand = tiles; })} />
           <div class="meld-editor"><strong>Called sets and concealed kans</strong>
             {#each player.melds as meld, slot (slot)}
@@ -192,8 +210,8 @@
                 <label>Set<select value={meld.kind} aria-label="Set kind" onchange={event => edit(p => { const set = p.players[index].melds[slot]; set.kind = event.currentTarget.value; if (set.kind === 'chii') set.from = 3; else if (set.kind === 'concealed-kan') set.from = 0; else if (set.from === 0) set.from = 3; })}>
                   <option value="chii">Chii</option><option value="pon">Pon</option><option value="kan">Open kan</option><option value="extended-kan">Added kan</option><option value="concealed-kan">Concealed kan</option>
                 </select></label>
-                <label>{meld.kind === 'chii' ? 'Lowest tile' : 'Tile'}<select bind:value={meld.tile}>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
-                <label>From<select bind:value={meld.from}><option value={3}>Left</option><option value={2}>Opposite</option><option value={1}>Right</option><option value={0}>Self</option></select></label>
+                <label>{meld.kind === 'chii' ? 'Lowest tile' : 'Tile'}<select value={meld.tile} onchange={event => edit(p => { p.players[index].melds[slot].tile = event.currentTarget.value; })}>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
+                <label>From<select value={meld.from} onchange={event => edit(p => { p.players[index].melds[slot].from = Number(event.currentTarget.value); })}><option value={3}>Left</option><option value={2}>Opposite</option><option value={1}>Right</option><option value={0}>Self</option></select></label>
                 <button onclick={() => edit(p => { p.players[index].melds.splice(slot, 1); })} aria-label={`Remove ${WINDS[index]} set ${slot + 1}`}>Remove</button>
               </div>
             {/each}
@@ -202,10 +220,10 @@
           <div class="discard-editor"><strong>Discards · chronological order across the table</strong>
             {#each player.discards as discard, slot (slot)}
               <div class="discard-fields"><Tile tile={discard.tile} size="tiny" />
-                <label>Order<input type="number" min="0" max="399" bind:value={discard.order} /></label>
-                <label><input type="checkbox" bind:checked={discard.drawn} /> From draw</label>
-                <label><input type="checkbox" bind:checked={discard.riichi} /> Riichi</label>
-                <label><input type="checkbox" bind:checked={discard.claimed} /> Claimed</label>
+                <label>Order<input type="number" min="0" max="399" bind:value={() => discard.order, value => editNumber(value, `order-${index}-${slot}`, (p, n) => { p.players[index].discards[slot].order = n; })} onblur={endNumberEdit} /></label>
+                <label><input type="checkbox" checked={discard.drawn} onchange={event => edit(p => { p.players[index].discards[slot].drawn = event.currentTarget.checked; })} /> From draw</label>
+                <label><input type="checkbox" checked={discard.riichi} onchange={event => edit(p => { p.players[index].discards[slot].riichi = event.currentTarget.checked; })} /> Riichi</label>
+                <label><input type="checkbox" checked={discard.claimed} onchange={event => edit(p => { p.players[index].discards[slot].claimed = event.currentTarget.checked; })} /> Claimed</label>
                 <button onclick={() => edit(p => { p.players[index].discards.splice(slot, 1); })} aria-label={`Remove ${WINDS[index]} discard ${slot + 1}`}>×</button>
               </div>
             {/each}

@@ -54,8 +54,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   const next = api.chooseAction(planes(), mask);
   const analysis = api.analyzePolicy(planes(), mask, undefined, 'full');
   const results = Promise.all([next, analysis]);
-  assert.deepEqual(downloads.slice(1).map(download => download.model), ['full', 'full']);
-  for (const download of downloads.slice(1)) download.resolve();
+  assert.equal(downloads.length, 1, 'warm moves and reviews reuse preparation without reading model storage again');
   await setImmediate();
   assert.equal(workers.length, 1, 'a move and a review share one worker without interrupting each other');
   const [move, detailed] = worker.messages.slice(1);

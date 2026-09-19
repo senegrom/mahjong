@@ -14,6 +14,11 @@ export const MODEL_CHOICES = Object.freeze(Object.keys(MODEL_URLS));
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
 let chosen = 'full';
 let worker = null;
+// Preparation belongs to the runtime lifetime, not to every decision. Even
+// when durability is unavailable, a verified resident network can keep playing.
+// Explicit downloads and foreground status checks still verify offline storage.
+let preparation = null;
+let generation = 0;
 let memoryLimitMiB = MEMORY_LIMITS_MIB[0];
 let nextId = 1;
 const waiting = new Map();
@@ -22,11 +27,25 @@ let onProgress = null;
 export function reportProgress(callback) { onProgress = callback; }
 
 export function resetPolicy(reason = new DOMException('Match changed', 'AbortError')) {
+  generation++;
+  preparation = null;
   const old = worker;
   worker = null;
   old?.terminate();
   for (const pending of waiting.values()) pending.reject(reason);
   waiting.clear();
+}
+
+function preparePolicy(model) {
+  if (!preparation) {
+    const job = prepareOfflineAi(model);
+    const held = job.catch(error => {
+      if (preparation === held) preparation = null;
+      throw error;
+    });
+    preparation = held;
+  }
+  return preparation;
 }
 
 function ensureWorker() {
@@ -106,24 +125,25 @@ export function analyzePolicy(planes, mask, signal, model = chosen) {
 
 async function requestPolicy(planes, mask, temperature, timeout, signal, model, details) {
   if (!MODEL_CHOICES.includes(model)) throw new Error('Unknown trained agent');
-  // Download and durably save the model AND runtime before the inference
-  // timeout starts. Recreating a worker or reopening offline uses these bytes.
+  // Prepare once before the inference deadline starts. Cache eviction or a
+  // failed persistence retry must not gate a network already resident in ORT.
   if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
   // A transferred observation cannot be replayed after a memory-limit retry.
   // Retain this small snapshot until the decision settles; send a copy below.
   planes = planes.slice();
   mask = Array.from(mask);
-  const preparation = prepareOfflineAi(model);
+  const owner = generation;
+  const prepared = preparePolicy(model);
   if (signal) {
     await new Promise((resolve, reject) => {
       const abort = () => { signal.removeEventListener('abort', abort); reject(new DOMException('Match changed', 'AbortError')); };
       signal.addEventListener('abort', abort, { once: true });
-      preparation.then(value => { signal.removeEventListener('abort', abort); resolve(value); },
+      prepared.then(value => { signal.removeEventListener('abort', abort); resolve(value); },
         error => { signal.removeEventListener('abort', abort); reject(error); });
       if (signal.aborted) abort();
     });
-  } else await preparation;
-  if (signal?.aborted) return Promise.reject(new DOMException('Match changed', 'AbortError'));
+  } else await prepared;
+  if (signal?.aborted || owner !== generation) throw new DOMException('Match changed', 'AbortError');
   return new Promise((resolve, reject) => {
     const id = nextId++;
     // A match that ends drops its own request and no more: the worker,
