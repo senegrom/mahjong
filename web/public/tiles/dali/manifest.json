@@ -119,6 +119,42 @@
       }
     },
     {
+      "name": "Man5",
+      "tile": "5m",
+      "label": "5 characters",
+      "direction": "Theatre of the Impossible — A",
+      "status": "approved",
+      "png": "approved/Man5.png",
+      "svg": "approved/Man5.svg",
+      "source": "docs/design/dali/studies/five-characters-a-approved.png",
+      "sourceSha256": "db228f554d7ceb1f503716595695b195d62706b68ebb64aefd2a6399da8c807c",
+      "pngSha256": "db228f554d7ceb1f503716595695b195d62706b68ebb64aefd2a6399da8c807c",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
+      "name": "Man6",
+      "tile": "6m",
+      "label": "6 characters",
+      "direction": "The Runaway Shadow — B",
+      "status": "approved",
+      "png": "approved/Man6.png",
+      "svg": "approved/Man6.svg",
+      "source": "docs/design/dali/studies/six-characters-b-approved.png",
+      "sourceSha256": "44bb4a2ebac83fc4632e6596a4a2b8ef9619e0a1c7159964b7520f6b082cdb19",
+      "pngSha256": "44bb4a2ebac83fc4632e6596a4a2b8ef9619e0a1c7159964b7520f6b082cdb19",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
       "name": "Man7",
       "tile": "7m",
       "label": "7 characters",
@@ -206,14 +242,6 @@
     },
     {
       "tile": "4m",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "5m",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "6m",
       "svg": "placeholders/placeholder.svg"
     },
     {
