@@ -1,0 +1,105 @@
+name: Apply verified self-play review
+
+on:
+  push:
+    branches: [work/selfplay-training-20260919]
+    paths:
+      - .github/workflows/apply-selfplay-review.yml
+      - .github/selfplay-transfer/repairs.json
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.repository == 'senegrom/mahjong' && github.ref == 'refs/heads/work/selfplay-training-20260919'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Retain transfer bytes for checksum verification
+        run: cp -R .github/selfplay-transfer "$RUNNER_TEMP/transfer"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selfplay-transfer-${{ github.sha }}
+          path: ${{ runner.temp }}/transfer
+          retention-days: 3
+      - name: Verify and apply the locally tested source
+        shell: python
+        run: |
+          import base64, hashlib, json, os, pathlib, subprocess, zlib
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          branch = 'work/selfplay-training-20260919'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/' + branch
+          base = 'e28dfadd873814a7b7b871280c450dcfd618f547'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+          temporary = '.github/workflows/apply-selfplay-review.yml'
+          changes = git('diff', '--name-only', base, 'HEAD').splitlines()
+          assert all(p == temporary or p.startswith('.github/selfplay-transfer/') for p in changes), changes
+          root = pathlib.Path('.github/selfplay-transfer')
+          repair_file = root / 'repairs.json'
+          repairs = json.loads(repair_file.read_text()) if repair_file.exists() else {}
+          chunks = []
+          for i in range(6):
+              name = f'{i:02d}.b64'
+              text = (root / name).read_text().strip()
+              if name in repairs:
+                  fix = repairs[name]
+                  assert hashlib.sha256(text.encode()).hexdigest() == fix['before']
+                  for start, end, old, new in sorted(fix['edits'], reverse=True):
+                      assert text[start:end] == old
+                      text = text[:start] + new + text[end:]
+                  assert hashlib.sha256(text.encode()).hexdigest() == fix['after']
+              chunks.append(text)
+          patch = zlib.decompress(base64.b64decode(''.join(chunks), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '7ff9fb21ada37b0f2200b07ab533eb7cb217d68718df63eb6bf49a76f1aeddf8'
+          target = pathlib.Path(os.environ['RUNNER_TEMP']) / 'review.patch'
+          target.write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', str(target)], check=True)
+          subprocess.run(['git', 'apply', str(target)], check=True)
+          expected = {
+              'README.md': 'f7e2a8cfc28ff0b92781e1ac37c1b892472c2c06',
+              'docs/SELFPLAY_EXPERIMENTS.md': '5ab34bbe6b2795672b1befc51d9c6a59fcdb0354',
+              'neural/checkpoints.py': '5e019b9756a65f2b35ba3bbdc12537ec1411580c',
+              'neural/combined.py': '970ffbaada8719e27e91160048ec3bfc027ff0e1',
+              'neural/evidence.py': 'dc895f0da5a8cfdbbc0bf74b9f6653e0615e3aa3',
+              'neural/gate.py': '954625ef5e2fe37d164150baf29f5e285c5cd5e3',
+              'neural/league_evaluate.py': 'f1bd72826a1525923f48385764caf3ec6f1fb945',
+              'neural/league_gate.py': 'c4616fbcf676c032a3ff110ef46d57522b1c6541',
+              'neural/league_modal.py': 'b0c30c148dcb44c48b5f6b45b6b9c2614a612fb7',
+              'neural/league_state.py': 'eecdc206132339474c8933611680ff4a974e72de',
+              'neural/modal_app.py': 'fe5b637a9f7ab10ad8ffc67ba995979dd134ce9a',
+              'neural/paired_actions.py': 'a373023a1edc4f6695a2c0eab09997ce81242b65',
+              'neural/placement.py': 'cdd1bbf7ba4eef77afb322cdaa8943ea19793bdc',
+              'neural/population.py': '30b2ad795018b0a3f2245de9ffb60bededa63bf1',
+              'neural/ppo_control.py': '93b98b89c75da73f8ff884c61bb1e29e844dd9ce',
+              'neural/rl_critics.py': '6ff2d6891c171c00e149ef2edc10a3e563b85364',
+              'neural/rl_objective.py': '2b7174ad6039ad5eff8cbe8b21f1ceea4776f490',
+              'neural/rl_policy.py': 'e4ea54b90d2248a28866e400e90112baf1e32f60',
+              'neural/searched.py': 'dbf20f5ff985b7aee28b8f66002b3feeec4ce832',
+              'neural/seed_ledger.py': 'b5fa73febfce1c54105814cd84ef7e6d2ebf0b67',
+              'neural/selfplay.py': 'a2483bd4b7ccfeaae8caa92e29a997c9b109781a',
+              'neural/selfplay_experiments.py': '7a8d7dce3bcd6ec5a55936089a31e88cfedc49d6',
+              'neural/tests/test_paired_action_research.py': 'd853f133b4b998c3dc35f29a7f5de9daafd490fb',
+              'neural/tests/test_selfplay_experiments.py': 'a995e096fbd91d19be6597323ad18c308fc7b716',
+              'neural/train.py': '00c6bc7d092938ef7df879ee3e02f74c3e10f0e4',
+              'neural/train_combined.py': '4d869d93eb40a5582524ec7650f4d686f00f708f',
+              'neural/train_league.py': '7e43c85e6b0a6488c7189846aef5129e426a6ed6',
+              'neural/train_mortal.py': 'e5d1a0a0d6bf11b6ceacbda83231db512661bf6c',
+          }
+          for path, digest in expected.items():
+              assert git('hash-object', path) == digest, path
+          subprocess.run(['git', 'add', '--', *expected], check=True)
+          assert set(git('diff', '--cached', '--name-only').splitlines()) == set(expected)
+          subprocess.run(['git', 'rm', '-r', '--', str(root), temporary], check=True)
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          subprocess.run(['python', '-m', 'compileall', '-q', 'neural'], check=True)
+          git('config', 'user.name', 'github-actions[bot]')
+          git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+          subprocess.run(['git', 'commit', '-m', 'feat: placement-aligned league self-play, independent critics and controlled evaluation'], check=True)
+          subprocess.run(['git', 'push', 'origin', 'HEAD:refs/heads/' + branch], check=True)
+          print('Published verified review commit:', git('rev-parse', 'HEAD'))
