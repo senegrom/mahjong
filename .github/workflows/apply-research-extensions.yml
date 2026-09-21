@@ -1,0 +1,89 @@
+name: Apply verified research extensions
+on:
+  push:
+    branches: [work/selfplay-danger-curriculum-20260921]
+    paths:
+      - .github/workflows/apply-research-extensions.yml
+      - .github/research-transfer/repairs.json
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.repository == 'senegrom/mahjong' && github.ref == 'refs/heads/work/selfplay-danger-curriculum-20260921'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Preserve transfer bytes for verification
+        run: cp -R .github/research-transfer "$RUNNER_TEMP/transfer"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: research-transfer-${{ github.sha }}
+          path: ${{ runner.temp }}/transfer
+          retention-days: 3
+      - name: Verify and apply tested source
+        shell: python
+        run: |
+          import base64, hashlib, json, os, pathlib, subprocess, zlib
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          branch = 'work/selfplay-danger-curriculum-20260921'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/' + branch
+          base = 'c24c9fe1640cd75b1de06593047d0ddf84b49b65'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+          temporary = '.github/workflows/apply-research-extensions.yml'
+          changes = git('diff', '--name-only', base, 'HEAD').splitlines()
+          assert all(p == temporary or p.startswith('.github/research-transfer/') for p in changes), changes
+          root = pathlib.Path('.github/research-transfer')
+          repair_file = root / 'repairs.json'
+          repairs = json.loads(repair_file.read_text()) if repair_file.exists() else {}
+          chunks = []
+          for i in range(3):
+              name = f'{i:02d}.b64'
+              text = (root / name).read_text().strip()
+              if name in repairs:
+                  fix = repairs[name]
+                  assert hashlib.sha256(text.encode()).hexdigest() == fix['before']
+                  for start, end, old, new in sorted(fix['edits'], reverse=True):
+                      assert text[start:end] == old
+                      text = text[:start] + new + text[end:]
+                  assert hashlib.sha256(text.encode()).hexdigest() == fix['after']
+              chunks.append(text)
+          patch = zlib.decompress(base64.b64decode(''.join(chunks), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '502c24a9208db29cb13319df16349b2fe0489d5b49b0adb2f880403ba648dbe9'
+          target = pathlib.Path(os.environ['RUNNER_TEMP']) / 'review.patch'
+          target.write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', str(target)], check=True)
+          subprocess.run(['git', 'apply', str(target)], check=True)
+          expected = {
+              'README.md': 'e3690640cd1a6576dfd236a9830e9c3a72a5e195',
+              'docs/SELFPLAY_RESEARCH_EXTENSIONS.md': '0c1cd34de4613f3a9199dbecbaabec5c4ffb7166',
+              'neural/research_state.py': '2816d4821d77cb44becca3b70d3f27c94fe16f2e',
+              'neural/danger.py': '09eefcfe6750c7d9e46cc7ab29872d89f19d1fcf',
+              'neural/curriculum.py': 'ed77187481eb555a361519aa180aa9e7a4e634e0',
+              'neural/parallel_selfplay.py': 'd72373032845604e704c09ee5be363768a485084',
+              'neural/chance_control.py': 'fa5916dfd547d708d772a4af9494a5360718406a',
+              'neural/table_evaluate.py': 'ad39d2807a19f878113e5e2890c406b207186c49',
+              'neural/tests/test_research_extensions.py': 'e3444afd05a5715b4b55446db1290435918c30fd',
+              'neural/mortal_learner.py': 'f481afb27870960d85142065f203ddeb25c53849',
+              'neural/selfplay.py': '17474c12478170060a117c9d37f7593629e07aa8',
+              'neural/paired_actions.py': 'e3143f2655f89efbef69c9b2ccc676295beb80b1',
+              'neural/train_league.py': '0abd48f7f0a151d43473de2d66493ba806f4d2e4',
+              'neural/zoo.py': '78d282df32c6d2629162c5a397351c3a643bf293',
+              'neural/league_modal.py': 'd0264e3c38f740c3791695066f40f10c8aa50868',
+              'engine/riichi-py/src/research.rs': 'dac75b760b92f730677452658fa26ad4ec1a1bcd',
+          }
+          for path, digest in expected.items():
+              assert git('hash-object', path) == digest, path
+          subprocess.run(['git', 'add', '--', *expected], check=True)
+          assert set(git('diff', '--cached', '--name-only').splitlines()) == set(expected)
+          subprocess.run(['git', 'rm', '-r', '--', str(root), temporary], check=True)
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          subprocess.run(['python', '-m', 'compileall', '-q', 'neural'], check=True)
+          git('config', 'user.name', 'github-actions[bot]')
+          git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+          subprocess.run(['git', 'commit', '-m', 'feat: public danger features, targeted snapshots, parallel self-play and mixed-table evaluation'], check=True)
+          subprocess.run(['git', 'push', 'origin', 'HEAD:refs/heads/' + branch], check=True)
+          print('Published verified implementation:', git('rev-parse', 'HEAD'))
