@@ -16,8 +16,14 @@ export function storageError(cause) {
   return error;
 }
 
-async function networkCache() {
-  try { return typeof caches === 'undefined' ? null : await caches.open(NETWORK_CACHE); }
+/** New downloads belong to an installation scope. The shared v1 cache is
+ * read for migration only: its old entries have no reliable scope ownership. */
+export function networkCacheName(scope) {
+  return scope ? `mahjong-network-v2:${new URL('./', scope).href}` : NETWORK_CACHE;
+}
+
+async function networkCache(scope) {
+  try { return typeof caches === 'undefined' ? null : await caches.open(networkCacheName(scope)); }
   catch { return null; }
 }
 
@@ -38,9 +44,10 @@ async function verifiedCached(cache, url, expect) {
   return null;
 }
 
-export async function verifiedNetworkIsStored(url, expect) {
+export async function verifiedNetworkIsStored(url, expect, { scope } = {}) {
   validateNetwork(expect);
-  return Boolean(await verifiedCached(await networkCache(), url, expect));
+  return Boolean(await verifiedCached(await networkCache(scope), url, expect)
+    || (scope && await verifiedCached(await networkCache(), url, expect)));
 }
 
 /** Own the deadline even when a mocked/broken transport ignores cancellation.
@@ -103,14 +110,17 @@ async function downloadNetwork(url, expect, onProgress, signal, timeouts) {
  * explicitly require a successful cache write; they must never claim readiness
  * from a transient in-memory download. Errors never publish unverified bytes. */
 export async function verifiedNetworkBytes({ url, expect, onProgress, signal,
-  requireStored = false, onStorage, timeouts } = {}) {
+  requireStored = false, onStorage, timeouts, scope } = {}) {
   validateNetwork(expect);
   if (signal?.aborted) throw signal.reason ?? new DOMException('Download cancelled', 'AbortError');
-  const cache = await networkCache();
+  const cache = await networkCache(scope);
   const held = await verifiedCached(cache, url, expect);
   if (held) { onStorage?.(true); return held; }
-  const bytes = await downloadNetwork(url, expect, onProgress, signal, timeouts);
-  let stored = false, failure;
+  // Copy a verified legacy body into the scoped cache without another fetch.
+  // It is already durable even when copying fails, and is never deleted here.
+  const legacy = scope && await verifiedCached(await networkCache(), url, expect);
+  const bytes = legacy || await downloadNetwork(url, expect, onProgress, signal, timeouts);
+  let stored = Boolean(legacy), failure;
   try {
     if (!cache) throw storageError();
     await cache.put(url, new Response(bytes.slice().buffer, {
@@ -122,4 +132,40 @@ export async function verifiedNetworkBytes({ url, expect, onProgress, signal,
   onStorage?.(stored);
   if (requireStored && !stored) throw storageError(failure);
   return bytes;
+}
+
+/** Called only at activation, after the previous worker has released its
+ * clients. Keep this model and the previous activated model. Installation,
+ * waiting workers and failed replacement downloads never trigger deletion.
+ * canPrune is checked again before each delete in case an update starts. */
+export async function pruneNetworkCache({ scope, url, expect, canPrune = () => true }) {
+  if (!scope || !canPrune()) return false;
+  validateNetwork(expect);
+  const cache = await networkCache(scope);
+  if (!cache) return false;
+  const key = new URL('__network_retention__', scope).href;
+  try {
+    const held = await cache.match(key);
+    const old = held ? await held.json() : null;
+    if (old && (typeof old.current !== 'string'
+      || (old.previous != null && typeof old.previous !== 'string'))) return false;
+    if (!await verifiedCached(cache, url, expect)) {
+      // A first install can precede the optional download. Remember its
+      // identity so it can become the rollback model on the next upgrade.
+      // An existing record is never advanced after failed verification.
+      if (!old && canPrune()) await cache.put(key, new Response(JSON.stringify({ current: url, previous: null })));
+      return false;
+    }
+    const previous = old?.current === url ? old.previous : old?.current;
+    const keep = new Set([key, url, previous].filter(Boolean));
+    if (!canPrune()) return false;
+    await cache.put(key, new Response(JSON.stringify({ current: url, previous: previous ?? null }), {
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    for (const entry of await cache.keys()) {
+      if (!canPrune()) return false;
+      if (!keep.has(entry.url)) await cache.delete(entry);
+    }
+    return true;
+  } catch { return false; } // Cleanup must never prevent a working app activating.
 }

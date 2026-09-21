@@ -12,7 +12,6 @@ export const MODEL_URLS = Object.freeze({ full: NETWORK_URL });
 export const MODEL_GENERATION = NETWORK.generation;
 export const MODEL_CHOICES = Object.freeze(Object.keys(MODEL_URLS));
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
-let chosen = 'full';
 let worker = null;
 // Preparation belongs to the runtime lifetime, not to every decision. Even
 // when durability is unavailable, a verified resident network can keep playing.
@@ -94,18 +93,8 @@ function ensureWorker() {
   return current;
 }
 
-/** Default for subsequent decisions. Requests capture their own model and
- * the worker finishes each turn before changing its loaded network, so this
- * does not interrupt in-flight turns or differently configured Watch agents. */
-export function useModel(which) {
-  if (!MODEL_CHOICES.includes(which) || which === chosen) return chosen;
-  chosen = which;
-  return chosen;
-}
-
-export function chosenModel() { return chosen; }
-
-export async function modelIsAvailable(which = chosen) {
+export async function modelIsAvailable(which = 'full') {
+  if (!MODEL_CHOICES.includes(which)) return false;
   try {
     // Held here already, or the bucket answers. The runtime that runs it is
     // the service worker's business; this is about the network itself.
@@ -115,11 +104,11 @@ export async function modelIsAvailable(which = chosen) {
   } catch { return false; }
 }
 
-export function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal, model = chosen) {
+export function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal, model = 'full') {
   return requestPolicy(planes, mask, temperature, timeout, signal, model, false);
 }
 
-export function analyzePolicy(planes, mask, signal, model = chosen) {
+export function analyzePolicy(planes, mask, signal, model = 'full') {
   return requestPolicy(planes, mask, 0, 20000, signal, model, true);
 }
 

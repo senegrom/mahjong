@@ -1,208 +1,114 @@
 # Agent modes
 
-Use the mode bar, or **Game settings → Game mode** on the smallest phone screens.
+Use the mode bar or **Game settings → Game mode** on the smallest screens.
+Normal Play, Watch, Physical, and Guided modes keep their own lifecycles;
+opening a direct Watch/Physical/Guided link does not overwrite a regular match.
+
+## Advisers and weights
+
+Beginner and Club are built-in agents. Trained uses the single network named
+in the model manifest. The current physical adapter exposes the observation,
+legal-mask, and action-conversion methods needed for Trained advice. Controls
+are enabled when that capability and the network are available, including
+after reconnect or download without reloading. Older adapters lacking those
+methods show an explanation and keep Trained disabled rather than inventing
+an observation. A saved choice is not silently replaced with Club.
+
+Trained weights are normalized preferences over legal network actions, not
+win probabilities. Built-in agents mark the selected move instead of displaying
+invented percentages. Additional legal kans that the network cannot name stay
+available but unscored. Advice for physical play uses the table data entered by
+the player; enter visible history accurately, and leave unknown hands empty.
 
 ## Watch
 
-Select **Agent watch**, choose the followed agent and each of the other three
-players, then **Start watching**. Beginner, Club and Trained can sit at the same table.
-Agent assignments stay with the same players as their seat winds change.
+Choose the followed agent and each other seat independently, then **Start
+watching**. Assignments follow players when seat winds rotate. Pause to inspect
+weights or use Auto play at the chosen pace. The pause-at-hand-end option waits
+for the watcher to deal the next hand; disabling it permits automatic continuation.
 
-With **Auto play** off, the table pauses at each followed player's decision,
-including calls. **Play this choice** applies the exact displayed choice and
-advances the other players to the next decision. Auto play handles the next
-hand as well; the pace controls the pause between decisions. **Show choice
-weights** works with either setting. Leaving Watch stops its outstanding work.
-Your regular saved match remains separate; watched games start fresh.
-Opening Watch or Physical play directly leaves the regular match untouched
-until you select Play.
+**Play this choice** applies the displayed decision. Choosing another legal
+move asks for confirmation, pauses autoplay, and applies only that original
+decision. Cancelling leaves the position unchanged. Leaving Watch cancels its
+outstanding work. Watched games start fresh and do not replace regular saves.
+Hints and markings apply here too; blue marks the recommendation and combines
+with dora, readiness, and safety markings.
 
-The agent's choice has a **blue border** in the choice list and, for a discard or
-riichi, on its tile in the followed hand. Click another listed move (or a legal
-discard in the hand) to play it after confirmation. Cancelling leaves the position
-unchanged; either answer resumes auto play if it was running before the dialog.
-Confirmations apply only to the decision that was displayed when opened.
+## Physical table editor
 
-**Hints and markings** applies to Watch too: red dora borders, gold borders for
-discards leaving a ready hand, silver borders for those leaving it one tile away,
-safe-tile markings, and unseen-copy counts below the hand. Blue combines with
-other markings on the same tile. Waits and their remaining counts reflect the
-recommended discard; visible dora are marked in all discards and called sets.
+Select the seat being analysed and enter its concealed hand, including any
+drawn tile. Keep unknown hands empty. Tile notation is `123m456p789s11z`:
+`m` means characters, `p` circles, `s` bamboo, and `1z` through `7z` mean
+East, South, West, North, White, Green, Red. Tap entered tiles to remove them.
 
-The percentages sum to 100% over the trained policy's legal action space. The
-highest weight is the action played; a 70% weight is not a 70% chance of winning.
-Built-in agents have rules and random tie-breaks, rather than a learned policy,
-so their chosen move is marked **Selected**. The trained action space can name
-only the first legal kan of each kind. A second legal kan remains available to
-choose in Watch or record in Physical play and is labelled **Unscored**.
+Set the current round, scores, sticks, wall count, dora indicators, melds, and
+discards. Scores are after paid riichi declarations. Discard order starts at
+zero across the whole table; retain claimed discards and mark their claim.
+For chii enter the lowest tile and Left as the source. Concealed kan uses Self.
+Each completed kan needs its additional indicator.
 
-## Physical table
+For a draw decision identify the tile already included in hand. After a set
+call identify the tile just claimed. For a response identify the discarding
+seat and pending tile; kan-robbery windows have separate kinds. **Show agent
+weights** validates the table and analyses it. Editing cancels stale advice.
+Record the move actually played, even when it differs from the suggestion.
 
-**Beginner and Club are supported for manually entered positions.** Trained
-advice requires the complete in-app event history, which the position-only
-adapter cannot reconstruct. Its option is disabled even when the model is
-installed; the editor starts on Club. No hidden history or trained percentages
-are invented. Trained opponents, Watch and in-app hand review remain available.
+**Record the next physical move** adds a known hand's actual draw or records
+a discard. An unknown opponent's otherwise-unrecorded draw is counted with its
+discard. After exceptional turns correct the wall count to the actual table.
+**Add an earlier discard** edits visible history without advancing play.
 
-1. Select **Physical agent play** and the seat to analyse. Seats use the current
-   hand's East/South/West/North winds, so change them when the dealer changes.
-2. Enter the concealed hand, including any drawn tile. Other concealed hands
-   may be left empty; they are never supplied to the agent's observation.
-   Use the tile palette or notation such as `123m456p789s11z`. Tap an entered
-   hand tile to remove it. `m` is characters, `p` circles, `s` bamboo, and
-   `1z`–`7z` are East, South, West, North, White, Green and Red.
-3. Set the round, scores, counters, wall and indicators. Enter all visible
-   called sets and discards. For a chii, select its lowest tile and Left as
-   the source. Concealed kan uses Self. A completed kan needs another dora
-   indicator, including when the indicator repeats an earlier one.
-4. Discard order starts at zero across the whole table. When entering an
-   existing position seat by seat, edit the order numbers to reflect play.
-   Mark claimed discards (still needed for furiten), the riichi declaration
-   tile, and discards taken directly from the draw. Scores and riichi sticks
-   in the editor are the current amounts, after declarations have been paid.
-5. For your turn choose the drawn tile already in the hand, or the tile just
-   claimed for a chii/pon. For a response choose the discarding seat and its
-   latest unclaimed tile. Kan robbery has separate added/concealed settings;
-   enter the announced kan but only indicators already revealed.
-6. Select the adviser and **Show agent weights**. Invalid positions explain
-   what to correct. Any edit clears the old analysis and cancels its request.
-   You can record any legal choice, including a different one from the agent.
+Calls consume only held tiles and retain the claimed discard. Newly recorded
+sets remember exactly which tile was claimed, so chii rotates the correct
+tile even after save/reload. Legacy manually entered sets without this metadata
+remain readable; the display does not guess a new claimed tile. After kan,
+enter the real replacement tile and newly exposed indicator. No random wall
+or unknown hand is manufactured. Passed wins record furiten; kan robbery
+preserves ippatsu until the kan stands and its replacement is recorded.
 
-**Record the next physical move** adds a real draw to a known 13-tile shape,
-or records a discard for any seat. It removes a discarded tile from a known
-hand; for an unknown hand, recording a discard also counts that player's
-otherwise unrecorded draw. After a call or exceptional turn, set the live-wall
-count to the actual table's count. **Add an earlier discard** only edits the
-history, without changing the concealed hand or current decision.
-
-Recording a pass leaves the tile available for the other seats' responses;
-passing a tile that completes the hand marks furiten even without a scoring
-yaku. Taking a call clears temporary furiten. It never invents the others'
-responses. Calls move
-the held tiles into a set and retain the claimed discard. After kan, enter the
-actual replacement tile and newly exposed indicator. No random tiles are
-drawn, no hidden hands are filled, and no opponents play automatically. A
-first-turn riichi is recorded as double riichi when the first turns are
-unbroken. Ippatsu remains active while an added/concealed kan can be robbed,
-then ends when the actual replacement draw is recorded.
-Recording a draw from a manually entered kan-robbery window also identifies
-it as a replacement draw automatically.
-
-**Undo edit / move** restores the previous recorded edit or move. Direct field
-edits remain editable in place. **Clear table** starts an empty draft and can
-also be undone. The latest physical draft is saved separately from the regular
-game on this device; it is restored when returning to the mode. A recorded win
-marks the hand finished; settle the physical scores and enter the next hand.
-If another window changes the saved physical table, this editor pauses and
-offers **Reload saved table**. Unreadable drafts are preserved until you
-explicitly choose **Clear table**. A storage warning means edits are only
-available in the current window. Pending edits finish saving before Physical
-play reopens in the same window.
+**Undo edit / move** reverses tile edits, recorded moves, selectors, checkboxes,
+and numeric fields. Consecutive typing in one focused numeric field forms one
+undo step; changing fields or leaving the field ends that step. Clear table is
+undoable for a readable draft. Undo history is window-local; the latest draft
+is persisted separately from normal Play. Conflicting edits in another window
+pause this editor and offer **Reload saved table**. Unreadable saves are
+preserved until explicitly cleared. Storage warnings mean persistence failed.
 
 ## Guided physical game
 
-Select **Guided physical game** (or open `?mode=guided`) to follow a real game
-from the start of a hand. Like the position editor, this mode currently uses
-the position-only adapter, so Beginner and Club are the available advisers.
-A saved Trained preference is preserved but disabled, with an explanation:
-select Beginner or Club explicitly to resume advice without changing the
-position, move log or undo history. The guide does not silently substitute an
-agent or attempt unsupported inference.
+Start from points and seat, enter exactly 13 starting tiles, then the real dora
+indicator. East also supplies its extra dealer tile at the first draw prompt.
+The guide asks for opponents' discards and your actual draws in turn order,
+then offers advice and records the choice selected. Choose the adviser in the
+mode's selector; availability follows the capability rules above.
 
-The guide asks for one thing at a time:
+**Record suggested move** plays the suggestion. Another legal choice asks for
+confirmation. After a discard or pass, report other calls or choose **No other
+calls · continue**. Calls wait for higher-priority responses before committing.
+Chii asks for its lowest tile; the offered tile is recorded automatically for
+both your calls and opponents' calls. Undo and saved snapshots retain it.
+Pon/chii is followed by a discard without an extra draw.
 
-1. Your points and seat wind. The default is 30,000 each, East 1. Expand
-   **Round, other scores and sticks** for different scores, honba or riichi
-   deposits.
-2. Your first **13 tiles**, using the palette or tile notation. East also
-   enters 13 here and supplies the extra dealer tile at the first draw prompt.
-3. The actual face-up **dora indicator**, rather than the dora tile it names.
-4. Each opponent's discard in East–South–West–North order, or your actual draw
-   when your turn comes. An opponent's hidden draw is counted together with
-   their discard; their concealed tiles stay unknown. Mark riichi or a discard
-   from the draw when appropriate.
-5. Advice appears automatically at your discard and response decisions.
-   Choose Beginner, Club or Trained as adviser. **Record suggested move**
-   applies the displayed suggestion. Click any other legal choice (or a
-   discard in your hand) to record it after confirmation. The blue border
-   marks the suggestion. Trained percentages describe policy preference; the
-   Trained adviser also shows what it makes the hand worth and what it reads
-   each of the other three as holding.
-6. After a discard or your pass, report any other player's call, or choose
-   **No other calls · continue**. A chii asks for its lowest tile. Calls change
-   turn order and move the claimed tile into the called set. A pon/chii is
-   followed by the caller's discard, without another draw.
+For concealed or added kan, use the kan entry at the opponent-turn prompt.
+Resolve robbery before recording the additional indicator and replacement.
+Replacement draws count once; chained kans repeat this sequence. Invalid
+counts, directions, and stale actions cannot alter the saved game.
 
-For an opponent's concealed or added kan, expand the kan entry under their
-turn prompt. The guide offers your robbery decision before asking whether
-anyone else won, then requests the new indicator and the replacement event.
-Your own kan follows the same sequence. Replacement draws count once; a
-chained kan starts another indicator/replacement sequence. Invalid tile counts,
-chii directions and incomplete starting hands are rejected without changing
-the saved game. Only your known hand is checked for scoring/legal moves;
-you report the calls and wins that actually happened at the physical table.
+**Someone won / hand ended** opens the result flow. Known results can use the
+Rust scorer after the missing winning-hand and indicator data are entered;
+the guide does not invent unseen winning hands or payments. Apply a validated
+settlement once, then continue to the next hand with scores and seat winds
+rotated together. Manual hand-end results remain explicitly manual. See
+[Guided scoring](GUIDED_SCORING.md) for the settlement inputs and safeguards.
 
-**Someone won / hand ended** records another player's win or other hand end.
-After a hand, enter the settled scores and remaining riichi sticks, then choose
-whether the dealer moves or repeats. Seat winds and scores rotate together.
-The next setup lets you correct honba and round details before entering the
-next hand's tiles. The guide does not calculate payments from unseen winning
-hands or ura indicators.
+**Undo last step** and resume work after reload. A new guided game requires
+confirmation and replaces only the guided save. Cross-window conflicts,
+unreadable records, and storage failures are handled explicitly as in the
+physical editor; a late analysis cannot modify a newer position.
 
-Your table, current prompt, adviser, game history and last **30 steps of undo**
-are saved on this device independently of the position editor and normal game.
-**Undo last step** also restores the prompt and works after a reload. Tap an
-entered starting tile to correct it; use Undo for a mistaken live event.
-**New guided game** asks before replacing saved progress. A conflicting tab
-pauses the guide and offers a reload; an unreadable save is preserved until
-you explicitly start again. Keep the window open if a storage warning appears.
+## Developer checks
 
-## Hand review
-
-After a played hand, select **View table / my hand** (or **Review final hand** at
-the end of a match), then choose the **Review adviser**:
-
-- **Club** explains hand readiness, improving tiles, danger and dora for turn
-  actions, and explains whether it would accept or pass on a call.
-- **Trained AI** evaluates each recorded decision using the information available
-  before that move. It shows the preferred move and its percentage; when your
-  move differs, it also shows your move's percentage when the policy scores it.
-
-Recorded decisions include ron, pass, pon, chii and open kan responses. Call
-advice uses the responding player's hand before any claims resolve, with the
-offered tile and its source shown in the review. Club omits discard metrics for
-calls because the next discard or replacement draw has not happened yet.
-
-These percentages express preference among legal moves, not the chance of
-winning. **Every decision** includes moves that agree with the adviser. The
-adviser choice is remembered independently of the opponents at your table.
-Trained AI is offered when its model is included in the build and downloads on
-demand. A failed review can be retried. Switching advisers or leaving the hand
-cancels pending analysis; a completed trained review is reused while the same
-review remains open. Reviewing never changes the game or its saved history.
-
-## Validation
-
-`web/tests/agent-modes.test.js` compares manually reconstructed live positions
-with the exact engine observations and legal masks; checks calls, furiten,
-riichi, quads and impossible inputs; and plays watched mixed tables across hand
-boundaries. It also checks masked softmax and cancellation of a disposed watch.
-`web/tests/agent-controls.test.js` exercises the actual selection handlers
-and verifies that the regular match starts only when Play is opened.
-`web/tests/physical-store.test.js` covers conflicting windows, unreadable
-drafts, queued undo, reopening, and unavailable storage.
-`web/tests/review-policy.test.js` compares historical review inputs with the
-original live decisions, including restored saves and hand boundaries, and
-checks sequential inference, cancellation and unscored choices.
-`web/scripts/adviser-review-check.mjs` checks adviser selection, real trained
-percentages, retry, cached results, saved preferences and mobile layout in CI.
-
-`web/tests/guided-game.test.js` checks the guided turn sequence against the real
-rules engine, including calls, kans, furiten, wall counts, settlement, undo and
-conflicting saves. `web/scripts/guided-game-check.mjs` runs the North-seat
-walkthrough, alternative confirmation, reload, opponent calls, adviser
-capability gating, explicit recovery of saved Trained preferences, real
-Trained weights, and mobile layout against the production build.
-`web/tests/trained-capability.test.js` checks the real live and position-only
-WASM adapters, both riichi stages, and rejection of unsupported inference
-without falling back to another agent.
+`npm run verify` in `web/` is the canonical local and CI verification command.
+It includes real browser interactions and the saved-state, cancellation,
+claimed-tile, grouped-Undo, and offline regressions. Historical implementation
+reports are preserved in [the evidence index](HISTORY.md).

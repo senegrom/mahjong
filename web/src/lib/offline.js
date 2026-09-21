@@ -72,14 +72,12 @@ function observeUpdates(registration) {
     registration.installing?.addEventListener('statechange', check);
   });
 }
-/** The service worker knows what it saved: the game, the graphics and the
- * runtime that runs the network. It does not know about the network itself,
- * which is fetched from its bucket and kept in Cache Storage, so a status
- * that came from the worker is only half the answer about the AI. Without
- * the network a Trained player has nothing to play with on a plane. */
+/** The worker verifies both the runtime and model. Match its verified
+ * identity to this page's manifest; old-worker replies still require the
+ * legacy cache check. Never hash the same model again just to repeat status. */
 async function withNetwork(info) {
   if (!info || !info.aiReady) return info;
-  return { ...info, aiReady: await networkIsStored() };
+  return { ...info, aiReady: await networkIsStored(undefined, undefined, info.network) };
 }
 
 // The game and graphics are mandatory, not an optional offline pack. Repair

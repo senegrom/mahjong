@@ -30,31 +30,27 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
     startOffline: async () => null,
     prepareOfflineAi: (model) => new Promise(resolve => downloads.push({ model, resolve })),
   });
-  vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, useModel, chosenModel, resetPolicy };', context);
+  vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, modelIsAvailable, resetPolicy };', context);
   const { api } = context;
   t.after(() => api.resetPolicy());
   const planes = () => new Float32Array(34);
   const mask = [1, 1];
 
   const first = api.chooseAction(planes(), mask);
-  // Observe rejection immediately, including when exercising the old bug.
   const firstResult = first.then(value => ({ value }), error => ({ error }));
   assert.equal(downloads[0].model, 'full');
   downloads[0].resolve();
   await setImmediate();
   const worker = workers[0], initial = worker.messages[0];
   assert.equal(initial.url, NETWORK_URL);
-
-  // The shipped network is the only choice, so reselecting it changes nothing.
-  assert.equal(api.useModel('full'), 'full');
-  assert.equal(worker.terminated, false, 'reselecting the network must not abort an in-flight turn');
+  assert.equal(worker.terminated, false);
   worker.answer(initial, { action: 1 });
   assert.deepEqual(await firstResult, { value: 1 });
 
   const next = api.chooseAction(planes(), mask);
   const analysis = api.analyzePolicy(planes(), mask, undefined, 'full');
   const results = Promise.all([next, analysis]);
-  assert.equal(downloads.length, 1, 'warm moves and reviews reuse preparation without reading model storage again');
+  assert.equal(downloads.length, 1, 'warm decisions reuse preparation');
   await setImmediate();
   assert.equal(workers.length, 1, 'a move and a review share one worker without interrupting each other');
   const [move, detailed] = worker.messages.slice(1);
@@ -65,10 +61,9 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   worker.answer(move, { action: 0 });
   worker.answer(detailed, { analysis: { action: 1, weights: [0.2, 0.8] } });
   assert.deepEqual(await results, [0, { action: 1, weights: [0.2, 0.8] }]);
-  assert.equal(api.chosenModel(), 'full');
-  // Networks earlier builds carried are not agents this one can run.
   for (const retired of ['quick', 'strong']) {
     await assert.rejects(api.analyzePolicy(planes(), mask, undefined, retired), /Unknown trained agent/);
+    assert.equal(await api.modelIsAvailable(retired), false);
   }
 });
 

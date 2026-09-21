@@ -1,85 +1,75 @@
-# Reduced ONNX Runtime for the browser
+# Trained model and reduced runtime
 
-The published opponent stays in **ONNX format** (`web/public/model-full.onnx`).
-The size reduction is in the WebAssembly execution runtime, not the model
-format.
+## Source of truth
 
-`web/runtime/` is built from matching ONNX Runtime **v1.29.0** source with
-`--include_ops_by_config`. `reduced-ops.config` is generated directly from the
-published ONNX model, so unused operator kernels are omitted while normal ONNX
-loading remains available. The final runtime also disables unused ML, contrib and
-generation operators. This deliberately does **not** use `--minimal_build`,
-because ONNX Runtime's minimal Web build requires ORT-format models.
+`web/src/lib/model-manifest.js` identifies the one published remote network:
+its source, generation, precision, decoded byte count, stored byte count,
+origin, immutable object key, and SHA-256. Inspect those fields for the current
+release. `neural.export` checks the graph's operators; the publication tool
+`web/scripts/publish-model-r2.mjs` writes the delivery manifest.
 
-The current model needs 17 ONNX operators:
+No ONNX model is served from `web/public`. Both packaging and offline inventory
+creation reject unexpected local ONNX files, including nested files. There is
+no empty `MODEL_FILES` registry or `models.sha256` ledger masquerading as a
+model verification step.
 
-`Add`, `Cast`, `Concat`, `Constant`, `ConvInteger`, `DynamicQuantizeLinear`,
-`Gather`, `InstanceNormalization`, `MatMulInteger`, `Mul`, `ReduceMax`,
-`ReduceMean`, `Relu`, `Reshape`, `Shape`, `Sigmoid`, and `Unsqueeze`.
+The packaged runtime is listed in `model-package.js`: the reduced WASM,
+patched JavaScript loader, and shared memory-budget module. `copy-runtime.mjs`
+checks all sources before copying anything. Vite selects ONNX Runtime's
+external-WASM entry so it does not emit a second generic WASM binary.
 
-`ReduceMax` and `Sigmoid` are channel attention's, which every block of the
-tower uses. The graph has three outputs — `policy`, `value` and `hands` —
-because the page reads all three: the move, what the hand is worth, and what
-each opponent is taken to be holding.
+## Verification and memory
 
-The measured production WASM size is **3,807,250 bytes**, down from
-**13,961,845 bytes** for the generic `onnxruntime-web` runtime shipped by the
-same 1.29 package: a **72.73% reduction**. The matching generated loader is
-about 0.02 MB. The 17.6 MB ONNX model itself is unchanged.
+Downloaded and cached model bytes are checked against the manifest's exact
+size and digest before inference. Transfers have idle and total deadlines,
+and a decoded-byte ceiling. Storage failure can allow online inference but
+must never be reported as durable offline readiness.
 
-The Vite build selects onnxruntime-web's external-WASM JavaScript entry. That
-prevents the package's generic WASM from being emitted alongside the reduced
-runtime. `copy-runtime.mjs` verifies `models.sha256` before copying the runtime;
-changing the network without rebuilding its operator set therefore fails the
-build instead of producing a broken Trained opponent.
+`memory-budget.js` defines reservation ceilings of 384, 512, and 768 MiB.
+Memory begins at 16 MiB and grows only as needed. A classified ceiling failure
+releases the worker before retrying unresolved requests with a larger ceiling;
+browser reservation refusals and unclassified failures do not trigger unlimited
+retries. Original observations and cancellation signals survive bounded retries.
 
-The generated loader initially limits shared WASM memory to **192 MiB**, starting at
-16 MiB and growing on demand. Its previous 4 GiB maximum could fail at runtime
-initialization on iPhones even for a 2.4 MB model: the reservation limit,
-not the model download size, was too large. The loader's memory constructor,
-reported heap maximum and growth ceiling all use the same limit. The unchanged
-WASM binary accepts this smaller imported memory.
-See the [upstream iOS report](https://github.com/microsoft/onnxruntime/issues/22086).
+The worker serializes decisions and retains the network. A warm decision does
+not re-enter offline preparation. Reset/failure invalidates preparation, and
+late replies from an obsolete worker cannot complete a new request. All
+inference tensors are disposed after use.
 
-`memory-budget.js`, copied alongside the loader as `memory-budget.mjs`, supplies
-the constructor, heap maximum and growth hook. Preserve these hooks when
-rebuilding the loader. If an allocation exceeds the application's ceiling, the
-page releases the old worker and retries pending decisions in a fresh worker at
-**256 MiB**, then **384 MiB** if needed. These are maximum reservations; actual
-memory still starts at 16 MiB and grows on demand. Requests preserve their original
-observations, selected models and cancellation signals across retries. No larger
-reservation is attempted when the browser itself refuses memory, when the request
-exceeds 384 MiB, or for an unclassified runtime error. Those memory failures start
-the next runtime back at 192 MiB; any other failure, a timeout or a failed
-answer, keeps the ceiling that was found to work, so a retry does not repeat the
-whole fail-and-grow cycle. If normal heap growth's spare capacity is refused, the
-allocator tries only the exact pages needed before reporting failure.
+The service worker's status reply includes the verified network URL, size,
+and digest. The page skips a second complete model hash only when this identity
+exactly matches its own manifest. Old or mismatched replies retain the explicit
+verification fallback. This proof comes from the app's service-worker channel,
+not a localStorage flag.
 
-The worker serializes inference and keeps the page's one network loaded between
-decisions, so a table does not reload it on every change of turn: measured on a
-desktop, that reload cost a table most of a second at the ninetieth percentile.
-Every request captures its own model and cancellation signal, so a match that
-ends drops its own turn and no more; cancelled queued requests are removed. Inputs and outputs are disposed after
-every inference, and any runtime error discards the worker so Retry can initialize
-ORT afresh in Play, Watch and Physical modes.
+## Cache lifetime and upgrades
 
-`runtime-memory.test.js` runs both published models through the actual production
-runtime while rejecting shared-memory reservations above 192 MiB. It checks
-repeated inference and model switching for stable outputs and heap headroom;
-worker and client tests cover cancellation, session release and failure recovery.
-`memory-budget.test.js` also exercises an actual 200 MiB allocation through the
-shipped WASM: it reports the 192 MiB ceiling and succeeds in a fresh 256 MiB
-runtime, while a simulated browser reservation refusal stops expansion. Client
-tests verify transferred observation replay and bounded retries.
+New model writes use an installation-scoped v2 cache. Installation downloads
+and verifies the replacement but never prunes the active version. Normal
+waiting-worker activation is retained: there is no forced mid-match upgrade.
+After safe activation, verified current and previous model URLs are retained;
+older scoped entries are removed. Failed verification, a waiting/installing
+worker, or an unreadable retention record prevents pruning.
 
-The reduced-runtime verification ran the production model through the real
-browser suite and passed **93 unit/session/cache tests and 102 browser checks**.
-That includes two simultaneous Trained opponents sharing one model load, the
-Vite development and production-preview workers, and a cold browser restart with
-HTTP cache cleared and network access refused while real Trained opponents keep
-playing offline. Source and built Home Screen icons were also revalidated.
+Legacy v1 bytes are verified and can be copied into the scoped cache without
+fetching again. A quota failure during this copy does not invalidate a verified
+legacy copy. The unscoped legacy cache is deliberately not blanket-deleted:
+its entries may still be needed by another installation on the same origin.
+Other installation scopes and unrelated caches are never pruned.
 
-The real-browser suite loads the published model through the reduced runtime,
-including after an offline browser restart. `runtime-package.test.js` also fails
-if a generic hashed ORT WASM appears in `dist/assets`, if the model hash differs,
-or if the reduced runtime is not smaller than the package runtime.
+## Build and test
+
+Run `npm ci` and `npm run verify` in `web/`. This is also the CI command. It
+includes real inference, legacy preference migration, saved-state, memory,
+worker, offline, and browser layout checks. Optional external model/checkpoint
+fixtures remain explicitly identified by their individual tests.
+
+The manual reduced-runtime workflow builds from its pinned ONNX Runtime source
+and reviewed `reduced-ops.config`, restores the loader's memory hooks, runs the
+web suites, and proposes its tested tree by PR. It does not push main. Running
+`check-model-operators.py model.onnx` checks an explicit export; with no argument
+it validates the operator list only and does not claim to have checked model
+bytes. Export-time validation and real browser inference cover the remote model.
+
+See [historical evidence](HISTORY.md) for superseded size measurements and
+previous memory ceilings.

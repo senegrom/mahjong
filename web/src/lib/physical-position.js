@@ -40,7 +40,7 @@ export function parsePhysical(text) {
       && p.players.every(player => player && Array.isArray(player.hand) && Array.isArray(player.melds)
         && Array.isArray(player.discards) && player.hand.every(tile => TILES.includes(tile))
         && number(player.score) && ['none', 'riichi', 'double'].includes(player.riichi) && flag(player.ippatsu) && flag(player.furiten)
-        && player.melds.every(m => m && TILES.includes(m.tile) && number(m.from)
+        && player.melds.every(m => m && TILES.includes(m.tile) && number(m.from) && optionalTile(m.claimed_tile)
           && ['chii', 'pon', 'kan', 'extended-kan', 'concealed-kan'].includes(m.kind))
         && player.discards.every(d => d && TILES.includes(d.tile) && number(d.order) && flag(d.drawn) && flag(d.riichi) && flag(d.claimed)))
       && Number.isInteger(p.seat) && p.seat >= 0 && p.seat < 4 && Number.isInteger(p.turn) && p.turn >= 0 && p.turn < 4) return p;
@@ -63,11 +63,6 @@ export function missingNumber(position) {
     if ((player.discards ?? []).some(d => !Number.isInteger(d?.order))) return `Give each of ${SEATS[index]}'s discards an order number`;
   }
   return null;
-}
-
-export function readPhysical(storage) {
-  try { return parsePhysical(storage?.getItem(PHYSICAL_KEY)) ?? emptyPosition(); }
-  catch { return emptyPosition(); }
 }
 
 function remove(hand, tile, required = true) {
@@ -139,10 +134,11 @@ export function recordChoice(position, choice, choices) {
     const tiles = choice.kind === 'chii'
       ? [0, 1, 2].map(offset => `${Number(choice.tile[0]) + offset}${choice.tile[1]}`)
       : Array(choice.kind === 'kan' ? 4 : 3).fill(offered);
+    if (!tiles.includes(offered)) throw new Error('The called set must include the offered tile');
     tiles.splice(tiles.indexOf(offered), 1);
     for (const tile of tiles) remove(player.hand, tile);
     discard.claimed = true;
-    player.melds.push({ kind: choice.kind, tile: choice.kind === 'chii' ? choice.tile : offered, from: (p.turn - p.seat + 4) % 4 });
+    player.melds.push({ kind: choice.kind, tile: choice.kind === 'chii' ? choice.tile : offered, from: (p.turn - p.seat + 4) % 4, claimed_tile: offered });
     player.furiten = false;
     p.just_claimed = choice.kind === 'kan' ? null : offered;
   } else if (choice.kind === 'concealed-kan') {

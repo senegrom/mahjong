@@ -59,7 +59,7 @@ async function load(url, runtimeBase, memoryLimitMiB, onProgress) {
   // The bytes rather than the address: the network comes from a bucket on
   // another origin and is kept in Cache Storage, which the runtime knows
   // nothing about. What it is handed has already been hashed.
-  const session = await ort.InferenceSession.create(await networkBytes({ url, onProgress }), {
+  const session = await ort.InferenceSession.create(await networkBytes({ url, onProgress, scope: new URL('../', runtimeBase).href }), {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });

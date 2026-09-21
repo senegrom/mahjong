@@ -5,6 +5,7 @@ const CONFIG = /* OFFLINE_CONFIG */ null;
 const scope = new URL(self.registration.scope);
 // GitHub Pages projects share an origin. Never touch another app's caches.
 const CACHE = `mahjong-offline-v1:${scope.pathname}`;
+const networkScope = CONFIG.networkCacheVersion === 2 ? scope.href : undefined;
 const keyFor = entry => new URL(`__offline_content__/${entry.hash}`, scope).href;
 const entries = new Map(CONFIG.entries.map(entry => [new URL(entry.url, scope).pathname, entry]));
 const downloads = new Map();
@@ -49,11 +50,11 @@ async function ensure(entry, durable = true) {
 const networkUrl = () => `${CONFIG.network.origin}/${CONFIG.network.object}`;
 async function networkReady() {
   // Older hand-written inventories with a same-origin model remain supported.
-  return !CONFIG.network || await networkTransfer.verifiedNetworkIsStored(networkUrl(), CONFIG.network);
+  return !CONFIG.network || await networkTransfer.verifiedNetworkIsStored(networkUrl(), CONFIG.network, { scope: networkScope });
 }
 async function prepareNetwork(progress) {
   if (!CONFIG.network) return;
-  await networkTransfer.verifiedNetworkBytes({ url: networkUrl(), expect: CONFIG.network, requireStored: true,
+  await networkTransfer.verifiedNetworkBytes({ url: networkUrl(), expect: CONFIG.network, requireStored: true, scope: networkScope,
     onProgress: value => progress({ ...value, group: 'network' }) });
 }
 
@@ -65,7 +66,9 @@ async function status() {
     if (complete.ai && !(await networkReady())) complete.ai = false;
   } catch { complete.core = false; complete.ai = false; }
   return { coreReady: complete.core, aiReady: complete.ai,
-    hasModel: CONFIG.hasModel, version: CONFIG.version };
+    hasModel: CONFIG.hasModel, version: CONFIG.version,
+    ...(networkScope ? { network: complete.ai && CONFIG.network
+      ? { url: networkUrl(), sha256: CONFIG.network.sha256, bytes: CONFIG.network.bytes } : null } : {}) };
 }
 async function prepare(group, progress = () => {}) {
   if (group === 'ai' && !CONFIG.hasModel) throw new Error('No trained model is included in this version.');
@@ -116,6 +119,10 @@ self.addEventListener('activate', event => {
     // waited. Do not prune the previous version's recoverable bytes on failure.
     const cache = await caches.open(CACHE);
     if (CONFIG.hasModel && await cache.match(new URL('__offline_meta__/ai-requested', scope))) await prepare('ai');
+    if (networkScope && CONFIG.network) await networkTransfer.pruneNetworkCache({
+      scope: networkScope, url: networkUrl(), expect: CONFIG.network,
+      canPrune: () => !self.registration.installing && !self.registration.waiting,
+    });
     await pruneObsoleteContent();
     await self.clients.claim();
   })());

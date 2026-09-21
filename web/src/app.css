@@ -83,3 +83,33 @@ button {
 
 button, select, summary, label { -webkit-tap-highlight-color: transparent; }
 button { touch-action: manipulation; }
+
+/* The three-wide desktop table needs 968 px including its padding and gaps.
+   Between phone and desktop, put the round panel above three compact seats.
+   These selectors deliberately target only the regular table, not Watch,
+   Guided play, or dialog content. Never hide horizontal overflow. */
+@media (min-width: 761px) and (max-width: 967px) and (min-height: 501px) {
+  :root main > .board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-height: 0;
+    gap: 8px;
+    padding: 12px;
+  }
+  :root main > .board > .centre {
+    grid-area: 1 / 1 / 2 / -1;
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    padding: 12px;
+  }
+  :root main > .board > .place {
+    --tile-width: 28px;
+    width: 100%;
+    min-width: 0;
+    align-self: start;
+    justify-self: stretch;
+  }
+  :root main > .board > .left { grid-area: 2 / 1; }
+  :root main > .board > .across { grid-area: 2 / 2; }
+  :root main > .board > .right { grid-area: 2 / 3; }
+}

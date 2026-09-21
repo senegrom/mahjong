@@ -18,10 +18,20 @@ export function emptyGuided() {
   return { state: { position, stage: 'setup', nextSeat: 0, needsDraw: true, agent: 'club', result: '' }, past: [], log: [] };
 }
 
+/** Physical sets in display order. A chii comes from the left, so its
+ * actual claimed tile is first (the sideways position). Counting and call
+ * validation use this same multiset; they do not depend on sequence order.
+ * Older drafts without the optional metadata keep their previous ordering. */
 export function setTiles(meld) {
-  return meld.kind === 'chii'
+  const tiles = meld.kind === 'chii'
     ? [0, 1, 2].map(n => `${Number(meld.tile[0]) + n}${meld.tile[1]}`)
     : Array(meld.kind.includes('kan') ? 4 : 3).fill(meld.tile);
+  const claimed = tiles.indexOf(meld.claimed_tile);
+  if (meld.kind === 'chii' && claimed > 0) {
+    tiles.splice(claimed, 1);
+    tiles.unshift(meld.claimed_tile);
+  }
+  return tiles;
 }
 
 /** Count only tiles actually seen, with claimed discards counted in their set. */
@@ -102,7 +112,7 @@ function applyClaim(state, claim) {
   const player = p.players[seat], offered = p.pending;
   if (player.riichi !== 'none' || player.melds.length >= 4 || p.wall <= 0) throw new Error('This player cannot call this discard');
   if (kind === 'kan') checkKan(p);
-  const meld = { kind, tile: kind === 'chii' ? tile : offered, from: (p.turn - seat + 4) % 4 };
+  const meld = { kind, tile: kind === 'chii' ? tile : offered, from: (p.turn - seat + 4) % 4, claimed_tile: offered };
   if (kind === 'chii' && (!/^[1-7][mps]$/.test(tile ?? '') || meld.from !== 3 || !setTiles(meld).includes(offered))) {
     throw new Error('Chii must include the discard in a sequence from the left');
   }

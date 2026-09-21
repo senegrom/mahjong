@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis } from '../src/wasm/riichi.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { WatchSession } from '../src/lib/watch-session.js';
-import { emptyPosition, parseTiles, recordChoice, recordDraw, recordDiscard, readPhysical } from '../src/lib/physical-position.js';
+import { emptyPosition, parseTiles, recordChoice, recordDraw, recordDiscard, parsePhysical } from '../src/lib/physical-position.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -206,7 +206,7 @@ test('manual entry preserves unknown hands and refuses duplicate riichi and stal
   assert.deepEqual(parseTiles('123m 456p,77z'), ['1m','2m','3m','4p','5p','6p','7z','7z']);
   assert.throws(() => parseTiles('89z'));
   assert.throws(() => parseTiles('1m garbage 2p'));
-  assert.deepEqual(readPhysical({ getItem: () => '{broken' }), emptyPosition());
+  assert.equal(parsePhysical('{broken'), null, 'unreadable drafts are reported to PhysicalStore, not replaced');
 });
 
 test('a second legal kan stays recordable without inventing another trained-policy weight', () => {
