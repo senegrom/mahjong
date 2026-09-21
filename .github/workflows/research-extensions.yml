@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
@@ -38,7 +39,7 @@ jobs:
             engine/libriichi -> target
       - name: Check source and native formatting
         run: |
-          git diff --check HEAD~1
+          git diff --check 2215ef3dd8ff0633ca54b2a76d355b654df18437 HEAD
           python -m compileall -q neural
           rustfmt --edition 2024 --check engine/riichi-py/src/research.rs engine/libriichi/src/follow.rs
       - name: Install CPU dependencies
