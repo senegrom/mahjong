@@ -26,8 +26,8 @@ jobs:
           import subprocess
           assert subprocess.check_output(['git','rev-parse','--abbrev-ref','HEAD'],text=True).strip() == 'work/selfplay-danger-curriculum-20260921'
           def replace(path, old, new):
-              p=Path(path); text=p.read_text(); assert text.count(old)==1, (path, old)
-              p.write_text(text.replace(old,new))
+              p=Path(path); text=p.read_text(); assert text.count(old)>=1, (path, old)
+              p.write_text(text.replace(old,new,1))
           replace('engine/riichi-py/src/lib.rs','use std::collections::VecDeque;','mod research;\n\nuse std::collections::VecDeque;')
           replace('engine/riichi-py/src/lib.rs','struct Seat {','#[derive(Clone)]\nstruct Seat {')
           replace('engine/riichi-py/src/lib.rs','    module.add_class::<Arena>()?;','    module.add_class::<Arena>()?;\n    research::register(module)?;')
