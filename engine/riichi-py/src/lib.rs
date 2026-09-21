@@ -24,6 +24,8 @@
 //!     arena.step(policy(obs, mask))
 //! ```
 
+mod research;
+
 use std::collections::VecDeque;
 
 use pyo3::prelude::*;
@@ -46,6 +48,7 @@ use riichi_core::Wind;
 type LeafBatch<'py> = (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>);
 
 /// One game, and where its next decision sits.
+#[derive(Clone)]
 struct Seat {
     table: Table,
     hand: Hand,
@@ -1592,6 +1595,7 @@ fn cast_i32(values: &[i32]) -> &[u8] {
 #[pymodule(gil_used = true)]
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
+    research::register(module)?;
     module.add("TRAINING_API_VERSION", 2u32)?;
     module.add("SEARCH_API_VERSION", 5u32)?;
     module.add("PLANES", PLANES)?;

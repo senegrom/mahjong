@@ -24,6 +24,7 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 
 /// One game: the four players' states and what each may do.
+#[derive(Clone)]
 struct Table {
     states: [PlayerState; 4],
     cans: [ActionCandidate; 4],
@@ -98,6 +99,18 @@ impl Follower {
             tables: (0..games).map(|_| Table::new()).collect(),
             version,
         }
+    }
+
+    /// Exact in-memory snapshot, including pending reach flags.
+    /// Repeated rows are independent copies for paired continuations.
+    fn fork(&self, rows: Vec<usize>) -> PyResult<Self> {
+        if rows.iter().any(|&i| i >= self.tables.len()) {
+            return Err(PyValueError::new_err("snapshot row outside follower"));
+        }
+        Ok(Self {
+            tables: rows.into_iter().map(|i| self.tables[i].clone()).collect(),
+            version: self.version,
+        })
     }
 
     fn __len__(&self) -> usize {
