@@ -1,0 +1,73 @@
+name: self-play research extensions
+on:
+  push:
+    branches: [work/selfplay-danger-curriculum-20260921]
+    paths:
+      - neural/**
+      - engine/**
+      - docs/SELFPLAY_RESEARCH_EXTENSIONS.md
+      - .github/workflows/research-extensions.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: research-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  training:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: |
+            . -> target
+            engine/libriichi -> target
+      - name: Check source and native formatting
+        run: |
+          git diff --check HEAD~1
+          python -m compileall -q neural
+          rustfmt --edition 2024 --check engine/riichi-py/src/research.rs engine/libriichi/src/follow.rs
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install 'numpy>=2,<3' 'maturin>=1.7,<2' 'onnx>=1.17,<2' 'onnxruntime>=1.22,<2'
+          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Build both engines
+        run: |
+          (cd engine/riichi-py && maturin build --release --locked --out ../../wheels)
+          (cd engine/libriichi && maturin build --release --locked --out ../../wheels)
+          python -m pip install wheels/*.whl
+          git archive --format=tar.gz HEAD neural engine Cargo.toml Cargo.lock README.md docs/SELFPLAY_RESEARCH_EXTENSIONS.md > "$RUNNER_TEMP/research-source.tar.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: research-build-${{ github.sha }}
+          path: |
+            wheels/*.whl
+            ${{ runner.temp }}/research-source.tar.gz
+          retention-days: 7
+      - name: Test core rules and complete neural suite
+        run: |
+          set -o pipefail
+          cargo test -p riichi-core 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
+          python -m unittest discover -s neural/tests -v 2>&1 | tee "$RUNNER_TEMP/neural-tests.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: research-test-results-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/core-tests.log
+            ${{ runner.temp }}/neural-tests.log
+          retention-days: 7
