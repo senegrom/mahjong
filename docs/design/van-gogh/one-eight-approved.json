@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "set": "van-gogh",
+  "approval": "The user selected the revised Sunlit Fields A, with the numeral integrated as a cloud band, for 1 of characters, and approved the subsequent Starry Night 8 of characters for deployment.",
+  "state": "approved-awaiting-source-upload",
+  "archive": "van-gogh-one-eight-originals.zip",
+  "tiles": [
+    {
+      "tile": "1m",
+      "name": "Man1",
+      "candidate": "Sunlit Fields A",
+      "sourceId": "sunlitFields",
+      "source": "docs/design/van-gogh/studies/09-one-characters-integrated-directions.png",
+      "sourceWidth": 1448,
+      "sourceHeight": 1086,
+      "sourceBytes": 2623978,
+      "sourceSha256": "4521fd6fc1880e81aad79424478f6b860bf6b5cc859fe760dcfd67fa2cd42850",
+      "crop": { "x": 38, "y": 142, "width": 439, "height": 667 },
+      "fullCanvas": false
+    },
+    {
+      "tile": "8m",
+      "name": "Man8",
+      "candidate": "Starry Night B",
+      "sourceId": "starryEight",
+      "source": "docs/design/van-gogh/studies/10-eight-characters-starry-night.png",
+      "sourceWidth": 1086,
+      "sourceHeight": 1448,
+      "sourceBytes": 3293883,
+      "sourceSha256": "a1e65dc95b89139678c530c97184af368cf9b56dfaef05454e549481a4d33ee4",
+      "crop": { "x": 0, "y": 0, "width": 1086, "height": 1448 },
+      "fullCanvas": true
+    }
+  ],
+  "preservation": "Keep the original PNG files unchanged. Crop only the selected A panel for Man1; use the complete original Man8 image. Do not regenerate, quantize, downsample or replace any approved artwork. Leave all fourteen existing Van Gogh faces unchanged."
+}
