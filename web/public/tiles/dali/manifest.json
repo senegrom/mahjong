@@ -119,6 +119,23 @@
       }
     },
     {
+      "name": "Sou7",
+      "tile": "7s",
+      "label": "7 bamboo",
+      "direction": "The Dream Cabinet",
+      "status": "approved",
+      "svg": "approved/Sou7.svg",
+      "source": "docs/design/dali/studies/seven-bamboo-dream-cabinets-approved.svg",
+      "sourceSha256": "80752661ba392a5c7b4c686e7f80612a2b768173b5fa8cde830025b82a3701eb",
+      "svgSha256": "80752661ba392a5c7b4c686e7f80612a2b768173b5fa8cde830025b82a3701eb",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 432,
+        "height": 576
+      }
+    },
+    {
       "name": "Man5",
       "tile": "5m",
       "label": "5 characters",
@@ -278,10 +295,6 @@
     },
     {
       "tile": "6s",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "7s",
       "svg": "placeholders/placeholder.svg"
     },
     {

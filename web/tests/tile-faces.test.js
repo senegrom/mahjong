@@ -72,21 +72,22 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('Dali resolves twelve approved images and placeholders for the rest', () => {
-  const approved = new Set(['1p', '3p', '5p', '1s', '2s', '5s', '5m', '6m', '7m', '8m', '9m', '7z']);
+test('Dali resolves thirteen approved images and placeholders for the rest', () => {
+  const approved = new Set(['1p', '3p', '5p', '1s', '2s', '5s', '7s', '5m', '6m', '7m', '8m', '9m', '7z']);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'dali');
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
     assert.match(svg, /viewBox="0 0 300 400"/);
     if (approved.has(tile)) {
       assert.match(url, /\/dali\/approved\//);
-      assert.match(svg, /data:image\/png;base64,/);
+      assert.match(svg, tile === '7s' ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
     }
     else assert.equal(url, 'tiles/dali/placeholders/placeholder.svg');
   }
   assert.equal(tileImage('1p', 'dali'), 'tiles/dali/approved/Pin1.svg');
   assert.equal(tileImage('3p', 'dali'), 'tiles/dali/approved/Pin3.svg');
   assert.equal(tileImage('5s', 'dali'), 'tiles/dali/approved/Sou5.svg');
+  assert.equal(tileImage('7s', 'dali'), 'tiles/dali/approved/Sou7.svg');
   assert.equal(tileImage('5m', 'dali'), 'tiles/dali/approved/Man5.svg');
   assert.equal(tileImage('6m', 'dali'), 'tiles/dali/approved/Man6.svg');
   assert.equal(tileImage('7m', 'dali'), 'tiles/dali/approved/Man7.svg');
