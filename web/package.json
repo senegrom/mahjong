@@ -30,14 +30,14 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "eslint": "10.10.0",
     "globals": "17.12.0",
-    "puppeteer-core": "^25.10.0",
+    "puppeteer-core": "^25.11.0",
     "svelte": "^5.57.0",
     "svelte-check": "4.7.6",
     "typescript": "6.0.3",
     "vite": "^8.3.0"
   },
   "dependencies": {
-    "onnxruntime-web": "^1.29.0"
+    "onnxruntime-web": "^1.30.0"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
