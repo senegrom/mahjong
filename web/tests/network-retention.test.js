@@ -6,7 +6,7 @@ import { networkIsStored } from '../src/lib/network-store.js';
 
 const scope = 'https://test.invalid/mahjong/';
 const key = request => typeof request === 'string' ? request : request.url ?? request.href;
-function storage(t) {
+function cacheStorageFixture(t) {
   const old = globalThis.caches, stores = new Map();
   const caches = { async open(name) {
     if (!stores.has(name)) {
@@ -36,7 +36,7 @@ const prune = (m, options = {}) => pruneNetworkCache({ scope, ...m, ...options }
 // These tests use the actual transfer/verification code and actual Response
 // bodies, rather than accepting metadata as proof of a valid network.
 test('scope-owned caches retain only the current and previous activated models', async t => {
-  const caches = storage(t), cache = await caches.open(networkCacheName(scope));
+  const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
   for (let n = 1; n <= 6; n++) {
     const m = model(n);
     await store(cache, m);
@@ -50,7 +50,7 @@ test('scope-owned caches retain only the current and previous activated models',
 });
 
 test('the first activation can precede the optional model download', async t => {
-  const caches = storage(t), cache = await caches.open(networkCacheName(scope));
+  const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
   assert.equal(await prune(model(1)), false);
   await store(cache, model(1));
   await store(cache, model(2));
@@ -59,7 +59,7 @@ test('the first activation can precede the optional model download', async t => 
 });
 
 test('waiting updates, failed replacements and interrupted cleanup keep working models', async t => {
-  const caches = storage(t), cache = await caches.open(networkCacheName(scope));
+  const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
   await store(cache, model(1)); await prune(model(1));
   await store(cache, model(2)); await prune(model(2));
   await store(cache, model(3));
@@ -76,7 +76,7 @@ test('waiting updates, failed replacements and interrupted cleanup keep working 
 });
 
 test('cleanup never touches another installation or the unowned legacy cache', async t => {
-  const caches = storage(t), cache = await caches.open(networkCacheName(scope));
+  const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
   const other = await caches.open(networkCacheName('https://test.invalid/other/'));
   const legacy = await caches.open(NETWORK_CACHE);
   await store(other, model(9)); await store(legacy, model(8));
@@ -86,7 +86,7 @@ test('cleanup never touches another installation or the unowned legacy cache', a
 });
 
 test('a verified legacy body migrates without fetching or deleting its shared copy', async t => {
-  const caches = storage(t), legacy = await caches.open(NETWORK_CACHE), m = model(1);
+  const caches = cacheStorageFixture(t), legacy = await caches.open(NETWORK_CACHE), m = model(1);
   await store(legacy, m);
   const oldFetch = globalThis.fetch;
   globalThis.fetch = () => { throw new Error('must not fetch a cached network'); };
@@ -101,7 +101,7 @@ test('a verified legacy body migrates without fetching or deleting its shared co
 });
 
 test('failed migration preserves verified legacy offline availability', async t => {
-  const caches = storage(t), m = model(1);
+  const caches = cacheStorageFixture(t), m = model(1);
   await store(await caches.open(NETWORK_CACHE), m);
   const cache = await caches.open(networkCacheName(scope));
   cache.put = async () => { throw new Error('quota'); };
@@ -111,7 +111,7 @@ test('failed migration preserves verified legacy offline availability', async t 
 });
 
 test('verified worker status avoids a second read only for the exact requested identity', async t => {
-  const caches = storage(t), m = model(1);
+  const caches = cacheStorageFixture(t), m = model(1);
   let opened = 0;
   const open = caches.open;
   caches.open = async name => { opened++; return open(name); };

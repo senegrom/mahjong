@@ -9,7 +9,7 @@ const template = await serviceWorkerTemplate();
 const scope = 'https://test.invalid/mahjong/';
 const digest = body => createHash('sha256').update(body).digest('hex');
 const address = request => String(request.url ?? request);
-function storage() {
+function cacheStorageFixture() {
   const stores = new Map();
   return { async open(name) {
     if (!stores.has(name)) {
@@ -55,7 +55,7 @@ function worker(caches, generation, { broken = false } = {}) {
 }
 
 test('production worker pins first activation and prunes only after later activation', async () => {
-  const caches = storage(), cache = await caches.open(networkCacheName(scope));
+  const caches = cacheStorageFixture(), cache = await caches.open(networkCacheName(scope));
   const first = worker(caches, 1); await first.install(); await first.activate(); await first.download();
   const second = worker(caches, 2); await second.install(); await second.activate();
   const third = worker(caches, 3); await third.install();
@@ -70,7 +70,7 @@ test('production worker pins first activation and prunes only after later activa
 });
 
 test('failed model upgrade cannot replace retention metadata or remove working models', async () => {
-  const caches = storage(), cache = await caches.open(networkCacheName(scope));
+  const caches = cacheStorageFixture(), cache = await caches.open(networkCacheName(scope));
   for (const n of [1, 2]) { const w = worker(caches, n); await w.install(); await w.activate(); await w.download(); }
   const key = new URL('__network_retention__', scope), before = await (await cache.match(key)).text();
   const bad = worker(caches, 3, { broken: true });
@@ -81,7 +81,7 @@ test('failed model upgrade cannot replace retention metadata or remove working m
 });
 
 test('activation skips model pruning while a newer registration is waiting', async () => {
-  const caches = storage(), cache = await caches.open(networkCacheName(scope));
+  const caches = cacheStorageFixture(), cache = await caches.open(networkCacheName(scope));
   for (const n of [1, 2]) { const w = worker(caches, n); await w.install(); await w.activate(); await w.download(); }
   const third = worker(caches, 3); await third.install();
   third.registration.waiting = {};
