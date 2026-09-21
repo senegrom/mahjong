@@ -1,0 +1,66 @@
+name: Prepare approved Van Gogh one and eight
+
+on:
+  push:
+    branches: [van-gogh-1-and-8-20260921]
+    paths: [van-gogh-one-eight-originals.zip]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-van-gogh-one-eight
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/van-gogh-1-and-8-20260921'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Ensure the lossless crop tool is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v convert >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y imagemagick
+          fi
+      - name: Verify original PNGs and prepare the two faces
+        run: python3 web/scripts/install-van-gogh-one-eight.py --archive van-gogh-one-eight-originals.zip
+      - name: Check integration and offline behavior
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+          node --test tests/tile-faces.test.js tests/offline.test.js
+      - name: Save originals and generated integration on the same branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add docs/design/van-gogh/README.md docs/design/van-gogh/one-eight-approved.json
+          git add docs/design/van-gogh/studies/09-one-characters-integrated-directions.png
+          git add docs/design/van-gogh/studies/10-eight-characters-starry-night.png
+          git add web/scripts/export-van-gogh-tiles.mjs web/tests/tile-faces.test.js
+          git add web/src/lib/van-gogh-faces.js web/public/tiles/van-gogh
+          # Remove only the redundant transport archive and completed one-off job.
+          # The two exact original PNGs above remain committed alongside the exports.
+          git rm van-gogh-one-eight-originals.zip .github/workflows/prepare-van-gogh-one-eight.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Activate Sunlit Fields 1 and Starry Night 8 from the verified original PNGs'
+          git push origin HEAD:van-gogh-1-and-8-20260921
+          echo 'Prepared on the design branch. Merge the reviewed PR to run the normal production build and Pages deployment.' >> "$GITHUB_STEP_SUMMARY"
