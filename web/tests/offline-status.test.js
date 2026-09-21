@@ -5,10 +5,11 @@ import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
 
 // Render the production settings and its actual offline readiness text.
-// The rest of App needs an engine/browser and is outside this UI boundary.
-const source = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
+// App owns the engine/browser lifecycle outside this presentation boundary.
+const source = await readFile(new URL('../src/lib/app/AppSettings.svelte', import.meta.url), 'utf8');
 const start = source.indexOf('<details class="offline-settings">');
 const end = source.indexOf('</details>', start) + '</details>'.length;
+assert.ok(start >= 0 && end > start, 'The production offline status must be present');
 const code = compile(`<script>let { offline, downloadAi = () => {} } = $props();</script>${source.slice(start, end)}`,
   { generate: 'server' }).js.code.replace(/from (['"])([^'"]+)\1/g,
   (_, _quote, name) => `from ${JSON.stringify(import.meta.resolve(name))}`);

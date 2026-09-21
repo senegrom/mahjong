@@ -1,5 +1,7 @@
 /** Naming tiles the way a person says them, in one place. */
 
+export const SEAT_NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
+
 const SUIT_WORDS = { m: 'characters', p: 'circles', s: 'bamboo' };
 const HONOUR_WORDS = [
   'east wind',

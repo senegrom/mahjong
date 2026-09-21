@@ -1,4 +1,4 @@
-/** Production browser checks for tablet layout and persisted claimed-tile display. */
+/** Production browser checks for layout, app component boundaries and claimed-tile display. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
@@ -9,7 +9,8 @@ import puppeteer from 'puppeteer-core';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { emptyPosition, parseTiles, recordChoice } from '../src/lib/physical-position.js';
 import { emptyGuided, GUIDED_FORMAT } from '../src/lib/guided-game.js';
-import { SETTINGS_KEY } from '../src/lib/session.js';
+import { SETTINGS_KEY, SAVE_KEY } from '../src/lib/session.js';
+import { tileWords } from '../src/lib/tiles.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const server = createServer(createFixtureHandler({ root: resolve(root, 'dist'), publicRoot: resolve(root, 'dist') }));
@@ -32,6 +33,11 @@ async function pageAt(context, mode = 'play', game = null) {
   }, { settings: SETTINGS_KEY, guided: GUIDED_FORMAT.key, text: game && GUIDED_FORMAT.encode(game) });
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=${mode}`, { waitUntil: 'networkidle0' });
   return { page, problems };
+}
+async function savedMatch(page) {
+  await page.waitForSelector('.hand button[data-hand-index]:not(:disabled)');
+  await page.waitForFunction(key => Boolean(localStorage.getItem(key)), {}, SAVE_KEY);
+  return page.evaluate(key => localStorage.getItem(key), SAVE_KEY);
 }
 function calledGame(offered) {
   const p = emptyPosition();
@@ -64,15 +70,97 @@ try {
     }
     assert.deepEqual(problems, []);
   });
+  await check('settings bindings update the hand and preferences without changing the saved match', async context => {
+    const { page, problems } = await pageAt(context);
+    const saved = await savedMatch(page);
+    await page.click('.options > summary');
+    await page.click('.options input[type=checkbox]');
+    await page.waitForFunction(() => !document.querySelector('.mine .hint'));
+    await page.select('select[aria-label="Tile face"]', 'matisse');
+    await page.waitForFunction(() => document.querySelectorAll('.hand .tile').length > 0
+      && [...document.querySelectorAll('.hand .tile')].every(tile => tile.classList.contains('matisse')));
+    await page.waitForFunction(key => {
+      const settings = JSON.parse(localStorage.getItem(key));
+      return settings.hints === false && settings.tileFace === 'matisse';
+    }, {}, SETTINGS_KEY);
+    assert.equal(await savedMatch(page), saved);
+    assert.deepEqual(problems, []);
+  });
+  await check('discard cancellation and preference changes clear the shared selection without playing a move', async context => {
+    const { page, problems } = await pageAt(context);
+    const saved = await savedMatch(page);
+    await page.click('.options > summary');
+    const confirmation = '.options label:has(input[type=checkbox]):nth-of-type(3) input';
+    await page.click(confirmation);
+    await page.click('.hand button[data-hand-index]:not(:disabled)');
+    await page.waitForSelector('.confirm-discard');
+    await page.click('.confirm-discard button:last-child');
+    await page.waitForFunction(() => !document.querySelector('.confirm-discard'));
+    await page.click('.hand button[data-hand-index]:not(:disabled)');
+    await page.waitForSelector('.confirm-discard');
+    await page.click(confirmation);
+    await page.waitForFunction(() => !document.querySelector('.confirm-discard'));
+    assert.equal(await savedMatch(page), saved);
+    assert.deepEqual(problems, []);
+  });
+  await check('mode round trips preserve the same match and restore the bound hand element', async context => {
+    const { page, problems } = await pageAt(context);
+    const saved = await savedMatch(page);
+    for (const index of [3, 4]) {
+      await page.click(`.game-modes button:nth-child(${index})`);
+      await page.waitForFunction(() => !document.querySelector('main > .board'));
+      await page.click('.game-modes button:first-child');
+      assert.equal(await savedMatch(page), saved);
+      await page.focus('.hand');
+      await page.keyboard.press('ArrowRight');
+      await page.waitForSelector('.hand button[aria-pressed=true]');
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('.hand button[aria-pressed=true]'));
+    }
+    assert.deepEqual(problems, []);
+  });
+  await check('inspection and custom-opponent dialogs keep active and draft state separate', async context => {
+    const { page, problems } = await pageAt(context);
+    const saved = await savedMatch(page);
+    await page.click('.inspect');
+    await page.waitForSelector('.table-dialog[open]');
+    assert.equal(await page.$$eval('.inspection-grid > section', seats => seats.length), 4);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('.table-dialog[open]'));
+    await page.select('select[aria-label="opponent strength"]', 'custom');
+    await page.waitForSelector('.custom-dialog[open]');
+    await page.select('.opponent-fields label:first-child select', 'beginner');
+    await page.click('.custom-actions button:first-child');
+    await page.waitForFunction(() => !document.querySelector('.custom-dialog[open]'));
+    assert.equal(await page.$eval('select[aria-label="opponent strength"]', select => select.value), 'club');
+    assert.equal(await savedMatch(page), saved);
+    await page.select('select[aria-label="opponent strength"]', 'custom');
+    await page.waitForSelector('.custom-dialog[open]');
+    assert.deepEqual(await page.$$eval('.opponent-fields select', selects => selects.map(select => select.value)), ['club', 'club', 'club']);
+    await page.select('.opponent-fields label:first-child select', 'beginner');
+    await page.select('.opponent-fields label:last-child select', 'beginner');
+    page.on('dialog', dialog => void dialog.accept());
+    await page.click('.custom-actions button:last-child');
+    await page.waitForFunction(() => !document.querySelector('.custom-dialog[open]')
+      && document.querySelector('select[aria-label="opponent strength"]').value === 'custom');
+    await page.waitForFunction(key => {
+      const settings = JSON.parse(localStorage.getItem(key));
+      return JSON.stringify(settings.opponents) === JSON.stringify(['beginner', 'club', 'beginner']);
+    }, {}, SETTINGS_KEY);
+    assert.notEqual(await savedMatch(page), saved);
+    assert.deepEqual(problems, []);
+  });
   for (const offered of ['1m', '2m', '3m']) {
     await check(`guided chii rotates ${offered} after reload and Undo removes the set`, async context => {
       const { page, problems } = await pageAt(context, 'guided', calledGame(offered));
-      const actual = () => page.$eval('.your-hand .meld .tile.rotated', el => el.dataset.tile);
+      // Display-only tiles expose their identity through the accessible label,
+      // not the data-tile attribute used by interactive hand buttons.
+      const actual = () => page.$eval('.your-hand .meld .tile.rotated', el => el.getAttribute('aria-label'));
       await page.waitForSelector('.guided-controls:not(:disabled)');
-      assert.equal(await actual(), offered);
+      assert.equal(await actual(), tileWords(offered));
       await page.reload({ waitUntil: 'networkidle0' });
       await page.waitForSelector('.guided-controls:not(:disabled)');
-      assert.equal(await actual(), offered);
+      assert.equal(await actual(), tileWords(offered));
       await page.click('.guided-heading .buttons button');
       await page.waitForFunction(() => !document.querySelector('.your-hand .meld'));
       assert.deepEqual(problems, []);
