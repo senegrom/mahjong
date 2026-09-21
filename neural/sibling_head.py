@@ -498,15 +498,24 @@ def main() -> None:
     print(json.dumps({"out": str(args.out), "final": history[-1] if history else None}, indent=1))
 
 
+def _head_identity(head):
+    """What makes two recordings' placement heads the same head: the weights
+    and the features they read, not where a container happened to copy the
+    file. Every chair of a cloud run records its own scratch path."""
+    if not isinstance(head, dict):
+        return head
+    return {key: value for key, value in head.items() if key != "path"}
+
+
 def gathered(parts: list[Recorded]) -> Recorded:
     """Several recordings as one, their games kept apart for the split."""
     if not parts:
         raise ValueError("at least one recording is required")
     first = parts[0]
     utility = first.meta.get("teacher_objective", "hybrid")
-    head = first.meta.get("placement_head")
+    head = _head_identity(first.meta.get("placement_head"))
     if any(part.meta.get("teacher_objective", "hybrid") != utility
-           or part.meta.get("placement_head") != head for part in parts):
+           or _head_identity(part.meta.get("placement_head")) != head for part in parts):
         raise ValueError("do not mix different teacher objectives or placement heads")
     snapshots = [part.meta.get("snapshot_id") for part in parts]
     known = [name for name in snapshots if name is not None]

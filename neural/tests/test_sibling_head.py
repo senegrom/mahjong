@@ -95,6 +95,17 @@ class SiblingHeadTests(unittest.TestCase):
                 other.meta = {**other.meta, "seed": 999}
                 apart = sibling_head.gathered([recorded, other])
                 self.assertEqual(int(apart.game[n:].min()), 999)
+                # Every chair of a cloud run copies the head to its own
+                # scratch path; the same weights are the same head.
+                same = {"path": "/scratch/a/placement.pt", "sha256": "c" * 64, "features": "5ee4675a7f9b047a"}
+                recorded.meta = {**recorded.meta, "placement_head": same}
+                other.meta = {**other.meta, "placement_head": {**same, "path": "/scratch/b/placement.pt"}}
+                self.assertEqual(len(sibling_head.gathered([recorded, other]).sure), 2 * n)
+                other.meta = {**other.meta, "placement_head": {**same, "sha256": "d" * 64}}
+                with self.assertRaisesRegex(ValueError, "do not mix"):
+                    sibling_head.gathered([recorded, other])
+                other.meta = {**other.meta, "placement_head": None}
+                recorded.meta = {**recorded.meta, "placement_head": None}
                 training, held = apart.split()
                 self.assertTrue(set(apart.game[held]).isdisjoint(set(apart.game[training])))
                 head = sibling_head.new_head(net)
