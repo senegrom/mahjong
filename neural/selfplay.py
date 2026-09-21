@@ -76,7 +76,7 @@ PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 REWARD_VERSION = 1
 
 
-def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> tuple:
+def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng, generator=None) -> tuple:
     """A move from the policy, or now and then a legal one at random, and
     the probability the *behaviour* gave whatever came out.
 
@@ -106,7 +106,8 @@ def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> t
     """
     validate_exploration(epsilon)
     distribution = torch.distributions.Categorical(logits=logits)
-    chosen = distribution.sample()
+    chosen = (distribution.sample() if generator is None else
+              torch.multinomial(distribution.probs, 1, generator=generator).squeeze(1))
     if epsilon > 0:
         count = legal.sum(dim=1).clamp(min=1)
         forced = torch.from_numpy(rng.random(len(chosen))).to(logits.device) < epsilon

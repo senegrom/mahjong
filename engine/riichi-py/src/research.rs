@@ -132,7 +132,10 @@ fn research_danger<'py>(
                         let before = won.players[actor.index()].score;
                         won.resolve_calls(&answers)
                             .expect("offered ron must resolve");
-                        let amount = before - won.players[actor.index()].score;
+                        // Winning on a declaration refunds its 1000-point deposit.
+                        // That refund is not a reduction in ron liability.
+                        let refund = if stage == 1 { 1000 } else { 0 };
+                        let amount = before - won.players[actor.index()].score + refund;
                         let at = ((stage * OPPONENTS + distance - 1) * POSITIONS + tile.idx()) * 2;
                         labels[at] = 1.0;
                         labels[at + 1] = amount as f32;

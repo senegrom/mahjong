@@ -68,6 +68,7 @@ def decide_in_mortal_space(
     timing: dict | None = None,
     explore_share: float = 0.0,
     wanderer=None,
+    generator=None,
 ) -> tuple[np.ndarray, Records]:
     """One of our engine's actions per row, and the records of everything
     the policy decided to get there, in Mortal's action space.
@@ -122,6 +123,7 @@ def decide_in_mortal_space(
             mask,
             explore_share,
             wanderer if wanderer is not None else np.random.default_rng(),
+            generator=generator,
         )
     log_prob = log_prob.cpu().numpy()
     picked = picked.cpu().numpy()
@@ -163,7 +165,9 @@ def decide_in_mortal_space(
         logits_after = score(after.dense(device), mask_after)
         logits_after = logits_after.float()
         distribution_after = torch.distributions.Categorical(logits=logits_after)
-        tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()
+        tile = (logits_after.argmax(dim=1) if greedy else distribution_after.sample()
+                if generator is None else torch.multinomial(distribution_after.probs, 1,
+                                                            generator=generator).squeeze(1))
         log_prob_after = distribution_after.log_prob(tile).cpu().numpy()
         tile = tile.cpu().numpy()
         for slot, i in enumerate(second):

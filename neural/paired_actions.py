@@ -192,6 +192,20 @@ def load_data(path):
     payoff = saved['payoffs']
     if not torch.isfinite(payoff).all() or (payoff[valid].abs() > 1.5).any():
         raise ValueError('invalid placement payoffs')
+    stages = saved.get('stages', [0])
+    if (not isinstance(stages, (list, tuple)) or not stages
+            or any(type(stage) is not int or stage not in (0, 1) for stage in stages)
+            or len(set(stages)) != len(stages)):
+        raise ValueError('invalid paired decision stages')
+    if 'root_stages' in saved:
+        rs = saved['root_stages']
+        if rs.shape != (n,) or rs.dtype != torch.int64 or set(rs.tolist()) != set(stages):
+            raise ValueError('paired root stages disagree with their contract')
+        conditional = rs == 1
+        if (moves[conditional][valid[conditional]] >= 34).any():
+            raise ValueError('conditional riichi candidates must be tile discards')
+    elif stages != [0]:
+        raise ValueError('conditional decisions require per-root stages')
     return saved, planes
 
 
@@ -251,12 +265,17 @@ def fit(paths, out, *, epochs=8, batch=256, width=64, blocks=2, lr=1e-3, device=
     loaded = [load_data(path) for path in paths]
     source = loaded[0][0]
     for data, _ in loaded:
-        if (data['actor']['sha256'] != source['actor']['sha256'] or data['shortlist'] != source['shortlist']):
+        if data['actor']['sha256'] != source['actor']['sha256'] or data['shortlist'] != source['shortlist']:
             raise ValueError('cannot mix actors or shortlist definitions')
     planes = Planes.cat([p for _, p in loaded])
     fields = ('games', 'players', 'legal', 'candidates', 'valid', 'payoffs')
     data = {key: torch.cat([p[key] for p, _ in loaded]) for key in fields}
+    root_stages = torch.cat([p.get('root_stages', torch.zeros(len(p['games']), dtype=torch.int64))
+                             for p, _ in loaded])
+    stages = sorted(set(root_stages.tolist()))
     training, validation, test = split_games(data['games'].numpy())
+    if set(root_stages[training].tolist()) != set(stages):
+        raise ValueError('collect more roots: every declared stage needs training examples')
     if not all(len(part) for part in (training, validation, test)):
         raise ValueError('collect more independent games: train/validation/test must be nonempty')
     torch.manual_seed(seed)
@@ -280,6 +299,8 @@ def fit(paths, out, *, epochs=8, batch=256, width=64, blocks=2, lr=1e-3, device=
             best = (watched['paired_mse'], epoch, {k: v.detach().cpu().clone() for k, v in ranker.state_dict().items()})
     ranker.load_state_dict(best[2])
     result = {'ranker_version': VERSION, 'actor_sha256': source['actor']['sha256'],
+              'stages': stages, 'stage_coverage': {name: {str(stage): int((root_stages[rows] == stage).sum())
+                  for stage in stages} for name, rows in [('training', training), ('validation', validation), ('test', test)]},
               'shortlist': source['shortlist'], 'width': width, 'blocks': blocks, 'model': best[2],
               'objective': 'placement-v2', 'selected_epoch': best[1], 'history': history,
               'test': measure(ranker, data, planes, test, device=device, batch=batch),
@@ -292,15 +313,22 @@ def load_ranker(path, device):
     saved = torch.load(path, map_location='cpu', weights_only=True)
     if saved.get('ranker_version') != VERSION or saved.get('objective') != 'placement-v2':
         raise ValueError('unsupported action ranker')
+    if not saved.get('stages', [0]) or any(type(s) is not int or s not in (0, 1) for s in saved.get('stages', [0])):
+        raise ValueError('invalid ranker decision stages')
     net = ActionDifferences(saved['width'], saved['blocks'])
     net.load_state_dict(saved['model'])
+    if any(not torch.isfinite(v).all() for v in net.state_dict().values()):
+        raise ValueError('nonfinite action ranker')
     return net.to(device).eval(), saved
 
 
 class RankedPlayer:
     kind = 'mortal'
-    def __init__(self, actor, ranker, k, device):
+    def __init__(self, actor, ranker, k, device, stages=(0,)):
         self.actor, self.ranker, self.k, self.device = actor, ranker, k, device
+        if not stages or any(type(s) is not int or s not in (0, 1) for s in stages):
+            raise ValueError("invalid ranker stages")
+        self.stages = tuple(stages)
 
     def eval(self):
         self.actor.eval(); self.ranker.eval(); return self
@@ -311,8 +339,9 @@ class RankedPlayer:
         def score(planes, mask):
             nonlocal first
             logits = rl_policy.logits(self.actor, planes, mask).float()
-            if not first: return logits  # The training intervention was FIRST stage only.
+            stage = 0 if first else 1
             first = False
+            if stage not in self.stages: return logits
             moves, valid = shortlist(logits.cpu().numpy(), mask.cpu().numpy(), self.k)
             indices = torch.from_numpy(moves).to(self.device)
             allowed = torch.from_numpy(valid).to(self.device)
@@ -334,7 +363,7 @@ def evaluate(actor_path, ranker_path, *, ledger, games=512, device='cpu'):
         if actor_info['sha256'] != saved['actor_sha256']:
             raise ValueError('ranker belongs to a different frozen actor')
         actor, _, _ = load_actor(Path(folder) / actor_info['file'], device)
-        player = RankedPlayer(actor, ranker, saved['shortlist'], device).eval()
+        player = RankedPlayer(actor, ranker, saved['shortlist'], device, saved.get('stages', [0])).eval()
         control = zoo.load_player(Path(folder) / actor_info['file'], device)
         reservation = SeedLedger(Path(ledger)).reserve('test', games, 'paired-ranker-evaluation')
         forward = duel.duel(player, control, games, reservation['seed'], device)

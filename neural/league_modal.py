@@ -26,7 +26,8 @@ def train_league(initial: str = "joined-run/latest", run: str = "placement-run",
                  batch: int = 2048, objective: str = "placement", critic: str = "privileged",
                  advantage: str = "mc", gae_lambda: float = .95, target_kl: float = .01,
                  schedule: str = "staged", seed: int = 20260919, compile: bool = False,
-                 refresh_opponents: bool = False, reset_critics: bool = False) -> str:
+                 refresh_opponents: bool = False, reset_critics: bool = False,
+                 collectors: int | None = None, inference_batch: int | None = None) -> str:
     validate_run(run)
     if any(type(n) is not int or n <= 0 for n in (rounds, games, batch)):
         raise ValueError("rounds, games and batch must be positive integers")
@@ -34,6 +35,10 @@ def train_league(initial: str = "joined-run/latest", run: str = "placement-run",
         raise ValueError("invalid objective or critic")
     if advantage not in ("mc", "gae") or (advantage == "gae" and objective != "placement"):
         raise ValueError("GAE requires the placement objective")
+    if collectors is not None and (type(collectors) is not int or not 1 <= collectors <= games):
+        raise ValueError("collectors must be an integer in [1,games]")
+    if inference_batch is not None and (type(inference_batch) is not int or inference_batch < 1):
+        raise ValueError("inference_batch must be a positive integer")
     volume.reload()
     target = VOLUME / run
     resume = target / "latest.pt"
@@ -47,6 +52,10 @@ def train_league(initial: str = "joined-run/latest", run: str = "placement-run",
                    "--gae-lambda", str(gae_lambda), "--target-kl", str(target_kl),
                    "--schedule", schedule, "--seed", str(seed), "--device", "cuda", "--amp",
                    "--seed-ledger", str(VOLUME / "league-seeds.json")]
+        if collectors is not None:
+            command += ["--collectors", str(collectors)]
+        if inference_batch is not None:
+            command += ["--inference-batch", str(inference_batch)]
         if resume.exists():
             copy_checkpoint(resume, where / "latest.pt", require_generation=True)
             for name in ("reference.pt", "candidate.pt"):

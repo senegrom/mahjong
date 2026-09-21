@@ -335,6 +335,9 @@ def load_player(
         payload = torch.load(path, map_location=device, weights_only=True)
     except Exception:
         payload = None
+    if payload is not None and "danger_policy" in payload:
+        from .danger import from_payload
+        return MortalSpacePlayer(from_payload(payload, device), device, compile=compile)
     if payload is not None and "combined" in payload:
         # A joined player: our network and a Mortal beneath a fusion head.
         from . import combined

@@ -52,7 +52,10 @@ class RolloutActor:
 
 def load_actor(path, device, temperature=1.0):
     payload = torch.load(path, map_location="cpu", weights_only=True)
-    if combined.is_combined(payload):
+    if "danger_policy" in payload:
+        from .danger import from_payload
+        net, kind = from_payload(payload, device), "danger"
+    elif combined.is_combined(payload):
         net, _ = combined.load(path, device)
         kind = "combined"
     elif "model" in payload:
@@ -69,6 +72,8 @@ def load_actor(path, device, temperature=1.0):
 
 
 def actor_state(net, kind, origin):
+    if kind == "danger":
+        return net.state()
     if kind == "native":
         return {"model": net.state_dict(), **net.payload_fields()}
     if kind == "mortal":
@@ -78,6 +83,10 @@ def actor_state(net, kind, origin):
 
 def parameter_groups(net, kind, args):
     """Separate optimizers/clipping make auxiliary magnitude irrelevant to actor LR."""
+    if kind == "danger":
+        groups, auxiliary = parameter_groups(net.base, net.base_kind, args)
+        groups.append({"params": list(net.residual.parameters()), "lr": args.lr})
+        return groups, auxiliary
     if kind == "combined":
         groups = [{"params": net.head_trained(), "lr": args.lr},
                   {"params": net.ours_trained(), "lr": args.lr_ours},
@@ -104,6 +113,8 @@ def fit_auxiliary(net, kind, optimizer, batch, args, device):
     Public actor features and Mortal's vector are read under no_grad; only the
     value/hand heads and the independent belief tower receive these gradients.
     """
+    if kind == "danger":
+        return fit_auxiliary(net.base, net.base_kind, optimizer, batch, args, device)
     total, steps = 0.0, 0
     net.eval()  # Mortal BN statistics remain frozen.
     for _ in range(args.aux_epochs):
@@ -152,6 +163,8 @@ def parse_args(argv=None):
     p.add_argument("--rounds", type=int, default=20)
     p.add_argument("--games", type=int, default=1024)
     p.add_argument("--batch", type=int, default=2048)
+    p.add_argument("--collectors", type=int, default=None, help="synchronous arenas sharing one frozen policy")
+    p.add_argument("--inference-batch", type=int, default=None, help="maximum shared inference rows")
     p.add_argument("--epochs", type=int, default=2)
     p.add_argument("--objective", choices=("hybrid", "placement"), default="placement")
     p.add_argument("--critic", choices=("public", "privileged"), default="privileged")
@@ -208,6 +221,9 @@ def parse_args(argv=None):
             p.error(f"{name} must be finite and nonnegative")
     if not 0 < args.clip < 1 or not 0 <= args.gae_lambda <= 1:
         p.error("clip must be in (0,1), and gae-lambda in [0,1]")
+    if ((args.collectors is not None and not 1 <= args.collectors <= args.games)
+            or (args.inference_batch is not None and args.inference_batch < 1)):
+        p.error("collectors must be in [1,games] and inference-batch positive")
     if args.advantage == "gae" and args.objective != "placement":
         p.error("GAE is defined here only for the terminal-placement objective")
     if args.refresh_reference and args.reference is None:
@@ -247,6 +263,13 @@ def run(args, source):
     if args.resume and origin.get("league_version") != VERSION:
         raise ValueError("legacy checkpoints are warm starts: use --initial, not --resume")
     start = int(origin["generation"]) if args.resume else 0
+    # Omitting these on resume preserves the private sampling-stream partition.
+    previous_options = origin.get("run_options", {}) if args.resume else {}
+    for name, default in (("collectors", 1), ("inference_batch", 512)):
+        if getattr(args, name) is None:
+            setattr(args, name, previous_options.get(name, default))
+    if not 1 <= args.collectors <= args.games or args.inference_batch < 1:
+        raise ValueError("resumed collector partition exceeds --games; specify a new partition explicitly")
     if args.resume and origin.get("run_options", {}).get("seed", args.seed) != args.seed:
         raise ValueError("--seed must match the resumed sampling stream")
     contract = {"objective": objective.contract(), "critic": args.critic,
@@ -334,17 +357,26 @@ def run(args, source):
     warmup_start = start if args.reset_critics else (origin.get("critic_started_generation", 0) if args.resume else 0)
     for generation in range(start, start + args.rounds):
         began = time.perf_counter()
-        if kind == "combined":
+        scheduled = net.base if kind == "danger" else net
+        scheduled_kind = net.base_kind if kind == "danger" else kind
+        if scheduled_kind == "combined":
             mode = (str(drawer.choice(combined.Combined.MODES)) if args.schedule == "random" else
                     "mortal" if args.schedule == "staged" and generation < args.freeze_generations else "none")
-            net.set_mode(mode)
+            scheduled.set_mode(mode)
         else:
             mode = "none"
         reservation = seeds.reserve("train", args.games, f"league-generation-{generation}")
-        batch = selfplay.play(RolloutActor(net, args.device), games=args.games,
-                              seed=reservation["seed"], device=args.device, amp=args.amp,
-                              opponents=opponents, population=roster, table_mix=tuple(mix),
-                              want_oracle=args.critic == "privileged", explore_share=0.0)
+        if args.collectors > 1:
+            from .parallel_selfplay import play as parallel_play
+            batch = parallel_play(net, games=args.games, seed=reservation["seed"],
+                collectors=args.collectors, inference_batch=args.inference_batch,
+                device=args.device, amp=args.amp, opponents=opponents, population=roster,
+                table_mix=tuple(mix), want_oracle=args.critic == "privileged")
+        else:
+            batch = selfplay.play(RolloutActor(net, args.device), games=args.games,
+                                  seed=reservation["seed"], device=args.device, amp=args.amp,
+                                  opponents=opponents, population=roster, table_mix=tuple(mix),
+                                  want_oracle=args.critic == "privileged", explore_share=0.0)
         play_seconds = time.perf_counter() - began
         targets = objective.targets(batch)
         if batch.next_index is None or batch.player_of is None or batch.terminal is None:
@@ -353,20 +385,27 @@ def run(args, source):
         expected, terminals = trajectory_links(batch.game_of.numpy(), batch.player_of.numpy())
         if not np.array_equal(expected, batch.next_index.numpy()) or not np.array_equal(terminals, batch.terminal.numpy()):
             raise ValueError("invalid same-player trajectory links")
+        stage_clock = time.perf_counter()
         old = rl_policy.old_distributions(net, batch, batch_size=args.batch, device=args.device, amp=args.amp)
+        old_policy_seconds = time.perf_counter() - stage_clock
+        stage_clock = time.perf_counter()
         predictions = {name: rl_critics.predict(c, batch.observations, batch.oracle, args.batch, args.device)
                        for name, c in critics.items()}
+        critic_prediction_seconds = time.perf_counter() - stage_clock
         raw, _lambda_targets = advantages(targets, predictions[args.critic], method=args.advantage,
                                           next_index=batch.next_index.numpy(), gae_lambda=args.gae_lambda)
         actor_rows = batch.legal.sum(dim=1) > 1
         normalized = normalize_actor_advantages(raw, actor_rows)
         warmup = generation < warmup_start + args.critic_warmup
         actor_metrics = {"actor_updates": 0, "critic_warmup": True}
+        stage_clock = time.perf_counter()
         if not warmup:
             actor_metrics = rl_policy.update(net, actor_optimizer, batch, normalized, old,
                 epochs=args.epochs, batch_size=args.batch, ratio_clip=args.clip, target_kl=args.target_kl,
                 entropy_weight=args.entropy, grad_clip=args.actor_clip, device=args.device, amp=args.amp,
                 reference=reference, reference_weight=args.leash)
+        actor_seconds = time.perf_counter() - stage_clock
+        stage_clock = time.perf_counter()
         # These passes continue even when PPO stops on its KL limit.
         critic_metrics = {}
         variance = float(targets.var(unbiased=False))
@@ -376,8 +415,13 @@ def run(args, source):
             mse = float((targets - predictions[name]).square().mean())
             metrics.update(pre_fit_mse=mse, pre_fit_explained=1 - mse / variance if variance else None)
             critic_metrics[name] = metrics
+        critic_fit_seconds = time.perf_counter() - stage_clock
+        stage_clock = time.perf_counter()
         auxiliary_metrics = fit_auxiliary(net, kind, aux_optimizer, batch, args, args.device)
-        record = {"generation": generation, "checkpoint_generation": generation + 1,
+        auxiliary_seconds = time.perf_counter() - stage_clock
+        record = {"generation": generation,
+                  "learning_seconds": {"old_policy": old_policy_seconds, "critic_prediction": critic_prediction_seconds,
+                                       "actor": actor_seconds, "critic_fit": critic_fit_seconds, "auxiliary": auxiliary_seconds}, "checkpoint_generation": generation + 1,
                   "objective": objective.contract(), "fixed": mode, "actor_kind": kind,
                   "games": args.games, "hands": batch.hands, "decisions": batch.decisions,
                   "play_seconds": play_seconds, "seconds": time.perf_counter() - began,

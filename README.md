@@ -389,3 +389,9 @@ The code is AGPL-3.0-or-later. The tile drawings in `web/public/tiles` are by
 the public domain (CC0). The rulebooks in `docs/rules` are published by the
 [European Mahjong Association](https://www.mahjong-europe.org) under
 CC BY-NC-SA 4.0.
+
+The opt-in [self-play research extensions](docs/SELFPLAY_RESEARCH_EXTENSIONS.md)
+add frozen public danger features, targeted counterfactual practice with exact
+snapshots, synchronous parallel collectors, heterogeneous evaluation tables and
+separate experimental chance controls. They do not replace the browser model
+or turn research measurements into automatic promotions.
