@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The later L is the active white dragon; F and D remain studies.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s. The later L is the active white dragon; F and D remain studies.",
   "fallback": "classic",
   "sources": [
     {
@@ -48,6 +48,11 @@
       "id": "cypressFields",
       "source": "docs/design/van-gogh/studies/08-four-characters-cypress-fields.png",
       "sha256": "f46d5a84d825851849438cf09db5284941c75094845fb4a678cb6d1353022d0a"
+    },
+    {
+      "id": "gardenRhythmGreen",
+      "source": "docs/design/van-gogh/studies/11-two-bamboo-garden-rhythm-green.webp",
+      "sha256": "528acc47e037fdce2fc9f48f827bbe554da35a1cc0186a4b74f1ac9fea0ad7ec"
     }
   ],
   "tiles": [
@@ -288,6 +293,23 @@
         "height": 1536
       },
       "pngSha256": "f46d5a84d825851849438cf09db5284941c75094845fb4a678cb6d1353022d0a"
+    },
+    {
+      "candidate": "Bamboo B (green)",
+      "tile": "2s",
+      "name": "Sou2",
+      "label": "Two bamboo",
+      "source": "docs/design/van-gogh/studies/11-two-bamboo-garden-rhythm-green.webp",
+      "status": "approved",
+      "png": "approved/Sou2.png",
+      "svg": "approved/Sou2.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      },
+      "pngSha256": "581df3d6e7992d547af374a676c5a051314cc698f16fe918fde1decb2099e14d"
     }
   ],
   "rejected": [
@@ -324,7 +346,6 @@
     "6p",
     "7p",
     "8p",
-    "2s",
     "4s",
     "5s",
     "7s",
