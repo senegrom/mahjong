@@ -172,6 +172,7 @@
     class:ringed={marks.length > 0}
     class:in-shape={inShape}
     style:--ring={ring}
+    data-tile={tile}
     role="img"
     aria-label={title || words}
     title={title || words}

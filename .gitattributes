@@ -1,0 +1,6 @@
+# An SVG is artwork whose bytes are hashed and pinned; a Windows checkout
+# must not rewrite its line endings, which adds a byte and breaks the pin.
+*.svg -text
+*.onnx binary
+*.wasm binary
+*.pt binary
