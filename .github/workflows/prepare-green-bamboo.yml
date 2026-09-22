@@ -1,0 +1,55 @@
+name: Prepare green Garden Rhythm bamboo
+
+on:
+  push:
+    branches: [design/van-gogh-green-bamboo-20260922]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-green-bamboo-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Image export prerequisites
+        run: |
+          if ! command -v convert >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y imagemagick
+          fi
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Assemble and integrate the approved green crop
+        run: python3 .bamboo-transfer/install.py
+      - name: Lint and tile regressions
+        working-directory: web
+        run: npm run lint && node --test tests/tile-faces.test.js tests/offline.test.js
+      - name: Commit finished assets and remove temporary transport
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git rm -r -- .bamboo-transfer .github/workflows/prepare-green-bamboo.yml
+          git add -- docs/design/van-gogh/README.md docs/design/van-gogh/two-bamboo-green.json docs/design/van-gogh/studies/11-two-bamboo-garden-rhythm-green.webp web/public/tiles/van-gogh/README.md web/public/tiles/van-gogh/approved/Sou2.png web/public/tiles/van-gogh/approved/Sou2.svg web/public/tiles/van-gogh/manifest.json web/public/tiles/van-gogh/preview.html web/scripts/export-van-gogh-tiles.mjs web/src/lib/van-gogh-faces.js web/tests/tile-faces.test.js
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(tiles): add approved green Garden Rhythm 2 bamboo'
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" push origin "HEAD:${GITHUB_REF_NAME}"
