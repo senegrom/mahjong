@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { cycleDialogFocus } from '../dialog-focus.js';
   import { TILE_FACE_OPTIONS } from '../tile-faces.js';
   import OfflineStatus from './OfflineStatus.svelte';
   import type { SettingsProps, GameMode, TileFace } from './types';
@@ -194,7 +195,7 @@
 {/snippet}
 
 <dialog class="settings-dialog" bind:this={settingsDialog} aria-labelledby="game-settings-title"
-  oncancel={closeSettings} onclose={() => { if (!settingsDialog?.open) settingsOpen = false; }}>
+  onkeydown={cycleDialogFocus} oncancel={closeSettings} onclose={() => { if (!settingsDialog?.open) settingsOpen = false; }}>
   {#if compact}{@render preferences()}{/if}
 </dialog>
 {#if !compact}{@render preferences()}{/if}
