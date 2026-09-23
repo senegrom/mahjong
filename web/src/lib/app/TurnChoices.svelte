@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import type { TurnChoicesProps } from './types';
   import Tile from '../Tile.svelte';
   import { callLabel, callTiles } from '../ui.js';
   import { tileWords, SEAT_NAMES as NAMES } from '../tiles.js';
@@ -9,7 +10,7 @@
     view, shownDora, busy, thinking, failure, saveConflict, loadNote,
     pendingOpponent, myTurn, confirmDiscards, shortcuts, touch,
     selectedTile, callChoices, choose, discard, oncancel,
-  } = $props();
+  }: TurnChoicesProps = $props();
 </script>
 
 <p id="hand-help" class="prompt" role="status">
@@ -26,21 +27,21 @@
   <div class="call-stage" aria-live="polite">
     <span class="call-kicker">Discard</span>
     <Tile tile={view.pending_discard} dora={shownDora.includes(view.pending_discard)} />
-    <span class="call-message"><strong>{NAMES[view.pending_from] ?? 'An opponent'}</strong><span>discarded the {tileWords(view.pending_discard)}</span></span>
+    <span class="call-message"><strong>{(view.pending_from ? NAMES[view.pending_from] : undefined) ?? 'An opponent'}</strong><span>discarded the {tileWords(view.pending_discard)}</span></span>
   </div>
 {/if}
 {#if selectedTile && myTurn && !busy}
   <div class="confirm-discard" aria-live="polite">
     <span>Selected: {tileWords(selectedTile)}</span>
-    <button class="primary" onclick={() => discard(selectedTile)}>Discard {tileWords(selectedTile)}</button>
-    <button onclick={oncancel}>Cancel</button>
+    <button class="app-control primary" onclick={() => { if (selectedTile) discard(selectedTile); }}>Discard {tileWords(selectedTile)}</button>
+    <button class="app-control" onclick={oncancel}>Cancel</button>
   </div>
 {/if}
 {#if callChoices.length}
   <div class="call-options">
     {#each callChoices as choice, index (index)}
-      <button class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} class:win-call={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
-        aria-label={callLabel(choice)} disabled={busy || Boolean(failure)} onclick={() => choose(choice)}>
+      <button class="app-control" class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} class:win-call={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
+        aria-label={callLabel(choice)} disabled={busy || Boolean(failure || saveConflict)} onclick={() => choose(choice)}>
         <span class="call-label">{callLabel(choice)}</span>
         {#if callTiles(choice, view.pending_discard).length}
           <span class="call-preview" aria-hidden="true">
@@ -53,10 +54,6 @@
 {/if}
 
 <style>
-  button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 12px; font: inherit; }
-  button { cursor: pointer; touch-action: manipulation; }
-  button:hover:not(:disabled) { background: #0007; }
-  button:disabled { opacity: .55; cursor: default; }
   .prompt { margin: 0; font-size: .9rem; }
   .key-help { display: block; font-size: .78rem; }
   .call-options { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -65,8 +62,6 @@
   .call-preview { display: inline-flex; align-items: center; gap: 4px; }
   .confirm-discard { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .confirm-discard > span { font-size: .85rem; }
-  button.primary { background: var(--button-accent); color: var(--button-text); border-color: var(--button-accent); font-weight: 600; }
-  button.primary:hover { background: var(--button-accent-hover); }
   @media (max-width: 760px) {
     .prompt { font-size: .82rem; }
     .call-options { gap: 6px; }

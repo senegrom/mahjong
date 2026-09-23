@@ -6,16 +6,13 @@ import { render } from 'svelte/server';
 
 // Render the production settings and its actual offline readiness text.
 // App owns the engine/browser lifecycle outside this presentation boundary.
-const source = await readFile(new URL('../src/lib/app/AppSettings.svelte', import.meta.url), 'utf8');
-const start = source.indexOf('<details class="offline-settings">');
-const end = source.indexOf('</details>', start) + '</details>'.length;
-assert.ok(start >= 0 && end > start, 'The production offline status must be present');
-const code = compile(`<script>let { offline, downloadAi = () => {} } = $props();</script>${source.slice(start, end)}`,
+const source = await readFile(new URL('../src/lib/app/OfflineStatus.svelte', import.meta.url), 'utf8');
+const code = compile(source,
   { generate: 'server' }).js.code.replace(/from (['"])([^'"]+)\1/g,
   (_, _quote, name) => `from ${JSON.stringify(import.meta.resolve(name))}`);
 const { default: Status } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const cached = { coreReady: true, aiReady: true, hasModel: true, phase: 'ready', progress: 0 };
-const show = (change = {}) => render(Status, { props: { offline: { ...cached, ...change } } }).body;
+const show = (change = {}) => render(Status, { props: { offline: { ...cached, ...change }, downloadAi: () => {} } }).body;
 
 test('an interrupted trained download shows a retry while the game itself stays ready', () => {
   const html = show({ aiReady: false, phase: 'incomplete', warning: 'Trained download interrupted' });

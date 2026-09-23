@@ -1,12 +1,13 @@
-<script>
+<script lang="ts">
+  import type { MatchTableProps } from './types';
   import Tile from '../Tile.svelte';
   import Seat from '../Seat.svelte';
   import Discards from '../Discards.svelte';
   import Melds from '../Melds.svelte';
   import { SEAT_NAMES as NAMES } from '../tiles.js';
 
-  let { view, hints, thinking, pendingOpponent } = $props();
-  let tableDialog = $state(null);
+  let { view, hints, thinking, pendingOpponent }: MatchTableProps = $props();
+  let tableDialog = $state<HTMLDialogElement | null>(null);
   let shownDora = $derived(hints ? (view?.dora_types ?? []) : []);
   let right = $derived(view?.seats[1]);
   let across = $derived(view?.seats[2]);
@@ -39,7 +40,7 @@
         {#if view.riichi_sticks}<span>{view.riichi_sticks} riichi bet{view.riichi_sticks === 1 ? '' : 's'}</span>{/if}
       </div>
     {/if}
-    <button class="inspect" onclick={inspectTable} aria-label="Inspect all discards and called sets">
+    <button class="app-control inspect" onclick={inspectTable} aria-label="Inspect all discards and called sets">
       <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="3" width="5" height="6" rx="1" /><rect x="12" y="3" width="5" height="6" rx="1" /><rect x="3" y="12" width="5" height="5" rx="1" /><rect x="12" y="12" width="5" height="5" rx="1" /></svg>
       Discards
     </button>
@@ -48,7 +49,7 @@
 </div>
 
 <dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="table-dialog-title">
-  <header><h2 id="table-dialog-title">All discards and called sets</h2><button onclick={() => tableDialog.close()}>Close</button></header>
+  <header><h2 id="table-dialog-title">All discards and called sets</h2><button class="app-control" onclick={() => tableDialog?.close()}>Close</button></header>
   <div class="inspection-grid">
     {#each view.seats as seat, index (index)}
       <section><h3>{index === 0 ? 'You' : NAMES[seat.seat]} · {NAMES[seat.seat]} · {seat.score.toLocaleString()}</h3>
@@ -61,10 +62,6 @@
 </dialog>
 
 <style>
-  button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 12px; font: inherit; }
-  button { cursor: pointer; touch-action: manipulation; }
-  button:hover:not(:disabled) { background: #0007; }
-  button:disabled { opacity: .55; cursor: default; }
   .board { display: grid; grid-template-columns: minmax(0,1fr) minmax(190px,auto) minmax(0,1fr); gap: 10px; align-items: start; }
   .across { grid-area: 1 / 2; }
   .left { grid-area: 2 / 1; justify-self: start; }
@@ -168,5 +165,14 @@
     .indicators, .ura-indicators { --tile-width: 42px; gap: 3px; }
     .table-extras { grid-column: 1 / -1; gap: 4px 12px; padding-top: 5px; border-top: 1px solid #ffffff14; font-size: .7rem; }
     .inspect { grid-area: 1 / 3; padding: 8px 10px; border-color: transparent; border-radius: 10px; background: #ffffff0d; font-size: .76rem; }
+  }
+  /* Compact tablet tracks fit before the three-wide desktop minimum (968px). */
+  @media (min-width: 761px) and (max-width: 967px) and (min-height: 501px) {
+    .board { grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; gap: 8px; padding: 12px; }
+    .centre { grid-area: 1 / 1 / 2 / -1; width: 100%; max-width: none; min-height: 0; padding: 12px; }
+    .place { --tile-width: 28px; width: 100%; min-width: 0; align-self: start; justify-self: stretch; }
+    .left { grid-area: 2 / 1; }
+    .across { grid-area: 2 / 2; }
+    .right { grid-area: 2 / 3; }
   }
 </style>

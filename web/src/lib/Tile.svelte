@@ -1,37 +1,6 @@
 <script module>
   import dragonUrl from '../assets/white-dragon.webp';
-  import { MATISSE_DRAGON_URL, TILE_IMAGE_URLS } from './tile-faces.js';
-  const images = [];
-  let preloading = null;
-  // Decode EVERY face before the first hand, including the hidden dragon art.
-  // Keep Image objects alive; the service worker also keeps the original bytes
-  // across reloads, new games and browser restarts, independently of HTTP cache.
-  export function preloadTiles(onProgress = () => {}) {
-    if (preloading) return preloading;
-    const urls = [...TILE_IMAGE_URLS, dragonUrl];
-    let next = 0, complete = 0;
-    preloading = Promise.all(Array.from({ length: 6 }, async () => {
-      while (next < urls.length) {
-        const url = urls[next++];
-        const image = new Image();
-        images.push(image);
-        image.decoding = 'async';
-        await new Promise((resolve, reject) => {
-          const timer = setTimeout(() => done(new Error(`Tile download timed out: ${url}`)), 45000);
-          const done = error => {
-            clearTimeout(timer); image.onload = null; image.onerror = null;
-            if (error) reject(error); else resolve();
-          };
-          image.onload = () => done();
-          image.onerror = () => done(new Error(`Tile graphic could not load: ${url}`));
-          image.src = url;
-        });
-        await image.decode();
-        onProgress(++complete, urls.length);
-      }
-    })).catch(error => { preloading = null; throw error; });
-    return preloading;
-  }
+  import { MATISSE_DRAGON_URL } from './tile-faces.js';
 </script>
 
 <script>

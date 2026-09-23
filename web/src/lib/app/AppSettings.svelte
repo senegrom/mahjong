@@ -1,24 +1,65 @@
-<script>
+<script lang="ts">
+  import { onMount, tick } from 'svelte';
   import { TILE_FACE_OPTIONS } from '../tile-faces.js';
+  import OfflineStatus from './OfflineStatus.svelte';
+  import type { SettingsProps, GameMode, TileFace } from './types';
 
-  // Preferences flow back to App, where they are persisted once. This component
-  // never creates a match or writes storage when a settings panel is opened.
+  // App owns persistence and match lifecycle; only panel/focus state is local.
   let {
     mode = $bindable('play'), settingsOpen = $bindable(false),
     hints = $bindable(true), confirmDiscards = $bindable(false),
-    shortcuts = $bindable(true), tileFace = $bindable('classic'),
+    shortcuts = $bindable(true), tileFace, pendingTileFace = null,
     difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
-    changeOpponents, startFresh, configureTable, downloadAi,
+    changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
     onconfirmationchange, onshortcutschange,
-  } = $props();
-  let guideOpen = $state(false);
+  }: SettingsProps = $props();
+  const MODES: [GameMode, string][] = [['play', 'Play'], ['watch', 'Agent watch'], ['physical', 'Physical agent play'], ['guided', 'Guided physical game']];
+  const COMPACT = '(max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape)';
+  let compact = $state(false);
+  let guideOpen = $state(false), optionsOpen = $state(false), offlineOpen = $state(false);
+  let settingsDialog = $state<HTMLDialogElement | null>(null);
+  let settingsTrigger = $state<HTMLButtonElement | null>(null);
+  let preferencesElement = $state<HTMLDivElement | null>(null);
+
+  function closeSettings() {
+    settingsOpen = false;
+    settingsDialog?.close(); // Restores the opener before another dialog opens.
+  }
+  function openTable() { closeSettings(); configureTable(); }
+  function changeMode(next: GameMode) {
+    if (!ready || (mode === 'play' && busy)) return;
+    mode = next;
+    closeSettings();
+  }
+  onMount(() => {
+    let alive = true;
+    const media = matchMedia(COMPACT);
+    compact = media.matches;
+    const changed = () => {
+      const restore = settingsOpen || preferencesElement?.contains(document.activeElement);
+      closeSettings();
+      compact = media.matches;
+      if (restore) void tick().then(() => {
+        if (!alive) return;
+        (compact ? settingsTrigger : preferencesElement?.querySelector<HTMLElement>('summary'))?.focus({ preventScroll: true });
+      });
+    };
+    media.addEventListener('change', changed);
+    return () => { alive = false; media.removeEventListener('change', changed); settingsDialog?.close(); };
+  });
+  $effect(() => {
+    if (compact && settingsOpen && settingsDialog && !settingsDialog.open) {
+      settingsDialog.showModal();
+      settingsDialog.querySelector<HTMLElement>('[data-close-settings]')?.focus({ preventScroll: true });
+    } else if ((!compact || !settingsOpen) && settingsDialog?.open) settingsDialog.close();
+  });
 </script>
 
 <header class="bar">
   <h1>Riichi</h1>
   {#if mode === 'play'}<label class="opponents">
     <span>Opponents</span>
-    <select value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
+    <select class="app-control" value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
       <option value="beginner">Beginner</option>
       <option value="club">Club</option>
       {#if trainedAvailable || opponents.includes('neural')}<option value="neural">Trained</option>{/if}
@@ -26,42 +67,44 @@
     </select>
     <svg class="select-chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
   </label>{/if}
-  <button class="settings-trigger" aria-label="Game settings" aria-expanded={settingsOpen} aria-controls="game-preferences"
-    onclick={() => settingsOpen = !settingsOpen}>
+  <button class="app-control settings-trigger" aria-label="Game settings" aria-expanded={settingsOpen} aria-controls="game-preferences"
+    bind:this={settingsTrigger} onclick={() => settingsOpen = !settingsOpen}>
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h3m4 0h9M4 17h9m4 0h3" /><circle cx="9" cy="7" r="2" /><circle cx="15" cy="17" r="2" /></svg>
   </button>
-  {#if mode === 'play'}<button class="restart" onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>{/if}
+  {#if mode === 'play'}<button class="app-control restart" onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>{/if}
 </header>
 
 <nav class="game-modes" aria-label="Game mode">
-  {#each [['play', 'Play'], ['watch', 'Agent watch'], ['physical', 'Physical agent play'], ['guided', 'Guided physical game']] as [key, label] (key)}
-    <button aria-pressed={mode === key} disabled={!ready || (mode === 'play' && busy)} onclick={() => { mode = key; settingsOpen = false; }}>{label}</button>
+  {#each MODES as [key, label] (key)}
+    <button class="app-control" aria-pressed={mode === key} disabled={!ready || (mode === 'play' && busy)} onclick={() => changeMode(key)}>{label}</button>
   {/each}
 </nav>
 
-{#if settingsOpen}<button class="settings-backdrop" aria-label="Close game settings" onclick={() => settingsOpen = false}></button>{/if}
-<div id="game-preferences" class="preferences" class:mobile-open={settingsOpen}>
-<div class="mobile-preferences-head"><strong>Game settings</strong><button onclick={() => settingsOpen = false}>Done</button></div>
+{#snippet preferences()}
+<div id="game-preferences" class="preferences" class:mobile-open={compact && settingsOpen} bind:this={preferencesElement}>
+<div class="mobile-preferences-head"><strong id="game-settings-title">Game settings</strong><button class="app-control" data-close-settings onclick={closeSettings}>Done</button></div>
 <label class="compact-mode-selector">Game mode
-  <select value={mode} aria-label="Game mode" disabled={!ready || (mode === 'play' && busy)}
-    onchange={event => { mode = event.currentTarget.value; settingsOpen = false; }}>
+  <select class="app-control" value={mode} aria-label="Game mode" disabled={!ready || (mode === 'play' && busy)}
+    onchange={event => changeMode(event.currentTarget.value as GameMode)}>
     <option value="play">Play</option><option value="watch">Agent watch</option><option value="physical">Physical agent play</option><option value="guided">Guided physical game</option>
   </select>
 </label>
-{#if mode === 'play'}<button class="mobile-new-game" onclick={() => { if (startFresh()) settingsOpen = false; }} disabled={!ready || Boolean(saveConflict)}>New game</button>{/if}
+{#if mode === 'play'}<button class="app-control mobile-new-game" onclick={() => { if (startFresh()) closeSettings(); }} disabled={!ready || Boolean(saveConflict)}>New game</button>{/if}
 {#if mode === 'play' && difficulty === 'custom'}
-  <button class="edit-table" onclick={configureTable} disabled={!ready || Boolean(saveConflict)}>Edit opponents</button>
+  <button class="app-control edit-table" onclick={openTable} disabled={!ready || Boolean(saveConflict)}>Edit opponents</button>
 {/if}
-<details class="options">
+<details class="options" bind:open={optionsOpen}>
   <summary>Options</summary>
   <div class="option-fields">
     <label>Tile face
-      <select bind:value={tileFace} aria-label="Tile face">
+      <select class="app-control" value={pendingTileFace ?? tileFace} aria-label="Tile face" disabled={!ready} aria-busy={pendingTileFace !== null}
+        onchange={event => onfacechange(event.currentTarget.value as TileFace)}>
         {#each TILE_FACE_OPTIONS as face}
           <option value={face.value}>{face.label}</option>
         {/each}
       </select>
     </label>
+    {#if pendingTileFace}<p role="status" data-face-progress>Loading selected tile graphics… Your current tiles remain available.</p>{/if}
     <label><input type="checkbox" bind:checked={hints} /> Hints and markings</label>
     <label><input type="checkbox" bind:checked={confirmDiscards} onchange={onconfirmationchange} /> Select before discarding</label>
     <label><input type="checkbox" bind:checked={shortcuts} onchange={onshortcutschange} /> Keyboard shortcuts in your hand</label>
@@ -146,27 +189,15 @@
     </dl>
   </div>
 </details>
-<details class="offline-settings">
-  <summary data-offline-status>{offline.aiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? `Saving AI… ${offline.progress}%` : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
-  <div class="option-fields">
-    <p data-core-status data-core-ready={offline.coreReady} role="status"><strong>Game and all tile graphics — automatic.</strong>
-      {offline.coreWarning || (offline.coreReady
-        ? 'Fully saved on this device. Beginner and Club already work offline; no download button is needed.'
-        : offline.supported === false ? 'Offline storage is unavailable here, but all tile graphics still load before play.'
-        : 'Downloading the complete game and every tile graphic automatically. Stay connected until ready.')}</p>
-    <p data-ai-status role="status"><strong>Trained AI — optional.</strong>
-      {(offline.phase === 'incomplete' && offline.warning) || (offline.aiReady
-        ? 'The network and its runtime are saved too.'
-        : offline.phase === 'ai' ? `Saving the trained network and runtime… ${offline.progress}%`
-        : 'Only the trained network and its runtime need this extra download. Selecting a Trained opponent also starts it automatically.')}</p>
-    {#if offline.hasModel && !offline.aiReady}
-      <button data-download-ai onclick={downloadAi} disabled={!offline.coreReady || offline.phase === 'ai'}>{offline.phase === 'incomplete' ? 'Retry trained AI download' : 'Download trained AI for offline play'}</button>
-    {/if}
-    <p class="offline-detail">{offline.persistent ? 'Persistent storage granted.' : 'Your browser can remove website downloads when storage is low.'} Clearing website data removes downloads. On iPhone, check this status inside the Home Screen app before flying.</p>
-    {#if offline.updateReady}<p>A new version is downloaded. Close all Mahjong windows and reopen to use it; this match is saved.</p>{/if}
-  </div>
-</details>
+<OfflineStatus {offline} {downloadAi} bind:open={offlineOpen} />
 </div>
+{/snippet}
+
+<dialog class="settings-dialog" bind:this={settingsDialog} aria-labelledby="game-settings-title"
+  oncancel={closeSettings} onclose={() => { if (!settingsDialog?.open) settingsOpen = false; }}>
+  {#if compact}{@render preferences()}{/if}
+</dialog>
+{#if !compact}{@render preferences()}{/if}
 
 <style>
   .game-modes { display: flex; gap: 4px; grid-column: 1 / -1; padding: 3px; border-radius: 12px; background: #0002; }
@@ -182,17 +213,12 @@
   .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid #ffffff28; padding-bottom: 8px; }
   h1 { margin: 0; font-size: 1.1rem; letter-spacing: .16em; text-transform: uppercase; }
   .opponents { position: relative; margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: .85rem; }
-  select, button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 12px; font: inherit; }
-  button { cursor: pointer; touch-action: manipulation; }
-  button:hover:not(:disabled) { background: #0007; }
-  button:disabled { opacity: .55; cursor: default; }
-  select option { color: #17241f; background: #f7f2e4; }
   .opponents select { appearance: none; padding-right: 34px; border-color: #ffffff24; border-radius: 12px; background: #ffffff09; }
   .select-chevron { position: absolute; right: 12px; width: 14px; height: 14px; pointer-events: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: .7; }
   .restart { font-size: .85rem; }
   .preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-width: 0; }
-  .preferences details[open] { flex-basis: 100%; order: 1; }
-  .options, .guide, .offline-settings { font-size: .85rem; min-width: 0; }
+  .preferences :global(details[open]) { flex-basis: 100%; order: 1; }
+  .options, .guide { font-size: .85rem; min-width: 0; }
   summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .option-fields { display: flex; gap: 4px 20px; flex-wrap: wrap; background: #0003; padding: 10px; border-radius: 8px; }
   .option-fields label { min-height: 44px; display: flex; gap: 8px; align-items: center; }
@@ -216,7 +242,7 @@
     .preferences { gap: 0 16px; }
     .opponents { gap: 5px; }
     .opponents > span { display: none; }
-    .options, .guide, .offline-settings { font-size: .8rem; }
+    .options, .guide { font-size: .8rem; }
   }
   @media (max-width: 359px) {
     .preferences { column-gap: 8px; }
@@ -228,7 +254,7 @@
     .bar, .preferences { grid-column: 1 / -1; }
   }
   @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
-  .settings-trigger, .settings-backdrop, .mobile-preferences-head, .mobile-new-game { display: none; }
+  .settings-trigger, .mobile-preferences-head, .mobile-new-game { display: none; }
 
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     .bar {
@@ -260,39 +286,7 @@
     .settings-trigger svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
     .restart { display: none; }
 
-    .settings-backdrop {
-      display: block;
-      position: fixed;
-      inset: 0;
-      z-index: 38;
-      width: 100%;
-      height: 100%;
-      min-height: 0;
-      padding: 0;
-      border: 0;
-      border-radius: 0;
-      background: rgba(0,0,0,.58);
-    }
-    .preferences { display: none; }
-    .preferences.mobile-open {
-      display: flex;
-      position: fixed;
-      left: 8px;
-      right: 8px;
-      bottom: max(8px, env(safe-area-inset-bottom));
-      z-index: 39;
-      max-height: min(82dvh, 680px);
-      overflow: auto;
-      align-content: flex-start;
-      align-items: stretch;
-      gap: 2px 12px;
-      padding: 14px;
-      border: 1px solid rgba(216,161,42,.45);
-      border-radius: 20px;
-      background: color-mix(in srgb, var(--felt-deep) 96%, black 4%);
-      box-shadow: 0 22px 70px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.05);
-    }
-    .preferences.mobile-open details, .preferences.mobile-open .edit-table { flex-basis: 100%; }
+    .preferences.mobile-open :global(details), .preferences.mobile-open .edit-table { flex-basis: 100%; }
     .mobile-preferences-head {
       display: flex;
       flex-basis: 100%;
@@ -304,6 +298,10 @@
     }
     .mobile-preferences-head button { min-height: 44px; padding: 5px 11px; }
     .mobile-new-game { display: block; flex-basis: 100%; margin-bottom: 5px; }
-    .preferences .option-fields { background: rgba(0,0,0,.24); }
+    .preferences :global(.option-fields) { background: rgba(0,0,0,.24); }
   }
+
+  .settings-dialog { width: calc(100% - 16px); max-width: 680px; max-height: min(82dvh, 680px); margin: auto auto max(8px, env(safe-area-inset-bottom)); padding: 14px; border: 1px solid rgba(216,161,42,.45); border-radius: 20px; color: var(--ivory); background: color-mix(in srgb, var(--felt-deep) 96%, black 4%); box-shadow: 0 22px 70px rgba(0,0,0,.48); overflow: auto; }
+  .settings-dialog::backdrop { background: rgba(0,0,0,.58); }
+  .preferences.mobile-open { align-items: stretch; align-content: flex-start; gap: 2px 12px; }
 </style>

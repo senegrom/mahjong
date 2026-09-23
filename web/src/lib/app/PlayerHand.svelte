@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import type { PlayerHandProps } from './types';
   import Tile from '../Tile.svelte';
   import HandTile from '../HandTile.svelte';
   import Discards from '../Discards.svelte';
@@ -11,7 +12,7 @@
   let {
     view, engine, closed, hints, busy, blocked, discardChoices, picked, selected,
     canDiscard, selectTile, syncHandFocus, handElement = $bindable(null),
-  } = $props();
+  }: PlayerHandProps = $props();
   let me = $derived(view?.seats[0]);
   let handTiles = $derived(me ? [...me.hand, ...(me.drawn ? [me.drawn] : [])] : []);
   let myTurn = $derived(view?.phase === 'act' && me?.turn);
@@ -82,14 +83,10 @@
   .score { font-variant-numeric: tabular-nums; }
   .riichi, .furiten { color: var(--warning-text); font-weight: 600; }
   .hint { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-left: auto; font-size: .85rem; }
-  .wait { position: relative; display: inline-flex; margin-right: 4px; }
-  .remaining { position: absolute; right: -3px; bottom: -2px; min-width: 12px; padding: 0 2px; border-radius: 6px; background: #231d12; color: #fff; font-size: .65rem; line-height: 1.2; text-align: center; }
-  .remaining.none { background: #932812; }
   .hand-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .8rem; }
   .safe-note { color: #9cddb5; }
   .dora-note { color: var(--gold); }
-  .hand { --draw-gap: 12px; display: flex; gap: 5px; align-items: end; flex-wrap: wrap; padding: 6px 4px; min-width: 0; }
-  .hand :global(button.tile[data-drawn=true]) { margin-inline-start: var(--draw-gap); }
+  .hand { --draw-gap: 18px; display: flex; gap: 5px; align-items: flex-end; flex-wrap: wrap; padding: 6px 4px; min-width: 0; }
   /* The hand takes focus on every turn, so its ring is a hint, not a
      frame: softer than a control's, and set out from the tiles. */
   .hand:focus-visible { border-radius: 8px; outline: 2px solid rgba(216, 161, 42, 0.45); outline-offset: 6px; }
@@ -104,9 +101,6 @@
     .hint { margin-left: 0; font-size: .75rem; }
     .hand { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 6px; padding: 6px 3px; }
     .hand :global(button.tile) { width: 100%; min-height: 44px; }
-    /* Reserve the extra gap within the grid, keeping all tile faces equal
-       sized and the drawn tile inside the viewport even on a 320px phone. */
-    .hand.has-draw { padding-inline-end: calc(3px + var(--draw-gap)); }
   }
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     .mine { padding: 6px 8px; gap: 4px; }
@@ -114,9 +108,6 @@
     .hand { display: grid; grid-template-columns: repeat(7,minmax(0,44px)); gap: 5px; padding: 6px 3px; }
     .own-discards .caption { font-size: .62rem; }
     .hand :global(button.tile) { width: 100%; min-height: 44px; }
-    /* Reserve the extra gap within the grid, keeping all tile faces equal
-       sized and the drawn tile inside the viewport even on a 320px phone. */
-    .hand.has-draw { padding-inline-end: calc(3px + var(--draw-gap)); }
     .hint { margin-left: 0; }
   }
   @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
@@ -155,6 +146,7 @@
     background: none;
     color: rgba(247, 242, 228, .75);
     font-size: .62rem;
+    text-align: center;
     font-weight: 650;
     line-height: 1;
   }
@@ -164,8 +156,6 @@
     color: var(--warning-text);
   }
 
-  .hand { --draw-gap: 18px; align-items: flex-end; }
-  .hand :global(button.tile[data-drawn=true]) { margin-inline-start: 0; }
   .hand :global(.hand-tile[data-hand-drawn=true]) { margin-inline-start: var(--draw-gap); }
 
   @media (min-width: 761px) and (min-height: 501px) {
@@ -182,7 +172,6 @@
     .mine { border-radius: 15px; background: rgba(3,29,19,.40); }
     .hand { --draw-gap: 14px; }
     .hand :global(.hand-tile) { width: 100%; }
-    .hand :global(.hand-tile[data-hand-drawn=true]) { margin-inline-start: var(--draw-gap); }
     .hand.has-draw { padding-inline-end: calc(3px + var(--draw-gap)); }
   }
 </style>

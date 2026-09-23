@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import type { OpponentDialogProps } from './types';
   import { OPPONENT_LABELS, OPPONENT_TYPES, OPPONENT_POSITIONS } from '../opponents.js';
 
   // Only the draft is editable here. App confirms replacement of the current
@@ -6,7 +7,7 @@
   let {
     customDialog = $bindable(null), draftOpponents = $bindable(),
     opponents, trainedAvailable, ready, saveConflict, startCustomTable,
-  } = $props();
+  }: OpponentDialogProps = $props();
 </script>
 
 <dialog class="custom-dialog" bind:this={customDialog} aria-labelledby="custom-table-title">
@@ -16,7 +17,7 @@
     {#each [2, 1, 0] as position (position)}
       <label>
         <span>{OPPONENT_POSITIONS[position]}</span>
-        <select bind:value={draftOpponents[position]} aria-label={`${OPPONENT_POSITIONS[position]} opponent`}>
+        <select class="app-control" bind:value={draftOpponents[position]} aria-label={`${OPPONENT_POSITIONS[position]} opponent`}>
           {#each OPPONENT_TYPES as type (type)}
             <option value={type} disabled={type === 'neural' && !trainedAvailable && !opponents.includes('neural')}>{OPPONENT_LABELS[type]}</option>
           {/each}
@@ -27,8 +28,8 @@
   <p class="custom-help">Beginner plays simply. Club uses tile efficiency and defence. Trained uses the published network; all Trained players share one loaded model.</p>
   {#if !trainedAvailable && !opponents.includes('neural')}<p class="custom-help">The trained model is not currently available. Beginner and Club can still be mixed.</p>{/if}
   <div class="custom-actions">
-    <button onclick={() => customDialog.close()}>Cancel</button>
-    <button class="primary" onclick={startCustomTable} disabled={!ready || Boolean(saveConflict)}>Start custom game</button>
+    <button class="app-control" onclick={() => customDialog?.close()}>Cancel</button>
+    <button class="app-control primary" onclick={startCustomTable} disabled={!ready || Boolean(saveConflict)}>Start custom game</button>
   </div>
 </dialog>
 
@@ -42,13 +43,6 @@
   .opponent-fields select { width: 60%; min-width: 0; }
   .custom-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
   .custom-help { opacity: .85; }
-  select, button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 12px; font: inherit; }
-  button { cursor: pointer; touch-action: manipulation; }
-  button:hover:not(:disabled) { background: #0007; }
-  button:disabled { opacity: .55; cursor: default; }
-  select option { color: #17241f; background: #f7f2e4; }
-  button.primary { background: var(--button-accent); color: var(--button-text); border-color: var(--button-accent); font-weight: 600; }
-  button.primary:hover { background: var(--button-accent-hover); }
   @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {

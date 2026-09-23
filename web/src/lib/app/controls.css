@@ -1,0 +1,8 @@
+/* Only standard application controls opt in. Tile buttons keep their own styles. */
+.app-control { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 12px; font: inherit; }
+button.app-control { cursor: pointer; touch-action: manipulation; }
+button.app-control:hover:not(:disabled) { background: #0007; }
+.app-control:disabled { opacity: .55; cursor: default; }
+select.app-control option { color: #17241f; background: #f7f2e4; }
+button.app-control.primary { background: var(--button-accent); color: var(--button-text); border-color: var(--button-accent); font-weight: 600; }
+button.app-control.primary:hover { background: var(--button-accent-hover); }

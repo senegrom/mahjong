@@ -1,4 +1,5 @@
 <script>
+  import './lib/app/controls.css';
   import AppSettings from './lib/app/AppSettings.svelte';
   import OpponentDialog from './lib/app/OpponentDialog.svelte';
   import MatchTable from './lib/app/MatchTable.svelte';
@@ -6,7 +7,7 @@
   import TurnChoices from './lib/app/TurnChoices.svelte';
   import { onMount, setContext, tick, untrack } from 'svelte';
   import init, { Game } from './wasm/riichi.js';
-  import { preloadTiles } from './lib/Tile.svelte';
+  import { preloadTiles } from './lib/tile-preload.js';
   import { startOffline, watchOffline, prepareOfflineAi, refreshOffline } from './lib/offline.js';
   import ScoreScreen from './lib/ScoreScreen.svelte';
   import Standings from './lib/Standings.svelte';
@@ -19,7 +20,7 @@
   import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
   import { acceptsHandKey, moveHandFocus } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
-  import { TILE_FACE_CONTEXT } from './lib/tile-faces.js';
+  import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
   import { normalizeOpponents, OPPONENT_TYPES } from './lib/opponents.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
@@ -37,10 +38,13 @@
   let confirmDiscards = $state(preferences.confirmDiscards);
   let shortcuts = $state(preferences.shortcuts);
   let tileFace = $state(preferences.tileFace);
+  let pendingTileFace = $state(null);
+  let faceWarning = $state('');
+  let faceLoad = null;
   let reviewAdviser = $state(preferences.reviewAdviser);
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
-  let startupNote = $state('Preparing the game for offline play…');
+  let startupNote = $state('Loading the game and selected tile graphics…');
   // One trained network ships with the game, so its download is the only
   // optional one: readiness and availability are read straight from offline.
   let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, persistent: false, updateReady: false });
@@ -178,22 +182,21 @@
       onChange: available => { if (mounted) trainedAvailable = available; },
     });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
-    (async () => {
-      await startOffline();
-      if (!mounted) return;
-      await Promise.all([init(), preloadTiles((done, total) => {
-        if (mounted) startupNote = `Loading all tile graphics… ${done}/${total}`;
-      })]);
-    })().then(() => {
-      if (!mounted) return;
-      ready = true;
+    const startup = new AbortController();
+    // Full-package caching has its own honest status. An unavailable unused
+    // face set must not prevent a game with the selected graphics opening.
+    void startOffline();
+    Promise.all([init(), preloadTiles((done, total) => {
+      if (mounted) startupNote = `Loading selected tile graphics… ${done}/${total}`;
+    }, { face: tileFace, signal: startup.signal })]).then(() => {
+      if (mounted && !startup.signal.aborted) ready = true;
     }).catch((error) => {
-      failure = `The game could not finish loading: ${error.message ?? error}. Reconnect and reload to retry.`;
+      if (mounted && !startup.signal.aborted) failure = `The game could not finish loading: ${error.message ?? error}. Reconnect and reload to retry.`;
     });
     // Completed actions are already saved inside their writer transaction.
     // Never write an old snapshot during pagehide. A cached page must restore
     // the current record rather than resume a stale engine on Back navigation.
-    const leave = () => { session?.dispose(); resetPolicy(); matchStore.close(); };
+    const leave = () => { startup.abort(); faceLoad?.abort(); session?.dispose(); resetPolicy(); matchStore.close(); };
     const returnToPage = (event) => { if (event.persisted) location.reload(); };
     const storageChanged = (event) => { if (playStarted) matchStore.changed(event); };
     window.addEventListener('pagehide', leave);
@@ -201,6 +204,8 @@
     window.addEventListener('storage', storageChanged);
     return () => {
       mounted = false;
+      startup.abort();
+      faceLoad?.abort();
       unwatchOffline();
       unwatchModel();
       window.removeEventListener('pagehide', leave);
@@ -212,6 +217,25 @@
       resetPolicy();
     };
   });
+
+  async function changeTileFace(value) {
+    if (!ready) return;
+    const next = normalizeTileFace(value);
+    faceLoad?.abort();
+    faceWarning = '';
+    const owner = new AbortController();
+    faceLoad = owner;
+    pendingTileFace = next === tileFace ? null : next;
+    if (next === tileFace) { faceLoad = null; return; }
+    try {
+      await preloadTiles(() => {}, { face: next, signal: owner.signal });
+      if (faceLoad === owner && !owner.signal.aborted) tileFace = next;
+    } catch (error) {
+      if (faceLoad === owner && !owner.signal.aborted) faceWarning = `The selected tile graphics could not load: ${error.message ?? error}. Your previous tiles and match are unchanged. Select the face again to retry.`;
+    } finally {
+      if (faceLoad === owner) { pendingTileFace = null; faceLoad = null; }
+    }
+  }
 
   function downloadAi() { void prepareOfflineAi().catch(() => {}); }
 
@@ -365,10 +389,11 @@
 <svelte:window onkeydown={onKey} />
 
 <main>
-  <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:tileFace
+  <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts {tileFace} {pendingTileFace} onfacechange={changeTileFace}
     {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
     {changeOpponents} {startFresh} {configureTable} {downloadAi}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
+  {#if faceWarning}<p class="notice" data-face-error role="alert">{faceWarning}</p>{/if}
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
   <OpponentDialog bind:customDialog bind:draftOpponents {opponents} {trainedAvailable}
@@ -377,23 +402,23 @@
   {#if saveConflict}
     <section class="save-conflict" role="alert">
       <p>{saveConflict}</p>
-      <button onclick={() => location.reload()}>Reload latest match</button>
+      <button class="app-control" onclick={() => location.reload()}>Reload latest match</button>
     </section>
   {/if}
 
   {#if failure && (mode === 'play' || !ready)}
     <section class="failure" aria-label="game recovery">
       <p role="alert">{failure}</p>
-      {#if !ready}<button onclick={() => location.reload()}>Reload to retry</button>{/if}
+      {#if !ready}<button class="app-control" onclick={() => location.reload()}>Reload to retry</button>{/if}
       {#if recovery && pendingOpponent}<p class="recovery-note">Waiting for the {pendingOpponent.position.toLowerCase()} opponent. Retry the network or explicitly switch that player to Club.</p>{/if}
       {#if recovery}
         <div class="recovery-actions">
-          <button onclick={retryAi} disabled={busy}>Retry trained opponent</button>
+          <button class="app-control" onclick={retryAi} disabled={busy}>Retry trained opponent</button>
           {#if pendingOpponent}
-            <button onclick={continueThisOpponent} disabled={busy}>Use Club for {pendingOpponent.position.toLowerCase()} opponent only</button>
+            <button class="app-control" onclick={continueThisOpponent} disabled={busy}>Use Club for {pendingOpponent.position.toLowerCase()} opponent only</button>
           {/if}
-          <button onclick={continueClub} disabled={busy}>{difficulty === 'custom' ? 'Use Club for all Trained opponents' : 'Continue with Club opponents'}</button>
-          <button onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>
+          <button class="app-control" onclick={continueClub} disabled={busy}>{difficulty === 'custom' ? 'Use Club for all Trained opponents' : 'Continue with Club opponents'}</button>
+          <button class="app-control" onclick={() => startFresh()} disabled={!ready || Boolean(saveConflict)}>New game</button>
         </div>
       {/if}
     </section>
@@ -449,10 +474,6 @@
   .save-conflict p { margin: 0 0 8px; }
   .save-conflict button { min-height: 44px; padding: 8px 14px; }
   main { width: 100%; max-width: 1100px; box-sizing: border-box; margin: 0 auto; grid-template-columns: minmax(0, 1fr); padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); display: grid; gap: 10px; }
-  button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 12px; font: inherit; }
-  button { cursor: pointer; touch-action: manipulation; }
-  button:hover:not(:disabled) { background: #0007; }
-  button:disabled { opacity: .55; cursor: default; }
   .history { font-size: .85rem; min-width: 0; }
   summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .play-area { display: grid; gap: 10px; min-width: 0; }
