@@ -2,7 +2,7 @@
  * left. Wind labels rotate between hands; these controller assignments do not.
  */
 export const OPPONENT_LABELS = Object.freeze({ beginner: 'Beginner', club: 'Club', neural: 'Trained' });
-export const OPPONENT_TYPES = Object.freeze(Object.keys(OPPONENT_LABELS));
+export const OPPONENT_TYPES = Object.freeze(/** @type {(keyof typeof OPPONENT_LABELS)[]} */ (Object.keys(OPPONENT_LABELS)));
 export const OPPONENT_POSITIONS = Object.freeze(['Right', 'Opposite', 'Left']);
 
 export function normalizeOpponents(value) {

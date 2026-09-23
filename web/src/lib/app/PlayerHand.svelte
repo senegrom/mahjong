@@ -18,7 +18,8 @@
   let myTurn = $derived(view?.phase === 'act' && me?.turn);
   let shownDora = $derived(hints ? (view?.dora_types ?? []) : []);
   let safeCount = $derived(heldSafeCount(view));
-  let previewTile = $derived(handTiles[selected ?? picked] ?? null);
+  let previewIndex = $derived(selected ?? picked);
+  let previewTile = $derived(previewIndex === null ? null : handTiles[previewIndex] ?? null);
   // Recompute once when the engine offers a new decision, not on every hover,
   // selection or animation frame. The selected tile and all readiness rings
   // use the same hypothetical-discard results, including open hands.
