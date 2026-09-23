@@ -127,6 +127,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def peak_rss_gb() -> float | None:
+    """The process's peak resident memory so far, in GiB, where the platform
+    says (Linux reports kilobytes); None elsewhere."""
+    try:
+        import resource
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20, 2)
+    except (ImportError, AttributeError, OSError):
+        return None
+
+
 def main() -> None:
     args = parse_args()
     validate_learning(args.batch, args.epochs)
@@ -529,6 +539,10 @@ def main() -> None:
             "advantage_spread": round(advantage_spread, 4),
             "entropy": round(float(total_entropy / denom), 4),
             "entropy_coef": round(entropy_coef(), 6),
+            # Peaks, so the container's reservation can be sized from data:
+            # memory is billed by what is reserved, not what is used.
+            "peak_rss_gb": peak_rss_gb(),
+            "peak_gpu_gb": round(torch.cuda.max_memory_allocated() / 2**30, 2) if torch.cuda.is_available() else None,
             "leash_kl": round(float(total_leash / denom), 5),
             "hands_loss": round(float(total_hands / denom), 4),
             "hands_covered": round(float(total_covered / denom), 4),

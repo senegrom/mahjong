@@ -132,7 +132,10 @@ def _generation_or_zoo(checkpoint: Path) -> str:
 # of a generation's 390 seconds playing. Thirty-two is the measurement to
 # make now; with the old encoding it was slower, but that encoding did not
 # use them.
-TRAINER_CPUS = 32
+# Sixteen, measured: thirty-two made self-play slower (93 s against 78 s a
+# round of 1024 tables) because the engine does not scale past sixteen, and
+# processors are billed whether or not the engine can use them.
+TRAINER_CPUS = 16
 
 
 LOCAL_CACHE = Path("/tmp/inductor-cache")
