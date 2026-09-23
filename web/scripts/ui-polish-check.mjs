@@ -28,15 +28,19 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
   assert.match(await p.$eval('.round-details',el=>el.textContent),/East 1[\s\S]*tiles left/);
   assert.equal(await p.$('.notice'),null,'restoring a match should not cover the table with a toast');
   assert.equal(await p.$eval('.opponents select',el=>el.disabled),false);
-  assert.equal(await p.$eval('.preferences',el=>getComputedStyle(el).display),'none');
+  // The native closed dialog hides its children without changing their own display property.
+  assert.equal(await p.$eval('.settings-dialog',el=>el.open),false);
+  assert.equal(await p.$eval('.preferences',el=>el.getClientRects().length),0);
   assert.notEqual(await p.$eval('.settings-trigger',el=>getComputedStyle(el).display),'none');
   assert.equal(await p.$eval('.restart',el=>getComputedStyle(el).display),'none');
   await shot(p,'polish-phone-header');
   await p.click('.inspect');
-  assert.ok(await p.$('.table-dialog[open]'));
+  await p.waitForSelector('.table-dialog[open]');
   await p.keyboard.press('Escape');
   await p.click('.settings-trigger');
-  assert.notEqual(await p.$eval('.preferences',el=>getComputedStyle(el).display),'none');
+  await p.waitForSelector('.settings-dialog[open]');
+  assert.equal(await p.$eval('.settings-dialog',el=>el.matches(':modal')),true);
+  assert.ok(await p.$eval('.preferences',el=>el.getClientRects().length>0));
   assert.ok(await p.$('.mobile-new-game'));
   await shot(p,'polish-phone-settings');
   assert.deepEqual(p.errors,[]);

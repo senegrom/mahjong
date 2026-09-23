@@ -85,10 +85,20 @@ try {
     assert.equal(await page.evaluate(() => document.activeElement.hasAttribute('data-close-settings')), true);
     await page.evaluate(() => document.querySelector('.hand button').focus());
     assert.equal(await page.evaluate(() => document.querySelector('.settings-dialog').contains(document.activeElement)), true);
-    for (const key of ['Tab', 'Shift+Tab']) {
-      for (let i = 0; i < 18; i++) {
-        await page.keyboard.press(key);
-        assert.equal(await page.evaluate(() => document.querySelector('.settings-dialog').contains(document.activeElement)), true, `${key} escaped the modal`);
+    for (const expanded of [false, true]) {
+      if (expanded) {
+        await page.click('.options > summary');
+        await page.click('.offline-settings > summary');
+      }
+      for (const reverse of [false, true]) {
+        if (reverse) await page.keyboard.down('Shift');
+        try {
+          for (let i = 0; i < 18; i++) {
+            await page.keyboard.press('Tab');
+            assert.equal(await page.evaluate(() => document.querySelector('.settings-dialog').contains(document.activeElement)), true,
+              `${reverse ? 'Shift+Tab' : 'Tab'} escaped the modal (expanded=${expanded})`);
+          }
+        } finally { if (reverse) await page.keyboard.up('Shift'); }
       }
     }
     await page.keyboard.press('Escape');
