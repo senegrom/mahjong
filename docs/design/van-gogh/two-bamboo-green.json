@@ -1,0 +1,30 @@
+{
+  "tile": "2s",
+  "name": "Sou2",
+  "candidate": "Bamboo B (green)",
+  "title": "Garden Rhythm",
+  "source": "docs/design/van-gogh/studies/11-two-bamboo-garden-rhythm-green.webp",
+  "sourceSha256": "528acc47e037fdce2fc9f48f827bbe554da35a1cc0186a4b74f1ac9fea0ad7ec",
+  "sourceBytes": 76866,
+  "original": "van_gogh_bamboo_design_review.png",
+  "originalSha256": "ba6cb69a60cc24173125750b412e3899a4406f28557256995ce81d4b34893748",
+  "originalDimensions": {
+    "width": 1448,
+    "height": 1086
+  },
+  "originalCrop": {
+    "x": 508,
+    "y": 143,
+    "width": 433,
+    "height": 667
+  },
+  "optimization": {
+    "width": 300,
+    "height": 400,
+    "encoding": "WebP",
+    "quality": 95,
+    "method": 6,
+    "resampling": "Lanczos"
+  },
+  "note": "Approved revised green centre panel, not repainted. This repository source is a web-optimized crop, not the full-resolution original board. The original board and full-resolution crop were preserved in the download archive provided in the conversation."
+}

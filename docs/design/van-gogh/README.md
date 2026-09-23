@@ -2,7 +2,7 @@
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
-Carl approved all except K and requested deployment. **Van Gogh is a selectable set with fourteen distinct faces**: A–C, E, G–J and L, plus Almond Branches (Characters A), Night Café (Characters B), Cypress Fields (Characters C), Blazing Dawn (East A) and Wind Ribbons (North B). Almond Branches replaces D for 3 of characters; Night Café and Cypress Fields are the approved adaptations for 2 and 4 of characters. The later L is the active white dragon; F remains an earlier alternative. East wind K is excluded. The remaining 20 tile identities use Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
+Carl approved all except K and requested deployment. **Van Gogh is a selectable set with fifteen distinct faces**: A–C, E, G–J and L, plus Almond Branches (Characters A), Night Café (Characters B), Cypress Fields (Characters C), Blazing Dawn (East A) and Wind Ribbons (North B). Almond Branches replaces D for 3 of characters; Night Café and Cypress Fields are the approved adaptations for 2 and 4 of characters. The later L is the active white dragon; F remains an earlier alternative. East wind K is excluded. The remaining 19 tile identities use Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
 
 ![Van Gogh — six first tile studies](studies/01-van-gogh-concepts.png)
 
@@ -75,6 +75,10 @@ The second sheet explores the bird, further bamboo rhythms and the dawn wind pal
 
 Both the [first concept sheet](studies/01-van-gogh-concepts.png) and [second concept sheet](studies/02-van-gogh-concepts.png) are unmodified image-generation outputs. They contain captions and gutters outside the faces and are not production atlases. The [manifest](manifest.json) records the study identities, source dimensions and hashes. The [first prompt](prompt.md) and [second prompt](prompt-02.md) preserve the briefs used with ChatGPT's built-in image generation tool.
 
-The deployed faces preserve the exact approved source pixels in lossless rectangular crops or full-canvas PNG copies. Captions and presentation gutters are excluded. Their SVG wrappers follow the existing 300 × 400 canvas, 26-unit corner radius and 1% bleed conventions. The [export script](../../../web/scripts/export-van-gogh-tiles.mjs) reproduces all fourteen faces and the preview. Use `--only=2m,4m` to export the two new character faces without re-encoding any existing artwork. Continue the remaining artwork through all 34 tile types as further designs are selected.
+The deployed faces preserve the exact approved source pixels in lossless rectangular crops or full-canvas PNG copies. Captions and presentation gutters are excluded. Their SVG wrappers follow the existing 300 × 400 canvas, 26-unit corner radius and 1% bleed conventions. The [export script](../../../web/scripts/export-van-gogh-tiles.mjs) reproduces all fifteen faces and the preview. Use `--only=2m,4m` to export the two new character faces without re-encoding any existing artwork. Continue the remaining artwork through all 34 tile types as further designs are selected.
 
 Reference: [Matisse set and export conventions](../../../web/public/tiles/matisse/README.md).
+
+## Garden Rhythm: green 2 bamboo
+
+The approved revised green B is active for `2s` (`Sou2`). The two bamboo stalks, garden canal and bridge are unchanged in composition. The deployed 300 by 400 source is a high-quality WebP crop, with source checksum, original-board checksum and crop coordinates recorded in `docs/design/van-gogh/two-bamboo-green.json`. Earlier tile artwork is unchanged. Run `node web/scripts/export-van-gogh-tiles.mjs --only=2s` to regenerate this face. The set now has 15 painted faces and 19 Classic fallbacks.
