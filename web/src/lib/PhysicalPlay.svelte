@@ -13,6 +13,7 @@
   const trainedSupported = supportsTrainedAgent(PhysicalAnalysis.prototype);
   let position = $state(emptyPosition());
   let agent = $state('club');
+  let agentChosen = $state(false);
   let analysis = $state(null);
   let analyzedKey = '';
   let busy = $state(false);
@@ -48,11 +49,19 @@
   }
   onMount(() => {
     store = createStore();
-    if (trainedAvailable && trainedSupported) agent = 'full';
     void load();
     const changed = event => store.changed(event);
     window.addEventListener('storage', changed);
     return () => window.removeEventListener('storage', changed);
+  });
+  // Selected-set startup can finish before the availability probe. Choose the
+  // richer default when it arrives, but never replace an explicit adviser or
+  // interrupt an analysis the user already started with Club.
+  $effect(() => {
+    if (!agentChosen && trainedAvailable && trainedSupported) {
+      agent = 'full';
+      agentChosen = true;
+    }
   });
   $effect(() => {
     const key = JSON.stringify(position) + agent;
@@ -101,6 +110,7 @@
   }
   async function analyze() {
     if (!loaded || saveConflict || unreadable) return;
+    agentChosen = true;
     const missing = missingNumber(snapshot());
     if (missing) { failure = missing; analysis = null; return; }
     request?.abort();
@@ -156,7 +166,7 @@
   <p class="intro">Enter the table in front of you. Include the drawn tile in the concealed hand; leave unknown hands empty. Tap entered tiles to remove them. All draws and calls are recorded by you.</p>
   <div class="physical-toolbar">
     <label>Analyse seat<select value={position.seat} onchange={event => edit(p => { p.seat = Number(event.currentTarget.value); if (p.phase === 'act') { p.turn = p.seat; p.drawn = null; p.just_claimed = null; } })} aria-label="Analyse seat">{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
-    <label>Agent<select bind:value={agent} aria-label="Physical play agent">{#each Object.entries(AGENTS) as [key, label] (key)}{#if !isTrained(key) || trainedAvailable}<option value={key} disabled={isTrained(key) && (!trainedSupported || !trainedAvailable)}>{label}</option>{/if}{/each}</select></label>
+    <label>Agent<select bind:value={agent} onchange={() => agentChosen = true} aria-label="Physical play agent">{#each Object.entries(AGENTS) as [key, label] (key)}{#if !isTrained(key) || trainedAvailable}<option value={key} disabled={isTrained(key) && (!trainedSupported || !trainedAvailable)}>{label}</option>{/if}{/each}</select></label>
     <button class="primary" onclick={analyze} disabled={!ready || busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
   </div>
   {#if !trainedSupported}<p class="adviser-availability" role="status">{TRAINED_HISTORY_REQUIRED}</p>{/if}

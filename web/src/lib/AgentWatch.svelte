@@ -43,7 +43,9 @@
   let hintShanten = $derived(recommendedHint?.shanten ?? view?.shanten);
   $effect(() => {
     if (!configured && ready) {
-      configured = true;
+      // Availability may arrive after selected-set startup. Keep an untouched
+      // draft provisional, but freeze it on explicit edits or Start watching.
+      if (trainedAvailable) configured = true;
       const available = trainedAvailable ? 'full' : 'club';
       lineup = [available, ...opponents.map(value => value === 'neural' ? available : value)];
     }
@@ -60,6 +62,7 @@
     standings = owner.match.over ? owner.match.engine.standings() : null;
   }
   function start() {
+    configured = true;
     watch?.dispose();
     watch = new WatchSession(Game, Date.now() % 2 ** 31, lineup, {
       ai: (planes, mask, signal, model) => chooseAction(planes, mask, 0, 20000, signal, model),
@@ -88,7 +91,7 @@
     <summary>Agents at the table{#if watch} · following {AGENTS[watch.lineup[0]]}{/if}</summary>
     <div class="agent-fields">
       {#each positions as position, index (index)}
-        <label>{position}<select bind:value={lineup[index]} aria-label={position}>
+        <label>{position}<select bind:value={lineup[index]} onchange={() => configured = true} aria-label={position}>
           {#each Object.entries(AGENTS) as [key, label] (key)}
             {#if !isTrained(key) || trainedAvailable}<option value={key}>{label}</option>{/if}
           {/each}
