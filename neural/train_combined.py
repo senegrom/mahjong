@@ -53,6 +53,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch", type=int, default=2048)
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--entropy", type=float, default=0.0005)
+    parser.add_argument(
+        "--entropy-target", type=float, default=0.0,
+        help="hold the policy's entropy at or above this, nought for off. The "
+        "bonus rises while entropy sits below the target and falls back to "
+        "--entropy while it is above: a floor, never a push upwards",
+    )
+    parser.add_argument("--entropy-max", type=float, default=0.05,
+                        help="the most the floor may raise the entropy bonus to")
+    parser.add_argument("--entropy-rate", type=float, default=0.01,
+                        help="how fast the floor's bonus moves, per update, in log units per nat")
     parser.add_argument("--value-weight", type=float, default=0.5)
     parser.add_argument(
         "--hands-weight",
@@ -137,12 +147,14 @@ def main() -> None:
     smoothed = None
     optimiser_state = None
     random_state = None
+    entropy_log_coef = None
     if args.resume is not None and args.resume.exists():
         net, payload = combined.load(args.resume, device)
         start = int(payload.get("generation", 0))
         smoothed, best_placement = benchmark_history(payload)
         optimiser_state = payload.get("optimizer_state")
         random_state = payload.get("random_state")
+        entropy_log_coef = payload.get("entropy_log_coef")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.ours is not None and args.mortal is not None:
         net, _config = combined.build(args.ours, args.mortal, device)
@@ -280,7 +292,23 @@ def main() -> None:
             "best_placement": best_placement,
             "optimizer_state": optimiser.state_dict(),
             "random_state": capture_random_state(drawer),
+            "entropy_log_coef": floor["log_coef"],
         }
+
+    # The entropy floor: the bonus is exp(log_coef), never below the fixed
+    # --entropy and never above --entropy-max, and it is a dual variable --
+    # it climbs while the policy's entropy is under the target and sinks
+    # back while it is over. Self-play here was measured to buy reward by
+    # getting louder: 30 generations cut entropy by 29% and lost 0.0075.
+    import math
+    if args.entropy_target > 0 and args.entropy <= 0:
+        raise SystemExit("--entropy-target needs a positive --entropy to fall back to")
+    base_log = math.log(args.entropy) if args.entropy > 0 else float("-inf")
+    floor = {"log_coef": float(entropy_log_coef) if entropy_log_coef is not None else base_log}
+    ceiling_log = math.log(max(args.entropy_max, args.entropy)) if args.entropy > 0 else base_log
+
+    def entropy_coef() -> float:
+        return math.exp(floor["log_coef"]) if args.entropy_target > 0 else args.entropy
 
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
@@ -404,7 +432,7 @@ def main() -> None:
                         policy_loss
                         + args.value_weight * value_loss
                         + args.hands_weight * hands_loss
-                        - args.entropy * entropy
+                        - entropy_coef() * entropy
                     )
                     # How far this has come from the policy the run began with,
                     # counted the way that punishes abandoning a move the
@@ -434,6 +462,12 @@ def main() -> None:
                         [p for p in net.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
                     )
                     optimiser.step()
+                    if args.entropy_target > 0:
+                        # A dual step: under the target the bonus climbs,
+                        # over it the bonus sinks back to the fixed floor.
+                        shortfall = args.entropy_target - float(entropy.detach())
+                        floor["log_coef"] = min(ceiling_log, max(
+                            base_log, floor["log_coef"] + args.entropy_rate * shortfall))
                     with torch.no_grad():
                         total_policy += policy_loss
                         total_value += value_loss
@@ -494,6 +528,7 @@ def main() -> None:
             "return_variance": round(float(returns.var(unbiased=False)), 4),
             "advantage_spread": round(advantage_spread, 4),
             "entropy": round(float(total_entropy / denom), 4),
+            "entropy_coef": round(entropy_coef(), 6),
             "leash_kl": round(float(total_leash / denom), 5),
             "hands_loss": round(float(total_hands / denom), 4),
             "hands_covered": round(float(total_covered / denom), 4),

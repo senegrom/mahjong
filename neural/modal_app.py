@@ -514,6 +514,8 @@ def train_combined(
     compile: bool = True,
     target_kl: float = 0.0,
     baseline_batch: int | None = None,
+    entropy_target: float = 0.0,
+    entropy_max: float = 0.05,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -534,6 +536,7 @@ def train_combined(
             "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
             "--lr", str(lr), "--lr-ours", str(lr_ours), "--lr-mortal", str(lr_mortal),
             "--entropy", str(entropy), "--leash", str(leash),
+            "--entropy-target", str(entropy_target), "--entropy-max", str(entropy_max),
             "--explore", str(explore),
             "--measure-every", str(measure_every), "--measure-games", str(measure_games),
             "--amp", "--out", str(where),
