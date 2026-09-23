@@ -13,15 +13,21 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { serviceWorkerTemplate } from './offline-build.mjs';
-import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
+import { TILE_IMAGE_URLS, tileImage } from '../src/lib/tile-faces.js';
+import { TILE_TYPES } from '../src/lib/tiles.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
 const manifest = JSON.parse(await readFile(resolve(dist, 'offline-manifest.json'), 'utf8'));
 const source = await serviceWorkerTemplate();
+const dragonPath = manifest.entries.find(entry => /^assets\/white-dragon-[^/]+\.webp$/.test(entry.url))?.url;
+assert.ok(dragonPath, 'The selected Classic face needs its white-dragon foil artwork');
+const selectedImages = [...new Set(['tiles/Back.svg', 'tiles/Front.svg',
+  ...TILE_TYPES.map(tile => tileImage(tile, 'classic')), dragonPath])];
 const modelPath = MANIFEST.object, networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`, runtimePath = manifest.entries.find(e => e.url.startsWith('ort/') && e.url.endsWith('.wasm')).url;
 const count = new Map(), refused = [], overrides = new Map();
-let unavailable = false, failPath = null, holdPath = null, holdResolve = null, holdSeenResolve = null;
+let unavailable = false, failPath = null, holdPath = null;
+const heldResponses = new Set();
 const mime = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css',
   '.wasm':'application/wasm', '.svg':'image/svg+xml', '.png':'image/png', '.webp':'image/webp', '.json':'application/json' };
 const server = createServer(async (req, res) => {
@@ -31,8 +37,9 @@ const server = createServer(async (req, res) => {
   count.set(name, (count.get(name) ?? 0) + 1);
   if (unavailable || name === failPath) { refused.push(name); res.writeHead(503).end(); return; }
   if (name === holdPath) {
-    holdSeenResolve?.();
-    await new Promise(done => { holdResolve = done; });
+    // Page decoding and offline installation may request the same file.
+    // Release every waiter, not just whichever request arrived last.
+    await new Promise(done => { heldResponses.add(done); });
   }
   try {
     const file = resolve(dist, name);
@@ -80,11 +87,16 @@ async function page(browser, { seed = true, offline = false, strength = 'neural'
   if (offline) await p.setOfflineMode(true);
   if (seed) await p.evaluateOnNewDocument((key, settings, snapshot) => {
     if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(snapshot));
-    localStorage.setItem(settings, JSON.stringify({version:1,difficulty:snapshot.difficulty,opponents:snapshot.opponents,hints:true,confirmDiscards:true,shortcuts:true}));
+    if (!localStorage.getItem(settings)) localStorage.setItem(settings, JSON.stringify({version:1,difficulty:snapshot.difficulty,opponents:snapshot.opponents,hints:true,confirmDiscards:true,shortcuts:true}));
     // Instrument Image only in this test. The application has no test hooks.
     const ImageClass = window.Image;
     window.preloadedImages = [];
-    window.Image = class extends ImageClass { constructor(...args) { super(...args); window.preloadedImages.push(this); } };
+    const decoded = new WeakSet();
+    window.decodedImages = decoded;
+    window.Image = class extends ImageClass {
+      constructor(...args) { super(...args); window.preloadedImages.push(this); }
+      async decode() { await super.decode(); decoded.add(this); }
+    };
   }, SAVE_KEY, SETTINGS_KEY, initial);
   await p.goto(`http://127.0.0.1:${server.address().port}/mahjong/?opponents=${strength}&source=home-screen`, { waitUntil:'domcontentloaded' });
   return p;
@@ -110,11 +122,39 @@ async function play(p, turns = 5) {
   assert.equal(await p.$('.failure'), null);
   assert.deepEqual(p.errors, []);
 }
+async function assertSelectedDecoded(p) {
+  const images = await p.evaluate(() => window.preloadedImages.map(image => ({
+    url: new URL(image.src).pathname.slice('/mahjong/'.length),
+    decoded: window.decodedImages.has(image) && image.complete && image.naturalWidth > 0,
+  })));
+  assert.deepEqual(images.map(image => image.url).sort(), [...selectedImages].sort(),
+    'Decode the complete selected face exactly once, including backs and foil, but not unused sets');
+  assert.ok(images.every(image => image.decoded), 'Every selected image must finish decoding before play');
+}
+async function assertCoreCached(p) {
+  assert.ok(await p.evaluate(async entries => {
+    const cache = await caches.open('mahjong-offline-v1:/mahjong/');
+    return (await Promise.all(entries.filter(e => e.group === 'core').map(e =>
+      cache.match(new URL(`__offline_content__/${e.hash}`, location.href).href)))).every(Boolean);
+  }, manifest.entries), 'Every core resource, including unused artwork, must be saved without interacting');
+}
+async function waitForHeldRequest(name) {
+  const deadline = Date.now() + 15000;
+  while (!count.has(name)) {
+    assert.ok(Date.now() < deadline, `The browser never requested the held asset: ${name}`);
+    await new Promise(done => setTimeout(done, 25));
+  }
+}
+function releaseHeldResponses() {
+  holdPath = null;
+  for (const done of heldResponses) done();
+  heldResponses.clear();
+}
 async function check(name, fn) {
   unavailable = false; failPath = null; holdPath = null; overrides.clear(); count.clear(); refused.length = 0;
   try { await fn(); results.push({ name, passed:true }); console.log(`PASS ${name}`); }
   catch (error) { results.push({ name, passed:false, error:error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
-  finally { holdResolve?.(); holdResolve = null; holdSeenResolve = null; for (const b of [...browsers]) await close(b); }
+  finally { releaseHeldResponses(); for (const b of [...browsers]) await close(b); }
 }
 async function profile() { const dir = await mkdtemp(join(tmpdir(), 'mahjong-offline-browser-')); dirs.push(dir); return dir; }
 try {
@@ -124,13 +164,9 @@ try {
     const dir = await profile(); let b = await launch(dir); const p = await page(b, { strength });
     await hand(p);
     await p.waitForSelector('[data-core-ready=true]');
-    const images = await p.evaluate(() => window.preloadedImages.map(image => image.complete && image.naturalWidth > 0));
-    assert.equal(images.length, TILE_IMAGE_URLS.length + 1); assert.ok(images.every(Boolean));
-    assert.ok(await p.evaluate(async entries => {
-      const cache = await caches.open('mahjong-offline-v1:/mahjong/');
-      return (await Promise.all(entries.filter(e => e.group === 'core').map(e =>
-        cache.match(new URL(`__offline_content__/${e.hash}`, location.href).href)))).every(Boolean);
-    }, manifest.entries), 'Every core resource must be saved without interacting');
+    await assertSelectedDecoded(p);
+    await assertCoreCached(p);
+    assert.equal(count.get(modelPath) ?? 0, 0, 'Built-in opponents must not download the model');
     for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0, entry.url);
     const beforeFaceChange = await saved(p);
     await p.click('.settings-trigger'); await p.click('.options summary');
@@ -197,22 +233,47 @@ try {
     for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0);
     assert.deepEqual(p.errors, []);
   });
-  await check('first play waits for every tile face, including unused tiles and dragon artwork', async () => {
-    holdPath = 'tiles/Chun.svg';
-    const seen = new Promise(done => { holdSeenResolve = done; });
+  for (const asset of ['tiles/Chun.svg', dragonPath]) await check(`first play waits for selected artwork: ${asset}`, async () => {
+    holdPath = asset;
     const b = await launch(await profile()), p = await page(b);
-    await seen;
-    assert.equal(await p.$('.hand'), null, 'No partially downloaded hand');
-    holdPath = null; holdResolve();
+    await waitForHeldRequest(asset);
+    assert.equal(await p.$('.hand'), null, 'No partially decoded selected face or missing foil artwork');
+    releaseHeldResponses();
     await hand(p); await ready(p);
-    const images = await p.evaluate(() => window.preloadedImages.map(image => ({ url:image.src, complete:image.complete && image.naturalWidth > 0 })));
-    assert.equal(images.length, TILE_IMAGE_URLS.length + 1);
-    assert.ok(images.every(image => image.complete));
+    await assertSelectedDecoded(p);
+    await assertCoreCached(p);
     const faces = manifest.entries.filter(e => e.url.startsWith('tiles/') && e.url.endsWith('.svg'));
     assert.deepEqual(faces.map(face => face.url).sort(), [...TILE_IMAGE_URLS].sort());
     for (const face of faces) assert.ok(count.has(face.url), face.url);
     assert.equal(count.get(modelPath), 1);
-    await p.screenshot({path:resolve(output,'offline-first-download.png'),fullPage:true});
+    await p.screenshot({path:resolve(output, asset === dragonPath ? 'offline-first-foil.png' : 'offline-first-download.png'),fullPage:true});
+    assert.deepEqual(p.errors, []);
+  });
+  await check('unused artwork does not block play; full offline readiness waits for its actual cached bytes', async () => {
+    const asset = TILE_IMAGE_URLS.find(url => !selectedImages.includes(url));
+    assert.ok(asset, 'The fixture must include artwork outside the selected face');
+    holdPath = asset;
+    const b = await launch(await profile()), p = await page(b, { strength: 'club' });
+    await waitForHeldRequest(asset);
+    await hand(p);
+    await assertSelectedDecoded(p);
+    assert.equal(await p.$('.failure'), null);
+    assert.equal(await p.$eval('[data-core-ready]', el => el.getAttribute('data-core-ready')), 'false');
+    const missing = manifest.entries.find(entry => entry.url === asset);
+    assert.ok(missing);
+    assert.equal(await p.evaluate(async entry => {
+      const cache = await caches.open('mahjong-offline-v1:/mahjong/');
+      return Boolean(await cache.match(new URL(`__offline_content__/${entry.hash}`, location.href).href));
+    }, missing), false, 'A withheld unused image must not be counted as saved');
+    await play(p, 1);
+    const before = await saved(p);
+    releaseHeldResponses();
+    await p.waitForSelector('[data-core-ready=true]', { timeout: 120000 });
+    await assertCoreCached(p);
+    await assertSelectedDecoded(p);
+    assert.deepEqual(await saved(p), before, 'Completing offline caching must not change the match');
+    assert.equal(count.get(modelPath) ?? 0, 0);
+    for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0, entry.url);
     assert.deepEqual(p.errors, []);
   });
   await check('cold browser restart with HTTP cache cleared plays real trained opponents on a plane', async () => {
