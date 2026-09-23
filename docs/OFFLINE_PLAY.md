@@ -5,7 +5,8 @@
 Open the updated game while connected. On iPhone, open the actual Home Screen
 app you will use on the flight. The complete game and all tile graphics download
 and save automatically at startup. **No click is required for the game, graphics,
-Beginner or Club opponents.** Every tile graphic is decoded before the first hand.
+Beginner or Club opponents.** Play becomes available once the engine and selected
+face set are ready; this does not mean the full offline package has finished.
 
 Only the trained network and its runtime are optional. Select a Trained opponent,
 or choose **Download trained AI for offline play** in the status panel without
@@ -15,22 +16,31 @@ Closing and reopening the app, restoring a match and starting another game use
 saved files. There is no need to clear website data or reinstall; either can
 remove downloads.
 
-## What is saved
+## Artwork loading and readiness
 
 The production build generates a scoped service worker from an inventory of the
-actual output, including hashed JavaScript chunks, the rules engine, all tile
-SVGs, the white-dragon artwork, icons and installation manifest.
+actual output, including hashed JavaScript chunks, the rules engine, all runtime
+tile graphics, the white-dragon artwork, icons and installation manifest.
 
-Before the first hand is shown, all 36 tile SVGs and the dragon image are loaded
-and decoded. The previous delayed, one-image-at-a-time preloader is removed.
-A failed tile download stops startup with a retry message, not missing artwork
-that only becomes apparent when that tile is drawn.
+Interactive startup loads and decodes only the selected face set and its back,
+fallback and foil images. Other sets continue saving through the service worker.
+An unavailable unused set therefore does not prevent play, but the offline panel
+correctly remains incomplete until every required core file has been verified.
+A failed selected-set load stops startup rather than showing missing artwork.
+
+Changing tile faces decodes the new set before displaying or saving that choice.
+Failure keeps the previous tiles and match; select the desired face again to
+retry. Loading has bounded concurrency and a timeout covering both transport
+and decode. Replacement attempts cancel and drain old work, ignore stale progress,
+reuse successful decodes and release images no longer needed by the displayed set.
 
 The status panel separates **Game and all tile graphics — automatic** from
 **Trained AI — optional**. Missing core files are repaired automatically at
 startup, on reconnect and when returning to the app. This recovery never opts
 into AI. The optional download/retry button requests only the trained AI package,
 not an already complete game or its graphics.
+
+## Trained opponents and storage
 
 Selecting any Trained opponent, including in a custom table, downloads and saves
 the complete AI package: model weights, worker code, runtime module and WASM.
@@ -65,25 +75,21 @@ labelled online-only. Saved matches remain a separate, unchanged mechanism.
 
 ## Verification
 
+Run `npm run verify` in `web` for the same checks as CI. The component tests mount
+real components under a reactive parent and exercise bindings, context, download
+callbacks, modal focus, breakpoint changes and unmount. Production checks cover
+saved preferences across reload, unchanged matches, unavailable unused artwork
+and failed face switches. Unit tests cover preload cancellation and retry.
+
 `npm run test:offline` exercises the real production service worker and shipped
 network, including a browser-process restart with HTTP cache cleared, disabled
 network access, all graphics reloaded offline, continued mixed-opponent play,
 interrupted downloads and version updates. Unit tests independently cover
 hash/length validation, quotas, eviction, cache isolation and failed upgrades.
+The cold-restart checks also refuse game assets at the HTTP server, so ordinary
+HTTP caching cannot conceal a missing offline file. Existing small-phone layout
+assertions remain part of verification.
 
-The automatic-download release candidate passed 89 unit/session/cache tests and
-102 browser checks, including all nine offline checks. Separate cold-restart
-checks confirm both Beginner and Club play offline without pressing a download
-button or fetching any AI files. The manual AI-only test verifies that the button
-neither refetches a core asset nor changes the saved match. Another check deletes
-a cached tile and icon, then confirms automatic repair on reconnect with no AI
-download. Coordinator tests exercise startup and recovery separately from AI.
-
-The cold-restart checks refuse every game asset at the HTTP server as well as
-disabling browser networking, so ordinary HTTP caching cannot conceal a missing
-offline file. The Trained test plays the actual shipped network after restart,
-checks every tile graphic and starts another match. Existing small-phone layout
-assertions are retained unchanged.
-
-These automated browser results are from Chromium. Physical iPhone and Safari
-installation testing is not claimed.
+Automated browser checks use Chromium. They do not replace physical iPhone,
+Safari installation or VoiceOver testing. Inspect the PR's CI results for the
+exact tested revision rather than treating an old test count as current evidence.
