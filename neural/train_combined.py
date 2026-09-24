@@ -33,7 +33,9 @@ from .behavior import validate_exploration
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
-from .training_state import capture_random_state, restore_random_state
+from .training_state import (
+    capture_random_state, peak_gpu_gb, peak_rss_gb, restore_random_state, round_seed,
+)
 
 SMOOTHING = 1 / 3
 
@@ -125,16 +127,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compile", action="store_true")
     add_training_controls(parser)
     return parser.parse_args()
-
-
-def peak_rss_gb() -> float | None:
-    """The process's peak resident memory so far, in GiB, where the platform
-    says (Linux reports kilobytes); None elsewhere."""
-    try:
-        import resource
-        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20, 2)
-    except (ImportError, AttributeError, OSError):
-        return None
 
 
 def main() -> None:
@@ -332,7 +324,7 @@ def main() -> None:
         batch = selfplay.play(
             net,
             games=args.games,
-            seed=args.seed + generation * 1000,
+            seed=round_seed(args.seed, generation, args.games),
             device=device,
             amp=amp_enabled,
             opponents=seated,
@@ -542,7 +534,7 @@ def main() -> None:
             # Peaks, so the container's reservation can be sized from data:
             # memory is billed by what is reserved, not what is used.
             "peak_rss_gb": peak_rss_gb(),
-            "peak_gpu_gb": round(torch.cuda.max_memory_allocated() / 2**30, 2) if torch.cuda.is_available() else None,
+            "peak_gpu_gb": peak_gpu_gb(),
             "leash_kl": round(float(total_leash / denom), 5),
             "hands_loss": round(float(total_hands / denom), 4),
             "hands_covered": round(float(total_covered / denom), 4),

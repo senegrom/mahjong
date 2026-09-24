@@ -88,3 +88,28 @@ def restore_sampling_state(saved: dict | None, *, generation: int) -> None:
         warnings.warn("Training device changed; GPU sampling cannot be reproduced",
                       RuntimeWarning, stacklevel=2)
     torch.set_rng_state(saved["torch"].cpu())
+
+
+def round_seed(seed: int, generation: int, games: int) -> int:
+    """The first deal of a generation's round; its games take the seeds after
+    it. The step between rounds is at least the round, so no deal is played
+    twice: a step of a thousand under 4,096-game rounds replayed three
+    quarters of each round's deals in the next, and every deal in four."""
+    return seed + generation * max(1000, games)
+
+
+def peak_rss_gb() -> float | None:
+    """The process's peak resident memory so far, in GiB, where the platform
+    says (Linux reports kilobytes); None elsewhere."""
+    try:
+        import resource
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20, 2)
+    except (ImportError, AttributeError, OSError):
+        return None
+
+
+def peak_gpu_gb() -> float | None:
+    """The most the card has held for this process so far, in GiB."""
+    if not torch.cuda.is_available():
+        return None
+    return round(torch.cuda.max_memory_allocated() / 2**30, 2)

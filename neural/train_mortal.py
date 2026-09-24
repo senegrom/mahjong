@@ -33,7 +33,9 @@ from . import mortal_learner, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
-from .training_state import capture_sampling_state, restore_sampling_state
+from .training_state import (
+    capture_sampling_state, peak_gpu_gb, peak_rss_gb, restore_sampling_state, round_seed,
+)
 
 SMOOTHING = 1 / 3
 
@@ -172,7 +174,7 @@ def main() -> None:
         batch = selfplay.play(
             net,
             games=args.games,
-            seed=args.seed + generation * 1000,
+            seed=round_seed(args.seed, generation, args.games),
             device=device,
             amp=amp_enabled,
             opponents=seated,
@@ -301,6 +303,8 @@ def main() -> None:
             "approx_kl": round(float(total_kl / denom), 5),
             "grad_norm": round(float(total_grad / denom), 3),
             "mean_return": round(float(returns.mean()), 4),
+            "peak_rss_gb": peak_rss_gb(),
+            "peak_gpu_gb": peak_gpu_gb(),
         }
 
         measured = None

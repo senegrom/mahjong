@@ -396,21 +396,30 @@ def train_mortal(
     run: str = "mortal-run",
     target_kl: float = 0.0,
     baseline_batch: int | None = None,
+    until: int = 0,
 ) -> str:
     """Fine-tunes a published Mortal on our rules by self-play, in a run
     directory of its own: see `neural/train_mortal.py`. Resumes from the
     checkpoint of that name in the run when it is there, and starts from
     the published Mortal named otherwise. Its own function, so it runs
     beside the other lineage's training rather than queueing behind it.
+
+    `until`, when given, is the generation to stop at rather than a count
+    from wherever it resumes: a call the spend limit stalled and Modal
+    started again from the top then finishes the run instead of playing
+    `generations` more.
     """
     validate_cloud_request(generations, opponents, opponent_share)
+    if type(until) is not int or until < 0:
+        raise ValueError("until must be a generation, or nought for a count of rounds")
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
         source = _checkpoint(run, resume)
         command = [
             sys.executable, "-m", "neural.train_mortal",
-            "--rounds", str(generations), "--generations", "1000000",
+            "--rounds", str(0 if until else generations),
+            "--generations", str(until or 1000000),
             "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
             "--lr", str(lr), "--entropy", str(entropy), "--temperature", str(temperature),
             "--measure-every", str(measure_every), "--measure-games", str(measure_games),

@@ -48,6 +48,7 @@ from .model import (
     shape_of,
 )
 from .replay import Ring
+from .training_state import round_seed
 
 
 # How much of a new measurement goes into the smoothed figure the best
@@ -421,7 +422,7 @@ def main() -> None:
         batch = selfplay.play(
             net,
             games=args.games,
-            seed=args.seed + generation * 1000,
+            seed=round_seed(args.seed, generation, args.games),
             device=device,
             amp=args.amp,
             opponents=seated,
