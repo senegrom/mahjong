@@ -1,0 +1,17 @@
+{
+  "tile": "3s",
+  "name": "Sou3",
+  "candidate": "Bamboo A (green)",
+  "title": "Triple Shoots",
+  "originalBoard": "van_gogh_mahjong_design_review.png",
+  "originalBoardSha256": "054b1a1a246a33a03d6594027b312a70e35c0c7c8ebbf2b58247dcb5e82ad48f",
+  "originalBoardDimensions": [1448, 1086],
+  "originalCrop": {"x": 38, "y": 143, "width": 439, "height": 673},
+  "fullResolutionCropSha256": "cd3d224dc0c89543720f072630f63404bd92a1fa4343c2430664f2687a1c67a5",
+  "productionSource": "docs/design/van-gogh/studies/12-three-bamboo-triple-shoots-green.webp",
+  "productionDimensions": [300, 400],
+  "encoding": {"format": "WebP", "quality": 95, "resampling": "Lanczos"},
+  "productionSha256": "f2e1617a2e894622a28922f309747a8c2d0bb681fedd4ca37c1ba4b810135c7c",
+  "productionBytes": 80618,
+  "replaces": "Original candidate C for 3s only"
+}
