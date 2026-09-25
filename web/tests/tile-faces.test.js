@@ -19,7 +19,7 @@ test('Van Gogh preserves selected Almond Branches, East A and North B, excludes 
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'C', 'Characters A', 'E', 'G', 'H', 'I', 'J', 'L', 'East A', 'North B', 'Characters B', 'Characters C', 'Bamboo B (green)']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'I', 'J', 'L', 'East A', 'North B', 'Characters B', 'Characters C', 'Bamboo B (green)']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -173,7 +173,7 @@ test('the real Tile component respects the selected face and hidden state', asyn
     assert.match(vanGoghWhite, /\bringed\b/);
     assert.match(vanGoghWhite, /class="foil/);
     assert.doesNotMatch(vanGoghWhite, /haku-dragon-reveal|Haku-foil/);
-    for (const tile of ['1z', '4z', '2m', '4m', '2s']) {
+    for (const tile of ['1z', '4z', '2m', '4m', '2s', '3s']) {
       const wind = show(tile, 'van-gogh', { dora: true, size: 'small' });
       assert.match(wind, /\bvan-gogh\b/);
       assert.match(wind, /\bringed\b/);
@@ -221,4 +221,30 @@ test('Van Gogh green Garden Rhythm B is the approved two bamboo', () => {
   assert.equal(provenance.sourceSha256, createHash('sha256').update(source).digest('hex'));
   assert.equal(provenance.originalSha256, 'ba6cb69a60cc24173125750b412e3899a4406f28557256995ce81d4b34893748');
   assert.deepEqual(provenance.originalCrop, { x: 508, y: 143, width: 433, height: 667 });
+});
+
+
+test('Van Gogh green Triple Shoots A replaces only the existing three bamboo', () => {
+  const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
+  const entry = set.tiles.find(tile => tile.tile === '3s');
+  assert.equal(set.tiles.length, 15);
+  assert.equal(set.remaining.length, 19);
+  assert.equal(set.tiles.filter(tile => tile.tile === '3s').length, 1);
+  assert.equal(entry.candidate, 'Bamboo A (green)');
+  assert.equal(entry.name, 'Sou3');
+  assert.equal(entry.source, 'docs/design/van-gogh/studies/12-three-bamboo-triple-shoots-green.webp');
+  assert.deepEqual(entry.crop, { x: 0, y: 0, width: 300, height: 400 });
+  const bytes = readFileSync(new URL(`../../${entry.source}`, import.meta.url));
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),
+    'f2e1617a2e894622a28922f309747a8c2d0bb681fedd4ca37c1ba4b810135c7c');
+  assert.equal(tileImage('3s', 'van-gogh'), 'tiles/van-gogh/approved/Sou3.svg');
+  assert.ok(TILE_IMAGE_URLS.includes(tileImage('3s', 'van-gogh')));
+  assert.ok(!set.remaining.includes('3s'));
+  const superseded = set.superseded.find(tile => tile.tile === '3s');
+  assert.equal(superseded.candidate, 'C');
+  assert.equal(superseded.activeCandidate, 'Bamboo A (green)');
+  const provenance = JSON.parse(readFileSync(new URL('../../docs/design/van-gogh/three-bamboo-green.json', import.meta.url), 'utf8'));
+  assert.equal(provenance.originalBoardSha256, '054b1a1a246a33a03d6594027b312a70e35c0c7c8ebbf2b58247dcb5e82ad48f');
+  assert.deepEqual(provenance.originalCrop, { x: 38, y: 143, width: 439, height: 673 });
+  assert.equal(provenance.productionSha256, createHash('sha256').update(bytes).digest('hex'));
 });

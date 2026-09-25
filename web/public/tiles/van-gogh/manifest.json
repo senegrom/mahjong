@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s. The later L is the active white dragon; F and D remain studies.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The later L is the active white dragon; F and D remain studies.",
   "fallback": "classic",
   "sources": [
     {
@@ -53,6 +53,11 @@
       "id": "gardenRhythmGreen",
       "source": "docs/design/van-gogh/studies/11-two-bamboo-garden-rhythm-green.webp",
       "sha256": "528acc47e037fdce2fc9f48f827bbe554da35a1cc0186a4b74f1ac9fea0ad7ec"
+    },
+    {
+      "id": "tripleShootsGreen",
+      "source": "docs/design/van-gogh/studies/12-three-bamboo-triple-shoots-green.webp",
+      "sha256": "f2e1617a2e894622a28922f309747a8c2d0bb681fedd4ca37c1ba4b810135c7c"
     }
   ],
   "tiles": [
@@ -91,21 +96,21 @@
       "pngSha256": "b99cf6dfb27a48ba346d83006e9f3d536162063f79dd43c657efc6da0541288b"
     },
     {
-      "candidate": "C",
+      "candidate": "Bamboo A (green)",
       "tile": "3s",
       "name": "Sou3",
       "label": "Three bamboo",
-      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+      "source": "docs/design/van-gogh/studies/12-three-bamboo-triple-shoots-green.webp",
       "status": "approved",
       "png": "approved/Sou3.png",
       "svg": "approved/Sou3.svg",
       "crop": {
-        "x": 844,
-        "y": 122,
-        "width": 356,
-        "height": 463
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
       },
-      "pngSha256": "dc023785e7e8afde9b8e044a8d58818f05b196ae8f1d1a2034bf4f25e36f9c4a"
+      "pngSha256": "71b40f6a195e24ab4b785cf9680a2b42e895d9a63fad17ef44509c7a785d3ae3"
     },
     {
       "candidate": "Characters A",
@@ -331,6 +336,12 @@
       "candidate": "D",
       "tile": "3m",
       "activeCandidate": "Characters A",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png"
+    },
+    {
+      "candidate": "C",
+      "tile": "3s",
+      "activeCandidate": "Bamboo A (green)",
       "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png"
     }
   ],
