@@ -13,6 +13,16 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 
+def round_arguments(generations: int, until: int) -> list[str]:
+    """A trainer's `--rounds` and `--generations`: `generations` more from
+    wherever it resumes, or, with `until`, the generation to stop at. A call
+    the spend limit stalled and Modal started again from the top then
+    finishes the run instead of playing its count again."""
+    if type(until) is not int or until < 0:
+        raise ValueError("until must be a generation, or nought for a count of rounds")
+    return ["--rounds", str(0 if until else generations), "--generations", str(until or 1000000)]
+
+
 def validate_cloud_request(generations: int, opponents: Sequence[str] | None,
                            opponent_share: float) -> None:
     """A cloud count is literal, unlike the CLI's zero-as-unspecified sentinel."""

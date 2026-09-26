@@ -43,7 +43,7 @@ import modal
 from neural.training_safety import SEARCH_API_VERSION, training_control_arguments
 from neural.checkpoints import copy_checkpoint, publish_training_snapshot, validate_checkpoint
 from neural.cloud_runs import workspace, validate_run, managed_process
-from neural.cloud_requests import validate_cloud_request, stage_opponents
+from neural.cloud_requests import round_arguments, validate_cloud_request, stage_opponents
 from neural.recordings import atomic_json, copy_recording, experiment, resolve_recording
 
 HERE = Path(__file__).parent.parent
@@ -410,16 +410,13 @@ def train_mortal(
     `generations` more.
     """
     validate_cloud_request(generations, opponents, opponent_share)
-    if type(until) is not int or until < 0:
-        raise ValueError("until must be a generation, or nought for a count of rounds")
+    rounds = round_arguments(generations, until)
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
         source = _checkpoint(run, resume)
         command = [
-            sys.executable, "-m", "neural.train_mortal",
-            "--rounds", str(0 if until else generations),
-            "--generations", str(until or 1000000),
+            sys.executable, "-m", "neural.train_mortal", *rounds,
             "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
             "--lr", str(lr), "--entropy", str(entropy), "--temperature", str(temperature),
             "--measure-every", str(measure_every), "--measure-games", str(measure_games),
@@ -528,23 +525,24 @@ def train_combined(
     baseline_batch: int | None = None,
     entropy_target: float = 0.0,
     entropy_max: float = 0.05,
+    until: int = 0,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
     `neural/train_combined.py`. Resumes from the checkpoint of that name
     in the run when it is there, and otherwise joins the two checkpoints
-    named, which may be any run's.
+    named, which may be any run's. `until` is as for `train_mortal`.
     """
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
     validate_cloud_request(generations, opponents, opponent_share)
+    rounds = round_arguments(generations, until)
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
         source = _checkpoint(run, resume)
         command = [
-            sys.executable, "-m", "neural.train_combined",
-            "--rounds", str(generations), "--generations", "1000000",
+            sys.executable, "-m", "neural.train_combined", *rounds,
             "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
             "--lr", str(lr), "--lr-ours", str(lr_ours), "--lr-mortal", str(lr_mortal),
             "--entropy", str(entropy), "--leash", str(leash),

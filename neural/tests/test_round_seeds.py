@@ -1,4 +1,4 @@
-"""A round's deals are never the last round's, and a stalled Mortal run stops
+"""A round's deals are never the last round's, and a stalled cloud run stops
 at its generation rather than playing its count again from the top."""
 from contextlib import ExitStack, redirect_stdout
 from functools import partial
@@ -68,8 +68,11 @@ class RoundSeedTests(unittest.TestCase):
                 round_seed(*args)
 
 
-class MortalStopGenerationTests(unittest.TestCase):
-    def launch(self, **kwargs):
+TRAINERS = ('train_mortal', 'train_combined')
+
+
+class StopGenerationTests(unittest.TestCase):
+    def launch(self, trainer, **kwargs):
         from neural.tests.test_cloud_isolation import controller
         from neural import cloud_runs
         app = controller()
@@ -89,24 +92,29 @@ class MortalStopGenerationTests(unittest.TestCase):
             stack.enter_context(patch.object(app, "_save_cache"))
             stack.enter_context(patch.object(app.subprocess, "Popen", side_effect=popen))
             stack.enter_context(redirect_stdout(io.StringIO()))
-            app.train_mortal(run="run", **kwargs)
+            getattr(app, trainer)(run="run", **kwargs)
         (command,) = calls
         return command[command.index("--rounds") + 1], command[command.index("--generations") + 1]
 
     def test_a_stop_generation_replaces_the_count(self):
-        self.assertEqual(self.launch(generations=30, until=60), ("0", "60"))
+        for trainer in TRAINERS:
+            with self.subTest(trainer=trainer):
+                self.assertEqual(self.launch(trainer, generations=30, until=60), ("0", "60"))
 
     def test_without_one_the_count_runs_from_the_resume(self):
-        self.assertEqual(self.launch(generations=30), ("30", "1000000"))
+        for trainer in TRAINERS:
+            with self.subTest(trainer=trainer):
+                self.assertEqual(self.launch(trainer, generations=30), ("30", "1000000"))
 
     def test_a_bad_stop_generation_is_refused_before_any_work(self):
         from neural.tests.test_cloud_isolation import controller
         app = controller()
-        for until in (-1, True, 2.5, "60"):
-            with self.subTest(until=until), patch.object(app, "workspace") as work:
-                with self.assertRaises(ValueError):
-                    app.train_mortal(run="run", generations=30, until=until)
-                work.assert_not_called()
+        for trainer in TRAINERS:
+            for until in (-1, True, 2.5, "60"):
+                with self.subTest(trainer=trainer, until=until), patch.object(app, "workspace") as work:
+                    with self.assertRaises(ValueError):
+                        getattr(app, trainer)(run="run", generations=30, until=until)
+                    work.assert_not_called()
 
 
 if __name__ == "__main__":
