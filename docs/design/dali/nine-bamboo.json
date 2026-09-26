@@ -1,0 +1,17 @@
+{
+  "tile": "9s",
+  "name": "Sou9",
+  "direction": "The Surreal Grove",
+  "originalFilename": "surreal_bamboo_grid_in_a_dreamy_landscape.png",
+  "originalSha256": "b0775f5a4990ac3cdb5c866ed9663f60e07cdbd380b716faf25ae7bffb52abb8",
+  "originalDimensions": [1086, 1448],
+  "rasterDimensions": [300, 400],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "cbb3100e53f0fefbdce3da96032f4bdd43bf17c3a308b1d253da76e49dcd21a3",
+  "processing": "Complete portrait resized with Lanczos, WebP quality 80, method 6; no redraw, added border, tile texture or color changes.",
+  "svgSha256": "bcab49c117abc90e41582bcf83fdc40cd0038941413171546dbb00dbd22e9573",
+  "source": "docs/design/dali/studies/nine-bamboo-surreal-grove-approved.svg",
+  "runtime": "web/public/tiles/dali/approved/Sou9.svg",
+  "selection": "Final approved nine-bamboo image: varied green stems, ruby central stem and red leaf accents, neutral full-bleed landscape without a baked tile frame. Earlier alternatives are not deployed.",
+  "originalStorage": "The full-resolution original remains the conversation PNG attachment; the repository stores a game-optimized rendering, not the original PNG bytes."
+}

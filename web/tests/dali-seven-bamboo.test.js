@@ -24,8 +24,8 @@ test('Dream Cabinet is assigned to seven bamboo and three bamboo stays unselecte
   assert.equal(DALI_APPROVED.includes('3s'), false);
   assert.equal(tileImage('3s', 'dali'), 'tiles/dali/placeholders/placeholder.svg');
   assert.equal(tileImage('5s', 'dali'), 'tiles/dali/approved/Sou5.svg');
-  assert.equal(set.tiles.length, 13);
-  assert.equal(set.placeholders.length, 21);
+  assert.equal(set.tiles.length, 14);
+  assert.equal(set.placeholders.length, 20);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   const identities = [...set.tiles, ...set.placeholders].map(entry => entry.tile);
   assert.equal(new Set(identities).size, 34);
@@ -74,7 +74,7 @@ test('seven bamboo preloads once without exposing hidden tiles or changing other
 });
 
 test('all existing PNG-backed Dali exports retain their recorded source and raster hashes', () => {
-  for (const entry of set.tiles.filter(entry => entry.tile !== '7s')) {
+  for (const entry of set.tiles.filter(entry => entry.png)) {
     const source = readFileSync(new URL(entry.source, root));
     const raster = readFileSync(new URL(`tiles/dali/${entry.png}`, publicRoot));
     const svg = readFileSync(new URL(`tiles/dali/${entry.svg}`, publicRoot), 'utf8');

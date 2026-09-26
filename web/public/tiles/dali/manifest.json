@@ -136,6 +136,23 @@
       }
     },
     {
+      "name": "Sou9",
+      "tile": "9s",
+      "label": "9 bamboo",
+      "direction": "The Surreal Grove",
+      "status": "approved",
+      "svg": "approved/Sou9.svg",
+      "source": "docs/design/dali/studies/nine-bamboo-surreal-grove-approved.svg",
+      "sourceSha256": "bcab49c117abc90e41582bcf83fdc40cd0038941413171546dbb00dbd22e9573",
+      "svgSha256": "bcab49c117abc90e41582bcf83fdc40cd0038941413171546dbb00dbd22e9573",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      }
+    },
+    {
       "name": "Man5",
       "tile": "5m",
       "label": "5 characters",
@@ -299,10 +316,6 @@
     },
     {
       "tile": "8s",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "9s",
       "svg": "placeholders/placeholder.svg"
     },
     {
