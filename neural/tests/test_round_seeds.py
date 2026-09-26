@@ -10,14 +10,15 @@ import unittest
 from unittest.mock import patch
 
 from neural.checkpoints import atomic_save
-from neural.training_state import round_seed
+from neural.training_state import ROUND_SEED_STRIDE, round_seed
 
 
 class RoundSeedTests(unittest.TestCase):
-    def test_rounds_of_a_thousand_or_fewer_keep_their_seeds(self):
-        for games in (1, 128, 512, 1000):
+    def test_generation_range_does_not_depend_on_round_size(self):
+        for games in (1, 128, 512, 1000, 1024, 4096, 8192):
             with self.subTest(games=games):
-                self.assertEqual(round_seed(20260907, 30, games), 20260907 + 30 * 1000)
+                self.assertEqual(round_seed(20260907, 30, games),
+                                 20260907 + 31 * ROUND_SEED_STRIDE)
 
     def test_large_rounds_never_replay_a_deal(self):
         for games in (1024, 4096, 8192):
@@ -28,6 +29,43 @@ class RoundSeedTests(unittest.TestCase):
                     deals = set(range(first, first + games))
                     self.assertFalse(dealt & deals)
                     dealt |= deals
+
+    def test_resume_with_smaller_or_larger_rounds_never_replays(self):
+        for sizes in ([4096] * 10 + [2048, 128, 8192, 1, 4096],
+                      [128, 8192, 512, 4096, 1000, 2048]):
+            dealt = set()
+            for generation, games in enumerate(sizes):
+                first = round_seed(20260907, generation, games)
+                deals = set(range(first, first + games))
+                self.assertFalse(dealt & deals)
+                dealt |= deals
+                # A restart at the same absolute generation is deterministic.
+                self.assertEqual(first, round_seed(20260907, generation, games))
+
+    def test_legacy_resume_clears_both_previous_seed_formulas(self):
+        seed, resumed_at = 20260907, 10
+        for old_games in (128, 1024, 4096, 8192, ROUND_SEED_STRIDE):
+            for old_stride in (1000, max(1000, old_games)):
+                old_end = seed + (resumed_at - 1) * old_stride + old_games
+                for new_games in (128, 2048, 8192):
+                    self.assertGreaterEqual(round_seed(seed, resumed_at, new_games), old_end)
+
+    def test_full_ranges_are_disjoint_even_at_their_boundaries(self):
+        first = round_seed(0, 0, ROUND_SEED_STRIDE)
+        second = round_seed(0, 1, ROUND_SEED_STRIDE)
+        self.assertEqual(first + ROUND_SEED_STRIDE, second)
+        self.assertEqual(round_seed(0, (1 << 32) - 2, ROUND_SEED_STRIDE)
+                         + ROUND_SEED_STRIDE, 1 << 64)
+
+    def test_bad_inputs_and_u64_overflow_are_refused(self):
+        for args in ((-1, 0, 1), (1 << 64, 0, 1), (True, 0, 1),
+                     (0, -1, 1), (0, True, 1), (0, 1.5, 1),
+                     (0, 0, 0), (0, 0, True), (0, 0, 2.5),
+                     (0, 0, ROUND_SEED_STRIDE + 1),
+                     (0, (1 << 32) - 1, 1),
+                     (1, (1 << 32) - 2, ROUND_SEED_STRIDE)):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                round_seed(*args)
 
 
 class MortalStopGenerationTests(unittest.TestCase):

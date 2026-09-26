@@ -82,8 +82,13 @@ jobs:
       - name: Install
         working-directory: web
         run: npm ci
+      - name: Prepare verified network for the memory regression
+        working-directory: web
+        run: node scripts/prepare-test-network.mjs "$RUNNER_TEMP/mahjong-memory-model.onnx"
       - name: Verify web app (same command as local development)
         working-directory: web
+        env:
+          MAHJONG_NETWORK: ${{ runner.temp }}/mahjong-memory-model.onnx
         run: npm run verify
       - name: Upload UI regression evidence
         if: always()

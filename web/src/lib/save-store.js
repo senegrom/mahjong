@@ -106,11 +106,11 @@ export class MatchStore {
     try { previous = JSON.parse(this.expected); } catch { /* Deliberate New game can replace a corrupt record. */ }
     const { _storage, ...oldSnapshot } = previous ?? {};
     if (!this.newIdentity && this.expected !== null && JSON.stringify(oldSnapshot) === JSON.stringify(snapshot)) return;
-    const sameMatch = !this.newIdentity && previous?.seed === snapshot.seed && previous?.difficulty === snapshot.difficulty;
-    const matchId = sameMatch && _storage?.matchId ? _storage.matchId : this.matchId ?? this.id();
-    const revision = Number.isSafeInteger(_storage?.revision) && _storage.revision < Number.MAX_SAFE_INTEGER ? _storage.revision + 1 : 1;
-    const text = JSON.stringify({ ...snapshot, _storage: { matchId, revision } });
     try {
+      const sameMatch = !this.newIdentity && previous?.seed === snapshot.seed && previous?.difficulty === snapshot.difficulty;
+      const matchId = sameMatch && _storage?.matchId ? _storage.matchId : this.matchId ?? this.id();
+      const revision = Number.isSafeInteger(_storage?.revision) && _storage.revision < Number.MAX_SAFE_INTEGER ? _storage.revision + 1 : 1;
+      const text = JSON.stringify({ ...snapshot, _storage: { matchId, revision } });
       this.storage.setItem(SAVE_KEY, text);
       this.expected = text;
       this.legacy = null;
@@ -123,7 +123,9 @@ export class MatchStore {
     }
   }
 
-  newMatch() { this.matchId = this.id(); this.newIdentity = true; }
+  // Allocate an identity only inside a real save. HTTP/private contexts can
+  // lack randomUUID as well as Locks; neither may prevent unsaved play.
+  newMatch() { this.matchId = null; this.newIdentity = true; }
 
   changed(event) {
     if (!this.opened || this.closed || this.disabled || (event.storageArea && event.storageArea !== this.storage)) return;

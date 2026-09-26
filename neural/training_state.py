@@ -90,12 +90,35 @@ def restore_sampling_state(saved: dict | None, *, generation: int) -> None:
     torch.set_rng_state(saved["torch"].cpu())
 
 
+# Version 2: immutable per-generation ranges, independent of --games.
+# Changing this stride changes every future deal; do not tune it with a run.
+ROUND_SEED_STRIDE = 1 << 32
+
+
 def round_seed(seed: int, generation: int, games: int) -> int:
-    """The first deal of a generation's round; its games take the seeds after
-    it. The step between rounds is at least the round, so no deal is played
-    twice: a step of a thousand under 4,096-game rounds replayed three
-    quarters of each round's deals in the next, and every deal in four."""
-    return seed + generation * max(1000, games)
+    """First u64 deal seed in this generation's fixed, disjoint range.
+
+    Reserving 2**32 seeds per generation lets --games grow or shrink on
+    resume without revisiting earlier ranges. No mutable allocator is
+    needed: the checkpoint's absolute generation identifies the range.
+
+    This intentionally changes the old deal sequence, including small
+    rounds. At a legacy resume G, every earlier range from either old
+    formula ends below seed + G * stride, provided its rounds had at most
+    stride games. Starting at seed + (G + 1) * stride clears those ranges
+    too. Keep the same base seed when resuming, and do not downgrade to the
+    old allocator. Reject overflow instead of letting Arena wrap its u64.
+    """
+    if type(seed) is not int or not 0 <= seed < 1 << 64:
+        raise ValueError("seed must be an unsigned 64-bit integer")
+    if type(generation) is not int or generation < 0:
+        raise ValueError("generation must be a nonnegative integer")
+    if type(games) is not int or not 1 <= games <= ROUND_SEED_STRIDE:
+        raise ValueError("games must be between 1 and 2**32")
+    first = seed + (generation + 1) * ROUND_SEED_STRIDE
+    if first + games > 1 << 64:
+        raise ValueError("The generation's deal seeds exceed the unsigned 64-bit range")
+    return first
 
 
 def peak_rss_gb() -> float | None:

@@ -106,8 +106,15 @@ export function recordDiscard(position, seat, tile, riichi = false) {
   if (riichi) { player.riichi = double ? 'double' : 'riichi'; player.ippatsu = true; player.score -= 1000; p.riichi_sticks++; }
   else player.ippatsu = false;
   if (p.players.every(player => player.discards.length > 0)) p.first_turns = false;
-  // Unknown opponents' live draws are recorded together with their discards.
-  if (!known) p.wall = Math.max(0, p.wall - 1);
+  // Act means this seat already drew (including a replacement) or just
+  // called pon/chii. Neither discard consumes another live-wall tile.
+  // Only an unknown hand not yet at its act decision includes an implicit
+  // draw. A kan awaiting its replacement still consumes one wall tile.
+  const implicitDraw = !known && !(p.turn === seat && p.phase === 'act');
+  if (implicitDraw) {
+    if (!Number.isInteger(p.wall) || p.wall <= 0) throw new Error('The live wall is empty or its count is missing');
+    p.wall--;
+  }
   p.turn = seat; p.phase = 'call'; p.pending = tile; p.pending_kind = 'discard';
   p.drawn = null; p.just_claimed = null; p.after_quad = false;
   return p;
