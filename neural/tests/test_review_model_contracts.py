@@ -2,15 +2,12 @@
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
-import numpy as np
 import torch
 import riichi_py
 
-from neural import contract, model, searched, zoo
+from neural import contract, model, zoo
 from neural.checkpoints import atomic_save
-from neural.observe import Views
 
 
 class ModelContractTests(unittest.TestCase):
@@ -23,7 +20,7 @@ class ModelContractTests(unittest.TestCase):
     def tearDownClass(cls):
         torch.set_num_threads(cls.threads)
 
-    def test_reader_declaration_roundtrips_and_controls_actual_search(self):
+    def test_reader_declaration_roundtrips(self):
         for planes, actions in ((riichi_py.PLANES, riichi_py.ACTIONS), (1012, 46)):
             for version in (None, 3, 4, 999):
                 with self.subTest(planes=planes, version=version), tempfile.TemporaryDirectory() as temp:
@@ -38,24 +35,6 @@ class ModelContractTests(unittest.TestCase):
                     self.assertEqual(getattr(restored, 'reader_proposal_version', None), version)
                     if version is None:
                         self.assertNotIn('reader_proposal_version', restored.payload_fields())
-                    arena = riichi_py.Arena(games=1, seed=11, bot_places=[])
-                    views = Views(arena, 1, {restored.kind})
-                    views.advance()
-                    legal = np.frombuffer(arena.legal_mask(), np.uint8).reshape(1, 78).astype(bool)
-                    ranking = [np.flatnonzero(legal[0])[:2].tolist()]
-                    health = {}
-                    served = contract.serve(restored)
-                    follower = views.observer.follower if restored.kind == 'mortal' else None
-                    with contract.following(arena, follower), patch.object(
-                        restored, 'read_plausibility', wraps=restored.read_plausibility
-                    ) as reader:
-                        searched.search_with_value_head(restored, arena, ranking, [1/34]*102,
-                            worlds=3, candidates=2, margin=2., hurried=True, device='cpu',
-                            pool=2, played_by='club', served=served, leaf_batch=2, health=health)
-                    self.assertEqual(reader.call_count, 3 if version == 4 else 0)
-                    expected = restored.kind if version == 4 else 'uniform_unverified_proposal'
-                    self.assertEqual(health['world_reader'], expected)
-
     def test_explicit_file_marker_loads_but_malformed_declarations_fail(self):
         net = model.PolicyValueNet(8, 1, actions=46)
         payload = dict(model=net.state_dict(), **net.payload_fields())

@@ -38,8 +38,8 @@ class AuxiliaryHelperTests(unittest.TestCase):
 
 class AuxiliaryEntryTests(unittest.TestCase):
     def test_real_entrypoints_reject_before_loading_models_collecting_or_publishing(self):
-        from neural import imitate, rehead, distil
-        for module in (imitate,rehead,distil):
+        from neural import imitate, rehead
+        for module in (imitate,rehead):
             with self.subTest(module=module.__name__),tempfile.TemporaryDirectory() as folder:
                 root=Path(folder);destination=root/'latest.pt';destination.write_bytes(b'prior checkpoint')
                 for bad in ({'batch':1},{'epochs':0},{'rounds':0},{'resume':root/'missing.pt'}):
@@ -58,18 +58,17 @@ class AuxiliaryEntryTests(unittest.TestCase):
         import sys
         import numpy as np
         import torch
-        import riichi_py
-        from neural import imitate,rehead,distil
+        from neural import imitate,rehead
         from neural.model import PolicyValueNet,MORTAL_PLANES
         from neural.observe import Planes
         from neural.checkpoints import atomic_save
-        for module in (imitate,rehead,distil):
+        for module in (imitate,rehead):
             for n in (1,2):
                 with self.subTest(module=module.__name__,rows=n),tempfile.TemporaryDirectory() as folder:
                     root=Path(folder);out=root/'out';out.mkdir()
                     destination=out/'latest.pt';destination.write_bytes(b'last good output')
                     width=46 if module is rehead else 78
-                    planes=riichi_py.PLANES if module is distil else MORTAL_PLANES
+                    planes=MORTAL_PLANES
                     student=PolicyValueNet(8,1,planes,attention=False,actions=width)
                     before={key:value.detach().clone() for key,value in student.state_dict().items()}
                     saved=root/'student.pt'
@@ -87,13 +86,9 @@ class AuxiliaryEntryTests(unittest.TestCase):
                     truth=np.zeros((n,3,34),np.float32)
                     if module is imitate:
                         collected=(sparse,masks,labels,truth,None)
-                    elif module is rehead:
+                    else:
                         targets=np.zeros((n,width),np.float32);targets[np.arange(n),labels]=1
                         collected=(sparse,masks,targets,0)
-                    else:
-                        collected=(np.zeros((n,planes,34),np.float32),masks,labels,truth,labels.copy(),
-                                   np.linspace(-1,1,n,dtype=np.float32),
-                                   np.full((n,width),1/width,dtype=np.float32))
                     with patch.object(sys,'argv',command),patch.object(module,'collect',return_value=collected), \
                          patch.object(torch.cuda,'is_available',return_value=False),redirect_stdout(io.StringIO()):
                         from contextlib import ExitStack

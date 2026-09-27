@@ -15,11 +15,9 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from neural import checkpoints, combined, distil, mortal_model, train_combined, train_mortal
+from neural import checkpoints, combined, mortal_model, train_combined, train_mortal
 from neural.model import MORTAL_PLANES, PolicyValueNet
 from neural.observe import Planes
-from neural.outcomes import IncompleteGamesError
-from neural.searched import UnsupportedSearchLayout
 from neural.training_safety import (
     TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
 )
@@ -129,25 +127,6 @@ class RuntimeContractTests(unittest.TestCase):
         with patch.object(riichi_py, "TRAINING_API_VERSION", 1):
             with self.assertRaisesRegex(RuntimeError, "Rebuild and reinstall"):
                 require_training_engine()
-
-    def test_distillation_rejects_incompatible_inputs_and_truncation(self):
-        modern = PolicyValueNet(8, 1, MORTAL_PLANES, actions=46)
-        args = SimpleNamespace(games=1, max_steps=1, candidates=1, worlds=1,
-                               margin=0., hurried=True)
-        with self.assertRaises(UnsupportedSearchLayout):
-            distil.collect(modern, args, 1, "cpu")
-        # Real native game, with an inexpensive legal policy rather than search.
-        class LegalPolicy:
-            kind = "engine"
-            def eval(self):
-                return self
-            def everything(self, planes, legal):
-                return (torch.zeros_like(legal, dtype=torch.float32).masked_fill(~legal, -1e9),
-                        torch.zeros(len(legal)), torch.zeros(len(legal), 3, 34))
-        with patch.object(distil, "search_with_value_head",
-                          side_effect=lambda net, arena, ranked, *a, **kw: [row[0] for row in ranked]):
-            with self.assertRaises(IncompleteGamesError):
-                distil.collect(LegalPolicy(), args, 1, "cpu")
 
     def test_auxiliary_gradients_do_not_reach_either_policy_backbone(self):
         net = combined.Combined(PolicyValueNet(8, 1, MORTAL_PLANES, actions=46),

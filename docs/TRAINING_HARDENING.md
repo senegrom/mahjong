@@ -66,7 +66,7 @@ Redundant final PPO saves are removed, so a normal completed run keeps the
 preceding saved generation rather than overwriting its backup with a duplicate
 of the last one. A no-work invocation does not create a new learned checkpoint.
 
-### Learner and legacy-distillation guards
+### Learner guards
 
 The combined value baseline reads detached policy features; auxiliary losses
 train their heads without reshaping either policy backbone. The belief head
@@ -76,12 +76,6 @@ PPO entry points reject missing requested input checkpoints, invalid game or
 measurement counts, malformed opponent/freeze configuration, and nonfinite
 optimizer gradients. Singleton statistics remain finite. The standalone
 78-action trainer rejects an incompatible 46-action learner before collection.
-
-Legacy `distil.collect` now has a checked step budget and refuses unfinished
-games. It shares the existing native-search layout guard, rejects partial
-loading of combined/Mortal checkpoints, and uses the correct CPU device for
-measurement. This script still trains action/hand labels, **not completed-game
-value targets**; its documentation no longer implies otherwise.
 
 ## Validation and remaining work
 

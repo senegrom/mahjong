@@ -83,6 +83,12 @@ without deleting the old copy. Old-version windows can no longer overwrite the
 new save. Additive claimed-tile metadata and historical implicit neural passes are migrated; other rules/replay divergence is
 still rejected without overwriting the original record.
 
+Legacy saves that omitted opponent passes after a human call are migrated with
+the current named Mortal pass (45), checked against `opponent_mask_mortal()`.
+Explicit old-schema opponent actions are not blindly reinterpreted as new IDs.
+`web/tests/legacy-pass-migration.test.js` covers a complete implicit-pass legacy
+restore, a resave/restore round trip and rejection when a pass is unavailable.
+
 A submitted human call remains pending until every other eligible claimant has
 answered, including competing ron claims. Pending calls replay exactly and can
 recover to Club. The retained final hand and exported log preserve their original

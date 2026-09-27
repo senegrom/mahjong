@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from neural import contract, policy_inference, searched, zoo
+from neural import contract, policy_inference, zoo
 
 
 class TiedNet(torch.nn.Module):
@@ -74,14 +74,6 @@ class PolicyParityTests(unittest.TestCase):
         logits = torch.zeros(4, 46)
         for method in (contract.EngineServed.order, contract.MortalServed.order):
             np.testing.assert_array_equal(method(None, logits), np.tile(np.arange(46), (4, 1)))
-
-    def test_disabled_search_matches_complete_ordinary_game(self):
-        net = TiedNet().eval()
-        options = dict(games=1, seed=53, worlds=1, candidates=2, margin=2., device="cpu", max_steps=4000)
-        ordinary, _ = searched.play(net, searcher=None, **options)
-        bypassed, tally = searched.play(net, searcher=0, sure=0., rollout_batch=1, **options)
-        np.testing.assert_array_equal(ordinary, bypassed)
-        self.assertEqual(tally, (0, 0))
 
     def test_precision_resolution_preserves_ordinary_layouts(self):
         self.assertEqual(policy_inference.precision("cpu", 46), "float32")

@@ -2,8 +2,8 @@
 
 ## Completed checkpoint publication
 
-All six neural checkpoint-producing commands (`train`, `train_mortal`,
-`train_combined`, `imitate`, `distil`, `rehead`) use `checkpoints.atomic_save`.
+All five neural checkpoint-producing commands (`train`, `train_mortal`,
+`train_combined`, `imitate`, `rehead`) use `checkpoints.atomic_save`.
 Each writes a unique temporary file alongside the destination, flushes and
 fsyncs it, and safely deserializes its tensor/primitive payload on CPU before
 atomic replacement. A serialization error, invalid payload or pre-publication
@@ -43,18 +43,6 @@ it remains available across generations within that call. Compiler caches
 remain separately shared. Use a new run identity to start an independent
 lineage. Simultaneous publishers for the same volume run are not supported;
 this change does not add a distributed run lock or a transactional volume.
-
-## Search input contracts
-
-The network-only `searched.play(..., searcher=None)` baseline accepts both
-current 1,012-plane action layouts through the ordinary player adapters.
-Actual **native lookahead remains limited to 97-plane, 78-action engine-space
-networks**. That API supplies hypothetical snapshots without the complete mjai
-history a Mortal encoder requires. All three native search entry points now
-reject unsupported layouts before touching the arena, with an actionable
-error. They never pad, relabel or silently approximate the observation.
-Use `neural.arena` to benchmark current checkpoints. Enabling native lookahead
-for them requires an additional historical-state API, not just a reshape.
 
 ## Fusion belief compatibility
 

@@ -114,7 +114,7 @@ checkpoints.atomic_save({'generation': 2}, Path(sys.argv[1]))
 
     def test_every_training_writer_uses_atomic_checkpoint_publication(self):
         root=Path(__file__).resolve().parents[1]
-        for name in ('train', 'train_mortal', 'train_combined', 'imitate', 'distil', 'rehead'):
+        for name in ('train', 'train_mortal', 'train_combined', 'imitate', 'rehead'):
             tree=ast.parse((root/f'{name}.py').read_text())
             calls=[node.func for node in ast.walk(tree) if isinstance(node, ast.Call)]
             self.assertTrue(any(isinstance(fn, ast.Name) and fn.id=='atomic_save' for fn in calls),name)

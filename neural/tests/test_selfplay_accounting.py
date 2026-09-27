@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import riichi_py
 
-from neural import selfplay, duel, searched
+from neural import selfplay, duel
 from neural.observe import Planes
 from neural.outcomes import IncompleteGamesError
 
@@ -133,7 +133,6 @@ class AccountingTests(unittest.TestCase):
             lambda: selfplay.play(Heuristic(), 1, 1, 'cpu', max_steps=1),
             lambda: selfplay.measure(Heuristic(), 1, 1, 'cpu', max_steps=1),
             lambda: duel.table(Heuristic(), Heuristic(), 1, 1, 0, 'cpu', max_steps=1),
-            lambda: searched.play(Heuristic(), 1, 1, None, 1, 1, 0., device='cpu', max_steps=1),
         )
         for call in calls:
             with self.subTest(simulator=call), patch.object(riichi_py, 'Arena', LedgerArena):

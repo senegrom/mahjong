@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from neural import arena, duel, searched, selfplay
+from neural import arena, duel, selfplay
 from neural.outcomes import placement_rewards, placements, win_shares, validate_budget
 
 
@@ -26,7 +26,7 @@ class OutcomeTests(unittest.TestCase):
             order = list(order)
             np.testing.assert_array_equal(placements(scores[:, order]), expected[:, order])
             np.testing.assert_allclose(win_shares(scores[:, order]), win_shares(scores)[:, order])
-            for module in (arena, duel, searched):
+            for module in (arena, duel):
                 for player in range(4):
                     np.testing.assert_array_equal(module.placements(scores[:, order], player), expected[:, order[player]])
 

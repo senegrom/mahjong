@@ -102,8 +102,4 @@ not superiority over arbitrary opponents, a league or human players.
 
 An automatically managed champion/opponent population remains separate
 work (`neural.population` seats a fixed roster; `neural.promote` is the
-paired-error gate this one complements). The club-played search is served
-for a network on Mortal's planes through `neural.contract`; only the
-lookahead in which the network moves the other seats keeps the explicit
-unsupported-layout diagnostic, since it needs the engine's own planes at
-every decision inside the search.
+paired-error gate this one complements).

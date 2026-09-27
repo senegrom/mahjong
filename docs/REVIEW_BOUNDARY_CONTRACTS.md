@@ -1,4 +1,4 @@
-# Physical matching, fresh continuation chance and model identity
+# Physical matching and model identity
 
 Follow-up to the full review of `659fb3c`. The current dependency-pin update is
 preserved. No new trained model, calibration claim or strength promotion is
@@ -13,39 +13,6 @@ one meld for two claims, or relax copy-count/source-seat checks. The regression
 covers 123p/123m/345m claiming 1p/3m/5m through the actual position builder,
 including all 36 meld/discard permutations and invalid extra/source claims.
 The WASM physical-advice test exercises the serialized public entry point too.
-
-## Search chance and compatibility
-
-**Rebuild `riichi-py` for SEARCH_API_VERSION=5. Training stays API 2.**
-Every imagined proposal receives a fresh continuation seed from that game's
-search RNG before resampling. Coalescing repeated proposal IDs keeps the seed
-with the original proposal; sorting or reindexing retained slots never changes
-its chance identity. Incumbent/challenger siblings share it within one evidence
-stage. Discovery and confirmation receive fresh seeds, including for later
-hands, instead of repeating a sequence derived from the slot ordinal.
-The environment RNG and actual game's future deals are untouched.
-
-The Rust `leaves_from`, `leaves_from_for_objective`, `Lookahead::begin` and
-`Lookahead::begin_moves` APIs now require one explicit `chance_seeds` entry per
-world. The higher-level `leaves` and Python Arena generate these automatically.
-Callers must pair siblings within a stage, not reuse discovery's seeds in a
-confirmation stage. This is reproducible pseudorandom sampling, not a guarantee
-of statistical coverage or a proof of playing strength.
-
-While updating this path, the club adapter's dropped `placement_only` argument
-was also repaired. A zero placement head now produces zero utility at a first-hand
-boundary even when the root hand moved points. Hybrid search retains those points.
-
-New diagnostic records, cloud experiment identities and supervised teacher
-metadata all declare API 5. API-4 teacher replay is not relabelled or accepted as
-new teacher evidence; recollect it for the corrected chance/utility semantics.
-Original version-1 supervised replay retains its existing separate contract.
-Existing policy checkpoints and their action/reward meanings are unchanged.
-
-Tests drive actual discovery-plus-confirmation through hand boundaries with both
-network and club rollouts. A scripted critic forces the branch under test; it is
-not a trained model measurement. The tests check sibling pairing, refreshed
-future deals, repeatability of the whole experiment, and unchanged real play.
 
 ## Reader declarations survive checkpoints
 
