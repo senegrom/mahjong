@@ -48,17 +48,24 @@ def validate_cloud_request(generations: int, opponents: Sequence[str] | None,
 
 
 def stage_opponents(where: Path, opponents: Sequence[str] | None,
-                    opponent_share: float, resolve: Callable[[str], Path]) -> list[str]:
+                    opponent_share: float, resolve: Callable[[str], Path],
+                    seat_share: float = 0.0) -> list[str]:
     """Stage every requested opponent or fail before launching a trainer.
 
     Ordinal directories cannot collide even when names share basenames or
     contain punctuation. Hash the validated copied bytes, not the mutable
     source. Duplicates are preserved deliberately (they affect sampling weights).
     The caller owns a fresh invocation workspace; no existing files are replaced.
+
+    The manifest records how the population was seated, by game
+    (`opponent_share`) or by player (`seat_share`), and the arguments
+    returned carry the same numbers, so the two cannot disagree. A
+    manifest written before `seat_share` was recorded has no such key:
+    absent means not recorded, not nought.
     """
     from .checkpoints import copy_checkpoint
 
-    validate_cloud_request(1, opponents, opponent_share)
+    validate_cloud_request(1, opponents, opponent_share, seat_share)
     where = Path(where)
     names = list(opponents or [])
     # Resolve the entire population first: a partially missing population must
@@ -94,7 +101,11 @@ def stage_opponents(where: Path, opponents: Sequence[str] | None,
     # the owning context manager. Only a complete manifest reaches publication.
     with manifest.open("x", encoding="utf-8") as stream:
         json.dump({"version": 1, "opponent_share": float(opponent_share),
+                   "seat_share": float(seat_share),
                    "opponents": entries}, stream, indent=2, allow_nan=False)
         stream.write("\n")
     # Preserve the launchers' established flag order for existing callers.
-    return ["--opponents", *paths, "--opponent-share", str(float(opponent_share))]
+    arguments = ["--opponents", *paths, "--opponent-share", str(float(opponent_share))]
+    if seat_share:
+        arguments += ["--seat-share", str(float(seat_share))]
+    return arguments

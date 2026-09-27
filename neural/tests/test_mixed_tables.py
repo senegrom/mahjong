@@ -1,9 +1,10 @@
 """Others seated by player: one table can hold the learner, published Mortal
 and an old checkpoint at once, in self-play, in both trainers' checks and in
-both cloud launches."""
+both cloud launches, and both trainers and the staged manifest record it."""
 from contextlib import ExitStack, redirect_stdout
 from functools import partial
 import io
+import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -138,6 +139,7 @@ class CloudLaunchTests(unittest.TestCase):
         from neural import cloud_runs
         app = controller()
         calls = []
+        manifests = []
         with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
             root = Path(folder)
             volume = root / "volume"
@@ -146,6 +148,8 @@ class CloudLaunchTests(unittest.TestCase):
 
             def popen(command, **_kwargs):
                 calls.append(command)
+                where = Path(command[command.index("--out") + 1])
+                manifests.append(json.loads((where / "opponents.json").read_text()))
                 return SimpleNamespace(stdout=io.StringIO(), wait=lambda: 0)
 
             stack.enter_context(patch.object(app, "VOLUME", volume))
@@ -156,6 +160,7 @@ class CloudLaunchTests(unittest.TestCase):
             stack.enter_context(redirect_stdout(io.StringIO()))
             getattr(app, trainer)(run="run", generations=3, opponents=["zoo/mortal_298k"], **kwargs)
         (command,) = calls
+        (self.manifest,) = manifests
         return command
 
     def test_both_trainers_are_told_to_seat_by_player(self):
@@ -164,12 +169,113 @@ class CloudLaunchTests(unittest.TestCase):
                 command = self.launch(trainer, seat_share=0.5)
                 self.assertEqual(command[command.index("--seat-share") + 1], "0.5")
                 self.assertEqual(command[command.index("--opponent-share") + 1], "0.0")
+                # And the run's staged manifest says so, beside who was seated.
+                self.assertEqual((self.manifest["opponent_share"], self.manifest["seat_share"]), (0.0, 0.5))
 
     def test_without_it_nothing_changes(self):
         for trainer in ("train_mortal", "train_combined"):
             with self.subTest(trainer=trainer):
                 command = self.launch(trainer, opponent_share=0.25)
                 self.assertNotIn("--seat-share", command)
+                self.assertEqual((self.manifest["opponent_share"], self.manifest["seat_share"]), (0.25, 0.0))
+
+
+class Seated:
+    """What the trainers load for a seated other; never asked to play here."""
+
+    kind = "mortal"
+
+    def eval(self):
+        return self
+
+
+class TrainerRecordsTests(unittest.TestCase):
+    """What both trainers write down about a round with others at the table."""
+
+    CONFIG = {"resnet": {"conv_channels": 8, "num_blocks": 1}, "control": {"version": 4}}
+
+    def setUp(self):
+        import torch
+
+        self.threads = torch.get_num_threads()
+        torch.set_num_threads(1)
+        torch.manual_seed(5)
+
+    def tearDown(self):
+        import torch
+
+        torch.set_num_threads(self.threads)
+
+    def train(self, module, folder):
+        """One generation of `module` against a stand-in round, with one
+        other named as the cloud stages it and seated by player. Returns
+        what the round was asked for, the generation's record and the
+        checkpoint written."""
+        import math
+        import sys
+
+        import torch
+
+        from neural import combined, model, mortal_model, train_mortal
+        from neural.observe import Planes
+
+        root = Path(folder)
+        origin, out = root / "origin.pt", root / "run"
+        other = root / "opponents" / "0000" / "zoo--mortal_298k.pt"
+        other.parent.mkdir(parents=True)
+        other.write_bytes(b"loaded by the stand-in below")
+        if module is train_mortal:
+            payload = {**mortal_model.build(8, 1).state(), "config": self.CONFIG}
+        else:
+            net = combined.Combined(model.PolicyValueNet(8, 1, actions=46), mortal_model.build(8, 1))
+            net.mortal_config = self.CONFIG
+            payload = net.state()
+        torch.save(payload, origin)
+        asked = []
+
+        def play(_learner, **kwargs):
+            asked.append(kwargs)
+            n = 8
+            return SimpleNamespace(
+                decisions=n, games=1, hands=1, timing={},
+                observations=Planes(np.arange(n + 1, dtype=np.int64), np.zeros(n, dtype=np.uint16),
+                                    np.ones(n, dtype=np.float16)),
+                legal=torch.ones(n, 46, dtype=torch.bool), actions=torch.zeros(n, dtype=torch.int64),
+                returns=torch.linspace(-1, 1, n), log_probs=torch.full((n,), -math.log(46)),
+                held=torch.full((n, 3, 34), 1 / 34),
+                matchups=[{"name": "zoo/mortal_298k", "role": "reference", "games": 1, "placement": 2.0}],
+            )
+
+        argv = ["trainer", "--mortal" if module is train_mortal else "--resume", str(origin),
+                "--out", str(out), "--rounds", "1", "--games", "1", "--batch", "4", "--epochs", "1",
+                "--measure-every", "100", "--measure-games", "1",
+                "--opponents", str(other), "--seat-share", "0.5"]
+        if module is not train_mortal:
+            argv += ["--fixed", "none"]
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(sys, "argv", argv))
+            stack.enter_context(patch.object(torch.cuda, "is_available", return_value=False))
+            stack.enter_context(patch.object(module.selfplay, "play", side_effect=play))
+            stack.enter_context(patch.object(module.selfplay, "measure",
+                                             return_value={"placement": 2.5, "score": 0.0, "wins": 0.25}))
+            stack.enter_context(patch.object(module.zoo, "load_player", return_value=Seated()))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            module.main()
+        record = json.loads((out / "log.jsonl").read_text().splitlines()[-1])
+        saved = torch.load(out / "latest.pt", map_location="cpu", weights_only=True)
+        return asked, record, saved
+
+    def trainers(self):
+        from neural import train_combined, train_mortal
+
+        return (train_mortal, train_combined)
+
+    def test_both_trainers_record_the_seating_in_their_checkpoints(self):
+        for module in self.trainers():
+            with self.subTest(trainer=module.__name__), tempfile.TemporaryDirectory() as folder:
+                asked, _record, saved = self.train(module, folder)
+                self.assertEqual(asked[0]["seat_share"], 0.5)
+                self.assertEqual(saved["training_controls"]["seat_share"], 0.5)
 
 
 if __name__ == "__main__":

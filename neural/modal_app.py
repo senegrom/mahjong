@@ -442,11 +442,12 @@ def train_mortal(
             command += ["--mortal", str(where / "origin.pt")]
             print(f"starting from {origin}", flush=True)
 
+        # The seating by player goes in the staged manifest as well as on
+        # the trainer's command line, so the run records how it was seated.
         command += stage_opponents(
-            where, opponents, opponent_share, lambda name: _checkpoint(run, name)
+            where, opponents, opponent_share, lambda name: _checkpoint(run, name),
+            seat_share=seat_share,
         )
-        if seat_share:
-            command += ["--seat-share", str(seat_share)]
         command += controls
         print(" ".join(command), flush=True)
 
@@ -585,11 +586,12 @@ def train_combined(
             command += parts
             print(f"joining {ours} and {mortal}", flush=True)
 
+        # As for `train_mortal`: the manifest and the command line both say
+        # how the others were seated.
         command += stage_opponents(
-            where, opponents, opponent_share, lambda name: _checkpoint(run, name)
+            where, opponents, opponent_share, lambda name: _checkpoint(run, name),
+            seat_share=seat_share,
         )
-        if seat_share:
-            command += ["--seat-share", str(seat_share)]
         command += controls
         print(" ".join(command), flush=True)
 

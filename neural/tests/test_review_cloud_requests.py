@@ -45,12 +45,33 @@ class CloudRequestHelpersTests(unittest.TestCase):
             self.assertEqual([torch.load(p, weights_only=True)['generation'] for p in paths], [11, 22])
             saved = json.loads((where/'opponents.json').read_text())
             self.assertEqual(saved['opponent_share'], .5)
+            self.assertEqual(saved['seat_share'], 0.)
+            self.assertNotIn('--seat-share', args)
             self.assertEqual([e['requested'] for e in saved['opponents']], ['run-a/best', 'run-b/best'])
             self.assertEqual(len({e['sha256'] for e in saved['opponents']}), 2)
             atomic_save({'generation': 1}, where/'latest.pt')
             publish_training_snapshot(where, root/'published', 1)
             self.assertEqual((root/'published/opponents.json').read_bytes(),
                              (where/'opponents.json').read_bytes())
+
+    def test_seating_by_player_is_recorded_beside_the_population(self):
+        """The manifest said how many games seated somebody else and not
+        how many players, so a run seated by player recorded neither."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); where = root/'scratch'; where.mkdir()
+            atomic_save({'generation': 3}, root/'a.pt')
+            args = stage_opponents(where, ['a'], 0., lambda name: root/(name+'.pt'), seat_share=.5)
+            self.assertEqual(args[args.index('--opponent-share')+1], '0.0')
+            self.assertEqual(args[args.index('--seat-share')+1], '0.5')
+            saved = json.loads((where/'opponents.json').read_text())
+            self.assertEqual((saved['opponent_share'], saved['seat_share']), (0., .5))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); where = root/'scratch'; where.mkdir()
+            atomic_save({'generation': 3}, root/'a.pt')
+            for opponents, by_game in ((['a'], .25), ([], 0.)):
+                with self.subTest(opponents=opponents, by_game=by_game), self.assertRaises(ValueError):
+                    stage_opponents(where, opponents, by_game, lambda name: root/(name+'.pt'), seat_share=.5)
+            self.assertEqual(list(where.iterdir()), [])
 
     def test_missing_population_rejected_before_any_staging(self):
         for names in (['absent'], ['present', 'absent']):
