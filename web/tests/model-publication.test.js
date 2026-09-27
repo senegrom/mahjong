@@ -13,10 +13,16 @@ async function folder(t) {
   return dir;
 }
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+// The smallest ONNX model the publisher reads: a graph holding one initializer
+// of ONNX element type `type`, whose stored bytes are `data`.
+function network(type, data) {
+  const message = (field, body) => Buffer.concat([Buffer.from([field * 8 + 2, body.length]), body]);
+  return message(7, message(5, Buffer.concat([Buffer.from([2 * 8, type]), message(9, Buffer.from(data))])));
+}
 
 test('interleaved publishers upload only their own immutable staged bytes', async t => {
   const dir = await folder(t), paths = [join(dir, 'a.onnx'), join(dir, 'b.onnx')];
-  await Promise.all(paths.map((path, index) => fs.writeFile(path, `model ${index}`)));
+  await Promise.all(paths.map((path, index) => fs.writeFile(path, network(1, `model ${index}`))));
   let release, entered;
   const paused = new Promise(resolve => entered = resolve), gate = new Promise(resolve => release = resolve);
   const sent = [], staged = [];
@@ -47,7 +53,7 @@ test('invalid publication requests fail before uploading or changing the manifes
   for (const bad of [{ generation: undefined }, { generation: 'g36' }, { generation: null },
     { generation: true }, { generation: 1.5 }, { generation: -1 }, { generation: 2 ** 53 },
     { origin: undefined }, { origin: 'http://model.invalid' }, { origin: 'https://model.invalid/path' },
-    { origin: 'https://user:password@model.invalid' }, { source: '' }]) {
+    { origin: 'https://user:password@model.invalid' }, { source: '' }, { source: undefined }]) {
     await assert.rejects(publish({ ...good, ...bad }), /generation|origin|checkpoint/);
     assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
   }
@@ -56,7 +62,7 @@ test('invalid publication requests fail before uploading or changing the manifes
 
 test('upload and pre-rename failures preserve the previous manifest and clean up', async t => {
   const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
-  await fs.writeFile(manifestPath, 'previous manifest'); await fs.writeFile(modelPath, 'model');
+  await fs.writeFile(manifestPath, 'previous manifest'); await fs.writeFile(modelPath, network(1, 'model'));
   let staged;
   await assert.rejects(publish({ modelPath, manifestPath, generation: 36, source: 'actor', origin: 'https://model.invalid',
     upload: (_bucket, _key, file) => { staged = file; throw new Error('upload failed'); } }), /upload failed/);
@@ -68,4 +74,25 @@ test('upload and pre-rename failures preserve the previous manifest and clean up
   assert.deepEqual((await fs.readdir(dir)).sort(), ['manifest.js', 'model.onnx']);
   await atomicManifest(manifestPath, 'complete new manifest');
   assert.equal(await fs.readFile(manifestPath, 'utf8'), 'complete new manifest');
+});
+
+test('the manifest records the precision the weights are stored in, or nothing is published', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  let uploads = 0;
+  const request = { modelPath, manifestPath, generation: 36, source: 'actor', origin: 'https://model.invalid',
+    upload: () => { uploads++; } };
+  for (const [type, precision] of [[1, 'float32'], [3, 'int8'], [10, 'float16']]) {
+    await fs.writeFile(modelPath, network(type, `weights of type ${type}`));
+    assert.equal((await publish(request)).precision, precision);
+    assert.ok((await fs.readFile(manifestPath, 'utf8')).includes(`"precision": "${precision}"`));
+  }
+  assert.equal(uploads, 3);
+  await fs.writeFile(manifestPath, 'previous manifest');
+  for (const [bytes, reason] of [['not a network', /not a readable ONNX file/],
+    [network(7, 'shape only'), /precision of the network's weights/]]) {
+    await fs.writeFile(modelPath, bytes);
+    await assert.rejects(publish(request), reason);
+  }
+  assert.equal(uploads, 3);
+  assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
 });

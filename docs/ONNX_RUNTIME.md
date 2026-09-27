@@ -6,7 +6,9 @@
 its source, generation, precision, decoded byte count, stored byte count,
 origin, immutable object key, and SHA-256. Inspect those fields for the current
 release. `neural.export` checks the graph's operators; the publication tool
-`web/scripts/publish-model-r2.mjs` writes the delivery manifest.
+`web/scripts/publish-model-r2.mjs` writes the delivery manifest, reading the
+precision from the exported weights and refusing to run without the source
+checkpoint's name. It uploads with an exact wrangler release.
 
 No ONNX model is served from `web/public`. Both packaging and offline inventory
 creation reject unexpected local ONNX files, including nested files. There is
