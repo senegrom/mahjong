@@ -78,6 +78,13 @@ def validate_training_options(args) -> None:
         raise ValueError("opponent_share must be between zero and one")
     if share > 0 and not roster:
         raise ValueError("opponent_share requires at least one opponent checkpoint")
+    by_player = getattr(args, "seat_share", 0.0)
+    if not 0.0 <= by_player < 1.0:
+        raise ValueError("seat_share must be at least nought and below one")
+    if by_player > 0 and not roster:
+        raise ValueError("seat_share requires at least one opponent checkpoint")
+    if by_player > 0 and share > 0:
+        raise ValueError("seat others by game (opponent_share) or by player (seat_share), not both")
     if getattr(args, "freeze_policy", False) and getattr(args, "freeze_aux", False):
         raise ValueError("freeze_policy and freeze_aux cannot both be enabled")
     fixed = getattr(args, "fixed", None)

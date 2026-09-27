@@ -180,24 +180,59 @@ class Population:
         count = int(taken.sum())
         if not count:
             return chosen
-        weights = np.array([member.weight for member in self.members], dtype=np.float64)
-        weights = weights / weights.sum()
-        chosen[taken] = rng.choice(len(self.members), size=count, p=weights)
+        chosen[taken] = rng.choice(len(self.members), size=count, p=self.weights())
         return chosen
+
+    def weights(self) -> np.ndarray:
+        """How often each member is drawn, as probabilities."""
+        weights = np.array([member.weight for member in self.members], dtype=np.float64)
+        return weights / weights.sum()
+
+
+def mixed_tables(games: int, share: float, weights, rng: np.random.Generator) -> np.ndarray:
+    """Which member holds each player of each game, or -1 for the learner.
+
+    Each player is, independently, somebody else with chance `share`, the
+    member drawn by `weights`; a table the draw filled with others gives one
+    player, chosen at random, back to the learner. So one table can hold the
+    learner, published Mortal and an old checkpoint at once, which one
+    foreign seat a game never did: the lineage that learned only against
+    itself got better at beating its ancestors and no better at beating
+    published Mortal.
+    """
+    if not 0 < share < 1:
+        raise ValueError("share must be above nought and below one")
+    weights = np.asarray(weights, dtype=np.float64)
+    if weights.ndim != 1 or not len(weights) or (weights < 0).any() or not weights.sum() > 0:
+        raise ValueError("weights must be one nonnegative weight a member, not all nought")
+    weights = weights / weights.sum()
+    outside = rng.random((games, 4)) < share
+    full = outside.all(axis=1)
+    if full.any():
+        outside[np.nonzero(full)[0], rng.integers(0, 4, size=int(full.sum()))] = False
+    owner = np.full((games, 4), -1, dtype=np.int64)
+    count = int(outside.sum())
+    if count:
+        owner[outside] = rng.choice(len(weights), size=count, p=weights)
+    return owner
 
 
 def matchups(seated: np.ndarray, placements: np.ndarray, members: list[Member]) -> list[dict]:
     """How the learner did against each member it met, kept apart.
 
     `seated[game]` is the member in that game or -1, and `placements[game]`
-    is the learner's own average placement there. Reported one row a
+    is the learner's own average placement there; with mixed tables
+    `seated` has a column for each player (see `mixed_tables`), and a
+    member's row counts every game it sat in. Reported one row a
     member, never summed: improving against your own recent past while
     losing to a fixed reference is specialisation, and a single average is
     exactly what hides it.
     """
+    seated = np.asarray(seated)
+    table = seated if seated.ndim == 2 else seated[:, None]
     rows = []
     for index, member in enumerate(members):
-        met = seated == index
+        met = (table == index).any(axis=1)
         played = int(met.sum())
         if not played:
             continue
@@ -209,7 +244,7 @@ def matchups(seated: np.ndarray, placements: np.ndarray, members: list[Member]) 
                 "placement": round(float(placements[met].mean()), 4),
             }
         )
-    alone = seated < 0
+    alone = (table < 0).all(axis=1)
     if alone.any():
         rows.append(
             {

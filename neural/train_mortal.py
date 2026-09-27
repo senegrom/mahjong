@@ -62,6 +62,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--opponents", type=Path, nargs="*", default=[])
     parser.add_argument("--opponent-share", type=float, default=0.0)
+    parser.add_argument(
+        "--seat-share", type=float, default=0.0,
+        help="each player of each game is one of --opponents with this chance, so one table "
+        "can hold several of them and the learner at once; instead of --opponent-share",
+    )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260907)
@@ -140,7 +145,9 @@ def main() -> None:
         other.eval()
         seated.append(other)
     if seated:
-        print(f"{len(seated)} others seated in {args.opponent_share:.0%} of games", flush=True)
+        where = (f"{args.seat_share:.0%} of players" if args.seat_share
+                 else f"{args.opponent_share:.0%} of games")
+        print(f"{len(seated)} others seated in {where}", flush=True)
     print(
         f"device {device} | Mortal {config['resnet']['conv_channels']}x{config['resnet']['num_blocks']} "
         f"| {sum(p.numel() for p in net.parameters()) / 1e6:.2f}M parameters "
@@ -179,6 +186,7 @@ def main() -> None:
             amp=amp_enabled,
             opponents=seated,
             opponent_share=args.opponent_share,
+            seat_share=args.seat_share,
         )
         require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began

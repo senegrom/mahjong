@@ -119,6 +119,11 @@ def parse_args() -> argparse.Namespace:
              "round in circles",
     )
     parser.add_argument("--opponent-share", type=float, default=0.0)
+    parser.add_argument(
+        "--seat-share", type=float, default=0.0,
+        help="each player of each game is one of --opponents with this chance, so one table "
+        "can hold several of them and the learner at once; instead of --opponent-share",
+    )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260908)
@@ -267,7 +272,9 @@ def main() -> None:
     roster = population.Population(members=members)
     if seated:
         print(
-            f"{len(seated)} others seated in {args.opponent_share:.0%} of games: "
+            f"{len(seated)} others seated in "
+            + (f"{args.seat_share:.0%} of players: " if args.seat_share
+               else f"{args.opponent_share:.0%} of games: ")
             + json.dumps(roster.describe()),
             flush=True,
         )
@@ -329,6 +336,7 @@ def main() -> None:
             amp=amp_enabled,
             opponents=seated,
             opponent_share=args.opponent_share,
+            seat_share=args.seat_share,
             population=roster,
             explore_share=args.explore,
         )

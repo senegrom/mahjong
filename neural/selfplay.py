@@ -235,6 +235,7 @@ def play(
     amp: bool = False,
     opponents: list | None = None,
     opponent_share: float = 0.0,
+    seat_share: float = 0.0,
     population=None,
     explore_share: float = 0.0,
     want_oracle: bool = False,
@@ -252,10 +253,19 @@ def play(
     getting worse against outside policies while getting better against
     fixed weak ones. With no opponents given, every path below is the one
     that ran before.
+
+    `seat_share` seats them by player instead: each player of each game is
+    one of them with that chance, so a table can hold the learner,
+    published Mortal and an old checkpoint at once (see
+    `population.mixed_tables`). One or the other share, not both.
     """
     require_training_engine()
     validate_budget(games, max_steps)
     validate_exploration(explore_share)
+    if not 0.0 <= float(seat_share) < 1.0:
+        raise ValueError("seat_share must be at least nought and below one")
+    if seat_share and opponent_share:
+        raise ValueError("seat others by game (opponent_share) or by player (seat_share), not both")
     net.eval()
     for other in opponents or []:
         other.eval()
@@ -264,21 +274,29 @@ def play(
     views = Views(arena, games, kinds)
     recording = net.kind == "mortal"
 
-    # Which player, if any, an older checkpoint holds in each game, and
-    # which checkpoint it is. Fixed for the game, so a seat does not change
+    # Which older checkpoint, if any, holds each player of each game, -1
+    # being the learner. Fixed for the game, so a seat does not change
     # hands mid-hand.
-    foreign_player = np.full(games, -1, dtype=np.int64)
-    foreign_which = np.zeros(games, dtype=np.int64)
-    #: Which seated player took a place in each game, or -1 for a table of
-    #: the learner alone. The same thing `foreign_which` says, but valid
-    #: only where somebody was actually seated, which is what a report of
-    #: who-played-whom needs.
+    owner = np.full((games, 4), -1, dtype=np.int64)
+    #: Who was seated in each game, for the report of who-played-whom: the
+    #: member or -1 when others are seated by game, and `owner` itself, a
+    #: column a player, when they are seated by player.
     seated_in = np.full(games, -1, dtype=np.int64)
     # Its own stream, so how much the round wanders cannot change what is
     # dealt, and turning exploration on or off leaves the games alone.
     wanderer = np.random.default_rng(seed ^ 0x3A17_9E55)
-    if opponents and opponent_share > 0:
+    if opponents and seat_share > 0:
+        from .population import mixed_tables
+
         picker = np.random.default_rng(seed ^ 0x0DDBA11)
+        weights = population.weights() if population is not None else np.ones(len(opponents))
+        owner = mixed_tables(games, seat_share, weights, picker)
+        seated_in = owner
+    elif opponents and opponent_share > 0:
+        # One foreign seat a game, drawn in the order it always was, so a
+        # run seated this way deals the same tables as before.
+        picker = np.random.default_rng(seed ^ 0x0DDBA11)
+        foreign_which = np.zeros(games, dtype=np.int64)
         if population is not None:
             seated_in = population.seat(games, opponent_share, picker)
             taken = seated_in >= 0
@@ -287,7 +305,8 @@ def play(
             taken = picker.random(games) < opponent_share
             foreign_which[taken] = picker.integers(0, len(opponents), size=int(taken.sum()))
             seated_in[taken] = foreign_which[taken]
-        foreign_player[taken] = picker.integers(0, 4, size=int(taken.sum()))
+        foreign_player = picker.integers(0, 4, size=int(taken.sum()))
+        owner[np.nonzero(taken)[0], foreign_player] = foreign_which[taken]
 
     # One block per step, holding the live games' rows in the order the
     # decisions are numbered below: a round is a few hundred blocks rather
@@ -377,7 +396,8 @@ def play(
         )
         # Games whose pending decision belongs to an older checkpoint are
         # answered separately and never recorded.
-        theirs = live & (deciding == foreign_player) & (foreign_player >= 0)
+        holder = np.where(live, owner[np.arange(games), np.clip(deciding, 0, 3)], -1)
+        theirs = live & (holder >= 0)
         index = np.nonzero(live & ~theirs)[0]
         timing["other"] += clock() - began
         began = clock()
@@ -387,8 +407,8 @@ def play(
         timing["encode"] += clock() - began
         began = clock()
         if theirs.any():
-            for which in np.unique(foreign_which[theirs]):
-                rows = np.nonzero(theirs & (foreign_which == which))[0]
+            for which in np.unique(holder[theirs]):
+                rows = np.nonzero(theirs & (holder == which))[0]
                 other = opponents[int(which)]
                 with torch.autocast(
                     "cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"
@@ -602,11 +622,11 @@ def play(
     # How the learner placed in each game, so the round can say who it
     # played and how it did against each of them rather than only how it
     # did on average. Places are per person; the learner holds every seat
-    # a foreign player did not, so its own placement is the mean of those.
+    # no foreign player did, so its own placement is the mean of those.
     places = placements(final_scores)
     learner_place = np.zeros(games, dtype=np.float64)
     for game in range(games):
-        mine = [person for person in range(4) if person != foreign_player[game]]
+        mine = [person for person in range(4) if owner[game, person] < 0]
         learner_place[game] = float(np.mean([places[game][person] for person in mine]))
     against: list[dict] = []
     if population is not None and opponents:

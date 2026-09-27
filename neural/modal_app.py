@@ -393,6 +393,7 @@ def train_mortal(
     mortal: str = "zoo/mortal_298k",
     opponents: list[str] | None = None,
     opponent_share: float = 0.0,
+    seat_share: float = 0.0,
     run: str = "mortal-run",
     target_kl: float = 0.0,
     baseline_batch: int | None = None,
@@ -409,7 +410,7 @@ def train_mortal(
     started again from the top then finishes the run instead of playing
     `generations` more.
     """
-    validate_cloud_request(generations, opponents, opponent_share)
+    validate_cloud_request(generations, opponents, opponent_share, seat_share)
     rounds = round_arguments(generations, until)
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
@@ -447,6 +448,8 @@ def train_mortal(
         command += stage_opponents(
             where, opponents, opponent_share, lambda name: _checkpoint(run, name)
         )
+        if seat_share:
+            command += ["--seat-share", str(seat_share)]
         command += controls
         print(" ".join(command), flush=True)
 
@@ -518,6 +521,7 @@ def train_combined(
     mortal: str = "mortal-run/latest",
     opponents: list[str] | None = None,
     opponent_share: float = 0.0,
+    seat_share: float = 0.0,
     explore: float = 0.0,
     run: str = "joined-run",
     compile: bool = True,
@@ -535,7 +539,7 @@ def train_combined(
     """
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
-    validate_cloud_request(generations, opponents, opponent_share)
+    validate_cloud_request(generations, opponents, opponent_share, seat_share)
     rounds = round_arguments(generations, until)
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
@@ -587,6 +591,8 @@ def train_combined(
         command += stage_opponents(
             where, opponents, opponent_share, lambda name: _checkpoint(run, name)
         )
+        if seat_share:
+            command += ["--seat-share", str(seat_share)]
         command += controls
         print(" ".join(command), flush=True)
 

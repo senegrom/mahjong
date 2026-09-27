@@ -24,7 +24,7 @@ def round_arguments(generations: int, until: int) -> list[str]:
 
 
 def validate_cloud_request(generations: int, opponents: Sequence[str] | None,
-                           opponent_share: float) -> None:
+                           opponent_share: float, seat_share: float = 0.0) -> None:
     """A cloud count is literal, unlike the CLI's zero-as-unspecified sentinel."""
     if type(generations) is not int or generations <= 0:
         raise ValueError("generations must be a positive integer of additional rounds")
@@ -38,6 +38,13 @@ def validate_cloud_request(generations: int, opponents: Sequence[str] | None,
             raise ValueError("each opponent must be a nonempty checkpoint name")
     if opponent_share > 0 and not opponents:
         raise ValueError("opponent_share requires at least one opponent checkpoint")
+    if (isinstance(seat_share, bool) or not isinstance(seat_share, Real)
+            or not math.isfinite(seat_share) or not 0 <= seat_share < 1):
+        raise ValueError("seat_share must be finite, at least nought and below one")
+    if seat_share > 0 and not opponents:
+        raise ValueError("seat_share requires at least one opponent checkpoint")
+    if seat_share > 0 and opponent_share > 0:
+        raise ValueError("seat others by game (opponent_share) or by player (seat_share), not both")
 
 
 def stage_opponents(where: Path, opponents: Sequence[str] | None,
