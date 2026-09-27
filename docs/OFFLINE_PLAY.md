@@ -84,8 +84,11 @@ and failed face switches. Unit tests cover preload cancellation and retry.
 `npm run test:offline` exercises the real production service worker and shipped
 network, including a browser-process restart with HTTP cache cleared, disabled
 network access, all graphics reloaded offline, continued mixed-opponent play,
-interrupted downloads and version updates. Unit tests independently cover
-hash/length validation, quotas, eviction, cache isolation and failed upgrades.
+interrupted downloads and version updates. It also checks that the optional
+button downloads only trained-AI bytes without changing the match, and that
+missing tile and icon entries are repaired on reconnect without downloading
+AI. Unit tests independently cover hash/length validation, quotas, eviction,
+cache isolation and failed upgrades.
 The cold-restart checks also refuse game assets at the HTTP server, so ordinary
 HTTP caching cannot conceal a missing offline file. Existing small-phone layout
 assertions remain part of verification.

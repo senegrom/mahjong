@@ -133,7 +133,8 @@ Riichi and furiten
 - Tenpai: a hand waiting only on a fifth copy is noten; a hand whose waits
   are all visible elsewhere is still tenpai. Noten penalty 3,000 in total,
   split as in section 3.4.2. Riichi players must reveal; a tenpai player may
-  declare noten (the UI offers this).
+  declare noten. The guided physical-scoring UI offers this; the engine's own
+  exhaustive draw does not (see 1.2).
 
 Scoring
 
@@ -182,8 +183,10 @@ each of which is a referee's judgement rather than a decidable rule:
   declared that is not a win. There is therefore nothing to declare dead and
   nothing to re-deal.
 - **Declaring noten while waiting (3.4.2).** A player at a table may keep a
-  waiting hand to themselves at an exhaustive draw; the engine always shows
-  it. Worth offering in the interface later, since it is a real decision.
+  waiting hand to themselves at an exhaustive draw; the engine's own
+  exhaustive draw never allows it and counts every waiting hand as tenpai.
+  Only the guided physical-scoring UI, which records a real table, lets a
+  player without riichi declare noten.
 - **Call timing (3.3.1).** A physical table resolves claims by who spoke
   first; software cannot reproduce that and does not try. Every player gets
   the same window on a discard and claims are settled by the rulebook's
@@ -206,12 +209,12 @@ the noten penalty split, multiple winners, counters, dealer rotation, every
 row of the minipoint table, the base-value cap that makes four han thirty a
 mangan, and every yaku's han with its open-hand penalty.
 
-### 1.3 Rules kept parameterised
+### 1.3 Rule variants
 
-The engine takes a `RuleSet` value so that WRC or Tenhou variants (red fives,
-abortive draws, kazoe yakuman, different uma) can be added later without
-touching game logic. Version 1 ships only `ema2025`; anything else is a
-clearly labelled practice option, never the default.
+The engine implements EMA 2025 only and takes no rule-set parameter. WRC or
+Tenhou variants (red fives, abortive draws, kazoe yakuman, different uma)
+would have to be added to the game logic itself. Anything other than EMA 2025
+would be a clearly labelled practice option, never the default.
 
 ## 2. Architecture: one rules engine everywhere
 
@@ -245,7 +248,7 @@ Design
   legal-action list, never trusted.
 - Legal actions per player per phase: discard (with tsumogiri flag), riichi
   with discard, chii (which sequence), pon, three quad kinds, ron, tsumo,
-  declare tenpai or noten, pass.
+  pass.
 - Shanten and waits by the standard per-suit decomposition tables (one table
   for a 9-number suit, one for the 7 honours), which also give acceptance
   counts for hints and for the efficiency oracle. Winning-hand decomposition
@@ -258,8 +261,9 @@ Design
 Testing (the engine is only as good as this)
 
 - Every numbered rule in the card above becomes at least one named test that
-  cites its section; the ten scoring examples of section 4.3 and the four
-  invalid-quad examples of section 6.7.1 are literal tests.
+  cites its section; the ten scoring examples of section 4.3 are literal
+  tests, and the four invalid-quad examples of section 6.7.1 are tests in
+  `engine/riichi-core`.
 - Differential scoring: one million random winning hands scored by the Rust
   engine and by the MIT-licensed `mahjong` Python library (validated against
   26 million Tenhou hands), with its optional rules set to EMA (no red fives,
