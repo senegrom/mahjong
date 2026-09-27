@@ -11,7 +11,6 @@ import numpy as np
 from neural import recordings
 from neural.observe import Planes
 from neural.searched import Recording
-from neural.sibling_head import Recorded
 
 
 def tiny_recording():
@@ -29,14 +28,11 @@ class RecordingPublicationTests(unittest.TestCase):
             record.save(folder, {'note': 'partial'}, complete=False)
             partial = recordings.resolve_recording(folder)
             self.assertFalse(recordings.validate_snapshot(partial, require_complete=False)['complete'])
-            with self.assertRaisesRegex(ValueError, 'Incomplete'):
-                Recorded(folder)
             record.save(folder, {'note': 'complete'})
             final = recordings.resolve_recording(folder)
             self.assertNotEqual(partial, final)
             self.assertTrue(partial.is_dir())
             self.assertEqual(recordings.validate_snapshot(final)['rows'], 1)
-            self.assertEqual(len(Recorded(folder)), 1)
             copied = Path(temp) / 'accepted'
             recordings.copy_recording(folder, copied, require_complete=True)
             self.assertEqual(recordings.validate_snapshot(recordings.resolve_recording(copied))['snapshot_id'], final.name)

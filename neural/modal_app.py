@@ -1046,19 +1046,8 @@ def duel(
     incumbent_channels: int = 192,
     incumbent_blocks: int = 10,
     run: str = DEFAULT_RUN,
-    challenger_head: str | None = None,
-    head_k: int = 4,
-    head_margin: float = 0.05,
-    head_sure: float | None = None,
 ) -> str:
     """Sits two checkpoints from the volume at the same table.
-
-    With `challenger_head`, a sibling head on the volume (a `.pt` written
-    by `neural.sibling_head`, named by its path from the volume's root),
-    the challenger plays with the head's second opinion over its first
-    `head_k` moves, taking the head's favourite past `head_margin`, and
-    only where the policy's confidence is below `head_sure` (by default
-    the gate the head's recordings were made under); see `neural.ranked`.
 
     Measuring each against the heuristic players and subtracting has a
     floor of about 0.024 on the difference, so two close networks never
@@ -1086,29 +1075,13 @@ def duel(
         flush=True,
     )
 
-    if challenger_head is None:
-        command = [
-            sys.executable, "-m", "neural.duel", str(files[0]), str(files[1]),
-            "--games", str(games), "--seed", str(seed),
-            "--channels", str(channels), "--blocks", str(blocks),
-            "--incumbent-channels", str(incumbent_channels),
-            "--incumbent-blocks", str(incumbent_blocks),
-        ]
-    else:
-        # The challenger with a sibling head's second opinion, against the
-        # same network plain: the head's worth, at one table.
-        head = _checkpoint(run, challenger_head)
-        if not head.exists():
-            return f"no head at {head}"
-        head_copy = local / ("head--" + challenger_head.replace("/", "--") + ".pt")
-        shutil.copyfile(head, head_copy)
-        command = [
-            sys.executable, "-m", "neural.ranked", str(files[0]), str(head_copy),
-            "--games", str(games), "--seed", str(seed),
-            "--k", str(head_k), "--margin", str(head_margin),
-        ]
-        if head_sure is not None:
-            command += ["--sure", str(head_sure)]
+    command = [
+        sys.executable, "-m", "neural.duel", str(files[0]), str(files[1]),
+        "--games", str(games), "--seed", str(seed),
+        "--channels", str(channels), "--blocks", str(blocks),
+        "--incumbent-channels", str(incumbent_channels),
+        "--incumbent-blocks", str(incumbent_blocks),
+    ]
     result = subprocess.run(
         command,
         cwd="/src",
@@ -1117,145 +1090,6 @@ def duel(
         text=True,
     )
     answer = (result.stdout or "") + (result.stderr or "" if result.returncode else "")
-    print(answer, flush=True)
-    return answer
-
-
-@app.function(
-    gpu="L40S",
-    cpu=8.0,
-    memory=49152,
-    timeout=4 * 60 * 60,
-    volumes={str(VOLUME): volume},
-)
-def teach(
-    recordings: list[str],
-    checkpoint: str = "leashed-run/latest",
-    out: str = "taught/latest",
-    epochs: int = 6,
-    lr: float = 1e-3,
-    batch: int = 128,
-    target: str = "decision",
-    temperature: float = 0.1,
-    leash: float = 4.0,
-    hold: str = "mortal+ours",
-    rows: str = "changed",
-    weighted: bool = False,
-    emphasis: float = 1.0,
-    without_mask: bool = False,
-    duel_games: int = 0,
-    seed: int = 555_000,
-) -> str:
-    """Teaches the policy what the search found (`neural.teach`) from
-    recordings on the volume, keeps the taught checkpoint at `out`, and
-    with `duel_games` sits it against the network it was taught from at
-    one table, which is the figure that settles whether the lesson was
-    worth learning.
-    """
-    volume.reload()
-    folders = [VOLUME / name for name in recordings]
-    for folder in folders:
-        folder = resolve_recording(folder)
-        if not (folder / "meta.json").exists():
-            return f"no recording at {folder}"
-    run = checkpoint.rpartition("/")[0] or DEFAULT_RUN
-    source = _checkpoint(run, checkpoint.rpartition("/")[2])
-    if not source.exists():
-        return f"no checkpoint at {source}"
-    answer = ""
-    with workspace("teach") as where:
-        copied = where / "network.pt"
-        copy_checkpoint(source, copied, require_generation=True)
-        taught = where / "taught.pt"
-        command = [
-            sys.executable, "-m", "neural.teach", *[str(folder) for folder in folders],
-            str(copied), "--out", str(taught), "--epochs", str(epochs), "--lr", str(lr),
-            "--batch", str(batch), "--target", target, "--temperature", str(temperature),
-            "--leash", str(leash), "--hold", hold, "--rows", rows,
-            "--emphasis", str(emphasis), "--device", "cuda",
-        ]
-        if weighted:
-            command.append("--weighted")
-        if without_mask:
-            command.append("--without-mask")
-        print(" ".join(command), flush=True)
-        result = subprocess.run(command, cwd="/src", env=_environment(8), capture_output=True, text=True)
-        answer += (result.stdout or "") + (result.stderr or "")
-        if result.returncode != 0 or not taught.exists():
-            print(answer, flush=True)
-            return answer
-        target = VOLUME / (out + ".pt")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(taught, target)
-        volume.commit()
-        answer += f"\ntaught network kept at {target}"
-        if duel_games:
-            # The taught policy against the one it was taught from, same
-            # deals, one table: what the lesson was actually worth.
-            duelled = subprocess.run(
-                [
-                    sys.executable, "-m", "neural.duel", str(taught), str(copied),
-                    "--games", str(duel_games), "--seed", str(seed),
-                ],
-                cwd="/src", env=_environment(8), capture_output=True, text=True,
-            )
-            answer += "\n" + (duelled.stdout or "") + (duelled.stderr or "" if duelled.returncode else "")
-    print(answer, flush=True)
-    return answer
-
-
-@app.function(
-    gpu="L40S",
-    cpu=8.0,
-    memory=32768,
-    timeout=2 * 60 * 60,
-    volumes={str(VOLUME): volume},
-)
-def train_head(
-    recordings: list[str],
-    checkpoint: str = "leashed-run/latest",
-    out: str = "heads/latest-sibling",
-    epochs: int = 10,
-    lr: float = 1e-3,
-    batch: int = 256,
-    weighted: bool = False,
-    target: str = "decision",
-) -> str:
-    """Trains the sibling head (`neural.sibling_head`) on recordings the
-    search kept on the volume -- directories under `searched-records/`,
-    named by their path from the volume's root -- against the network the
-    recordings were made with, and keeps the head at `out` on the volume.
-    """
-    volume.reload()
-    folders = [VOLUME / name for name in recordings]
-    for folder in folders:
-        folder = resolve_recording(folder)
-        if not (folder / "meta.json").exists():
-            return f"no recording at {folder}"
-    source = _checkpoint(checkpoint.rpartition("/")[0] or DEFAULT_RUN, checkpoint.rpartition("/")[2])
-    if not source.exists():
-        return f"no checkpoint at {source}"
-    with workspace("train-head") as where:
-        copied = where / "network.pt"
-        copy_checkpoint(source, copied, require_generation=True)
-        head = where / "head.pt"
-        command = [
-            sys.executable, "-m", "neural.sibling_head", *[str(folder) for folder in folders],
-            str(copied), "--out", str(head), "--epochs", str(epochs), "--lr", str(lr),
-            "--batch", str(batch), "--device", "cuda",
-        ]
-        if weighted:
-            command.append("--weighted")
-        command += ["--target", target]
-        print(" ".join(command), flush=True)
-        result = subprocess.run(command, cwd="/src", env=_environment(8), capture_output=True, text=True)
-        answer = (result.stdout or "") + (result.stderr or "")
-        if result.returncode == 0 and head.exists():
-            target = VOLUME / (out + ".pt")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(head, target)
-            volume.commit()
-            answer += f"\nhead kept at {target}"
     print(answer, flush=True)
     return answer
 

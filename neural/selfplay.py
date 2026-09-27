@@ -154,8 +154,8 @@ class Batch:
     #: was worth to that player in the end, with no hand points in it. A
     #: head trained on this judges a position by where it leads in the
     #: standings, which is what a search needs at a hand boundary where
-    #: the hand's own points have already been banked (`neural.worth`,
-    #: docs/SEARCH_REVIEW_REPAIRS.md).
+    #: the hand's own points have already been banked
+    #: (docs/SEARCH_REVIEW_REPAIRS.md).
     placements: torch.Tensor
     log_probs: torch.Tensor
     games: int

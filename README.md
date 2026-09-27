@@ -59,9 +59,8 @@ reports core, runtime, remote-model, and excluded-workspace byte totals.
 The `engine/` workspace supplies the CLI, browser, and Python bindings.
 `neural/` contains self-play, evaluation, export, checkpoint management, and
 cloud training. Training and search behavior are unchanged by web packaging.
-See [training controls](docs/TRAINING_CONTROLS.md),
-[training safety](docs/TRAINING_SAFETY.md), and
-[search replay learning](docs/SEARCH_REPLAY_LEARNER.md).
+See [training controls](docs/TRAINING_CONTROLS.md) and
+[training safety](docs/TRAINING_SAFETY.md).
 
 Dated benchmark narratives and earlier implementation reports are indexed in
 [historical evidence](docs/HISTORY.md). They describe the recorded revision,

@@ -1,5 +1,4 @@
 """Regression contracts for the player the teacher actually simulates."""
-from copy import deepcopy
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -8,9 +7,6 @@ import numpy as np
 import torch
 
 from neural import contract, policy_inference, searched, zoo
-from neural.collect_search import SearchSettings, metadata
-from neural.search_replay import validate_metadata
-from neural.training_safety import TRAINING_API_VERSION
 
 
 class TiedNet(torch.nn.Module):
@@ -195,38 +191,6 @@ class RolloutBatchTests(unittest.TestCase):
         for invalid in (0, -1, True, 1.5, None):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 server.play_lookahead(None, device="cpu", batch_size=invalid)
-
-
-class InferenceEvidenceTests(unittest.TestCase):
-    def sample(self):
-        return metadata(games=2, seed=10, settings=SearchSettings(rollout_batch=3),
-                        actor_sha256="a" * 64, source_revision="b" * 40,
-                        training_api_version=TRAINING_API_VERSION)
-
-    def test_new_replay_records_precision_order_and_batch(self):
-        value = self.sample()
-        validate_metadata(value)
-        self.assertEqual(value["version"], 3)
-        self.assertEqual(value["teacher"]["policy_inference"], policy_inference.describe("cpu"))
-        self.assertEqual(value["search"]["rollout_batch"], 3)
-
-    def test_missing_or_downgraded_inference_evidence_is_refused(self):
-        for field in ("precision", "tie_break", "version"):
-            bad = self.sample()
-            del bad["teacher"]["policy_inference"][field]
-            with self.assertRaises(ValueError): validate_metadata(bad)
-        bad = self.sample(); bad["version"] = 2
-        with self.assertRaises(ValueError): validate_metadata(bad)
-        for invalid in (True, 0, -1, 1.5):
-            bad = self.sample(); bad["search"]["rollout_batch"] = invalid
-            with self.assertRaises(ValueError): validate_metadata(bad)
-
-    def test_existing_version_two_replay_keeps_its_contract(self):
-        old = deepcopy(self.sample())
-        old["version"] = 2
-        del old["teacher"]["policy_inference"]
-        del old["search"]["rollout_batch"]
-        validate_metadata(old)
 
 
 if __name__ == "__main__":

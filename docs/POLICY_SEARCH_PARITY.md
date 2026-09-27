@@ -35,15 +35,6 @@ and their persistent follower copies also occupy memory. At nonzero temperature,
 changing chunk sizes can change random draws; it is part of experiment identity.
 Use fixed settings and fresh paired games to compare playing strength.
 
-## Evidence compatibility
-
-New completed supervised replay uses version 3 and explicitly records the acting
-precision, tie convention and rollout budget. Existing version-1 and version-2
-replay remain loadable under their original contracts. Version-3 metadata cannot
-omit its inference contract or be downgraded to a previous teacher format. Mixed
-inference contracts cannot silently enter one resumed learner dataset. No old
-replay is rewritten, and the student's hybrid value labels are unchanged.
-
 ## Browser integration
 
 Main already supplied the fused graph's float32 `legal` input alongside `planes`

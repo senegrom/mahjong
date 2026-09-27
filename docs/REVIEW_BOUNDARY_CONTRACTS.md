@@ -61,25 +61,3 @@ model. Only the producer, after fitting and checking against that proposal,
 should set the marker. Missing, stale and unknown versions remain explicitly
 uniform at search time. Malformed markers (including booleans/floats) fail.
 A declaration is producer metadata, not independent evidence of calibration.
-
-## Sibling-head supporting features
-
-Create trainable heads with `sibling_head.new_head(net)`. The trainer does this
-itself when no head is supplied. A head retains the exact identity of its
-supporting stem/tower/tail and observation/action contract: SHA-256 over named,
-shaped, typed tensor bytes plus the feature-layout version. For combined models,
-these are the actual `ours` features consumed by this head, not unused towers.
-The feature identity does not depend on a mutable checkpoint pathname.
-
-Saving validates and preserves this contract; user metadata cannot replace it.
-Loaded and explicitly supplied heads must match before ranked inference or
-continued head training. This check is shared by the CLI and its cloud caller.
-Serving assumes frozen supporting weights for the lifetime of a RankedPlayer.
-Legacy unbound head files remain inspectable, but cannot be attached or silently
-published as verified heads. Refit them against the intended frozen actor;
-pointing an old pathname at new weights cannot establish their provenance.
-
-Consumer regressions save/reload the original actor and head, accept them, reject
-another same-shaped actor, and reject a replaced actor path before the real ranked
-CLI begins a duel. They also cover missing/malformed contracts and action-layout
-changes. Atomic auxiliary-file failure protections are retained.

@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import riichi_py
 
-from neural import contract, duel, model, ranked, searched, sibling_head, zoo
+from neural import contract, model, searched, zoo
 from neural.checkpoints import atomic_save
 from neural.observe import Views
 
@@ -68,68 +68,5 @@ class ModelContractTests(unittest.TestCase):
                 model.from_payload({**payload, 'reader_proposal_version': value}, 'cpu')
             net.reader_proposal_version = value
             with self.assertRaises(ValueError): net.payload_fields()
-
-    def test_ranker_roundtrip_accepts_only_its_supporting_features(self):
-        torch.manual_seed(1)
-        actor = model.PolicyValueNet(8, 1, actions=46).eval()
-        head = sibling_head.new_head(actor)
-        with torch.no_grad():
-            head.tiles.weight.normal_()
-            head.rest.weight.normal_()
-        planes = torch.randn(2, 1012, 34)
-        with torch.no_grad(): expected = head(*sibling_head.features_of(actor, planes))
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / 'actor.pt'
-            saved_head = Path(temp) / 'head.pt'
-            atomic_save({'model': actor.state_dict(), **actor.payload_fields()}, path)
-            sibling_head.save(head, saved_head, {'checkpoint': str(path)})
-            reloaded_actor = contract.unwrap(zoo.load_player(path, 'cpu'))
-            reloaded_head, _ = sibling_head.load(saved_head)
-            player = ranked.RankedPlayer(reloaded_actor, reloaded_head, device='cpu')
-            with torch.no_grad(): actual = player.head(*sibling_head.features_of(player.net, planes))
-            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
-            other = model.PolicyValueNet(8, 1, actions=46).eval()
-            with self.assertRaisesRegex(ValueError, 'different supporting features'):
-                ranked.RankedPlayer(other, reloaded_head, device='cpu')
-            # The real CLI/cloud entry point must also refuse a mutable path
-            # that now holds another same-shaped actor, before starting a duel.
-            atomic_save({'model': other.state_dict(), **other.payload_fields()}, path)
-            with patch('sys.argv', ['ranked', str(path), str(saved_head), '--device', 'cpu']), \
-                    patch.object(duel, 'duel') as play, self.assertRaises(ValueError):
-                ranked.main()
-            play.assert_not_called()
-
-    def test_ranker_refuses_legacy_and_relabelled_contracts(self):
-        actor = model.PolicyValueNet(8, 1, actions=46).eval()
-        head = sibling_head.new_head(actor)
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / 'head.pt'
-            sibling_head.save(head, path, {})
-            before = path.read_bytes()
-            with self.assertRaises(ValueError):
-                sibling_head.save(head, path, {'feature_contract': head.feature_contract})
-            with self.assertRaises(ValueError):
-                sibling_head.save(sibling_head.Ranker(8), path, {})
-            self.assertEqual(before, path.read_bytes())
-            torch.save({'ranker': head.state_dict(), 'channels': 8,
-                        'checkpoint': 'actor.pt'}, path)
-            legacy, _ = sibling_head.load(path)
-            with self.assertRaisesRegex(ValueError, 'supporting feature contract'):
-                ranked.RankedPlayer(actor, legacy, device='cpu')
-            payload = torch.load(Path(temp) / 'head.pt', weights_only=True)
-            for changes in ({'version': 2}, {'version': True}, {'sha256': 'wrong'}, {'channels': 16}):
-                torch.save({**payload, 'feature_contract': {**head.feature_contract, **changes}}, path)
-                with self.subTest(changes=changes), self.assertRaises(ValueError): sibling_head.load(path)
-
-    def test_ranker_contract_includes_observation_and_action_meanings(self):
-        actor = model.PolicyValueNet(8, 1, actions=46).eval()
-        head = sibling_head.new_head(actor)
-        # Identical feature tensors are not sufficient when the actor's action
-        # contract changed from Mortal's conditional riichi to engine actions.
-        other = model.PolicyValueNet(8, 1, actions=78).eval()
-        for name in ('stem', 'tower', 'tail'):
-            getattr(other, name).load_state_dict(getattr(actor, name).state_dict())
-        with self.assertRaises(ValueError): ranked.RankedPlayer(other, head, device='cpu')
-
 
 if __name__ == '__main__': unittest.main()
