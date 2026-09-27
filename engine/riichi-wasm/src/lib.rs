@@ -13,11 +13,10 @@ use riichi::consts::obs_shape;
 use riichi::mjai::Event as MortalEvent;
 use riichi::state::PlayerState as MortalState;
 use riichi_core::bot::{Bot, Style};
-use riichi_core::encoding::{self, ACTIONS, OBSERVATION};
+use riichi_core::encoding::{self, ACTIONS};
 use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
 use riichi_core::review;
 use riichi_core::rng::Rng;
-use riichi_core::score::Riichi;
 use riichi_core::table::Table;
 use riichi_core::tile::Tile;
 use riichi_core::Wind;
@@ -29,7 +28,8 @@ const MORTAL_VERSION: u32 = 4;
 
 /// Mortal's moves: thirty-four discards, three red fives, then the rest.
 const MORTAL_ACTIONS: usize = riichi::consts::ACTION_SPACE;
-const MORTAL_RED_FIVES: [usize; 3] = [34, 35, 36];
+/// Mortal's red fives, each with the plain five it names in our tiles.
+const MORTAL_RED_FIVES: [(usize, usize); 3] = [(34, 4), (35, 13), (36, 22)];
 const MORTAL_REACH: usize = 37;
 const MORTAL_CHI_LOW: usize = 38;
 const MORTAL_CHI_MID: usize = 39;
@@ -39,21 +39,29 @@ const MORTAL_KAN: usize = 42;
 const MORTAL_AGARI: usize = 43;
 const MORTAL_PASS: usize = 45;
 
+/// The tile one of Mortal's discards names, as one of our thirty-four
+/// kinds, or nothing where the move is not a discard. Our rules have no red
+/// fives, so one means the plain tile.
+fn mortal_discard(action: usize) -> Option<usize> {
+    if action < 34 {
+        return Some(action);
+    }
+    MORTAL_RED_FIVES
+        .iter()
+        .find(|(red, _)| *red == action)
+        .map(|(_, plain)| *plain)
+}
+
 /// Our moves that one of Mortal's could mean, best first.
 ///
 /// The same table as `meanings` in `neural/zoo.py`, which is what the
 /// network was trained through; the two must not drift. An abortive draw
 /// means nothing here, our rules not offering one.
 fn meanings(action: usize) -> Vec<usize> {
+    if let Some(tile) = mortal_discard(action) {
+        return vec![encoding::DISCARD + tile];
+    }
     match action {
-        tile if tile < 34 => vec![encoding::DISCARD + tile],
-        // Our rules have no red fives, so one means the plain tile.
-        red if MORTAL_RED_FIVES.contains(&red) => {
-            vec![
-                encoding::DISCARD
-                    + [4, 13, 22][MORTAL_RED_FIVES.iter().position(|x| *x == red).unwrap()],
-            ]
-        }
         // Which tile the riichi discards is a second question.
         MORTAL_REACH => (encoding::RIICHI_DISCARD..encoding::TSUMO).collect(),
         // The names cross over: Mortal's low chi has the claimed tile
@@ -99,29 +107,22 @@ pub(crate) fn mortal_mask_of(hand: &Hand, seat: Wind, after_reach: bool) -> Vec<
     theirs
 }
 
-/// Our move that one of Mortal's means for that seat, or -1 where it means
-/// nothing the seat may do. With `after_reach` the answer is the tile a
-/// declaration discards, which is a riichi rather than a plain discard.
-pub(crate) fn action_from_mortal(hand: &Hand, seat: Wind, action: usize, after_reach: bool) -> i32 {
-    if action >= MORTAL_ACTIONS {
-        return -1;
-    }
+/// Our move that one of Mortal's means for that seat, where it means one the
+/// seat may make. With `after_reach` the answer is the tile a declaration
+/// discards, which is a riichi rather than a plain discard.
+fn move_from_mortal(hand: &Hand, seat: Wind, action: usize, after_reach: bool) -> Option<usize> {
     let ours = analysis::legal_moves(hand, seat);
     if after_reach {
-        let tile = match action {
-            tile if tile < 34 => tile,
-            red if MORTAL_RED_FIVES.contains(&red) => {
-                [4, 13, 22][MORTAL_RED_FIVES.iter().position(|x| *x == red).unwrap()]
-            }
-            _ => return -1,
-        };
-        let index = encoding::RIICHI_DISCARD + tile;
-        return if ours[index] { index as i32 } else { -1 };
+        let index = encoding::RIICHI_DISCARD + mortal_discard(action)?;
+        return ours[index].then_some(index);
     }
-    meanings(action)
-        .into_iter()
-        .find(|index| ours[*index])
-        .map_or(-1, |index| index as i32)
+    meanings(action).into_iter().find(|index| ours[*index])
+}
+
+/// The same for the page, which reads -1 where the move means nothing the
+/// seat may do.
+pub(crate) fn action_from_mortal(hand: &Hand, seat: Wind, action: usize, after_reach: bool) -> i32 {
+    move_from_mortal(hand, seat, action, after_reach).map_or(-1, |index| index as i32)
 }
 
 /// The other way: which of Mortal's moves one of ours is, so a page showing
@@ -491,12 +492,6 @@ impl Game {
         observation.iter().copied().collect()
     }
 
-    /// Which of Mortal's moves our rules allow that seat, and, once a reach
-    /// is declared, only the tiles it may discard.
-    fn mortal_mask_for(&self, seat: Wind, after_reach: bool) -> Vec<bool> {
-        mortal_mask_of(&self.hand, seat, after_reach)
-    }
-
     /// Everything that has happened since the last telling, to all four of
     /// Mortal's states. Every seat is told everything, as the training side
     /// does it: a state that misses an event is wrong from then on.
@@ -549,11 +544,6 @@ impl Game {
         }
         let (observation, _mask) = state.encode_obs(MORTAL_VERSION, false);
         observation.iter().copied().collect()
-    }
-
-    /// Whether that seat may declare a reach at all.
-    fn may_reach(&self, hand: &Hand, seat: Wind) -> bool {
-        may_reach_from(hand, seat)
     }
 }
 
@@ -651,7 +641,7 @@ impl Game {
             asking: Vec::new(),
             gathered: Vec::new(),
         };
-        game.opening = scores_of(&game.hand);
+        game.opening = game.hand.scores();
         game
     }
 
@@ -691,20 +681,10 @@ impl Game {
         self.external && self.opponent_owing().is_some()
     }
 
-    /// The observation for the opponent who owes a decision, as the network
-    /// expects it: planes over the tile kinds, that seat's own view.
-    pub fn opponent_observation(&self) -> Vec<f32> {
-        let mut out = vec![0.0; OBSERVATION];
-        if let Some(seat) = self.opponent_owing() {
-            encoding::observe(&self.hand, seat, &mut out);
-        }
-        out
-    }
-
-    /// The same seat's observation as Mortal builds it: 1012 planes over
-    /// the tile kinds. For a network trained on Mortal's encoder rather than
-    /// ours. The moves it is asked about are still our engine's, and
-    /// `opponent_mask` still says which of them are legal.
+    /// The observation for the opponent who owes a decision, as Mortal
+    /// builds it: 1012 planes over the tile kinds, that seat's own view. The
+    /// moves it is asked about are still our engine's, and
+    /// `opponent_mask_mortal` says which of them are legal.
     pub fn opponent_observation_mortal(&mut self) -> Vec<f32> {
         self.tell_mortal();
         let (planes, positions) = obs_shape(MORTAL_VERSION);
@@ -724,7 +704,7 @@ impl Game {
     /// one our rules allow.
     pub fn opponent_mask_mortal(&mut self) -> Vec<u8> {
         let allowed = match self.opponent_owing() {
-            Some(seat) => self.mortal_mask_for(seat, self.pending_reach_for(seat)),
+            Some(seat) => mortal_mask_of(&self.hand, seat, self.pending_reach_for(seat)),
             None => vec![false; MORTAL_ACTIONS],
         };
         allowed.iter().map(|flag| u8::from(*flag)).collect()
@@ -745,33 +725,24 @@ impl Game {
             return Err(JsValue::from_str("that is not one of Mortal's moves"));
         }
         if self.pending_reach_for(seat) {
-            let tile = match action {
-                tile if tile < 34 => tile,
-                red if MORTAL_RED_FIVES.contains(&red) => {
-                    [4, 13, 22][MORTAL_RED_FIVES.iter().position(|x| *x == red).unwrap()]
-                }
-                _ => return Err(JsValue::from_str("a declared reach must name a tile")),
-            };
-            if !self.mortal_mask_for(seat, true)[tile] {
-                return Err(JsValue::from_str("that tile is not a legal riichi discard"));
+            if mortal_discard(action).is_none() {
+                return Err(JsValue::from_str("a declared reach must name a tile"));
             }
-            self.play_opponent(encoding::RIICHI_DISCARD + tile)?;
+            let index = move_from_mortal(&self.hand, seat, action, true)
+                .ok_or_else(|| JsValue::from_str("that tile is not a legal riichi discard"))?;
+            self.play_opponent(index)?;
             self.mortal_awaiting_riichi = None;
             return Ok(false);
         }
         if action == MORTAL_REACH {
-            if !self.may_reach(&self.hand, seat) {
+            if !may_reach_from(&self.hand, seat) {
                 return Err(JsValue::from_str("that seat cannot declare riichi now"));
             }
             self.mortal_awaiting_riichi =
                 Some((self.hand_seating[seat.index()], self.hand.discards_made));
             return Ok(true);
         }
-        let mut ours = vec![false; ACTIONS];
-        encoding::legal_mask(&self.hand, seat, &mut ours);
-        let chosen = meanings(action)
-            .into_iter()
-            .find(|index| ours[*index])
+        let chosen = move_from_mortal(&self.hand, seat, action, false)
             .ok_or_else(|| JsValue::from_str("that move is not one this seat may make"))?;
         self.play_opponent(chosen).map(|()| false)
     }
@@ -791,7 +762,7 @@ impl Game {
 
     /// Which of Mortal's moves the followed player may make, by our rules.
     pub fn agent_mask_mortal(&self) -> Vec<u8> {
-        self.mortal_mask_for(self.seat, false)
+        mortal_mask_of(&self.hand, self.seat, false)
             .iter()
             .map(|flag| u8::from(*flag))
             .collect()
@@ -801,13 +772,13 @@ impl Game {
     /// declaration asks. Nothing is declared: the reach is put to a copy.
     pub fn agent_observation_after_reach(&mut self) -> Vec<f32> {
         self.tell_mortal();
-        let reachable = self.may_reach(&self.hand, self.seat);
+        let reachable = may_reach_from(&self.hand, self.seat);
         self.mortal_planes(self.hand_seating[self.seat.index()], reachable)
     }
 
     /// Which tiles that declaration may discard, in Mortal's numbering.
     pub fn agent_mask_after_reach(&self) -> Vec<u8> {
-        self.mortal_mask_for(self.seat, true)
+        mortal_mask_of(&self.hand, self.seat, true)
             .iter()
             .map(|flag| u8::from(*flag))
             .collect()
@@ -1382,7 +1353,7 @@ impl Game {
             .decisions
             .get(index)
             .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        let reachable = self.may_reach(&decision.position, decision.seat);
+        let reachable = may_reach_from(&decision.position, decision.seat);
         Ok(self.mortal_planes_at(
             decision.told,
             self.hand_seating[decision.seat.index()],
@@ -1397,10 +1368,9 @@ impl Game {
             .decisions
             .get(index)
             .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        let mut ours = vec![false; ACTIONS];
-        encoding::legal_mask(&decision.position, decision.seat, &mut ours);
-        Ok((0..MORTAL_ACTIONS)
-            .map(|action| u8::from(action < 34 && ours[encoding::RIICHI_DISCARD + action]))
+        Ok(mortal_mask_of(&decision.position, decision.seat, true)
+            .iter()
+            .map(|flag| u8::from(*flag))
             .collect())
     }
 
@@ -1410,38 +1380,17 @@ impl Game {
             .decisions
             .get(index)
             .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        let mut ours = vec![false; ACTIONS];
-        encoding::legal_mask(&decision.position, decision.seat, &mut ours);
-        Ok((0..MORTAL_ACTIONS)
-            .map(|action| u8::from(meanings(action).into_iter().any(|index| ours[index])))
+        Ok(mortal_mask_of(&decision.position, decision.seat, false)
+            .iter()
+            .map(|flag| u8::from(*flag))
             .collect())
     }
 
     /// Our move that one of Mortal's meant at that decision, or -1.
     pub fn review_action_from_mortal(&self, index: usize, action: usize, after_reach: bool) -> i32 {
-        let Some(decision) = self.decisions.get(index) else {
-            return -1;
-        };
-        if action >= MORTAL_ACTIONS {
-            return -1;
-        }
-        let mut ours = vec![false; ACTIONS];
-        encoding::legal_mask(&decision.position, decision.seat, &mut ours);
-        if after_reach {
-            let tile = match action {
-                tile if tile < 34 => tile,
-                red if MORTAL_RED_FIVES.contains(&red) => {
-                    [4, 13, 22][MORTAL_RED_FIVES.iter().position(|x| *x == red).unwrap()]
-                }
-                _ => return -1,
-            };
-            let index = encoding::RIICHI_DISCARD + tile;
-            return if ours[index] { index as i32 } else { -1 };
-        }
-        meanings(action)
-            .into_iter()
-            .find(|index| ours[*index])
-            .map_or(-1, |index| index as i32)
+        self.decisions.get(index).map_or(-1, |decision| {
+            action_from_mortal(&decision.position, decision.seat, action, after_reach)
+        })
     }
 
     /// The legal policy mask at the same recorded decision.
@@ -1507,16 +1456,11 @@ impl Game {
             self.seat = self.table.seat_of(self.player);
             self.hand_seating = self.table.seating();
             self.hand = self.table.deal(&mut self.rng);
-            self.opening = scores_of(&self.hand);
+            self.opening = self.hand.scores();
             self.decisions.clear();
             self.mortal_logged = 0;
         }
         Ok(())
-    }
-
-    /// The final scores, once the game is over.
-    pub fn final_scores(&self) -> Vec<i32> {
-        self.table.final_scores().to_vec()
     }
 
     /// Where everybody finished, best first, once the game is over.
@@ -1667,7 +1611,7 @@ impl Game {
     /// How the hand ended, with enough to show a score screen.
     fn describe_outcome(&self) -> Option<OutcomeView> {
         let outcome = self.hand.outcome.as_ref()?;
-        let now = scores_of(&self.hand);
+        let now = self.hand.scores();
         let changes = (0..4)
             .map(|offset| {
                 let seat = self.seat.plus(offset);
@@ -2054,14 +1998,6 @@ fn dora_types(hand: &Hand) -> Vec<String> {
         .collect()
 }
 
-fn scores_of(hand: &Hand) -> [i32; 4] {
-    let mut scores = [0; 4];
-    for seat in Wind::ALL {
-        scores[seat.index()] = hand.players[seat.index()].score;
-    }
-    scores
-}
-
 /// What a hand is worth, said the way a table would say it.
 fn describe_payment(score: &riichi_core::score::Score, dealer: bool, by_discard: bool) -> String {
     let payments = score.payments;
@@ -2108,15 +2044,6 @@ fn action_tile(action: Action) -> Option<Tile> {
     }
 }
 
-/// Whether a riichi declaration is showing, used by the interface's hints.
-pub fn riichi_label(state: Riichi) -> &'static str {
-    match state {
-        Riichi::None => "",
-        Riichi::Declared => "riichi",
-        Riichi::Double => "double riichi",
-    }
-}
-
 #[cfg(test)]
 mod ui_review_tests {
     use super::*;
@@ -2130,7 +2057,7 @@ mod ui_review_tests {
         game.hand.phase = Phase::Act;
         game.hand.players[0].hand = "123m123p123s11122z".parse().unwrap();
         game.hand.drawn = Some("2z".parse().unwrap());
-        assert!(game.may_reach(&game.hand, Wind::East));
+        assert!(may_reach_from(&game.hand, Wind::East));
         assert!(game.play_opponent_mortal(MORTAL_REACH).unwrap());
         assert!(game.pending_reach_for(Wind::East));
         game

@@ -9,7 +9,11 @@ edition.workspace = true
 # build. The value is the workspace's.
 license = "AGPL-3.0-or-later"
 repository.workspace = true
-rust-version.workspace = true
+# Above the workspace's 1.80, which is for the crates that do not build
+# Mortal's engine: libriichi is edition 2024 (1.85) and calls
+# `is_multiple_of` (1.87), and its locked serde_with 3.23 and darling 0.24
+# declare 1.88.
+rust-version = "1.88"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
