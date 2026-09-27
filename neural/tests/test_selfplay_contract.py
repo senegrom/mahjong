@@ -215,5 +215,95 @@ class RewardsAreVersioned(unittest.TestCase):
         self.assertEqual(len(batch.returns), batch.decisions)
 
 
+class FirstLegalDecider(FirstLegal):
+    """FirstLegal on the path of a learner that records its own decisions,
+    as the Mortal-space learners do."""
+
+    def decide(self, views, rows, players, legal, greedy=False, **_exploration):
+        from types import SimpleNamespace
+
+        from neural.observe import Planes
+
+        chosen = self.choose(views, rows, players, legal)
+        n = len(rows)
+        records = SimpleNamespace(
+            planes=Planes(np.zeros(n + 1, dtype=np.int64), np.zeros(0, dtype=np.uint16),
+                          np.zeros(0, dtype=np.float16)),
+            masks=np.asarray(legal, dtype=bool).copy(), actions=chosen,
+            log_probs=np.zeros(n, dtype=np.float32), slots=np.arange(n))
+        return chosen, records
+
+
+NATIVE_ARENA = riichi_py.Arena
+
+
+class CountingArena:
+    """The real arena, counting how often each label is copied out of it."""
+
+    def __init__(self, *args, **kwargs):
+        self.native = NATIVE_ARENA(*args, **kwargs)
+        self.calls = {"oracle": 0, "opponent_hands": 0}
+
+    def __getattr__(self, name):
+        return getattr(self.native, name)
+
+    def oracle(self):
+        self.calls["oracle"] += 1
+        return self.native.oracle()
+
+    def opponent_hands(self):
+        self.calls["opponent_hands"] += 1
+        return self.native.opponent_hands()
+
+
+class LabelsAreReadOnlyWhenWanted(unittest.TestCase):
+    """The oracle's planes and the opponents' hands are copied out of the
+    engine for every game on every step: 95 ms a step at 4,096 games for
+    the oracle alone, which no learner that decides for itself reads. They
+    are fetched only for whoever reads them, and leaving them out changes
+    no move and no reward."""
+
+    def play(self, net, **kwargs):
+        from unittest.mock import patch
+
+        from neural import selfplay
+
+        made = []
+
+        def create(*args, **kw):
+            made.append(CountingArena(*args, **kw))
+            return made[-1]
+
+        with patch.object(selfplay.riichi_py, "Arena", side_effect=create):
+            batch = selfplay.play(net, games=2, seed=SEED, device="cpu", **kwargs)
+        return batch, made[0].calls
+
+    def test_a_learner_that_decides_for_itself_gets_what_it_asks_for(self):
+        plain, calls = self.play(FirstLegalDecider())
+        self.assertEqual(calls["oracle"], 0)
+        self.assertGreater(calls["opponent_hands"], 0)
+        self.assertEqual(len(plain.held), plain.decisions)
+        self.assertEqual(plain.oracle.numel(), 0)
+
+        bare, calls = self.play(FirstLegalDecider(), want_held=False)
+        self.assertEqual(calls, {"oracle": 0, "opponent_hands": 0})
+        self.assertEqual(bare.held.numel(), 0)
+        for name in ("actions", "log_probs", "returns", "legal"):
+            self.assertTrue(np.array_equal(getattr(plain, name).numpy(), getattr(bare, name).numpy()), name)
+        self.assertEqual(plain.final_scores.tolist(), bare.final_scores.tolist())
+
+        asked, calls = self.play(FirstLegalDecider(), want_oracle=True)
+        self.assertGreater(calls["oracle"], 0)
+        self.assertEqual(len(asked.oracle), asked.decisions)
+        self.assertTrue(np.array_equal(plain.held.numpy(), asked.held.numpy()))
+
+    def test_the_network_train_py_trains_still_gets_every_label(self):
+        batch, calls = self.play(FirstLegal())
+        self.assertGreater(calls["oracle"], 0)
+        self.assertGreater(calls["opponent_hands"], 0)
+        for name in ("held", "oracle", "imagined"):
+            self.assertEqual(len(getattr(batch, name)), batch.decisions, name)
+
+
 if __name__ == "__main__":
     unittest.main()

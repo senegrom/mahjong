@@ -30,7 +30,11 @@ class TrainingRoundTests(unittest.TestCase):
     def tearDownClass(cls):
         torch.set_num_threads(cls.threads)
 
+    def setUp(self):
+        self.asked=[]
+
     def simulate(self, net, games, seed, device, **kwargs):
+        self.asked.append(kwargs)
         net.eval(); n=32
         observations=Planes(np.arange(n+1,dtype=np.int64),np.zeros(n,dtype=np.uint16),
                             np.ones(n,dtype=np.float16))
@@ -74,6 +78,16 @@ class TrainingRoundTests(unittest.TestCase):
             records=[json.loads(line) for line in log.splitlines() if line.startswith('{')]
             self.assertEqual([record['optimizer_updates'] for record in records],[2,2])
             self.assertEqual([record['checkpoint_generation'] for record in records],[1,2])
+
+    def test_the_mortal_trainer_leaves_out_the_hands_it_never_reads(self):
+        """Mortal has no head that reads the opponents' hands, and the round
+        held a gigabyte of them on the host at 2.8 million decisions."""
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);initial=root/'initial.pt';torch.manual_seed(7)
+            net=mortal_model.build(16,1);atomic_save({**net.state(),'config':config()},initial)
+            self.actions=[];self.mortal_run(root/'run',initial,1)
+            self.assertEqual([asked.get('want_held') for asked in self.asked],[False])
+            self.assertFalse(any(asked.get('want_oracle') for asked in self.asked))
 
     def test_all_three_trainers_refuse_underfilled_round_before_checkpoint_change(self):
         for module in (train,train_mortal,train_combined):

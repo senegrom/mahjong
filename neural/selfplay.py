@@ -137,12 +137,14 @@ class Batch:
     #: What the three opponents were holding at each decision, as a
     #: distribution over the 34 kinds for each. The label for the head that
     #: reads a table, and never shown to the network when it chooses.
-    #: Named apart from `hands`, which counts how many were played.
+    #: Named apart from `hands`, which counts how many were played. Empty
+    #: when the caller said it has no such head (`want_held=False`).
     held: torch.Tensor
     #: What the deciding seat could not see at each decision: the opponents'
     #: concealed tiles, the draws to come and the hidden indicators, as 0/1
     #: planes kept in bytes. For the oracle critic, which only trains; the
-    #: network is never shown this when choosing.
+    #: network is never shown this when choosing. Empty for a learner that
+    #: decides for itself unless asked for (`want_oracle`).
     oracle: torch.Tensor
     #: What the proposal imagined the opponents held at each decision, dealt
     #: from the network's own belief about them: the reader's negatives,
@@ -237,11 +239,22 @@ def play(
     population=None,
     explore_share: float = 0.0,
     want_oracle: bool = False,
+    want_held: bool = True,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
     With `amp` the network's forward passes run in bfloat16, which is
     plenty for choosing a move and about half the arithmetic.
+
+    The labels that only a trainer's auxiliary heads read are fetched from
+    the engine when something will read them and not otherwise, since each
+    is copied out for every game on every step. The oracle's planes are
+    4.4 kilobytes a game a step: a learner that decides for itself (one
+    with `decide`) has them only with `want_oracle`, and the network that
+    `train.py` trains always has them, for its oracle critic and its
+    reader. `want_held=False` leaves out what the opponents held, for a
+    learner with no head that reads it: a gigabyte of host memory on a
+    round of 2.8 million decisions. Neither changes a move or a reward.
 
     `opponents` are older checkpoints, of either kind. In that share of
     games one seat is played by one of them, drawn at random, and nothing
@@ -271,6 +284,8 @@ def play(
     kinds = {net.kind} | {other.kind for other in opponents or []}
     views = Views(arena, games, kinds)
     recording = net.kind == "mortal"
+    decides = hasattr(net, "decide")
+    wants_oracle = want_oracle or not decides
 
     # Which older checkpoint, if any, holds each player of each game, -1
     # being the learner. Fixed for the game, so a seat does not change
@@ -378,10 +393,12 @@ def play(
 
         mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8)
         mask = mask.reshape(games, ACTIONS).astype(bool)
-        truth = np.frombuffer(arena.opponent_hands(), dtype=np.float32)
-        truth = truth.reshape(games, OPPONENTS, POSITIONS)
-        hidden = np.frombuffer(arena.oracle(), dtype=np.float32)
-        hidden = hidden.reshape(games, ORACLE_PLANES, POSITIONS)
+        if want_held:
+            truth = np.frombuffer(arena.opponent_hands(), dtype=np.float32)
+            truth = truth.reshape(games, OPPONENTS, POSITIONS)
+        if wants_oracle:
+            hidden = np.frombuffer(arena.oracle(), dtype=np.float32)
+            hidden = hidden.reshape(games, ORACLE_PLANES, POSITIONS)
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
         their_choice = np.zeros(games, dtype=np.int64)
         timing["engine"] += clock() - began
@@ -425,7 +442,7 @@ def play(
             timing["engine"] += clock() - began
             continue
         choice = their_choice.copy()
-        if hasattr(net, "decide"):
+        if decides:
             # A learner in an action space of its own (see
             # `mortal_learner`): it answers the table in ours and records
             # its decisions itself, possibly more than one per row, and
@@ -448,14 +465,15 @@ def play(
             # decision recorded rather than one for each row of the table: a
             # riichi is two decisions from the one position, and the reading
             # of the hands is trained on both.
-            held.append(truth[index][record_slots].copy())
+            if want_held:
+                held.append(truth[index][record_slots].copy())
             # The oracle's planes on this path too, when somebody is going
             # to read them. The fusion decides through here, so without
             # them its oracle critic sees nothing at all and cannot be
             # trained or even measured -- but nothing trains it yet, and
             # they are about a kilobyte a decision, which is most of a
-            # gigabyte on a large round. Collected on request rather than
-            # by default.
+            # gigabyte on a large round. Read from the engine and collected
+            # on request rather than by default.
             if want_oracle:
                 oracle.append(hidden[index][record_slots].astype(np.uint8))
             record_forced = getattr(records, "forced", None)
@@ -514,7 +532,8 @@ def play(
             if sparse is not None:
                 observations.append(sparse)
             legal_masks.append(mask[index].copy())
-            held.append(truth[index].copy())
+            if want_held:
+                held.append(truth[index].copy())
             oracle.append(hidden[index].astype(np.uint8))
             imagined.append(proposed[index].astype(np.uint8))
             timing["network"] += clock() - began
@@ -638,8 +657,9 @@ def play(
         observations=Planes.cat(observations),
         legal=gather(legal_masks),
         actions=torch.tensor(actions, dtype=torch.int64),
-        # A learner of the zoo's kind records none of the labels the
-        # auxiliary heads want, having no such heads.
+        # A label nobody collected is empty: a learner that decides for
+        # itself imagines no hands and has the oracle's planes only when
+        # asked, and `want_held=False` leaves out what the opponents held.
         held=gather(held) if held else torch.zeros(0),
         oracle=gather(oracle) if oracle else torch.zeros(0),
         imagined=gather(imagined) if imagined else torch.zeros(0),

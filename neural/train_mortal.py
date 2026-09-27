@@ -187,6 +187,9 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
             seat_share=args.seat_share,
+            # Mortal has no head that reads the opponents' hands, and they
+            # are a gigabyte of host memory on a large round.
+            want_held=False,
         )
         require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
