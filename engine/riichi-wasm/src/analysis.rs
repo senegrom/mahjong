@@ -433,6 +433,18 @@ impl Position {
                 }) {
                     return Err("The just-claimed tile must belong to a chii or pon".into());
                 }
+                // Swap-calling bars the claimed tile, and for a sequence the
+                // tile at its other side (EMA section 3.3.2). A call that
+                // leaves nothing else to discard is never offered, so no
+                // game reaches this hand, and the engine offers it no move.
+                let barred = hand.forbidden_discards();
+                let held = &hand.current().hand;
+                if !held.is_empty() && held.tiles().all(|tile| barred.contains(&tile)) {
+                    return Err(
+                        "Swap-calling bars every tile left in this hand, so that call could not have been made"
+                            .into(),
+                    );
+                }
             }
         } else if let Some((_, t)) = hand.pending_discard {
             if robbing {
@@ -1050,6 +1062,37 @@ mod tests {
         position
             .build()
             .expect("a claimed discard matched by a pon is fine");
+    }
+
+    /// Claiming 4 characters for 4-5-6 bars the 4 and the 7 (EMA section
+    /// 3.3.2). A hand left holding nothing else could not have made the
+    /// call, so the position is refused rather than offered no move.
+    #[test]
+    fn a_call_that_leaves_only_barred_tiles_is_refused() {
+        let called = || {
+            vec![
+                set("pon", "1z", 1),
+                set("pon", "2z", 2),
+                set("chii", "4m", 3),
+            ]
+        };
+        let mut position = acting();
+        position.drawn = None;
+        position.just_claimed = Some("4m".into());
+        position.players[0] = seat("4m 4m 7m 7m 7m");
+        position.players[0].melds = called();
+        let error = position.build().unwrap_err();
+        assert!(error.contains("Swap-calling"), "{error}");
+
+        // With one tile the rule allows, the call stands, and that tile is
+        // the only thing to discard.
+        position.players[0] = seat("4m 4m 7m 7m 9p");
+        position.players[0].melds = called();
+        let (hand, _) = position.build().expect("a tile is left to discard");
+        assert_eq!(
+            hand.legal_actions(),
+            [riichi_core::game::Action::Discard(tile("9p").unwrap())]
+        );
     }
 
     #[test]

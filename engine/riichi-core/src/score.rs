@@ -5,7 +5,7 @@
 //! it is scored and the best is taken, as section 3.4.3 requires.
 
 use crate::agari::{self, Block, Reading, Shape};
-use crate::hand::{Meld, MeldKind, TileSet};
+use crate::hand::{Meld, TileSet};
 use crate::tile::Tile;
 use crate::yaku::{self, Analysis, Group, Yaku};
 use crate::Wind;
@@ -66,8 +66,6 @@ pub struct Situation {
     pub ura_indicators: Vec<Tile>,
     /// Counters on the table (EMA section 3.4.4).
     pub counters: u32,
-    /// Riichi bets on the table that the winner collects.
-    pub riichi_sticks: u32,
 }
 
 impl Situation {
@@ -90,7 +88,6 @@ impl Situation {
             dora_indicators: Vec::new(),
             ura_indicators: Vec::new(),
             counters: 0,
-            riichi_sticks: 0,
         }
     }
 
@@ -375,7 +372,6 @@ fn score_one(
         });
     }
 
-    let meld_kinds: Vec<MeldKind> = melds.iter().map(|meld| meld.kind).collect();
     let analysis = Analysis {
         groups: &groups,
         pair,
@@ -383,7 +379,6 @@ fn score_one(
         concealed: hand_is_concealed,
         seat: situation.seat,
         round: situation.round,
-        meld_kinds: &meld_kinds,
     };
 
     let mut found: Vec<Yaku> = match reading.shape {

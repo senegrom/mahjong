@@ -5,7 +5,6 @@
 //! (EMA 2025, section 4.2). Yakuman are not cumulative, and EMA has no
 //! counted yakuman: eleven han or more is a sanbaiman.
 
-use crate::hand::MeldKind;
 use crate::tile::{Suit, Tile};
 use crate::Wind;
 
@@ -168,27 +167,6 @@ impl Yaku {
         )
     }
 
-    /// Whether the yaku requires a concealed hand, i.e. the ones printed in
-    /// italics in the rulebook's yaku list.
-    pub const fn requires_concealed(self) -> bool {
-        matches!(
-            self,
-            Yaku::Riichi
-                | Yaku::Ippatsu
-                | Yaku::MenzenTsumo
-                | Yaku::Pinfu
-                | Yaku::Iipeiko
-                | Yaku::DoubleRiichi
-                | Yaku::Chiitoitsu
-                | Yaku::Ryanpeikou
-                | Yaku::Renhou
-                | Yaku::KokushiMusou
-                | Yaku::ChuurenPoutou
-                | Yaku::Tenhou
-                | Yaku::Chiihou
-        )
-    }
-
     /// The han this yaku is worth, given whether the hand is open.
     ///
     /// The underlined yaku of the rulebook's list lose one han when open.
@@ -322,11 +300,6 @@ impl Group {
         }
     }
 
-    /// Whether every tile of the group is a terminal or an honour.
-    pub fn is_all_terminal_or_honour(self) -> bool {
-        self.tiles().iter().all(|tile| tile.is_terminal_or_honour())
-    }
-
     /// Whether the group holds at least one terminal or honour.
     pub fn has_terminal_or_honour(self) -> bool {
         self.tiles().iter().any(|tile| tile.is_terminal_or_honour())
@@ -353,8 +326,6 @@ pub struct Analysis<'a> {
     pub seat: Wind,
     /// The round wind.
     pub round: Wind,
-    /// Kinds of call made, used for the quad yaku.
-    pub meld_kinds: &'a [MeldKind],
 }
 
 /// The structural yaku of a reading: everything that depends on the tiles
@@ -362,7 +333,6 @@ pub struct Analysis<'a> {
 pub fn structural(analysis: &Analysis) -> Vec<Yaku> {
     let mut found = Vec::new();
     let groups = analysis.groups;
-    let open = !analysis.concealed;
 
     let sequences: Vec<Group> = groups.iter().copied().filter(|g| g.is_sequence).collect();
     let triplets: Vec<Group> = groups
@@ -506,7 +476,6 @@ pub fn structural(analysis: &Analysis) -> Vec<Yaku> {
         found.push(Yaku::Ryuuiisou);
     }
 
-    let _ = open;
     found.sort_unstable();
     found.dedup();
     found
@@ -658,7 +627,6 @@ mod tests {
             concealed: true,
             seat: Wind::East,
             round: Wind::East,
-            meld_kinds: &[],
         };
         let found = structural(&analysis);
         assert!(

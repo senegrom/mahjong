@@ -61,19 +61,6 @@ pub mod yaku;
 pub use hand::{ClaimedFrom, Meld, MeldKind, TileSet};
 pub use tile::{ParseError, Suit, Tile};
 
-/// Which rulebook the engine is following.
-///
-/// Only [`RuleSet::Ema2025`] is implemented. The value exists so that other
-/// rule sets, which differ in red fives, abortive draws, counted yakuman and
-/// the winner bonus, can be added later without game logic having to change
-/// shape around them.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
-pub enum RuleSet {
-    /// EMA Riichi Competition Rules, 2025 edition.
-    #[default]
-    Ema2025,
-}
-
 /// The four seats, in the counter-clockwise turn order east, south, west,
 /// north (EMA 2025, section 2.1).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]

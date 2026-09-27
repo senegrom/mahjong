@@ -399,17 +399,19 @@ impl Hand {
             return actions;
         }
 
+        // Swap-calling is barred (EMA section 3.3.2). A call is only offered
+        // if it leaves the caller something else to discard (see
+        // `leaves_a_discard`), so the bar never empties the list.
         let forbidden = self.forbidden_discards();
-        let barred_everything = Tile::all()
-            .filter(|tile| player.hand.count(*tile) > 0)
-            .all(|tile| forbidden.contains(&tile));
         for tile in Tile::all() {
-            if player.hand.count(tile) > 0 && (barred_everything || !forbidden.contains(&tile)) {
+            if player.hand.count(tile) > 0 && !forbidden.contains(&tile) {
                 actions.push(Action::Discard(tile));
             }
         }
         debug_assert!(
-            !actions.is_empty(),
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::Discard(_))),
             "a player always has a tile they may discard"
         );
 
@@ -533,7 +535,6 @@ impl Hand {
         situation.riichi = player.riichi;
         situation.ippatsu = player.ippatsu;
         situation.counters = self.counters;
-        situation.riichi_sticks = self.riichi_sticks;
         situation.dora_indicators = self.wall.dora_indicators();
         if player.has_riichi() {
             situation.ura_indicators = self.wall.ura_indicators();
@@ -1054,7 +1055,6 @@ impl Hand {
     }
 
     fn take_call(&mut self, seat: Wind, from: Wind, tile: Tile, call: Call) {
-        let _ = &from;
         let source = match (from.index() + 4 - seat.index()) % 4 {
             3 => ClaimedFrom::Left,
             2 => ClaimedFrom::Across,

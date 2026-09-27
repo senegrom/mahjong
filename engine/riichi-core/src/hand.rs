@@ -290,17 +290,6 @@ impl Meld {
     pub const fn is_triplet_or_quad(&self) -> bool {
         !self.is_sequence()
     }
-
-    /// Whether every tile of the set is a terminal or an honour.
-    pub fn is_all_terminal_or_honour(&self) -> bool {
-        self.tiles().iter().all(|tile| tile.is_terminal_or_honour())
-    }
-
-    /// Whether the set contains at least one terminal or honour, which is
-    /// what the outside-hand yaku ask of every set.
-    pub fn has_terminal_or_honour(&self) -> bool {
-        self.tiles().iter().any(|tile| tile.is_terminal_or_honour())
-    }
 }
 
 #[cfg(test)]

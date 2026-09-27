@@ -91,13 +91,6 @@ pub fn shanten(hand: &TileSet, called: usize) -> i32 {
         .min(thirteen_orphans(hand, called))
 }
 
-/// Whether the hand is complete, i.e. four sets and a pair, Seven Pairs or
-/// Thirteen Orphans. This is shape only: a winning hand also needs a yaku
-/// (EMA section 3.2), which [`crate::score`] decides.
-pub fn is_complete(hand: &TileSet, called: usize) -> bool {
-    shanten(hand, called) == COMPLETE
-}
-
 /// The tiles that would complete the hand, i.e. its waits.
 ///
 /// `visible` counts every copy of a kind the player can already account for

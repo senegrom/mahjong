@@ -38,16 +38,6 @@ impl Block {
     pub fn contains(self, tile: Tile) -> bool {
         self.tiles().contains(&tile)
     }
-
-    /// Whether every tile of the block is a terminal or an honour.
-    pub fn is_all_terminal_or_honour(self) -> bool {
-        self.tiles().iter().all(|tile| tile.is_terminal_or_honour())
-    }
-
-    /// Whether the block contains at least one terminal or honour.
-    pub fn has_terminal_or_honour(self) -> bool {
-        self.tiles().iter().any(|tile| tile.is_terminal_or_honour())
-    }
 }
 
 /// Which of the three complete shapes a reading is.
@@ -126,11 +116,6 @@ pub fn readings(hand: &TileSet, called: usize) -> Vec<Reading> {
         }
     }
     result
-}
-
-/// Whether the tiles form a complete hand in any shape.
-pub fn is_complete(hand: &TileSet, called: usize) -> bool {
-    !readings(hand, called).is_empty()
 }
 
 fn seven_pairs(hand: &TileSet) -> Option<Reading> {
@@ -305,18 +290,17 @@ mod tests {
     #[test]
     fn incomplete_hands_have_no_reading() {
         assert!(readings(&hand("123m456m789m11s34p"), 0).is_empty());
-        assert!(!is_complete(&hand("123m456m789m11s34p"), 0));
     }
 
     #[test]
     fn called_sets_reduce_what_the_hand_must_hold() {
         // Two called sets: the concealed part is two sets and a pair.
-        assert!(is_complete(&hand("123m456m11p"), 2));
-        assert!(!is_complete(&hand("123m456m11p"), 1));
+        assert!(!readings(&hand("123m456m11p"), 2).is_empty());
+        assert!(readings(&hand("123m456m11p"), 1).is_empty());
     }
 
     #[test]
     fn sequences_never_wrap_around_nine() {
-        assert!(!is_complete(&hand("891m123m456m789p11s"), 0));
+        assert!(readings(&hand("891m123m456m789p11s"), 0).is_empty());
     }
 }

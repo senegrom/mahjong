@@ -127,32 +127,6 @@ pub struct Effort {
     pub boundary: bool,
 }
 
-impl Effort {
-    /// Enough to be worth doing and quick enough for a browser.
-    pub fn quick() -> Effort {
-        Effort {
-            worlds: 12,
-            candidates: 5,
-            turns: None,
-            margin: 2.0,
-            hurried: false,
-            boundary: false,
-        }
-    }
-
-    /// For an arena, where there is time.
-    pub fn thorough() -> Effort {
-        Effort {
-            worlds: 60,
-            candidates: 8,
-            turns: None,
-            margin: 2.0,
-            hurried: false,
-            boundary: false,
-        }
-    }
-}
-
 /// How likely each kind of tile is to be in each opponent's hand.
 ///
 /// Three rows of thirty-four, in the same relative seat order the
