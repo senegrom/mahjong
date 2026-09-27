@@ -72,29 +72,6 @@ an oracle head when the checkpoint has one. It no longer infers that coverage
 is the cause from an MSE difference. Matched branch continuations and controlled
 opponents are still needed for a causal coverage or action-ranking experiment.
 
-## Promotion
-
-The `neural.promote` CLI uses `neural.gate.compare`, requires an explicit fresh
-`--seed`, and publishes only an accepted immutable input snapshot. It never
-reloads a moving training path after the match. Publication verifies the copied
-snapshot's hash, writes a hash-bound verdict under `promotion-reports/`, and
-atomically replaces `champion.pt` with the exact evaluated bytes. The old
-object-level paired-error gate remains diagnostic for compatibility. The legacy
-in-memory publication helper now uses validated atomic checkpoint saving.
-
-Example (parameters and seed range must be chosen independently of results):
-
-```sh
-python -m neural.promote candidate.pt champion.pt --seed 950000000 \
-  --games 512 --attempt 1 --confidence .95 --out runs/champion
-```
-
-A conservative gate may need more games to establish small edges. The caller
-still owns fresh seed allocation and the increasing attempt counter. Individual
-files are atomic, not a distributed multi-file transaction; verdicts are bound
-to checkpoint hashes, not a mutable sidecar name. No production checkpoint,
-replay cache, or cloud training run is modified by these code changes.
-
 ## Validation
 
 Run the complete discovered Python suite with both native engines installed,
@@ -102,7 +79,7 @@ alongside the existing Rust workspace tests, Clippy and formatting checks. New
 regressions exercise actual small-network optimization, narrow legal masks,
 frozen targets, critic gradients, caller-selected value heads, nonterminal
 history rejection, modern action schemas, native exploration bookkeeping,
-resampling invariance, cloud request staging and promotion failure injection.
+resampling invariance and cloud request staging.
 CPU tests and controlled interfaces do not establish CUDA/AMP/compiled execution
 parity or playing strength. Preserve and regenerate historically mislabelled
 replay rather than silently relabelling it.

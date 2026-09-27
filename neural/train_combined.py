@@ -590,8 +590,8 @@ def main() -> None:
             # differences several-fold and this measures one seat, so
             # being the best of these readings is a reason to put a
             # checkpoint forward, not a finding that it is stronger.
-            # `neural.promote` decides that, by sitting it opposite the
-            # champion; nothing here may write `champion.pt`.
+            # Duels at one table (`neural.duel`), pooled over many deals,
+            # decide that; nothing here may write `champion.pt`.
             atomic_save(payload, args.out / "candidate.pt")
             atomic_save(payload, args.out / "best.pt")
         atomic_save(payload, args.out / "latest.pt")

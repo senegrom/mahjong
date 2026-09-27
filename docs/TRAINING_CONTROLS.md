@@ -1,4 +1,4 @@
-# Bounded updates and checkpoint selection
+# Bounded updates
 
 This change is based on merged training API 2 (`fd614d79`); rebuild native
 engines when upgrading from an earlier API. It does not change the reward
@@ -61,45 +61,3 @@ Checking each minibatch synchronizes a scalar from CUDA and adds overhead.
 PPO clipping alone does not guarantee a small policy change; early stopping is
 also used in the original Spinning Up implementation:
 https://spinningup.openai.com/en/latest/algorithms/ppo.html
-
-## Bidirectional candidate/champion gate
-
-`best.pt` is still selected by the existing smoothed heuristic benchmark. It is
-not automatically a validated champion. Use the new separate command before
-promoting a candidate:
-
-```sh
-python -m neural.gate runs/candidate/latest.pt runs/champion.pt \
-  --games 512 --seed 9200001 --attempt 1 --confidence 0.95 > gate-report.json
-```
-
-The gate copies and validates both inputs before evaluation so a running
-trainer cannot change the compared bytes. Reports include SHA-256 hashes,
-generations, seed range, native API version and the underlying measurements.
-No checkpoint is replaced or promoted automatically; a training agent can read
-`promote` and archive the report before explicitly publishing a winner.
-
-It plays both candidate-versus-three-champions and champion-versus-three-
-candidates, each in all four seats. `--games N` therefore means **8N actual
-games but only N seed groups for statistical inference**, not 8N independent
-samples. Per-seed placement improvement is `(reverse - forward) / 2` in
-`[-1.5, 1.5]`. The one-sided Hoeffding lower bound subtracts
-`3 * sqrt(log(1 / alpha_i) / (2N))` from its mean. Identical policies, tiny
-samples, or zero empirical variance alone cannot produce a confident promotion.
-This deliberately conservative test can require many games to establish a
-small edge. `--minimum-edge` can require a practically meaningful improvement;
-`--minimum-deals` defaults to 128. Truncated games are errors, not evidence.
-
-Repeated attempts spend `alpha_i = (1-confidence)/(i*(i+1))`. These allocations
-sum to `1-confidence`. The caller must maintain an increasing attempt counter,
-preselect the comparison settings, and use fresh held-out seeds independent of
-candidate training and previous attempts. The command does not maintain a
-seed registry or enforce this external experimental protocol. Reusing seeds,
-resetting the counter, or tuning candidates on the test set voids the claimed
-error control. Pseudorandom seeds are the simulator's operational approximation
-to independent draws. A pass establishes evidence for this symmetric matchup,
-not superiority over arbitrary opponents, a league or human players.
-
-An automatically managed champion/opponent population remains separate
-work (`neural.population` seats a fixed roster; `neural.promote` is the
-paired-error gate this one complements).

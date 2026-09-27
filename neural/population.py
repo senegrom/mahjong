@@ -15,7 +15,8 @@ who had been at the table.
 
 The roster has four kinds of member:
 
-- **champion** — the network that last passed `neural.promote`. Beating the
+- **champion** — the network that last won promotion, which is decided by
+  duels at one table (`neural.duel`) pooled over many deals. Beating the
   current best is the point, so it gets the largest share.
 - **recent** — checkpoints from the last few blocks of this lineage, which
   keep the policy honest against what it was very recently.
