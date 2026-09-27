@@ -383,7 +383,7 @@ def train_mortal(
     epochs: int = 2,
     lr: float = 1e-5,
     entropy: float = 0.005,
-    temperature: float = 1.0,
+    temperature: float | None = None,
     measure_every: int = 5,
     measure_games: int = 512,
     resume: str = "latest",
@@ -406,6 +406,10 @@ def train_mortal(
     from wherever it resumes: a call the spend limit stalled and Modal
     started again from the top then finishes the run instead of playing
     `generations` more.
+
+    `temperature` is passed on only when given: a run resumes at the one
+    its checkpoint was trained at, and one from the published Mortal
+    starts at 1.0 (see `neural/train_mortal.py`).
     """
     validate_cloud_request(generations, opponents, opponent_share, seat_share)
     rounds = round_arguments(generations, until)
@@ -416,10 +420,12 @@ def train_mortal(
         command = [
             sys.executable, "-m", "neural.train_mortal", *rounds,
             "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
-            "--lr", str(lr), "--entropy", str(entropy), "--temperature", str(temperature),
+            "--lr", str(lr), "--entropy", str(entropy),
             "--measure-every", str(measure_every), "--measure-games", str(measure_games),
             "--amp", "--compile", "--out", str(where),
         ]
+        if temperature is not None:
+            command += ["--temperature", str(temperature)]
         if source.exists():
             copy_checkpoint(source, where / "latest.pt", require_generation=True)
             for saved_name in ("best.pt", "reference.pt"):

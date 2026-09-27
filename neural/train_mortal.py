@@ -57,8 +57,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=1.0,
-        help="Mortal's Q values are divided by this to make the policy's logits",
+        default=None,
+        help="Mortal's Q values are divided by this to make the policy's logits. A resumed "
+        "run keeps the one its checkpoint was trained at unless another is given, which "
+        "is said when it differs; a run from a published Mortal starts at 1.0",
     )
     parser.add_argument("--opponents", type=Path, nargs="*", default=[])
     parser.add_argument("--opponent-share", type=float, default=0.0)
@@ -103,14 +105,25 @@ def main() -> None:
     optimiser_state = None
     sampling_state = None
     if args.resume is not None and args.resume.exists():
-        net, payload = mortal_learner.load(args.resume, device, args.temperature)
+        # At the temperature it was trained at: the flag used to default
+        # to 1.0, so a run trained at another and resumed without it had
+        # every logit changed and nothing said so.
+        net, payload = mortal_learner.load(args.resume, device)
+        if args.temperature is not None and args.temperature != net.temperature:
+            print(
+                f"temperature {args.temperature} as asked; {args.resume} was trained at "
+                f"{net.temperature}, so every logit changes from this generation on",
+                flush=True,
+            )
+            net.temperature = args.temperature
         start = int(payload.get("generation", 0))
         smoothed, best_placement = benchmark_history(payload)
         optimiser_state = payload.get("optimizer_state")
         sampling_state = payload.get("sampling_state")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.mortal is not None and args.mortal.exists():
-        net = mortal_learner.from_mortal(args.mortal, device, args.temperature)
+        temperature = 1.0 if args.temperature is None else args.temperature
+        net = mortal_learner.from_mortal(args.mortal, device, temperature)
         print(f"starting from {args.mortal}", flush=True)
     else:
         raise SystemExit("give --mortal, a published Mortal, or --resume, a checkpoint of this trainer's")
@@ -157,7 +170,7 @@ def main() -> None:
     print(
         f"device {device} | Mortal {config['resnet']['conv_channels']}x{config['resnet']['num_blocks']} "
         f"| {sum(p.numel() for p in net.parameters()) / 1e6:.2f}M parameters "
-        f"| temperature {args.temperature}",
+        f"| temperature {net.temperature}",
         flush=True,
     )
 
@@ -174,7 +187,7 @@ def main() -> None:
                                   "seat_share": args.seat_share},
             "smoothed": smoothed,
             "best_placement": best_placement,
-            "temperature": args.temperature,
+            "temperature": net.temperature,
             "optimizer_state": optimiser.state_dict(),
             "sampling_state": capture_sampling_state(),
         }

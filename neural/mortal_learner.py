@@ -292,13 +292,19 @@ def from_mortal(path: Path | str, device: str, temperature: float = 1.0) -> Mort
     return MortalLearner(mortal_model.load(path, device), temperature).to(device)
 
 
-def load(path: Path | str, device: str, temperature: float = 1.0) -> tuple[MortalLearner, dict]:
+def load(path: Path | str, device: str, temperature: float | None = None) -> tuple[MortalLearner, dict]:
     """A learner from a checkpoint this trainer wrote, or from a published
-    Mortal; and the checkpoint's payload."""
+    Mortal; and the checkpoint's payload. It plays at the temperature the
+    checkpoint was trained at, 1.0 where it names none, unless given
+    another: every logit is a Q value over it, so a different one is a
+    different policy."""
     state = torch.load(path, map_location="cpu", weights_only=False)
     net = mortal_model.build(**mortal_model.shape_of(state))
     net.brain.load_state_dict(state["mortal"])
     net.dqn.load_state_dict(state["current_dqn"])
+    if temperature is None:
+        saved = state.get("temperature")
+        temperature = 1.0 if saved is None else float(saved)
     learner = MortalLearner(net, temperature)
     if "value_head" in state:
         learner.value_head.load_state_dict(state["value_head"])

@@ -31,10 +31,10 @@ class TrainingRoundTests(unittest.TestCase):
         torch.set_num_threads(cls.threads)
 
     def setUp(self):
-        self.asked=[]
+        self.asked=[];self.temperatures=[]
 
     def simulate(self, net, games, seed, device, **kwargs):
-        self.asked.append(kwargs)
+        self.asked.append(kwargs);self.temperatures.append(net.temperature)
         net.eval(); n=32
         observations=Planes(np.arange(n+1,dtype=np.int64),np.zeros(n,dtype=np.uint16),
                             np.ones(n,dtype=np.float16))
@@ -48,10 +48,10 @@ class TrainingRoundTests(unittest.TestCase):
             returns=torch.linspace(-1.,1.,n), log_probs=log_probs,games=games,hands=1,
             decisions=n,timing={})
 
-    def mortal_run(self, out, source, rounds, resume=False, batch=16):
+    def mortal_run(self, out, source, rounds, resume=False, batch=16, extra=()):
         args=['trainer','--resume' if resume else '--mortal',str(source),'--rounds',str(rounds),
               '--out',str(out),'--games','1','--batch',str(batch),'--epochs','1','--seed','42',
-              '--measure-every','100']
+              '--measure-every','100',*extra]
         log=io.StringIO()
         # The fake round is on the processor; so must the trainer be, on a
         # desk that has a card as much as on a runner that has none.
@@ -88,6 +88,69 @@ class TrainingRoundTests(unittest.TestCase):
             self.actions=[];self.mortal_run(root/'run',initial,1)
             self.assertEqual([asked.get('want_held') for asked in self.asked],[False])
             self.assertFalse(any(asked.get('want_oracle') for asked in self.asked))
+
+    def test_a_resumed_run_keeps_the_temperature_it_was_trained_at(self):
+        """The flag defaulted to 1.0, so a run trained at 0.5 and resumed
+        without it had every logit changed and nothing said so."""
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);initial=root/'initial.pt';torch.manual_seed(7)
+            net=mortal_model.build(16,1);atomic_save({**net.state(),'config':config()},initial)
+            self.actions=[]
+            first,_=self.mortal_run(root/'run',initial,1,extra=['--temperature','0.5'])
+            self.assertEqual(first['temperature'],0.5)
+            kept,log=self.mortal_run(root/'run',root/'run/latest.pt',1,resume=True)
+            self.assertEqual(kept['temperature'],0.5)
+            self.assertNotIn('trained at',log)
+            same,log=self.mortal_run(root/'run',root/'run/latest.pt',1,resume=True,
+                                     extra=['--temperature','0.5'])
+            self.assertNotIn('trained at',log)
+            # Asked for, a different one is used, and said out loud.
+            changed,log=self.mortal_run(root/'run',root/'run/latest.pt',1,resume=True,
+                                        extra=['--temperature','1.0'])
+            self.assertEqual(changed['temperature'],1.0)
+            self.assertIn('was trained at 0.5',log)
+            self.assertEqual(self.temperatures,[0.5,0.5,0.5,1.0])
+
+    def test_a_fresh_run_and_a_checkpoint_that_names_none_play_at_one(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);initial=root/'initial.pt';torch.manual_seed(7)
+            net=mortal_model.build(16,1);atomic_save({**net.state(),'config':config()},initial)
+            self.actions=[]
+            fresh,_=self.mortal_run(root/'run',initial,1)
+            self.assertEqual(fresh['temperature'],1.0)
+            older=torch.load(root/'run/latest.pt',map_location='cpu',weights_only=True)
+            del older['temperature'];older['generation']=1
+            atomic_save(older,root/'older.pt')
+            resumed,log=self.mortal_run(root/'resumed',root/'older.pt',1,resume=True)
+            self.assertEqual(resumed['temperature'],1.0)
+            self.assertNotIn('trained at',log)
+            self.assertEqual(self.temperatures,[1.0,1.0])
+
+    def test_the_cloud_passes_a_temperature_only_when_given(self):
+        from contextlib import ExitStack
+        from functools import partial
+        from neural import cloud_runs
+        from neural.tests.test_cloud_isolation import controller
+        app=controller()
+        for kwargs,expected in (({},None),({'temperature':0.5},'0.5')):
+            with self.subTest(**kwargs),tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
+                root=Path(folder);volume=root/'volume'
+                atomic_save({'generation':3},volume/'run/latest.pt')
+                calls=[]
+                def popen(command,**_kwargs):
+                    calls.append(command)
+                    return SimpleNamespace(stdout=io.StringIO(),wait=lambda:0)
+                stack.enter_context(patch.object(app,'VOLUME',volume))
+                stack.enter_context(patch.object(app,'workspace',partial(cloud_runs.workspace,root=root/'scratch')))
+                stack.enter_context(patch.object(app,'_environment',return_value={}))
+                stack.enter_context(patch.object(app,'_save_cache'))
+                stack.enter_context(patch.object(app.subprocess,'Popen',side_effect=popen))
+                stack.enter_context(redirect_stdout(io.StringIO()))
+                app.train_mortal(run='run',generations=1,**kwargs)
+                (command,)=calls
+                self.assertIn('--resume',command)
+                given=command[command.index('--temperature')+1] if '--temperature' in command else None
+                self.assertEqual(given,expected)
 
     def test_all_three_trainers_refuse_underfilled_round_before_checkpoint_change(self):
         for module in (train,train_mortal,train_combined):
