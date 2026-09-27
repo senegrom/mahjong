@@ -115,9 +115,57 @@ jobs:
           retention-days: 1
           compression-level: 0
 
+  # The one check of the production policy.worker.js with real numbers: tiny
+  # exported graphs run through it and the reduced WASM runtime, and must
+  # match the Python reference outputs.
+  worker:
+    name: browser worker parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: |
+            . -> target
+            engine/libriichi -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install CPU export dependencies
+        run: |
+          python -m pip install "numpy>=2,<3" "maturin>=1.7,<2" "onnx>=1.17,<2" "onnxruntime>=1.22,<2"
+          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Build the training engine
+        working-directory: engine/riichi-py
+        run: maturin build --release --locked --out ../../wheels
+      - name: Build the observation engine
+        working-directory: engine/libriichi
+        run: maturin build --release --locked --out ../../wheels
+      - name: Install the real Python engines
+        run: python -m pip install wheels/*.whl
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Test exported policies through the worker and reduced WASM runtime
+        run: |
+          python -m neural.tests.export_worker_fixture "$RUNNER_TEMP/policy-fixture"
+          node web/tests/policy-export-parity.mjs "$RUNNER_TEMP/policy-fixture"
+
   deploy:
     name: publish
-    needs: [web, engine]
+    needs: [web, engine, worker]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10

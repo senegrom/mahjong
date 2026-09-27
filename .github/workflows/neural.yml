@@ -11,11 +11,6 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "web/runtime/**"
-      - "web/src/lib/policy.worker.js"
-      - "web/src/lib/memory-budget.js"
-      - "web/scripts/copy-runtime.mjs"
-      - "web/package*.json"
-      - "web/tests/policy-export-parity.mjs"
       - ".github/workflows/neural.yml"
   pull_request:
     paths:
@@ -26,11 +21,6 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "web/runtime/**"
-      - "web/src/lib/policy.worker.js"
-      - "web/src/lib/memory-budget.js"
-      - "web/scripts/copy-runtime.mjs"
-      - "web/package*.json"
-      - "web/tests/policy-export-parity.mjs"
       - ".github/workflows/neural.yml"
   schedule:
     - cron: '23 6 * * 1'
@@ -40,8 +30,9 @@ permissions:
   contents: read
 
 jobs:
+  # The root dependency graph is audited by the build workflow on every change.
   audit:
-    name: audit both Rust dependency graphs
+    name: audit the observation engine's dependencies
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -59,8 +50,6 @@ jobs:
           if ! command -v cargo-audit >/dev/null || [ "$(cargo-audit --version)" != "cargo-audit 0.22.2" ]; then
             cargo install cargo-audit --version 0.22.2 --locked
           fi
-      - name: Audit application and Python engine dependencies
-        run: cargo audit
       - name: Audit standalone observation engine dependencies
         working-directory: engine/libriichi
         run: cargo audit
@@ -102,15 +91,7 @@ jobs:
         run: maturin build --release --locked --out ../../wheels
       - name: Install the real Python engines
         run: python -m pip install wheels/*.whl
-      - name: Test acting-policy parity and both bounded rollout stages
-        run: python -m unittest neural.tests.test_policy_search_parity -v
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: "22"
-      - name: Test exported policies through the worker and reduced WASM runtime
-        run: |
-          npm ci --prefix web
-          python -m neural.tests.export_worker_fixture "$RUNNER_TEMP/policy-fixture"
-          node web/tests/policy-export-parity.mjs "$RUNNER_TEMP/policy-fixture"
-      - name: Test training resume, model export and teacher translation
+      # The browser worker parity check runs in the build workflow, which
+      # publishes the site only after it passes.
+      - name: Run the trainer's tests
         run: python -m unittest discover -s neural/tests -v

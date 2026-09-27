@@ -11,8 +11,9 @@ From the repository root, run `cargo fmt --all --check`,
 `cargo clippy --locked --workspace --all-targets -- -D warnings`,
 `cargo test --locked --workspace`, `cargo audit`, and
 `(cd engine/libriichi && cargo audit)`.
-The CI audit tool is pinned to cargo-audit 0.22.2. The neural workflow audits
-both graphs on relevant changes and weekly, with no advisory exemptions.
+The CI audit tool is pinned to cargo-audit 0.22.2. The build workflow audits
+the root graph on every change, and the neural workflow audits the standalone
+graph on relevant changes and weekly, with no advisory exemptions.
 
 On the Linux CI runner, build the training extension with
 `cargo build --locked -p riichi-py` and run
@@ -61,9 +62,10 @@ a Node 20 uploader. Keep the artifact named `github-pages` with an
 
 Build jobs have only `contents: read`, and checkouts do not persist credentials.
 Only the deployment job receives Pages and OIDC write permissions. Deployment
-requires the Rust and browser verification jobs, including dependency audits,
-to succeed. The standalone training audit is reported by the separate neural
-workflow; it is not a cross-workflow Pages deployment dependency.
+requires the Rust, browser and browser-worker parity jobs, including the root
+dependency audit, to succeed. The standalone observation-engine audit is
+reported by the separate neural workflow; it is not a cross-workflow Pages
+deployment dependency.
 
 ## Training and browser-export regressions
 
@@ -72,6 +74,15 @@ dependencies from `.github/workflows/neural.yml`, run:
 
 ```sh
 python -m unittest discover -s neural/tests -v
+```
+
+The build workflow's browser-worker parity job, which Pages deployment
+requires, exports tiny real networks and runs them through the production
+`policy.worker.js` and the reduced WASM runtime after `npm ci` in `web/`:
+
+```sh
+python -m neural.tests.export_worker_fixture /tmp/policy-worker-fixture
+node web/tests/policy-export-parity.mjs /tmp/policy-worker-fixture
 ```
 
 Combined checkpoints include the freeze-mode generator, CPU Torch state and
