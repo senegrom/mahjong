@@ -4,9 +4,8 @@ import unittest
 from unittest.mock import patch
 import numpy as np
 import torch
-from neural import selfplay, mortal_learner, counterfactual
+from neural import selfplay, mortal_learner
 from neural.ppo_control import PolicyDrift
-from neural.observe import Planes
 from neural.tests.test_evaluation_masks import ConflictingViews
 
 
@@ -55,19 +54,5 @@ class BehaviourTests(unittest.TestCase):
         self.assertFalse(bool(batch.after_exploration[0]))
         self.assertTrue(bool(batch.after_exploration.any()))
         self.assertTrue(bool((batch.behaviour_epsilon==.5).all()))
-
-    def test_counterfactual_groups_successors_not_the_current_coin(self):
-        net=SimpleNamespace(kind='mortal',planes=1012,actions=78,everything=lambda *a:None,
-                            value_only=lambda planes,head:torch.zeros(len(planes)))
-        batch=SimpleNamespace(after_exploration=torch.tensor([False,True]),
-            explored=torch.tensor([True,False]),returns=torch.tensor([10.,20.]),decisions=2,
-            observations=Planes.from_follower(np.array([0,0,0]),[],[]),legal=torch.ones(2,78,dtype=torch.bool))
-        with patch.object(selfplay,'play',return_value=batch):
-            report=counterfactual.measure(net,1,1,.5,'cpu')
-        self.assertEqual(report['value_error']['after_forced_action']['rmse'],20.)
-        self.assertEqual(report['value_error']['other_decisions']['rmse'],10.)
-        self.assertNotIn('coverage_is_the_fault',report)
-        self.assertIn('not established',report['coverage_diagnosis'])
-
 
 if __name__=='__main__':unittest.main()

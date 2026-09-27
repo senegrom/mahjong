@@ -67,10 +67,7 @@ cannot poison a finite policy loss. Checkpoint controls name this policy.
 
 `after_exploration` records subsequent same-player information states within the
 hand, rather than relabelling the pre-action observation with its current coin
-flip. Counterfactual reporting uses these groups, the selected value head, and
-an oracle head when the checkpoint has one. It no longer infers that coverage
-is the cause from an MSE difference. Matched branch continuations and controlled
-opponents are still needed for a causal coverage or action-ranking experiment.
+flip.
 
 ## Validation
 
