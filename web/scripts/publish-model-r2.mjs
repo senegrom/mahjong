@@ -19,7 +19,7 @@ const run = promisify(execFile);
 // The Cloudflare CLI runs with the account's credentials, so it is pinned to
 // an exact release rather than whatever is newest when it runs. Keep it in
 // step with workers/model-cdn/wrangler.jsonc.
-const WRANGLER = 'wrangler@4.142.0';
+const WRANGLER = 'wrangler@4.131.2';
 // ONNX element types (TensorProto.DataType) named by the precision they store.
 const PRECISIONS = new Map([[1, 'float32'], [10, 'float16'], [16, 'bfloat16'], [3, 'int8'], [2, 'uint8']]);
 // TensorProto fields that hold a tensor's values rather than its description.
