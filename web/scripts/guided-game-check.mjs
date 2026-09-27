@@ -194,6 +194,9 @@ try {
     await page.waitForSelector('.weight-row meter', { timeout: 90000 });
     assert.equal(await page.$('.failure'), null, 'a pass-only decision is advised, not refused');
     assert.deepEqual(await page.$$eval('.weight-row meter', meters => meters.map(meter => meter.value)), [1]);
+    // The hands nobody typed in are hidden, not empty: thirteen tiles each.
+    assert.deepEqual(await page.$$eval('.belief .who em', held => held.map(entry => entry.textContent)),
+      ['13 tiles', '13 tiles', '13 tiles']);
     await page.click('.record-best'); await stage(page, 'responses');
     assert.deepEqual(page.problems, []);
   });

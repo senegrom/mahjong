@@ -591,9 +591,23 @@ impl PhysicalAnalysis {
 /// outwards. The drawn tile counts: it is in the hand until it is let go,
 /// and that is how the hands the belief head was trained against were
 /// counted too.
+///
+/// A typed-in table leaves the hands nobody has shown empty, but they are
+/// hidden, not empty: every seat holds thirteen tiles less three for each
+/// set it has called, and one more while it is the seat to act.
 pub(super) fn concealed_counts(hand: &Hand, seat: Wind) -> Vec<u32> {
     (1..4)
-        .map(|offset| hand.players[seat.plus(offset).index()].hand.len() as u32)
+        .map(|offset| {
+            let other = seat.plus(offset);
+            let player = &hand.players[other.index()];
+            let held = if player.hand.is_empty() {
+                13 - 3 * player.melds.len()
+                    + usize::from(hand.phase == Phase::Act && hand.turn == other)
+            } else {
+                player.hand.len()
+            };
+            held as u32
+        })
         .collect()
 }
 
@@ -1130,6 +1144,28 @@ mod tests {
             planes.nrows(),
             riichi::consts::obs_shape(crate::MORTAL_VERSION).0
         );
+    }
+
+    #[test]
+    fn a_hidden_hand_is_counted_by_its_sets_not_as_empty() {
+        // East answers South's discard; nobody else's hand was typed in, and
+        // West has called a pon.
+        let mut position = pass_only_response();
+        position.players[2].melds.push(set("pon", "7z", 1));
+        let (hand, seat) = position.build().expect("a valid response");
+        assert_eq!(concealed_counts(&hand, seat), vec![13, 10, 13]);
+        // East to act with a typed-in hand of fourteen. Asked from South,
+        // East is the previous seat; hidden, it still holds its draw.
+        let (mut hand, _) = acting().build().expect("a valid turn");
+        assert_eq!(concealed_counts(&hand, Wind::South), vec![13, 13, 14]);
+        hand.players[0].hand = TileSet::new();
+        assert_eq!(concealed_counts(&hand, Wind::South), vec![13, 13, 14]);
+        // The live game knows every hand and counts what is there.
+        let game = riichi_core::table::Table::new().deal(&mut Rng::from_seed(3));
+        let held: Vec<u32> = (1..4)
+            .map(|offset| game.players[offset].hand.len() as u32)
+            .collect();
+        assert_eq!(concealed_counts(&game, Wind::East), held);
     }
 
     /// The trained mask, the translation of its moves and the listed choices,

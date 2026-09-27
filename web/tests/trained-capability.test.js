@@ -106,5 +106,9 @@ test('trained advice answers an opponent discard the player cannot claim', async
     assert.equal(answer.kind, 'policy');
     assert.equal(answer.choice.kind, 'pass');
     assert.deepEqual(answer.choices.map(choice => [choice.kind, choice.weight]), [['pass', 1]]);
+    // Nobody else's hand was typed in: hidden, not empty. East has just let
+    // its tile go, and nobody has called, so each holds thirteen.
+    assert.deepEqual(answer.beliefs.map(belief => belief.held), [13, 13, 13]);
+    assert.ok(answer.beliefs.every(belief => Math.abs(belief.expected.reduce((a, b) => a + b, 0) - 13) < 1e-9));
   } finally { engine.free(); }
 });
