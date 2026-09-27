@@ -459,9 +459,11 @@ impl Hand {
     /// Whether the concealed quad a riichi player wants is allowed.
     ///
     /// It must be the fourth copy of a triplet the hand already held, it
-    /// must leave the waits exactly as they were, and the three tiles must
-    /// read only as a triplet in every hand a waiting tile would complete
-    /// (EMA sections 3.3.10 and 6.7.1).
+    /// must leave the waits exactly as they were declared, and the three
+    /// tiles must read only as a triplet in every hand a waiting tile would
+    /// complete (EMA sections 3.3.10 and 6.7.1). A quad of a tile the hand
+    /// was waiting on always changes the waits, since it takes that tile
+    /// out of them.
     fn riichi_kan_is_valid(&self, tile: Tile) -> bool {
         let player = self.current();
         let drawn = match self.drawn {
@@ -476,13 +478,22 @@ impl Hand {
         if frozen.count(tile) != 3 {
             return false;
         }
+        // The waits the quad must keep are the ones declared, so they are
+        // counted without the draw. Counting the drawn fourth copy as seen
+        // would drop its kind from them even when it is one of the waits,
+        // and a quad of the very tile the hand is waiting on would then
+        // look as if it changed nothing: it is only a fifth copy a hand
+        // cannot wait on (EMA section 3.3.8).
         let visible = player.visible_to_self();
-        let before = shanten::waits(&frozen, player.melds.len(), &visible);
+        let mut declared = visible;
+        declared.remove(drawn);
+        let before = shanten::waits(&frozen, player.melds.len(), &declared);
         if before.is_empty() {
             return false;
         }
 
-        // The same hand with the three tiles set aside as a quad.
+        // The same hand with the three tiles set aside as a quad, which
+        // holds all four copies, so its kind can no longer be waited on.
         let mut without = frozen;
         without.counts_mut()[tile.idx()] = 0;
         let after = shanten::waits(&without, player.melds.len() + 1, &visible);
