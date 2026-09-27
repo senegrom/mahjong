@@ -395,54 +395,12 @@ impl Position {
         // Every discard marked as claimed must be explained by a called set
         // that took it from that seat; without this, marking extra copies of
         // a tile as claimed put a fifth one on the table.
-        let mut takers: Vec<(usize, Vec<Tile>)> = Vec::new();
-        for (index, player) in hand.players.iter().enumerate() {
-            for meld in &player.melds {
-                let offset = match meld.from {
-                    ClaimedFrom::Right => 1,
-                    ClaimedFrom::Across => 2,
-                    ClaimedFrom::Left => 3,
-                    ClaimedFrom::SelfDrawn => continue,
-                };
-                let could_take: Vec<Tile> = match meld.kind {
-                    MeldKind::Chii => meld.tiles().into_iter().collect(),
-                    MeldKind::ConcealedKan => continue,
-                    _ => vec![meld.tile],
-                };
-                takers.push(((index + offset) % 4, could_take));
-            }
-        }
-        // A chii can explain more than one tile kind. Find an injective
-        // matching rather than greedily consuming the first possible set:
-        // an earlier assignment may have to move to make room for this one.
-        // This never reorders the recorded meld history or reuses a set.
-        let claims: Vec<_> = hand
-            .players
-            .iter()
-            .enumerate()
-            .flat_map(|(seat, player)| {
-                player
-                    .discards
-                    .iter()
-                    .filter(|d| d.claimed)
-                    .map(move |d| (seat, d.tile))
-            })
-            .collect();
-        let mut owners = vec![None; takers.len()];
-        for (claim, &(seat, tile)) in claims.iter().enumerate() {
-            if !assign_claim(
-                claim,
-                &claims,
-                &takers,
-                &mut owners,
-                &mut vec![false; takers.len()],
-            ) {
-                return Err(format!(
-                    "{}'s claimed {} needs a called set that took it",
-                    ["East", "South", "West", "North"][seat],
-                    tile
-                ));
-            }
+        if let Err((seat, tile)) = claims(&hand) {
+            return Err(format!(
+                "{}'s claimed {} needs a called set that took it",
+                ["East", "South", "West", "North"][seat.index()],
+                tile
+            ));
         }
         // The editor keeps the flag through the kan's robbery window, so the
         // replacement that follows is known to be one; only a plain discard
@@ -639,28 +597,158 @@ pub(super) fn concealed_counts(hand: &Hand, seat: Wind) -> Vec<u32> {
         .collect()
 }
 
-/// Augment the claimed-discard/meld matching. The visited set bounds a
-/// search to the public meld count (at most sixteen), including cycles.
+/// A discard marked as claimed, paired with the called set that took it.
+pub(super) struct Claim {
+    /// Whose river the discard lies in.
+    pub(super) target: Wind,
+    /// The discard's order number, which is when the set was called.
+    pub(super) order: u32,
+    /// The tile taken.
+    pub(super) tile: Tile,
+    /// The seat that called.
+    pub(super) claimer: Wind,
+    /// Which of the claimer's sets took it.
+    pub(super) meld: usize,
+}
+
+/// A called set that took a tile from somebody's river.
+struct Taker {
+    /// Whose river it took from.
+    from: Wind,
+    /// The tiles it could have taken: any of a chii's three.
+    tiles: Vec<Tile>,
+    claimer: Wind,
+    meld: usize,
+}
+
+/// Pairs every discard marked as claimed with a called set that took it:
+/// one taken from that seat and holding that tile, no set taking two.
+///
+/// A chii can explain more than one tile kind, so this is an injective
+/// matching rather than a first fit: an earlier pairing may have to move to
+/// make room for a later one. It never reorders the recorded meld history.
+/// Where more than one pairing would do, it keeps to what the position says
+/// happened: a claim gave the turn to its caller, so a claimed discard goes
+/// first to the seat that made the next discard, and the tiles one seat took
+/// from another go to its sets in the order they were recorded.
+///
+/// The position's validation and Mortal's replay of it both read this one
+/// answer, so every table that passes validation is one the replay can
+/// tell. The error names the first claimed discard no set explains.
+pub(super) fn claims(hand: &Hand) -> Result<Vec<Claim>, (Wind, Tile)> {
+    let mut takers: Vec<Taker> = Vec::new();
+    for claimer in Wind::ALL {
+        for (meld, set) in hand.players[claimer.index()].melds.iter().enumerate() {
+            let offset = match set.from {
+                ClaimedFrom::Right => 1,
+                ClaimedFrom::Across => 2,
+                ClaimedFrom::Left => 3,
+                ClaimedFrom::SelfDrawn => continue,
+            };
+            let tiles = match set.kind {
+                MeldKind::Chii => set.tiles(),
+                MeldKind::ConcealedKan => continue,
+                _ => vec![set.tile],
+            };
+            takers.push(Taker {
+                from: claimer.plus(offset),
+                tiles,
+                claimer,
+                meld,
+            });
+        }
+    }
+    let mut played: Vec<(u32, Wind)> = Wind::ALL
+        .into_iter()
+        .flat_map(|seat| {
+            hand.players[seat.index()]
+                .discards
+                .iter()
+                .map(move |discard| (discard.order, seat))
+        })
+        .collect();
+    played.sort_unstable_by_key(|(order, _)| *order);
+    let claimed: Vec<(Wind, u32, Tile)> = Wind::ALL
+        .into_iter()
+        .flat_map(|seat| {
+            hand.players[seat.index()]
+                .discards
+                .iter()
+                .filter(|discard| discard.claimed)
+                .map(move |discard| (seat, discard.order, discard.tile))
+        })
+        .collect();
+    // For each claimed discard, the sets that could have taken it, the
+    // likeliest first. A claim nothing has followed yet belongs to the seat
+    // that holds the turn now.
+    let candidates: Vec<Vec<usize>> = claimed
+        .iter()
+        .map(|&(seat, order, tile)| {
+            let caller = played
+                .iter()
+                .find(|(later, _)| *later > order)
+                .map_or(hand.turn, |(_, next)| *next);
+            let mut sets: Vec<usize> = (0..takers.len())
+                .filter(|&at| takers[at].from == seat && takers[at].tiles.contains(&tile))
+                .collect();
+            sets.sort_by_key(|&at| takers[at].claimer != caller);
+            sets
+        })
+        .collect();
+    let mut owners = vec![None; takers.len()];
+    for (claim, &(seat, _, tile)) in claimed.iter().enumerate() {
+        if !assign_claim(
+            claim,
+            &candidates,
+            &mut owners,
+            &mut vec![false; takers.len()],
+        ) {
+            return Err((seat, tile));
+        }
+    }
+    let mut paired: Vec<Claim> = owners
+        .iter()
+        .zip(&takers)
+        .filter_map(|(owner, taker)| {
+            let (target, order, tile) = claimed[(*owner)?];
+            Some(Claim {
+                target,
+                order,
+                tile,
+                claimer: taker.claimer,
+                meld: taker.meld,
+            })
+        })
+        .collect();
+    paired.sort_unstable_by_key(|claim| claim.order);
+    Ok(paired)
+}
+
+/// Finds a set for one claimed discard, moving earlier pairings along where
+/// that makes room. A free set is taken before any pairing is disturbed, so
+/// one already made moves only when nothing else will do. The visited set
+/// bounds a search to the public meld count (at most sixteen), including
+/// cycles.
 fn assign_claim(
     claim: usize,
-    claims: &[(usize, Tile)],
-    takers: &[(usize, Vec<Tile>)],
+    candidates: &[Vec<usize>],
     owners: &mut [Option<usize>],
     visited: &mut [bool],
 ) -> bool {
-    let (seat, tile) = claims[claim];
-    for (meld, (from, tiles)) in takers.iter().enumerate() {
-        if visited[meld] || *from != seat || !tiles.contains(&tile) {
+    if let Some(&free) = candidates[claim].iter().find(|&&set| owners[set].is_none()) {
+        owners[free] = Some(claim);
+        return true;
+    }
+    for &set in &candidates[claim] {
+        if visited[set] {
             continue;
         }
-        visited[meld] = true;
-        let available = match owners[meld] {
-            None => true,
-            Some(previous) => assign_claim(previous, claims, takers, owners, visited),
-        };
-        if available {
-            owners[meld] = Some(claim);
-            return true;
+        visited[set] = true;
+        if let Some(previous) = owners[set] {
+            if assign_claim(previous, candidates, owners, visited) {
+                owners[set] = Some(claim);
+                return true;
+            }
         }
     }
     false
@@ -783,6 +871,139 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The planes the trained network reads for a position, from the replay.
+    fn trained_planes(position: &Position) -> Vec<f32> {
+        let (hand, seat) = position.build().expect("a valid position");
+        let state = mortal_log::state_for(&hand, seat).expect("the replay builds");
+        let (planes, _) = state.encode_obs(crate::MORTAL_VERSION, false);
+        planes.iter().copied().collect()
+    }
+
+    /// A hand as it is really played: South calls East's 1p as 1-2-3p, its
+    /// 3m as 1-2-3m and its 5m as 3-4-5m, discarding after each, and now
+    /// holds a draw. The sets are entered in `meld_order`.
+    fn three_chii(meld_order: [usize; 3]) -> Position {
+        let tiles = ["1p", "1m", "3m"];
+        let mut position = acting();
+        position.seat = 1;
+        position.turn = 1;
+        position.wall = 59;
+        position.players[0] = seat("");
+        position.players[0].discards = vec![
+            thrown("1p", 0, true),
+            thrown("3m", 4, true),
+            thrown("5m", 8, true),
+            thrown("6z", 12, false),
+        ];
+        position.players[1] = seat("1s 1s 1s 5z 5z");
+        position.players[1].melds = meld_order
+            .iter()
+            .map(|&at| set("chii", tiles[at], 3))
+            .collect();
+        position.players[1].discards = vec![
+            thrown("9s", 1, false),
+            thrown("9s", 5, false),
+            thrown("8s", 9, false),
+        ];
+        position.players[2].discards = vec![
+            thrown("1z", 2, false),
+            thrown("1z", 6, false),
+            thrown("2z", 10, false),
+        ];
+        position.players[3].discards = vec![
+            thrown("3z", 3, false),
+            thrown("3z", 7, false),
+            thrown("4z", 11, false),
+        ];
+        position
+    }
+
+    #[test]
+    fn every_order_of_the_same_sets_replays_to_the_same_planes() {
+        let permutations = [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ];
+        let first = trained_planes(&three_chii(permutations[0]));
+        for meld_order in permutations {
+            let planes = trained_planes(&three_chii(meld_order));
+            assert!(planes == first, "sets entered as {meld_order:?}");
+        }
+    }
+
+    /// South called 1-2-3m on East's first 3m and 3-4-5m on its second,
+    /// discarding after each, with the two sets entered as `melds`.
+    fn twice_claimed(melds: [&str; 2]) -> Position {
+        let mut position = acting();
+        position.seat = 1;
+        position.turn = 1;
+        position.wall = 62;
+        position.players[0] = seat("");
+        position.players[0].discards = vec![
+            thrown("3m", 0, true),
+            thrown("3m", 4, true),
+            thrown("6z", 8, false),
+        ];
+        position.players[1] = seat("1s 1s 1s 5z 5z 7p 8p 9p");
+        position.players[1].melds = melds.iter().map(|low| set("chii", low, 3)).collect();
+        position.players[1].discards = vec![thrown("9s", 1, false), thrown("9s", 5, false)];
+        position.players[2].discards = vec![thrown("1z", 2, false), thrown("1z", 6, false)];
+        position.players[3].discards = vec![thrown("3z", 3, false), thrown("3z", 7, false)];
+        position
+    }
+
+    #[test]
+    fn one_tile_claimed_twice_from_one_seat_replays_in_the_order_entered() {
+        for melds in [["1m", "3m"], ["3m", "1m"]] {
+            let (hand, seat) = twice_claimed(melds).build().expect("a valid position");
+            let paired: Vec<(u32, usize)> = claims(&hand)
+                .expect("both discards are explained")
+                .iter()
+                .map(|claim| (claim.order, claim.meld))
+                .collect();
+            assert_eq!(paired, vec![(0, 0), (4, 1)], "sets entered as {melds:?}");
+            assert!(
+                mortal_log::state_for(&hand, seat).is_some(),
+                "sets entered as {melds:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_claimed_discard_goes_to_the_seat_that_played_next() {
+        // West pons East's first 3m and discards; North plays; East lets
+        // another 3m go, South chiis it as 1-2-3m and discards; South has
+        // since drawn. Either set could hold either 3m.
+        let mut position = acting();
+        position.seat = 1;
+        position.turn = 1;
+        position.wall = 63;
+        position.players[0] = seat("");
+        position.players[0].discards = vec![
+            thrown("3m", 0, true),
+            thrown("3m", 3, true),
+            thrown("6z", 7, false),
+        ];
+        position.players[1] = seat("1s 1s 1s 5z 5z 7p 8p 9p 9p 9p 2z");
+        position.players[1].melds = vec![set("chii", "1m", 3)];
+        position.players[1].discards = vec![thrown("9s", 4, false)];
+        position.players[2].melds = vec![set("pon", "3m", 2)];
+        position.players[2].discards = vec![thrown("1z", 1, false), thrown("1z", 5, false)];
+        position.players[3].discards = vec![thrown("3z", 2, false), thrown("3z", 6, false)];
+        let (hand, seat) = position.build().expect("a valid position");
+        let paired: Vec<(u32, Wind)> = claims(&hand)
+            .expect("both discards are explained")
+            .iter()
+            .map(|claim| (claim.order, claim.claimer))
+            .collect();
+        assert_eq!(paired, vec![(0, Wind::West), (3, Wind::South)]);
+        assert!(mortal_log::state_for(&hand, seat).is_some());
     }
 
     #[test]

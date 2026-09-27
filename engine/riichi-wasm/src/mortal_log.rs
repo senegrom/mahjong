@@ -25,12 +25,13 @@
 //! The second is when a concealed or added quad was declared, which nothing
 //! in a position records; it is placed on one of that seat's own turns.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
+use super::analysis::claims;
 use riichi::mjai::Event as MortalEvent;
 use riichi::state::PlayerState as MortalState;
 use riichi_core::game::{Discard, Hand, Phase};
-use riichi_core::hand::{ClaimedFrom, MeldKind};
+use riichi_core::hand::MeldKind;
 use riichi_core::mjai::name;
 use riichi_core::tile::Tile;
 use riichi_core::Wind;
@@ -38,18 +39,6 @@ use riichi_core::Wind;
 /// Tiles in the live wall before the dealer's first draw, which is where
 /// libriichi's own count starts.
 const WALL_AT_START: usize = 70;
-
-/// A called set matched to the discard it took.
-struct Claim {
-    /// Who called.
-    claimer: Wind,
-    /// Which of that seat's sets this is.
-    meld: usize,
-    /// Whose discard it was.
-    target: Wind,
-    /// The tile claimed.
-    tile: Tile,
-}
 
 /// Mortal's state for one seat of a position on its own, having been told
 /// everything the position says happened.
@@ -67,60 +56,6 @@ pub(super) fn state_for(hand: &Hand, seat: Wind) -> Option<MortalState> {
 
 fn wind_of(index: usize) -> Wind {
     [Wind::East, Wind::South, Wind::West, Wind::North][index % 4]
-}
-
-/// Which seat a set was claimed from, given who claimed it.
-fn source_of(claimer: usize, from: ClaimedFrom) -> Option<usize> {
-    let offset = match from {
-        ClaimedFrom::Right => 1,
-        ClaimedFrom::Across => 2,
-        ClaimedFrom::Left => 3,
-        ClaimedFrom::SelfDrawn => return None,
-    };
-    Some((claimer + offset) % 4)
-}
-
-/// Pairs every discard marked as claimed with the set that took it, the way
-/// the position's own validation does; that validation has already passed,
-/// so a pairing is there to be found.
-fn claims(hand: &Hand) -> Option<Vec<Claim>> {
-    let mut takers: Vec<(usize, Vec<Tile>, usize, usize)> = Vec::new();
-    for (claimer, player) in hand.players.iter().enumerate() {
-        for (at, meld) in player.melds.iter().enumerate() {
-            let Some(source) = source_of(claimer, meld.from) else {
-                continue;
-            };
-            let could_take = match meld.kind {
-                MeldKind::Chii => meld.tiles(),
-                MeldKind::ConcealedKan => continue,
-                _ => vec![meld.tile],
-            };
-            takers.push((source, could_take, claimer, at));
-        }
-    }
-    let mut found = Vec::new();
-    for (index, player) in hand.players.iter().enumerate() {
-        for discard in player.discards.iter().filter(|d| d.claimed) {
-            // A set naming exactly this tile first, so a sequence's three
-            // possible tiles stay for the discards only it explains.
-            let at = takers
-                .iter()
-                .position(|(who, tiles, ..)| *who == index && tiles == &[discard.tile])
-                .or_else(|| {
-                    takers
-                        .iter()
-                        .position(|(who, tiles, ..)| *who == index && tiles.contains(&discard.tile))
-                })?;
-            let (_, _, claimer, meld) = takers.swap_remove(at);
-            found.push(Claim {
-                claimer: wind_of(claimer),
-                meld,
-                target: wind_of(index),
-                tile: discard.tile,
-            });
-        }
-    }
-    Some(found)
 }
 
 /// Every discard of the hand, in the order they were made.
@@ -253,19 +188,16 @@ fn discards_after(kind: MeldKind) -> bool {
 type Called = (Wind, MeldKind, Tile);
 
 fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
-    let taken = claims(hand)?;
+    // The same pairing the position's validation found, so a table it
+    // accepted is one the replay can tell.
+    let taken = claims(hand).ok()?;
     let rows = ordered(hand);
-    let by_order: HashMap<u32, usize> = taken
+    // Each claim follows the very discard it was paired with: two sets that
+    // took the same tile from the same seat took two different discards.
+    let by_order: BTreeMap<u32, usize> = taken
         .iter()
         .enumerate()
-        .map(|(at, claim)| {
-            let order = hand.players[claim.target.index()]
-                .discards
-                .iter()
-                .find(|d| d.claimed && d.tile == claim.tile)
-                .map_or(u32::MAX, |d| d.order);
-            (order, at)
-        })
+        .map(|(at, claim)| (claim.order, at))
         .collect();
 
     // A set that takes a tile from a river is followed by a discard out of
