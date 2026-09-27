@@ -1,30 +1,8 @@
-# Placement artifacts, model delivery, and scoring explanations
+# Model delivery and scoring explanations
 
 Repairs the eight findings in the review of `1cb9d84`. These changes do not
 publish new model weights, change the scoring rules, certify a reader, or
 claim a playing-strength gain.
-
-## Placement heads and replay
-
-`neural.placement_contract` is the shared representation validator. Feature
-versions 1, 2, and 3 require a frozen-feature fingerprint. Version 4 reads a
-known observation directly and uses its observation identity (`planes-1012`
-for Mortal-v4, `planes-97` for engine planes). All teacher replay additionally
-requires the SHA-256 of the exact head-file snapshot. Mortal teacher replay
-refuses a version-4 engine-plane head, missing identities, and unknown versions.
-Saving, loading, ordinary serving, replay collection, reopening, fitting, and
-resume use these same meanings. Existing supported v1/v2 replay is unchanged;
-v3/v4 provenance is now accepted instead of failing before collection.
-
-Tile-attention heads and independent towers preserve their actual `looks`
-setting. Early v4 files wrote zero for the depth: loading reconstructs a
-contiguous depth from the saved tower's parameter names, not an assumed default.
-New files write the actual depth. Save/load prediction parity is tested after
-optimization at 1, 2, 4, and 6 blocks/looks, together with load-and-resave.
-Matching schema fields returned by loading may be resaved, but metadata cannot
-change head-owned architecture. Atomic staged publication remains in place.
-Search API remains 5 and training API remains 2. No old data is relabelled and
-no reader proposal declaration is changed.
 
 ## Verified network bytes versus durable offline readiness
 
@@ -82,7 +60,7 @@ once rather than repeating it inside their standing hand.
 Regressions cover native-to-JavaScript attribution, ambiguous highest-scoring
 readings, both wind triplets, ron/tsumo, four identical sequences, multiple dragon
 triplets, poisoned caches, interrupted upgrades, bounded stalled/overlong streams,
-quota failures, publication interleaving, and placement replay consumer paths.
+quota failures and publication interleaving.
 
 ## Saved-result compatibility
 
