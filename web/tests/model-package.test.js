@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { copyRuntime } from '../scripts/copy-runtime.mjs';
+import { fileURLToPath } from 'node:url';
+import { copyRuntime, runtimeRelease } from '../scripts/copy-runtime.mjs';
 import { RUNTIME_FILES } from '../src/lib/model-package.js';
 
 async function fixture(t) {
@@ -12,7 +13,14 @@ async function fixture(t) {
   for (const dir of ['runtime', 'public', 'src/lib']) await mkdir(join(root, dir), { recursive: true });
   for (const file of RUNTIME_FILES.filter(file => file !== 'memory-budget.mjs')) await writeFile(join(root, 'runtime', file), file);
   await writeFile(join(root, 'src/lib/memory-budget.js'), 'memory');
+  await release(root, '1.29.0', '1.29.0');
   return root;
+}
+// A runtime built from ONNX Runtime `built`, beside onnxruntime-web `installed`.
+async function release(root, built, installed) {
+  await writeFile(join(root, 'runtime/ort-wasm-simd-threaded.wasm'), `\0asm\0${built}\0kernels`);
+  await mkdir(join(root, 'node_modules/onnxruntime-web'), { recursive: true });
+  await writeFile(join(root, 'node_modules/onnxruntime-web/package.json'), JSON.stringify({ version: installed }));
 }
 
 test('a clean checkout copies the complete runtime without a local-model registry', async t => {
@@ -38,4 +46,18 @@ test('unexpected ONNX files at any public path fail before copying', async t => 
     await assert.rejects(readFile(join(root, 'public/ort', RUNTIME_FILES[0])), { code: 'ENOENT' });
     await rm(path);
   }
+});
+test('the installed JavaScript API must be the release the runtime was built from', async t => {
+  const root = await fixture(t);
+  await release(root, '1.29.0', '1.30.0');
+  await assert.rejects(copyRuntime(root), /onnxruntime-web 1\.30\.0 is installed, but web\/runtime was built from ONNX Runtime 1\.29\.0/);
+  await assert.rejects(readFile(join(root, 'public/ort', RUNTIME_FILES[0])), { code: 'ENOENT' });
+  await release(root, '', '1.29.0');
+  await assert.rejects(copyRuntime(root), /built from ONNX Runtime an unknown release/);
+});
+test('the committed runtime was built from the exactly pinned onnxruntime-web', async () => {
+  const web = fileURLToPath(new URL('../', import.meta.url));
+  const pinned = JSON.parse(await readFile(join(web, 'package.json'), 'utf8')).dependencies['onnxruntime-web'];
+  assert.match(pinned, /^\d+\.\d+\.\d+$/, 'onnxruntime-web moves only with a runtime rebuild');
+  assert.equal(await runtimeRelease(web), pinned);
 });

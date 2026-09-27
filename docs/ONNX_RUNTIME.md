@@ -64,14 +64,22 @@ includes real inference, legacy preference migration, saved-state, memory,
 worker, offline, and browser layout checks. Optional external model/checkpoint
 fixtures remain explicitly identified by their individual tests.
 
-The manual reduced-runtime workflow builds from its pinned ONNX Runtime source
-and reviewed `reduced-ops.config`, restores the loader's memory hooks, and runs
-the web suites against the published network. It then pushes the tested tree to
-an `automation/reduced-runtime-*` branch and links a compare page from the job
-summary: GitHub Actions may not open pull requests in this repository, and one
-opened with the workflow token would start no checks. Open the pull request
-from that link and merge only after its checks pass. The workflow never pushes
-main.
+The JavaScript in `onnxruntime-web` calls into the WASM, and those calls change
+between releases, so `web/package.json` pins the package to exactly the ONNX
+Runtime release the reduced WASM was built from. `copy-runtime.mjs` refuses to
+build when the installed package differs from the release recorded in the
+binary, so a Dependabot update of that package alone fails until the runtime
+is rebuilt at the new release.
+
+The manual reduced-runtime workflow builds the pinned release from source with
+the reviewed `reduced-ops.config`; dispatched with another release, it builds
+that one and moves the pin in the same commit. It restores the loader's memory
+hooks and runs the web suites against the published network, then pushes the
+tested tree to an `automation/reduced-runtime-*` branch and links a compare
+page from the job summary: GitHub Actions may not open pull requests in this
+repository, and one opened with the workflow token would start no checks. Open
+the pull request from that link and merge only after its checks pass. The
+workflow never pushes main.
 
 `neural.export` refuses a network that needs an operator the reduced runtime
 lacks, and the memory regression loads the published network through that

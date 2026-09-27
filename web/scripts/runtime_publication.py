@@ -10,6 +10,10 @@ RUNTIME_FILES = (
     'web/runtime/ort-wasm-simd-threaded.wasm',
     'web/runtime/ort-wasm-simd-threaded.stock.mjs',
     'web/runtime/ort-wasm-simd-threaded.mjs',
+    # onnxruntime-web is pinned to the release the runtime is built from, so
+    # a rebuild at another release moves the pin in the same commit.
+    'web/package.json',
+    'web/package-lock.json',
 )
 
 

@@ -40,6 +40,10 @@ updates:
       npm-minor-patch:
         applies-to: version-updates
         patterns: ['*']
+        # onnxruntime-web must be the release web/runtime was built from, so
+        # it moves only with a rebuild (reduce-onnx-runtime.yml). Its own
+        # pull request fails the build until the runtime is rebuilt at it.
+        exclude-patterns: [onnxruntime-web]
         update-types: [minor, patch]
     schedule:
       interval: weekly
