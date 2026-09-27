@@ -716,41 +716,50 @@ def duel(
     what comes back is a single placement against the 2.50 two identical
     players would average. The two may be of different lineages: each is
     served the planes it sees.
+
+    The answer is the table's report and nothing else. A missing checkpoint
+    raises `FileNotFoundError`, and a table that exits with an error raises
+    `CalledProcessError` carrying its output, so a caller pooling many duels
+    counts that call as failed instead of reading an error as a report.
     """
     volume.reload()
-    local = Path("/scratch/duel")
-    local.mkdir(parents=True, exist_ok=True)
-    files = []
-    for name in (challenger, incumbent):
-        source = _checkpoint(run, name)
+    sources = [_checkpoint(run, name) for name in (challenger, incumbent)]
+    for source in sources:
         if not source.exists():
-            return f"no checkpoint at {source}"
-        # Two names may share a file name across runs, so keep the run's
-        # name in the copy's.
-        copied = local / (name.replace("/", "--") + ".pt")
-        shutil.copyfile(source, copied)
-        files.append(copied)
-    print(
-        f"challenger {challenger}.pt generation {_generation_or_zoo(files[0])} "
-        f"against {incumbent}.pt generation {_generation_or_zoo(files[1])}",
-        flush=True,
-    )
+            raise FileNotFoundError(f"no checkpoint at {source}")
+    with workspace("duel") as local:
+        files = []
+        for name, source in zip((challenger, incumbent), sources):
+            # Two names may share a file name across runs, so keep the run's
+            # name in the copy's.
+            copied = local / (name.replace("/", "--") + ".pt")
+            shutil.copyfile(source, copied)
+            files.append(copied)
+        print(
+            f"challenger {challenger}.pt generation {_generation_or_zoo(files[0])} "
+            f"against {incumbent}.pt generation {_generation_or_zoo(files[1])}",
+            flush=True,
+        )
 
-    command = [
-        sys.executable, "-m", "neural.duel", str(files[0]), str(files[1]),
-        "--games", str(games), "--seed", str(seed),
-        "--channels", str(channels), "--blocks", str(blocks),
-        "--incumbent-channels", str(incumbent_channels),
-        "--incumbent-blocks", str(incumbent_blocks),
-    ]
-    result = subprocess.run(
-        command,
-        cwd="/src",
-        env=_environment(),
-        capture_output=True,
-        text=True,
-    )
-    answer = (result.stdout or "") + (result.stderr or "" if result.returncode else "")
+        command = [
+            sys.executable, "-m", "neural.duel", str(files[0]), str(files[1]),
+            "--games", str(games), "--seed", str(seed),
+            "--channels", str(channels), "--blocks", str(blocks),
+            "--incumbent-channels", str(incumbent_channels),
+            "--incumbent-blocks", str(incumbent_blocks),
+        ]
+        result = subprocess.run(
+            command,
+            cwd="/src",
+            env=_environment(),
+            capture_output=True,
+            text=True,
+        )
+    if result.returncode:
+        output = (result.stdout or "") + (result.stderr or "")
+        print(output, flush=True)
+        raise subprocess.CalledProcessError(result.returncode, command, output=output)
+    answer = result.stdout or ""
     print(answer, flush=True)
     return answer
 

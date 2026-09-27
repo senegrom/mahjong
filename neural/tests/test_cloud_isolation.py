@@ -113,6 +113,41 @@ class CloudIsolationTests(unittest.TestCase):
                 app.distil(teacher='teacher',run='run',name='product')
             self.assertEqual(before,(volume/'run/product.pt').read_bytes())
 
+    def test_failed_duels_raise_instead_of_returning_text(self):
+        # A caller pooling many duels reads each answer as the table's JSON
+        # report, so a missing checkpoint or a failed table must raise: one
+        # failed call, not a message that ends the whole pool unparsed.
+        app=controller()
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume';scratch=root/'scratch'
+            atomic_save({'generation':5},volume/'run/latest.pt')
+            atomic_save({'generation':4},volume/'run/older.pt')
+            calls,outcomes=[],[]
+            def execute(command,**kwargs):
+                calls.append(command)
+                self.assertTrue(Path(command[3]).exists() and Path(command[4]).exists())
+                return outcomes.pop(0)
+            with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
+                 patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'run',side_effect=execute), \
+                 redirect_stdout(io.StringIO()):
+                for challenger,incumbent in (('missing','older'),('latest','missing')):
+                    with self.subTest(challenger=challenger,incumbent=incumbent),self.assertRaises(FileNotFoundError):
+                        app.duel(challenger=challenger,incumbent=incumbent,run='run')
+                self.assertEqual(calls,[])
+                outcomes.append(SimpleNamespace(stdout='{"placement": 2.4',stderr='Traceback: boom',returncode=1))
+                with self.assertRaises(subprocess.CalledProcessError) as failed:
+                    app.duel(challenger='latest',incumbent='older',run='run')
+                self.assertEqual(failed.exception.returncode,1)
+                self.assertIn('boom',failed.exception.output)
+                report={'placement':2.4,'by_deal':[2.5,2.3]}
+                outcomes.append(SimpleNamespace(stdout=json.dumps(report),stderr='a warning',returncode=0))
+                self.assertEqual(json.loads(app.duel(challenger='latest',incumbent='older',run='run')),report)
+            self.assertEqual(len(calls),2)
+            self.assertEqual(calls[0][:3],[sys.executable,'-m','neural.duel'])
+            self.assertEqual([Path(path).name for path in calls[0][3:5]],['latest.pt','older.pt'])
+            # Each call copied the checkpoints into its own scratch and removed it.
+            self.assertEqual(list(scratch.iterdir()),[])
+
     def test_invalid_run_names_and_paths_fail_before_work_is_started(self):
         app=controller()
         for run in ('../other','/tmp/other','a/b','',r'a\b'):
