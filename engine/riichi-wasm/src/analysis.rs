@@ -32,15 +32,25 @@ pub(super) fn observation(hand: &Hand, seat: Wind) -> Vec<f32> {
     out
 }
 
-pub(super) fn mask(hand: &Hand, seat: Wind) -> Vec<u8> {
+/// Our moves that seat may make at this decision: the engine's own mask,
+/// and a pass for every seat answering another seat's discard or quad.
+///
+/// A physical player can always decline a discard even when no call is
+/// available. The game driver normally skips such a decision entirely, but a
+/// guided or physical table stops at every discard. The listed choices, our
+/// mask, Mortal's mask and the translation of Mortal's moves back all start
+/// from this one answer, so no adviser is offered a decision it cannot make.
+pub(super) fn legal_moves(hand: &Hand, seat: Wind) -> Vec<bool> {
     let mut mask = vec![false; ACTIONS];
     encoding::legal_mask(hand, seat, &mut mask);
-    // A physical player can always decline a discard even when no call is
-    // available. The game driver normally skips such a decision entirely.
     if hand.phase == Phase::CallWindow && hand.turn != seat {
         mask[encoding::PASS] = true;
     }
-    mask.into_iter().map(u8::from).collect()
+    mask
+}
+
+pub(super) fn mask(hand: &Hand, seat: Wind) -> Vec<u8> {
+    legal_moves(hand, seat).into_iter().map(u8::from).collect()
 }
 
 fn choices(hand: &Hand, seat: Wind) -> Vec<Choice> {
@@ -856,6 +866,126 @@ mod tests {
             .find(|choice| choice.kind == "pass")
             .expect("passing is always offered")
             .causes_furiten
+    }
+
+    /// East answers South's 9m, which East can do nothing with: the decision
+    /// a guided or physical table stops at after every discard.
+    fn pass_only_response() -> Position {
+        let mut position = acting();
+        position.turn = 1;
+        position.phase = "call".into();
+        position.drawn = None;
+        position.pending = Some("9m".into());
+        position.players[0] = seat("1p 2p 3p 4p 5p 6p 7s 8s 9s 1z 2z 3z 5z");
+        position.players[0].discards.push(thrown("6z", 0, false));
+        position.players[1].discards.push(thrown("9m", 1, false));
+        position
+    }
+
+    #[test]
+    fn a_discard_nothing_can_claim_is_one_the_trained_adviser_answers() {
+        let (hand, seat) = pass_only_response().build().expect("a valid response");
+        let listed: Vec<(String, Option<usize>)> = choices(&hand, seat)
+            .into_iter()
+            .map(|choice| (choice.kind, choice.index))
+            .collect();
+        assert_eq!(listed, vec![("pass".to_string(), Some(encoding::PASS))]);
+        // Mortal's mask opens its pass, and its pass is ours, both ways.
+        let theirs = crate::mortal_mask_of(&hand, seat, false);
+        let open: Vec<usize> = (0..theirs.len()).filter(|&at| theirs[at]).collect();
+        assert_eq!(open, vec![crate::MORTAL_PASS]);
+        assert_eq!(
+            crate::action_from_mortal(&hand, seat, crate::MORTAL_PASS, false),
+            encoding::PASS as i32
+        );
+        assert_eq!(
+            crate::mortal_action_for(encoding::PASS),
+            crate::MORTAL_PASS as i32
+        );
+        // And the network can be asked: the replay builds its planes.
+        let state = mortal_log::state_for(&hand, seat).expect("the replay builds");
+        let (planes, _) = state.encode_obs(crate::MORTAL_VERSION, false);
+        assert_eq!(
+            planes.nrows(),
+            riichi::consts::obs_shape(crate::MORTAL_VERSION).0
+        );
+    }
+
+    /// The trained mask, the translation of its moves and the listed choices,
+    /// checked against each other for one seat at one decision.
+    fn trained_and_listed_agree(hand: &Hand, seat: Wind) {
+        let listed = choices(hand, seat);
+        let open = crate::mortal_mask_of(hand, seat, false);
+        for (action, allowed) in open.iter().enumerate() {
+            let ours = crate::action_from_mortal(hand, seat, action, false);
+            assert_eq!(*allowed, ours >= 0, "Mortal's move {action} at {seat:?}");
+            if *allowed {
+                assert!(
+                    listed
+                        .iter()
+                        .any(|choice| choice.index == Some(ours as usize)),
+                    "Mortal's move {action} means {ours}, which is not listed for {seat:?}"
+                );
+            }
+        }
+        for choice in &listed {
+            if let Some(index) = choice.index {
+                let theirs = crate::mortal_action_for(index);
+                assert!(
+                    theirs >= 0 && open[theirs as usize],
+                    "{} has no open trained move for {seat:?}",
+                    choice.kind
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_trained_mask_and_the_listed_choices_agree_at_every_decision() {
+        let (mut decisions, mut passes_only) = (0, 0);
+        for seed in 1..9u64 {
+            let table = riichi_core::table::Table::new();
+            let mut rng = Rng::from_seed(seed);
+            let mut hand = table.deal(&mut rng);
+            let mut bot = Bot::with_style(seed, Style::club());
+            for _ in 0..1000 {
+                match hand.phase {
+                    Phase::Over => break,
+                    Phase::Draw => {
+                        let _ = hand.draw();
+                        continue;
+                    }
+                    Phase::Act | Phase::CallWindow => {}
+                }
+                // Every seat a table would ask: the one to act, or all three
+                // others once a tile is offered, claim or no claim.
+                for seat in Wind::ALL {
+                    if (hand.phase == Phase::Act) != (seat == hand.turn) {
+                        continue;
+                    }
+                    trained_and_listed_agree(&hand, seat);
+                    decisions += 1;
+                    passes_only +=
+                        usize::from(choices(&hand, seat).len() == 1 && seat != hand.turn);
+                }
+                if hand.phase == Phase::Act {
+                    let action = bot.act(&hand);
+                    hand.act(action).expect("the bot plays legal moves");
+                } else {
+                    let answers: Vec<_> = hand
+                        .legal_calls()
+                        .into_iter()
+                        .map(|(who, calls)| (who, bot.call(&hand, who, &calls)))
+                        .collect();
+                    hand.resolve_calls(&answers).expect("the bot calls legally");
+                }
+            }
+        }
+        assert!(decisions > 400, "only {decisions} decisions were checked");
+        assert!(
+            passes_only > 150,
+            "only {passes_only} had nothing but a pass"
+        );
     }
 
     #[test]

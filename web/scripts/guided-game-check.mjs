@@ -183,6 +183,18 @@ try {
     await page.reload({ waitUntil: 'networkidle0' }); await choice(page);
     assert.equal(await page.$eval(selector, el => el.value), 'club');
     assert.equal((await saved(page)).state.position.players[0].hand.length, 14);
+    // The trained adviser answers more than the player's own draws: the
+    // guided game stops at every opponent discard, and most of them leave
+    // nothing to do but pass. South's 9m is one East cannot claim.
+    await page.select(selector, 'full');
+    await page.waitForSelector('.weight-row meter', { timeout: 90000 });
+    await page.click('.record-best'); await stage(page, 'responses');
+    await page.click('.no-calls'); await stage(page, 'turn');
+    await tile(page, '9m'); await stage(page, 'decision');
+    await page.waitForSelector('.weight-row meter', { timeout: 90000 });
+    assert.equal(await page.$('.failure'), null, 'a pass-only decision is advised, not refused');
+    assert.deepEqual(await page.$$eval('.weight-row meter', meters => meters.map(meter => meter.value)), [1]);
+    await page.click('.record-best'); await stage(page, 'responses');
     assert.deepEqual(page.problems, []);
   });
   await check('physical editor starts on Trained when the network is there and Club preserves the table', async context => {

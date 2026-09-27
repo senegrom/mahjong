@@ -82,10 +82,11 @@ mod yaku_view;
 /// declared, only the tiles it may discard.
 ///
 /// Our rules decide, not Mortal's: the two do not agree about a late reach,
-/// and the game being played is ours.
+/// and the game being played is ours. That includes the pass a seat may make
+/// on a discard it cannot claim, which Mortal is never asked about but which
+/// a guided or physical table asks for at every discard.
 pub(crate) fn mortal_mask_of(hand: &Hand, seat: Wind, after_reach: bool) -> Vec<bool> {
-    let mut ours = vec![false; ACTIONS];
-    encoding::legal_mask(hand, seat, &mut ours);
+    let ours = analysis::legal_moves(hand, seat);
     let mut theirs = vec![false; MORTAL_ACTIONS];
     if after_reach {
         theirs[..34]
@@ -105,8 +106,7 @@ pub(crate) fn action_from_mortal(hand: &Hand, seat: Wind, action: usize, after_r
     if action >= MORTAL_ACTIONS {
         return -1;
     }
-    let mut ours = vec![false; ACTIONS];
-    encoding::legal_mask(hand, seat, &mut ours);
+    let ours = analysis::legal_moves(hand, seat);
     if after_reach {
         let tile = match action {
             tile if tile < 34 => tile,
@@ -142,9 +142,7 @@ pub(crate) fn mortal_action_for(ours: usize) -> i32 {
 /// is not legal there does not return an error, it panics, and a panic
 /// leaves the whole game unusable behind it.
 pub(crate) fn may_reach_from(hand: &Hand, seat: Wind) -> bool {
-    let mut ours = vec![false; ACTIONS];
-    encoding::legal_mask(hand, seat, &mut ours);
-    ours[encoding::RIICHI_DISCARD..encoding::TSUMO]
+    analysis::legal_moves(hand, seat)[encoding::RIICHI_DISCARD..encoding::TSUMO]
         .iter()
         .any(|allowed| *allowed)
 }
