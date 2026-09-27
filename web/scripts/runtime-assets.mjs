@@ -7,7 +7,7 @@ import { RUNTIME_FILES } from '../src/lib/model-package.js';
 import { publicFiles } from './copy-runtime.mjs';
 
 const SHELL = ['apple-touch-icon.png', 'favicon-16x16.png', 'favicon-32x32.png',
-  'favicon.ico', 'favicon.svg', 'manifest.webmanifest'];
+  'favicon.ico', 'manifest.webmanifest'];
 
 export async function copyRuntimeAssets(source, output) {
   const files = await publicFiles(source);

@@ -13,7 +13,7 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const source = join(root, 'public'), output = join(root, 'dist');
   const names = [...TILE_IMAGE_URLS, ...RUNTIME_FILES.map(name => `ort/${name}`), 'apple-touch-icon.png',
-    'favicon-16x16.png', 'favicon-32x32.png', 'favicon.ico', 'favicon.svg', 'manifest.webmanifest',
+    'favicon-16x16.png', 'favicon-32x32.png', 'favicon.ico', 'manifest.webmanifest',
     'icons/mahjong-192.png', 'tiles/LICENSE.md', 'tiles/matisse/approved/Man1.png',
     'tiles/matisse/README.md', 'tiles/matisse/preview.html', 'tiles/matisse/manifest.json'];
   for (const name of names) {
@@ -37,7 +37,7 @@ test('missing required artwork fails before a partial package is copied', async 
   const { source, output } = await fixture(t);
   await rm(join(source, TILE_IMAGE_URLS.at(-1)));
   await assert.rejects(copyRuntimeAssets(source, output), /Missing runtime asset/);
-  await assert.rejects(readFile(join(output, 'favicon.svg')), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(output, 'favicon.ico')), { code: 'ENOENT' });
 });
 test('production manifest reports sizes, scoped cache version and deterministic content identity', async t => {
   const { source, output } = await fixture(t);

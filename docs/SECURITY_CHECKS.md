@@ -36,11 +36,9 @@ node scripts/check-icons.mjs
 node scripts/check-icons.mjs --built
 ```
 
-`npm run check` now runs Svelte diagnostics. The former interactive-play
-checker is retained as `npm run check:play`. `npm run check:all` includes
-both static checks and the existing interactive checks. Generated WASM,
-third-party runtime files, build output and screenshots are not linted as
-handwritten application source.
+`npm run check` runs Svelte diagnostics, and `npm run verify` runs every check
+above. Generated WASM, third-party runtime files, build output and screenshots
+are not linted as handwritten application source.
 
 ## Dependency and workflow policy
 

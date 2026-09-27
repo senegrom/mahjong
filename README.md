@@ -27,14 +27,13 @@ npm run verify              # the complete web verification command used by CI
 `verify` audits dependencies, builds WebAssembly, runs JavaScript lint and
 Svelte diagnostics, builds production assets, and runs unit, browser, offline,
 and icon checks. Set `CHROME_BIN` when Chrome is not at the test scripts'
-standard Linux paths. No separate dev server is required. `check:all` is an
-alias for `verify`; `test:unit` and `test:browser` are useful after a build.
+standard Linux paths. No separate dev server is required. `test:unit` and
+`test:browser` are useful after a build.
 
 From the repository root, `./check.sh` runs engine formatting, lint, tests,
 the Python binding smoke test, arena games, and randomized legal play.
 `./check.sh --web` also runs web verification. Rust dependency auditing is a
-separate CI step. The older `npm run diagnose:live` scripts inspect an already
-running site; they are manual diagnostics, not a substitute for verification.
+separate CI step.
 
 ## Offline play and the trained model
 
