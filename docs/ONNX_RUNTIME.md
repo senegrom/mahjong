@@ -65,11 +65,17 @@ worker, offline, and browser layout checks. Optional external model/checkpoint
 fixtures remain explicitly identified by their individual tests.
 
 The manual reduced-runtime workflow builds from its pinned ONNX Runtime source
-and reviewed `reduced-ops.config`, restores the loader's memory hooks, runs the
-web suites, and proposes its tested tree by PR. It does not push main. Running
-`check-model-operators.py model.onnx` checks an explicit export; with no argument
-it validates the operator list only and does not claim to have checked model
-bytes. Export-time validation and real browser inference cover the remote model.
+and reviewed `reduced-ops.config`, restores the loader's memory hooks, and runs
+the web suites against the published network. It then pushes the tested tree to
+an `automation/reduced-runtime-*` branch and links a compare page from the job
+summary: GitHub Actions may not open pull requests in this repository, and one
+opened with the workflow token would start no checks. Open the pull request
+from that link and merge only after its checks pass. The workflow never pushes
+main.
+
+`neural.export` refuses a network that needs an operator the reduced runtime
+lacks, and the memory regression loads the published network through that
+runtime, so a missing kernel fails before release.
 
 See [historical evidence](HISTORY.md) for superseded size measurements and
 previous memory ceilings.

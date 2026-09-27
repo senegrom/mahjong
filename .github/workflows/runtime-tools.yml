@@ -6,14 +6,12 @@ on:
     paths:
       - 'web/runtime/**'
       - 'web/scripts/*runtime_publication.py'
-      - 'web/scripts/check-model-operators.py'
       - '.github/workflows/runtime-tools.yml'
       - '.github/workflows/reduce-onnx-runtime.yml'
   pull_request:
     paths:
       - 'web/runtime/**'
       - 'web/scripts/*runtime_publication.py'
-      - 'web/scripts/check-model-operators.py'
       - '.github/workflows/runtime-tools.yml'
       - '.github/workflows/reduce-onnx-runtime.yml'
   workflow_dispatch:
@@ -42,8 +40,6 @@ jobs:
         run: python -m unittest discover -s web/scripts -p test_runtime_publication.py -v
       - name: Install the runtime tool manifest
         run: python -m pip install -r web/runtime/requirements-build.txt
-      - name: Verify dependency consistency and shipped model operators
-        run: |
-          python -m pip check
-          python web/scripts/check-model-operators.py
+      - name: Verify dependency consistency
+        run: python -m pip check
       # No runtime rebuild, branch push, pull request creation or deployment here.

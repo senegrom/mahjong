@@ -1,10 +1,13 @@
 name: reduced ONNX runtime
 
 # Rebuild the browser runtime from the reviewed operator list on main.
-# The loader patcher must recognize its memory-bounding edits. A tested
-# candidate is proposed by PR; this workflow never rebases or pushes main.
-# Approve the PR's checks when GitHub requests approval, and merge only
-# after they pass. Do not bypass review or enable automatic merging here.
+# The loader patcher must recognize its memory-bounding edits. The tested
+# tree is pushed to an automation/ branch and the job summary links to a
+# compare page: GitHub Actions may not open pull requests in this repository,
+# and one opened with the workflow token would start no checks. Open the pull
+# request from that link and merge only after its checks pass. This workflow
+# never rebases or pushes main. Do not bypass review or enable automatic
+# merging here.
 on:
   workflow_dispatch:
 
@@ -22,7 +25,6 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -50,9 +52,7 @@ jobs:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-      - name: Check every shipped model against the operator list
-        run: python3 web/scripts/check-model-operators.py
-      - name: Build the runtime from that operator list
+      - name: Build the runtime from the operator list
         shell: bash
         run: |
           set -euxo pipefail
@@ -110,14 +110,18 @@ jobs:
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: python3 web/scripts/runtime_publication.py snapshot /tmp/runtime-receipt.json --expected-head "$SOURCE_SHA"
+      - name: Prepare verified network for the memory regression
+        run: node web/scripts/prepare-test-network.mjs "$RUNNER_TEMP/mahjong-memory-model.onnx"
       - name: Run every web regression
         shell: bash
+        env:
+          MAHJONG_NETWORK: ${{ runner.temp }}/mahjong-memory-model.onnx
         run: |
           set -euxo pipefail
           cd web
           npm run test:unit 2>&1 | tee /tmp/runtime-unit.txt
           npm run test:browser 2>&1 | tee /tmp/runtime-browser.txt
-      - name: Propose the unchanged tested tree by pull request
+      - name: Push the unchanged tested tree to a branch for review
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -140,12 +144,12 @@ jobs:
           git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
             push origin "HEAD:refs/heads/$branch"
           git rev-parse HEAD | tee /tmp/runtime-commit.txt
-          printf 'Runtime rebuilt and web regressions passed on source `%s`, tree `%s`.\n\nNo rebase or main-branch push occurred. Approve workflows if GitHub requests it and merge only after the PR checks pass. Evidence: %s/%s/actions/runs/%s\n' \
-            "$SOURCE_SHA" "$tested_tree" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/runtime-pr.md"
-          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
-            --title 'Rebuild the tested reduced browser runtime' --body-file "$RUNNER_TEMP/runtime-pr.md" \
-            | tee /tmp/runtime-pr.txt
-          cat /tmp/runtime-pr.txt >> "$GITHUB_STEP_SUMMARY"
+          # A person opens the pull request, so its ordinary checks run.
+          compare="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$branch?expand=1"
+          echo "$compare" | tee /tmp/runtime-compare.txt
+          # shellcheck disable=SC2016 # the backticks are Markdown
+          printf '### Rebuilt runtime ready for review\n\nSource `%s`, tested tree `%s`, pushed to `%s`.\n\n**[Open a pull request from it](%s)** and merge only after its checks pass. Nothing was rebased or pushed to main.\n' \
+            "$SOURCE_SHA" "$tested_tree" "$branch" "$compare" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -157,7 +161,7 @@ jobs:
             /tmp/runtime-browser.txt
             /tmp/runtime-receipt.json
             /tmp/runtime-commit.txt
-            /tmp/runtime-pr.txt
+            /tmp/runtime-compare.txt
             ${{ runner.temp }}/loader-emitted.mjs
             ${{ runner.temp }}/loader.diff
             web/runtime/reduced-ops.config
