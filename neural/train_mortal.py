@@ -29,7 +29,7 @@ from .training_safety import (
 from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
-from . import mortal_learner, selfplay, zoo
+from . import mortal_learner, population, selfplay, zoo
 from .observe import pad_rows, resident
 from .prefetch import Prefetcher
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
@@ -136,18 +136,24 @@ def main() -> None:
     if args.compile:
         net.inference = torch.compile(net.policy, dynamic=True)
 
+    # Who else sits at the tables, as a roster with roles and shares, made
+    # the way train_combined makes it (see `neural.population`): a name the
+    # roster knows, as the cloud stages `zoo/mortal_298k` at
+    # `.../zoo--mortal_298k.pt`, keeps its role and its weight there, so
+    # the two trainers draw their others alike, and the round can say how
+    # the learner placed against each of them. validate_training_options
+    # has refused a missing checkpoint already, so the roster and the
+    # players loaded line up one for one.
+    roster = population.Population.from_paths(args.opponents)
     seated = []
     for path in args.opponents:
-        if not Path(path).exists():
-            print(f"no opponent at {path}, skipping", flush=True)
-            continue
         other = zoo.load_player(path, device, compile=args.compile)
         other.eval()
         seated.append(other)
     if seated:
         where = (f"{args.seat_share:.0%} of players" if args.seat_share
                  else f"{args.opponent_share:.0%} of games")
-        print(f"{len(seated)} others seated in {where}", flush=True)
+        print(f"{len(seated)} others seated in {where}: " + json.dumps(roster.describe()), flush=True)
     print(
         f"device {device} | Mortal {config['resnet']['conv_channels']}x{config['resnet']['num_blocks']} "
         f"| {sum(p.numel() for p in net.parameters()) / 1e6:.2f}M parameters "
@@ -188,6 +194,7 @@ def main() -> None:
             opponents=seated,
             opponent_share=args.opponent_share,
             seat_share=args.seat_share,
+            population=roster,
             # Mortal has no head that reads the opponents' hands, and they
             # are a gigabyte of host memory on a large round.
             want_held=False,
@@ -313,6 +320,10 @@ def main() -> None:
             "entropy": round(float(total_entropy / denom), 4),
             "clipped": round(float(total_clipped / denom), 3),
             "approx_kl": round(float(total_kl / denom), 5),
+            # How the learner placed against each player it met, one row a
+            # player, never summed: gaining on its own past while losing
+            # to published Mortal is specialisation, and an average hides it.
+            "matchups": getattr(batch, "matchups", None),
             "grad_norm": round(float(total_grad / denom), 3),
             "mean_return": round(float(returns.mean()), 4),
             "peak_rss_gb": peak_rss_gb(),

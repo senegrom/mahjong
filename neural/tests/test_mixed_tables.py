@@ -82,20 +82,24 @@ class Counting:
 class SelfPlayOnMixedTablesTests(unittest.TestCase):
     def test_several_others_play_and_the_report_names_them(self):
         from neural import selfplay
-        from neural.tests.test_selfplay_contract import FirstLegal
+        from neural.tests.test_selfplay_contract import FirstLegal, FirstLegalDecider
 
-        others = [Counting(), Counting()]
-        roster = population.Population(members=[
-            population.Member("mortal", "reference", "a stand-in", 1.0),
-            population.Member("gen31", "reference", "a stand-in", 1.0),
-        ])
-        batch = selfplay.play(FirstLegal(), games=16, seed=7, device="cpu",
-                              opponents=others, seat_share=0.5, population=roster)
-        self.assertEqual(batch.seated.shape, (16, 4))
-        self.assertTrue(((batch.seated < 0).sum(axis=1) >= 1).all())
-        self.assertTrue(all(other.asked > 0 for other in others))
-        names = {row["name"] for row in batch.matchups}
-        self.assertTrue({"mortal", "gen31"} <= names, batch.matchups)
+        # Both paths: train.py's network, and a learner that decides for
+        # itself, as train_mortal's and train_combined's do.
+        for learner in (FirstLegal(), FirstLegalDecider()):
+            with self.subTest(learner=type(learner).__name__):
+                others = [Counting(), Counting()]
+                roster = population.Population(members=[
+                    population.Member("mortal", "reference", "a stand-in", 1.0),
+                    population.Member("gen31", "reference", "a stand-in", 1.0),
+                ])
+                batch = selfplay.play(learner, games=16, seed=7, device="cpu",
+                                      opponents=others, seat_share=0.5, population=roster)
+                self.assertEqual(batch.seated.shape, (16, 4))
+                self.assertTrue(((batch.seated < 0).sum(axis=1) >= 1).all())
+                self.assertTrue(all(other.asked > 0 for other in others))
+                names = {row["name"] for row in batch.matchups}
+                self.assertTrue({"mortal", "gen31"} <= names, batch.matchups)
 
     def test_by_game_and_by_player_together_are_refused(self):
         from neural import selfplay
@@ -206,11 +210,11 @@ class TrainerRecordsTests(unittest.TestCase):
 
         torch.set_num_threads(self.threads)
 
-    def train(self, module, folder):
-        """One generation of `module` against a stand-in round, with one
-        other named as the cloud stages it and seated by player. Returns
-        what the round was asked for, the generation's record and the
-        checkpoint written."""
+    def train(self, module, folder, others=("zoo/mortal_298k",)):
+        """One generation of `module` against a stand-in round, with the
+        others named as the cloud stages them and seated by player.
+        Returns what the round was asked for, the generation's record and
+        the checkpoint written."""
         import math
         import sys
 
@@ -221,9 +225,11 @@ class TrainerRecordsTests(unittest.TestCase):
 
         root = Path(folder)
         origin, out = root / "origin.pt", root / "run"
-        other = root / "opponents" / "0000" / "zoo--mortal_298k.pt"
-        other.parent.mkdir(parents=True)
-        other.write_bytes(b"loaded by the stand-in below")
+        staged = []
+        for index, name in enumerate(others):
+            staged.append(root / "opponents" / f"{index:04d}" / (name.replace("/", "--") + ".pt"))
+            staged[-1].parent.mkdir(parents=True)
+            staged[-1].write_bytes(b"loaded by the stand-in below")
         if module is train_mortal:
             payload = {**mortal_model.build(8, 1).state(), "config": self.CONFIG}
         else:
@@ -249,7 +255,7 @@ class TrainerRecordsTests(unittest.TestCase):
         argv = ["trainer", "--mortal" if module is train_mortal else "--resume", str(origin),
                 "--out", str(out), "--rounds", "1", "--games", "1", "--batch", "4", "--epochs", "1",
                 "--measure-every", "100", "--measure-games", "1",
-                "--opponents", str(other), "--seat-share", "0.5"]
+                "--opponents", *map(str, staged), "--seat-share", "0.5"]
         if module is not train_mortal:
             argv += ["--fixed", "none"]
         with ExitStack() as stack:
@@ -276,6 +282,35 @@ class TrainerRecordsTests(unittest.TestCase):
                 asked, _record, saved = self.train(module, folder)
                 self.assertEqual(asked[0]["seat_share"], 0.5)
                 self.assertEqual(saved["training_controls"]["seat_share"], 0.5)
+
+    def test_both_trainers_draw_by_the_roster_and_log_the_matchups(self):
+        """train_mortal drew its others evenly where train_combined drew
+        them by the roster's weights, and it never logged how the learner
+        placed against each one, which is what a mixed table is for."""
+        others = ("zoo/mortal_298k", "mortal-run/history/gen-00030")
+        published = next(m for m in population.REFERENCES if m.name == "zoo/mortal_298k")
+        for module in self.trainers():
+            with self.subTest(trainer=module.__name__), tempfile.TemporaryDirectory() as folder:
+                asked, record, _saved = self.train(module, folder, others)
+                roster = asked[0]["population"]
+                self.assertEqual([member.name for member in roster.members], list(others))
+                # The reference keeps its role and weight; the other is an
+                # ordinary checkpoint of weight one.
+                self.assertEqual(roster.members[0], published)
+                self.assertEqual(roster.members[1].weight, 1.0)
+                self.assertEqual(len(asked[0]["opponents"]), 2)
+                self.assertEqual(record["matchups"], [
+                    {"name": "zoo/mortal_298k", "role": "reference", "games": 1, "placement": 2.0}])
+
+    def test_each_trainer_asks_the_round_for_the_labels_it_reads(self):
+        from neural import train_mortal
+
+        for module in self.trainers():
+            with self.subTest(trainer=module.__name__), tempfile.TemporaryDirectory() as folder:
+                asked, _record, _saved = self.train(module, folder)
+                # Mortal reads no hands; the fusion's reader learns from them.
+                self.assertEqual(asked[0].get("want_held", True), module is not train_mortal)
+                self.assertFalse(asked[0].get("want_oracle", False))
 
 
 if __name__ == "__main__":
