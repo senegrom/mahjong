@@ -1,7 +1,11 @@
 /** Shared verified, bounded model transfer. Also inlined into the service worker
- * at build time so an offline startup never imports a network dependency. */
+ * at build time so an offline startup never imports a network dependency.
+ * Only pages and their workers download the network: a service-worker event
+ * is abandoned after a few minutes, which a slow link needs for 100 MB. */
 export const NETWORK_CACHE = 'mahjong-network-v1';
-export const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 30 * 60 * 1000, idleMs: 60000 });
+// A page has no event deadline, so a slow but progressing transfer may take
+// hours; a stalled one still ends after a minute without bytes.
+export const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 3 * 60 * 60 * 1000, idleMs: 60000 });
 
 export function validateNetwork(expect) {
   if (!expect || !Number.isSafeInteger(expect.bytes) || expect.bytes <= 0
@@ -44,10 +48,24 @@ async function verifiedCached(cache, url, expect) {
   return null;
 }
 
-export async function verifiedNetworkIsStored(url, expect, { scope } = {}) {
+/** Whether an entry records this exact identity. Every writer hashes the bytes
+ * before storing them under these headers, as the service worker does for its
+ * own files, and the object is content-addressed and immutable. The body is
+ * neither read nor hashed: that is done only for bytes handed to the runtime. */
+async function recorded(cache, url, expect) {
+  if (!cache) return false;
+  try {
+    const held = await cache.match(url);
+    return held?.headers.get('X-Mahjong-SHA256') === expect.sha256
+      && Number(held.headers.get('Content-Length')) === expect.bytes;
+  } catch { return false; }
+}
+
+/** Cheap enough for every status check and foreground return. */
+export async function hasStoredNetwork(url, expect, { scope } = {}) {
   validateNetwork(expect);
-  return Boolean(await verifiedCached(await networkCache(scope), url, expect)
-    || (scope && await verifiedCached(await networkCache(), url, expect)));
+  return Boolean(await recorded(await networkCache(scope), url, expect)
+    || (scope && await recorded(await networkCache(), url, expect)));
 }
 
 /** Own the deadline even when a mocked/broken transport ignores cancellation.
@@ -123,7 +141,9 @@ export async function verifiedNetworkBytes({ url, expect, onProgress, signal,
   let stored = Boolean(legacy), failure;
   try {
     if (!cache) throw storageError();
-    await cache.put(url, new Response(bytes.slice().buffer, {
+    // A Response copies the bytes it is given, so the caller keeps its own.
+    // These headers are the record hasStoredNetwork reads.
+    await cache.put(url, new Response(bytes, {
       headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.length),
         'X-Mahjong-SHA256': expect.sha256 },
     }));
@@ -134,10 +154,11 @@ export async function verifiedNetworkBytes({ url, expect, onProgress, signal,
   return bytes;
 }
 
-/** Called only at activation, after the previous worker has released its
- * clients. Keep this model and the previous activated model. Installation,
- * waiting workers and failed replacement downloads never trigger deletion.
- * canPrune is checked again before each delete in case an update starts. */
+/** Called by the active worker only: at activation, after the previous worker
+ * has released its clients, and after its own page has saved this model.
+ * Keep this model and the previous activated model. Installation, waiting
+ * workers and failed replacement downloads never trigger deletion. canPrune
+ * is checked again before each delete in case an update starts. */
 export async function pruneNetworkCache({ scope, url, expect, canPrune = () => true }) {
   if (!scope || !canPrune()) return false;
   validateNetwork(expect);
@@ -149,10 +170,10 @@ export async function pruneNetworkCache({ scope, url, expect, canPrune = () => t
     const old = held ? await held.json() : null;
     if (old && (typeof old.current !== 'string'
       || (old.previous != null && typeof old.previous !== 'string'))) return false;
-    if (!await verifiedCached(cache, url, expect)) {
-      // A first install can precede the optional download. Remember its
+    if (!await recorded(cache, url, expect)) {
+      // Activation precedes the optional download. Remember a first
       // identity so it can become the rollback model on the next upgrade.
-      // An existing record is never advanced after failed verification.
+      // An existing record never advances to a model that is not stored.
       if (!old && canPrune()) await cache.put(key, new Response(JSON.stringify({ current: url, previous: null })));
       return false;
     }

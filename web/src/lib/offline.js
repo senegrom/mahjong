@@ -1,12 +1,21 @@
 /** Offline preparation and honest, cache-backed download status. No localStorage
- * flag is accepted as proof that a model or its runtime is actually present. */
-import { networkIsStored } from './network-store.js';
+ * flag is accepted as proof that a model or its runtime is actually present.
+ *
+ * The service worker saves the game and the few megabytes of runtime. The
+ * trained network is saved here, by the page: a worker's install, activation
+ * or message event is abandoned after a few minutes, and a slow link needs
+ * longer than that for 100 MB. A page has no such deadline. */
+import { NETWORK, NETWORK_URL, networkBytes, networkIsStored } from './network-store.js';
 const base = new URL('./', document.baseURI);
 const script = new URL('sw.js', base).href;
 let worker = null;
 let boot = null;
 let aiJob = null;
 let coreJob = null;
+// A player who asked for Trained offline keeps it across upgrades: each
+// version's page saves its own network, automatically once per page.
+let filled = false;
+const updatesSaved = new WeakSet();
 let state = { supported: null, coreReady: false, aiReady: false, hasModel: false,
   phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false,
   persistent: false, updateReady: false };
@@ -20,11 +29,11 @@ export function watchOffline(listener) {
   listener(state);
   return () => listeners.delete(listener);
 }
-function request(type, progress) {
+function request(type, progress, target = worker) {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();
-    const timer = setTimeout(() => finish(new Error('Offline preparation timed out. Please reconnect and retry.')),
-      type === 'MAHJONG_PREPARE_AI' ? 31 * 60 * 1000 : 180000);
+    // The worker's longest job is a few megabytes of game or runtime.
+    const timer = setTimeout(() => finish(new Error('Offline preparation timed out. Please reconnect and retry.')), 180000);
     const finish = (error, value) => {
       clearTimeout(timer); channel.port1.close();
       if (error) reject(error); else resolve(value);
@@ -37,9 +46,15 @@ function request(type, progress) {
         finish(error, data.value);
       }
     };
-    try { worker.postMessage({ type }, [channel.port2]); }
+    try { target.postMessage({ type }, [channel.port2]); }
     catch (error) { finish(error); }
   });
+}
+/** Saves a network durably from this page. The verified bytes are dropped once
+ * stored: the runtime reads, and hashes, its own copy when it starts. */
+async function saveNetwork(url, expect, onProgress) {
+  if (await networkIsStored(url, expect)) return;
+  await networkBytes({ url, expect, requireStored: true, onProgress });
 }
 function activated(registration) {
   if (registration.active) return Promise.resolve();
@@ -65,19 +80,47 @@ async function persistentStorage() {
     update({ persistent });
   } catch { /* Some browsers decline persistence; never claim it was granted. */ }
 }
+/** An update installs with the game alone and waits for this version's
+ * windows to close. When Trained was requested, save the update's runtime and
+ * network now, while this version runs, so the update does not start without
+ * them on a plane. Should this not finish, the update's own page saves them. */
+async function saveUpdate(registration) {
+  const next = registration.waiting;
+  if (!next || updatesSaved.has(next) || !navigator.onLine) return;
+  updatesSaved.add(next);
+  try {
+    // One network download at a time: this version's own comes first.
+    await aiJob?.catch(() => {});
+    const info = await request('MAHJONG_STATUS', null, next);
+    if (!info?.hasModel || !info.aiRequested || info.aiReady || !info.network) return;
+    await request('MAHJONG_PREPARE_AI', null, next);
+    await saveNetwork(info.network.url, info.network);
+  } catch { /* The update's own page retries after activation. */ }
+}
 function observeUpdates(registration) {
-  const check = () => update({ updateReady: Boolean(registration.waiting) });
+  const check = () => {
+    update({ updateReady: Boolean(registration.waiting) });
+    void saveUpdate(registration);
+  };
   check();
   registration.addEventListener('updatefound', () => {
     registration.installing?.addEventListener('statechange', check);
   });
 }
-/** The worker verifies both the runtime and model. Match its verified
- * identity to this page's manifest; old-worker replies still require the
- * legacy cache check. Never hash the same model again just to repeat status. */
+/** The worker reports the network it found stored. Match that identity to
+ * this page's manifest; a reply about another version's network is checked
+ * against this page's own stored record instead. Neither reads the model:
+ * never hash the same model again just to repeat status. */
 async function withNetwork(info) {
   if (!info || !info.aiReady) return info;
   return { ...info, aiReady: await networkIsStored(undefined, undefined, info.network) };
+}
+/** Once per page, for a player who asked for Trained offline: a new
+ * version's network (and runtime) is saved by its page after activation. */
+function fillRequested(info) {
+  if (filled || !info?.aiRequested || info.aiReady || !info.hasModel || !info.coreReady || !navigator.onLine) return;
+  filled = true;
+  void prepareOfflineAi().catch(() => {});
 }
 
 // The game and graphics are mandatory, not an optional offline pack. Repair
@@ -130,10 +173,13 @@ export function startOffline() {
         });
       }
       update({ supported: true, phase: 'ready', warning: '' });
-      await prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
+      const info = await prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
+      // This version's own network first; a waiting update's queues behind it.
+      fillRequested(info);
       observeUpdates(registration);
       void persistentStorage();
       // Background updates never block this version or replace it mid-match.
+      // They install with the game alone, so a slow link still completes one.
       if (navigator.onLine) void registration.update().catch(() => {});
       return state;
     } catch (error) {
@@ -151,10 +197,14 @@ export async function refreshOffline() {
   if (!worker && state.phase === 'unavailable') boot = null;
   await startOffline();
   if (!worker) return null;
-  return prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
+  const info = await prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
+  // A connection that returns may still owe a requested network its save.
+  fillRequested(info);
+  return info;
 }
 /** Saves the one trained network the game carries, with its runtime. It is
- * downloaded only when a Trained player is chosen, and one job runs at a time. */
+ * downloaded only when a Trained player is chosen (or was, in an earlier
+ * version), and one job runs at a time. */
 export function prepareOfflineAi() {
   if (aiJob) return aiJob;
   aiJob = (async () => {
@@ -166,11 +216,16 @@ export function prepareOfflineAi() {
     if (info.aiReady) return info;
     update({ phase: 'ai', progress: 0, warning: '' });
     try {
-      const ready = await request('MAHJONG_PREPARE_AI', ({ bytes, total, group }) => {
-        update({ progress: (group === 'network' ? 20 : 0)
-          + (total ? Math.floor((group === 'network' ? 80 : 20) * bytes / total) : 0) });
+      // The runtime first, by the worker that serves it: a runtime that
+      // cannot be saved spends none of the network's bytes.
+      await request('MAHJONG_PREPARE_AI', ({ bytes, total }) => {
+        update({ progress: total ? Math.floor(20 * bytes / total) : 0 });
       });
-      const verified = await withNetwork(ready);
+      await saveNetwork(NETWORK_URL, NETWORK, ({ bytes, total }) => {
+        update({ progress: 20 + (total ? Math.floor(80 * bytes / total) : 0) });
+      });
+      // The worker now keeps this network and the previous one only.
+      const verified = await withNetwork(await request('MAHJONG_NETWORK_SAVED'));
       update({ ...verified, phase: 'ready', progress: 100, warning: '' });
       void persistentStorage();
       return verified;

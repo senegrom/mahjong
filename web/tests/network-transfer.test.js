@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { verifiedNetworkBytes, verifiedNetworkIsStored } from '../src/lib/network-transfer.js';
+import { hasStoredNetwork, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
 
 const good = Uint8Array.from([1, 2, 3, 4]);
 const expect = { bytes: good.length, sha256: createHash('sha256').update(good).digest('hex') };
 const url = 'https://cdn.invalid/models/g1/' + expect.sha256;
-function fixture(t, { cached, fault, network } = {}) {
-  let held = cached, fetches = 0, deleted = 0;
+// What a verified write records beside the bytes, as Cache Storage keeps it.
+const record = { 'Content-Length': String(expect.bytes), 'X-Mahjong-SHA256': expect.sha256 };
+function fixture(t, { cached, headers = {}, fault, network } = {}) {
+  let held = cached == null ? undefined : { bytes: cached, headers }, fetches = 0, deleted = 0, reads = 0;
   t.mock.method(globalThis, 'fetch', async (...args) => {
     fetches++; return network ? network(...args) : new Response(good);
   });
@@ -18,11 +20,16 @@ function fixture(t, { cached, fault, network } = {}) {
       async match() {
         if (fault === 'match') throw new Error('storage lookup failed');
         if (fault === 'body') return { async arrayBuffer() { throw new Error('unreadable body'); } };
-        return held == null ? undefined : new Response(held);
+        if (held == null) return undefined;
+        const body = held.bytes;
+        // Counts reads of the body, which a status check must never make.
+        // No high-water mark: the stream pulls only when someone reads.
+        return new Response(new ReadableStream({ pull(controller) { reads++; controller.enqueue(body); controller.close(); } },
+          { highWaterMark: 0 }), { headers: held.headers });
       },
       async put(_key, response) {
         if (fault === 'put') throw new DOMException('full', 'QuotaExceededError');
-        held = new Uint8Array(await response.arrayBuffer());
+        held = { bytes: new Uint8Array(await response.arrayBuffer()), headers: Object.fromEntries(response.headers) };
       },
       async delete() {
         if (fault === 'delete') throw new Error('cannot delete');
@@ -31,25 +38,47 @@ function fixture(t, { cached, fault, network } = {}) {
     };
   } };
   t.after(() => { if (previous === undefined) delete globalThis.caches; else globalThis.caches = previous; });
-  return { fetches: () => fetches, deleted: () => deleted, held: () => held };
+  return { fetches: () => fetches, deleted: () => deleted, held: () => held?.bytes, headers: () => held?.headers, reads: () => reads };
 }
 
-test('cached bytes must have the right size AND digest', async t => {
+test('bytes for the runtime must have the right size AND digest; the stored record is written with them', async t => {
   const f = fixture(t, { cached: Uint8Array.from([4, 3, 2, 1]) });
-  assert.equal(await verifiedNetworkIsStored(url, expect), false);
+  assert.equal(await hasStoredNetwork(url, expect), false, 'an entry without its record is not stored');
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+  assert.equal(f.deleted(), 1, 'wrong bytes are discarded before a fetch');
+  assert.equal(f.fetches(), 1);
+  assert.deepEqual(f.headers(), { 'content-length': '4', 'content-type': 'application/octet-stream', 'x-mahjong-sha256': expect.sha256 });
+  assert.equal(await hasStoredNetwork(url, expect), true);
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+  assert.equal(f.fetches(), 1);
+});
+
+test('a stored-network check reads the record, never the 116 MB body', async t => {
+  const f = fixture(t, { cached: good, headers: record });
+  for (let i = 0; i < 3; i++) assert.equal(await hasStoredNetwork(url, expect), true);
+  assert.equal(f.reads(), 0);
+  for (const wrong of [{ ...expect, bytes: 5 }, { ...expect, sha256: '0'.repeat(64) }]) {
+    assert.equal(await hasStoredNetwork(url, wrong), false);
+  }
+  assert.equal(f.reads(), 0);
+  // Only what is handed to the runtime is read and hashed.
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+  assert.equal(f.reads(), 1);
+});
+
+test('a record over the wrong bytes never reaches the runtime', async t => {
+  const f = fixture(t, { cached: Uint8Array.from([4, 3, 2, 1]), headers: record, network: () => { throw new Error('offline'); } });
+  assert.equal(await hasStoredNetwork(url, expect), true, 'status trusts the record of a verified write');
+  await assert.rejects(verifiedNetworkBytes({ url, expect }), /offline/);
   assert.equal(f.deleted(), 1);
-  assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
-  assert.equal(f.fetches(), 1);
-  assert.equal(await verifiedNetworkIsStored(url, expect), true);
-  assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
-  assert.equal(f.fetches(), 1);
+  assert.equal(await hasStoredNetwork(url, expect), false);
 });
 
 test('corrupt or truncated cache never runs offline', async t => {
   for (const cached of [Uint8Array.from([4, 3, 2, 1]), good.slice(1)]) await t.test(String(cached), async t => {
     fixture(t, { cached, network: () => { throw new Error('offline'); } });
     await assert.rejects(verifiedNetworkBytes({ url, expect }), /offline/);
-    assert.equal(await verifiedNetworkIsStored(url, expect), false);
+    assert.equal(await hasStoredNetwork(url, expect), false);
   });
 });
 

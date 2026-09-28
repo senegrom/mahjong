@@ -13,6 +13,7 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { serviceWorkerTemplate } from './offline-build.mjs';
+import { observeNetworkRequests } from './network-requests.mjs';
 import { TILE_IMAGE_URLS, tileImage } from '../src/lib/tile-faces.js';
 import { TILE_TYPES } from '../src/lib/tiles.js';
 
@@ -59,17 +60,11 @@ const results = [], browsers = new Set(), dirs = [];
 async function launch(profile) {
   const browser = await puppeteer.launch({ executablePath: chrome, userDataDir: profile, headless: true,
     args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-  // The model is prepared by the service worker, not a page fetch. Observe
-  // that target directly so first-download/reuse assertions remain real.
-  browser.on('targetcreated', target => {
-    if (target.type() !== 'service_worker') return;
-    void (async () => {
-      const session = await target.createCDPSession();
-      session.on('Network.requestWillBeSent', ({ request }) => {
-        if (request.url === networkUrl && request.method === 'GET') count.set(modelPath, (count.get(modelPath) ?? 0) + 1);
-      });
-      await session.send('Network.enable');
-    })().catch(() => {}); // A closing browser may already have disposed it.
+  // The page saves the model; its workers and the service worker must not
+  // fetch it again. Observe every one of them so first-download/reuse
+  // assertions remain real. A closing browser may already have disposed some.
+  await observeNetworkRequests(browser.defaultBrowserContext(), request => {
+    if (request.url === networkUrl && request.method === 'GET') count.set(modelPath, (count.get(modelPath) ?? 0) + 1);
   });
   browsers.add(browser); return browser;
 }

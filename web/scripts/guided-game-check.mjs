@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
-import { observeServiceWorkerRequests } from './service-worker-network.mjs';
+import { observeNetworkRequests } from './network-requests.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { emptyPosition, parseTiles, PHYSICAL_KEY } from '../src/lib/physical-position.js';
 import { GUIDED_KEY, GUIDED_FORMAT, emptyGuided, guidedEvent } from '../src/lib/guided-game.js';
@@ -146,7 +146,7 @@ try {
     // bucket named in the manifest, 116 MB of it, so this is the one check
     // that waits for a real download.
     const network = `${MANIFEST.origin}/${MANIFEST.object}`;
-    const stopObserving = await observeServiceWorkerRequests(context, request => {
+    const stopObserving = await observeNetworkRequests(context, request => {
       if (request.url === network && request.method === 'GET') modelRequests.push(request.url);
     });
     await setup(page, '0');

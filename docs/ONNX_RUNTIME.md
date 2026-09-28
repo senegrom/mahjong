@@ -38,19 +38,33 @@ not re-enter offline preparation. Reset/failure invalidates preparation, and
 late replies from an obsolete worker cannot complete a new request. All
 inference tensors are disposed after use.
 
-The service worker's status reply includes the verified network URL, size,
-and digest. The page skips a second complete model hash only when this identity
-exactly matches its own manifest. Old or mismatched replies retain the explicit
-verification fallback. This proof comes from the app's service-worker channel,
-not a localStorage flag.
+Every stored copy carries the size and SHA-256 its writer verified, as
+`X-Mahjong-SHA256` and `Content-Length` headers, the same record the service
+worker keeps for its own files. Status checks, the foreground availability
+probe and retention read that record; they never read or hash the body. The
+bytes given to ONNX Runtime are always read and hashed in full. The service
+worker's status reply names its build's network and whether it is stored; the
+page accepts that answer only when the identity exactly matches its own
+manifest, and otherwise reads its own record. This proof comes from the app's
+service-worker channel, not a localStorage flag.
 
 ## Cache lifetime and upgrades
 
-New model writes use an installation-scoped v2 cache. Installation downloads
-and verifies the replacement but never prunes the active version. Normal
+The page downloads the network, never the service worker: a worker's install,
+activation or message event is abandoned after a few minutes (five in Chrome)
+and a half-received body is not kept, so 100 MB on a slow link never finished
+and the update was retried, and failed, on every start. Installation and
+activation fetch the game alone. The worker saves the few megabytes of
+runtime; the page then fetches, verifies and stores the network in an
+installation-scoped v2 cache and tells the worker it is saved. A player who
+once asked for Trained offline has each later version's runtime and network
+saved by the running page while the update waits, or by the update's own page
+after it starts. A new version never plays the previous network. Normal
 waiting-worker activation is retained: there is no forced mid-match upgrade.
-After safe activation, verified current and previous model URLs are retained;
-older scoped entries are removed. Failed verification, a waiting/installing
+
+Only the active worker prunes: at activation and after its page has saved its
+network. The current and previous model URLs are retained; older scoped
+entries are removed. A network that is not yet stored, a waiting/installing
 worker, or an unreadable retention record prevents pruning.
 
 Legacy v1 bytes are verified and can be copied into the scoped cache without

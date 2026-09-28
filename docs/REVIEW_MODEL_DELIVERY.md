@@ -15,8 +15,9 @@ fails. Offline preparation explicitly requires durable storage instead, and
 its status rechecks the actual cached bytes. The UI keeps offline readiness
 false and displays a storage warning while permitting online inference.
 
-Each transfer owns an abort controller, a 60-second idle deadline, a 30-minute
-total deadline, and the manifest's decoded-byte ceiling (up to 512 MiB). These
+Each transfer owns an abort controller, a 60-second idle deadline, a total
+deadline (30 minutes then; three hours since the page, not the service worker,
+downloads the network), and the manifest's decoded-byte ceiling (up to 512 MiB). These
 limits cover headers and streamed bodies even if a transport ignores abort.
 The compressed Content-Length is not used to size the decoded payload. There
 is no unbounded chunk accumulation. Failure cancels the reader and clears the
@@ -31,6 +32,12 @@ readiness before pruning old local assets. UI-only updates reuse unchanged
 weights. The remote cache is not globally cleared, and other applications'
 caches are untouched. Storage eviction after a completed update remains a
 browser capability constraint, not a persistence guarantee.
+
+Superseded: downloading the replacement model inside installation meant a
+link below about 3 Mbit/s could never install such an update, because a
+browser abandons an install still running after five minutes and keeps
+nothing of the body. Updates now install with the game alone and the page
+saves the network; see `OFFLINE_PLAY.md` and `ONNX_RUNTIME.md`.
 
 ## Publisher
 
@@ -72,6 +79,7 @@ presentation only after recomputation matches every prior ledger and score field
 no settlement is applied again and no stored balance changes. Partially modern or
 altered score metadata is rejected, not silently repaired.
 
-Browser model-download assertions observe the service-worker network target,
-which now owns durable preparation. They still require a real single download
-and trained inference; no network or offline checks are skipped.
+Browser model-download assertions observe the page, its workers and the
+service worker, since the page now owns durable preparation of the network.
+They still require a real single download and trained inference; no network or
+offline checks are skipped.

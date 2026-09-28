@@ -12,7 +12,7 @@ import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
-import { observeServiceWorkerRequests } from './service-worker-network.mjs';
+import { observeNetworkRequests } from './network-requests.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const match = new MatchSession(Game, 81, 'neural');
@@ -89,7 +89,7 @@ try {
     await check(`${storedModel} preference uses only the shipped trained network and preserves replay`, async () => {
       const context = await browser.createBrowserContext(), before = downloads.length;
       const remote = [];
-      const stopObserving = await observeServiceWorkerRequests(context, request => {
+      const stopObserving = await observeNetworkRequests(context, request => {
         if (request.url === networkUrl && request.method === 'GET') remote.push(request.url);
       });
       try {

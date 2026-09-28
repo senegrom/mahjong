@@ -48,6 +48,13 @@ This starts even when the human has the first turn. The inference timer starts
 after the download; abandoning a match detaches its request without cancelling
 shared asset preparation or applying the old response to a replacement match.
 
+The service worker saves the runtime (a few megabytes); the page saves the
+network itself (over 100 MB). A browser abandons a service-worker event that is
+still running after a few minutes (five in Chrome), and a half-received body is
+not kept, so on a slow link a worker could never finish the network. A page has
+no such deadline: a transfer that keeps receiving bytes may take up to three
+hours, and one that stalls for a minute fails and can be retried.
+
 Cached availability does not need a successful online HEAD request. Reopening,
 reloading, retrying an AI worker or starting another match reads the downloaded
 bytes, not the server.
@@ -60,10 +67,16 @@ The service worker responds cache-first and caches neither unknown URLs nor
 error responses. Equal content is stored once, including duplicate runtime
 outputs and unchanged files across application updates.
 
-Updates wait until existing Mahjong windows close. When AI was previously
-requested, an update must also finish its matching AI package before installing;
-an interrupted upgrade leaves the working version and its downloads intact.
-No downloaded model is replaced merely because a newer UI was published.
+Updates wait until existing Mahjong windows close. An update installs with the
+game and graphics alone, so a slow connection still completes it. When Trained
+AI was ever requested, the running version's page then saves the waiting
+update's runtime and network while you play; if that does not finish, the
+update's own page saves them after it starts, once per visit while connected,
+with the status panel showing progress. A new version never plays an older
+network: until its own is saved, **Offline: game ready** is shown and Trained
+opponents need a connection. Check for **Offline: game + AI ready** after an
+update before flying. The previous network stays stored until the new one is
+saved. No downloaded model is replaced merely because a newer UI was published.
 
 The app requests persistent storage where supported, and reports whether the
 browser granted it. Clearing website data removes downloads. Browsers may also
@@ -72,6 +85,9 @@ retention after the operating system deletes its data. Readiness is checked
 against CacheStorage at startup and when the app returns to the foreground,
 not inferred from a flag in the saved match. Unsupported storage is explicitly
 labelled online-only. Saved matches remain a separate, unchanged mechanism.
+These checks read the size and digest recorded when the network was verified
+and stored; they never read or hash the 116 MB again. The bytes handed to the
+runtime are hashed in full each time it loads them.
 
 ## Verification
 

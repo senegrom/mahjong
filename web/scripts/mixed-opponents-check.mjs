@@ -7,7 +7,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
-import { observeServiceWorkerRequests } from './service-worker-network.mjs';
+import { observeNetworkRequests } from './network-requests.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
@@ -38,7 +38,7 @@ async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false
   const context=await browser.createBrowserContext();contexts.push(context);
   const p=await context.newPage();p.errors=[];p.modelLoads=0;
   p.on('pageerror',e=>p.errors.push(e.message));
-  p.stopNetworkObservation=await observeServiceWorkerRequests(context,request=>{
+  p.stopNetworkObservation=await observeNetworkRequests(context,request=>{
     if(request.url===networkUrl&&request.method==='GET')p.modelLoads++;
   });
   await p.setViewport({width,height,isMobile:width<500||height<500,hasTouch:width<500||height<500});

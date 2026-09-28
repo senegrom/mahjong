@@ -2,38 +2,52 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { setImmediate } from 'node:timers/promises';
 import { MessageChannel } from 'node:worker_threads';
 
 const source = (await readFile(new URL('../src/lib/offline.js', import.meta.url), 'utf8'))
-  .replace("import { networkIsStored } from './network-store.js';", '')
+  .replace("import { NETWORK, NETWORK_URL, networkBytes, networkIsStored } from './network-store.js';", '')
   .replaceAll('import.meta.env.DEV', 'false').replaceAll('export ', '');
+assert.doesNotMatch(source, /^import /m, 'every import is stood in for below');
 
-// Exercise the real coordinator against the service-worker message contract.
-// No browser globals or state are shared between tests.
-function coordinator({ coreReady = false, aiReady = false, failCore = false, failAi = false,
-  registered = true, held = true, storageFailure = false } = {}) {
-  const calls = [], info = { coreReady, aiReady, hasModel: true, version: 'test' };
-  let fetched = 0;
-  const faults = { core: failCore, ai: failAi, registration: false };
-  let latest, registrations = 0;
-  const active = {
+const NETWORK = { url: 'https://model.invalid/g1', sha256: '1'.repeat(64), bytes: 116 };
+const NEXT = { url: 'https://model.invalid/g2', sha256: '2'.repeat(64), bytes: 117 };
+
+/** A service worker speaking the real message contract: it saves the game and
+ * the runtime, reports whether the network is stored, and never fetches it. */
+function fakeWorker({ calls, network, stored, info, faults, label = '' }) {
+  return {
     scriptURL: 'https://test.invalid/mahjong/sw.js',
     postMessage({ type }, [port]) {
-      calls.push(type);
+      calls.push(label + type);
       queueMicrotask(() => {
+        const reply = () => ({ ...info, aiReady: info.runtime && stored.has(network.url), network });
         if (type === 'MAHJONG_PREPARE_CORE' && faults.core) port.postMessage({ error: 'Connection lost' });
-        else if (type === 'MAHJONG_PREPARE_AI' && faults.ai) port.postMessage({ error: 'AI interrupted', storage: storageFailure });
+        else if (type === 'MAHJONG_PREPARE_AI' && faults.ai) port.postMessage({ error: 'AI interrupted', storage: faults.storage });
         else {
           if (type === 'MAHJONG_PREPARE_CORE') info.coreReady = true;
-          if (type === 'MAHJONG_PREPARE_AI') info.aiReady = true;
-          port.postMessage({ value: { ...info } });
+          if (type === 'MAHJONG_PREPARE_AI') { info.runtime = true; info.aiRequested = true; }
+          port.postMessage({ value: reply() });
         }
         port.close();
       });
     },
   };
-  const registration = { scope: 'https://test.invalid/mahjong/', active, addEventListener() {}, async update() {} };
-  const navigator = { onLine: true, storage: {}, serviceWorker: {
+}
+
+// Exercise the real coordinator against the service-worker message contract.
+// No browser globals or state are shared between tests.
+function coordinator({ coreReady = false, aiReady = false, aiRequested = false, failCore = false, failAi = false,
+  registered = true, held = true, storageFailure = false, online = true, waiting = null } = {}) {
+  const calls = [], saves = [], stored = new Set(held || aiReady ? [NETWORK.url] : []);
+  const info = { coreReady, runtime: aiReady, aiRequested, hasModel: true, version: 'test' };
+  const faults = { core: failCore, ai: failAi, storage: storageFailure, registration: false, network: null };
+  let latest, registrations = 0;
+  const active = fakeWorker({ calls, network: NETWORK, stored, info, faults });
+  const registration = { scope: 'https://test.invalid/mahjong/', active, addEventListener() {}, async update() {},
+    waiting: waiting && fakeWorker({ calls, network: NEXT, stored, faults: {},
+      info: { coreReady: true, runtime: false, hasModel: true, version: 'next', ...waiting }, label: 'next:' }) };
+  const navigator = { onLine: online, storage: {}, serviceWorker: {
     controller: active,
     async getRegistration() { return registered ? registration : undefined; },
     async register() {
@@ -44,20 +58,24 @@ function coordinator({ coreReady = false, aiReady = false, failCore = false, fai
     },
   } };
   const context = vm.createContext({ document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
-    URL, MessageChannel, setTimeout, clearTimeout, caches: {}, isSecureContext: true,
-    // The trained network comes from its bucket, not from the service worker;
-    // here it is already held, so an AI download is the runtime alone.
-    networkIsStored: async () => held,
-    networkBytes: async ({ onProgress } = {}) => {
-      fetched += 1;
-      onProgress?.({ bytes: 1, total: 1 });
+    URL, MessageChannel, setTimeout, clearTimeout, caches: {}, isSecureContext: true, WeakSet,
+    NETWORK, NETWORK_URL: NETWORK.url,
+    // The page's own record of a saved network: a header check, never a read.
+    networkIsStored: async (url = NETWORK.url) => stored.has(url),
+    // The page's download: verified, then stored durably, or it throws.
+    networkBytes: async ({ url = NETWORK.url, expect, requireStored, onProgress } = {}) => {
+      saves.push({ url, expect: expect && { ...expect }, requireStored });
+      if (faults.network) throw faults.network;
+      onProgress?.({ bytes: 1, total: 2 });
+      stored.add(url);
       return new Uint8Array(1);
     } });
   vm.runInContext(source + '\nglobalThis.api = { startOffline, refreshOffline, prepareOfflineAi, watchOffline };', context);
   context.api.watchOffline(value => latest = value);
-  return { api: context.api, calls, info, faults, state: () => latest, registrations: () => registrations,
-    fetched: () => fetched };
+  return { api: context.api, calls, info, faults, stored, saves, navigator, state: () => latest,
+    registrations: () => registrations };
 }
+const settle = async () => { for (let i = 0; i < 20; i++) await setImmediate(); };
 
 test('startup automatically fills a missing game/graphics cache without requesting AI', async () => {
   const c = coordinator();
@@ -127,4 +145,96 @@ test('storage failure is a visible offline warning, not a prohibition on online 
   c.faults.ai = false;
   await c.api.prepareOfflineAi();
   assert.equal(c.state().aiReady, true);
+});
+
+test('the page saves the network after the worker saves the runtime, once', async () => {
+  const c = coordinator({ coreReady: true, held: false });
+  await c.api.startOffline();
+  const progress = [];
+  c.api.watchOffline(value => { if (value.phase === 'ai') progress.push(value.progress); });
+  await Promise.all([c.api.prepareOfflineAi(), c.api.prepareOfflineAi()]);
+  assert.deepEqual(c.calls, ['MAHJONG_STATUS', 'MAHJONG_STATUS', 'MAHJONG_PREPARE_AI', 'MAHJONG_NETWORK_SAVED']);
+  assert.deepEqual(c.saves, [{ url: NETWORK.url, expect: NETWORK, requireStored: true }]);
+  assert.equal(c.state().aiReady, true);
+  assert.equal(c.state().phase, 'ready');
+  assert.ok(progress.includes(60), 'the network is the last four fifths of the progress');
+  await c.api.prepareOfflineAi();
+  assert.equal(c.saves.length, 1, 'a saved network is never fetched again');
+});
+
+test('a runtime that cannot be saved spends none of the network\'s bytes', async () => {
+  const c = coordinator({ coreReady: true, held: false, failAi: true });
+  await c.api.startOffline();
+  await assert.rejects(c.api.prepareOfflineAi(), /AI interrupted/);
+  assert.deepEqual(c.saves, []);
+});
+
+test('a page download that fails is incomplete and a storage failure is only an offline warning', async () => {
+  const c = coordinator({ coreReady: true, held: false });
+  await c.api.startOffline();
+  c.faults.network = new Error('The network could not be fetched: 503');
+  await assert.rejects(c.api.prepareOfflineAi(), /could not be fetched/);
+  assert.equal(c.state().phase, 'incomplete');
+  assert.match(c.state().warning, /AI download incomplete/);
+  c.faults.network = Object.assign(new Error('The network is not saved offline: quota'), { name: 'NetworkStorageError' });
+  assert.equal(await c.api.prepareOfflineAi(), null);
+  assert.match(c.state().warning, /Online play is still available/);
+  assert.equal(c.calls.includes('MAHJONG_NETWORK_SAVED'), false);
+  c.faults.network = null;
+  await c.api.prepareOfflineAi();
+  assert.equal(c.state().aiReady, true);
+});
+
+test('a player who asked for Trained has a new version\'s network saved once, and only online', async () => {
+  const c = coordinator({ coreReady: true, aiRequested: true, held: false, online: false });
+  await c.api.startOffline();
+  await settle();
+  assert.deepEqual(c.saves, [], 'nothing is attempted offline');
+  c.navigator.onLine = true;
+  c.faults.network = new Error('Connection lost');
+  await c.api.refreshOffline();
+  await settle();
+  assert.equal(c.saves.length, 1, 'the reconnect starts it');
+  assert.equal(c.state().phase, 'incomplete');
+  for (let i = 0; i < 3; i++) { await c.api.refreshOffline(); await settle(); }
+  assert.equal(c.saves.length, 1, 'returning to the app does not download it again');
+  c.faults.network = null;
+  await c.api.prepareOfflineAi();
+  assert.equal(c.state().aiReady, true, 'an explicit Trained request still retries');
+});
+
+test('a player who never asked for Trained downloads nothing automatically', async () => {
+  const c = coordinator({ coreReady: true, held: false });
+  await c.api.startOffline(); await c.api.refreshOffline(); await settle();
+  assert.deepEqual(c.saves, []);
+  assert.equal(c.calls.includes('MAHJONG_PREPARE_AI'), false);
+});
+
+test('a waiting update\'s runtime and network are saved while this version runs', async () => {
+  const c = coordinator({ coreReady: true, aiReady: true, aiRequested: true, waiting: { aiRequested: true } });
+  await c.api.startOffline();
+  await settle();
+  assert.equal(c.state().updateReady, true);
+  assert.deepEqual(c.calls.filter(call => call.startsWith('next:')), ['next:MAHJONG_STATUS', 'next:MAHJONG_PREPARE_AI']);
+  assert.deepEqual(c.saves, [{ url: NEXT.url, expect: NEXT, requireStored: true }]);
+  assert.equal(c.calls.includes('MAHJONG_NETWORK_SAVED'), false, 'the active version prunes nothing for it');
+  await c.api.refreshOffline(); await settle();
+  assert.equal(c.saves.length, 1, 'once per waiting update');
+});
+
+test('a waiting update\'s network waits for this version\'s own', async () => {
+  const c = coordinator({ coreReady: true, aiRequested: true, held: false, waiting: { aiRequested: true } });
+  await c.api.startOffline();
+  await settle();
+  assert.deepEqual(c.saves.map(save => save.url), [NETWORK.url, NEXT.url]);
+  assert.equal(c.state().aiReady, true);
+});
+
+test('a waiting update is left alone without a Trained request or a connection', async () => {
+  for (const options of [{ waiting: { aiRequested: false } }, { waiting: { aiRequested: true }, online: false }]) {
+    const c = coordinator({ coreReady: true, aiReady: true, ...options });
+    await c.api.startOffline(); await settle();
+    assert.deepEqual(c.saves, []);
+    assert.equal(c.calls.includes('next:MAHJONG_PREPARE_AI'), false);
+  }
 });

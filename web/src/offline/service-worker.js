@@ -48,32 +48,38 @@ async function ensure(entry, durable = true) {
   return answer.response.clone();
 }
 const networkUrl = () => `${CONFIG.network.origin}/${CONFIG.network.object}`;
+const requestedKey = () => new URL('__offline_meta__/ai-requested', scope);
+// The worker never downloads the network. An install, activation or message
+// event is abandoned after a few minutes (Chrome: five), and nothing of a
+// half-received body is kept, so a slow link could never finish 100 MB here.
+// The page saves it instead; this reads the record that save leaves, the way
+// cached() reads the worker's own files, without reading or hashing a body.
 async function networkReady() {
   // Older hand-written inventories with a same-origin model remain supported.
-  return !CONFIG.network || await networkTransfer.verifiedNetworkIsStored(networkUrl(), CONFIG.network, { scope: networkScope });
-}
-async function prepareNetwork(progress) {
-  if (!CONFIG.network) return;
-  await networkTransfer.verifiedNetworkBytes({ url: networkUrl(), expect: CONFIG.network, requireStored: true, scope: networkScope,
-    onProgress: value => progress({ ...value, group: 'network' }) });
+  return !CONFIG.network || await networkTransfer.hasStoredNetwork(networkUrl(), CONFIG.network, { scope: networkScope });
 }
 
 async function status() {
   const complete = { core: true, ai: CONFIG.hasModel };
+  let aiRequested = false;
   try {
     const cache = await caches.open(CACHE);
     for (const entry of CONFIG.entries) if (!(await cached(cache, entry))) complete[entry.group] = false;
     if (complete.ai && !(await networkReady())) complete.ai = false;
+    aiRequested = Boolean(await cache.match(requestedKey()));
   } catch { complete.core = false; complete.ai = false; }
-  return { coreReady: complete.core, aiReady: complete.ai,
+  // The identity is this build's network, saved or not: aiReady says whether
+  // it is stored, and a page saving it for this build needs to know which.
+  return { coreReady: complete.core, aiReady: complete.ai, aiRequested,
     hasModel: CONFIG.hasModel, version: CONFIG.version,
-    ...(networkScope ? { network: complete.ai && CONFIG.network
+    ...(networkScope ? { network: CONFIG.network
       ? { url: networkUrl(), sha256: CONFIG.network.sha256, bytes: CONFIG.network.bytes } : null } : {}) };
 }
 async function prepare(group, progress = () => {}) {
   if (group === 'ai' && !CONFIG.hasModel) throw new Error('No trained model is included in this version.');
   if (groups.has(group)) { await groups.get(group); return status(); }
-  // Deduplicate the public runtime and the bundler's identical copy.
+  // Deduplicate the public runtime and the bundler's identical copy. For 'ai'
+  // these are the few megabytes of runtime, never the network itself.
   const list = [...new Map(CONFIG.entries.filter(entry => entry.group === group).map(entry => [entry.hash, entry])).values()];
   const total = list.reduce((sum, entry) => sum + entry.bytes, 0);
   let next = 0, bytes = 0;
@@ -84,11 +90,19 @@ async function prepare(group, progress = () => {}) {
       bytes += entry.bytes;
       progress({ bytes, total, group });
     }
-  })).then(async () => { if (group === 'ai') await prepareNetwork(progress); })
-    .finally(() => groups.delete(group));
+  })).finally(() => groups.delete(group));
   groups.set(group, task);
   await task;
   return status();
+}
+/** The active worker keeps its own network and the previous one once its
+ * page has saved it; a waiting or installing update prevents any deletion. */
+async function pruneNetworks() {
+  if (!networkScope || !CONFIG.network) return;
+  await networkTransfer.pruneNetworkCache({
+    scope: networkScope, url: networkUrl(), expect: CONFIG.network,
+    canPrune: () => !self.registration.installing && !self.registration.waiting,
+  });
 }
 async function pruneObsoleteContent() {
   // Activation happens only after the old worker no longer owns live clients.
@@ -103,26 +117,20 @@ async function pruneObsoleteContent() {
   }
 }
 self.addEventListener('install', event => {
-  // Failed updates leave the active worker and every verified asset intact.
-  // Normal waiting-worker lifecycle: no forced upgrade during a live match.
-  event.waitUntil((async () => {
-    await prepare('core');
-    const cache = await caches.open(CACHE);
-    // An upgrade must not strand an offline Trained match on a new runtime
-    // whose bytes have not finished downloading. Keep the old worker instead.
-    if (CONFIG.hasModel && await cache.match(new URL('__offline_meta__/ai-requested', scope))) await prepare('ai');
-  })());
+  // The game only: an install still running when the browser's event deadline
+  // passes is discarded, so the trained network is never part of one. A page
+  // of this version saves it after activation when Trained is wanted (or the
+  // previous version's page saves it while this one waits). Failed updates
+  // leave the active worker and every verified asset intact. Normal
+  // waiting-worker lifecycle: no forced upgrade during a live match.
+  event.waitUntil(prepare('core'));
 });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
-    // Recheck at activation: a model may have been evicted while this worker
-    // waited. Do not prune the previous version's recoverable bytes on failure.
-    const cache = await caches.open(CACHE);
-    if (CONFIG.hasModel && await cache.match(new URL('__offline_meta__/ai-requested', scope))) await prepare('ai');
-    if (networkScope && CONFIG.network) await networkTransfer.pruneNetworkCache({
-      scope: networkScope, url: networkUrl(), expect: CONFIG.network,
-      canPrune: () => !self.registration.installing && !self.registration.waiting,
-    });
+    // Nothing is downloaded here either. A network the page saved while this
+    // version waited becomes current; one not yet saved leaves the retention
+    // record, and the previous version's recoverable bytes, untouched.
+    await pruneNetworks();
     await pruneObsoleteContent();
     await self.clients.claim();
   })());
@@ -130,14 +138,17 @@ self.addEventListener('activate', event => {
 self.addEventListener('message', event => {
   const port = event.ports[0];
   const groupOf = { MAHJONG_PREPARE_AI: 'ai', MAHJONG_PREPARE_CORE: 'core' };
-  if (!port || !['MAHJONG_STATUS', ...Object.keys(groupOf)].includes(event.data?.type)) return;
+  if (!port || !['MAHJONG_STATUS', 'MAHJONG_NETWORK_SAVED', ...Object.keys(groupOf)].includes(event.data?.type)) return;
   const progress = value => port.postMessage({ progress: value });
   const work = (async () => {
     if (event.data.type === 'MAHJONG_STATUS') return status();
+    if (event.data.type === 'MAHJONG_NETWORK_SAVED') { await pruneNetworks(); return status(); }
     if (event.data.type === 'MAHJONG_PREPARE_AI') {
+      // Remembered across upgrades: later versions' pages save their own
+      // network for a player who once asked for Trained offline.
       try {
         const cache = await caches.open(CACHE);
-        await cache.put(new URL('__offline_meta__/ai-requested', scope), new Response('requested'));
+        await cache.put(requestedKey(), new Response('requested'));
       } catch (error) { throw networkTransfer.storageError(error); }
     }
     return prepare(groupOf[event.data.type], progress);
