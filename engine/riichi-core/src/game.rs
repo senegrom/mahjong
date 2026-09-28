@@ -1199,33 +1199,14 @@ impl Hand {
     }
 
     /// Who, if anyone, answers for this player's winning hand.
+    ///
+    /// A feeder is only recorded once the third dragon set or the fourth
+    /// wind set stands among the player's sets, and sets are never taken
+    /// back, so a hand with a feeder recorded is always the Big Three
+    /// Dragons or Big Four Winds that feeder answers for.
     fn liable_for(&self, seat: Wind) -> Option<Wind> {
         let player = &self.players[seat.index()];
-        let sets = |pick: fn(&Tile) -> bool| {
-            let mut count = player
-                .melds
-                .iter()
-                .filter(|meld| meld.is_triplet_or_quad())
-                .filter(|meld| pick(&meld.tile))
-                .count();
-            for tile in Tile::all() {
-                if pick(&tile) && player.hand.count(tile) >= 3 {
-                    count += 1;
-                }
-            }
-            count
-        };
-        if sets(|tile| tile.is_dragon()) == 3 {
-            if let Some(feeder) = player.liable_for_dragons {
-                return Some(feeder);
-            }
-        }
-        if sets(|tile| tile.is_wind()) == 4 {
-            if let Some(feeder) = player.liable_for_winds {
-                return Some(feeder);
-            }
-        }
-        None
+        player.liable_for_dragons.or(player.liable_for_winds)
     }
 
     /// Everything `seat` can see of the tiles: their own hand and sets,
