@@ -55,13 +55,17 @@ Record the move actually played, even when it differs from the suggestion.
 
 **Record the next physical move** adds a known hand's actual draw or records
 a discard. An unknown opponent's otherwise-unrecorded draw is counted with its
-discard. After exceptional turns correct the wall count to the actual table.
+discard, but not after a pon or chii or once that seat has already drawn; a
+discard that would need a draw from an empty wall is refused and changes
+nothing. After exceptional turns correct the wall count to the actual table.
 **Add an earlier discard** edits visible history without advancing play.
 
 Calls consume only held tiles and retain the claimed discard. Newly recorded
 sets remember exactly which tile was claimed, so chii rotates the correct
 tile even after save/reload. Legacy manually entered sets without this metadata
-remain readable; the display does not guess a new claimed tile. After kan,
+remain readable; the display does not guess a new claimed tile. Validation
+matches claimed discards to called sets one to one, so an ambiguous chii
+explains whichever discard needs it, and no set explains two claims. After kan,
 enter the real replacement tile and newly exposed indicator. No random wall
 or unknown hand is manufactured. Passed wins record furiten; kan robbery
 preserves ippatsu until the kan stands and its replacement is recorded.

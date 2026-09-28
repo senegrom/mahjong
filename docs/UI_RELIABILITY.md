@@ -18,7 +18,9 @@ choose the past moves again. A pending opponent turn resumes after restoration.
 Replay is deliberately fail-closed: malformed records, illegal actions and an
 engine version producing a different state are rejected without overwriting the
 saved record. The user can deliberately choose New game to replace it. Storage
-failure leaves play available and displays a warning. This is local restoration,
+failure leaves play available and displays a warning. A new match takes its
+identity only inside its first real save, so missing storage, Web Locks or
+`crypto.randomUUID` never stop unsaved play. This is local restoration,
 not cloud sync or an offline-installation feature. Clearing website data removes
 the saved match. A future change to engine rules may require a save migration.
 
