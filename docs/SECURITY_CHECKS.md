@@ -15,30 +15,18 @@ The CI audit tool is pinned to cargo-audit 0.22.2. The build workflow audits
 the root graph on every change, and the neural workflow audits the standalone
 graph on relevant changes and weekly, with no advisory exemptions.
 
-On the Linux CI runner, build the training extension with
-`cargo build --locked -p riichi-py` and run
-`python3 engine/riichi-py/smoke-test.py`. This loads the real extension, checks
-its observation and legality buffers, and exercises a batch of legal moves.
-The Python binding requires Rust 1.83 or newer; CI uses Rust 1.98.1.
+Build the training extension with `cargo build --locked -p riichi-py` and run
+`python3 engine/riichi-py/smoke-test.py`, as CI does on Linux; the script also
+finds the library under its Windows and macOS names. This loads the real
+extension, checks its observation and legality buffers, and exercises a batch
+of legal moves. The Python binding requires Rust 1.83 or newer; CI uses Rust
+1.98.1.
 
-In `web/`, run:
-
-```sh
-npm ci
-npm run wasm
-npm run lint
-npm run check
-npm run build
-npm run test:unit
-npm run test:browser
-npm audit --audit-level=low
-node scripts/check-icons.mjs
-node scripts/check-icons.mjs --built
-```
-
-`npm run check` runs Svelte diagnostics, and `npm run verify` runs every check
-above. Generated WASM, third-party runtime files, build output and screenshots
-are not linted as handwritten application source.
+In `web/`, run `npm ci` and then `npm run verify`, the command CI runs: it
+audits npm dependencies at `--audit-level=low`, builds the WASM engine, lints,
+runs Svelte diagnostics (`npm run check`), builds the site and runs the unit,
+browser and icon checks. Generated WASM, third-party runtime files, build
+output and screenshots are not linted as handwritten application source.
 
 ## Dependency and workflow policy
 

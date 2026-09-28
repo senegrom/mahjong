@@ -48,20 +48,10 @@ an unfinished match has progress, including between hands.
 
 ## Verification
 
-From `web/`, after `npm ci`:
-
-```sh
-npm run wasm
-npm run build
-npm run test:unit
-npm run test:browser
-node scripts/check-icons.mjs
-node scripts/check-icons.mjs --built
-```
-
-`test:unit` includes pure session tests and tests against the rebuilt WASM,
-including a complete-match save/restore and the seed-369 duplicate-indicator
-regression. Browser tests use the production build under `/mahjong/`, without
+Run `npm run verify` in `web/` after `npm ci`. Its unit tests include pure
+session tests and tests against the rebuilt WASM, including a complete-match
+save/restore and the seed-369 duplicate-indicator regression. Its browser
+tests use the production build under `/mahjong/`, without
 application test hooks; deterministic saved positions and test-only worker
 responses exercise recovery, inputs, hints, and small-screen layouts.
 
