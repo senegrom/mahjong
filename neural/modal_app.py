@@ -148,6 +148,25 @@ def _carry_log(run: str, where: Path, generation: int) -> None:
               "records left behind", flush=True)
 
 
+def _carry(run: str, source: Path, where: Path, *, leashed: bool = False) -> int:
+    """The checkpoint a block resumes from, into its workspace as its
+    `latest.pt`, and its generation. When the checkpoint is the run's own,
+    the rest of what the block continues comes too: the run's best, its
+    log cut at that generation, and, for a leashed trainer, the policy the
+    run is leashed to. A start from another lineage inherits none of it:
+    not the run's baseline, its record or its leash."""
+    generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
+    if _same_lineage(run, source):
+        for name in ("best.pt", "reference.pt") if leashed else ("best.pt",):
+            saved = VOLUME / run / name
+            if saved.exists():
+                copy_checkpoint(saved, where / name)
+        # Carried so a resumed run appends to its record rather than
+        # starting a fresh one every container.
+        _carry_log(run, where, generation)
+    return generation
+
+
 def _generation_of(checkpoint: Path) -> int:
     """Missing starts at zero; an unreadable existing checkpoint is an error."""
     if not checkpoint.exists():
@@ -235,6 +254,54 @@ def _environment(cpus: int | None = None) -> dict[str, str]:
     return environment
 
 
+def _run_trainer(command: list[str], where: Path, run: str) -> str:
+    """Runs a trainer over the workspace `where` and publishes it to the
+    run as it goes: each generation as its record arrives, so a preempted
+    container costs a single round, and the last once the trainer exits
+    cleanly. Answers how it ended."""
+    environment = _environment(TRAINER_CPUS)
+    print(" ".join(command), flush=True)
+    saved_cache = False
+    began = time.time()
+    started_at = _generation_of(where / "latest.pt")
+    seen = started_at
+    print(f"the checkpoint says generation {started_at}", flush=True)
+    with managed_process(subprocess.Popen(
+        command,
+        cwd="/src",
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )) as process:
+        assert process.stdout is not None
+        for line in process.stdout:
+            print(line.rstrip(), flush=True)
+            # A finished generation is a JSON record.
+            if line.startswith("{") and '"generation"' in line:
+                try:
+                    record = json.loads(line)
+                    seen = int(record.get("checkpoint_generation", record["generation"] + 1))
+                except Exception:
+                    continue
+                seen = _publish(where, seen, run, started_at)
+                if not saved_cache:
+                    _save_cache()
+                    saved_cache = True
+        code = process.wait()
+    _save_cache()
+    # Publish only when a generation actually finished. A run that trained
+    # nothing still rewrites its checkpoint with the target generation
+    # stamped on it, and publishing that overwrote a good record with one
+    # claiming to be two hundred generations younger.
+    if code == 0 and seen > started_at:
+        seen = _publish(where, seen, run, started_at)
+    else:
+        print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
+    return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
+
+
 @app.function(
     # An A100 when no H100 can be had: on 7 September two blocks sat two
     # hours with no container at all, their calls still marked running.
@@ -290,16 +357,7 @@ def train(
         source = _checkpoint(run, resume)
         if source.exists():
             started_from = str(source)
-            generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
-            # Cross-lineage starts must not inherit this run's old baseline;
-            # a resume from the run's own history is the run's lineage.
-            if _same_lineage(run, source):
-                best = VOLUME / run / "best.pt"
-                if best.exists():
-                    copy_checkpoint(best, where / "best.pt")
-                # Carry the history forward so a resumed run appends to it
-                # rather than starting a fresh record every container.
-                _carry_log(run, where, generation)
+            _carry(run, source, where)
         print(f"resuming from {started_from or 'nothing: a fresh network'}", flush=True)
 
         command = [
@@ -353,54 +411,8 @@ def train(
         command += stage_opponents(
             where, opponents, opponent_share, lambda name: _checkpoint(run, name)
         )
-
-        environment = _environment(TRAINER_CPUS)
         command += controls
-        print(" ".join(command), flush=True)
-
-        saved_cache = False
-        began = time.time()
-        started_at = _generation_of(where / "latest.pt")
-        seen = started_at
-        print(f"the checkpoint says generation {started_at}", flush=True)
-        with managed_process(subprocess.Popen(
-            command,
-            cwd="/src",
-            env=environment,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )) as process:
-            assert process.stdout is not None
-            for line in process.stdout:
-                print(line.rstrip(), flush=True)
-                # A finished generation is a JSON record; publish on each one so a
-                # preempted container costs a single round.
-                if line.startswith("{") and '"generation"' in line:
-                    try:
-                        record = json.loads(line)
-                        seen = int(record.get("checkpoint_generation", record["generation"] + 1))
-                    except Exception:
-                        continue
-                    seen = _publish(where, seen, run, started_at)
-                    if not saved_cache:
-                        _save_cache()
-                        saved_cache = True
-            code = process.wait()
-        _save_cache()
-        # Publish only when a generation actually finished. A run that trained
-        # nothing still rewrites its checkpoint with the target generation
-        # stamped on it, and publishing that overwrote a good record with one
-        # claiming to be two hundred generations younger.
-        if code == 0 and seen > started_at:
-            seen = _publish(where, seen, run, started_at)
-        else:
-            print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
-        return (
-            f"exit={code} generation={seen} from {started_at} "
-            f"after {time.time() - began:.0f}s"
-        )
+        return _run_trainer(command, where, run)
 
 
 @app.function(
@@ -464,14 +476,7 @@ def train_mortal(
         if temperature is not None:
             command += ["--temperature", str(temperature)]
         if source.exists():
-            generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
-            # Cross-lineage starts must not inherit this run's old baseline;
-            # a resume from the run's own history is the run's lineage.
-            if _same_lineage(run, source):
-                best = VOLUME / run / "best.pt"
-                if best.exists():
-                    copy_checkpoint(best, where / "best.pt")
-                _carry_log(run, where, generation)
+            _carry(run, source, where)
             command += ["--resume", str(where / "latest.pt")]
             print(f"resuming from {source}", flush=True)
         else:
@@ -489,41 +494,7 @@ def train_mortal(
             seat_share=seat_share,
         )
         command += controls
-        print(" ".join(command), flush=True)
-
-        saved_cache = False
-        began = time.time()
-        started_at = _generation_of(where / "latest.pt")
-        seen = started_at
-        with managed_process(subprocess.Popen(
-            command,
-            cwd="/src",
-            env=_environment(TRAINER_CPUS),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )) as process:
-            assert process.stdout is not None
-            for line in process.stdout:
-                print(line.rstrip(), flush=True)
-                if line.startswith("{") and '"generation"' in line:
-                    try:
-                        record = json.loads(line)
-                        seen = int(record.get("checkpoint_generation", record["generation"] + 1))
-                    except Exception:
-                        continue
-                    seen = _publish(where, seen, run, started_at)
-                    if not saved_cache:
-                        _save_cache()
-                        saved_cache = True
-            code = process.wait()
-        _save_cache()
-        if code == 0 and seen > started_at:
-            seen = _publish(where, seen, run, started_at)
-        else:
-            print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
-        return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
+        return _run_trainer(command, where, run)
 
 
 @app.function(
@@ -599,16 +570,7 @@ def train_combined(
         if fixed:
             command += ["--fixed", *fixed]
         if source.exists():
-            generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
-            # Cross-lineage starts must not inherit this run's old baseline;
-            # a resume from the run's own history is the run's lineage.
-            if _same_lineage(run, source):
-                # The policy the run is leashed to comes along with its best.
-                for saved_name in ("best.pt", "reference.pt"):
-                    saved = VOLUME / run / saved_name
-                    if saved.exists():
-                        copy_checkpoint(saved, where / saved_name)
-                _carry_log(run, where, generation)
+            _carry(run, source, where, leashed=True)
             command += ["--resume", str(where / "latest.pt")]
             print(f"resuming from {source}", flush=True)
         else:
@@ -630,41 +592,7 @@ def train_combined(
             seat_share=seat_share,
         )
         command += controls
-        print(" ".join(command), flush=True)
-
-        saved_cache = False
-        began = time.time()
-        started_at = _generation_of(where / "latest.pt")
-        seen = started_at
-        with managed_process(subprocess.Popen(
-            command,
-            cwd="/src",
-            env=_environment(TRAINER_CPUS),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )) as process:
-            assert process.stdout is not None
-            for line in process.stdout:
-                print(line.rstrip(), flush=True)
-                if line.startswith("{") and '"generation"' in line:
-                    try:
-                        record = json.loads(line)
-                        seen = int(record.get("checkpoint_generation", record["generation"] + 1))
-                    except Exception:
-                        continue
-                    seen = _publish(where, seen, run, started_at)
-                    if not saved_cache:
-                        _save_cache()
-                        saved_cache = True
-            code = process.wait()
-        _save_cache()
-        if code == 0 and seen > started_at:
-            seen = _publish(where, seen, run, started_at)
-        else:
-            print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
-        return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
+        return _run_trainer(command, where, run)
 
 
 @app.function(

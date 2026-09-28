@@ -17,29 +17,20 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
-import json
 import time
 from pathlib import Path
 
-import numpy as np
 import torch
-
-from .checkpoints import atomic_save
-from .training_safety import (
-    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
-)
-from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
-from . import mortal_learner, population, selfplay, zoo
-from .observe import pad_rows, resident
-from .prefetch import Prefetcher
+from . import mortal_learner, ppo_loop, selfplay
+from .observe import pad_rows
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
+from .training_batches import require_trainable_round, require_updates
+from .training_safety import TRAINING_API_VERSION, benchmark_history
 from .training_state import (
-    capture_sampling_state, peak_gpu_gb, peak_rss_gb, restore_sampling_state, round_seed,
+    capture_random_state, peak_gpu_gb, peak_rss_gb, restore_random_state, round_seed,
 )
-
-SMOOTHING = 1 / 3
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,21 +80,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    validate_learning(args.batch, args.epochs)
-    validate_training_options(args)
-    require_training_engine()
-    torch.set_num_threads(2)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    amp_enabled = args.amp and device == "cuda"
-    args.out.mkdir(parents=True, exist_ok=True)
-    log_path = args.out / "log.jsonl"
-    torch.manual_seed(args.seed)
-    if device == "cuda":
-        torch.cuda.manual_seed_all(args.seed)
+    device, amp_enabled, log_path = ppo_loop.setup(args)
 
     start = 0
-    best_placement = float("inf")
-    smoothed = None
+    benchmark = ppo_loop.Benchmark()
     optimiser_state = None
     sampling_state = None
     if args.resume is not None and args.resume.exists():
@@ -119,7 +99,7 @@ def main() -> None:
             )
             net.temperature = args.temperature
         start = int(payload.get("generation", 0))
-        smoothed, best_placement = benchmark_history(payload)
+        benchmark = ppo_loop.Benchmark(*benchmark_history(payload))
         optimiser_state = payload.get("optimizer_state")
         sampling_state = payload.get("sampling_state")
         # Mortal's config, which every checkpoint of this trainer carries
@@ -155,23 +135,8 @@ def main() -> None:
         net.inference = torch.compile(net.policy, dynamic=True)
 
     # Who else sits at the tables, as a roster with roles and shares, made
-    # the way train_combined makes it (see `neural.population`): a name the
-    # roster knows, as the cloud stages `zoo/mortal_298k` at
-    # `.../zoo--mortal_298k.pt`, keeps its role and its weight there, so
-    # the two trainers draw their others alike, and the round can say how
-    # the learner placed against each of them. validate_training_options
-    # has refused a missing checkpoint already, so the roster and the
-    # players loaded line up one for one.
-    roster = population.Population.from_paths(args.opponents)
-    seated = []
-    for path in args.opponents:
-        other = zoo.load_player(path, device, compile=args.compile)
-        other.eval()
-        seated.append(other)
-    if seated:
-        where = (f"{args.seat_share:.0%} of players" if args.seat_share
-                 else f"{args.opponent_share:.0%} of games")
-        print(f"{len(seated)} others seated in {where}: " + json.dumps(roster.describe()), flush=True)
+    # the way train_combined makes it.
+    roster, seated = ppo_loop.seat_others(args, device)
     print(
         f"device {device} | Mortal {config['resnet']['conv_channels']}x{config['resnet']['num_blocks']} "
         f"| {sum(p.numel() for p in net.parameters()) / 1e6:.2f}M parameters "
@@ -179,7 +144,7 @@ def main() -> None:
         flush=True,
     )
 
-    restore_sampling_state(sampling_state, generation=start)
+    restore_random_state(sampling_state, generation=start)
 
     def checkpoint_payload(generation: int) -> dict:
         return {
@@ -190,19 +155,25 @@ def main() -> None:
             "training_api_version": TRAINING_API_VERSION,
             "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch,
                                   "seat_share": args.seat_share},
-            "smoothed": smoothed,
-            "best_placement": best_placement,
+            "smoothed": benchmark.smoothed,
+            "best_placement": benchmark.best,
             "temperature": net.temperature,
             "optimizer_state": optimiser.state_dict(),
-            "sampling_state": capture_sampling_state(),
+            "sampling_state": capture_random_state(),
         }
+
+    def measure(generation: int) -> dict:
+        net.eval()
+        return selfplay.measure(
+            net, games=args.measure_games, seed=7_000_000 + generation, device=device
+        )
 
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
         # Let go of the last round, on the host and on the card, before
         # the next is played.
-        batch = observations = on_card = None
+        batch = rollout = None
         batch = selfplay.play(
             net,
             games=args.games,
@@ -219,169 +190,74 @@ def main() -> None:
         )
         require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
-        observations = batch.observations
-        legal = batch.legal.to(device)
-        actions = batch.actions.to(device)
-        returns = batch.returns.to(device)
-        old_log_probs = batch.log_probs.to(device)
-        # The round's planes on the card whole when it has room, gathered
-        # there; otherwise on the host, gathered a few steps ahead.
-        on_card = resident(observations, device)
+        rollout = ppo_loop.on_device(batch, device)
         loaded = time.time() - began - played
 
         # The baseline: the value head as it stands before the round.
         net.eval()
-        guess = torch.empty(batch.decisions, device=device)
-        baseline_rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
-        with torch.no_grad():
-            for start_index in range(0, batch.decisions, baseline_rows):
-                chunk = slice(start_index, start_index + baseline_rows)
-                if on_card is not None:
-                    planes = on_card.slice(start_index, start_index + baseline_rows)
-                else:
-                    planes = observations.slice(start_index, start_index + baseline_rows).dense(device)
-                # The last chunk padded to the others' size, so the compiled
-                # graph sees one shape all round.
-                rows = planes.shape[0]
-                planes = pad_rows(planes, baseline_rows)
-                mask = pad_rows(legal[chunk], baseline_rows, True)
-                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    _logits, value = learn(planes, mask)
-                guess[chunk] = value.float()[:rows]
-        value_error = float(((returns - guess) ** 2).mean())
-        advantages = returns - guess
-        advantage_spread = float(advantages.std(unbiased=False))
-        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-6)
+        rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
+
+        def values_of(chunk, planes):
+            mask = pad_rows(rollout.legal[chunk], rows, True)
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                return (learn(planes, mask)[1],)
+
+        (guess,) = ppo_loop.baseline(rollout, rows, values_of)
+        value_error = float(((rollout.returns - guess) ** 2).mean())
+        advantages, spread = ppo_loop.standardised(rollout.returns, guess)
 
         net.train()
-        zero = lambda: torch.zeros((), device=device)
-        total_policy, total_value, total_entropy = zero(), zero(), zero()
-        total_clipped, total_kl, total_grad = zero(), zero(), zero()
+        totals = ppo_loop.Totals(device)
         drift = PolicyDrift(args.target_kl)
         steps = 0
         for _epoch in range(args.epochs):
-            order = torch.randperm(batch.decisions)
-            slices = [
-                order[start_index : start_index + args.batch]
-                for start_index in range(0, batch.decisions, args.batch)
-            ]
-            # Whole minibatches only, so the compiled step sees one shape.
-            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
-
-            def prepare(drawn: torch.Tensor):
-                # The gather on the host runs a few minibatches ahead of
-                # the step on the card, in a thread of its own.
-                return drawn.to(device), observations.rows(drawn.numpy()).dense(device)
-
-            def gather_on_card(drawn: torch.Tensor):
-                picks = drawn.to(device)
-                return picks, on_card.rows(picks)
-
-            minibatches = (
-                (gather_on_card(drawn) for drawn in slices)
-                if on_card is not None
-                else Prefetcher(slices, prepare)
-            )
-            with closing(minibatches):
+            with closing(ppo_loop.minibatches(rollout, args.batch)) as minibatches:
                 for picks, planes in minibatches:
                     optimiser.zero_grad(set_to_none=True)
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                        logits, value = learn(planes, legal[picks])
+                        logits, value = learn(planes, rollout.legal[picks])
                     logits = logits.float()
                     value = value.float()
                     distribution = torch.distributions.Categorical(logits=logits)
-                    log_prob = distribution.log_prob(actions[picks])
-                    if drift.check(old_log_probs[picks], log_prob):
+                    log_prob = distribution.log_prob(rollout.actions[picks])
+                    old_log_prob = rollout.old_log_probs[picks]
+                    if drift.check(old_log_prob, log_prob):
                         break
-                    advantage = advantages[picks]
-                    ratio = torch.exp(log_prob - old_log_probs[picks])
-                    clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
-                    policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
-                    value_loss = nn.functional.mse_loss(value, returns[picks])
+                    policy_loss, ratio, clipped = ppo_loop.clipped_policy_loss(
+                        log_prob, old_log_prob, advantages[picks], args.clip
+                    )
+                    value_loss = nn.functional.mse_loss(value, rollout.returns[picks])
                     entropy = distribution.entropy().mean()
                     loss = policy_loss + args.value_weight * value_loss - args.entropy * entropy
                     loss.backward()
                     grad_norm = nn.utils.clip_grad_norm_(net.parameters(), 1.0, error_if_nonfinite=True)
                     optimiser.step()
                     with torch.no_grad():
-                        total_policy += policy_loss
-                        total_value += value_loss
-                        total_entropy += entropy
-                        total_clipped += (ratio != clipped).float().mean()
-                        total_kl += (old_log_probs[picks] - log_prob).mean()
-                        total_grad += grad_norm
+                        totals.add(
+                            policy=policy_loss,
+                            value=value_loss,
+                            entropy=entropy,
+                            clipped=(ratio != clipped).float().mean(),
+                            kl=(old_log_prob - log_prob).mean(),
+                            grad=grad_norm,
+                        )
                     steps += 1
             if drift.stopped:
                 break
 
         require_updates(steps)
-        denom = steps
-        record = {
-            **drift.metrics(),
-            "baseline_batch": baseline_rows,
-            "generation": generation,
-            "training_api_version": TRAINING_API_VERSION,
-            "checkpoint_generation": generation + 1,
-            "optimizer_updates": steps,
-            "decisions": batch.decisions,
-            "hands": batch.hands,
-            "seconds": round(time.time() - began, 1),
-            "play_seconds": round(played, 1),
-            "play_split": {name: round(value, 1) for name, value in batch.timing.items()},
-            "load_seconds": round(loaded, 1),
-            "resident": on_card is not None,
-            "policy_loss": round(float(total_policy / denom), 4),
-            "value_loss": round(float(total_value / denom), 4),
-            "value_error": round(value_error, 4),
-            "return_variance": round(float(returns.var(unbiased=False)), 4),
-            "advantage_spread": round(advantage_spread, 4),
-            "entropy": round(float(total_entropy / denom), 4),
-            "clipped": round(float(total_clipped / denom), 3),
-            "approx_kl": round(float(total_kl / denom), 5),
+        entry = ppo_loop.record(
+            generation, steps, drift, rows, rollout, batch,
+            {"began": began, "played": played, "loaded": loaded}, totals, spread,
+            value_error=round(value_error, 4),
             # How the learner placed against each player it met, one row a
             # player, never summed: gaining on its own past while losing
             # to published Mortal is specialisation, and an average hides it.
-            "matchups": getattr(batch, "matchups", None),
-            "grad_norm": round(float(total_grad / denom), 3),
-            "mean_return": round(float(returns.mean()), 4),
-            "peak_rss_gb": peak_rss_gb(),
-            "peak_gpu_gb": peak_gpu_gb(),
-        }
-
-        measured = None
-        is_best = False
-        if (generation + 1) % args.measure_every == 0 or generation == 0:
-            net.eval()
-            measured = selfplay.measure(
-                net, games=args.measure_games, seed=7_000_000 + generation, device=device
-            )
-            record.update(
-                {
-                    "placement": round(measured["placement"], 3),
-                    "score": round(measured["score"], 1),
-                    "win_rate": round(measured["wins"], 3),
-                }
-            )
-            smoothed = (
-                measured["placement"]
-                if smoothed is None
-                else SMOOTHING * measured["placement"] + (1 - SMOOTHING) * smoothed
-            )
-            record["smoothed"] = round(smoothed, 3)
-            if smoothed < best_placement:
-                best_placement = smoothed
-                is_best = True
-                record["best"] = True
-
-        payload = checkpoint_payload(generation + 1)
-        if measured is not None:
-            payload["placement"] = measured["placement"]
-        if is_best:
-            atomic_save(payload, args.out / "best.pt")
-        atomic_save(payload, args.out / "latest.pt")
-        print(json.dumps(record), flush=True)
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
+            matchups=getattr(batch, "matchups", None),
+            peak_rss_gb=peak_rss_gb(),
+            peak_gpu_gb=peak_gpu_gb(),
+        )
+        ppo_loop.finish(args, generation, entry, measure, checkpoint_payload, benchmark, log_path)
 
     print("training finished", flush=True)
 

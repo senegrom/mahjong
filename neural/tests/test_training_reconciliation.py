@@ -15,7 +15,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from neural import checkpoints, combined, mortal_model, train_combined, train_mortal
+from neural import checkpoints, combined, mortal_model, ppo_loop, train_combined, train_mortal
 from neural.model import MORTAL_PLANES, PolicyValueNet
 from neural.observe import Planes
 from neural.training_safety import (
@@ -195,7 +195,8 @@ class ReconciledTrainerTests(unittest.TestCase):
                 patch.object(module.selfplay, "play", side_effect=lambda *a, **kw: self.batch()), \
                 patch.object(module.selfplay, "measure", return_value=dict(placement=2.5, score=0., wins=.25)), \
                 patch.object(module, "pad_rows", side_effect=lambda tensor, *a: tensor), \
-                patch.object(module, "resident", return_value=None), \
+                patch.object(ppo_loop, "pad_rows", side_effect=lambda tensor, *a: tensor), \
+                patch.object(ppo_loop, "resident", return_value=None), \
                 contextlib.redirect_stdout(io.StringIO()):
             module.main()
         rows = [json.loads(line) for line in (out / "log.jsonl").read_text().splitlines()]

@@ -136,11 +136,17 @@ checkpoints.atomic_save({'generation': 2}, Path(sys.argv[1]))
             self.assertEqual(timeline(30), 1)
 
     def test_every_training_writer_uses_atomic_checkpoint_publication(self):
+        # The three self-play trainers save through the loop they share.
         root=Path(__file__).resolve().parents[1]
-        for name in ('train', 'train_mortal', 'train_combined', 'imitate', 'rehead'):
+        for name in ('ppo_loop', 'train', 'train_mortal', 'train_combined', 'imitate', 'rehead'):
             tree=ast.parse((root/f'{name}.py').read_text())
             calls=[node.func for node in ast.walk(tree) if isinstance(node, ast.Call)]
-            self.assertTrue(any(isinstance(fn, ast.Name) and fn.id=='atomic_save' for fn in calls),name)
+            if name.startswith('train'):
+                self.assertTrue(any(isinstance(fn, ast.Attribute) and fn.attr=='finish'
+                                    and isinstance(fn.value,ast.Name) and fn.value.id=='ppo_loop'
+                                    for fn in calls),name)
+            else:
+                self.assertTrue(any(isinstance(fn, ast.Name) and fn.id=='atomic_save' for fn in calls),name)
             self.assertFalse(any(isinstance(fn, ast.Attribute) and fn.attr=='save'
                                  and isinstance(fn.value,ast.Name) and fn.value.id=='torch'
                                  for fn in calls),name)

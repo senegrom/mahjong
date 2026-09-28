@@ -15,29 +15,23 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
-import json
+import math
 import time
 from pathlib import Path
 
 import torch
-
-from .checkpoints import atomic_save
-from .training_safety import (
-    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
-)
-from .training_batches import validate_learning, require_trainable_round, require_updates
 from torch import nn
 
-from . import combined, population, selfplay, zoo
+from . import combined, ppo_loop, selfplay
 from .behavior import validate_exploration
-from .observe import pad_rows, resident
-from .prefetch import Prefetcher
+from .checkpoints import atomic_save
+from .observe import pad_rows
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
+from .training_batches import require_trainable_round, require_updates
+from .training_safety import TRAINING_API_VERSION, benchmark_history
 from .training_state import (
     capture_random_state, peak_gpu_gb, peak_rss_gb, restore_random_state, round_seed,
 )
-
-SMOOTHING = 1 / 3
 
 
 def parse_args() -> argparse.Namespace:
@@ -125,29 +119,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    validate_learning(args.batch, args.epochs)
-    validate_exploration(args.explore)
-    validate_training_options(args)
-    require_training_engine()
-    torch.set_num_threads(2)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    amp_enabled = args.amp and device == "cuda"
-    args.out.mkdir(parents=True, exist_ok=True)
-    log_path = args.out / "log.jsonl"
-    torch.manual_seed(args.seed)
-    if device == "cuda":
-        torch.cuda.manual_seed_all(args.seed)
+    device, amp_enabled, log_path = ppo_loop.setup(
+        args, lambda options: validate_exploration(options.explore)
+    )
 
     start = 0
-    best_placement = float("inf")
-    smoothed = None
+    benchmark = ppo_loop.Benchmark()
     optimiser_state = None
     random_state = None
     entropy_log_coef = None
     if args.resume is not None and args.resume.exists():
         net, payload = combined.load(args.resume, device)
         start = int(payload.get("generation", 0))
-        smoothed, best_placement = benchmark_history(payload)
+        benchmark = ppo_loop.Benchmark(*benchmark_history(payload))
         optimiser_state = payload.get("optimizer_state")
         random_state = payload.get("random_state")
         entropy_log_coef = payload.get("entropy_log_coef")
@@ -177,21 +161,6 @@ def main() -> None:
     # parameters are fixed this generation gets no gradients and is left
     # alone by it.
     net.set_mode("none")
-
-    def hands_loss_of(guessed, wanted):
-        """Cross-entropy against the distribution each opponent's hand
-        actually was, over the 34 kinds, and how much of the hand the guess
-        covers, which is readable where a cross-entropy is not. Positions
-        where nobody was holding anything are rows of zeros, and skipped."""
-        holding = wanted.sum(dim=2) > 0
-        log_guess = torch.log_softmax(guessed, dim=2)
-        loss = -(wanted * log_guess).sum(dim=2)
-        loss = (loss * holding).sum() / holding.sum().clamp(min=1)
-        with torch.no_grad():
-            overlap = torch.minimum(log_guess.exp(), wanted).sum(dim=2)
-            covered = (overlap * holding).sum() / holding.sum().clamp(min=1)
-        return loss, covered
-
     optimiser = torch.optim.AdamW(
         [
             # The head and the two things that always train share a rate;
@@ -224,24 +193,8 @@ def main() -> None:
 
     # Who else sits at the tables, as a roster with roles and shares: see
     # `neural.population`. The checkpoints are the ones `--opponents`
-    # names, which is how every launcher passes them, and a name the roster
-    # knows keeps its role and weight there. validate_training_options has
-    # refused a missing one already, so the roster and the players loaded
-    # line up one for one.
-    roster = population.Population.from_paths(args.opponents)
-    seated = []
-    for path in args.opponents:
-        other = zoo.load_player(path, device, compile=args.compile)
-        other.eval()
-        seated.append(other)
-    if seated:
-        print(
-            f"{len(seated)} others seated in "
-            + (f"{args.seat_share:.0%} of players: " if args.seat_share
-               else f"{args.opponent_share:.0%} of games: ")
-            + json.dumps(roster.describe()),
-            flush=True,
-        )
+    # names, which is how every launcher passes them.
+    roster, seated = ppo_loop.seat_others(args, device)
     print(
         f"device {device} | ours {net.ours.channels}x{net.ours.blocks} | Mortal beneath | "
         f"{net.parameter_count() / 1e6:.2f}M parameters | fixed by turns: {args.fixed}",
@@ -262,19 +215,24 @@ def main() -> None:
             "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch,
                                   "explore": args.explore, "ppo_reference": "unforced_policy_rows",
                                   "seat_share": args.seat_share},
-            "smoothed": smoothed,
-            "best_placement": best_placement,
+            "smoothed": benchmark.smoothed,
+            "best_placement": benchmark.best,
             "optimizer_state": optimiser.state_dict(),
             "random_state": capture_random_state(drawer),
             "entropy_log_coef": floor["log_coef"],
         }
+
+    def measure(generation: int) -> dict:
+        net.eval()
+        return selfplay.measure(
+            net, games=args.measure_games, seed=7_000_000 + generation, device=device
+        )
 
     # The entropy floor: the bonus is exp(log_coef), never below the fixed
     # --entropy and never above --entropy-max, and it is a dual variable --
     # it climbs while the policy's entropy is under the target and sinks
     # back while it is over. Self-play here was measured to buy reward by
     # getting louder: 30 generations cut entropy by 29% and lost 0.0075.
-    import math
     if args.entropy_target > 0 and args.entropy <= 0:
         raise SystemExit("--entropy-target needs a positive --entropy to fall back to")
     base_log = math.log(args.entropy) if args.entropy > 0 else float("-inf")
@@ -287,7 +245,7 @@ def main() -> None:
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
-        batch = observations = on_card = None
+        batch = rollout = held = None
         # Deciding is the joined player as it stands; what stays fixed in
         # the update that follows is drawn now and said in the record.
         fixed = str(drawer.choice(args.fixed))
@@ -307,53 +265,35 @@ def main() -> None:
         )
         require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
-        observations = batch.observations
-        legal = batch.legal.to(device)
-        actions = batch.actions.to(device)
-        returns = batch.returns.to(device)
-        old_log_probs = batch.log_probs.to(device)
+        rollout = ppo_loop.on_device(batch, device)
         # What the three opponents were really holding at each decision: the
         # label the reading of the hands is trained against, which self-play
         # knows for free and which is far denser than the game's result.
         held = batch.held.to(device)
-        on_card = resident(observations, device)
         loaded = time.time() - began - played
 
         # The baseline: our value head as it stands before the round.
-        guess = torch.empty(batch.decisions, device=device)
-        baseline_rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
-        with torch.no_grad():
-            for start_index in range(0, batch.decisions, baseline_rows):
-                chunk = slice(start_index, start_index + baseline_rows)
-                if on_card is not None:
-                    planes = on_card.slice(start_index, start_index + baseline_rows)
-                else:
-                    planes = observations.slice(start_index, start_index + baseline_rows).dense(device)
-                # The last chunk padded to the others' size, so the compiled
-                # graph sees one shape all round.
-                rows = planes.shape[0]
-                planes = pad_rows(planes, baseline_rows)
-                mask = pad_rows(legal[chunk], baseline_rows, True)
-                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    _logits, value, _guessed = learn(planes, mask)
-                guess[chunk] = value.float()[:rows]
-        value_error = float(((returns - guess) ** 2).mean())
-        advantages = returns - guess
-        advantage_spread = float(advantages.std(unbiased=False))
-        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-6)
+        rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
+
+        def values_of(chunk, planes):
+            mask = pad_rows(rollout.legal[chunk], rows, True)
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                return (learn(planes, mask)[1],)
+
+        (guess,) = ppo_loop.baseline(rollout, rows, values_of)
+        value_error = float(((rollout.returns - guess) ** 2).mean())
+        advantages, spread = ppo_loop.standardised(rollout.returns, guess)
 
         net.train()
-        zero = lambda: torch.zeros((), device=device)
-        total_policy, total_value, total_entropy = zero(), zero(), zero()
-        total_clipped, total_kl, total_grad = zero(), zero(), zero()
-        total_leash, total_hands, total_covered = zero(), zero(), zero()
+        totals = ppo_loop.Totals(device, "leash", "hands", "covered")
         drift = PolicyDrift(args.target_kl)
         # Rows whose move was forced by exploration are the value head's
-        # and the reader's to learn from, not the policy's: the policy did
-        # not choose them, and a ratio against its own probability there
-        # sits far outside the clip, where a bad move teaches nothing and
-        # a lucky one teaches the wrong thing. Kept out of every policy
-        # term below; nothing is forced when --explore is zero.
+        # and the hand reading's to learn from, not the policy's: the
+        # policy did not choose them, and a ratio against its own
+        # probability there sits far outside the clip, where a bad move
+        # teaches nothing and a lucky one teaches the wrong thing. Kept out
+        # of every policy term below; nothing is forced when --explore is
+        # zero.
         explored = (
             batch.explored.to(device=device, dtype=torch.bool)
             if getattr(batch, "explored", None) is not None
@@ -361,47 +301,29 @@ def main() -> None:
         )
         steps = 0
         for _epoch in range(args.epochs):
-            order = torch.randperm(batch.decisions)
-            slices = [
-                order[start_index : start_index + args.batch]
-                for start_index in range(0, batch.decisions, args.batch)
-            ]
-            # Whole minibatches only, so the compiled step sees one shape.
-            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
-
-            def prepare(drawn: torch.Tensor):
-                return drawn.to(device), observations.rows(drawn.numpy()).dense(device)
-
-            def gather_on_card(drawn: torch.Tensor):
-                picks = drawn.to(device)
-                return picks, on_card.rows(picks)
-
-            minibatches = (
-                (gather_on_card(drawn) for drawn in slices)
-                if on_card is not None
-                else Prefetcher(slices, prepare)
-            )
-            with closing(minibatches):
+            with closing(ppo_loop.minibatches(rollout, args.batch)) as minibatches:
                 for picks, planes in minibatches:
                     optimiser.zero_grad(set_to_none=True)
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                        logits, value, guessed = learn(planes, legal[picks])
+                        logits, value, guessed = learn(planes, rollout.legal[picks])
                     logits = logits.float()
                     value = value.float()
-                    hands_loss, covered = hands_loss_of(guessed.float(), held[picks])
+                    hands_loss, covered = ppo_loop.hands_loss_of(guessed.float(), held[picks])
                     distribution = torch.distributions.Categorical(logits=logits)
-                    log_prob = distribution.log_prob(actions[picks])
+                    log_prob = distribution.log_prob(rollout.actions[picks])
+                    old_log_prob = rollout.old_log_probs[picks]
                     chosen = ~explored[picks]
                     own = chosen.sum().clamp(min=1)
-                    if chosen.any() and drift.check(old_log_probs[picks][chosen], log_prob[chosen]):
+                    if chosen.any() and drift.check(old_log_prob[chosen], log_prob[chosen]):
                         break
+                    # PPO's clipped objective over the rows the policy chose.
                     advantage = advantages[picks].masked_fill(~chosen, 0.0)
-                    delta = (log_prob - old_log_probs[picks]).masked_fill(~chosen, 0.0)
+                    delta = (log_prob - old_log_prob).masked_fill(~chosen, 0.0)
                     ratio = torch.exp(delta)
                     clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
                     surrogate = torch.min(ratio * advantage, clipped * advantage)
                     policy_loss = -(surrogate * chosen).sum() / own
-                    value_loss = nn.functional.mse_loss(value, returns[picks])
+                    value_loss = nn.functional.mse_loss(value, rollout.returns[picks])
                     entropy = (distribution.entropy() * chosen).sum() / own
                     loss = (
                         policy_loss
@@ -418,9 +340,9 @@ def main() -> None:
                             "cuda", dtype=torch.bfloat16, enabled=amp_enabled
                         ):
                             before, _before_value, _before_hands = reference.everything(
-                                planes, legal[picks]
+                                planes, rollout.legal[picks]
                             )
-                        allowed = legal[picks]
+                        allowed = rollout.legal[picks]
                         before = torch.log_softmax(before.float(), dim=1)
                         now = torch.log_softmax(logits, dim=1)
                         # A move outside the mask holds minus infinity in both,
@@ -444,15 +366,17 @@ def main() -> None:
                         floor["log_coef"] = min(ceiling_log, max(
                             base_log, floor["log_coef"] + args.entropy_rate * shortfall))
                     with torch.no_grad():
-                        total_policy += policy_loss
-                        total_value += value_loss
-                        total_entropy += entropy
-                        total_clipped += ((ratio != clipped).float() * chosen).sum() / own
-                        total_kl += -delta.sum() / own
-                        total_grad += grad_norm
-                        total_leash += leash
-                        total_hands += hands_loss
-                        total_covered += covered
+                        totals.add(
+                            policy=policy_loss,
+                            value=value_loss,
+                            entropy=entropy,
+                            clipped=((ratio != clipped).float() * chosen).sum() / own,
+                            kl=-delta.sum() / own,
+                            grad=grad_norm,
+                            leash=leash,
+                            hands=hands_loss,
+                            covered=covered,
+                        )
                     steps += 1
             if drift.stopped:
                 break
@@ -469,98 +393,37 @@ def main() -> None:
         if steps:
             with torch.no_grad():
                 net.eval()
-                phi, q, features, a1, _value, _guessed = net.backbones(planes, legal[picks])
-                joined = net.fuse(phi.float(), q.float(), features.float(), a1.float(), legal[picks])
-                allowed = legal[picks]
+                allowed = rollout.legal[picks]
+                phi, q, features, a1, _value, _guessed = net.backbones(planes, allowed)
+                joined = net.fuse(phi.float(), q.float(), features.float(), a1.float(), allowed)
                 shift = (joined - a1).abs().masked_fill(~allowed, 0.0)
                 head_shift = float(shift.sum() / allowed.sum().clamp(min=1))
             net.train()
 
         require_updates(steps)
-        denom = steps
-        record = {
-            **drift.metrics(),
-            "baseline_batch": baseline_rows,
-            "checkpoint_generation": generation + 1,
-            "optimizer_updates": steps,
-            "generation": generation,
-            "training_api_version": TRAINING_API_VERSION,
-            "fixed": fixed,
-            "head_shift": round(head_shift, 4),
-            "on_fusion": round(weights[0], 4),
-            "on_mortal": round(weights[1], 4),
-            "on_ours": round(weights[2], 4),
-            "decisions": batch.decisions,
-            "hands": batch.hands,
-            "seconds": round(time.time() - began, 1),
-            "play_seconds": round(played, 1),
-            "play_split": {name: round(value, 1) for name, value in batch.timing.items()},
-            "load_seconds": round(loaded, 1),
-            "resident": on_card is not None,
-            "policy_loss": round(float(total_policy / denom), 4),
-            "value_loss": round(float(total_value / denom), 4),
-            "value_error": round(value_error, 4),
-            "return_variance": round(float(returns.var(unbiased=False)), 4),
-            "advantage_spread": round(advantage_spread, 4),
-            "entropy": round(float(total_entropy / denom), 4),
-            "entropy_coef": round(entropy_coef(), 6),
+        entry = ppo_loop.record(
+            generation, steps, drift, rows, rollout, batch,
+            {"began": began, "played": played, "loaded": loaded}, totals, spread,
+            fixed=fixed,
+            head_shift=round(head_shift, 4),
+            on_fusion=round(weights[0], 4),
+            on_mortal=round(weights[1], 4),
+            on_ours=round(weights[2], 4),
+            value_error=round(value_error, 4),
+            entropy_coef=round(entropy_coef(), 6),
             # Peaks, so the container's reservation can be sized from data:
             # memory is billed by what is reserved, not what is used.
-            "peak_rss_gb": peak_rss_gb(),
-            "peak_gpu_gb": peak_gpu_gb(),
-            "leash_kl": round(float(total_leash / denom), 5),
-            "hands_loss": round(float(total_hands / denom), 4),
-            "hands_covered": round(float(total_covered / denom), 4),
-            "clipped": round(float(total_clipped / denom), 3),
-            "approx_kl": round(float(total_kl / denom), 5),
+            peak_rss_gb=peak_rss_gb(),
+            peak_gpu_gb=peak_gpu_gb(),
+            leash_kl=totals.mean("leash", steps, 5),
+            hands_loss=totals.mean("hands", steps, 4),
+            hands_covered=totals.mean("covered", steps, 4),
             # One row a player met, never summed. Improving against your
             # own recent past while losing to the fine-tuned Mortal is
             # specialisation, and an average is what hides it.
-            "matchups": getattr(batch, "matchups", None),
-            "grad_norm": round(float(total_grad / denom), 3),
-            "mean_return": round(float(returns.mean()), 4),
-        }
-
-        measured = None
-        is_best = False
-        if (generation + 1) % args.measure_every == 0 or generation == 0:
-            net.eval()
-            measured = selfplay.measure(
-                net, games=args.measure_games, seed=7_000_000 + generation, device=device
-            )
-            record.update(
-                {
-                    "placement": round(measured["placement"], 3),
-                    "score": round(measured["score"], 1),
-                    "win_rate": round(measured["wins"], 3),
-                }
-            )
-            smoothed = (
-                measured["placement"]
-                if smoothed is None
-                else SMOOTHING * measured["placement"] + (1 - SMOOTHING) * smoothed
-            )
-            record["smoothed"] = round(smoothed, 3)
-            if smoothed < best_placement:
-                best_placement = smoothed
-                is_best = True
-                record["best"] = True
-
-        payload = checkpoint_payload(generation + 1)
-        if measured is not None:
-            payload["placement"] = measured["placement"]
-        if is_best:
-            # `best.pt` is the generation the heuristic table liked best so
-            # far, and that is all it is. The bots compress real differences
-            # several-fold and this measures one seat, so being the best of
-            # these readings is a reason to put a checkpoint forward, not a
-            # finding that it is stronger. Duels at one table
-            # (`neural.duel`), pooled over many deals, decide that.
-            atomic_save(payload, args.out / "best.pt")
-        atomic_save(payload, args.out / "latest.pt")
-        print(json.dumps(record), flush=True)
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
+            matchups=getattr(batch, "matchups", None),
+        )
+        ppo_loop.finish(args, generation, entry, measure, checkpoint_payload, benchmark, log_path)
 
     print("training finished", flush=True)
 

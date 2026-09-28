@@ -219,7 +219,7 @@ class TrainerRecordsTests(unittest.TestCase):
 
         import torch
 
-        from neural import combined, model, mortal_model, train_mortal
+        from neural import combined, model, mortal_model, train_mortal, zoo
         from neural.observe import Planes
 
         root = Path(folder)
@@ -263,7 +263,7 @@ class TrainerRecordsTests(unittest.TestCase):
             stack.enter_context(patch.object(module.selfplay, "play", side_effect=play))
             stack.enter_context(patch.object(module.selfplay, "measure",
                                              return_value={"placement": 2.5, "score": 0.0, "wins": 0.25}))
-            stack.enter_context(patch.object(module.zoo, "load_player", return_value=Seated()))
+            stack.enter_context(patch.object(zoo, "load_player", return_value=Seated()))
             stack.enter_context(redirect_stdout(io.StringIO()))
             module.main()
         record = json.loads((out / "log.jsonl").read_text().splitlines()[-1])
@@ -307,7 +307,7 @@ class TrainerRecordsTests(unittest.TestCase):
         for module in self.trainers():
             with self.subTest(trainer=module.__name__), tempfile.TemporaryDirectory() as folder:
                 asked, _record, _saved = self.train(module, folder)
-                # Mortal reads no hands; the fusion's reader learns from them.
+                # Mortal reads no hands; the fusion's reading of them learns from them.
                 self.assertEqual(asked[0].get("want_held", True), module is not train_mortal)
                 self.assertFalse(asked[0].get("want_oracle", False))
 

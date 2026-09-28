@@ -20,40 +20,23 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
-import json
 import time
 from pathlib import Path
 
 import numpy as np
 import torch
+from torch import nn
 import riichi_py
 
-from .checkpoints import atomic_save
-from .training_safety import (
-    TRAINING_API_VERSION, benchmark_history, require_training_engine, validate_training_options,
-)
-from .training_batches import validate_learning, require_trainable_round, require_updates
-from torch import nn
-
-from . import selfplay, zoo
-from .observe import pad_rows, resident
-from .prefetch import Prefetcher
+from . import ppo_loop, selfplay
+from .model import DEFAULT_BLOCKS, DEFAULT_CHANNELS, PolicyValueNet, load_weights, shape_of
+from .observe import pad_rows
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
-from .model import (
-    DEFAULT_BLOCKS,
-    DEFAULT_CHANNELS,
-    PolicyValueNet,
-    load_weights,
-    shape_of,
-)
+from .prefetch import Prefetcher
 from .replay import Ring
+from .training_batches import require_trainable_round, require_updates
+from .training_safety import TRAINING_API_VERSION, benchmark_history
 from .training_state import round_seed
-
-
-# How much of a new measurement goes into the smoothed figure the best
-# checkpoint is chosen on. A third means roughly the last three count, which
-# cuts the noise about in half without lagging far behind a real gain.
-SMOOTHING = 1 / 3
 
 
 def parse_args() -> argparse.Namespace:
@@ -171,34 +154,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    validate_learning(args.batch, args.epochs)
-    validate_training_options(args)
-    require_training_engine()
-    # The environment runs on this thread and the network on the GPU, so a
-    # couple of worker threads is plenty and leaves the machine usable.
-    torch.set_num_threads(2)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    amp_enabled = args.amp and device == "cuda"
-    args.out.mkdir(parents=True, exist_ok=True)
-    log_path = args.out / "log.jsonl"
-
-    # `--seed` used to seed only the rules engine and replay sampler. Model
-    # initialisation, sampled policy moves and minibatch shuffles therefore
-    # changed between nominally identical runs. Seed torch too; a resumed
-    # run restores the exact RNG states saved in its checkpoint below.
-    torch.manual_seed(args.seed)
-    if device == "cuda":
-        torch.cuda.manual_seed_all(args.seed)
+    device, amp_enabled, log_path = ppo_loop.setup(args)
 
     start = 0
     resume_payload = None
-    # Carried in the checkpoint, not reset per process: a run that resumes
-    # has to judge a new measurement against what it has already reached,
-    # or the first one after every restart becomes the new best whatever it
-    # is. That replaced a 2.447 checkpoint with a 2.592 one, and on a
-    # trainer that runs in blocks it would happen at every block.
-    best_placement = float("inf")
-    smoothed = None
+    benchmark = ppo_loop.Benchmark()
     if args.resume and args.resume.exists():
         # Keep the checkpoint on the host while its weights are copied into
         # the card. New checkpoints also carry Adam's moments, which are
@@ -211,11 +171,11 @@ def main() -> None:
         net = PolicyValueNet(**shape).to(device)
         load_weights(net, resume_payload["model"])
         start = int(resume_payload.get("generation", 0))
-        smoothed, best_placement = benchmark_history(resume_payload)
-        if smoothed is not None:
+        benchmark = ppo_loop.Benchmark(*benchmark_history(resume_payload))
+        if benchmark.smoothed is not None:
             print(
-                f"carrying a smoothed placement of {smoothed:.3f}, "
-                f"best {best_placement:.3f}",
+                f"carrying a smoothed placement of {benchmark.smoothed:.3f}, "
+                f"best {benchmark.best:.3f}",
                 flush=True,
             )
         print(f"resumed from {args.resume} at generation {start}", flush=True)
@@ -308,18 +268,9 @@ def main() -> None:
     # stale play: see `replay.py`. The policy never trains on it.
     ring = Ring(args.out / "ring", args.replay_rounds)
 
-    # The older selves that share the table, loaded once, each at whatever
-    # shape and of whatever kind its checkpoint says. They are only ever
-    # asked for a move, so they need no optimiser and no gradients. A
-    # missing one was refused by validate_training_options before any of
-    # this was built.
-    seated = []
-    for path in args.opponents:
-        older = zoo.load_player(path, device, compile=args.compile)
-        older.eval()
-        for parameter in getattr(older, "parameters", list)():
-            parameter.requires_grad_(False)
-        seated.append(older)
+    # The older selves that share the table, drawn evenly in a share of
+    # the games; no roster weighs them here.
+    seated = ppo_loop.load_others(args, device)
     if seated:
         print(
             f"{len(seated)} older checkpoints seated in {args.opponent_share:.0%} "
@@ -343,6 +294,9 @@ def main() -> None:
             replay_rng.bit_generator.state = resume_payload["replay_rng_state"]
 
     def checkpoint_payload(generation: int) -> dict:
+        # Adam's moments are deliberately part of the checkpoint: restarting
+        # them every Modal block used to turn every resume into a different
+        # optimiser.
         payload = {
             "model": net.state_dict(),
             "optimizer": optimiser.state_dict(),
@@ -350,8 +304,8 @@ def main() -> None:
             "training_api_version": TRAINING_API_VERSION,
             "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch},
             **net.payload_fields(),
-            "smoothed": smoothed,
-            "best_placement": best_placement,
+            "smoothed": benchmark.smoothed,
+            "best_placement": benchmark.best,
             "torch_rng_state": torch.get_rng_state(),
             "replay_rng_state": replay_rng.bit_generator.state,
         }
@@ -359,20 +313,14 @@ def main() -> None:
             payload["cuda_rng_state_all"] = torch.cuda.get_rng_state_all()
         return payload
 
-    def hands_loss_of(guessed, wanted):
-        """Cross-entropy against the distribution each opponent's hand
-        actually was, over the 34 kinds, and how much of the hand the
-        guess covers, which is readable where a cross-entropy is not.
-        Positions where nobody was holding anything carry rows of zeros
-        and are skipped."""
-        holding = wanted.sum(dim=2) > 0
-        log_guess = torch.log_softmax(guessed, dim=2)
-        loss = -(wanted * log_guess).sum(dim=2)
-        loss = (loss * holding).sum() / holding.sum().clamp(min=1)
-        with torch.no_grad():
-            overlap = torch.minimum(log_guess.exp(), wanted).sum(dim=2)
-            covered = (overlap * holding).sum() / holding.sum().clamp(min=1)
-        return loss, covered
+    def measure(generation: int) -> dict:
+        return selfplay.measure(
+            net,
+            games=args.measure_games,
+            seed=7_000_000 + generation,
+            device=device,
+            amp=args.amp,
+        )
 
     print(
         f"device {device} | {net.channels} channels x {net.blocks} blocks "
@@ -383,11 +331,11 @@ def main() -> None:
     # A round of planes is a few gigabytes on the host, kept sparse. The
     # names below are cleared before the next round is played, so the
     # machine carries one round rather than two.
-    batch = observations = oracle = on_card = None
+    batch = rollout = held = oracle = None
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
-        batch = observations = oracle = on_card = None
+        batch = rollout = held = oracle = None
         batch = selfplay.play(
             net,
             games=args.games,
@@ -406,27 +354,13 @@ def main() -> None:
         ring.push(batch)
         ring_seconds = time.time() - phase
 
-        # The observations stay on the host, sparse, and each minibatch is
-        # made dense on the card as it is drawn: a round of them dense would
-        # be tens of gigabytes. A minibatch's entries are a few tens of
-        # megabytes and cross in a few milliseconds. Not pinned: pinning
-        # copies the round into page-locked memory, which once took the run
-        # from twelve gigabytes of host memory to twenty-eight and the
-        # machine to none.
-        observations = batch.observations
-        legal = batch.legal.to(device)
-        actions = batch.actions.to(device)
+        rollout = ppo_loop.on_device(batch, device)
         held = batch.held.to(device)
-        # The oracle's planes likewise, in bytes.
+        # The oracle's planes stay in bytes. When the round's planes went to
+        # the card whole, these go too, so a step touches the host for
+        # nothing.
         oracle = batch.oracle
-        returns = batch.returns.to(device)
-        old_log_probs = batch.log_probs.to(device)
-        # The round's planes go to the card whole when it has room, and
-        # the minibatch is gathered there; otherwise they stay on the host
-        # and are gathered a few steps ahead. On the card the small byte
-        # planes go too, so a step touches the host for nothing.
-        on_card = resident(observations, device)
-        if on_card is not None:
+        if rollout.on_card is not None:
             oracle = oracle.to(device)
         loaded = time.time() - began - played
 
@@ -435,41 +369,25 @@ def main() -> None:
         # used to predict the return standardised by each round's mean and
         # spread, which made a good training target and a useless number,
         # since nothing outside the round could say what a value of 0.7
-        # meant. A search that evaluates positions with this head needs to
-        # compare it with hands that actually ended, in points, so the units
-        # have to be fixed. The rewards are already of order one, so nothing
-        # is lost by leaving them alone; the advantage below is centred by
-        # the value head itself.
-        normalised = returns
+        # meant. The rewards are already of order one, so nothing is lost
+        # by leaving them alone; the advantage below is centred by the value
+        # head itself.
+        normalised = rollout.returns
 
         # The baseline for the policy gradient is whichever pre-update value
-        # head predicts this fresh round best. It is computed once before any
-        # head gets to learn the round, so the advantages cannot collapse as
-        # the critic fits the very targets they are measured against.
+        # head predicts this fresh round best.
         net.eval()
-        public_guess = torch.empty(batch.decisions, device=device)
-        oracle_guess = torch.empty(batch.decisions, device=device)
-        critic_guess = torch.empty(batch.decisions, device=device)
         baseline_began = time.time()
-        baseline_rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
-        with torch.no_grad():
-            for start_index in range(0, batch.decisions, baseline_rows):
-                chunk = slice(start_index, start_index + baseline_rows)
-                if on_card is not None:
-                    planes = on_card.slice(start_index, start_index + baseline_rows)
-                else:
-                    planes = observations.slice(start_index, start_index + baseline_rows).dense(device)
-                seen = oracle[chunk].to(device).float()
-                # The last chunk padded to the others' size, so the compiled
-                # graph sees one shape all round.
-                rows = planes.shape[0]
-                planes = pad_rows(planes, baseline_rows)
-                seen = pad_rows(seen, baseline_rows)
-                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    guessed_value, judged, criticised = values(planes, seen)
-                public_guess[chunk] = guessed_value.float()[:rows]
-                oracle_guess[chunk] = judged.float()[:rows]
-                critic_guess[chunk] = criticised.float()[:rows]
+        rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
+
+        def values_of(chunk, planes):
+            seen = pad_rows(oracle[chunk].to(device).float(), rows)
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                return values(planes, seen)
+
+        public_guess, oracle_guess, critic_guess = ppo_loop.baseline(
+            rollout, rows, values_of, heads=3
+        )
         public_error = float(((normalised - public_guess) ** 2).mean())
         oracle_error = float(((normalised - oracle_guess) ** 2).mean())
         critic_error = float(((normalised - critic_guess) ** 2).mean())
@@ -479,80 +397,27 @@ def main() -> None:
         baseline = {"public": public_guess, "oracle": oracle_guess, "critic": critic_guess}[chosen]
         oracle_better = chosen == "oracle"
         distil_weight = args.distil_weight if oracle_better else 0.0
-        advantages = normalised - baseline
-        advantage_mean = advantages.mean()
-        advantage_std = advantages.std(unbiased=False)
-        advantage_spread = float(advantage_std)
-        advantages = (advantages - advantage_mean) / (advantage_std + 1e-6)
+        advantages, spread = ppo_loop.standardised(normalised, baseline)
 
         net.train()
         phase = time.time()
-        # Keep metrics on the card until the generation is over. The old loop
-        # called `.item()` or `float()` around a dozen times per minibatch,
-        # which synchronised the CPU with the GPU around a dozen times per
-        # optimiser step merely to print one JSON line at the end.
-        zero = lambda: torch.zeros((), device=device)
-        total_policy = zero()
-        total_value = zero()
-        total_entropy = zero()
-        total_oracle = zero()
-        total_distil = zero()
-        total_critic = zero()
-        total_clipped = zero()
-        total_kl = zero()
-        total_hands = zero()
-        total_covered = zero()
-        total_grad_norm = zero()
-        sure_sum = zero()
-        likely_sum = zero()
-        unlikely_sum = zero()
-        sure_count = zero()
-        likely_count = zero()
-        unlikely_count = zero()
+        totals = ppo_loop.Totals(
+            device, "oracle", "distil", "critic", "hands", "covered",
+            "sure", "likely", "unlikely", "sure_count", "likely_count", "unlikely_count",
+        )
         drift = PolicyDrift(args.target_kl)
         steps = 0
         for _epoch in range(args.epochs):
-            # The large observations live on the host, so make the shuffle
-            # there too. The old GPU permutation had to copy every minibatch
-            # of indices back to the CPU before the observations could be
-            # gathered, forcing one device synchronisation per step.
-            order = torch.randperm(batch.decisions)
-            slices = [
-                order[start_index : start_index + args.batch]
-                for start_index in range(0, batch.decisions, args.batch)
-            ]
-            # Whole minibatches only: the compiled step is built for one
-            # shape, and a remainder of a new size each generation had it
-            # rebuilt now and then, minutes each time. The few thousand rows
-            # left over differ every epoch.
-            slices = [drawn for drawn in slices if drawn.numel() == args.batch]
-
-            def prepare(drawn: torch.Tensor):
-                # Sparse on the host, dense float32 on the card: the
-                # tower's weights are float32, and autocast takes it from
-                # there. Run a few minibatches ahead in a thread, so the
-                # gather on the host overlaps the step on the card.
-                return (
-                    drawn.to(device),
-                    observations.rows(drawn.numpy()).dense(device),
-                    oracle[drawn].to(device).float(),
-                )
-
-            def gather_on_card(drawn: torch.Tensor):
-                picks = drawn.to(device)
-                return picks, on_card.rows(picks), oracle[picks].float()
-
-            minibatches = (
-                (gather_on_card(drawn) for drawn in slices)
-                if on_card is not None
-                else Prefetcher(slices, prepare)
-            )
-            with closing(minibatches):
+            # Sparse on the host, dense float32 on the card: the tower's
+            # weights are float32, and autocast takes it from there.
+            with closing(ppo_loop.minibatches(
+                rollout, args.batch, lambda index: (oracle[index].to(device).float(),)
+            )) as minibatches:
                 for picks, planes, seen in minibatches:
                     optimiser.zero_grad(set_to_none=True)
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                         logits, value, guessed, oracle_value, criticised = learn(
-                            planes, legal[picks], seen
+                            planes, rollout.legal[picks], seen
                         )
                     # Whatever the forward pass ran in, the losses are float32.
                     logits = logits.float()
@@ -561,34 +426,26 @@ def main() -> None:
                     oracle_value = oracle_value.float()
                     criticised = criticised.float()
                     distribution = torch.distributions.Categorical(logits=logits)
-                    log_prob = distribution.log_prob(actions[picks])
-                    if drift.check(old_log_probs[picks], log_prob):
+                    log_prob = distribution.log_prob(rollout.actions[picks])
+                    old_log_prob = rollout.old_log_probs[picks]
+                    if drift.check(old_log_prob, log_prob):
                         break
                     advantage = advantages[picks]
-
-                    # The clipped objective: an update may improve an action's
-                    # odds, but only so far in one round, which is what keeps a
-                    # policy from narrowing onto a single action.
+                    # The mean advantage of the action taken, by how sure the
+                    # policy was of it.
                     with torch.no_grad():
-                        confidence = old_log_probs[picks].exp()
+                        confidence = old_log_prob.exp()
                         sure = confidence > 0.5
                         likely = (confidence > 0.2) & ~sure
                         unlikely = confidence <= 0.2
-                        sure_sum += (advantage * sure).sum()
-                        sure_count += sure.sum()
-                        likely_sum += (advantage * likely).sum()
-                        likely_count += likely.sum()
-                        unlikely_sum += (advantage * unlikely).sum()
-                        unlikely_count += unlikely.sum()
-                    ratio = torch.exp(log_prob - old_log_probs[picks])
-                    clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
-                    policy_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
-                    with torch.no_grad():
-                        total_clipped += (ratio != clipped).float().mean()
-                        # Standard PPO approximate KL. It does not alter the
-                        # update, but makes a too-large policy step visible next
-                        # to the clip fraction rather than only after an arena.
-                        total_kl += (old_log_probs[picks] - log_prob).mean()
+                        totals.add(
+                            sure=(advantage * sure).sum(), sure_count=sure.sum(),
+                            likely=(advantage * likely).sum(), likely_count=likely.sum(),
+                            unlikely=(advantage * unlikely).sum(), unlikely_count=unlikely.sum(),
+                        )
+                    policy_loss, ratio, clipped = ppo_loop.clipped_policy_loss(
+                        log_prob, old_log_prob, advantage, args.clip
+                    )
                     value_loss = nn.functional.mse_loss(value, normalised[picks])
                     oracle_loss = nn.functional.mse_loss(oracle_value, normalised[picks])
                     critic_loss = nn.functional.mse_loss(criticised, normalised[picks])
@@ -599,7 +456,7 @@ def main() -> None:
                     entropy = distribution.entropy().mean()
 
                     # What the opponents are holding.
-                    hands_loss, covered = hands_loss_of(guessed, held[picks])
+                    hands_loss, covered = ppo_loop.hands_loss_of(guessed, held[picks])
                     loss = (
                         policy_loss
                         + args.value_weight * (value_loss + oracle_loss + critic_loss)
@@ -613,15 +470,23 @@ def main() -> None:
                     optimiser.step()
 
                     with torch.no_grad():
-                        total_policy += policy_loss
-                        total_value += value_loss
-                        total_oracle += oracle_loss
-                        total_critic += critic_loss
-                        total_distil += distil_loss
-                        total_entropy += entropy
-                        total_hands += hands_loss
-                        total_covered += covered
-                        total_grad_norm += grad_norm
+                        totals.add(
+                            policy=policy_loss,
+                            value=value_loss,
+                            entropy=entropy,
+                            # Standard PPO approximate KL. It does not alter
+                            # the update, but makes a too-large policy step
+                            # visible next to the clip fraction rather than
+                            # only after an arena.
+                            clipped=(ratio != clipped).float().mean(),
+                            kl=(old_log_prob - log_prob).mean(),
+                            grad=grad_norm,
+                            oracle=oracle_loss,
+                            critic=critic_loss,
+                            distil=distil_loss,
+                            hands=hands_loss,
+                            covered=covered,
+                        )
                     steps += 1
             if drift.stopped:
                 break
@@ -633,8 +498,7 @@ def main() -> None:
         # minibatches drawn evenly from the last several rounds.
         # No policy term, and no distillation, since the oracle's pre-round
         # estimate exists only for the round just played.
-        replay_critic = zero()
-        replay_oracle = zero()
+        replay = ppo_loop.Totals(device, "critic", "oracle")
         replay_steps = 0
         if args.replay_steps and ring.total() >= args.batch:
             # Nothing in this pass reaches the policy tower: the critic, the
@@ -664,7 +528,7 @@ def main() -> None:
                     criticised = criticised.float()
                     critic_loss = nn.functional.mse_loss(criticised, target)
                     oracle_loss = nn.functional.mse_loss(oracle_value, target)
-                    hands_loss, _covered = hands_loss_of(guessed, held_rows)
+                    hands_loss, _covered = ppo_loop.hands_loss_of(guessed, held_rows)
                     loss = (
                         args.value_weight * (critic_loss + oracle_loss)
                         + args.hands_weight * hands_loss
@@ -673,132 +537,50 @@ def main() -> None:
                     nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
                     optimiser.step()
                     with torch.no_grad():
-                        replay_critic += critic_loss
-                        replay_oracle += oracle_loss
+                        replay.add(critic=critic_loss, oracle=oracle_loss)
                     replay_steps += 1
-
-            # One synchronisation here replaces the many per-minibatch metric
-            # synchronisations above. Once the first scalar is read, the rest are
-            # already complete.
         replay_seconds = time.time() - phase
+
         require_updates(steps)
-        denom = steps
-        confidence_total = (sure_count + likely_count + unlikely_count).clamp(min=1)
-        record = {
-            **drift.metrics(),
-            "baseline_batch": baseline_rows,
-            "generation": generation,
-            "training_api_version": TRAINING_API_VERSION,
-            "checkpoint_generation": generation + 1,
-            "optimizer_updates": steps,
-            "decisions": batch.decisions,
-            "hands": batch.hands,
-            "seconds": round(time.time() - began, 1),
-            "play_seconds": round(played, 1),
-            # Where the play went: the engine and follower, the encoder,
-            # the network, the seated others, and the bookkeeping.
-            "play_split": {name: round(value, 1) for name, value in batch.timing.items()},
-            # Moving the round to the card, and whether it went there.
-            "load_seconds": round(loaded, 1),
-            "resident": on_card is not None,
-            "baseline_seconds": round(baseline_seconds, 1),
-            "ring_seconds": round(ring_seconds, 1),
-            "epochs_seconds": round(epochs_seconds, 1),
-            "replay_seconds": round(replay_seconds, 1),
-            "policy_loss": round(float(total_policy / denom), 4),
-            "value_loss": round(float(total_value / denom), 4),
-            "oracle_loss": round(float(total_oracle / denom), 4),
-            "critic_loss": round(float(total_critic / denom), 4),
+        confidence_total = (
+            totals["sure_count"] + totals["likely_count"] + totals["unlikely_count"]
+        ).clamp(min=1)
+        entry = ppo_loop.record(
+            generation, steps, drift, rows, rollout, batch,
+            {"began": began, "played": played, "loaded": loaded}, totals, spread,
+            baseline_seconds=round(baseline_seconds, 1),
+            ring_seconds=round(ring_seconds, 1),
+            epochs_seconds=round(epochs_seconds, 1),
+            replay_seconds=round(replay_seconds, 1),
+            oracle_loss=totals.mean("oracle", steps, 4),
+            critic_loss=totals.mean("critic", steps, 4),
             # Each head's error on the round before it was trained on it,
-            # against the return variance below, and which was the baseline.
-            "public_error": round(public_error, 4),
-            "oracle_error": round(oracle_error, 4),
-            "critic_error": round(critic_error, 4),
-            "baseline": chosen,
-            "advantage_spread": round(advantage_spread, 4),
+            # against the return variance, and which was the baseline.
+            public_error=round(public_error, 4),
+            oracle_error=round(oracle_error, 4),
+            critic_error=round(critic_error, 4),
+            baseline=chosen,
             # Mean standardised advantage of the taken action by the policy's
             # confidence in it, and how much of the round each bin was.
-            "advantage_sure": round(float(sure_sum / sure_count.clamp(min=1)), 4),
-            "advantage_likely": round(float(likely_sum / likely_count.clamp(min=1)), 4),
-            "advantage_unlikely": round(float(unlikely_sum / unlikely_count.clamp(min=1)), 4),
-            "share_sure": round(float(sure_count / confidence_total), 3),
-            "share_likely": round(float(likely_count / confidence_total), 3),
-            "share_unlikely": round(float(unlikely_count / confidence_total), 3),
+            advantage_sure=round(float(totals["sure"] / totals["sure_count"].clamp(min=1)), 4),
+            advantage_likely=round(float(totals["likely"] / totals["likely_count"].clamp(min=1)), 4),
+            advantage_unlikely=round(
+                float(totals["unlikely"] / totals["unlikely_count"].clamp(min=1)), 4
+            ),
+            share_sure=round(float(totals["sure_count"] / confidence_total), 3),
+            share_likely=round(float(totals["likely_count"] / confidence_total), 3),
+            share_unlikely=round(float(totals["unlikely_count"] / confidence_total), 3),
             # The same heads on the ring of past rounds, which is where
             # they must not learn a round by heart.
-            "replay_optimizer_updates": replay_steps,
-            "replay_rounds": len(ring),
-            "replay_critic_loss": round(float(replay_critic / max(replay_steps, 1)), 4),
-            "replay_oracle_loss": round(float(replay_oracle / max(replay_steps, 1)), 4),
-            "distil": round(float(total_distil / denom), 4),
-            # What a constant guess would score, so the two losses above
-            # read as how much of the return each head explains.
-            "return_variance": round(float(returns.var(unbiased=False)), 4),
-            "entropy": round(float(total_entropy / denom), 4),
-            "hands_loss": round(float(total_hands / denom), 4),
-            "hands_read": round(float(total_covered / denom), 4),
-            "clipped": round(float(total_clipped / denom), 3),
-            "approx_kl": round(float(total_kl / denom), 5),
-            "grad_norm": round(float(total_grad_norm / denom), 3),
-            "mean_return": round(float(returns.mean()), 4),
-        }
-
-        measured = None
-        is_best = False
-        if (generation + 1) % args.measure_every == 0 or generation == 0:
-            measured = selfplay.measure(
-                net,
-                games=args.measure_games,
-                seed=7_000_000 + generation,
-                device=device,
-                amp=args.amp,
-            )
-            record.update(
-                {
-                    "placement": round(measured["placement"], 3),
-                    "score": round(measured["score"], 1),
-                    "win_rate": round(measured["wins"], 3),
-                }
-            )
-
-            # The high-water mark is kept apart, so a run that wanders can
-            # always be brought back to the best network it has produced.
-            # It is chosen on a smoothed figure rather than on the single
-            # measurement, because one measurement of a few hundred games
-            # carries a standard error about as large as the improvement
-            # being looked for.
-            smoothed = (
-                measured["placement"]
-                if smoothed is None
-                else SMOOTHING * measured["placement"] + (1 - SMOOTHING) * smoothed
-            )
-            record["smoothed"] = round(smoothed, 3)
-            if smoothed < best_placement:
-                best_placement = smoothed
-                is_best = True
-                record["best"] = True
-
-        # Save after measurement so RNG and metadata describe exactly the
-        # state from which the next generation will continue. Adam's moments
-        # are deliberately part of the checkpoint: restarting them every
-        # Modal block used to turn every resume into a different optimiser.
-        payload = checkpoint_payload(generation + 1)
-        if measured is not None:
-            payload["placement"] = measured["placement"]
-        if is_best:
-            atomic_save(payload, args.out / "best.pt")
-
-        # Saved every generation, not only when measured, so that a restart
-        # loses one generation at most rather than every one since the last
-        # measurement.
-        phase = time.time()
-        atomic_save(payload, args.out / "latest.pt")
-        if time.time() - phase > 30:
-            print(f"saving the checkpoint took {time.time() - phase:.0f}s", flush=True)
-
-        print(json.dumps(record), flush=True)
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
+            replay_optimizer_updates=replay_steps,
+            replay_rounds=len(ring),
+            replay_critic_loss=replay.mean("critic", max(replay_steps, 1), 4),
+            replay_oracle_loss=replay.mean("oracle", max(replay_steps, 1), 4),
+            distil=totals.mean("distil", steps, 4),
+            hands_loss=totals.mean("hands", steps, 4),
+            hands_read=totals.mean("covered", steps, 4),
+        )
+        ppo_loop.finish(args, generation, entry, measure, checkpoint_payload, benchmark, log_path)
 
     print("training finished", flush=True)
 
