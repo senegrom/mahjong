@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as ort from 'onnxruntime-web/wasm';
 import { MEMORY_LIMITS_MIB } from '../src/lib/memory-budget.js';
+import { runtimeDirectory } from '../scripts/copy-runtime.mjs';
 
 // Run the published network and reduced runtime, with large shared-memory
 // reservations rejected as they are on affected phones.
@@ -27,9 +28,10 @@ test('the network infers repeatedly within a phone-sized WASM reservation', asyn
   t.after(() => { WebAssembly.Memory = NativeMemory; });
   ort.env.wasm.numThreads = 1;
   ort.env.logLevel = 'error';
+  const runtime = new URL(`../dist/${await runtimeDirectory()}`, import.meta.url);
   ort.env.wasm.wasmPaths = {
-    mjs: new URL('../dist/ort/ort-wasm-simd-threaded.mjs', import.meta.url).href,
-    wasm: new URL('../dist/ort/ort-wasm-simd-threaded.wasm', import.meta.url).href,
+    mjs: new URL('ort-wasm-simd-threaded.mjs', runtime).href,
+    wasm: new URL('ort-wasm-simd-threaded.wasm', runtime).href,
   };
 
   const loads = 3, inferences = 12;

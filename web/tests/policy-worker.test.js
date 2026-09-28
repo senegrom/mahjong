@@ -20,7 +20,7 @@ const deferred = () => {
 };
 
 function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, runError = false, memoryFailure = null } = {}) {
-  const loads = [], releases = [], runs = [], tensors = [], messages = [];
+  const loads = [], releases = [], runs = [], tensors = [], messages = [], scopes = [];
   let live = 0, active = 0;
   const memoryBudget = new MemoryBudget();
   class Tensor {
@@ -56,16 +56,17 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
   vm.runInNewContext(source, { ort, policyWeights, self, URL, MEMORY_LIMITS_MIB, isMemoryError,
     // The network arrives as bytes from its bucket; the address stands in for
     // them here, so what loaded is still recognisable.
-    networkBytes: async ({ url }) => url,
+    networkBytes: async ({ url, scope }) => { scopes.push(scope); return url; },
     loadMemoryControls: async url => {
-      assert.equal(url, 'https://test.invalid/ort/memory-budget.mjs');
+      assert.equal(url, 'https://test.invalid/ort/0123abcd/memory-budget.mjs');
       return { memoryBudget };
     },
   });
   const send = (id, url = MODEL) => self.onmessage({ data: {
-    id, url, runtimeBase: 'https://test.invalid/ort/', planes: new Float32Array(34), mask: [1, 1], details: true,
+    id, url, runtimeBase: 'https://test.invalid/ort/0123abcd/', scope: 'https://test.invalid/',
+    planes: new Float32Array(34), mask: [1, 1], details: true,
   } });
-  return { send, cancel: id => self.onmessage({ data: { cancel: id } }), loads, releases, runs, tensors, messages };
+  return { send, cancel: id => self.onmessage({ data: { cancel: id } }), loads, releases, runs, tensors, messages, scopes };
 }
 
 test('queued decisions load the network once, run one at a time and answer in order', async () => {
@@ -75,6 +76,7 @@ test('queued decisions load the network once, run one at a time and answer in or
   h.send(2); h.send(3); h.send(4);
   await setImmediate();
   assert.deepEqual(h.loads, [MODEL]);
+  assert.deepEqual(h.scopes, ['https://test.invalid/'], "the network is read from the page's cache, not the runtime folder's");
   loadGate.resolve();
   await setImmediate();
   assert.deepEqual(h.runs, [MODEL]);

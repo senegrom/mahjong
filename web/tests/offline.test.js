@@ -183,10 +183,12 @@ test('production inventory classifies the external model/runtime package', async
   const files = { 'index.html': 'game', 'assets/worker-hash.js': 'worker', 'assets/riichi_bg-hash.wasm': 'engine',
     'tiles/Back.svg': '<svg/>', 'tiles/Haku.svg': '<svg>white</svg>', 'assets/white-dragon-hash.webp': 'dragon',
     'tiles/matisse/approved/Man7.svg': '<svg>cut-out</svg>', 'tiles/matisse/placeholders/Haku.svg': '<svg>white dragon</svg>',
-    'ort/ort-wasm-simd-threaded.wasm': 'wasm',
-    'ort/ort-wasm-simd-threaded.mjs': 'loader', 'ort/memory-budget.mjs': 'memory controls' };
+    'ort/0123abcd/ort-wasm-simd-threaded.wasm': 'wasm',
+    'ort/0123abcd/ort-wasm-simd-threaded.mjs': 'loader', 'ort/0123abcd/memory-budget.mjs': 'memory controls' };
   for (const [path, body] of Object.entries(files)) { await mkdir(join(root, path, '..'), { recursive: true }); await writeFile(join(root, path), body); }
-  const first = await buildOffline(root, { network: external('weights') }), second = await buildOffline(root, { network: external('weights') });
+  const options = { network: external('weights'), runtime: 'ort/0123abcd/' };
+  await assert.rejects(buildOffline(root, { network: options.network }), /missing the AI runtime/);
+  const first = await buildOffline(root, options), second = await buildOffline(root, options);
   assert.deepEqual(first, second);
   assert.equal(first.entries.length, Object.keys(files).length);
   // The trained network itself is not here: it is fetched from its bucket and
@@ -197,7 +199,7 @@ test('production inventory classifies the external model/runtime package', async
   // Feed the generated inventory to the worker, not a hand-written approximation.
   const generated = worker({ files, config: first });
   await generated.install();
-  assert.equal(generated.counts.has('ort/ort-wasm-simd-threaded.wasm'), false);
+  assert.equal(generated.counts.has('ort/0123abcd/ort-wasm-simd-threaded.wasm'), false);
   await download(generated);
   assert.equal((await status(generated)).aiReady, false, 'the runtime alone is not the trained AI');
   assert.equal(await pageSaves(generated, 'weights'), 1);

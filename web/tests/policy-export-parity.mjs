@@ -16,8 +16,8 @@ assert.ok(cases.some(row => row.takes_legal && row.stage === 'riichi-discard'));
 assert.ok(cases.some(row => !row.takes_legal));
 // public/ort is generated, not tracked. Use the same checksum-checked copier
 // as the production build; never fall back to the package's generic runtime.
-await copyRuntime();
-const runtimeBase = new URL('../public/ort/', import.meta.url).href;
+const { directory } = await copyRuntime();
+const runtimeBase = new URL(`../public/${directory}`, import.meta.url).href;
 const source = (await readFile(new URL('../src/lib/policy.worker.js', import.meta.url), 'utf8'))
   .replace("import * as ort from 'onnxruntime-web/wasm';", '')
   .replace("import { policyWeights } from './policy-weights.js';", '')

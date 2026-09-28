@@ -9,9 +9,10 @@ import { publicFiles } from './copy-runtime.mjs';
 const SHELL = ['apple-touch-icon.png', 'favicon-16x16.png', 'favicon-32x32.png',
   'favicon.ico', 'manifest.webmanifest'];
 
-export async function copyRuntimeAssets(source, output) {
+/** runtime is the content-named folder the runtime was copied to (copy-runtime.mjs). */
+export async function copyRuntimeAssets(source, output, runtime) {
   const files = await publicFiles(source);
-  const selected = new Set([...SHELL, ...TILE_IMAGE_URLS, ...RUNTIME_FILES.map(name => `ort/${name}`),
+  const selected = new Set([...SHELL, ...TILE_IMAGE_URLS, ...RUNTIME_FILES.map(name => `${runtime}${name}`),
     ...files.filter(name => /^icons\/[^/]+\.(png|svg)$/.test(name) || /(^|\/)LICENSE(?:\.[^/]*)?$/i.test(name))]);
   // Check the whole inventory before copying; missing approved artwork is an error.
   for (const name of selected) if (!files.includes(name)) throw new Error(`Missing runtime asset: ${name}`);

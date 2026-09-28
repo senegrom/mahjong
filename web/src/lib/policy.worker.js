@@ -35,10 +35,11 @@ const queued = new Map();
 let running = false;
 let failed = false;
 
-async function load(url, runtimeBase, memoryLimitMiB, note) {
+/** scope is the page's own folder, whose Cache Storage holds the network. */
+async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
   if (!runtimeMemory) {
     // The bundler renames the runtime's own WebAssembly, which its loader
-    // then cannot find. It is served from a known folder instead.
+    // then cannot find. It is served from a folder the page names instead.
     ort.env.wasm.wasmPaths = runtimeBase;
     const controls = new URL('memory-budget.mjs', runtimeBase).href;
     ({ memoryBudget: runtimeMemory } = await import(/* @vite-ignore */ controls));
@@ -59,7 +60,7 @@ async function load(url, runtimeBase, memoryLimitMiB, note) {
   // The bytes rather than the address: the network comes from a bucket on
   // another origin and is kept in Cache Storage, which the runtime knows
   // nothing about. What it is handed has already been hashed.
-  const bytes = await networkBytes({ url, scope: new URL('../', runtimeBase).href,
+  const bytes = await networkBytes({ url, scope,
     onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`) });
   note('starting the network');
   const session = await ort.InferenceSession.create(bytes, {
@@ -84,14 +85,14 @@ function pick(logits, mask) {
   return best;
 }
 
-async function infer({ id, url, runtimeBase, planes, mask, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
+async function infer({ id, url, runtimeBase, scope, planes, mask, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
   let input, output, allowed;
   try {
     // Each note is also a sign of life. The page times a decision only once
     // the network is ready; while it loads, only the silence between notes.
     const note = progress => self.postMessage({ id, progress });
     note('loading the network');
-    const model = await load(url, runtimeBase, memoryLimitMiB, note);
+    const model = await load({ url, runtimeBase, scope, memoryLimitMiB }, note);
     self.postMessage({ id, progress: 'network ready', ready: true });
     input = new ort.Tensor('float32', planes, [1, planes.length / POSITIONS, POSITIONS]);
     // The fused network's head reads the legality mask, so the graph takes it

@@ -25,7 +25,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     networkIsStored: async () => false,
     startOffline: async () => null,
     prepareOfflineAi: (...args) => new Promise(resolve => downloads.push({ args, resolve })),
@@ -43,6 +43,10 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   await setImmediate();
   const worker = workers[0], initial = worker.messages[0];
   assert.equal(initial.url, NETWORK_URL);
+  // The runtime's content-named folder under the page, and the page's own
+  // folder, whose Cache Storage holds the network.
+  assert.equal(initial.runtimeBase, 'https://test.invalid/mahjong/ort/0123abcd/');
+  assert.equal(initial.scope, 'https://test.invalid/mahjong/');
   assert.equal(worker.terminated, false);
   worker.answer(initial, { action: 1 });
   assert.deepEqual(await firstResult, { value: 1 });
@@ -74,7 +78,7 @@ test('memory errors discard the worker even after cancellation, and retry starts
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     networkIsStored: async () => false,
     startOffline: async () => null, prepareOfflineAi: async () => null,
   });
@@ -123,7 +127,7 @@ function memoryClient(t) {
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     networkIsStored: async () => false,
     startOffline: async () => null, prepareOfflineAi: async () => null,
   });
@@ -223,7 +227,7 @@ function loadingClient(t) {
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL,
+    URL, DOMException, Worker, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     // Looked up when called, so the mocked clock drives the coordinator.
     setTimeout: (...args) => setTimeout(...args), clearTimeout: timer => clearTimeout(timer),
     networkIsStored: async () => false,

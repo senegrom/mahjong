@@ -6,6 +6,7 @@ import { RUNTIME_FILES } from '../src/lib/model-package.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { validateNetwork } from '../src/lib/network-transfer.js';
 import { copyRuntimeAssets } from './runtime-assets.mjs';
+import { runtimeDirectory } from './copy-runtime.mjs';
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -19,7 +20,8 @@ export async function serviceWorkerTemplate() {
   ]);
   return template.replace('/* NETWORK_TRANSFER */ null', `(() => {\n${transfer.replace(/^export /gm, '')}\nreturn { storageError, hasStoredNetwork, pruneNetworkCache };\n})()`);
 }
-export async function buildOffline(root, { network = MANIFEST } = {}) {
+/** runtime names the folder holding the runtime the page loads. */
+export async function buildOffline(root, { network = MANIFEST, runtime } = {}) {
   validateNetwork(network);
   const files = (await walk(root)).filter(file => !['sw.js', 'offline-manifest.json'].includes(basename(file)));
   const entries = await Promise.all(files.sort().map(async file => {
@@ -31,7 +33,7 @@ export async function buildOffline(root, { network = MANIFEST } = {}) {
   for (const required of ['index.html', 'tiles/Back.svg', 'tiles/Haku.svg']) {
     if (!entries.some(entry => entry.url === required)) throw new Error(`Offline build is missing ${required}`);
   }
-  const hasModel = RUNTIME_FILES.every(name => entries.some(entry => entry.url === `ort/${name}`));
+  const hasModel = Boolean(runtime) && RUNTIME_FILES.every(name => entries.some(entry => entry.url === `${runtime}${name}`));
   if (!hasModel) throw new Error('Offline build is missing the AI runtime');
   const networkCacheVersion = 2;
   const version = createHash('sha256').update(JSON.stringify({ entries, network, networkCacheVersion })).digest('hex').slice(0, 20);
@@ -48,16 +50,19 @@ export async function buildOffline(root, { network = MANIFEST } = {}) {
   return manifest;
 }
 export function offlineBuild() {
-  let output, source;
+  let web, output, source;
   return {
     name: 'mahjong-offline', apply: 'build',
     configResolved(config) {
+      web = config.root;
       output = resolve(config.root, config.build.outDir);
       source = resolve(config.root, 'public');
     },
     async closeBundle() {
-      const assets = await copyRuntimeAssets(source, output);
-      const { bytes } = await buildOffline(output);
+      // The folder vite.config.js gave the page, from the same sources.
+      const runtime = await runtimeDirectory(web);
+      const assets = await copyRuntimeAssets(source, output, runtime);
+      const { bytes } = await buildOffline(output, { runtime });
       console.log(`Offline bytes: core=${bytes.core}, AI runtime=${bytes.runtime}, remote network=${bytes.network}; excluded art-workspace bytes=${assets.excludedBytes}`);
     },
   };

@@ -27,7 +27,7 @@ function client(t, prepareOfflineAi) {
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, prepareOfflineAi,
+    URL, DOMException, Worker, setTimeout, clearTimeout, prepareOfflineAi, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     // The memory allocator and model transport have their own integration tests.
     MEMORY_LIMITS_MIB: [256, 512, 1024], nextMemoryLimit: () => null,
     NETWORK_URL: 'https://test.invalid/network',

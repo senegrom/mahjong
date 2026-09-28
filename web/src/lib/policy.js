@@ -1,5 +1,6 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
+/* global __RUNTIME_DIRECTORY__ */
 import { prepareOfflineAi } from './offline.js';
 import { NETWORK_URL, networkIsStored } from './network-store.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
@@ -9,7 +10,9 @@ import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
  * builds, and answers in Mortal's forty-six moves, which the engine turns
  * back into moves it can play. One network ships, so every request names it.
  */
-const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
+// The runtime's folder is named by its contents (scripts/copy-runtime.mjs), so
+// its address never serves another version's bytes, from any cache.
+const runtimeBase = () => new URL(__RUNTIME_DIRECTORY__, document.baseURI).href;
 // Two phases, two deadlines. Loading the network into a fresh worker can mean
 // downloading 116 MB, which takes minutes on a slow link, so it is bounded by
 // silence: a worker that reports nothing for this long has stalled. Only a
@@ -188,8 +191,8 @@ async function requestPolicy(planes, mask, timeout, signal, details) {
     const dispatch = () => {
       clearTimeout(timer);
       const copy = planes.slice();
-      ensureWorker().postMessage({ id, url: NETWORK_URL, runtimeBase: RUNTIME_BASE,
-        planes: copy, mask, details, memoryLimitMiB }, [copy.buffer]);
+      ensureWorker().postMessage({ id, url: NETWORK_URL, runtimeBase: runtimeBase(),
+        scope: new URL('./', document.baseURI).href, planes: copy, mask, details, memoryLimitMiB }, [copy.buffer]);
       if (loaded) startDeadline();
     };
     waiting.set(id, { resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error),

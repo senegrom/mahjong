@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { MEMORY_LIMITS_MIB, MemoryBudget, nextMemoryLimit } from '../src/lib/memory-budget.js';
+import { runtimeDirectory } from '../scripts/copy-runtime.mjs';
 
 const MIB = 1048576, PAGE = 65536;
+const shipped = await runtimeDirectory();
 
 test('a browser refusing spare heap capacity can still grant exactly the needed pages', () => {
   const budget = new MemoryBudget(), attempts = [];
@@ -51,8 +53,8 @@ test('the shipped allocator reports its limit, grows after a fresh bounded resta
     // Each run gets a fresh module and reservation, just as a replacement worker does.
     const source = `
       import { readFileSync } from 'node:fs';
-      import { memoryBudget } from './dist/ort/memory-budget.mjs';
-      import factory from './dist/ort/ort-wasm-simd-threaded.mjs';
+      import { memoryBudget } from './dist/${shipped}memory-budget.mjs';
+      import factory from './dist/${shipped}ort-wasm-simd-threaded.mjs';
       if (${browserLimit} !== null) {
         const NativeMemory = WebAssembly.Memory;
         WebAssembly.Memory = class extends NativeMemory {
@@ -64,7 +66,7 @@ test('the shipped allocator reports its limit, grows after a fresh bounded resta
       }
       memoryBudget.configure(${limit});
       try {
-        const runtime = await factory({ numThreads: 1, wasmBinary: new Uint8Array(readFileSync('./dist/ort/ort-wasm-simd-threaded.wasm')) });
+        const runtime = await factory({ numThreads: 1, wasmBinary: new Uint8Array(readFileSync('./dist/${shipped}ort-wasm-simd-threaded.wasm')) });
         const pointer = runtime._malloc(${wanted} * 1048576);
         console.log(JSON.stringify({ pointer, failure: memoryBudget.failure, heap: memoryBudget.memory.buffer.byteLength }));
         if (pointer) runtime._free(pointer);

@@ -72,7 +72,12 @@ become successful downloads. Retrying requests only missing files. Storage is
 scoped to this app; other projects on the same GitHub Pages origin are untouched.
 The service worker responds cache-first and caches neither unknown URLs nor
 error responses. Equal content is stored once, including duplicate runtime
-outputs and unchanged files across application updates.
+outputs and unchanged files across application updates. The runtime is served
+from a folder named by a hash of its files (`ort/<hash>/`), so no address ever
+holds two versions' bytes in a browser, CDN or service-worker cache. A version
+whose runtime was never saved cannot fetch it once a later deploy has removed
+its folder; Trained opponents then wait for that version's windows to close so
+the update takes over.
 
 Updates wait until existing Mahjong windows close. An update installs with the
 game and graphics alone, so a slow connection still completes it. When Trained

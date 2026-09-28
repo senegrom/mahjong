@@ -13,6 +13,7 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { observeNetworkRequests } from './network-requests.mjs';
+import { runtimeDirectory } from './copy-runtime.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const match = new MatchSession(Game, 81, 'neural');
@@ -20,7 +21,7 @@ let initial;
 try { match.advance(false); initial = match.snapshot(); } finally { match.dispose(); }
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist');
 const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
-assert.ok(existsSync(resolve(dist, 'ort/ort-wasm-simd-threaded.wasm')), 'Missing trained runtime');
+assert.ok(existsSync(resolve(dist, `${await runtimeDirectory(web)}ort-wasm-simd-threaded.wasm`)), 'Missing trained runtime');
 const handler = createFixtureHandler({ root: dist, publicRoot: dist });
 const downloads = [];
 const server = createServer((request, response) => {

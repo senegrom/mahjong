@@ -10,12 +10,13 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
+import { runtimeDirectory } from './copy-runtime.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
 // The network comes from its bucket, so what the page needs on disk is the
 // runtime that runs it; the network itself is fetched when it is asked for.
-const trainedShipped = existsSync(resolve(dist, 'ort', 'ort-wasm-simd-threaded.wasm'));
+const trainedShipped = existsSync(resolve(dist, `${await runtimeDirectory()}ort-wasm-simd-threaded.wasm`));
 const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
 const match = new MatchSession(Game, 1, 'club');
 let snapshot, notes, first, choices, translations, reachTranslations;
