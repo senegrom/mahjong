@@ -15,14 +15,12 @@
  * player, the one across, then the previous player. That is Mortal's order
  * and our own, and they agree.
  */
+import { TILE_TYPES } from './tiles.js';
 
-/** The thirty-four kinds, in the order the network writes them. */
-const KINDS = Object.freeze([
-  ...Array.from({ length: 9 }, (_, i) => `${i + 1}m`),
-  ...Array.from({ length: 9 }, (_, i) => `${i + 1}p`),
-  ...Array.from({ length: 9 }, (_, i) => `${i + 1}s`),
-  'E', 'S', 'W', 'N', 'P', 'F', 'C',
-]);
+/** The thirty-four kinds, in the order the network writes them, named as the
+ * page names tiles. Mortal's honours, E S W N and then the white, green and
+ * red dragons (P F C), are the page's 1z to 7z in that same order. */
+const KINDS = Object.freeze([...TILE_TYPES]);
 
 const POSITIONS = KINDS.length;
 const OPPONENTS = 3;
