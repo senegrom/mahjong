@@ -139,6 +139,31 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertTrue(any(p.grad is not None and torch.count_nonzero(p.grad)
                             for p in net.ours.value.parameters()))
 
+    def test_the_mortal_learners_value_loss_leaves_its_encoder_alone(self):
+        # The value term's gradient on Mortal's encoder was two and a half
+        # to four times the policy term's and nearly orthogonal to it, under
+        # one clip on the whole gradient: the encoder the policy reads from
+        # was being trained to predict returns.
+        from neural import mortal_learner
+        torch.manual_seed(3)
+        net = mortal_learner.MortalLearner(mortal_model.build(8, 1)).train()
+        # A value head that is not zero, so a gradient could reach the
+        # encoder through it at all.
+        torch.nn.init.normal_(net.value_head.weight)
+        planes = torch.rand(4, MORTAL_PLANES, 34)
+        legal = torch.ones(4, 46, dtype=torch.bool)
+        encoder = list(net.mortal.brain.parameters())
+        _logits, value = net.policy(planes, legal)
+        torch.nn.functional.mse_loss(value, torch.ones(4)).backward()
+        self.assertTrue(all(p.grad is None for p in net.mortal.parameters()))
+        self.assertTrue(any(p.grad is not None and torch.count_nonzero(p.grad)
+                            for p in net.value_head.parameters()))
+        net.zero_grad(set_to_none=True)
+        logits, _value = net.policy(planes, legal)
+        (-torch.log_softmax(logits, dim=1)[:, 0].mean()).backward()
+        self.assertTrue(any(p.grad is not None and torch.count_nonzero(p.grad) for p in encoder))
+        self.assertTrue(all(p.grad is None for p in net.value_head.parameters()))
+
 
 class ReconciledTrainerTests(unittest.TestCase):
     def setUp(self):

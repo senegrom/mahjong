@@ -6,8 +6,9 @@ none of `--opponents` holds, credit each of its decisions with what its
 hand moved and where its game placed, and take a clipped policy-gradient
 step towards the decisions that did better than the learner's own value
 head expected. Mortal's Q values are the policy's logits and everything
-of Mortal's learns; there are no auxiliary heads and no replay ring,
-since it has none of the heads those serve.
+of Mortal's learns by the policy gradient; the value head reads its
+encoder without training it. There are no auxiliary heads and no replay
+ring, since it has none of the heads those serve.
 
     python -m neural.train_mortal --mortal mortal.pth --rounds 30 --out runs/mortal
 """

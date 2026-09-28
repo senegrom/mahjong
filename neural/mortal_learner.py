@@ -6,9 +6,15 @@ a policy only through an argmax. This wraps it as a player our PPO loop
 can train: its Q values over its own forty-six actions, through a
 temperature, are the policy's logits; a fresh linear head on its encoder's
 features is the value baseline, trained on our returns. The encoder and
-the Q head learn by the policy gradient, the batch-normalisation
-statistics stay frozen, and everything is saved in Mortal's own checkpoint
-layout, so a fine-tuned Mortal loads wherever the published one does.
+the Q head learn by the policy gradient alone: the value head reads the
+encoder's features without training them, as the fusion's judge and our
+own network's value heads do. Its loss reached the encoder with two and a
+half to four times the policy term's gradient there, in a nearly
+orthogonal direction, under the one clip on the gradient's norm, so the
+encoder the policy reads from was being reshaped to predict returns. The
+batch-normalisation statistics stay frozen, and everything is saved in
+Mortal's own checkpoint layout, so a fine-tuned Mortal loads wherever the
+published one does.
 
 It decides in its own action space and the table hears ours, so a
 decision is translated as the zoo does it, with our engine's legal mask
@@ -241,11 +247,12 @@ class MortalLearner(nn.Module):
 
     def policy(self, planes: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """The policy's logits over Mortal's actions, masked, and the
-        value, one per row."""
+        value, one per row. The value reads the encoder's features without
+        gradient, so only the policy's loss trains the encoder."""
         phi = self.mortal.features(planes)
         q = self.mortal.dqn(phi, mask)
         logits = (q / self.temperature).masked_fill(~mask, float("-inf"))
-        return logits, self.value_head(phi).squeeze(1)
+        return logits, self.value_head(phi.detach()).squeeze(1)
 
     def forward(self, planes: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         return self.policy(planes, mask)
