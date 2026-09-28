@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+# Above the workspace's 1.80: the locked pyo3 0.29 declares 1.83.
 rust-version = "1.83"
 
 [lib]

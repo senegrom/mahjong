@@ -302,32 +302,11 @@ impl Seat {
                 .map(|(_, calls)| calls)
                 .unwrap_or_default();
             let call = self.teacher.call(&self.hand, seat, &offered);
-            let claimed = self.hand.pending_discard.map(|(_, tile)| tile)?;
-            return Some(call_to_index(call, claimed));
+            let claimed = self.hand.pending_discard.map(|(_, tile)| tile);
+            return encoding::call_index(call, claimed);
         }
         let action = self.teacher.act(&self.hand);
-        Some(action_to_index(action))
-    }
-}
-
-fn action_to_index(action: riichi_core::game::Action) -> usize {
-    use riichi_core::game::Action;
-    match action {
-        Action::Discard(tile) => tile.idx(),
-        Action::Riichi(tile) => 34 + tile.idx(),
-        Action::Tsumo => 68,
-        Action::ConcealedKan(_) => 76,
-        Action::ExtendedKan(_) => 77,
-    }
-}
-
-fn call_to_index(call: Call, claimed: riichi_core::tile::Tile) -> usize {
-    match call {
-        Call::Ron => 69,
-        Call::Pass => 70,
-        Call::Pon => 74,
-        Call::Kan => 75,
-        Call::Chii(low) => 73 - (claimed.rank().saturating_sub(low.rank())) as usize,
+        Some(encoding::action_index(action))
     }
 }
 
@@ -344,7 +323,7 @@ pub struct Arena {
 }
 
 /// One imagined world per live game from the beliefs given, as the
-/// hidden-hand planes: the body of both forms of `Arena::imagined_hands`.
+/// hidden-hand planes: the body of `Arena::imagined_hands_bytes`.
 /// Beliefs of the wrong length are refused before any world is imagined,
 /// so no game's imagining stream moves.
 fn imagine_from<'py>(
@@ -458,9 +437,6 @@ impl Arena {
     /// This is the label for the head that reads a table. It is only ever
     /// used to teach: the network is never shown it when choosing a move.
     fn opponent_hands<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        if self.hands.len() != self.seats.len() * HANDS {
-            self.hands = vec![0.0; self.seats.len() * HANDS];
-        }
         for (index, seat) in self.seats.iter().enumerate() {
             let slice = &mut self.hands[index * HANDS..(index + 1) * HANDS];
             match seat.pending() {
@@ -474,18 +450,10 @@ impl Arena {
     /// One imagined world per live game, from the belief's marginals, as
     /// the hidden-hand planes the reader is shown: the negatives it learns
     /// to tell from the real hands, which [`Arena::oracle`] carries. Zeros
-    /// for a game that owes nothing.
-    fn imagined_hands<'py>(
-        &mut self,
-        py: Python<'py>,
-        beliefs: Vec<f32>,
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        imagine_from(self, py, &beliefs)
-    }
-
-    /// The same, taking the beliefs as the raw bytes of float32s rather
-    /// than a Python list: a round has thousands of steps and a list of a
-    /// hundred thousand floats each step cost seconds to build and read.
+    /// for a game that owes nothing. The beliefs come as the raw bytes of
+    /// float32s, three rows of thirty-four a game, rather than a Python
+    /// list: a round has thousands of steps and a list of a hundred
+    /// thousand floats each step cost seconds to build and read.
     fn imagined_hands_bytes<'py>(
         &mut self,
         py: Python<'py>,

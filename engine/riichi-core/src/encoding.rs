@@ -417,7 +417,10 @@ pub fn legal_mask(hand: &Hand, seat: Wind, out: &mut [bool]) -> usize {
     count
 }
 
-fn action_index(action: Action) -> usize {
+/// The index of an action in the flat action space. The quad entries do
+/// not name a tile, so every concealed quad shares one index, as does
+/// every extended one.
+pub fn action_index(action: Action) -> usize {
     match action {
         Action::Discard(tile) => DISCARD + tile.idx(),
         Action::Riichi(tile) => RIICHI_DISCARD + tile.idx(),
@@ -427,7 +430,10 @@ fn action_index(action: Action) -> usize {
     }
 }
 
-fn call_index(call: Call, claimed: Option<Tile>) -> Option<usize> {
+/// The index of an answer to the tile awaiting a claim, `claimed`. A
+/// sequence is named by where the claimed tile sits in it, so it has no
+/// index without that tile, nor when the tile is not in the sequence.
+pub fn call_index(call: Call, claimed: Option<Tile>) -> Option<usize> {
     match call {
         Call::Ron => Some(RON),
         Call::Pon => Some(PON),

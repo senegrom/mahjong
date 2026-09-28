@@ -188,9 +188,7 @@ def imagine(arena, beliefs: np.ndarray) -> bytes:
     hidden-hand planes. The beliefs cross as bytes where the engine takes
     them so: a list of a hundred thousand floats a step cost seconds a
     round to build and read."""
-    if hasattr(arena, "imagined_hands_bytes"):
-        return arena.imagined_hands_bytes(np.ascontiguousarray(beliefs, dtype=np.float32).tobytes())
-    return arena.imagined_hands(beliefs.reshape(-1).tolist())
+    return arena.imagined_hands_bytes(np.ascontiguousarray(beliefs, dtype=np.float32).tobytes())
 
 
 def gather(blocks: list[np.ndarray]) -> torch.Tensor:
