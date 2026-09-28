@@ -33,7 +33,7 @@ use riichi_core::bot::Bot;
 use riichi_core::encoding::{
     self, ACTIONS, HANDS, OBSERVATION, OPPONENTS, ORACLE, ORACLE_PLANES, PASS, PLANES, POSITIONS,
 };
-use riichi_core::game::{Call, Hand, Outcome, Phase};
+use riichi_core::game::{Call, Hand, Phase};
 use riichi_core::mjai;
 use riichi_core::rng::Rng;
 use riichi_core::table::Table;
@@ -577,38 +577,6 @@ impl Arena {
             seat.hand.players[seat.hand.turn.index()].hand,
         )
     }
-
-    /// A line describing how the last hand of one game ended, for logs.
-    fn describe(&self, game: usize) -> String {
-        let seat = match self.seats.get(game) {
-            Some(seat) => seat,
-            None => return String::new(),
-        };
-        match &seat.hand.outcome {
-            Some(Outcome::Win { winners, discarder }) => winners
-                .iter()
-                .map(|(wind, score)| {
-                    let how = match discarder {
-                        Some(_) => "by discard",
-                        None => "by self-draw",
-                    };
-                    let yaku: Vec<&str> =
-                        score.yaku.iter().map(|(entry, _)| entry.name()).collect();
-                    format!(
-                        "{wind:?} wins {how}: {} han {} fu [{}]",
-                        score.han,
-                        score.fu,
-                        yaku.join(", ")
-                    )
-                })
-                .collect::<Vec<String>>()
-                .join("; "),
-            Some(Outcome::ExhaustiveDraw { tenpai }) => {
-                format!("exhaustive draw, waiting: {tenpai:?}")
-            }
-            None => "in progress".to_string(),
-        }
-    }
 }
 
 fn bytemuck_cast(values: &[f32]) -> &[u8] {
@@ -637,7 +605,6 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
         riichi_core::encoding::OBSERVATION_VERSION,
     )?;
     module.add("POSITIONS", POSITIONS)?;
-    module.add("OBSERVATION", OBSERVATION)?;
     module.add("ACTIONS", ACTIONS)?;
     module.add("OPPONENTS", OPPONENTS)?;
     module.add("ORACLE_PLANES", ORACLE_PLANES)?;
