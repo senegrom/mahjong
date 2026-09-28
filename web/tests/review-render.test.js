@@ -19,8 +19,11 @@ async function component(name, imports = {}) {
   return `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
 }
 const tile = await component('Tile');
+const preference = await component('ReviewPreference');
 const policy = 'data:text/javascript,export const analyzePolicy = () => { throw new Error("unexpected SSR inference"); };';
-const { default: Review } = await import(await component('Review', { './Tile.svelte': tile, './policy.js': policy }));
+const { default: Review } = await import(await component('Review', {
+  './Tile.svelte': tile, './ReviewPreference.svelte': preference, './policy.js': policy,
+}));
 const review = notes => render(Review, { props: { notes } }).body;
 
 test('a missed ron shows the offered tile and responder advice without invented discard metrics', () => {
