@@ -118,6 +118,9 @@ function ensureWorker() {
       } else if (pending) onProgress?.(progress);
       return;
     }
+    // An answer, from any request, means the network ran: it is loaded
+    // whether or not the worker said so first.
+    if (!loaded) networkLoaded();
     pending?.resolve(analysis ?? action);
   };
   current.onerror = (event) => {

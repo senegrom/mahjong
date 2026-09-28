@@ -343,3 +343,19 @@ test('bytes offline storage refused are handed to the fresh worker once, not dow
   worker.say(one.id, { action: 0 }); worker.say(two.id, { action: 1 });
   assert.deepEqual(await Promise.all([first, second]), [0, 1]);
 });
+
+test('an answer proves the network is loaded, even from a worker that sends no notes', async t => {
+  const { ask, workers, silence } = loadingClient(t);
+  const first = ask();
+  await setImmediate();
+  const [worker] = workers;
+  worker.say(worker.messages[0].id, { action: 1 });
+  assert.equal(await first, 1);
+  t.mock.timers.tick(silence);
+  assert.equal(worker.terminated, false, 'no loading deadline outlives the answer');
+  const late = ask(), missed = assert.rejects(late, /did not answer in time/);
+  await setImmediate();
+  t.mock.timers.tick(20000);
+  await missed;
+  assert.equal(worker.terminated, true, 'the next decision is timed at once');
+});
