@@ -33,7 +33,8 @@ standard Linux paths. No separate dev server is required. `test:unit` and
 From the repository root, `./check.sh` runs engine formatting, lint, tests,
 the Python binding smoke test, arena games, and randomized legal play.
 `./check.sh --web` also runs web verification. Rust dependency auditing is a
-separate CI step.
+separate CI step. On Windows run it from Git Bash, with `PYTHON` naming the
+interpreter when `python3` is only the Microsoft Store alias.
 
 ## Offline play and the trained model
 
