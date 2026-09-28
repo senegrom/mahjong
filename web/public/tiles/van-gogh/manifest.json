@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The later L is the active white dragon; F and D remain studies.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. The later L is the active white dragon; F and D remain studies.",
   "fallback": "classic",
   "sources": [
     {
@@ -58,6 +58,11 @@
       "id": "tripleShootsGreen",
       "source": "docs/design/van-gogh/studies/12-three-bamboo-triple-shoots-green.webp",
       "sha256": "f2e1617a2e894622a28922f309747a8c2d0bb681fedd4ca37c1ba4b810135c7c"
+    },
+    {
+      "id": "moonlitFourGreen",
+      "source": "docs/design/van-gogh/studies/13-four-bamboo-moonlit-four-green.webp",
+      "sha256": "4d1e76c1716b6086524dfcf94ec8141fa9196a78fce5ecffa517e904204304fb"
     }
   ],
   "tiles": [
@@ -315,6 +320,23 @@
         "height": 400
       },
       "pngSha256": "581df3d6e7992d547af374a676c5a051314cc698f16fe918fde1decb2099e14d"
+    },
+    {
+      "candidate": "Bamboo C (green)",
+      "tile": "4s",
+      "name": "Sou4",
+      "label": "Four bamboo",
+      "source": "docs/design/van-gogh/studies/13-four-bamboo-moonlit-four-green.webp",
+      "status": "approved",
+      "png": "approved/Sou4.png",
+      "svg": "approved/Sou4.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      },
+      "pngSha256": "64e5d720aa3fc55dc5df67e832781e6fd8821a9ccddf3105284145b555d9156a"
     }
   ],
   "rejected": [
@@ -357,7 +379,6 @@
     "6p",
     "7p",
     "8p",
-    "4s",
     "5s",
     "7s",
     "8s",
