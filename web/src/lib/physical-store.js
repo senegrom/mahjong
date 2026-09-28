@@ -76,8 +76,22 @@ export class PhysicalStore {
     const positionKey = JSON.stringify(position);
     if (!clearUnreadable && positionKey === this.queuedKey) return this.lastSave;
     this.queuedKey = positionKey;
-    const text = this.format.encode(position);
+    return this.submit(positionKey, this.format.encode(position));
+  }
+
+  /** Queues one write of a snapshot. A write that does not land never answers
+   * a later save of the same draft: a stalled write of the newest snapshot is
+   * retried while the editor is open, and any other failure lets the next save
+   * of it try again. The editor saves only when something changes, so without
+   * this a final edit that stalled was never written. */
+  submit(key, text, retry = false) {
+    let stalled = false;
     const write = async () => {
+      if (retry) {
+        // A moment for the window holding the lock; a newer draft replaces this one.
+        await new Promise(resolve => setTimeout(resolve, Math.min(this.patience, 1000)));
+        if (this.queuedKey !== key || this.closing) return false;
+      }
       if (this.conflicted) return false;
       if (this.disabled) { if (!this.closing) this.onWarning(WARNING); return false; }
       // The wait for the lock is bounded too: a window that never gives it
@@ -96,8 +110,9 @@ export class PhysicalStore {
         });
       } catch (error) {
         // A lock that did not come free in time is a stall, not a browser
-        // that cannot save: the next edit tries again.
+        // that cannot save: this snapshot is tried again.
         if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
+          stalled = true;
           if (!this.closing) this.onWarning(STALLED);
           return false;
         }
@@ -108,9 +123,16 @@ export class PhysicalStore {
     };
     // Capture each submitted snapshot; later edits cannot mutate its queued
     // contents. Already submitted saves finish after the mode is closed.
-    this.lastSave = pending.then(write, write);
-    pending = this.lastSave;
-    return this.lastSave;
+    const attempt = pending.then(write, write);
+    pending = attempt;
+    this.lastSave = attempt;
+    void attempt.then(saved => {
+      // A newer draft, or a reread record, owns the queue from here on.
+      if (saved || this.queuedKey !== key || this.lastSave !== attempt) return;
+      if (stalled && !this.closing && !this.conflicted && !this.disabled) this.submit(key, text, true);
+      else this.queuedKey = null;
+    });
+    return attempt;
   }
 
   changed(event) {

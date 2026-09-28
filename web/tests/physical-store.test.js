@@ -121,8 +121,11 @@ test('a save stuck behind a lock does not keep the next editor from opening', as
   const env = environment(encoded(emptyPosition()));
   const blocked = make(env);
   await blocked.read();
-  // The lock is never granted: another window holds it and never lets go.
-  env.locks.request = () => new Promise(() => {});
+  // The lock is not granted while this test runs: another window holds it
+  // and ignores the timeout. It is released at the end, because this
+  // window's writes share one queue and later tests must be able to save.
+  let release;
+  env.locks.request = () => new Promise(resolve => { release = resolve; });
   const edited = emptyPosition(); edited.wall = 42;
   void blocked.save(edited);
   const warnings = [];
@@ -131,4 +134,92 @@ test('a save stuck behind a lock does not keep the next editor from opening', as
   assert.equal(position.wall, 69, 'the draft on record, not the one still saving');
   assert.match(warnings.at(-1), /still waiting for the browser lock/);
   assert.equal(next.disabled, false, 'a stall is not a browser that cannot save');
+  blocked.close(); next.close();
+  release(false);
+});
+
+/** Another window holds the lock while `held()` is true: the request waits
+ * until its timeout signal gives up, as the Web Locks API does. */
+function contested(env, held) {
+  const request = env.locks.request;
+  env.locks.request = async (name, options, callback) => {
+    if (held()) {
+      await new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
+    }
+    return request(name, options, callback);
+  };
+}
+const stored = env => JSON.parse(env.storage.getItem(PHYSICAL_KEY)).position;
+async function until(condition, ms = 2000) {
+  const deadline = Date.now() + ms;
+  while (!condition()) {
+    assert.ok(Date.now() < deadline, 'timed out waiting for the retried save');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
+
+test('a stalled save of the final edit is retried, and saving the same draft again waits for it', async () => {
+  const env = environment(encoded(emptyPosition())), warnings = [];
+  let held = true;
+  contested(env, () => held);
+  const store = make(env, { patience: 30, onWarning: message => warnings.push(message) });
+  const position = await store.read();
+  position.wall = 42; // The user's last edit: nothing will change after it.
+  assert.equal(await store.save(structuredClone(position)), false, 'the first attempt stalls');
+  assert.match(warnings.at(-1), /still waiting for the browser lock/);
+  held = false; // The other window lets go.
+  // The editor's effect saves the same draft again when it reruns.
+  assert.equal(await store.save(structuredClone(position)), true, 'not the old failure');
+  assert.equal(stored(env).wall, 42);
+  assert.equal(warnings.at(-1), '', 'the warning clears once it is written');
+  store.close();
+});
+
+test('a stalled final edit is written once the lock comes free, without another save', async () => {
+  const env = environment(encoded(emptyPosition()));
+  let attempts = 0;
+  contested(env, () => ++attempts <= 2);
+  const store = make(env, { patience: 20 });
+  const position = await store.read();
+  position.wall = 42;
+  assert.equal(await store.save(structuredClone(position)), false);
+  await until(() => stored(env).wall === 42);
+  assert.equal(attempts, 3, 'retried until the lock was granted, then no more');
+  store.close();
+});
+
+test('a stall retry yields to a newer draft and stops when the editor closes', async () => {
+  const env = environment(encoded(emptyPosition()));
+  let held = true;
+  contested(env, () => held);
+  const store = make(env, { patience: 20 });
+  const position = await store.read();
+  assert.equal(await store.save({ ...position, wall: 42 }), false);
+  const newer = store.save({ ...position, wall: 41 });
+  held = false;
+  assert.equal(await newer, true);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(stored(env).wall, 41, 'the older draft is never written after the newer one');
+  held = true;
+  assert.equal(await store.save({ ...position, wall: 40 }), false);
+  store.close();
+  held = false;
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(stored(env).wall, 41, 'a closed editor stops retrying');
+});
+
+test('a failed write lets a later save of the same draft try again', async () => {
+  const env = environment(encoded(emptyPosition())), store = make(env);
+  const position = await store.read();
+  position.wall = 42;
+  const setItem = env.storage.setItem;
+  let full = true;
+  env.storage.setItem = (key, value) => { if (full) throw new Error('Full'); setItem(key, value); };
+  assert.equal(await store.save(structuredClone(position)), false);
+  // Storage that failed disables saving, so the retry is refused honestly
+  // rather than answered from the cached failure of the first attempt.
+  full = false;
+  assert.equal(await store.save(structuredClone(position)), false);
+  assert.equal(store.queuedKey, null, 'the unsaved draft is not remembered as queued');
+  store.close();
 });
