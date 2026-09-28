@@ -140,6 +140,21 @@ try {
     assert.deepEqual(await page.evaluate(({ physical, match }) => [localStorage.getItem(physical), localStorage.getItem(match)], { physical: PHYSICAL_KEY, match: SAVE_KEY }), ['existing position editor draft', 'existing regular match']);
     assert.deepEqual(page.problems, []);
   });
+  await check('a negative score keeps its minus sign while it is typed', async context => {
+    const page = await open(context);
+    const field = '[aria-label="Your points"]';
+    // Replace the whole value the usual way: select it, then type. Before
+    // the fix the lone minus emptied the field and this saved 500.
+    await page.focus(field);
+    await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
+    await page.keyboard.type('-500');
+    await page.waitForFunction(key => {
+      const position = JSON.parse(localStorage.getItem(key))?.game.state.position;
+      return position?.players[position.seat].score === -500;
+    }, {}, GUIDED_KEY);
+    assert.equal(await page.$eval(field, el => el.value), '-500');
+    assert.deepEqual(page.problems, []);
+  });
   await check('mobile guided play offers every adviser and honours a saved trained preference', async context => {
     const page = await open(context, 360), modelRequests = [];
     // The network is not a file of this site any more: it comes from the

@@ -162,12 +162,12 @@
         <p>Start with your points and seat wind. Then enter your first 13 tiles and the dora indicator.</p>
         <div class="fields">
           <label>Your seat<select aria-label="Your seat" value={position.seat} onchange={e => edit(s => { s.position.seat = Number(e.currentTarget.value); })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
-          <label>Your points<input aria-label="Your points" type="number" step="100" value={mine.score} oninput={e => edit(s => { s.position.players[s.position.seat].score = e.currentTarget.value === '' ? null : Number(e.currentTarget.value); })} /></label>
+          <label>Your points<input aria-label="Your points" type="number" step="100" bind:value={() => mine.score, value => edit(s => { s.position.players[s.position.seat].score = value ?? null; })} /></label>
         </div>
         <details><summary>Round, other scores and sticks</summary><div class="fields">
           <label>Round wind<select value={position.round} onchange={e => edit(s => { s.position.round = Number(e.currentTarget.value); })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
-          {#each [['kyoku', 'Hand number', 1, 4], ['counters', 'Honba', 0, 100], ['riichi_sticks', 'Riichi sticks', 0, 100]] as [key, label, min, max] (key)}<label>{label}<input type="number" {min} {max} value={position[key]} oninput={e => edit(s => { s.position[key] = e.currentTarget.value === '' ? null : Number(e.currentTarget.value); })} /></label>{/each}
-          {#each position.players as player, i (i)}{#if i !== position.seat}<label>{WINDS[i]} points<input type="number" step="100" value={player.score} oninput={e => edit(s => { s.position.players[i].score = e.currentTarget.value === '' ? null : Number(e.currentTarget.value); })} /></label>{/if}{/each}
+          {#each [['kyoku', 'Hand number', 1, 4], ['counters', 'Honba', 0, 100], ['riichi_sticks', 'Riichi sticks', 0, 100]] as [key, label, min, max] (key)}<label>{label}<input type="number" {min} {max} bind:value={() => position[key], value => edit(s => { s.position[key] = value ?? null; })} /></label>{/each}
+          {#each position.players as player, i (i)}{#if i !== position.seat}<label>{WINDS[i]} points<input type="number" step="100" bind:value={() => player.score, value => edit(s => { s.position.players[i].score = value ?? null; })} /></label>{/if}{/each}
         </div></details>
         <button class="primary" onclick={() => act({ type: 'setup' })}>Next · starting tiles</button>
       {:else if state.stage === 'hand'}
@@ -217,8 +217,8 @@
         {:else}
           <p>This is a legacy or manually adjudicated hand end. Automatic scoring has not been applied.</p>
         <p>Settle points at the physical table, then enter the resulting scores and remaining riichi sticks.</p>
-        <div class="fields">{#each position.players as player, i (i)}<label>{WINDS[i]} points<input aria-label={`${WINDS[i]} settled points`} type="number" step="100" value={player.score} oninput={e => edit(s => { s.position.players[i].score = e.currentTarget.value === '' ? null : Number(e.currentTarget.value); })} /></label>{/each}
-          <label>Riichi sticks remaining<input aria-label="Riichi sticks remaining" type="number" min="0" max="100" value={position.riichi_sticks} oninput={e => edit(s => { s.position.riichi_sticks = e.currentTarget.value === '' ? null : Number(e.currentTarget.value); })} /></label>
+        <div class="fields">{#each position.players as player, i (i)}<label>{WINDS[i]} points<input aria-label={`${WINDS[i]} settled points`} type="number" step="100" bind:value={() => player.score, value => edit(s => { s.position.players[i].score = value ?? null; })} /></label>{/each}
+          <label>Riichi sticks remaining<input aria-label="Riichi sticks remaining" type="number" min="0" max="100" bind:value={() => position.riichi_sticks, value => edit(s => { s.position.riichi_sticks = value ?? null; })} /></label>
         </div><div class="buttons"><button class="primary" onclick={() => act({ type: 'next-hand', repeat: false })}>Next hand · dealer moves</button><button onclick={() => act({ type: 'next-hand', repeat: true })}>Next hand · dealer repeats</button></div>
         {/if}
       {/if}
