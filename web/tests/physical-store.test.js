@@ -139,12 +139,20 @@ test('a save stuck behind a lock does not keep the next editor from opening', as
 });
 
 /** Another window holds the lock while `held()` is true: the request waits
- * until its timeout signal gives up, as the Web Locks API does. */
+ * until its timeout signal gives up, as the Web Locks API does. Node does not
+ * let `AbortSignal.timeout` keep the process alive, so the wait holds a timer
+ * of its own, as an open page would; without it the test runner can find the
+ * event loop empty and fail the test mid-wait. */
 function contested(env, held) {
   const request = env.locks.request;
   env.locks.request = async (name, options, callback) => {
     if (held()) {
-      await new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
+      const alive = setInterval(() => {}, 10);
+      try {
+        await new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
+      } finally {
+        clearInterval(alive);
+      }
     }
     return request(name, options, callback);
   };
