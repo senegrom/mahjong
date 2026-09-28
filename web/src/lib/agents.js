@@ -34,10 +34,10 @@ export async function evaluateAgent(engine, agent, signal) {
     let { action, weights, value, hands } = await analyzePolicy(
       engine.agent_observation_mortal(), engine.agent_mask_mortal(), signal,
     );
-    let afterReach = false;
+    let afterReach = false, reachWeights = null;
     if (action === MORTAL_REACH) {
       afterReach = true;
-      ({ action } = await analyzePolicy(
+      ({ action, weights: reachWeights } = await analyzePolicy(
         engine.agent_observation_after_reach(), engine.agent_mask_after_reach(), signal,
       ));
     }
@@ -49,7 +49,8 @@ export async function evaluateAgent(engine, agent, signal) {
       // thinks the hand is worth, and what it thinks the other three hold.
       value: readValue(value),
       beliefs: hands ? readBeliefs(hands, concealedCounts(engine)) : null,
-      choices: weightsByChoice(engine, choices, weights, action => engine.agent_action_from_mortal(action, false))
+      choices: weightsByChoice(engine, choices, weights, action => engine.agent_action_from_mortal(action, false),
+        reachWeights ? { weights: reachWeights, fromMortal: action => engine.agent_action_from_mortal(action, true) } : null)
         .sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1) || (a.index ?? 99) - (b.index ?? 99)) };
   }
   if (!(agent in AGENTS)) throw new Error('Unknown agent');
