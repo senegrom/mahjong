@@ -19,10 +19,10 @@ old_images = {p: sha(p.read_bytes()) for p in (root / 'web/public/tiles').rglob(
               if p.is_file() and p.suffix in {'.svg', '.png', '.webp'}}
 old_sources = {e['source']: sha((root / e['source']).read_bytes()) for e in old_manifest['sources']}
 
-def replace(text, before, after):
-    if text.count(before) != 1:
+def replace(text, before, after, expected=1):
+    if text.count(before) != expected:
         raise ValueError(f'Review changed file before applying: {before!r}')
-    return text.replace(before, after, 1)
+    return text.replace(before, after, expected)
 
 script_path = root / 'web/scripts/export-van-gogh-tiles.mjs'
 script = script_path.read_text()
@@ -48,7 +48,8 @@ tests = tests_path.read_text()
 tests = replace(tests, "'4z', '2m', '4m', '2s'];", "'4z', '2m', '4m', '2s', '4s'];")
 tests = replace(tests, "'Characters C', 'Bamboo B (green)']);", "'Characters C', 'Bamboo B (green)', 'Bamboo C (green)']);")
 tests = replace(tests, "url.startsWith('tiles/van-gogh/')).length, 15", "url.startsWith('tiles/van-gogh/')).length, 16")
-tests = replace(tests, 'assert.equal(set.remaining.length, 19);', 'assert.equal(set.remaining.length, 18);')
+tests = replace(tests, 'assert.equal(set.remaining.length, 19);', 'assert.equal(set.remaining.length, 18);', expected=2)
+tests = replace(tests, 'assert.equal(set.tiles.length, 15);', 'assert.equal(set.tiles.length, 16);')
 tests = replace(tests, "for (const tile of ['1z', '4z', '2m', '4m', '2s', '3s'])", "for (const tile of ['1z', '4z', '2m', '4m', '2s', '3s', '4s'])")
 tests += r'''
 
