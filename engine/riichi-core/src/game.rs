@@ -62,10 +62,11 @@ pub struct Player {
     pub temporary_furiten: bool,
     /// Where the riichi declaration falls in the hand's order of discards.
     pub riichi_order: Option<u32>,
-    /// Who fed this player their third called dragon set, and so answers for
-    /// a Big Three Dragons (EMA section 3.3.7).
+    /// Who fed this player the last of three called dragon sets, and so
+    /// answers for a Big Three Dragons (EMA section 3.3.7); see
+    /// [`Player::liability`].
     pub liable_for_dragons: Option<Wind>,
-    /// Who fed this player their fourth called wind set.
+    /// Who fed this player the last of four called wind sets.
     pub liable_for_winds: Option<Wind>,
 }
 
@@ -142,6 +143,45 @@ impl Player {
         } else {
             from_discards
         };
+    }
+
+    /// Who answers for this player's Big Three Dragons and who for their
+    /// Big Four Winds, if anyone (EMA section 3.3.7): whoever fed the set
+    /// that made the third dragon triplet or quad, or the fourth wind one,
+    /// when that set was claimed from their discard.
+    ///
+    /// The sets are read in the order they were declared, and every quad
+    /// counts towards the three or four, a concealed one too, since a quad
+    /// is declared by calling "kan" (section 3.3.4) and so is called before
+    /// the last set is fed. But nobody feeds a concealed quad, so a hand
+    /// whose last such set is its own concealed quad answers to nobody; a
+    /// sequence holds no honour, so a later chii never names anyone; and a
+    /// triplet extended to a quad keeps its place and its feeder, since the
+    /// feed was the triplet.
+    pub fn liability(&self) -> (Option<Wind>, Option<Wind>) {
+        let mut dragons = 0;
+        let mut winds = 0;
+        let mut liable = (None, None);
+        for meld in self.melds.iter().filter(|meld| meld.is_triplet_or_quad()) {
+            let feeder = match meld.from {
+                ClaimedFrom::Right => Some(self.seat.plus(1)),
+                ClaimedFrom::Across => Some(self.seat.plus(2)),
+                ClaimedFrom::Left => Some(self.seat.plus(3)),
+                ClaimedFrom::SelfDrawn => None,
+            };
+            if meld.tile.is_dragon() {
+                dragons += 1;
+                if dragons == 3 {
+                    liable.0 = feeder;
+                }
+            } else if meld.tile.is_wind() {
+                winds += 1;
+                if winds == 4 {
+                    liable.1 = feeder;
+                }
+            }
+        }
+        liable
     }
 }
 
@@ -1133,7 +1173,7 @@ impl Hand {
             },
             Call::Ron | Call::Pass => unreachable!("handled before"),
         });
-        self.note_liability(seat, from);
+        self.note_liability(seat);
         if matches!(call, Call::Kan) {
             self.finish_quad_draw();
         } else {
@@ -1143,29 +1183,20 @@ impl Hand {
         }
     }
 
-    /// Notices when a call hands a player the last of the three dragon sets
-    /// or four wind sets, which makes the feeder answer for the yakuman
-    /// (EMA section 3.3.7).
-    fn note_liability(&mut self, seat: Wind, from: Wind) {
-        let player = &self.players[seat.index()];
-        let called = |pick: fn(&Tile) -> bool| {
-            player
-                .melds
-                .iter()
-                .filter(|meld| meld.kind.opens_hand() && meld.is_triplet_or_quad())
-                .filter(|meld| pick(&meld.tile))
-                .count()
-        };
-        let dragons = called(|tile| tile.is_dragon());
-        let winds = called(|tile| tile.is_wind());
+    /// Notices when a claim hands a player the last of the three dragon
+    /// sets or four wind sets, which makes the feeder answer for the yakuman
+    /// (EMA section 3.3.7). Only a triplet or quad just claimed can be that
+    /// set and name its feeder ([`Player::liability`]); once named, a later
+    /// call cannot move the liability, and a set completed by the player's
+    /// own concealed quad names nobody however many calls follow.
+    fn note_liability(&mut self, seat: Wind) {
+        let (dragons, winds) = self.players[seat.index()].liability();
         let player = self.player_mut(seat);
-        // A later call for the fourth, unrelated set must not replace the
-        // player who fed the third dragon set.
-        if dragons == 3 && player.liable_for_dragons.is_none() {
-            player.liable_for_dragons = Some(from);
+        if player.liable_for_dragons.is_none() {
+            player.liable_for_dragons = dragons;
         }
-        if winds == 4 && player.liable_for_winds.is_none() {
-            player.liable_for_winds = Some(from);
+        if player.liable_for_winds.is_none() {
+            player.liable_for_winds = winds;
         }
     }
 
@@ -2193,6 +2224,159 @@ mod tests {
                 }
             );
         }
+    }
+
+    /// Everybody's change in points since `before`.
+    fn moved(hand: &Hand, before: &[i32; 4]) -> [i32; 4] {
+        std::array::from_fn(|index| hand.players[index].score - before[index])
+    }
+
+    /// EMA 2025 section 3.3.7 with section 3.3.4: every quad is declared by
+    /// calling "kan", so a concealed quad is one of the sets already called,
+    /// and whoever feeds the third dragon set on top of it answers for the
+    /// hand: alone on a self-draw, and on another player's discard half each
+    /// with the discarder, who alone pays the counters.
+    #[test]
+    fn a_concealed_dragon_quad_counts_among_the_called_sets() {
+        let tile = |text: &str| -> Tile { text.parse().unwrap() };
+        for self_draw in [true, false] {
+            let mut hand = fresh();
+            hand.counters = 2;
+            // South holds a concealed quad of white and a called triplet of
+            // green; West discards red and South takes it.
+            hand.players[1].melds = vec![
+                Meld::concealed_kan(tile("5z")),
+                Meld::pon(tile("6z"), ClaimedFrom::Left),
+            ];
+            hand.players[1].hand = "77z23m99p5s".parse().unwrap();
+            hand.players[2].hand = "7z".parse().unwrap();
+            hand.turn = Wind::West;
+            hand.phase = Phase::Act;
+            hand.drawn = None;
+            hand.discard(tile("7z"), false);
+            hand.resolve_calls(&[(Wind::South, Call::Pon)]).unwrap();
+            assert_eq!(hand.players[1].liable_for_dragons, Some(Wind::West));
+
+            // South throws 5s and waits on 1m-4m.
+            hand.players[1].hand = "23m99p".parse().unwrap();
+            let before = hand.scores();
+            if self_draw {
+                hand.players[1].hand.add(tile("4m"));
+                hand.turn = Wind::South;
+                hand.phase = Phase::Act;
+                hand.drawn = Some(tile("4m"));
+                hand.just_claimed = None;
+                hand.act(Action::Tsumo).unwrap();
+                assert_eq!(moved(&hand, &before), [0, 32600, -32600, 0]);
+            } else {
+                // North deals in: North pays half and the counters.
+                hand.players[3].hand = "4m".parse().unwrap();
+                hand.turn = Wind::North;
+                hand.phase = Phase::Act;
+                hand.drawn = None;
+                hand.just_claimed = None;
+                hand.discard(tile("4m"), false);
+                hand.resolve_calls(&[(Wind::South, Call::Ron)]).unwrap();
+                assert_eq!(moved(&hand, &before), [0, 32600, -16000, -16600]);
+            }
+            match &hand.outcome {
+                Some(Outcome::Win { winners, .. }) => {
+                    assert_eq!(winners[0].1.limit, Some(crate::score::Limit::Yakuman))
+                }
+                other => panic!("expected a win, got {other:?}"),
+            }
+        }
+    }
+
+    /// When the last dragon set is the player's own concealed quad nobody
+    /// fed it, so nobody answers for the hand, and a sequence claimed after
+    /// it cannot make its feeder answer either.
+    #[test]
+    fn a_hand_completed_by_its_own_concealed_quad_answers_to_nobody() {
+        let tile = |text: &str| -> Tile { text.parse().unwrap() };
+        let mut hand = fresh();
+        hand.players[1].melds = vec![
+            Meld::pon(tile("5z"), ClaimedFrom::Left),
+            Meld::pon(tile("6z"), ClaimedFrom::Across),
+        ];
+        hand.players[1].hand = "7777z23m9p5s".parse().unwrap();
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+        hand.drawn = Some(tile("7z"));
+        hand.just_claimed = None;
+        hand.act(Action::ConcealedKan(tile("7z"))).unwrap();
+        assert_eq!(hand.players[1].melds.len(), 3);
+        assert_eq!(hand.players[1].liable_for_dragons, None);
+
+        // South throws what the quad drew and later takes East's 4m for 2-3-4m.
+        hand.players[1].hand = "23m9p5s".parse().unwrap();
+        hand.players[0].hand = "4m".parse().unwrap();
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+        hand.drawn = None;
+        hand.just_claimed = None;
+        hand.discard(tile("4m"), false);
+        hand.resolve_calls(&[(Wind::South, Call::Chii(tile("2m")))])
+            .unwrap();
+        assert_eq!(hand.players[1].melds.len(), 4);
+        assert_eq!(
+            hand.players[1].liable_for_dragons, None,
+            "a sequence claimed after the last dragon set names nobody"
+        );
+
+        // South throws 5s and draws the second 9p: an ordinary self-draw.
+        hand.players[1].hand = "99p".parse().unwrap();
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+        hand.drawn = Some(tile("9p"));
+        hand.just_claimed = None;
+        let before = hand.scores();
+        hand.act(Action::Tsumo).unwrap();
+        assert_eq!(moved(&hand, &before), [-16000, 32000, -8000, -8000]);
+    }
+
+    /// The same for Big Four Winds, and a triplet extended to a quad
+    /// afterwards is no new feed: the liability stays where it was.
+    #[test]
+    fn a_concealed_wind_quad_counts_among_the_called_sets() {
+        let tile = |text: &str| -> Tile { text.parse().unwrap() };
+        let mut hand = fresh();
+        hand.players[1].melds = vec![
+            Meld::concealed_kan(tile("1z")),
+            Meld::pon(tile("2z"), ClaimedFrom::Left),
+            Meld::pon(tile("3z"), ClaimedFrom::Across),
+        ];
+        hand.players[1].hand = "44z9p5s".parse().unwrap();
+        hand.players[2].hand = "4z".parse().unwrap();
+        hand.turn = Wind::West;
+        hand.phase = Phase::Act;
+        hand.drawn = None;
+        hand.discard(tile("4z"), false);
+        hand.resolve_calls(&[(Wind::South, Call::Pon)]).unwrap();
+        assert_eq!(hand.players[1].liable_for_winds, Some(Wind::West));
+
+        // South throws 5s, later draws the last south wind and extends.
+        hand.players[1].hand = "2z9p".parse().unwrap();
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+        hand.drawn = Some(tile("2z"));
+        hand.just_claimed = None;
+        hand.act(Action::ExtendedKan(tile("2z"))).unwrap();
+        if hand.phase == Phase::CallWindow {
+            hand.resolve_calls(&[]).unwrap();
+        }
+        assert_eq!(hand.players[1].liable_for_winds, Some(Wind::West));
+
+        hand.players[1].hand = "99p".parse().unwrap();
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+        hand.drawn = Some(tile("9p"));
+        hand.just_claimed = None;
+        let before = hand.scores();
+        hand.act(Action::Tsumo).unwrap();
+        let moved = moved(&hand, &before);
+        assert!(moved[1] >= 32000, "a yakuman: {moved:?}");
+        assert_eq!(moved, [0, moved[1], -moved[1], 0], "West pays it all");
     }
 
     #[test]

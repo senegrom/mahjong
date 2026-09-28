@@ -194,35 +194,12 @@ fn settle(ending: Ending, input: Input) -> Result<Settlement, String> {
 
     let (mut hand, _) = p.build_selected(false)?;
     hand.bets_this_hand = riichi_before.map(u32::from);
-    // Melds retain chronological call order and source. Reconstruct the
-    // responsibility flags that Hand normally records as those calls happen.
+    // Melds retain chronological call order and source, so the engine's
+    // own reading of them restores the responsibility flags Hand records as
+    // those calls happen: concealed quads count among the called sets, and
+    // only a claimed set that completes them names its feeder.
     for player in &mut hand.players {
-        let mut dragons = 0;
-        let mut winds = 0;
-        for meld in &player.melds {
-            if !meld.kind.opens_hand() || !meld.is_triplet_or_quad() {
-                continue;
-            }
-            let offset = match meld.from {
-                ClaimedFrom::Right => 1,
-                ClaimedFrom::Across => 2,
-                ClaimedFrom::Left => 3,
-                ClaimedFrom::SelfDrawn => continue,
-            };
-            let feeder = wind((player.seat.index() + offset) % 4)?;
-            if meld.tile.is_dragon() {
-                dragons += 1;
-                if dragons == 3 {
-                    player.liable_for_dragons = Some(feeder);
-                }
-            }
-            if meld.tile.is_wind() {
-                winds += 1;
-                if winds == 4 {
-                    player.liable_for_winds = Some(feeder);
-                }
-            }
-        }
+        (player.liable_for_dragons, player.liable_for_winds) = player.liability();
     }
 
     let reveal_ura = !draw && winners.iter().any(|i| riichi_before[*i]);
@@ -417,5 +394,61 @@ fn win_result(hand: &Hand, seat: Wind, score: &Score, ron: bool) -> WinResult {
             Vec::new()
         },
         hand_payment: score.payments.total,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// North wins Big Three Dragons by self-draw at a physical table, with
+    /// two counters on the table, holding `melds` in the order they were
+    /// declared: green claimed from South's pond across the table, red from
+    /// West's on the left, and a concealed quad of white, whose kan turned
+    /// a second indicator; as the guided game enters them.
+    fn big_three_dragons(melds: serde_json::Value) -> Settlement {
+        let empty = json!({"hand": [], "melds": [], "discards": [], "score": 30000,
+            "riichi": "none", "ippatsu": false, "furiten": false});
+        let mut players = vec![empty.clone(), empty.clone(), empty.clone(), empty];
+        players[3]["hand"] = json!(["1m", "2m", "3m", "2p", "2p"]);
+        players[3]["melds"] = melds;
+        let claimed = |tile: &str, order: u32| json!([{"tile": tile, "order": order, "drawn": false, "riichi": false, "claimed": true}]);
+        players[1]["discards"] = claimed("6z", 1);
+        players[2]["discards"] = claimed("7z", 2);
+        let ending: Ending = serde_json::from_value(json!({
+            "position": {"seat": 3, "turn": 3, "phase": "act", "round": 0, "kyoku": 1,
+                "counters": 2, "riichi_sticks": 0, "wall": 50, "indicators": ["8m", "9m"],
+                "players": players, "drawn": "2p", "pending": null, "pending_kind": "discard",
+                "just_claimed": null, "after_quad": false, "first_turns": false},
+            "kind": "tsumo", "nextSeat": 3, "needsDraw": false, "winners": [3]
+        }))
+        .unwrap();
+        let input = Input {
+            winners: vec![3],
+            ..Input::default()
+        };
+        settle(ending, input).unwrap()
+    }
+
+    /// EMA 2025 section 3.3.7 with section 3.3.4, as the engine reads them:
+    /// a concealed quad is one of the called sets, so West, whose red
+    /// completed the three, pays North's whole yakuman; when the concealed
+    /// quad is itself the last set nobody fed it, and the hand is paid as
+    /// any other self-draw.
+    #[test]
+    fn a_concealed_dragon_quad_counts_among_the_called_sets() {
+        let fed = big_three_dragons(json!([
+            {"kind": "concealed-kan", "tile": "5z", "from": 0},
+            {"kind": "pon", "tile": "6z", "from": 2},
+            {"kind": "pon", "tile": "7z", "from": 3}
+        ]));
+        assert_eq!(fed.deltas, [0, 0, -32600, 32600]);
+        let own = big_three_dragons(json!([
+            {"kind": "pon", "tile": "6z", "from": 2},
+            {"kind": "pon", "tile": "7z", "from": 3},
+            {"kind": "concealed-kan", "tile": "5z", "from": 0}
+        ]));
+        assert_eq!(own.deltas, [-16200, -8200, -8200, 32600]);
     }
 }
