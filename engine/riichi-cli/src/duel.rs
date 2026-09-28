@@ -7,47 +7,13 @@
 //! across the four seatings is the error bar on the answer.
 
 use riichi_core::bot::{Bot, Style};
-use riichi_core::game::{Action, Call, Hand, Phase};
+use riichi_core::game::{Call, Phase};
 use riichi_core::rng::Rng;
-use riichi_core::search::{Effort, Searcher};
 use riichi_core::table::Table;
 use riichi_core::Wind;
 
-/// A player in a duel: the heuristic one, or the same one thinking ahead.
-enum Player {
-    /// Answers from the position, without playing anything out.
-    Quick(Bot),
-    /// Plays its candidate moves out in imagined worlds first.
-    Thinking(Searcher),
-}
-
-impl Player {
-    fn new(seed: u64, style: Style, effort: Option<Effort>) -> Player {
-        match effort {
-            Some(effort) => Player::Thinking(Searcher::new(seed, effort)),
-            None => Player::Quick(Bot::with_style(seed, style)),
-        }
-    }
-
-    fn act(&mut self, hand: &Hand) -> Action {
-        match self {
-            Player::Quick(bot) => bot.act(hand),
-            Player::Thinking(searcher) => searcher.act(hand),
-        }
-    }
-
-    fn call(&mut self, hand: &Hand, seat: Wind, offered: &[Call]) -> Call {
-        match self {
-            Player::Quick(bot) => bot.call(hand, seat, offered),
-            Player::Thinking(searcher) => searcher.call(hand, seat, offered),
-        }
-    }
-}
-
 /// What one seating came to.
 struct Seating {
-    /// How often the search changed the player's mind, when there was one.
-    tally: riichi_core::search::Tally,
     placement: f64,
     score: f64,
     wins: f64,
@@ -68,28 +34,21 @@ fn play_seating(
     chair: usize,
     challenger: Style,
     defender: Style,
-    thinking: Option<Effort>,
 ) -> Seating {
     let mut placements = 0.0;
     let mut scores = 0.0;
     let mut firsts = 0.0;
     let mut per_game = Vec::with_capacity(games);
-    let mut tally = riichi_core::search::Tally::default();
 
     for game in 0..games {
         // The same seed gives the same deals whichever seat is challenged,
         // so the two styles meet the same tiles.
         let mut rng = Rng::from_seed(seed.wrapping_add(game as u64));
         let mut table = Table::new();
-        let mut bots: Vec<Player> = (0..4)
+        let mut bots: Vec<Bot> = (0..4)
             .map(|index| {
-                let mine = index == chair;
-                let style = if mine { challenger } else { defender };
-                Player::new(
-                    seed.wrapping_add(game as u64 * 4 + index as u64),
-                    style,
-                    if mine { thinking } else { None },
-                )
+                let style = if index == chair { challenger } else { defender };
+                Bot::with_style(seed.wrapping_add(game as u64 * 4 + index as u64), style)
             })
             .collect();
 
@@ -128,10 +87,6 @@ fn play_seating(
             }
             table.finish(&hand);
         }
-        if let Player::Thinking(searcher) = &bots[chair] {
-            tally.asked += searcher.tally.asked;
-            tally.overrode += searcher.tally.overrode;
-        }
 
         let final_scores = table.final_scores();
         let mine = final_scores[chair];
@@ -151,7 +106,6 @@ fn play_seating(
     }
 
     Seating {
-        tally,
         placement: placements / games as f64,
         score: scores / games as f64,
         wins: firsts / games as f64,
@@ -160,12 +114,10 @@ fn play_seating(
 }
 
 /// Runs the four seatings and reports what they say.
-pub fn duel(games: usize, seed: u64, challenger: Style, defender: Style, thinking: Option<Effort>) {
+pub fn duel(games: usize, seed: u64, challenger: Style, defender: Style) {
     let mut seatings = Vec::new();
     for chair in 0..4 {
-        seatings.push(play_seating(
-            games, seed, chair, challenger, defender, thinking,
-        ));
+        seatings.push(play_seating(games, seed, chair, challenger, defender));
     }
 
     let mean = |values: &[f64]| values.iter().sum::<f64>() / values.len() as f64;
@@ -194,12 +146,8 @@ pub fn duel(games: usize, seed: u64, challenger: Style, defender: Style, thinkin
     let error = (variance / per_deal.len() as f64).sqrt();
 
     println!("challenger: {challenger:?}");
-    match thinking {
-        Some(effort) => println!("            thinking ahead: {effort:?}"),
-        None => println!("            no search"),
-    }
     println!("defender:   {defender:?}");
-    if challenger == defender && thinking.is_none() {
+    if challenger == defender {
         // Four identical players play identical games whichever seat is
         // called the challenger, and four placements sum to ten, so the
         // average over the four seatings is exactly 2.5 by arithmetic. It
@@ -219,14 +167,6 @@ pub fn duel(games: usize, seed: u64, challenger: Style, defender: Style, thinkin
         "placement {overall:.4} +/- {error:.4} over {} games",
         games * 4
     );
-    let asked: usize = seatings.iter().map(|row| row.tally.asked).sum();
-    let overrode: usize = seatings.iter().map(|row| row.tally.overrode).sum();
-    if asked > 0 {
-        println!(
-            "the search was asked {asked} times and changed its mind {overrode}, {:.1}%",
-            overrode as f64 / asked as f64 * 100.0
-        );
-    }
     println!(
         "score {:+.0}, wins {:.3}",
         mean(&seatings.iter().map(|row| row.score).collect::<Vec<f64>>()),

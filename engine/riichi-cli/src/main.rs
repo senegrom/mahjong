@@ -26,7 +26,6 @@ use riichi_core::bot::{Bot, Style};
 use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
 use riichi_core::mjai;
 use riichi_core::rng::Rng;
-use riichi_core::search::Effort;
 use riichi_core::table::Table;
 use riichi_core::tile::{Tile, COPIES, KINDS};
 use riichi_core::{TileSet, Wind};
@@ -76,24 +75,12 @@ fn main() -> ExitCode {
             } else {
                 defender.dora_worth = challenger.dora_worth;
             }
-            // With --worlds the challenger plays its candidates out first.
-            let thinking = value(&args, "--worlds").map(|worlds| Effort {
-                worlds,
-                candidates: value(&args, "--candidates").unwrap_or(5),
-                turns: value(&args, "--turns"),
-                // Given as tenths, so --margin 20 is two standard errors.
-                margin: value(&args, "--margin").unwrap_or(20) as f64 / 10.0,
-                hurried: args.iter().any(|arg| arg == "--hurried"),
-                boundary: false,
-            });
-            duel::duel(games, seed, challenger, defender, thinking);
+            duel::duel(games, seed, challenger, defender);
             ExitCode::SUCCESS
         }
         _ => {
             println!("usage: riichi-cli <arena|fuzz|hand|log|dump|duel> [--games N] [--seed N]");
-            println!(
-                "  duel also takes [--dora-worth N] [--defender-dora N] [--worlds N] [--candidates N] [--turns N]"
-            );
+            println!("  duel also takes [--dora-worth N] [--defender-dora N]");
             ExitCode::SUCCESS
         }
     }

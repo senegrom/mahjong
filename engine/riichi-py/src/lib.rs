@@ -507,92 +507,6 @@ impl Arena {
         PyBytes::new(py, bytemuck_cast(&self.hands))
     }
 
-    /// Searches every live game and returns the move each came to.
-    ///
-    /// `ranked` holds, for every game, the network's moves in the order it
-    /// prefers them, as `ACTIONS` indices; only the first `candidates` of
-    /// the legal ones are played out. `beliefs` holds, for every game,
-    /// three rows of thirty-four weights saying what the network takes each
-    /// opponent to be holding.
-    ///
-    /// The first move on the list is the one to beat: the network's opinion
-    /// is worth something, so a rollout has to beat it by `margin` standard
-    /// errors of the paired difference before it is taken. Without that the
-    /// search keeps whichever candidate the rollouts smiled on, which is
-    /// worse than not searching at all.
-    ///
-    /// Games where nobody owes a decision come back as [`PASS`].
-    #[pyo3(signature = (ranked, beliefs, worlds=10, candidates=4, margin=2.0, hurried=false))]
-    fn search(
-        &mut self,
-        ranked: Vec<Vec<usize>>,
-        beliefs: Vec<f32>,
-        worlds: usize,
-        candidates: usize,
-        margin: f64,
-        hurried: bool,
-    ) -> Vec<usize> {
-        let effort = search::Effort {
-            worlds,
-            candidates,
-            turns: None,
-            margin,
-            hurried,
-            boundary: false,
-        };
-        let games = self.seats.len();
-        assert_eq!(ranked.len(), games, "one ranking per game");
-        assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
-
-        let mut overrode = 0usize;
-        let mut asked = 0usize;
-        let chosen: Vec<usize> = (0..games)
-            .map(|game| {
-                let seat = &mut self.seats[game];
-                let Some(wind) = seat.pending() else {
-                    return PASS;
-                };
-                // Calls are not searched: the branching is small and the
-                // rollout would have to answer for three other players at
-                // the same moment.
-                if !seat.asking.is_empty() {
-                    return ranked[game].first().copied().unwrap_or(PASS);
-                }
-                let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-                // decode_action already refuses anything the engine will
-                // not take, so the shortlist is legal by construction.
-                let shortlist: Vec<Action> = ranked[game]
-                    .iter()
-                    .filter_map(|index| encoding::decode_action(&seat.hand, *index))
-                    .collect();
-                if shortlist.is_empty() {
-                    return ranked[game].first().copied().unwrap_or(PASS);
-                }
-                asked += 1;
-                match search::best(
-                    &seat.hand,
-                    wind,
-                    &shortlist,
-                    effort,
-                    &belief,
-                    &mut seat.search_rng,
-                ) {
-                    Some(judged) => {
-                        let picked = action_to_index(judged.action);
-                        if Some(picked) != ranked[game].first().copied() {
-                            overrode += 1;
-                        }
-                        picked
-                    }
-                    None => ranked[game].first().copied().unwrap_or(PASS),
-                }
-            })
-            .collect();
-        self.searched.asked += asked;
-        self.searched.overrode += overrode;
-        chosen
-    }
-
     /// The first half of a search valued by the network. For every live
     /// game, imagines `worlds` worlds, makes each of the first `candidates`
     /// moves of `ranked` in each, runs the other players round to the
@@ -621,7 +535,6 @@ impl Arena {
         let effort = search::Effort {
             worlds,
             candidates,
-            turns: None,
             margin: 2.0,
             hurried,
             boundary: false,
@@ -774,7 +687,6 @@ impl Arena {
         let effort = search::Effort {
             worlds: 0,
             candidates,
-            turns: None,
             margin: 2.0,
             hurried,
             boundary,
