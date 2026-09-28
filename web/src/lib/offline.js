@@ -147,7 +147,7 @@ async function prepareCore(info) {
 }
 export function startOffline() {
   if (boot) return boot;
-  boot = (async () => {
+  const attempt = (async () => {
     if (import.meta.env.DEV || !('serviceWorker' in navigator) || !('caches' in globalThis) || !isSecureContext) {
       update({ supported: false, phase: 'unavailable', warning: 'Offline saving is unavailable here. Keep a connection for this session.' });
       return null;
@@ -189,12 +189,15 @@ export function startOffline() {
       return null;
     }
   })();
-  return boot;
+  // Only a boot that reached the service worker is kept. One that did not (a
+  // first visit that lost its connection, an install still running, a hard
+  // reload) is tried again by the next caller: a reconnect or return to the
+  // app, or a Trained opponent's retry.
+  boot = attempt;
+  void attempt.then(result => { if (!result && boot === attempt) boot = null; });
+  return attempt;
 }
 export async function refreshOffline() {
-  // A first visit may have lost its connection during installation. The
-  // reconnect/foreground event retries automatically, never via the AI button.
-  if (!worker && state.phase === 'unavailable') boot = null;
   await startOffline();
   if (!worker) return null;
   const info = await prepareCore(await withNetwork(await request('MAHJONG_STATUS')));

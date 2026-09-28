@@ -238,3 +238,16 @@ test('a waiting update is left alone without a Trained request or a connection',
     assert.equal(c.calls.includes('next:MAHJONG_PREPARE_AI'), false);
   }
 });
+
+test('a Trained request after a failed start tries the service worker again', async () => {
+  const c = coordinator({ registered: false, coreReady: true });
+  c.faults.registration = true;
+  assert.equal(await c.api.startOffline(), null);
+  assert.equal(await c.api.prepareOfflineAi(), null, 'still failing: online play, with its warning');
+  assert.equal(c.registrations(), 2, 'a failed start is not handed back');
+  c.faults.registration = false;
+  const info = await c.api.prepareOfflineAi();
+  assert.equal(c.registrations(), 3);
+  assert.equal(info.aiReady, true);
+  assert.equal(c.state().supported, true);
+});

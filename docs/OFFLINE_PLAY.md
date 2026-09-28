@@ -44,9 +44,16 @@ not an already complete game or its graphics.
 
 Selecting any Trained opponent, including in a custom table, downloads and saves
 the complete AI package: model weights, worker code, runtime module and WASM.
-This starts even when the human has the first turn. The inference timer starts
-after the download; abandoning a match detaches its request without cancelling
-shared asset preparation or applying the old response to a replacement match.
+This starts even when the human has the first turn. Abandoning a match detaches
+its request without cancelling shared asset preparation or applying the old
+response to a replacement match.
+
+Loading the network into the opponent's worker is its own phase. Where the page
+could not save the network (no service worker, an installation still running, a
+hard reload, a storage failure), the worker downloads it itself, showing its
+progress. That phase has no fixed deadline: it ends when the worker has reported
+nothing for two minutes. The 20-second deadline for a move starts only once the
+network is loaded. A Retry after a failed start tries offline saving again.
 
 The service worker saves the runtime (a few megabytes); the page saves the
 network itself (over 100 MB). A browser abandons a service-worker event that is

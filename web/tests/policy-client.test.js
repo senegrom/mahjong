@@ -209,3 +209,105 @@ test('a memory ceiling that was found to work survives an ordinary reset', async
   workers.at(-1).answer(workers.at(-1).messages[0].id, { analysis: { action: 0 } });
   await again;
 });
+
+/** The coordinator as the page runs it when offline saving could not hold the
+ * network: the worker downloads it itself. The clock is the test's own. */
+function loadingClient(t) {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const workers = [], notes = [];
+  class Worker {
+    constructor() { this.messages = []; this.terminated = false; workers.push(this); }
+    postMessage(message) { this.messages.push(message); }
+    terminate() { this.terminated = true; }
+    say(id, payload) { this.onmessage({ data: { id, ...payload } }); }
+  }
+  const context = vm.createContext({
+    document: { baseURI: 'https://test.invalid/mahjong/' },
+    URL, DOMException, Worker, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL,
+    // Looked up when called, so the mocked clock drives the coordinator.
+    setTimeout: (...args) => setTimeout(...args), clearTimeout: timer => clearTimeout(timer),
+    networkIsStored: async () => false,
+    prepareOfflineAi: async () => null, // no service worker, a failed start or a storage failure
+  });
+  vm.runInContext(source + '\nglobalThis.api = { chooseAction, reportProgress, resetPolicy, LOADING_SILENCE_MS };', context);
+  context.api.reportProgress(note => notes.push(note));
+  t.after(() => context.api.resetPolicy());
+  const ask = signal => context.api.chooseAction(new Float32Array(34), [1, 1], signal);
+  return { api: context.api, workers, notes, ask, silence: context.api.LOADING_SILENCE_MS };
+}
+
+test('a network still arriving is not cut off by the decision deadline', async t => {
+  const { ask, workers, notes, silence } = loadingClient(t);
+  const decision = ask();
+  await setImmediate();
+  const [worker] = workers, { id } = worker.messages[0];
+  // Ten minutes of a slow download, far past a decision's twenty seconds.
+  for (let percent = 1; percent <= 10; percent++) {
+    worker.say(id, { progress: `downloading the network ${percent}%` });
+    t.mock.timers.tick(silence - 1);
+  }
+  assert.equal(worker.terminated, false, 'the download is not discarded');
+  worker.say(id, { progress: 'network ready', ready: true });
+  worker.say(id, { action: 1 });
+  assert.equal(await decision, 1);
+  assert.ok(notes.includes('downloading the network 10%'), 'the player sees the download');
+});
+
+test('a move is timed once the network is loaded, and a worker that misses it is replaced', async t => {
+  const { ask, workers } = loadingClient(t);
+  const decision = ask(), late = assert.rejects(decision, /did not answer in time/);
+  await setImmediate();
+  const [worker] = workers, { id } = worker.messages[0];
+  worker.say(id, { progress: 'starting the network' });
+  t.mock.timers.tick(60000);
+  assert.equal(worker.terminated, false, 'loading has no decision deadline');
+  worker.say(id, { progress: 'network ready', ready: true });
+  t.mock.timers.tick(19999);
+  assert.equal(worker.terminated, false);
+  t.mock.timers.tick(1);
+  await late;
+  assert.equal(worker.terminated, true);
+  const retry = ask();
+  await setImmediate();
+  assert.equal(workers.length, 2, 'the retry loads a fresh worker');
+  workers[1].say(workers[1].messages[0].id, { progress: 'network ready', ready: true });
+  workers[1].say(workers[1].messages[0].id, { action: 0 });
+  assert.equal(await retry, 0);
+});
+
+test('a loading worker that falls silent is abandoned', async t => {
+  const { ask, workers, silence } = loadingClient(t);
+  const decision = ask(), stalled = assert.rejects(decision, /stopped loading/);
+  await setImmediate();
+  const [worker] = workers, { id } = worker.messages[0];
+  t.mock.timers.tick(silence - 1);
+  worker.say(id, { progress: 'downloading the network 1%' });
+  t.mock.timers.tick(silence - 1);
+  assert.equal(worker.terminated, false, 'each note restarts the silence');
+  t.mock.timers.tick(1);
+  await stalled;
+  assert.equal(worker.terminated, true);
+});
+
+test('a cancelled decision\'s download keeps loading for the next decision', async t => {
+  const { ask, workers, silence } = loadingClient(t);
+  const owner = new AbortController();
+  const cancelled = assert.rejects(ask(owner.signal), { name: 'AbortError' });
+  await setImmediate();
+  const [worker] = workers, { id: first } = worker.messages[0];
+  owner.abort(); await cancelled;
+  const next = ask();
+  await setImmediate();
+  assert.equal(workers.length, 1, 'the worker loading the network stays');
+  const { id: second } = worker.messages.at(-1);
+  for (let i = 0; i < 3; i++) {
+    worker.say(first, { progress: 'downloading the network 50%' });
+    t.mock.timers.tick(silence - 1);
+  }
+  assert.equal(worker.terminated, false);
+  worker.say(first, { progress: 'network ready', ready: true });
+  t.mock.timers.tick(19999);
+  assert.equal(worker.terminated, false, 'the waiting decision is timed from the network being ready');
+  worker.say(second, { action: 1 });
+  assert.equal(await next, 1);
+});

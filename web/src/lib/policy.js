@@ -10,7 +10,15 @@ import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
  * back into moves it can play. One network ships, so every request names it.
  */
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
+// Two phases, two deadlines. Loading the network into a fresh worker can mean
+// downloading 116 MB, which takes minutes on a slow link, so it is bounded by
+// silence: a worker that reports nothing for this long has stalled. Only a
+// worker holding the network is given a decision's deadline.
+const DECISION_MS = 20000;
+const LOADING_SILENCE_MS = 120000;
 let worker = null;
+let loaded = false;
+let loading;
 // Preparation belongs to the runtime lifetime, not to every decision. Even
 // when durability is unavailable, a verified resident network can keep playing.
 // Explicit downloads and foreground status checks still verify offline storage.
@@ -28,9 +36,26 @@ export function resetPolicy(reason = new DOMException('Match changed', 'AbortErr
   preparation = null;
   const old = worker;
   worker = null;
+  loaded = false;
+  clearTimeout(loading);
   old?.terminate();
   for (const pending of waiting.values()) pending.reject(reason);
   waiting.clear();
+}
+
+/** Restarts the loading phase's deadline for this worker. */
+function stillLoading(current) {
+  clearTimeout(loading);
+  loading = setTimeout(() => {
+    if (worker === current) resetPolicy(new Error('The trained network stopped loading. Check the connection and retry.'));
+  }, LOADING_SILENCE_MS);
+}
+
+/** The network is in the worker: decisions waiting for it are timed from now. */
+function networkLoaded() {
+  loaded = true;
+  clearTimeout(loading);
+  for (const request of waiting.values()) request.startDeadline();
 }
 
 function preparePolicy() {
@@ -49,9 +74,11 @@ function ensureWorker() {
   if (worker) return worker;
   const current = new Worker(new URL('./policy.worker.js', import.meta.url), { type: 'module' });
   worker = current;
+  loaded = false;
+  stillLoading(current);
   current.onmessage = ({ data }) => {
     if (worker !== current) return;
-    const { id, action, analysis, error, progress, memory } = data;
+    const { id, action, analysis, error, progress, ready, memory } = data;
     const pending = waiting.get(id);
     // Initialization and memory failures poison ORT inside this worker. All
     // modes need a fresh runtime on retry, including after a cancelled call.
@@ -75,12 +102,16 @@ function ensureWorker() {
       }
       return;
     }
-    if (!pending) return;
     if (progress) {
-      onProgress?.(progress);
+      // While the network loads, a note about any request is the worker's
+      // sign of life: a cancelled request's download serves the next one.
+      if (!loaded) {
+        if (ready) networkLoaded(); else stillLoading(current);
+        onProgress?.(progress);
+      } else if (pending) onProgress?.(progress);
       return;
     }
-    pending.resolve(analysis ?? action);
+    pending?.resolve(analysis ?? action);
   };
   current.onerror = (event) => {
     if (worker === current) resetPolicy(new Error(event.message || 'The opponent worker failed'));
@@ -101,18 +132,19 @@ export async function modelIsAvailable() {
   } catch { return false; }
 }
 
-/** The network's best legal move for this position; it is never sampled. */
-export function chooseAction(planes, mask, signal, timeout = 20000) {
+/** The network's best legal move for this position; it is never sampled.
+ * The timeout bounds the decision once the network is loaded, not the load. */
+export function chooseAction(planes, mask, signal, timeout = DECISION_MS) {
   return requestPolicy(planes, mask, timeout, signal, false);
 }
 
 export function analyzePolicy(planes, mask, signal) {
-  return requestPolicy(planes, mask, 20000, signal, true);
+  return requestPolicy(planes, mask, DECISION_MS, signal, true);
 }
 
 async function requestPolicy(planes, mask, timeout, signal, details) {
-  // Prepare once before the inference deadline starts. Cache eviction or a
-  // failed persistence retry must not gate a network already resident in ORT.
+  // Prepare once before any deadline starts. Cache eviction or a failed
+  // persistence retry must not gate a network already resident in ORT.
   if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
   // A transferred observation cannot be replayed after a memory-limit retry.
   // Retain this small snapshot until the decision settles; send a copy below.
@@ -147,14 +179,21 @@ async function requestPolicy(planes, mask, timeout, signal, details) {
       waiting.delete(id);
       callback(value);
     };
-    const dispatch = () => {
+    const startDeadline = () => {
       clearTimeout(timer);
       timer = setTimeout(() => resetPolicy(new Error('The trained opponent did not answer in time')), timeout);
+    };
+    // A worker still loading the network starts this decision's deadline
+    // when it is ready; a replacement worker loads it again first.
+    const dispatch = () => {
+      clearTimeout(timer);
       const copy = planes.slice();
       ensureWorker().postMessage({ id, url: NETWORK_URL, runtimeBase: RUNTIME_BASE,
         planes: copy, mask, details, memoryLimitMiB }, [copy.buffer]);
+      if (loaded) startDeadline();
     };
-    waiting.set(id, { resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error), dispatch });
+    waiting.set(id, { resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error),
+      dispatch, startDeadline });
     signal?.addEventListener('abort', abort, { once: true });
     try {
       dispatch();
