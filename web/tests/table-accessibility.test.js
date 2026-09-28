@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { compile } from 'svelte/compiler';
+import { compile, parse } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { meldWords } from '../src/lib/ui.js';
 
@@ -60,6 +60,9 @@ test('labelled containers carry a role, so screen readers read their names', asy
   assert.match(dealer, /<div class="held[^"]*" role="img" aria-label="13 tiles in hand"/);
   // The badge's own text is read; a label on a plain span would be ignored.
   assert.match(dealer, /<span class="dealer-badge[^"]*">Dealer<\/span>/);
+  assert.match(dealer, /role="img" aria-label="Club opponent"/);
+  assert.match(await html('HandTile.svelte', { tile: '1m', remaining: 2, showRemaining: true }),
+    /class="copy-count[^"]*" role="img"[^>]*aria-label="2 unseen 1 characters remain"/);
   assert.equal(meldWords({ kind: 'concealed-kan', tiles: ['7z', '7z', '7z', '7z'] }), 'Concealed kan of red dragon');
 });
 
@@ -71,4 +74,25 @@ test('the table inspection names each opponent once: position, wind, score', asy
   assert.deepEqual(headings, ['You · East · 25,000', 'Right · South · 25,000', 'Opposite · West · 25,000', 'Left · North · 25,000']);
   assert.match(body, /class="centre[^"]*" role="group" aria-label="the table"/);
   assert.match(body, /class="indicators[^"]*" role="group" aria-label="dora indicators"/);
+});
+
+test('no generic element carries a name a screen reader would ignore', async () => {
+  // ARIA gives a span, div or paragraph no name: its aria-label is dropped
+  // unless the element also has a role. Check every component's markup.
+  const generic = new Set(['div', 'span', 'p', 'b', 'strong', 'em', 'i', 'small', 'code']);
+  const root = new URL('../src/', import.meta.url);
+  const files = (await readdir(root, { recursive: true })).filter(name => name.endsWith('.svelte'));
+  assert.ok(files.length > 20);
+  const unnamed = [];
+  const visit = (node, file) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'RegularElement' && generic.has(node.name)) {
+      const names = node.attributes.filter(attribute => attribute.type === 'Attribute').map(attribute => attribute.name);
+      if (names.includes('aria-label') && !names.includes('role')) unnamed.push(`${file}: <${node.name}> at ${node.start}`);
+    }
+    for (const [key, value] of Object.entries(node)) if (key !== 'parent') visit(value, file);
+  };
+  // A file URL reads either separator, so readdir's own paths resolve as they are.
+  for (const file of files) visit(parse(await readFile(new URL(file, root), 'utf8'), { modern: true }).fragment, file);
+  assert.deepEqual(unnamed, []);
 });

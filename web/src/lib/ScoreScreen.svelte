@@ -66,7 +66,7 @@
       <h2>{outcome.line}</h2>
     </div>
     {#if primaryWin}
-      <div class="hero-score" aria-label={`${NAMES[primaryWin.seat]} ${primaryWin.by === 'self-draw' ? 'Tsumo' : 'Ron'}, ${primaryWin.limit ?? `${primaryWin.han} han`}, ${heroPayment(primaryWin.payment)}`}>
+      <div class="hero-score" role="img" aria-label={`${NAMES[primaryWin.seat]} ${primaryWin.by === 'self-draw' ? 'Tsumo' : 'Ron'}, ${primaryWin.limit ?? `${primaryWin.han} han`}, ${heroPayment(primaryWin.payment)}`}>
         <span>{NAMES[primaryWin.seat]} · {primaryWin.by === 'self-draw' ? 'Tsumo' : 'Ron'}</span>
         <strong>{primaryWin.limit ? primaryWin.limit.toUpperCase() : `${primaryWin.han} HAN`}</strong>
         <b>{heroPayment(primaryWin.payment)}</b>

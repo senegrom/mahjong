@@ -43,7 +43,7 @@
         {:else if displayWaits.length}
           {discardHint ? `After discarding ${tileWords(previewTile)}, waiting on` : me.riichi || !me.drawn ? 'Waiting on' : 'Wait before this draw:'}
           {#each displayWaits as wait, index (index)}
-            <span class="wait"><Tile tile={wait} size="tiny" dora={shownDora.includes(wait)} /><span class="remaining" class:none={displayLeft[index] === 0} aria-label="{displayLeft[index]} unseen">{displayLeft[index]}</span></span>
+            <span class="wait"><Tile tile={wait} size="tiny" dora={shownDora.includes(wait)} /><span class="remaining" class:none={displayLeft[index] === 0} role="img" aria-label="{displayLeft[index]} unseen">{displayLeft[index]}</span></span>
           {/each}
         {:else if (discardHint?.shanten ?? view.shanten) === 0}
           Select a discard to see its waits

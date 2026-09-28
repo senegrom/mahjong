@@ -24,7 +24,7 @@
   <Tile {tile} {size} {handIndex} {onclick} {toggle} {disabled} {muted} {selected} {drawn}
     {discardShanten} {safe} {dora} />
   {#if showRemaining && remaining !== null}
-    <span class="copy-count" class:dead={remaining === 0} class:thin={remaining === 1}
+    <span class="copy-count" class:dead={remaining === 0} class:thin={remaining === 1} role="img"
       title={`${remaining} unseen ${tileWords(tile)} ${remaining === 1 ? 'remains' : 'remain'}`}
       aria-label={`${remaining} unseen ${tileWords(tile)} ${remaining === 1 ? 'remains' : 'remain'}`}>
       {remaining}

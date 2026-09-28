@@ -58,7 +58,7 @@
     <span class="score score-full">{seat.score.toLocaleString()}</span>
     <span class="score score-short" title={seat.score.toLocaleString()}>{shortScore(seat.score)}</span>
     {#if OPPONENT_LABELS[seat.controller]}
-      <span class="opponent-type" data-controller={seat.controller} data-player={seat.player}
+      <span class="opponent-type" data-controller={seat.controller} data-player={seat.player} role="img"
         aria-label={`${OPPONENT_LABELS[seat.controller]} opponent`}>{OPPONENT_LABELS[seat.controller]}</span>
     {/if}
     {#if seat.riichi}<span class="stick" title="declared riichi"></span>{/if}
