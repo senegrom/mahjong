@@ -294,16 +294,12 @@ def train(
             # Cross-lineage starts must not inherit this run's old baseline;
             # a resume from the run's own history is the run's lineage.
             if _same_lineage(run, source):
-                for saved_name in ("best.pt", "reference.pt"):
-                    saved = VOLUME / run / saved_name
-                    if saved.exists():
-                        copy_checkpoint(saved, where / saved_name)
+                best = VOLUME / run / "best.pt"
+                if best.exists():
+                    copy_checkpoint(best, where / "best.pt")
                 # Carry the history forward so a resumed run appends to it
                 # rather than starting a fresh record every container.
                 _carry_log(run, where, generation)
-                history = VOLUME / run / "train.log"
-                if history.exists():
-                    shutil.copyfile(history, where / "train.log")
         print(f"resuming from {started_from or 'nothing: a fresh network'}", flush=True)
 
         command = [
@@ -472,13 +468,10 @@ def train_mortal(
             # Cross-lineage starts must not inherit this run's old baseline;
             # a resume from the run's own history is the run's lineage.
             if _same_lineage(run, source):
-                for saved_name in ("best.pt", "reference.pt"):
-                    saved = VOLUME / run / saved_name
-                    if saved.exists():
-                        copy_checkpoint(saved, where / saved_name)
+                best = VOLUME / run / "best.pt"
+                if best.exists():
+                    copy_checkpoint(best, where / "best.pt")
                 _carry_log(run, where, generation)
-            else:
-                (where / "log.jsonl").unlink(missing_ok=True)
             command += ["--resume", str(where / "latest.pt")]
             print(f"resuming from {source}", flush=True)
         else:
@@ -610,13 +603,12 @@ def train_combined(
             # Cross-lineage starts must not inherit this run's old baseline;
             # a resume from the run's own history is the run's lineage.
             if _same_lineage(run, source):
+                # The policy the run is leashed to comes along with its best.
                 for saved_name in ("best.pt", "reference.pt"):
                     saved = VOLUME / run / saved_name
                     if saved.exists():
                         copy_checkpoint(saved, where / saved_name)
                 _carry_log(run, where, generation)
-            else:
-                (where / "log.jsonl").unlink(missing_ok=True)
             command += ["--resume", str(where / "latest.pt")]
             print(f"resuming from {source}", flush=True)
         else:

@@ -8,29 +8,22 @@ Placement against the heuristic bots does not catch it either — that table
 compresses real differences several-fold, and one number cannot say which
 opponent a network got worse against.
 
-So the trainer seats other players, and this says which. Passing a list of
-paths on the command line was the old way; it made the population a
-property of whoever typed the launch line, and nothing in the run recorded
-who had been at the table.
+So the trainers seat other players, the checkpoints `--opponents` names,
+and this says who they are and how often each sits down. The roster is
+written to the run's log, and every round reports how the learner did
+against each member it met, so a run records who was at its tables.
 
-The roster has four kinds of member:
+A member is one of two kinds:
 
-- **champion** — the network that last won promotion, which is decided by
-  duels at one table (`neural.duel`) pooled over many deals. Beating the
-  current best is the point, so it gets the largest share.
-- **recent** — checkpoints from the last few blocks of this lineage, which
-  keep the policy honest against what it was very recently.
-- **older** — checkpoints from further back, which catch a policy that is
-  going round in circles: losing to your own great-grandparent is a clear
-  signal and a plain self-play loop never sees it.
-- **reference** — fixed outside players that never change, so a number
-  measured against them this month means the same as last month. The
-  published Mortal and the network the browser used to ship are both here.
+- **reference** — a fixed outside player that never changes, so a number
+  measured against it this month means the same as last month (see
+  `REFERENCES`). A checkpoint named on the command line that is one of
+  these keeps its note and its weight.
+- **recent** — any other checkpoint named on the command line, such as
+  one of the lineage's own archives, seated as often as a weight of one
+  says.
 
-A member's share is how often it takes a seat, not how often it wins. The
-shares are documented rather than tuned: the champion often, the fixed
-references regularly enough to keep their readings meaningful, the older
-checkpoints seldom.
+A member's share is how often it takes a seat, not how often it wins.
 
 Nothing here promises that beating one member implies beating another.
 That is the reason for keeping them apart in the report: a policy that
@@ -52,7 +45,7 @@ class Member:
 
     #: Where the checkpoint lives, as the volume names it.
     name: str
-    #: champion, recent, older or reference.
+    #: reference, or recent for any other checkpoint named on the command line.
     role: str
     #: What this player is, for whoever reads the log a month from now.
     note: str
@@ -100,28 +93,6 @@ class Population:
     """The roster, and how a round's tables are made from it."""
 
     members: list[Member] = field(default_factory=list)
-
-    @classmethod
-    def around(
-        cls,
-        champion: str | None = None,
-        recent: list[str] | None = None,
-        older: list[str] | None = None,
-        references: tuple[Member, ...] = REFERENCES,
-    ) -> Population:
-        """The usual roster: the champion, its recent past, its distant
-        past, and the fixed references."""
-        members: list[Member] = []
-        if champion:
-            members.append(
-                Member(champion, "champion", "the last checkpoint to pass the gate", 3.0)
-            )
-        for name in recent or []:
-            members.append(Member(name, "recent", "a recent checkpoint of this lineage", 1.0))
-        for name in older or []:
-            members.append(Member(name, "older", "an older checkpoint of this lineage", 0.5))
-        members.extend(references)
-        return cls(members=members)
 
     @classmethod
     def from_paths(cls, paths) -> Population:

@@ -99,9 +99,6 @@ class Planes:
                     or not np.isfinite(self.values[start:stop]).all()):
                 raise ValueError("Sparse observation columns must be in bounds and values finite")
 
-    def nbytes(self) -> int:
-        return self.indptr.nbytes + self.indices.nbytes + self.values.nbytes
-
     def rows(self, rows: np.ndarray) -> Planes:
         """The rows asked for, in that order. Works on memory maps: the
         entries of each row are contiguous, so a sorted `rows` reads the
@@ -186,10 +183,6 @@ class Planes:
         planes.validate()
         return planes
 
-    @classmethod
-    def exists(cls, root: Path, stem: str) -> bool:
-        return all((Path(root) / f"{stem}-{name}.npy").exists() for name in cls.ARRAYS)
-
 
 class FlatPlanes:
     """A batch of dense observations, answering what `Planes` answers.
@@ -207,9 +200,6 @@ class FlatPlanes:
 
     def __len__(self) -> int:
         return len(self.array)
-
-    def nbytes(self) -> int:
-        return self.array.nbytes
 
     def rows(self, rows: np.ndarray) -> FlatPlanes:
         return FlatPlanes(self.array[np.asarray(rows, dtype=np.int64)])
@@ -321,13 +311,12 @@ def pad_rows(tensor: torch.Tensor, rows: int, value: float | bool = 0) -> torch.
 
 
 class Observer:
-    """Follows an arena's games through Mortal's engine and encodes what the
-    deciding players see.
+    """Follows an arena's games through Mortal's engine, whose follower
+    encodes what the deciding players see.
 
     Call `advance` once a step, after the arena has moved and before
     anyone is asked for a decision, so the follower has read everything up
-    to the decision; then `encode` for whichever games' deciding seats
-    want the view.
+    to the decision.
     """
 
     def __init__(self, arena, games: int) -> None:
@@ -337,12 +326,6 @@ class Observer:
     def advance(self) -> None:
         """Reads whatever happened since last time."""
         self.follower.feed(self.arena.mjai_all())
-
-    def encode(self, games: np.ndarray, players: np.ndarray) -> Planes:
-        """The view of `players[i]` in `games[i]`, one row each, sparse."""
-        who = list(zip(np.asarray(games).tolist(), np.asarray(players).tolist()))
-        indptr, indices, values, _mask = self.follower.encode(who)
-        return Planes.from_follower(indptr, indices, values)
 
 
 class Views:

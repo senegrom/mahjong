@@ -50,7 +50,7 @@ class CloudIsolationTests(unittest.TestCase):
             for name in ('latest.pt','best.pt','reference.pt'):atomic_save({'generation':71},old/name)
             (old/'replay').mkdir();(old/'log.jsonl').write_text('unrelated history')
             atomic_save({'generation':8},volume/'resumed/latest.pt')
-            atomic_save({'generation':3},volume/'resumed/reference.pt')
+            atomic_save({'generation':3},volume/'resumed/best.pt')
             calls=[]
             def popen(command,**kwargs):
                 where=Path(command[command.index('--out')+1])
@@ -64,7 +64,7 @@ class CloudIsolationTests(unittest.TestCase):
                 app.train(run='resumed',generations=1)
                 app.train(run='fresh',generations=1)
             self.assertNotIn('--resume',calls[0][0]);self.assertNotIn('--resume',calls[2][0])
-            self.assertIn('--resume',calls[1][0]);self.assertIn('reference.pt',calls[1][1])
+            self.assertIn('--resume',calls[1][0]);self.assertIn('best.pt',calls[1][1])
             self.assertEqual(calls[0][1],['run.json']);self.assertEqual(calls[2][1],['run.json'])
             self.assertEqual([call[2] for call in calls],['fresh','resumed','fresh'])
             paths=[call[0][call[0].index('--out')+1] for call in calls]

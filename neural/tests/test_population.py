@@ -31,17 +31,25 @@ class TheRosterIsWhatItSaysItIs(unittest.TestCase):
         names = [member.name for member in population.REFERENCES]
         self.assertIn("zoo/mortal_298k", names)
 
-    def test_the_champion_outweighs_the_rest(self):
-        roster = population.Population.around(
-            champion="leashed-run/champion", recent=["a", "b"], older=["c"]
+    def test_a_named_reference_keeps_its_role_and_anything_else_weighs_one(self):
+        """The launchers stage `mortal-run/latest` as
+        `.../mortal-run--latest.pt`; the roster knows it by its name."""
+        roster = population.Population.from_paths(
+            ["/stage/0000/mortal-run--latest.pt", "/stage/0001/history--gen-00030.pt"]
         )
-        champion = next(m for m in roster.members if m.role == "champion")
-        for member in roster.members:
-            if member.role in {"recent", "older"}:
-                self.assertGreater(champion.weight, member.weight)
+        known, other = roster.members
+        self.assertEqual((known.name, known.role, known.weight), ("mortal-run/latest", "reference", 2.0))
+        self.assertEqual((other.name, other.role, other.weight), ("history/gen-00030", "recent", 1.0))
+        np.testing.assert_allclose(roster.weights(), [2 / 3, 1 / 3])
 
     def test_the_roster_describes_itself_for_the_log(self):
-        roster = population.Population.around(champion="x", recent=["y"])
+        roster = population.Population(
+            members=[
+                population.Member("x", "recent", "a checkpoint named on the command line", 1.0),
+                population.Member("y", "recent", "another", 1.0),
+                *population.REFERENCES,
+            ]
+        )
         rows = roster.describe()
         self.assertEqual({row["name"] for row in rows} & {"x", "y"}, {"x", "y"})
         self.assertAlmostEqual(sum(row["share"] for row in rows), 1.0, places=2)
@@ -51,7 +59,7 @@ class TheRosterIsWhatItSaysItIs(unittest.TestCase):
 
 class SeatingIsProportional(unittest.TestCase):
     def test_a_share_of_zero_seats_nobody(self):
-        roster = population.Population.around(champion="x")
+        roster = population.Population(members=list(population.REFERENCES))
         seated = roster.seat(200, 0.0, np.random.default_rng(0))
         self.assertTrue(np.all(seated == -1))
 
@@ -67,7 +75,9 @@ class SeatingIsProportional(unittest.TestCase):
         self.assertAlmostEqual(heavy, 0.75, delta=0.02)
 
     def test_the_share_decides_how_many_tables_have_anyone_else(self):
-        roster = population.Population.around(champion="x")
+        roster = population.Population(
+            members=[population.Member("x", "recent", "a checkpoint", 1.0), *population.REFERENCES]
+        )
         seated = roster.seat(20_000, 0.25, np.random.default_rng(1))
         self.assertAlmostEqual(float((seated >= 0).mean()), 0.25, delta=0.02)
 

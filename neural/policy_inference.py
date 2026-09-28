@@ -22,14 +22,3 @@ def precision(device, actions: int = 46) -> str:
 def autocast(device, actions: int = 46):
     return torch.autocast(torch.device(device).type, dtype=torch.bfloat16,
                           enabled=precision(device, actions) == "bfloat16")
-
-
-def everything(net, planes, legal):
-    with autocast(planes.device, int(legal.shape[1])):
-        return net.everything(planes, legal)
-
-
-def policy_logits(net, planes, legal):
-    with autocast(planes.device, int(legal.shape[1])):
-        fast = getattr(net, "policy_only", None)
-        return fast(planes, legal) if callable(fast) else net(planes, legal)[0]

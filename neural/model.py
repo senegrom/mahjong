@@ -330,47 +330,6 @@ class PolicyValueNet(nn.Module):
         logits = logits.masked_fill(~legal, float("-inf"))
         return logits, self.value(pooled).squeeze(1)
 
-    def policy_only(self, planes: torch.Tensor, legal: torch.Tensor) -> torch.Tensor:
-        """Policy-only continuation, with the same arithmetic as forward()."""
-        features = self.tail(self.tower(self.stem(planes)))
-        tiles = self.policy_tiles(features).reshape(planes.shape[0], -1)
-        logits = torch.cat([tiles, self.policy_pooled(features.mean(dim=2))], dim=1)
-        return logits.masked_fill(~legal, float("-inf"))
-
-    def value_only(self, planes: torch.Tensor, head: str = "critic") -> torch.Tensor:
-        """What each position is worth, in the reward's units, and nothing
-        else. The search values thousands of positions a decision and wants
-        none of the policy work for them.
-
-        Which head answers is the caller's to choose, because which one is
-        the better judge is a question the training log asks every
-        generation and does not always answer the same way. `critic` is the
-        head with a tower of its own, trained on the ring of old rounds as
-        well as the current one; `public` is the head that reads the policy
-        tower's pooled features, which is the stronger representation and
-        costs nothing extra here, the tower's pass being paid for already;
-        `mean` averages them, which beats either whenever their errors are
-        not the same errors."""
-        features = self.tail(self.tower(self.stem(planes)))
-        pooled = features.mean(dim=2)
-        if head == "public":
-            return self.value(pooled).squeeze(1)
-        if head == "critic":
-            return self.critic_value(planes, pooled)
-        if head == "mean":
-            return 0.5 * (self.critic_value(planes, pooled) + self.value(pooled).squeeze(1))
-        raise ValueError(f"no such value head: {head}")
-
-    def read_hands(self, planes: torch.Tensor) -> torch.Tensor:
-        """What each opponent is holding, as logits over the 34 kinds.
-
-        Shape (batch, 3, 34), in the same relative seat order the
-        observation uses: row 0 is the player to the mover's right. Softmax
-        over the last axis gives the distribution the label is written in.
-        """
-        features = self.tail(self.tower(self.stem(planes)))
-        return self.hands_from(planes, features)
-
     def everything(
         self, planes: torch.Tensor, legal: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -435,17 +394,6 @@ class PolicyValueNet(nn.Module):
             **({"engine_observation": ENGINE_OBSERVATION} if self.kind == "engine" else {}),
             **reader_metadata(self),
         }
-
-
-def build(
-    channels: int = DEFAULT_CHANNELS,
-    blocks: int = DEFAULT_BLOCKS,
-    device: str = "cuda",
-    planes: int = MORTAL_PLANES,
-    attention: bool = True,
-    actions: int = ACTIONS,
-) -> PolicyValueNet:
-    return PolicyValueNet(channels, blocks, planes, attention, actions).to(device)
 
 
 def require_engine_observation(payload: dict, planes: int) -> None:

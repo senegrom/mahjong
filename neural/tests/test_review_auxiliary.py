@@ -20,7 +20,7 @@ def options(**changes):
 class AuxiliaryHelperTests(unittest.TestCase):
     def test_bad_options_and_missing_resume_fail(self):
         for kwargs in ({'batch':1},{'epochs':0},{'rounds':0},{'rounds':-1},{'games':0},
-                       {'lr':float('nan')},{'temperature':0},{'max_steps':0}):
+                       {'lr':float('nan')},{'temperature':0},{'measure_every':0}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 validate_auxiliary_options(options(**kwargs))
         with tempfile.TemporaryDirectory() as folder:
