@@ -26,6 +26,8 @@ let loading;
 // when durability is unavailable, a verified resident network can keep playing.
 // Explicit downloads and foreground status checks still verify offline storage.
 let preparation = null;
+// Verified network bytes that offline storage refused, for the next worker.
+let unstored = null;
 let generation = 0;
 let memoryLimitMiB = MEMORY_LIMITS_MIB[0];
 let nextId = 1;
@@ -37,6 +39,7 @@ export function reportProgress(callback) { onProgress = callback; }
 export function resetPolicy(reason = new DOMException('Match changed', 'AbortError')) {
   generation++;
   preparation = null;
+  unstored = null;
   const old = worker;
   worker = null;
   loaded = false;
@@ -63,8 +66,9 @@ function networkLoaded() {
 
 function preparePolicy() {
   if (!preparation) {
-    const job = prepareOfflineAi();
-    const held = job.catch(error => {
+    const held = prepareOfflineAi().then(prepared => {
+      if (preparation === held) unstored = prepared?.unstoredNetwork ?? null;
+    }, error => {
       if (preparation === held) preparation = null;
       throw error;
     });
@@ -191,8 +195,17 @@ async function requestPolicy(planes, mask, timeout, signal, details) {
     const dispatch = () => {
       clearTimeout(timer);
       const copy = planes.slice();
-      ensureWorker().postMessage({ id, url: NETWORK_URL, runtimeBase: runtimeBase(),
-        scope: new URL('./', document.baseURI).href, planes: copy, mask, details, memoryLimitMiB }, [copy.buffer]);
+      const target = ensureWorker();
+      const message = { id, url: NETWORK_URL, runtimeBase: runtimeBase(),
+        scope: new URL('./', document.baseURI).href, planes: copy, mask, details, memoryLimitMiB };
+      const transfer = [copy.buffer];
+      // A fresh worker is handed bytes storage refused rather than fetch them.
+      if (unstored && !loaded) {
+        message.network = unstored;
+        transfer.push(unstored.buffer);
+        unstored = null;
+      }
+      target.postMessage(message, transfer);
       if (loaded) startDeadline();
     };
     waiting.set(id, { resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error),

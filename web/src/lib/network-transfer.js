@@ -14,9 +14,12 @@ export function validateNetwork(expect) {
   }
 }
 
-export function storageError(cause) {
+/** bytes, when given, are verified bytes storage refused: usable online by
+ * whoever catches this, and never a claim that anything was stored. */
+export function storageError(cause, bytes) {
   const error = new Error(`The network is not saved offline: ${cause?.message ?? cause ?? 'storage unavailable'}`);
   error.name = 'NetworkStorageError';
+  if (bytes) error.bytes = bytes;
   return error;
 }
 
@@ -150,7 +153,7 @@ export async function verifiedNetworkBytes({ url, expect, onProgress, signal,
     stored = true;
   } catch (error) { failure = error; }
   onStorage?.(stored);
-  if (requireStored && !stored) throw storageError(failure);
+  if (requireStored && !stored) throw storageError(failure, bytes);
   return bytes;
 }
 

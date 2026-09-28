@@ -97,6 +97,10 @@ retention after the operating system deletes its data. Readiness is checked
 against CacheStorage at startup and when the app returns to the foreground,
 not inferred from a flag in the saved match. Unsupported storage is explicitly
 labelled online-only. Saved matches remain a separate, unchanged mechanism.
+When the browser reports too little free storage for the network, the page does
+not download it only to have it refused; the opponent's worker fetches it once
+for the session. When storage refuses a network the page has already verified,
+those bytes go to the worker instead of being downloaded again.
 These checks read the size and digest recorded when the network was verified
 and stored; they never read or hash the 116 MB again. The bytes handed to the
 runtime are hashed in full each time it loads them.

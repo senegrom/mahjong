@@ -34,6 +34,9 @@ const sessions = new Map();
 const queued = new Map();
 let running = false;
 let failed = false;
+// Verified network bytes the page downloaded but could not store: used once,
+// instead of downloading the same network again.
+let handed = null;
 
 /** scope is the page's own folder, whose Cache Storage holds the network. */
 async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
@@ -60,8 +63,9 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
   // The bytes rather than the address: the network comes from a bucket on
   // another origin and is kept in Cache Storage, which the runtime knows
   // nothing about. What it is handed has already been hashed.
-  const bytes = await networkBytes({ url, scope,
+  const bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
     onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`) });
+  handed = null;
   note('starting the network');
   const session = await ort.InferenceSession.create(bytes, {
     executionProviders: ['wasm'],
@@ -144,6 +148,9 @@ async function drain() {
 
 self.onmessage = ({ data }) => {
   if (data.cancel != null) { queued.delete(data.cancel); return; }
-  queued.set(data.id, data);
+  // Kept apart from its request, which may yet be cancelled.
+  const { network, ...request } = data;
+  if (network) handed = { url: request.url, bytes: network };
+  queued.set(request.id, request);
   return drain();
 };

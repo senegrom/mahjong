@@ -315,3 +315,31 @@ test('a cancelled decision\'s download keeps loading for the next decision', asy
   worker.say(second, { action: 1 });
   assert.equal(await next, 1);
 });
+
+test('bytes offline storage refused are handed to the fresh worker once, not downloaded again', async t => {
+  const workers = [], bytes = new Uint8Array(8).fill(7);
+  class Worker {
+    constructor() { this.messages = []; this.transfers = []; this.terminated = false; workers.push(this); }
+    postMessage(message, transfer = []) { this.messages.push(message); this.transfers.push(transfer); }
+    terminate() { this.terminated = true; }
+    say(id, payload) { this.onmessage({ data: { id, ...payload } }); }
+  }
+  const context = vm.createContext({
+    document: { baseURI: 'https://test.invalid/mahjong/' },
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
+    networkIsStored: async () => false,
+    prepareOfflineAi: async () => ({ aiReady: false, unstoredNetwork: bytes }),
+  });
+  vm.runInContext(source + '\nglobalThis.api = { chooseAction, resetPolicy };', context);
+  t.after(() => context.api.resetPolicy());
+  const ask = () => context.api.chooseAction(new Float32Array(34), [1, 1]);
+  const first = ask(), second = ask();
+  await setImmediate();
+  const [worker] = workers, [one, two] = worker.messages;
+  assert.equal(one.network, bytes);
+  assert.ok(worker.transfers[0].includes(bytes.buffer), 'moved, not copied');
+  assert.equal('network' in two, false, 'handed over once');
+  worker.say(one.id, { progress: 'network ready', ready: true });
+  worker.say(one.id, { action: 0 }); worker.say(two.id, { action: 1 });
+  assert.deepEqual(await Promise.all([first, second]), [0, 1]);
+});

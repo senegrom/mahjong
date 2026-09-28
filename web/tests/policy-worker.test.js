@@ -62,9 +62,9 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
       return { memoryBudget };
     },
   });
-  const send = (id, url = MODEL) => self.onmessage({ data: {
+  const send = (id, url = MODEL, extra = {}) => self.onmessage({ data: {
     id, url, runtimeBase: 'https://test.invalid/ort/0123abcd/', scope: 'https://test.invalid/',
-    planes: new Float32Array(34), mask: [1, 1], details: true,
+    planes: new Float32Array(34), mask: [1, 1], details: true, ...extra,
   } });
   return { send, cancel: id => self.onmessage({ data: { cancel: id } }), loads, releases, runs, tensors, messages, scopes };
 }
@@ -133,4 +133,14 @@ test('runtime failures identify application limits separately from browser alloc
   await h.send(1);
   assert.equal(h.messages.find(message => message.error).memory, undefined,
     'an unclassified error must not trigger larger memory reservations');
+});
+
+test('bytes the page could not store load the network without downloading it again', async () => {
+  const h = harness();
+  const handed = 'verified bytes storage refused';
+  await h.send(1, MODEL, { network: handed });
+  assert.deepEqual(h.loads, [handed], 'the runtime starts from the handed bytes');
+  assert.deepEqual(h.scopes, [], 'nothing is fetched');
+  assert.equal(h.messages.find(message => message.analysis)?.id, 1);
+  assert.equal(h.messages.some(message => message.error), false);
 });

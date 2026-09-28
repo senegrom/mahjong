@@ -138,3 +138,12 @@ test('a progressing download can outlast its idle deadline; subscriber abort sti
   const controller = new AbortController(); controller.abort();
   await assert.rejects(verifiedNetworkBytes({ url, expect, signal: controller.signal }), { name: 'AbortError' });
 });
+
+test('storage that refuses a verified download hands its bytes to the caller, so nothing is fetched twice', async t => {
+  const f = fixture(t, { fault: 'put' });
+  const refused = await verifiedNetworkBytes({ url, expect, requireStored: true }).then(() => null, error => error);
+  assert.equal(refused?.name, 'NetworkStorageError');
+  assert.deepEqual(refused.bytes, good, 'the verified bytes travel with the refusal');
+  assert.equal(f.fetches(), 1);
+  assert.equal(await hasStoredNetwork(url, expect), false, 'and nothing claims they were stored');
+});

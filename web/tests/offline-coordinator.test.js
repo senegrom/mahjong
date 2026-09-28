@@ -251,3 +251,29 @@ test('a Trained request after a failed start tries the service worker again', as
   assert.equal(info.aiReady, true);
   assert.equal(c.state().supported, true);
 });
+
+test('bytes storage refused are handed on for online play, not downloaded again', async () => {
+  const c = coordinator({ coreReady: true, held: false });
+  await c.api.startOffline();
+  const bytes = new Uint8Array(116);
+  c.faults.network = Object.assign(new Error('The network is not saved offline: quota'), { name: 'NetworkStorageError', bytes });
+  const prepared = await c.api.prepareOfflineAi();
+  assert.equal(prepared.aiReady, false);
+  assert.equal(prepared.unstoredNetwork, bytes);
+  assert.match(c.state().warning, /Online play is still available/);
+  assert.equal(c.saves.length, 1);
+});
+
+test('a network storage has no room for is not downloaded only to be refused', async () => {
+  const c = coordinator({ coreReady: true, held: false });
+  c.navigator.storage.estimate = async () => ({ quota: 1000, usage: 1000 - NETWORK.bytes + 1 });
+  await c.api.startOffline();
+  assert.equal(await c.api.prepareOfflineAi(), null);
+  assert.deepEqual(c.saves, [], 'no download');
+  assert.ok(c.calls.includes('MAHJONG_PREPARE_AI'), 'the few megabytes of runtime are still saved');
+  assert.equal(c.state().phase, 'incomplete');
+  assert.match(c.state().warning, /too little free storage.*Online play is still available/);
+  c.navigator.storage.estimate = async () => ({ quota: 1000, usage: 1000 - NETWORK.bytes });
+  assert.equal((await c.api.prepareOfflineAi()).aiReady, true, 'room for it exactly is room');
+  assert.equal(c.saves.length, 1);
+});

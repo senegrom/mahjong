@@ -50,10 +50,24 @@ function request(type, progress, target = worker) {
     catch (error) { finish(error); }
   });
 }
+/** Whether storage says it can take this many more bytes. An unknown answer
+ * counts as room: the save is tried, and a refusal is reported as one. */
+async function hasRoom(bytes) {
+  try {
+    const { quota, usage } = await navigator.storage.estimate();
+    return !(quota - usage < bytes);
+  } catch { return true; }
+}
 /** Saves a network durably from this page. The verified bytes are dropped once
- * stored: the runtime reads, and hashes, its own copy when it starts. */
+ * stored: the runtime reads, and hashes, its own copy when it starts. A
+ * network storage has no room for is not downloaded only to be refused. */
 async function saveNetwork(url, expect, onProgress) {
   if (await networkIsStored(url, expect)) return;
+  if (!await hasRoom(expect.bytes)) {
+    const error = new Error('The network is not saved offline: this device has too little free storage for it.');
+    error.name = 'NetworkStorageError';
+    throw error;
+  }
   await networkBytes({ url, expect, requireStored: true, onProgress });
 }
 function activated(registration) {
@@ -235,7 +249,9 @@ export function prepareOfflineAi() {
     } catch (error) {
       if (error.name === 'NetworkStorageError') {
         update({ aiReady: false, phase: 'incomplete', warning: `${error.message} Online play is still available; reconnect before playing offline.` });
-        return null;
+        // Bytes verified but refused by storage go to the opponent's worker,
+        // which would otherwise download the same network again.
+        return error.bytes ? { aiReady: false, unstoredNetwork: error.bytes } : null;
       }
       update({ aiReady: false, phase: 'incomplete', warning: `AI download incomplete: ${error.message}` });
       throw error;
