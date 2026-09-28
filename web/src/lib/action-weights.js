@@ -1,5 +1,6 @@
 /** Translate policy mass, not just one representative action, to actual moves.
- * Red-five aliases name the ordinary five in this ruleset. A reach remains a
+ * Mortal's red-five actions mean nothing in this ruleset, which has no red
+ * fives: they are never opened, so they carry no mass. A reach remains a
  * declaration probability shared by its candidate discards; the second-stage
  * conditional tile probabilities are not independent first-stage moves.
  * Selection still uses the network's original best action, as in training.
