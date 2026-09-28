@@ -56,7 +56,9 @@ reports core, runtime, remote-model, and excluded-workspace byte totals.
 
 ## Engine and training
 
-The `engine/` workspace supplies the CLI, browser, and Python bindings.
+The `engine/` workspace supplies the CLI, browser, and Python bindings. The
+[rules and engine reference](docs/PLAN.md) lists the rules it enforces, what
+it leaves out, and how it is tested.
 `neural/` contains self-play, evaluation, export, checkpoint management, and
 cloud training. See [training safety](docs/TRAINING_SAFETY.md) for
 checkpoints, runs, rewards and the controls on each policy update.

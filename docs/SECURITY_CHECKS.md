@@ -59,8 +59,9 @@ deployment dependency.
 
 ## Training and browser-export regressions
 
-After installing both native Python engines and the CPU training/export
-dependencies from `.github/workflows/neural.yml`, run:
+Install the pinned CPU training and export tools and both native Python
+engines as `.github/actions/python-engines/action.yml` does for CI (the pins
+are in `constraints.txt` beside it), then run:
 
 ```sh
 python -m unittest discover -s neural/tests -v
