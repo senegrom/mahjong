@@ -4,8 +4,9 @@
 //! position (EMA 2025, sections 2.4 to 2.7). Where the break falls changes
 //! which tiles reach which player, but with a shuffled wall it changes
 //! nothing about the game, so the wall is modelled as a shuffled sequence
-//! with the dead wall taken off the end. The dice are still rolled and kept
-//! in the log, so a replay can show the table exactly as it was.
+//! with the dead wall taken off the end. The dice are still rolled, though
+//! nothing reads them: the roll takes its numbers from the same generator
+//! as the deals that follow, so dropping it would change every seeded game.
 //!
 //! The dead wall always holds fourteen tiles: four replacement tiles for
 //! quads, then five dora indicators with their five ura dora underneath.
@@ -34,8 +35,6 @@ pub struct Wall {
     replacements_taken: usize,
     /// Dora indicators revealed so far, at least one.
     indicators_revealed: usize,
-    /// The dice roll that broke the wall, kept for replays.
-    dice: u8,
     /// A wall built from a table entered by hand: the tiles under the
     /// indicators are unknown, so it has no ura indicators to reveal.
     ura_hidden: bool,
@@ -60,7 +59,6 @@ impl Wall {
             live_end,
             replacements_taken: quads,
             indicators_revealed: indicators.len(),
-            dice: 0,
             ura_hidden: true,
         })
     }
@@ -89,21 +87,18 @@ impl Wall {
             }
         }
         rng.shuffle(&mut tiles);
-        let dice = rng.roll_dice();
+        // East's roll to break the wall (EMA 2025 section 2.5). Where it
+        // falls changes nothing here, but it is still drawn from `rng`, so
+        // every seeded deal after it stays the deal it has always been.
+        rng.roll_dice();
         Wall {
             tiles,
             next_draw: 0,
             live_end: SET_SIZE - DEAD_WALL,
             replacements_taken: 0,
             indicators_revealed: 1,
-            dice,
             ura_hidden: false,
         }
-    }
-
-    /// The dice roll East made to break the wall.
-    pub const fn dice(&self) -> u8 {
-        self.dice
     }
 
     /// How many tiles are still there to draw. Riichi needs at least one
@@ -271,7 +266,6 @@ mod tests {
         let first = Wall::shuffled(&mut Rng::from_seed(5));
         let second = Wall::shuffled(&mut Rng::from_seed(5));
         assert_eq!(first.tiles(), second.tiles());
-        assert_eq!(first.dice(), second.dice());
     }
 }
 

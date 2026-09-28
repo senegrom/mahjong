@@ -497,7 +497,8 @@ mod tests {
                     drawn += 1;
                 }
             }
-            let set = TileSet::from_counts(counts);
+            let mut set = TileSet::new();
+            *set.counts_mut() = counts;
             assert_eq!(
                 standard(&set, called),
                 reference(&counts, called),

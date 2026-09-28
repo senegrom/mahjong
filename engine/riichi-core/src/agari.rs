@@ -57,16 +57,6 @@ pub struct Reading {
     pub blocks: Vec<Block>,
 }
 
-impl Reading {
-    /// The pair of an ordinary reading, if it has one.
-    pub fn pair(&self) -> Option<Tile> {
-        self.blocks.iter().find_map(|block| match block {
-            Block::Pair(tile) => Some(*tile),
-            _ => None,
-        })
-    }
-}
-
 /// Every reading of the concealed tiles, for a hand that is already complete.
 ///
 /// `called` is the number of sets already called, whose tiles are not in
@@ -230,7 +220,9 @@ mod tests {
         assert_eq!(readings.len(), 1);
         assert_eq!(readings[0].shape, Shape::Standard);
         assert_eq!(readings[0].blocks.len(), 5);
-        assert_eq!(readings[0].pair().unwrap().to_string(), "1s");
+        assert!(readings[0]
+            .blocks
+            .contains(&Block::Pair("1s".parse().unwrap())));
     }
 
     /// EMA 2025, scoring example 8: 1112223334455 style hands can be read as
