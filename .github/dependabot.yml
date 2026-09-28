@@ -29,11 +29,6 @@ updates:
     ignore:
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
-      # onnxruntime-web must be the release web/runtime was built from, which
-      # copy-runtime.mjs checks, so a pull request moving it alone can only
-      # fail. It moves with a rebuild: the reduced ONNX runtime workflow pins
-      # the release it builds in the same commit.
-      - dependency-name: onnxruntime-web
     # These peer dependencies must move together, including major upgrades.
     groups:
       svelte-vite:
@@ -45,11 +40,18 @@ updates:
       npm-minor-patch:
         applies-to: version-updates
         patterns: ['*']
+        # onnxruntime-web must be the release web/runtime was built from, which
+        # copy-runtime.mjs checks, so it gets a pull request of its own that
+        # fails until the runtime is rebuilt at that release: dispatch the
+        # reduced ONNX runtime workflow with it, merge that branch, and close
+        # this one. Kept out of the group so it never holds other updates back.
+        exclude-patterns: [onnxruntime-web]
         update-types: [minor, patch]
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 3
+    # Room for an onnxruntime-web pull request waiting on its rebuild.
+    open-pull-requests-limit: 6
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -71,6 +73,15 @@ updates:
         applies-to: version-updates
         patterns: ['*']
         update-types: [minor, patch]
-# web/runtime/requirements-build.txt is left out on purpose: those tools run
-# only in the manual runtime rebuild, so their pins move with a rebuild, as
-# onnxruntime-web does, rather than in pull requests nothing exercises.
+  - package-ecosystem: pip
+    # The runtime rebuild's tools (onnx, flatbuffers, ...). Their pull requests
+    # get an install and dependency check; the next rebuild runs them for real.
+    directory: /web/runtime
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      runtime-tools-minor-patch:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: [minor, patch]

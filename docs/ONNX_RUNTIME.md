@@ -95,9 +95,13 @@ The JavaScript in `onnxruntime-web` calls into the WASM, and those calls change
 between releases, so `web/package.json` pins the package to exactly the ONNX
 Runtime release the reduced WASM was built from. `copy-runtime.mjs` refuses to
 build when the installed package differs from the release recorded in the
-binary, so an update of that package alone can only fail; Dependabot ignores
-it. The build tools in `web/runtime/requirements-build.txt` run only in the
-rebuild, so Dependabot leaves them alone too: both move with a rebuild.
+binary, so an update of that package alone can only fail. Dependabot still
+proposes it, in a pull request of its own that fails until the runtime is
+rebuilt: that pull request is the signal to dispatch the reduced ONNX runtime
+workflow with the new release, merge the branch it pushes (which moves the pin
+with the rebuilt WASM), and close Dependabot's. The build tools in
+`web/runtime/requirements-build.txt` get Dependabot pull requests too, checked
+by an install and `pip check`; the next rebuild runs them for real.
 
 The manual reduced-runtime workflow builds the pinned release from source with
 the reviewed `reduced-ops.config`; dispatched with another release, it builds
