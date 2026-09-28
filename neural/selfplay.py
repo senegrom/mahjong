@@ -151,12 +151,6 @@ class Batch:
     #: against the real hands the oracle planes carry.
     imagined: torch.Tensor
     returns: torch.Tensor
-    #: The placement part of `returns` alone, one a decision: what the game
-    #: was worth to that player in the end, with no hand points in it. A
-    #: head trained on this judges a position by where it leads in the
-    #: standings, which is what a search needs at a hand boundary where
-    #: the hand's own points have already been banked.
-    placements: torch.Tensor
     log_probs: torch.Tensor
     games: int
     hands: int
@@ -188,13 +182,7 @@ class Batch:
     #: and the follower, the encoder, the network, the seated others, and
     #: the bookkeeping. For finding what to make faster.
     timing: dict[str, float] = field(default_factory=dict)
-    #: Which game each decision belongs to. A head trained on a round
-    #: holds whole games out with it: the decisions of one game share
-    #: its result and are not independent samples of it.
-    game_of: torch.Tensor | None = None
     seed: int | None = None
-    # First turn-to-act per player per hand, matching boundary search leaves.
-    boundary: torch.Tensor | None = None
 
 
 def imagine(arena, beliefs: np.ndarray) -> bytes:
@@ -332,8 +320,6 @@ def play(
     wandered: list[np.ndarray] = []
     coefficients: list[np.ndarray] = []
     after_exploration: list[bool] = []
-    boundary_rows: list[bool] = []
-    seen_turn = np.zeros((games, 4), dtype=bool)
     last_forced = np.zeros((games, 4), dtype=bool)
     actions: list[int] = []
     log_probs: list[float] = []
@@ -372,7 +358,6 @@ def play(
         for game in np.nonzero(ended)[0]:
             counted += 1
             last_forced[game] = False
-            seen_turn[game] = False
             for person in range(4):
                 value = float(results[game][person]) * HAND_SCALE
                 for step_index in pending[game][person]:
@@ -544,9 +529,6 @@ def play(
             game = int(index[record_slots[record]])
             seat = int(seats[game])
             person = int(players[game][seat])
-            turn = bool(mask[game, :34].any())
-            boundary_rows.append(turn and not seen_turn[game, person])
-            seen_turn[game, person] |= turn
             after_exploration.append(bool(last_forced[game, person] or forced_this_step[game, person]))
             forced_this_step[game, person] |= bool(record_forced[record])
             step_index = len(actions)
@@ -619,18 +601,11 @@ def play(
     # decision that player made.
     final_scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4)
     bonuses = placement_rewards(final_scores, PLACEMENT_VALUE)
-    # Kept apart as well as added in: the same number, but a head that
-    # learns it alone judges standings rather than standings plus the
-    # hand's points, and only the first of those is wanted at a boundary.
-    placement_only = [0.0] * len(rewards)
-    game_of = np.full(len(rewards), -1, dtype=np.int64)
     for game in range(games):
         for person in range(4):
             value = float(bonuses[game, person])
             for step_index in everything[game][person]:
                 rewards[step_index] += value
-                placement_only[step_index] = value
-                game_of[step_index] = game
 
     decisions = len(actions)
     if decisions == 0:
@@ -667,10 +642,7 @@ def play(
         behaviour_epsilon=gather(coefficients),
         after_exploration=torch.tensor(after_exploration, dtype=torch.bool),
         returns=torch.tensor(rewards, dtype=torch.float32),
-        placements=torch.tensor(placement_only, dtype=torch.float32),
-        game_of=torch.from_numpy(game_of),
         seed=int(seed),
-        boundary=torch.tensor(boundary_rows, dtype=torch.bool),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,
         hands=hands,

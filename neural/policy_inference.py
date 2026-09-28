@@ -1,16 +1,12 @@
-"""Acting-policy numerics shared by ordinary play and hypothetical search.
+"""Acting-policy numerics for the players that choose moves at a table.
 
 Training forwards deliberately do not use this module: their caller owns
 mixed precision. Preserve ordinary Mortal-space play's CUDA bfloat16 policy,
-CPU float32, and the legacy 78-action player's float32 path. Leaf evaluators
-keep their separate, existing precision contract.
+CPU float32, and the legacy 78-action player's float32 path.
 """
 from __future__ import annotations
 
 import torch
-
-VERSION = 1
-DEFAULT_ROLLOUT_BATCH = 256
 
 
 def precision(device, actions: int = 46) -> str:
@@ -26,21 +22,6 @@ def precision(device, actions: int = 46) -> str:
 def autocast(device, actions: int = 46):
     return torch.autocast(torch.device(device).type, dtype=torch.bfloat16,
                           enabled=precision(device, actions) == "bfloat16")
-
-
-def describe(device, actions: int = 46) -> dict:
-    return {"version": VERSION, "precision": precision(device, actions),
-            "tie_break": "first_policy_index"}
-
-
-def validate_batch(batch_size: int) -> None:
-    if type(batch_size) is not int or batch_size <= 0:
-        raise ValueError("rollout_batch must be a positive integer")
-
-
-def order(logits: torch.Tensor) -> torch.Tensor:
-    """Descending scores, retaining argmax's first-index convention on ties."""
-    return torch.argsort(logits.float(), dim=1, descending=True, stable=True)
 
 
 def everything(net, planes, legal):

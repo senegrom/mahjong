@@ -6,7 +6,7 @@ import unittest
 import torch
 import riichi_py
 
-from neural import contract, model, zoo
+from neural import model, zoo
 from neural.checkpoints import atomic_save
 
 
@@ -31,7 +31,7 @@ class ModelContractTests(unittest.TestCase):
                         net.reader_proposal_version = version
                     path = Path(temp) / 'reader.pt'
                     atomic_save({'model': net.state_dict(), **net.payload_fields()}, path)
-                    restored = contract.unwrap(zoo.load_player(path, 'cpu'))
+                    restored = zoo.unwrap(zoo.load_player(path, 'cpu'))
                     self.assertEqual(getattr(restored, 'reader_proposal_version', None), version)
                     if version is None:
                         self.assertNotIn('reader_proposal_version', restored.payload_fields())

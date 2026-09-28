@@ -32,9 +32,9 @@ def main() -> None:
     if not decisions:
         raise SystemExit("the recording holds no decisions")
 
-    from neural import contract, zoo
+    from neural import zoo
 
-    net = contract.unwrap(zoo.load_player(checkpoint, device))
+    net = zoo.unwrap(zoo.load_player(checkpoint, device))
     agreed = forced = 0
     disagreements = []
     for index, decision in enumerate(decisions):

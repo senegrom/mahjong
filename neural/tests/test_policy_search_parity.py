@@ -1,12 +1,15 @@
-"""Regression contracts for the player the teacher actually simulates."""
-from types import SimpleNamespace
+"""The acting policy's precision contract (`neural.policy_inference`).
+
+The search whose roots and continuations these tests once also compared
+with ordinary play is gone; what remains is the precision every table
+player chooses its moves at.
+"""
 import unittest
 from unittest.mock import patch
 
-import numpy as np
 import torch
 
-from neural import contract, policy_inference, zoo
+from neural import policy_inference
 
 
 class TiedNet(torch.nn.Module):
@@ -27,23 +30,6 @@ class TiedNet(torch.nn.Module):
         return self.everything(planes, legal)[:2]
 
 
-class RootServer:
-    order = contract.MortalServed.order
-    to_engine_rows = contract.MortalServed.to_engine_rows
-
-    def __init__(self, net):
-        self.net = net
-        self.contract = SimpleNamespace(speaks_our_moves=False)
-
-    def root(self, arena, views, rows, deciding, legal, device):
-        return torch.zeros(len(rows), 1012, 34), torch.from_numpy(zoo.translatable(legal[rows]))
-
-    def after_reach(self, arena, rows, deciding, legal, device, follower=None):
-        mask = np.zeros((len(rows), 46), dtype=bool)
-        mask[:, :34] = legal[rows, 34:68]
-        return torch.zeros(len(rows), 1012, 34), torch.from_numpy(mask)
-
-
 class PolicyParityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -53,27 +39,6 @@ class PolicyParityTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         torch.set_num_threads(cls.threads)
-
-    def test_root_and_conditional_ties_match_ordinary_player(self):
-        for moves in ([0, 1], [4, 13], [34, 35], [69, 70], [70, 71, 72, 73, 74], [75, 76, 77]):
-            with self.subTest(moves=moves):
-                legal = np.zeros((1, 78), dtype=bool)
-                legal[0, moves] = True
-                net = TiedNet().eval()
-                server = RootServer(net)
-                views = SimpleNamespace(observer=SimpleNamespace(follower=SimpleNamespace(tell=lambda *args: None)))
-                def ask(who, fresh, allowed):
-                    logits, _, _ = policy_inference.everything(net, torch.zeros(len(who), 1012, 34), torch.from_numpy(allowed))
-                    return logits.detach().numpy(), allowed
-                ordinary = zoo.choose_in_mortal_space(ask, views, np.array([0]), np.array([0]), legal)
-                order, *_ = contract.root_order(server, None, views, np.array([0]), np.array([0]), legal, "cpu")
-                self.assertEqual(int(ordinary[0]), int(order[0, 0]))
-                self.assertEqual(len(set(order[0])), 78)
-
-    def test_both_server_orders_preserve_first_policy_index(self):
-        logits = torch.zeros(4, 46)
-        for method in (contract.EngineServed.order, contract.MortalServed.order):
-            np.testing.assert_array_equal(method(None, logits), np.tile(np.arange(46), (4, 1)))
 
     def test_precision_resolution_preserves_ordinary_layouts(self):
         self.assertEqual(policy_inference.precision("cpu", 46), "float32")
@@ -115,74 +80,6 @@ class PolicyParityTests(unittest.TestCase):
                 with policy_inference.autocast("cuda", 46):
                     self.assertTrue(torch.is_autocast_enabled("cuda"))
                     self.assertEqual(torch.get_autocast_dtype("cuda"), torch.bfloat16)
-
-
-class RolloutBatchTests(unittest.TestCase):
-    def run_rollout(self, limit):
-        encoded, cloned = [], []
-        class Copies:
-            def __init__(self, identities):
-                self.identities = identities
-            @classmethod
-            def from_follower(cls, follower, who, version):
-                return cls(list(range(len(who))))
-            def replace_concealed(self, *args): pass
-            def reset_search_private(self, *args): pass
-            def synchronize_search_decisions(self, *args): pass
-            def feed_some(self, *args): pass
-            def feed(self, *args): pass
-            def clone_some(self, rows):
-                cloned.append(len(rows))
-                return Copies(rows)
-            def encode_some(self, rows):
-                encoded.append(len(rows))
-                n = len(rows)
-                return np.arange(n + 1, dtype=np.int64), np.zeros(n, dtype=np.uint16), np.asarray([row // 4 for row in rows], dtype=np.float16), None
-            def encode(self):
-                return self.encode_some(self.identities)
-        class Arena:
-            def __init__(self): self.applied = None
-            def lookahead_slots(self): return [7]
-            def lookahead_hands(self): return [[([[]] * 4) for _ in range(7)]]
-            def lookahead_initial_state(self): return [[(0, [False] * 4) for _ in range(7)]]
-            def lookahead_owed_mjai(self):
-                if self.applied is not None: return [], [], [], b"", []
-                mask = np.zeros((7, 78), dtype=np.uint8)
-                mask[:, 34:36] = 1
-                return [0] * 7, list(range(7)), [0] * 7, mask.tobytes(), [[] for _ in range(7)]
-            def lookahead_apply(self, actions): self.applied = actions
-        class ReachNet(TiedNet):
-            def everything(self, planes, legal):
-                logits, value, hands = super().everything(planes, legal)
-                if not legal[:, 37].any():
-                    tile = planes[:, 0, 0].long() % 2
-                    logits[torch.arange(len(planes)), tile] = 1
-                return logits, value, hands
-        arena = Arena()
-        net = ReachNet()
-        server = object.__new__(contract.MortalServed)
-        server.net, server._Imagined = net, Copies
-        server.contract = SimpleNamespace(speaks_our_moves=False)
-        server.count_crossings = False
-        with contract.following(arena, object()):
-            server.play_lookahead(arena, device="cpu", batch_size=limit)
-        return arena.applied, encoded, cloned, net.sizes
-
-    def test_every_forward_and_riichi_copy_respects_the_limit(self):
-        for limit in (1, 2, 3, 8):
-            with self.subTest(limit=limit):
-                actions, encoded, cloned, sizes = self.run_rollout(limit)
-                self.assertEqual(actions, [34 + n % 2 for n in range(7)])
-                self.assertTrue(encoded and cloned and sizes)
-                self.assertLessEqual(max(encoded + cloned + sizes), limit)
-                self.assertEqual(sum(cloned), 7)
-                self.assertEqual(sum(sizes), 14)
-
-    def test_invalid_limit_fails_before_reconstructing_states(self):
-        server = object.__new__(contract.MortalServed)
-        for invalid in (0, -1, True, 1.5, None):
-            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                server.play_lookahead(None, device="cpu", batch_size=invalid)
 
 
 if __name__ == "__main__":

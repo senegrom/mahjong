@@ -170,6 +170,16 @@ def choose_in_mortal_space(
     return choice.astype(np.int64)
 
 
+def unwrap(net):
+    """The network that answers with `everything`: a player that only wraps
+    one to be asked Mortal's way (`MortalSpacePlayer`) carries it as `net`,
+    and whoever wants the network's own answers rather than the player's
+    move, as the browser-parity replay does, asks the network."""
+    if not hasattr(net, "everything") and hasattr(getattr(net, "net", None), "everything"):
+        return net.net
+    return net
+
+
 class MortalSpacePlayer:
     """One of ours whose moves are Mortal's, played the same way.
 
