@@ -72,7 +72,9 @@ test('open hands can be gold-ready without any riichi action', () => {
     assert.equal(m.view.seats[0].melds.length, 2);
     assert.ok(!m.choices.some(c => c.kind === 'riichi'));
     const hints = analyzeDiscards(m.engine, m.choices);
-    assert.deepEqual(hints.get('7z'), { shanten: 0, waits: ['2m'], waits_left: [3] });
+    // Two 2m are in sight: one in the player's own 2-3-4m chii (from the hand;
+    // the claimed tile was the 3m) and one in the right-hand player's pond.
+    assert.deepEqual(hints.get('7z'), { shanten: 0, waits: ['2m'], waits_left: [2] });
     assert.equal(hints.get('1m').shanten, 1);
   } finally { m.dispose(); }
 });
