@@ -17,7 +17,7 @@ use crate::mjai;
 use crate::rng::Rng;
 use crate::score::{self, Riichi, Score, Situation, WinBy};
 use crate::shanten;
-use crate::tile::Tile;
+use crate::tile::{Tile, COPIES};
 use crate::wall::Wall;
 use crate::Wind;
 
@@ -1197,6 +1197,53 @@ impl Hand {
             }
         }
         None
+    }
+
+    /// Everything `seat` can see of the tiles: their own hand and sets,
+    /// everybody's called sets, every discard on the table, and the dora
+    /// indicators that have been turned.
+    ///
+    /// What is left, [`Hand::unseen_by`], is what the other hands and the
+    /// rest of the wall hold between them. The heuristic player counts its
+    /// acceptance against it, the observation shows it to a network, and an
+    /// imagined world deals it out again, so all three ask this one question.
+    pub fn seen_by(&self, seat: Wind) -> TileSet {
+        let mut seen = self.players[seat.index()].hand;
+        for player in &self.players {
+            for meld in &player.melds {
+                for tile in meld.tiles() {
+                    seen.add(tile);
+                }
+            }
+            for discard in &player.discards {
+                // A tile claimed for a set stays in the pond it came from,
+                // turned sideways against the set that took it. It is counted
+                // with that set, so counting it here as well counts it twice:
+                // that made a wait look a tile thinner than it is, and left
+                // an imagined world one tile short.
+                if !discard.claimed {
+                    seen.add(discard.tile);
+                }
+            }
+        }
+        for indicator in self.wall.dora_indicators() {
+            seen.add(indicator);
+        }
+        // A tile awaiting a claim needs nothing more: a discard is already in
+        // the discarder's pond by the time anybody may claim it, and the tile
+        // added to a quad that is being robbed is already in the quad.
+        seen
+    }
+
+    /// How many copies of each kind `seat` cannot see: four less what
+    /// [`Hand::seen_by`] counts.
+    pub fn unseen_by(&self, seat: Wind) -> TileSet {
+        let seen = self.seen_by(seat);
+        let mut unseen = TileSet::new();
+        for tile in Tile::all() {
+            unseen.add_n(tile, COPIES.saturating_sub(seen.count(tile)));
+        }
+        unseen
     }
 
     /// Tiles that cannot deal into `seat`.

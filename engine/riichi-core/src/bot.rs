@@ -18,7 +18,7 @@ use crate::game::{Action, Call, Hand, Player};
 use crate::hand::TileSet;
 use crate::rng::Rng;
 use crate::shanten;
-use crate::tile::{Tile, COPIES};
+use crate::tile::Tile;
 use crate::Wind;
 
 /// How the bot weighs speed against safety.
@@ -269,7 +269,7 @@ impl Bot {
             !candidates.is_empty(),
             "there is always something to discard"
         );
-        let unseen = unseen_counts(hand, player);
+        let unseen = hand.unseen_by(player.seat);
         let dora: Vec<Tile> = hand
             .wall
             .dora_indicators()
@@ -375,33 +375,8 @@ fn threats(hand: &Hand, seat: Wind) -> Vec<Wind> {
         .collect()
 }
 
-/// How many copies of each kind the player cannot see anywhere.
-fn unseen_counts(hand: &Hand, player: &Player) -> TileSet {
-    let mut seen = player.visible_to_self();
-    for other in &hand.players {
-        for discard in &other.discards {
-            seen.add(discard.tile);
-        }
-        if !core::ptr::eq(other, player) {
-            for meld in &other.melds {
-                for tile in meld.tiles() {
-                    seen.add(tile);
-                }
-            }
-        }
-    }
-    for indicator in hand.wall.dora_indicators() {
-        seen.add(indicator);
-    }
-    let mut unseen = TileSet::new();
-    for tile in Tile::all() {
-        let count = seen.count(tile).min(COPIES);
-        unseen.add_n(tile, COPIES - count);
-    }
-    unseen
-}
-
-/// How many tiles would bring the hand closer, counting the copies left.
+/// How many tiles would bring the hand closer, counting the copies left:
+/// `unseen` is what the player cannot see anywhere ([`Hand::unseen_by`]).
 fn acceptance_width(hand: &TileSet, player: &Player, unseen: &TileSet) -> u32 {
     let visible = player.visible_to_self();
     shanten::acceptance(hand, player.melds.len(), &visible)
@@ -554,6 +529,62 @@ mod tests {
             safety_of(&hand, Wind::South, "1z".parse().unwrap())
                 > safety_of(&hand, Wind::South, unknown)
         );
+    }
+
+    /// A claimed discard stays in its pond, turned sideways, and is counted
+    /// with the set that took it. Counting it in the pond as well made the
+    /// wait on it look thinner than it is: here two 3p were claimed, so two
+    /// are still out, against one 5p, and the wider wait is kept.
+    #[test]
+    fn a_claimed_tile_is_counted_once() {
+        let tile = |text: &str| -> Tile { text.parse().unwrap() };
+        let discard = |text: &str, order: u32, claimed: bool| crate::game::Discard {
+            tile: tile(text),
+            order,
+            drawn: false,
+            riichi: false,
+            claimed,
+        };
+        // A deal whose indicator is not a circle, so neither wait is dora
+        // or pointed at, and only the counting separates the two.
+        let mut hand = (0..)
+            .map(|seed| Hand::deal(&mut Rng::from_seed(seed), Wind::East, 1, 0, 0, [25000; 4]))
+            .find(|hand| hand.wall.dora_indicators()[0].suit() != crate::tile::Suit::Circles)
+            .expect("some deal turns another suit");
+        for player in hand.players.iter_mut() {
+            player.discards.clear();
+            player.melds.clear();
+        }
+        // Throwing 6p waits on 3p, throwing 2p waits on 5p.
+        hand.players[0].hand = "123m789m234s55z246p".parse().unwrap();
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+        hand.drawn = Some(tile("6p"));
+        // South took East's 3p for 1-2-3p, West took South's for 2-3-4p,
+        // and three 5p lie in the ponds.
+        hand.players[0].discards.push(discard("3p", 0, true));
+        hand.players[1].melds = vec![crate::hand::Meld::chii(
+            tile("1p"),
+            crate::hand::ClaimedFrom::Left,
+        )];
+        hand.players[1].discards.push(discard("3p", 1, true));
+        hand.players[2].melds = vec![crate::hand::Meld::chii(
+            tile("2p"),
+            crate::hand::ClaimedFrom::Left,
+        )];
+        hand.players[2].discards.push(discard("5p", 2, false));
+        hand.players[3].discards.push(discard("5p", 3, false));
+        hand.players[3].discards.push(discard("5p", 4, false));
+        let unseen = hand.unseen_by(Wind::East);
+        assert_eq!(unseen.count(tile("3p")), 2, "two 3p are in the sets");
+        assert_eq!(unseen.count(tile("5p")), 1, "three 5p are in the ponds");
+
+        match Bot::new(5).act(&hand) {
+            Action::Discard(thrown) | Action::Riichi(thrown) => {
+                assert_eq!(thrown, tile("6p"), "the two-tile wait on 3p is kept")
+            }
+            other => panic!("expected a discard, got {other:?}"),
+        }
     }
 
     #[test]

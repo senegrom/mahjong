@@ -12,7 +12,7 @@
 use riichi_core::bot::Bot;
 use riichi_core::game::{Call, Phase};
 use riichi_core::rng::Rng;
-use riichi_core::search::{imagine, seen_by, Belief};
+use riichi_core::search::{imagine, Belief};
 use riichi_core::table::Table;
 use riichi_core::tile::{Tile, COPIES};
 use riichi_core::Wind;
@@ -49,7 +49,7 @@ fn every_seat_can_imagine_a_world_at_every_point_of_a_game() {
             }
 
             for seat in Wind::ALL {
-                let seen = seen_by(&hand, seat);
+                let seen = hand.seen_by(seat);
                 for tile in Tile::all() {
                     assert!(
                         seen.count(tile) <= COPIES,

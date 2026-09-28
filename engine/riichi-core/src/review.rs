@@ -131,11 +131,11 @@ fn discarded(action: Action) -> Option<Tile> {
 /// answers both "how many of these could still come" for the acceptance
 /// count and "how thin is this wait" for the player.
 pub fn visible_to(hand: &Hand, seat: Wind) -> TileSet {
-    // One answer, shared with the search, which asks the same question
-    // before imagining the rest. A tile claimed for a set stays in the pond
-    // it came from and is counted with the set, so counting both made a
-    // wait look a tile thinner than it is.
-    crate::search::seen_by(hand, seat)
+    // One answer, shared with the heuristic player, the observation and the
+    // imagined worlds, which all ask the same question. A tile claimed for a
+    // set stays in the pond it came from and is counted with the set, so
+    // counting both made a wait look a tile thinner than it is.
+    hand.seen_by(seat)
 }
 
 /// How many times over a tile is dora, which is none for most tiles and

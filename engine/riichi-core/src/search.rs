@@ -83,7 +83,7 @@ use crate::hand::TileSet;
 use crate::mjai;
 use crate::rng::Rng;
 use crate::table::Table;
-use crate::tile::{Tile, COPIES, KINDS};
+use crate::tile::{Tile, KINDS};
 use crate::Wind;
 
 /// How hard to think.
@@ -249,57 +249,14 @@ fn compare<A>(candidate: &Judged<A>, against: &Judged<A>) -> Option<(f64, f64)> 
     Some((mean, (spread / (1.0 - concentration)).sqrt()))
 }
 
-/// Everything a seat can see of the tiles.
-///
-/// Their own hand and sets, every discard on the table, everybody's called
-/// sets, and the dora indicators that have been turned. What is left is
-/// what a search is free to imagine.
-pub fn seen_by(hand: &Hand, seat: Wind) -> TileSet {
-    let mut seen = TileSet::new();
-    for tile in hand.players[seat.index()].hand.tiles() {
-        seen.add(tile);
-    }
-    for other in Wind::ALL {
-        let player = &hand.players[other.index()];
-        for meld in &player.melds {
-            for tile in meld.tiles() {
-                seen.add(tile);
-            }
-        }
-        for discard in &player.discards {
-            // A tile claimed for a set stays in the pond it came from,
-            // turned sideways against the set that took it. It is counted
-            // with that set, so counting it here as well counts it twice:
-            // that made a wait look a tile thinner than it is, and left the
-            // search one tile short of a world.
-            if !discard.claimed {
-                seen.add(discard.tile);
-            }
-        }
-    }
-    for indicator in hand.wall.dora_indicators() {
-        seen.add(indicator);
-    }
-    // A tile awaiting a claim needs nothing more: a discard is already in
-    // the discarder's pond by the time anybody may claim it, and the tile
-    // added to a quad that is being robbed is already in the quad.
-    seen
-}
-
 /// One way the hidden tiles might actually lie.
 ///
 /// The player's own hand, everybody's called sets, the discards, the scores
 /// and the state of the hand are all kept exactly. Only what `seat` cannot
-/// see is dealt again: the other three hands, the rest of the wall, and the
-/// dead wall under the indicators that have been turned.
+/// see ([`Hand::unseen_by`]) is dealt again: the other three hands, the rest
+/// of the wall, and the dead wall under the indicators that have been turned.
 pub fn imagine(hand: &Hand, seat: Wind, belief: &Belief, rng: &mut Rng) -> Hand {
-    let seen = seen_by(hand, seat);
-    let mut pool: Vec<Tile> = Vec::with_capacity(136);
-    for tile in Tile::all() {
-        for _ in 0..COPIES.saturating_sub(seen.count(tile)) {
-            pool.push(tile);
-        }
-    }
+    let mut pool: Vec<Tile> = hand.unseen_by(seat).tiles().collect();
     rng.shuffle(&mut pool);
 
     let reserved = sampling::reserve(hand, seat, belief, rng, &mut pool);
@@ -2030,6 +1987,7 @@ impl Lookahead {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tile::COPIES;
 
     fn test_chance_seeds(count: usize) -> Vec<u64> {
         let mut rng = Rng::from_seed(8181);

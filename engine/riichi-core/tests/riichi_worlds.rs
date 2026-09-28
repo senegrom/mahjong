@@ -3,13 +3,13 @@ use riichi_core::bot::Bot;
 use riichi_core::game::{Action, Call, Hand, Phase};
 use riichi_core::hand::TileSet;
 use riichi_core::rng::Rng;
-use riichi_core::search::{imagine, seen_by, Belief};
+use riichi_core::search::{imagine, Belief};
 use riichi_core::table::Table;
 use riichi_core::tile::Tile;
 use riichi_core::Wind;
 
 fn check(world: &Hand, observer: Wind) {
-    let mut all = seen_by(world, observer);
+    let mut all = world.seen_by(observer);
     for seat in Wind::ALL {
         if seat == observer {
             continue;
