@@ -1,0 +1,18 @@
+{
+  "tile": "4s",
+  "name": "Sou4",
+  "candidate": "Bamboo C (green)",
+  "title": "Moonlit Four",
+  "source": "docs/design/van-gogh/studies/13-four-bamboo-moonlit-four-green.webp",
+  "originalBoardSha256": "8aa09c5f197667a94effffd037e506a02064a409444667923e7a46de3d09a450",
+  "originalBoardSize": [1448, 1086],
+  "originalCrop": {"x": 974, "y": 144, "width": 438, "height": 671},
+  "sourceSize": [300, 400],
+  "sourceFormat": "WebP",
+  "quality": 95,
+  "resampling": "Lanczos",
+  "sourceBytes": 72616,
+  "sourceSha256": "4d1e76c1716b6086524dfcf94ec8141fa9196a78fce5ecffa517e904204304fb",
+  "approval": "Carl selected C and requested a greener palette, then approved the revised C for deployment as 4 bamboo.",
+  "preservation": "The original review board and full-resolution selected crop are preserved separately in van-gogh-four-bamboo-C-originals.zip. The committed source is an optimized game export, not a lossless original."
+}
