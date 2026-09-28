@@ -572,9 +572,6 @@ pub struct Game {
     /// to be named. The declaration is not played until the tile is known,
     /// our engine taking the two as one move.
     mortal_awaiting_riichi: Option<(usize, u32)>,
-    /// Points each seat held when the hand was dealt, so the score screen
-    /// can say what the hand cost or paid.
-    opening: [i32; 4],
     /// The position before each of the player's own decisions, with what
     /// they did from it, which is all a review needs.
     decisions: Vec<RecordedDecision>,
@@ -612,7 +609,7 @@ impl Game {
         let hand = table.deal(&mut rng);
         let seat = table.seat_of(player);
         let hand_seating = table.seating();
-        let mut game = Game {
+        Game {
             table,
             hand,
             rng,
@@ -630,15 +627,12 @@ impl Game {
             mortal_logged: 0,
             mortal_events: Vec::new(),
             mortal_awaiting_riichi: None,
-            opening: [0; 4],
             decisions: Vec::new(),
             external,
             controllers: [controller; 4],
             asking: Vec::new(),
             gathered: Vec::new(),
-        };
-        game.opening = game.hand.scores();
-        game
+        }
     }
 
     /// Creates a custom table. The order is right, opposite, left relative
@@ -1418,7 +1412,6 @@ impl Game {
             self.seat = self.table.seat_of(self.player);
             self.hand_seating = self.table.seating();
             self.hand = self.table.deal(&mut self.rng);
-            self.opening = self.hand.scores();
             self.decisions.clear();
             self.mortal_logged = 0;
         }
@@ -1567,12 +1560,9 @@ impl Game {
     /// How the hand ended, with enough to show a score screen.
     fn describe_outcome(&self) -> Option<OutcomeView> {
         let outcome = self.hand.outcome.as_ref()?;
-        let now = self.hand.scores();
+        let moved = self.hand.deltas();
         let changes = (0..4)
-            .map(|offset| {
-                let seat = self.seat.plus(offset);
-                now[seat.index()] - self.opening[seat.index()]
-            })
+            .map(|offset| moved[self.seat.plus(offset).index()])
             .collect();
 
         Some(match outcome {
@@ -1662,8 +1652,7 @@ impl Game {
                                 matches!(seat, Wind::East),
                                 discarder.is_some(),
                             ),
-                            bets: (now[seat.index()] - self.opening[seat.index()])
-                                - score.payments.total as i32,
+                            bets: moved[seat.index()] - score.payments.total as i32,
                         }
                     })
                     .collect();
