@@ -24,11 +24,7 @@ impl Block {
     /// The tiles this block is made of.
     pub fn tiles(self) -> Vec<Tile> {
         match self {
-            Block::Sequence(low) => {
-                let second = low.next_in_suit().expect("sequence starts below 8");
-                let third = second.next_in_suit().expect("sequence starts below 8");
-                vec![low, second, third]
-            }
+            Block::Sequence(low) => low.sequence().expect("a sequence starts below 8").to_vec(),
             Block::Triplet(tile) => vec![tile; 3],
             Block::Pair(tile) => vec![tile; 2],
         }

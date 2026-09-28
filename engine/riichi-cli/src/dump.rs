@@ -116,10 +116,9 @@ fn pick_set(rng: &mut Rng, builder: &mut Builder) -> Option<Meld> {
                 let suit = [Suit::Characters, Suit::Circles, Suit::Bamboo][rng.below(3)];
                 let rank = 1 + rng.below(7) as u8;
                 let low = Tile::numbered(suit, rank);
-                let mid = low.next_in_suit()?;
-                let high = mid.next_in_suit()?;
-                if [low, mid, high].iter().all(|tile| builder.free(*tile, 1)) {
-                    for tile in [low, mid, high] {
+                let run = low.sequence()?;
+                if run.iter().all(|tile| builder.free(*tile, 1)) {
+                    for tile in run {
                         builder.take(tile, 1);
                     }
                     return Some(Meld::chii(low, claimed_from(rng)));

@@ -909,15 +909,10 @@ impl Hand {
                 rest.remove(claimed);
             }
             Some(low) => {
-                let second = match low.next_in_suit() {
-                    Some(tile) => tile,
-                    None => return false,
+                let Some(run) = low.sequence() else {
+                    return false;
                 };
-                let third = match second.next_in_suit() {
-                    Some(tile) => tile,
-                    None => return false,
-                };
-                for member in [low, second, third] {
+                for member in run {
                     if member != claimed {
                         rest.remove(member);
                     }
@@ -925,18 +920,8 @@ impl Hand {
             }
         }
         let mut barred = vec![claimed];
-        if let Some(low) = sequence {
-            let rank = claimed.rank();
-            let other = if rank == low.rank() {
-                Some(rank + 3).filter(|value| *value <= 9)
-            } else if rank == low.rank() + 2 {
-                rank.checked_sub(3).filter(|value| *value >= 1)
-            } else {
-                None
-            };
-            if let Some(rank) = other {
-                barred.push(Tile::numbered(claimed.suit(), rank));
-            }
+        if let Some(other) = sequence.and_then(|low| other_side(low, claimed)) {
+            barred.push(other);
         }
         Tile::all()
             .filter(|tile| rest.count(*tile) > 0)
@@ -945,18 +930,10 @@ impl Hand {
 
     fn can_form_sequence(&self, seat: Wind, low: Tile, claimed: Tile) -> bool {
         let player = &self.players[seat.index()];
-        let second = match low.next_in_suit() {
-            Some(tile) => tile,
-            None => return false,
+        let Some(run) = low.sequence() else {
+            return false;
         };
-        let third = match second.next_in_suit() {
-            Some(tile) => tile,
-            None => return false,
-        };
-        let needed: Vec<Tile> = [low, second, third]
-            .into_iter()
-            .filter(|tile| *tile != claimed)
-            .collect();
+        let needed: Vec<Tile> = run.into_iter().filter(|tile| *tile != claimed).collect();
         if needed.len() != 2 {
             return false;
         }
@@ -1129,9 +1106,8 @@ impl Hand {
                     });
                 }
                 Call::Chii(low) => {
-                    let second = low.next_in_suit().expect("a sequence starts below 8");
-                    let third = second.next_in_suit().expect("a sequence starts below 8");
-                    for member in [low, second, third] {
+                    let run = low.sequence().expect("a sequence starts below 8");
+                    for member in run {
                         if member != tile {
                             player.hand.remove(member);
                         }
@@ -1294,21 +1270,8 @@ impl Hand {
         // 4 for 4-5-6 and the 7 is barred as well, because discarding it
         // would leave the same shape the hand started with.
         let player = self.current();
-        if let Some(meld) = player.melds.last() {
-            if meld.is_sequence() {
-                let low = meld.tile.rank();
-                let rank = claimed.rank();
-                let other = if rank == low {
-                    Some(rank + 3).filter(|value| *value <= 9)
-                } else if rank == low + 2 {
-                    rank.checked_sub(3).filter(|value| *value >= 1)
-                } else {
-                    None
-                };
-                if let Some(rank) = other {
-                    forbidden.push(Tile::numbered(claimed.suit(), rank));
-                }
-            }
+        if let Some(meld) = player.melds.last().filter(|meld| meld.is_sequence()) {
+            forbidden.extend(other_side(meld.tile, claimed));
         }
         forbidden
     }
@@ -1456,6 +1419,25 @@ impl Hand {
         }
         deltas
     }
+}
+
+/// The tile at the far end of a sequence from the tile claimed for it,
+/// which swap-calling bars as well (EMA section 3.3.2): claim a 4 for 4-5-6
+/// and the 7 is barred, claim the 6 and the 3 is. `low` is the sequence's
+/// lowest tile. The middle tile has no such partner, and neither has an end
+/// whose partner would fall off the suit.
+fn other_side(low: Tile, claimed: Tile) -> Option<Tile> {
+    let rank = claimed.rank();
+    let other = if rank == low.rank() {
+        rank + 3
+    } else if rank == low.rank() + 2 {
+        rank.checked_sub(3)?
+    } else {
+        return None;
+    };
+    (1..=9)
+        .contains(&other)
+        .then(|| Tile::numbered(claimed.suit(), other))
 }
 
 /// The lowest tiles of the sequences a claimed tile could complete.

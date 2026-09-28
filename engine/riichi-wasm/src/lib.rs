@@ -1656,29 +1656,13 @@ impl Game {
                         }
                     })
                     .collect();
-                let line = wins
+                let how = match discarder {
+                    Some(from) => format!("on {}'s discard", seat_title(*from)),
+                    None => "by self-draw".to_string(),
+                };
+                let line = winners
                     .iter()
-                    .map(|win| {
-                        let how = match &win.from {
-                            Some(from) => {
-                                let name = match from.as_str() {
-                                    "east" => "East",
-                                    "south" => "South",
-                                    "west" => "West",
-                                    _ => "North",
-                                };
-                                format!("on {name}'s discard")
-                            }
-                            None => "by self-draw".to_string(),
-                        };
-                        let seat = match win.seat.as_str() {
-                            "east" => "East",
-                            "south" => "South",
-                            "west" => "West",
-                            _ => "North",
-                        };
-                        format!("{seat} wins {how}")
-                    })
+                    .map(|(seat, _)| format!("{} wins {how}", seat_title(*seat)))
                     .collect::<Vec<String>>()
                     .join("; ");
                 OutcomeView {

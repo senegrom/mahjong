@@ -32,13 +32,17 @@ use riichi::mjai::Event as MortalEvent;
 use riichi::state::PlayerState as MortalState;
 use riichi_core::game::{Discard, Hand, Phase};
 use riichi_core::hand::MeldKind;
-use riichi_core::mjai::name;
+use riichi_core::mjai::{name, Event};
 use riichi_core::tile::Tile;
 use riichi_core::Wind;
 
 /// Tiles in the live wall before the dealer's first draw, which is where
 /// libriichi's own count starts.
 const WALL_AT_START: usize = 70;
+
+/// The replay numbers the players by seat, East first, which is how the
+/// hand it deals says it: the dealer is player 0.
+const BY_SEAT: [usize; 4] = [0, 1, 2, 3];
 
 /// Mortal's state for one seat of a position on its own, having been told
 /// everything the position says happened.
@@ -89,8 +93,16 @@ fn tiles_json(tiles: &[String]) -> String {
     out
 }
 
+/// An event as the replay tells it, written the way the engine writes its
+/// own log.
+fn line(event: Event) -> String {
+    event.to_json(BY_SEAT)
+}
+
 /// A draw. Only the seat being observed sees what it drew; for the other
-/// three, libriichi reads nothing but the fact that the wall shrank.
+/// three, libriichi reads nothing but the fact that the wall shrank. The
+/// engine's own log always knows the tile, so an unknown one is written
+/// here.
 fn tsumo(actor: Wind, tile: Option<Tile>) -> String {
     format!(
         "{{\"type\":\"tsumo\",\"actor\":{},\"pai\":\"{}\"}}",
@@ -99,50 +111,21 @@ fn tsumo(actor: Wind, tile: Option<Tile>) -> String {
     )
 }
 
-fn dahai(actor: Wind, tile: Tile, tsumogiri: bool) -> String {
-    format!(
-        "{{\"type\":\"dahai\",\"actor\":{},\"pai\":\"{}\",\"tsumogiri\":{}}}",
-        actor.index(),
-        name(tile),
-        tsumogiri,
-    )
-}
-
-fn claim_json(kind: &str, actor: Wind, target: Wind, tile: Tile, consumed: &[Tile]) -> String {
-    let names: Vec<String> = consumed.iter().copied().map(name).collect();
-    format!(
-        "{{\"type\":\"{kind}\",\"actor\":{},\"target\":{},\"pai\":\"{}\",\"consumed\":{}}}",
-        actor.index(),
-        target.index(),
-        name(tile),
-        tiles_json(&names),
-    )
-}
-
-fn kakan_json(actor: Wind, tile: Tile) -> String {
-    let names = vec![name(tile), name(tile), name(tile)];
-    format!(
-        "{{\"type\":\"kakan\",\"actor\":{},\"pai\":\"{}\",\"consumed\":{}}}",
-        actor.index(),
-        name(tile),
-        tiles_json(&names),
-    )
-}
-
-fn dora_json(indicator: Tile) -> String {
-    format!(
-        "{{\"type\":\"dora\",\"dora_marker\":\"{}\"}}",
-        name(indicator)
-    )
-}
-
-fn ankan_json(actor: Wind, tile: Tile) -> String {
-    let names = vec![name(tile), name(tile), name(tile), name(tile)];
-    format!(
-        "{{\"type\":\"ankan\",\"actor\":{},\"consumed\":{}}}",
-        actor.index(),
-        tiles_json(&names),
-    )
+/// A quad a seat declared itself: four concealed tiles, or a fourth added
+/// to a triplet it claimed.
+fn own_quad(actor: Wind, kind: MeldKind, tile: Tile) -> String {
+    line(if kind == MeldKind::ConcealedKan {
+        Event::Ankan {
+            actor,
+            consumed: vec![tile; 4],
+        }
+    } else {
+        Event::Kakan {
+            actor,
+            tile,
+            consumed: vec![tile; 3],
+        }
+    })
 }
 
 /// The tiles a set takes out of the hand its owner was dealt.
@@ -150,32 +133,19 @@ fn ankan_json(actor: Wind, tile: Tile) -> String {
 /// Three for every set, whatever kind it is: a quad's fourth tile comes off
 /// the draw, and a sequence or triplet is followed by a discard from hand,
 /// which is the third. That is why thirteen tiles always come to thirteen
-/// again, however many sets stand in front of a seat.
-fn consumed_from_hand(kind: MeldKind, tile: Tile, claimed: Option<Tile>) -> Vec<Tile> {
-    match kind {
+/// again, however many sets stand in front of a seat. `None` for a
+/// sequence that cannot hold the tile it was claimed on.
+fn consumed_from_hand(kind: MeldKind, tile: Tile, claimed: Option<Tile>) -> Option<Vec<Tile>> {
+    Some(match kind {
         MeldKind::Chii => {
-            let run = [
-                tile,
-                tile.next_in_suit().unwrap_or(tile),
-                tile.next_in_suit()
-                    .and_then(|t| t.next_in_suit())
-                    .unwrap_or(tile),
-            ];
+            let mut rest = tile.sequence()?.to_vec();
             let taken = claimed.unwrap_or(tile);
-            let mut rest: Vec<Tile> = Vec::new();
-            let mut skipped = false;
-            for t in run {
-                if !skipped && t == taken {
-                    skipped = true;
-                    continue;
-                }
-                rest.push(t);
-            }
+            rest.remove(rest.iter().position(|member| *member == taken)?);
             rest
         }
         MeldKind::Pon | MeldKind::ExtendedKan => vec![tile, tile],
         MeldKind::ClaimedKan | MeldKind::ConcealedKan => vec![tile, tile, tile],
-    }
+    })
 }
 
 /// Whether a set is followed by a discard out of the hand rather than a
@@ -281,7 +251,7 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
             .iter()
             .find(|claim| claim.claimer == seat && claim.meld == at)
             .map(|claim| claim.tile);
-        dealt.extend(consumed_from_hand(meld.kind, meld.tile, claimed));
+        dealt.extend(consumed_from_hand(meld.kind, meld.tile, claimed)?);
     }
     for discard in &mine.discards {
         if from_hand.contains(&(seat.index(), discard.order)) {
@@ -356,13 +326,9 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
                     (owner == seat).then_some(tile),
                 );
             }
-            tail.push(if kind == MeldKind::ConcealedKan {
-                ankan_json(owner, tile)
-            } else {
-                kakan_json(owner, tile)
-            });
+            tail.push(own_quad(owner, kind, tile));
             if let Some(indicator) = turning.pop() {
-                tail.push(dora_json(indicator));
+                tail.push(line(Event::Dora { indicator }));
             }
             let replacement = quads.get(at + 1).map_or(discard.tile, |&(_, _, next)| next);
             draw(
@@ -376,18 +342,19 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
             draw(&mut tail, &mut drawn, *who, mine.then_some(discard.tile));
         }
         if discard.riichi {
-            tail.push(format!("{{\"type\":\"reach\",\"actor\":{}}}", who.index()));
+            tail.push(line(Event::Reach { actor: *who }));
         }
         // Its own discards are replayed as tiles drawn and let go, which is
         // what the extra draw above supplied; the other three keep the mark
         // that was entered for them.
         let tsumogiri = if mine { !post } else { discard.drawn && !post };
-        tail.push(dahai(*who, discard.tile, tsumogiri));
+        tail.push(line(Event::Dahai {
+            actor: *who,
+            tile: discard.tile,
+            drawn: tsumogiri,
+        }));
         if discard.riichi && !is_pending(hand, *who, discard) {
-            tail.push(format!(
-                "{{\"type\":\"reach_accepted\",\"actor\":{}}}",
-                who.index()
-            ));
+            tail.push(line(Event::ReachAccepted { actor: *who }));
         }
         if let Some(at) = by_order.get(&discard.order) {
             let claim = &taken[*at];
@@ -400,19 +367,28 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
                 },
                 meld.tile,
                 Some(claim.tile),
-            );
-            let kind = match meld.kind {
-                MeldKind::Chii => "chi",
-                MeldKind::ClaimedKan => "daiminkan",
-                _ => "pon",
-            };
-            tail.push(claim_json(
-                kind,
-                claim.claimer,
-                claim.target,
-                claim.tile,
-                &consumed,
-            ));
+            )?;
+            let (actor, target, tile) = (claim.claimer, claim.target, claim.tile);
+            tail.push(line(match meld.kind {
+                MeldKind::Chii => Event::Chi {
+                    actor,
+                    target,
+                    tile,
+                    consumed,
+                },
+                MeldKind::ClaimedKan => Event::Daiminkan {
+                    actor,
+                    target,
+                    tile,
+                    consumed,
+                },
+                _ => Event::Pon {
+                    actor,
+                    target,
+                    tile,
+                    consumed,
+                },
+            }));
             // An open quad's replacement is not drawn here. The caller's
             // next discard does not come out of the hand (`discards_after`),
             // so the draw told ahead of it is the replacement; a caller that
@@ -421,7 +397,7 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
             // tile, one Mortal refuses when it is the caller's own.
             if meld.kind == MeldKind::ClaimedKan {
                 if let Some(indicator) = turning.pop() {
-                    tail.push(dora_json(indicator));
+                    tail.push(line(Event::Dora { indicator }));
                 }
             }
         }
@@ -436,18 +412,14 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
             owner,
             (owner == seat).then_some(tile),
         );
-        tail.push(if kind == MeldKind::ConcealedKan {
-            ankan_json(owner, tile)
-        } else {
-            kakan_json(owner, tile)
-        });
+        tail.push(own_quad(owner, kind, tile));
         // A quad still open to robbery has not turned its indicator, and
         // its replacement has not been taken; both wait on the answer.
         if robbed.is_some_and(|robbable| robbable == tile) {
             continue;
         }
         if let Some(indicator) = turning.pop() {
-            tail.push(dora_json(indicator));
+            tail.push(line(Event::Dora { indicator }));
         }
     }
 
@@ -476,10 +448,11 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
     };
 
     let mut out = Vec::with_capacity(tail.len() + filler + 2);
-    out.push(
-        "{\"type\":\"start_game\",\"names\":[\"player 0\",\"player 1\",\"player 2\",\"player 3\"]}"
-            .to_string(),
-    );
+    out.push(line(Event::StartGame {
+        names: std::array::from_fn(|player| format!("player {player}")),
+    }));
+    // The deal is written here: the engine's own start_kyoku knows every
+    // hand, and this one shows three of them face down.
     out.push(format!(
         "{{\"type\":\"start_kyoku\",\"bakaze\":\"{}\",\"kyoku\":{},\"honba\":{},\"kyotaku\":{},\"oya\":0,\"dora_marker\":\"{}\",\"scores\":[{},{},{},{}],\"tehais\":{}}}",
         name(hand.round.tile()),

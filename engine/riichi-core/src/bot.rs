@@ -175,16 +175,11 @@ impl Bot {
                     shanten::shanten(&probe, player.melds.len() + 1)
                 }
                 Call::Chii(low) => {
+                    let Some(run) = low.sequence() else {
+                        continue;
+                    };
                     let mut probe = player.hand;
-                    let second = match low.next_in_suit() {
-                        Some(tile) => tile,
-                        None => continue,
-                    };
-                    let third = match second.next_in_suit() {
-                        Some(tile) => tile,
-                        None => continue,
-                    };
-                    for member in [*low, second, third] {
+                    for member in run {
                         if member != tile {
                             probe.remove(member);
                         }
