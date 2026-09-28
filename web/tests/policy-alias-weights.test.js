@@ -11,7 +11,7 @@ await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', 
 // Exercise the actual evaluator with only its worker call replaced. The same
 // real weight mapper and actual WASM action translation run in both paths.
 const source = readFileSync(new URL('../src/lib/agents.js', import.meta.url), 'utf8')
-  .replace(/^import .*\n/gm, '').replace(/^export /gm, '');
+  .replace(/^import .*\r?\n/gm, '').replace(/^export /gm, '');
 const evaluator = analyze => vm.runInNewContext(source + '\nevaluateAgent', {
   analyzePolicy: analyze, weightsByChoice, MORTAL_REACH, readBeliefs, readValue,
 });

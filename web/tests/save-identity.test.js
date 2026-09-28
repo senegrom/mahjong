@@ -7,7 +7,7 @@ import vm from 'node:vm';
 // Only its imported key is injected; no store behavior or methods are mocked.
 const SAVE_KEY = 'riichi.match.v2';
 const source = readFileSync(new URL('../src/lib/save-store.js', import.meta.url), 'utf8')
-  .replace(/^import .*\n/gm, '').replace(/^export /gm, '');
+  .replace(/^import .*\r?\n/gm, '').replace(/^export /gm, '');
 const load = crypto => vm.runInNewContext(`${source}\nMatchStore`, { SAVE_KEY, crypto });
 const snapshot = { version: 1, format: 6, seed: 11, difficulty: 'club', opponents: ['club', 'club', 'club'], commands: [], state: 'test' };
 function environment() {
