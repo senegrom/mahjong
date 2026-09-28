@@ -1,68 +1,9 @@
-# Riichi Mahjong: project plan
+# Rules and engine reference
 
-A browser riichi mahjong game with a beautiful, usable table, faithful to the
-European Mahjong Association rules, and AI opponents trained AlphaZero-style
-from self-play on the same rules engine the humans play against.
-
-Status: 6 September 2026. The engine, the browser game and the training
-loop are built and published at <https://senegrom.github.io/mahjong/>; what
-is left is the strength of the trained opponent. The published network is
-the 192 by 10, and it keeps its place: played head to head against the
-320 by 20 being trained it wins from both directions.
-
-The day's real finding is about the measurement. Placement against the
-heuristic players, which this project has quoted throughout and which the
-trainer selects checkpoints on, cannot rank two trained networks. It
-compresses differences about sevenfold, and over generations 270 to 286 it
-moved the wrong way outright: it improved by 0.088 while the network lost
-between 0.09 and 0.13 against two different fixed opponents. Networks are
-now ranked by `neural.duel`, one against three copies of the other at the
-same table, run in both directions; two identical networks return exactly
-2.50 with no error, which is the check that it is not inventing precision.
-
-That regression is the second finding. The run peaked around generation
-270 and went backwards, and because the best checkpoint was selected on
-the misleading figure, generation 270 was overwritten by weaker networks
-with better bot scores and is gone. Every tenth generation is now kept for
-good. The likely cause is that four copies of one network play only each
-other, with the entropy bonus at zero for two hundred generations: an
-equilibrium nothing from outside disturbs, which improves against fixed
-weak opponents and loses to a policy that steers the game elsewhere. Two
-answers are in flight, an entropy bonus restored at 0.005 and the ability
-to seat an older checkpoint in a share of games, the second written and
-tested but not yet switched on.
-
-Training moved to Modal (`neural/modal_app.py`) that midday. The desktop
-card was running the learning step at about a tenth of its arithmetic,
-because the process sits at lowest priority on a machine whose terminal
-alone holds half the cores; the same generation took 481 milliseconds a
-step one round and 825 the next. A container that has a card to itself
-does eleven times the work per decision, and each round carries twice the
-games. Strength is measured on its own container while the learner keeps
-going, which is what the desktop could never do: the card cannot be
-shared, so every measurement there meant stopping training first.
-
-| milestone | where it stands |
-|---|---|
-| M0, the rules engine | done. Every rules-card item has a citing test, and one million random winning hands were scored here and by an independent library with no unexplained disagreement. Logs are written in the mjai format and a test rebuilds every hand from its own events. |
-| M1, the browser game | done but for replays. A whole game is playable, by mouse or keyboard, with the learning aids, a post-game review, and the hand saveable as an mjai log. Published from Actions. |
-| M2, the training loop | done. The network is 0.057 placement ahead of the heuristic bot over ten thousand duplicate deals, which is 5.2 standard errors. |
-| M3, neural tiers in the browser | done. The trained tier is published: 2.4 MB of int8 weights in a worker beside the rules, answering in 38 milliseconds at the median where the plan asks for under 200. The review and the learning aids are there; a replay is not. |
-| M4, search and Mortal | search is built the AlphaZero way: worlds imagined from what a seat can see and drawn from what the network believes the opponents hold, each candidate made in each, the position that results valued by the network's value head in one batched pass, and a move taken only when it beats the player's own choice by two standard errors of the world-by-world difference. The earlier rollout evaluator measured worse than not searching as the world count rose (2.503 at ten, 2.581 at two hundred, overrides climbing from 2.7% to 3.7%), which is what a biased judge does when sharpened. A leaf whose hand ends is played into the next hand for the network to value, or banks the placement when the game ends, so every leaf is on the value head's scale; before that a leader would never have taken a cheap win. The observation gained the hand's number, without which South 1 and South 4 looked the same; older checkpoints are widened with zero weights on loading. Measured at 200 worlds and 120 games a chair after that fix: 2.73 against a level of 2.50, 4.2 standard errors worse, the search changing 15% of decisions; the value head explains 18% of the return at generation 15 (correlation 0.43), and one ply of search with an evaluator that noisy follows its errors. Search stays off. Training now has an oracle critic, as Suphx does: a value head that in training also sees the opponents' concealed tiles, the next four draws and the hidden indicators, used as the policy gradient's baseline and as a quieter target the public value head learns from; the policy never sees the oracle planes. The hidden hands are now weighed, not only sampled, as the strong searchers do: the search imagines a pool of worlds from the belief's marginals, a reader trained during self-play to tell real hidden hands from imagined ones weighs each by the likelihood ratio it has learned, the most plausible worlds are kept with their weights, and the decision is a weighted one; even weights reproduce the sampled search exactly. The reader's accuracy is logged each generation. The oracle critic's loss dropped below the public head's from generation 21. The opponents inside the lookahead are now the network's to move: the engine advances every imagined world to the first decision somebody owes, hands the observations and legality masks of every waiting slot back at once, takes the policy's answers and advances again, so the seats between the candidate move and the leaf are played by the thing that will actually be sitting there rather than by the club heuristic. The same handle buys depth: a slot can be told to let the policy play the searching player's own next turns too before the position is valued, which is OLSS's policy-guided depth without a tree. `neural.searched --played-by network --depth N` measures it against the heuristic-played lookahead; neither is on in play until one of them is measured better. Since then the network reads Mortal's planes through the vendored encoder, and the search serves it at the root and at every leaf through one contract (`neural.contract`). Measured on the current lineage over the same 200 deals: one ply valued by the critic is worse than not searching whether the club heuristic or the network moves the other seats (2.76, six standard errors), and playing every world to the end of the hand and taking the hand's own result is level (2.52, 0.4 standard errors), so the harm is the critic's ranking of sibling moves, not the worlds. That search is the teacher now: it records every decision it compares (`--record`), a small head on the policy's features learns the rollouts' differences between siblings (`neural.sibling_head`), and a player that asks the head over the policy's first four moves (`neural.ranked`) is duelled against the plain policy. The search costs a hand played out per candidate per world; it spends that only where the policy hesitates (`--sure`) and on nothing with a single candidate, and keeps its recording as it goes. What the recordings say has to be read with the worlds split, half deciding and half scoring (`neural.worth`): read off as it stands, a sixty-four-world recording claims the best candidate beats the policy's move by 0.117 of a unit a decision, and split it claims 0.001 +- 0.004, because the best of four estimates over a handful of worlds beats the first even when the moves are identical. Split the same way, the two-standard-error margin the search plays under gains 0.0037 a searched decision at three standard errors, so the margin is the whole difference between a lesson and noise: `neural.teach` learns the move the search made under it, not the best average. Then a review found the objective wrong where it mattered most: a world that ended the root hand was valued by adding the next hand's critic estimate to the banked score, which is not the target anything was trained on. Corrected, a world that crosses that boundary plays on to the end of the match and adds only the placement, and recordings made before the correction are refused as training input rather than relabelled. The correction also changes what is affordable: the network moving every seat to the end of a match manages ten decisions in twenty minutes on a desktop card, where the club heuristic does three a second, so the rollouts are the club's. Measured again on the corrected search over four deals, with the worlds split so that one half decides and the other scores, the margin's picks gain 0.021 of a unit a searched decision at six standard errors and the best average gains 0.027 at seven, where under the old objective the best average gained nothing; the margin fires on a third of decisions rather than a sixteenth. Those figures are four deals of one chair and stand until the full recording repeats them. The full recording did not: with the club playing the worlds out, the corrected search gains 0.028 a decision by its own reckoning and loses a tenth of a placement at the table (2.574 over four hundred deals in the cloud, 2.616 on the desktop), because a discard is judged by how a weak player fares after it. The judge that does not need a rollout is a placement-only head (`neural.placement`): fitted on the placement part of self-play returns, held out by game, it explains a third of the placement variance from the policy's own frozen features (0.32 for generation 36, 0.38 for generation 0, one round of 256 games each), where the hybrid critic explained 0.18 of the return. The search can now stop every world at the hand boundary, bank the root hand and ask that head where the standings lead from the first decision of the next hand (`--valued-by placement`). Measured over the same four hundred chair-deals with the network playing every world to the boundary and sixteen worlds: 2.530, level (0.6 standard errors worse), the margin firing on 5% of searched decisions, which is about what the two-standard-error test fires on noise at sixteen worlds, and gaining 0.002 of a unit a decision by its own world-split reckoning, with 97% of its overrides one discard for another. So the boundary search is level whichever judge stands at the boundary, and the harm the critic and the club did came from judging the root hand, not the standings after it. Six teachers have now been measured and none beats the policy. Worlds were the one lever left, and sixty-four of them on the same deals settled it: the table stays level (2.544, a standard error worse) while the search's own world-split estimate of its overrides triples, to 0.0055 of a unit a searched decision at six standard errors, about 0.08 a fired decision, where the table sees -0.007 +- 0.008 a fired decision. More worlds sharpen the claim and not the play, so the error is systematic: the imagined worlds, or the judge, flatter the move the search takes, and 97% of those moves trade one discard for another. The next question is which of the two, and a search given the true hidden hands answers it cheaply: if a clairvoyant search does not beat the policy either, the rollouts and the judge are the limit; if it does, the belief the worlds are drawn from is. The policy it would teach has not moved meanwhile: thirty-six leashed generations sat against their own starting point at one table place 2.481 +- 0.016, level, as the block's earlier duels against Mortal were. Search stays off in play until the taught policy or the head's player measures better at the table. Neither did, and in September 2026 the search was removed, from the trainer and then from the engine; the imagined worlds remain, as the reader's negatives. |
-
-The honest summary of the AI: a warm start on the heuristic player reaches
-its level, and self-play has passed it. The gain is real but not large, and
-the reason is the shape of the reward rather than a bug: a whole game's
-result reaches every one of the hundreds of thousands of decisions in it,
-so the signal per decision is thin. Four times the games per update is what
-turned a flat run into a rising one.
-
-The arena exists so that any claim about strength has to be shown rather
-than asserted, and it has already cost one claim of mine. Its error bars
-were taken from the four seatings, which share their deals and so are not
-independent; correcting that turned four standard errors into one and eight
-tenths, and the number that eventually justified publishing came from ten
-thousand games rather than from a better story about two thousand.
+The rules this game implements, and how the rules engine that implements them
+is built and tested. This file began as the project plan; its status
+narrative and its planning of the web app, the AI opponents and the
+milestones are kept in [historical evidence](HISTORY.md).
 
 ## 1. Authoritative rules
 
@@ -216,27 +157,15 @@ Tenhou variants (red fives, abortive draws, kazoe yakuman, different uma)
 would have to be added to the game logic itself. Anything other than EMA 2025
 would be a clearly labelled practice option, never the default.
 
-## 2. Architecture: one rules engine everywhere
+## 2. Rules engine (`riichi-core`)
 
-The single most important decision: **the rules exist once, in Rust, and are
-compiled to WebAssembly for the browser and to a Python extension for
-training.** The AI is trained on exactly the code the humans play against,
-and a scoring bug fixed once is fixed everywhere.
-
-```
-riichi-core   (Rust crate: tiles, wall, state machine, shanten, agari, scoring)
-   ├── riichi-wasm   (wasm-bindgen)  → web app engine + client-side validation
-   ├── riichi-py     (PyO3/maturin)  → batched environment for self-play
-   └── riichi-cli    (Rust)          → random games, log replay, fuzzing
-web/          TypeScript + Vite + Svelte app, ONNX Runtime Web for the AI
-neural/       PyTorch training, Modal Functions (H100), evaluation arena
-docs/         rules PDFs, this plan, design notes, results
-```
-
-Rust 1.98 and Node 24 are already installed; `wasm-pack` and `maturin` are
-the only additions.
-
-## 3. Rules engine (`riichi-core`)
+The rules exist once, in Rust, and are compiled to WebAssembly for the browser
+(`engine/riichi-wasm`) and to a Python extension for training
+(`engine/riichi-py`), so the AI trains on exactly the code people play
+against, and a scoring bug fixed once is fixed everywhere. `engine/riichi-cli`
+plays random games and arenas and writes logs. `engine/libriichi`, Mortal's
+engine vendored under its AGPL licence, only encodes positions into the
+network's observation planes; the rules and the legal moves stay ours.
 
 Design
 
@@ -279,191 +208,6 @@ Testing (the engine is only as good as this)
   after every step that no tile is in play five times and that points are
   only ever moved; CI plays 500 such games on every run.
 
-## 4. Web application
-
-Stack: TypeScript, Vite, Svelte 5, the WASM engine, a Web Worker running the
-AI (ONNX Runtime Web on WebGPU, WASM fallback), deployed as a static site to
-GitHub Pages, installable as a PWA and fully offline. No server in version 1.
-
-Table and interaction
-
-- A real table view: own hand at the bottom, opponents' discards, melds and
-  riichi sticks in their seats, the wall count, dora indicators, counters,
-  round and seat winds, scores, all readable at a glance on desktop and in
-  portrait on a phone.
-- Tiles are SVG from the CC0 `riichi-mahjong-tiles` set, with light and dark
-  table themes, and animated draws, discards, calls and score payments
-  (honouring reduced-motion settings).
-- Discard by click or tap, keyboard for everything (number keys and arrows
-  select a tile, letters for chii, pon, kan, riichi, ron, tsumo), call prompts
-  with a configurable timer and clear defaults, auto-options like real
-  clients (auto-pass calls, tsumogiri after riichi, auto-win, auto-sort).
-- Score screens with the full breakdown: yaku, han, fu with reasons, limit
-  name, who pays what, counters and riichi sticks, and the game-end sheet
-  with uma. Every hand is stored and can be replayed step by step.
-- Accessibility: ARIA roles and live announcements of every draw, discard
-  and call; suits are distinguishable by shape, not colour alone; strong
-  focus states; screen-reader tile names; scalable layout.
-- English UI with Japanese yaku names alongside, following the rulebook's
-  own naming.
-
-Learning aids (toggleable, never on by default in a rated game)
-
-- Shanten count and acceptance list for the current hand, waits and their
-  remaining copies, furiten warning, dora highlight.
-- Defence view: safe tiles against each riichi (genbutsu, suji) and the AI's
-  own danger estimates.
-- Post-game review: the AI's preferred move at each of your decisions, with
-  its win, deal-in and value estimates, and a "why" line (efficiency, value,
-  or defence).
-
-## 5. AI opponents
-
-### 5.1 What "AlphaZero-style" means here
-
-AlphaZero proper needs perfect information and two players. Riichi has four
-players, hidden tiles and random draws, so the recipe is adapted while
-keeping its spirit: **no human data, self-play only, a policy-value network
-improved by search-quality targets, and evaluation by arena.** The concrete
-choices:
-
-- Actor-critic self-play (PPO or V-trace) over batched games, all four seats
-  played by the current network, replay window and paced learner exactly as
-  in the connect4 loop.
-- Oracle-guided critic: during training the value head may see the hidden
-  tiles (opponents' hands, the wall) as extra features that are annealed away,
-  a proven variance reducer for mahjong; the policy never sees them.
-- Reward: final game result including uma, plus per-hand score changes as an
-  annealed shaping term. The value head sees round, hand number, scores,
-  counters and riichi sticks so it can trade a hand's value against
-  placement.
-- Search-improved targets as the second stage: at the actor, sample hidden
-  tiles consistent with public information, evaluate each legal action by
-  short rollouts or one-ply expectation under the sampled worlds, and train
-  the policy toward the improved distribution, Gumbel-style, as the connect4
-  actors do with their two-ply scores.
-- Exact oracles for the parts that are exactly solvable, the analogue of the
-  connect4 perfect tables: the single-hand tile-efficiency problem (which
-  discard maximises the chance to reach tenpai or win within the remaining
-  draws) has an exact dynamic-programming solution over the 34-count vector
-  and is used both as an auxiliary training target and as a held-out
-  blunder test on efficiency-only positions.
-
-### 5.2 Network
-
-- Input: from 7 September 2026, Mortal's own observation, 1012 planes over
-  the 34 tile kinds, built by Mortal's engine (`engine/libriichi`,
-  vendored under its AGPL licence and built as its own Python module) from
-  the mjai events our arena writes as it plays. It carries what the
-  engine's ninety-seven planes did not: every discard in order with what
-  was drawn and thrown from the hand, the last hand-thrown and riichi
-  tiles, the waits of every hand, furiten, shanten, and an efficiency
-  lookahead giving, for each discard, which draws advance the hand and the
-  chance by turn of being ready, of winning, and for how much. Our engine
-  stays the authority on the rules and the legal moves; Mortal's only
-  describes the position. The lookahead costs about two milliseconds a
-  decision on one core, so the encoder runs across games in parallel
-  without the GIL, and the planes are stored sparse (seven per cent of the
-  values are non-zero).
-- Body: 1-D residual network over the 34 positions, 320 channels by 24
-  blocks, each block with a channel attention of Mortal's kind (mean and
-  maximum pooled over the line, a two-layer gate per channel), so every
-  block sees the whole position. The earlier lineage, 320 by 20 without
-  the attention over the engine's planes, is kept for calibration.
-- The zoo: a published Mortal plays at the same tables (`neural/zoo.py`),
-  reading the same planes and answering in its own action space, which is
-  translated into ours under the engine's legal mask. It is a yardstick
-  in duels, an opponent in self-play, and a teacher.
-- Heads: policy over about 46 masked actions (34 discards plus tsumogiri,
-  riichi, three chii shapes, pon, three quad kinds, ron, tsumo, pass), value,
-  and auxiliary heads that predict each opponent's tenpai state and waits
-  (which is what defence needs) and the own hand's shanten.
-- Export to ONNX for the browser; the same weights run in the app and on
-  Modal.
-
-### 5.3 Difficulty tiers in the app
-
-| tier | engine |
-|---|---|
-| Beginner | efficiency-only heuristic, no defence, noisy discards |
-| Club | heuristic bot: shanten and acceptance efficiency, value awareness, riichi decision, defence by genbutsu and suji |
-| Strong | neural policy, greedy |
-| Expert | neural policy with sampled-world search at each decision |
-
-The heuristic bot ships first and stays as a fixed benchmark and as a
-sparring partner that keeps early self-play from collapsing into nonsense.
-
-### 5.4 Evaluation
-
-- Arena with duplicate deals: the same seeded walls are played with the
-  candidate in every seat and the opponents permuted, which removes most
-  of the luck. Metrics per candidate: average placement, win rate, deal-in
-  rate, average win value, riichi rate, and Elo against previous
-  generations and the heuristic bot.
-- External benchmark: Mortal, the open-source riichi AI, speaks mjai, so it
-  can sit at our tables locally. It was trained on Tenhou rules, so results
-  under EMA rules are indicative rather than exact, but beating it is the
-  first serious milestone.
-- Efficiency blunder rate against the exact oracle on held-out positions.
-- Human play: you, with the review tool showing where the AI disagrees.
-
-### 5.5 Compute plan
-
-Reuse the connect4 infrastructure as is: Modal Functions only, never
-sandboxes; H100 actors that write compressed shards to the volume; an H100
-learner that trains one generation per call from the newest checkpoint over
-a replay window; the local driver with pacing, the single-driver guard,
-stop files, and the generation watcher. The Rust environment runs on the
-actor's CPU cores with network evaluation batched on its GPU, which is the
-standard shape for mahjong self-play; a fully tensorised GPU environment is
-a stretch goal if profiling shows the CPU side is the bottleneck. The local
-RTX 5070 Ti is for development, smoke tests and the browser export.
-
-## 6. Milestones
-
-| # | deliverable | acceptance |
-|---|---|---|
-| M0 | `riichi-core` complete with tests, differential scoring, CLI random games, mjai logs | every rules-card item has a citing test; zero unexplained scoring disagreements over one million hands |
-| M1 | playable web app vs the heuristic bot, tiles, mobile layout, score screens, replays, Pages deploy | a full hanchan playable on a phone; accessibility audit passes |
-| M2 | training loop live: PyO3 env, network, learner and actors on Modal, arena | a neural generation beats the heuristic bot in duplicate-deal arena |
-| M3 | neural tiers in the browser, review tool, learning aids | Strong tier runs in the browser under 200 ms per decision on a laptop |
-| M4 | search targets, scaling, Mortal benchmark, optional online play | measured win over Mortal in arena; decision on multiplayer |
-
-Milestones are sequential in their acceptance but overlap in work: the app
-(M1) and the loop (M2) both start as soon as the engine's API is stable.
-
-## 7. Risks and open questions
-
-- Rules interpretation: a handful of EMA wordings need a decision for
-  software (for example which reading counts as "delayed" in the call
-  window); each such decision is written down in `docs/RULES_DECISIONS.md`
-  with the section it interprets.
-- Self-play from zero may plateau at strong-club rather than expert level;
-  the mitigations are the oracle critic, the exact efficiency targets, the
-  heuristic sparring partner, and, if a properly licensed set of human game
-  logs is available, a supervised warm start (not planned by default).
-- Browser inference cost for the Expert tier; the Strong tier is the
-  guaranteed fallback.
-- Choices to confirm: the app's name and visual theme, and whether online
-  multiplayer is wanted at all.
-
-Decided: **Svelte for the interface** (2026-09-02). A mahjong table keeps far
-more state than a Connect Four grid, and Svelte compiles components away, so
-the shipped page stays small next to the tile art, the WebAssembly engine and
-the network. The cost is a build step, which the connect4 project deliberately
-avoided.
-
-## 8. Immediate next steps
-
-1. Repository skeleton: Rust workspace, web app scaffold, `docs/rules/` with
-   both PDFs, CI that builds the engine, runs the tests and deploys Pages.
-2. `riichi-core` tiles, wall, deal and the turn state machine with the
-   rules-card tests, then shanten and agari tables, then scoring with the
-   differential harness.
-3. The heuristic bot and the CLI arena, so the app has an opponent on day
-   one of M1.
-
 Sources: the EMA rules page and 2025 PDF at mahjong-europe.org, the
-riichi.wiki summary of the EMA rules, the `riichi-mahjong-tiles` repository
-(CC0), the `mahjong` Python library (MIT), and the Mortal project (mjai
-format).
+riichi.wiki summary of the EMA rules, the `mahjong` Python library (MIT), and
+the Mortal project (mjai format).
