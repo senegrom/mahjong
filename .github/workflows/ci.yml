@@ -29,6 +29,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # --all takes in path dependencies too, so this also checks the vendored
+      # engine/libriichi (riichi-wasm depends on it), follow.rs included.
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Lint

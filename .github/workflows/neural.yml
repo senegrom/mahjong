@@ -72,15 +72,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
         with:
           toolchain: 1.98.1
-          components: rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
             . -> target
             engine/libriichi -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Check follower formatting
-        run: rustfmt --edition 2024 --check engine/libriichi/src/follow.rs
       # The same pinned tools and engine wheels as the build workflow's
       # browser worker parity job.
       - name: Install the training tools and the real Python engines
