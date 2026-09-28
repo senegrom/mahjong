@@ -347,6 +347,12 @@ def play(
         move. Missing one does not only lose that reward: the entries stay
         pending and are paid by the hand after, which credits a decision
         with points from a hand it was not part of.
+
+        The engine says how many hands each game ended on the step, and
+        what the first of them moved: the hand every waiting decision was
+        made in. Any later one was dealt and finished by native bots
+        without a decision from here, so nothing waits on its points, but
+        it still counts as a hand.
         """
         ended = np.frombuffer(arena.hand_ended(), dtype=np.uint8)
         if not ended.any():
@@ -354,7 +360,7 @@ def play(
         results = np.frombuffer(arena.hand_result(), dtype=np.int32).reshape(games, 4)
         counted = 0
         for game in np.nonzero(ended)[0]:
-            counted += 1
+            counted += int(ended[game])
             last_forced[game] = False
             for person in range(4):
                 value = float(results[game][person]) * HAND_SCALE
@@ -682,7 +688,11 @@ def evaluate_games(
     arena = riichi_py.Arena(games=games, seed=seed,
                             bot_places=[player for player in range(4) if player != place])
     views = Views(arena, games, {net.kind})
-    hands = 0
+    # The heuristic players can finish a hand before this player's first
+    # decision in it, even while the arena is being made, and one step can
+    # end two hands. The engine counts every ending, from the making until
+    # the first step and then step by step, so every one is read.
+    hands = int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())
     steps = 0
     while not arena.all_finished() and steps < max_steps:
         steps += 1

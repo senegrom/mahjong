@@ -74,7 +74,7 @@ class LedgerArena:
         ended = np.frombuffer(self.native.hand_ended(), dtype=np.uint8)
         deltas = np.frombuffer(self.native.hand_result(), dtype=np.int32).reshape(self.games, 4)
         for game in np.flatnonzero(ended):
-            self.hands += 1
+            self.hands += int(ended[game])
             self.foreign_endings += owners.get(game) == self.foreign[game]
             for person in range(4):
                 for row in self.pending[game][person]:

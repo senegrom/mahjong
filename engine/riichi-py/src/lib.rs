@@ -54,13 +54,14 @@ struct Seat {
     asking: VecDeque<Wind>,
     /// Answers gathered so far in this claim window.
     answers: Vec<(Wind, Call)>,
-    /// Points each seat held when the current hand began, so a hand's
-    /// result can be reported as a change.
-    opening_scores: [i32; 4],
-    /// The change in points over the hand that just ended, by person.
-    last_result: [i32; 4],
-    /// Whether a hand ended on the most recent step.
-    hand_just_ended: bool,
+    /// What each hand that ended since the last step began moved, by
+    /// person, in the order they ended; before the first step, those that
+    /// ended while the game was made. Native bots can finish a hand without
+    /// an outside decision, even two in a row, so one step can end more
+    /// than one hand. Only the first can have a decision from outside
+    /// waiting on its points: any after it was dealt and finished within
+    /// the same step.
+    endings: Vec<[i32; 4]>,
     /// How many hands this game has finished. The caller's own count can
     /// only be right if it saw every ending; this one cannot miss any, so
     /// the two disagreeing says an ending went unnoticed.
@@ -86,7 +87,6 @@ impl Seat {
         let table = Table::new();
         let mut rng = Rng::from_seed(seed);
         let hand = table.deal(&mut rng);
-        let opening_scores = scores_of(&hand);
         let bots = std::array::from_fn(|place| {
             bot_places
                 .contains(&place)
@@ -101,9 +101,7 @@ impl Seat {
             imagining: Rng::from_seed(seed ^ 0x5EA5_C400),
             asking: VecDeque::new(),
             answers: Vec::new(),
-            opening_scores,
-            last_result: [0; 4],
-            hand_just_ended: false,
+            endings: Vec::new(),
             hands_done: 0,
             finished: false,
             bots,
@@ -221,12 +219,12 @@ impl Seat {
         // Report the hand's result by person rather than by seat: the
         // seats move between hands, and a trajectory belongs to whoever was
         // sitting there. This has to happen before the deal rotates.
-        let closing = scores_of(&self.hand);
+        let moved = self.hand.deltas();
+        let mut by_person = [0; 4];
         for seat in Wind::ALL {
-            let place = self.table.player_at(seat);
-            self.last_result[place] = closing[seat.index()] - self.opening_scores[seat.index()];
+            by_person[self.table.player_at(seat)] = moved[seat.index()];
         }
-        self.hand_just_ended = true;
+        self.endings.push(by_person);
         self.hands_done += 1;
         self.table.finish(&self.hand);
         if self.table.finished {
@@ -234,13 +232,12 @@ impl Seat {
             return;
         }
         self.hand = self.table.deal(&mut self.rng);
-        self.opening_scores = scores_of(&self.hand);
         self.logged = 0;
     }
 
     /// Applies one decision from the seat that owed it.
     fn step(&mut self, index: usize) {
-        self.hand_just_ended = false;
+        self.endings.clear();
         if self.finished {
             return;
         }
@@ -275,14 +272,6 @@ impl Seat {
             self.settle();
         }
     }
-}
-
-fn scores_of(hand: &Hand) -> [i32; 4] {
-    let mut scores = [0; 4];
-    for seat in Wind::ALL {
-        scores[seat.index()] = hand.players[seat.index()].score;
-    }
-    scores
 }
 
 impl Seat {
@@ -576,7 +565,6 @@ impl Arena {
         self.seats.iter().all(|seat| seat.finished)
     }
 
-    /// Games where a hand ended on the last step, as bytes of 0 and 1.
     /// How many hands each game has finished, whether or not the caller
     /// noticed them ending. A collector that credits a hand's points to
     /// the decisions waiting on it has to see every ending: the engine
@@ -588,21 +576,28 @@ impl Arena {
         self.seats.iter().map(|seat| seat.hands_done).collect()
     }
 
+    /// How many hands each game ended on the last step, as bytes; before
+    /// the first step, how many ended while the arena was made, which
+    /// native bots can do. Usually none or one, but bots can finish a
+    /// whole hand before the next outside decision, so a step can end two.
     fn hand_ended<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         let bytes: Vec<u8> = self
             .seats
             .iter()
-            .map(|seat| u8::from(seat.hand_just_ended))
+            .map(|seat| u8::try_from(seat.endings.len()).unwrap_or(u8::MAX))
             .collect();
         PyBytes::new(py, &bytes)
     }
 
-    /// The change in points over the hand that just ended, four per game,
-    /// as int32 by person, not by seat.
+    /// The change in points over the first hand each game ended on the
+    /// last step, four per game, as int32 by person, not by seat; zeros
+    /// where none ended. That is the hand every decision still waiting on
+    /// a hand was made in. A later hand ended on the same step was dealt
+    /// and played out by native bots alone, so nothing waits on it.
     fn hand_result<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         let mut values: Vec<i32> = Vec::with_capacity(self.seats.len() * 4);
         for seat in &self.seats {
-            values.extend_from_slice(&seat.last_result);
+            values.extend_from_slice(&seat.endings.first().copied().unwrap_or_default());
         }
         PyBytes::new(py, cast_i32(&values))
     }

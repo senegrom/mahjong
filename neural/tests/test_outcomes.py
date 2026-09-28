@@ -42,7 +42,9 @@ class OutcomeTests(unittest.TestCase):
         self.assertTrue(all(row['wins'] == .25 for row in result['by_seat']))
 
     def test_measure_reports_tie_convention(self):
+        # Finished as soon as it is made, and no hand ended in the making.
         engine = SimpleNamespace(all_finished=lambda: True,
+                                 hand_ended=lambda: np.zeros(1, dtype=np.uint8).tobytes(),
                                  final_scores=lambda: np.zeros((1, 4), dtype=np.int32).tobytes())
         net = SimpleNamespace(kind='engine', eval=lambda: None)
         with patch.object(selfplay.riichi_py, 'Arena', return_value=engine):

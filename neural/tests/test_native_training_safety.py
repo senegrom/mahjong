@@ -1,4 +1,5 @@
 """Real native tests for strict actions and simulation/dealing RNG isolation."""
+import json
 import unittest
 
 import numpy as np
@@ -40,6 +41,28 @@ class NativeTrainingSafetyTests(unittest.TestCase):
                 break
             arena.step(np.frombuffer(arena.teacher(), dtype=np.uint8).astype(int).tolist())
         self.assertTrue(found, "fixture must exercise a real claim window")
+
+    def test_every_hand_the_native_bots_finish_is_reported(self):
+        # Four heuristic players play whole games while the arena is made,
+        # before any step: the endings are reported until the first step,
+        # every one of them, and not as a single flag.
+        arena = riichi_py.Arena(games=3, seed=5, bot_places=[0, 1, 2, 3])
+        self.assertTrue(arena.all_finished())
+        ended = np.frombuffer(arena.hand_ended(), dtype=np.uint8)
+        np.testing.assert_array_equal(ended, np.asarray(arena.hands_done()))
+        self.assertTrue((ended >= 8).all(), ended)
+        # What the first of them moved, by person, as the game's own log
+        # has it: the scores after its last win or draw less those it was
+        # dealt with.
+        results = np.frombuffer(arena.hand_result(), dtype=np.int32).reshape(3, 4)
+        for game, lines in enumerate(arena.mjai_all()):
+            events = [json.loads(line) for line in lines]
+            first = events.index(next(e for e in events if e['type'] == 'end_kyoku'))
+            dealt = next(e for e in events if e['type'] == 'start_kyoku')['scores']
+            after = [e for e in events[:first] if e['type'] in ('hora', 'ryukyoku')][-1]['scores']
+            np.testing.assert_array_equal(results[game], np.subtract(after, dealt))
+        arena.step([0, 0, 0])
+        self.assertFalse(np.frombuffer(arena.hand_ended(), dtype=np.uint8).any())
 
     def test_imagining_worlds_does_not_change_real_deals_or_outcomes(self):
         plain = riichi_py.Arena(games=2, seed=17)
