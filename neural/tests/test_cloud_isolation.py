@@ -199,9 +199,53 @@ class CloudIsolationTests(unittest.TestCase):
             with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
                  patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'run',side_effect=execute), \
                  redirect_stdout(io.StringIO()):
-                app.rehead(teacher='teacher',run='run',name='product')
-                app.distil(teacher='teacher',run='run',name='product')
+                for function in (app.rehead,app.distil):
+                    with self.subTest(function=function.__name__), \
+                         self.assertRaises(subprocess.CalledProcessError) as failed:
+                        function(teacher='teacher',run='run',name='product')
+                    self.assertIn('failed',failed.exception.output)
             self.assertEqual(before,(volume/'run/product.pt').read_bytes())
+
+    def test_every_function_raises_for_a_missing_input_or_a_failed_child(self):
+        # A caller reads each answer as a report, so an error returned as
+        # text was read as one: a missing checkpoint raises before anything
+        # runs, and a child that fails raises with its output.
+        app=controller()
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume';scratch=root/'scratch'
+            atomic_save({'generation':3},volume/'run/teacher.pt')
+            calls,outcomes=[],[]
+            def execute(command,**kwargs):
+                calls.append(command)
+                return outcomes.pop(0)
+            def popen(command,**kwargs):
+                calls.append(command)
+                return SimpleNamespace(stdout=io.StringIO(),wait=lambda:0)
+            with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
+                 patch.object(app,'_environment',return_value={}),patch.object(app,'_save_cache'), \
+                 patch.object(app.subprocess,'run',side_effect=execute), \
+                 patch.object(app.subprocess,'Popen',side_effect=popen),redirect_stdout(io.StringIO()):
+                for name,call in (
+                        ('train_mortal',lambda:app.train_mortal(run='fresh',mortal='zoo/missing',generations=1)),
+                        ('train_combined ours',lambda:app.train_combined(run='fresh',ours='missing',mortal='run/teacher',generations=1)),
+                        ('train_combined mortal',lambda:app.train_combined(run='fresh',ours='run/teacher',mortal='missing',generations=1)),
+                        ('arena',lambda:app.arena(which='missing',run='run')),
+                        ('distil teacher',lambda:app.distil(teacher='missing',run='run')),
+                        ('distil student',lambda:app.distil(teacher='teacher',student='missing',run='run')),
+                        ('rehead teacher',lambda:app.rehead(teacher='missing',run='run')),
+                        ('rehead student',lambda:app.rehead(teacher='teacher',resume='missing',run='run'))):
+                    with self.subTest(name=name),self.assertRaises(FileNotFoundError):
+                        call()
+                self.assertEqual(calls,[])
+                outcomes.append(SimpleNamespace(stdout='{"placement": 2.4',stderr='Traceback: boom',returncode=1))
+                with self.assertRaises(subprocess.CalledProcessError) as failed:
+                    app.arena(which='teacher',run='run')
+                self.assertEqual(failed.exception.returncode,1)
+                self.assertIn('boom',failed.exception.output)
+                outcomes.append(SimpleNamespace(stdout='{"placement": 2.4}',stderr='a warning',returncode=0))
+                self.assertEqual(app.arena(which='teacher',run='run'),'generation 3\n{"placement": 2.4}')
+            self.assertEqual([command[:3] for command in calls],[[sys.executable,'-m','neural.arena']]*2)
+            self.assertEqual(list(scratch.iterdir()),[])
 
     def test_failed_duels_raise_instead_of_returning_text(self):
         # A caller pooling many duels reads each answer as the table's JSON

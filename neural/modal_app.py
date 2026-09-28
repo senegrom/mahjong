@@ -484,7 +484,7 @@ def train_mortal(
         else:
             origin = _checkpoint(run, mortal)
             if not origin.exists():
-                return f"no Mortal at {origin}"
+                raise FileNotFoundError(f"no Mortal at {origin}")
             shutil.copyfile(origin, where / "origin.pt")
             command += ["--mortal", str(where / "origin.pt")]
             print(f"starting from {origin}", flush=True)
@@ -624,7 +624,7 @@ def train_combined(
             for label, name in (("--ours", ours), ("--mortal", mortal)):
                 found = _checkpoint(run, name)
                 if not found.exists():
-                    return f"no checkpoint at {found}"
+                    raise FileNotFoundError(f"no checkpoint at {found}")
                 local = where / (name.replace("/", "--") + ".pt")
                 shutil.copyfile(found, local)
                 parts += [label, str(local)]
@@ -698,39 +698,46 @@ def arena(
     0.035, which cannot separate this network from the one the browser
     plays; this is the same deals four times over with the network in each
     seat, and its error comes from the deals.
+
+    The answer is the report. A missing checkpoint raises
+    `FileNotFoundError`, and a measurement that exits with an error raises
+    `CalledProcessError` carrying its output, as `duel` does.
     """
     volume.reload()
     source = _checkpoint(run, which)
     if not source.exists():
-        return f"no checkpoint at {source}"
-    local = Path("/scratch/arena")
-    local.mkdir(parents=True, exist_ok=True)
-    name = Path(which).name
-    shutil.copyfile(source, local / f"{name}.pt")
-    # Say which generation this is. The report named only the file it
-    # copied, so two runs on an unchanged checkpoint were indistinguishable
-    # from two on different ones, and at a fixed seed they give the same
-    # number: one of them was a container spent to learn nothing.
-    generation = _generation_of(local / f"{name}.pt")
-    print(f"measuring {which}.pt, generation {generation}", flush=True)
+        raise FileNotFoundError(f"no checkpoint at {source}")
+    with workspace("arena") as local:
+        name = Path(which).name
+        shutil.copyfile(source, local / f"{name}.pt")
+        # Say which generation this is. The report named only the file it
+        # copied, so two runs on an unchanged checkpoint were indistinguishable
+        # from two on different ones, and at a fixed seed they give the same
+        # number: one of them was a container spent to learn nothing.
+        generation = _generation_of(local / f"{name}.pt")
+        print(f"measuring {which}.pt, generation {generation}", flush=True)
 
-    result = subprocess.run(
-        [
+        command = [
             sys.executable, "-m", "neural.arena", str(local / f"{name}.pt"),
             "--games", str(games), "--seed", str(seed),
             # The checkpoint says its own shape; these stand in only for the
             # oldest, which do not.
             "--channels", str(channels), "--blocks", str(blocks),
-        ],
-        cwd="/src",
-        env=_environment(),
-        capture_output=True,
-        text=True,
-    )
-    answer = (result.stdout or "") + (result.stderr or "" if result.returncode else "")
+        ]
+        result = subprocess.run(
+            command,
+            cwd="/src",
+            env=_environment(),
+            capture_output=True,
+            text=True,
+        )
+    if result.returncode:
+        output = (result.stdout or "") + (result.stderr or "")
+        print(output, flush=True)
+        raise subprocess.CalledProcessError(result.returncode, command, output=output)
     # Prefixed so the caller can tell one measurement from another without
     # parsing the report; the JSON still starts at the first brace.
-    answer = f"generation {generation}\n{answer}"
+    answer = f"generation {generation}\n{result.stdout or ''}"
     print(answer, flush=True)
     return answer
 
@@ -853,7 +860,9 @@ def distil(
     only networks that read Mortal's (see `neural.export`).
 
     The result goes to the run's directory under `name`, so it can be
-    duelled before anything decides to train on from it.
+    duelled before anything decides to train on from it. A missing
+    checkpoint raises `FileNotFoundError`, and a failed run raises
+    `CalledProcessError` carrying its output, and publishes nothing.
     """
     with workspace(run) as where:
         volume.reload()
@@ -875,7 +884,7 @@ def distil(
                 continue
             source = _checkpoint(run, which)
             if not source.exists():
-                return f"no checkpoint at {source}"
+                raise FileNotFoundError(f"no checkpoint at {source}")
             copied = local / (which.replace("/", "--") + ".pt")
             shutil.copyfile(source, copied)
             command += [label, str(copied)]
@@ -893,8 +902,12 @@ def distil(
             capture_output=True,
             text=True,
         )
-        answer = (result.stdout or "")[-4000:] + (result.stderr or "" if result.returncode else "")
-        if result.returncode == 0 and (out / "latest.pt").exists():
+        if result.returncode:
+            output = (result.stdout or "")[-4000:] + (result.stderr or "")
+            print(output, flush=True)
+            raise subprocess.CalledProcessError(result.returncode, command, output=output)
+        answer = (result.stdout or "")[-4000:]
+        if (out / "latest.pt").exists():
             target = VOLUME / run
             target.mkdir(parents=True, exist_ok=True)
             copy_checkpoint(out / "latest.pt", target / f"{validate_run(name)}.pt")
@@ -930,14 +943,16 @@ def rehead(
     replaced, by one over Mortal's forty-six moves, and taught to say what
     the old head said. See `neural/rehead.py`. The result goes to the run's
     directory under `name`, to be duelled against the teacher before
-    anything is built on it.
+    anything is built on it. A missing checkpoint raises
+    `FileNotFoundError`, and a failed run raises `CalledProcessError`
+    carrying its output, and publishes nothing.
     """
     with workspace(run) as where:
         volume.reload()
         out = where / "out"
         source = _checkpoint(run, teacher)
         if not source.exists():
-            return f"no checkpoint at {source}"
+            raise FileNotFoundError(f"no checkpoint at {source}")
         local = where / "teacher.pt"
         shutil.copyfile(source, local)
         command = [
@@ -951,7 +966,7 @@ def rehead(
         if resume:
             found = _checkpoint(run, resume)
             if not found.exists():
-                return f"no checkpoint at {found}"
+                raise FileNotFoundError(f"no checkpoint at {found}")
             carried = where / "student.pt"
             shutil.copyfile(found, carried)
             command += ["--resume", str(carried)]
@@ -964,8 +979,12 @@ def rehead(
             capture_output=True,
             text=True,
         )
-        answer = (result.stdout or "")[-4000:] + (result.stderr or "" if result.returncode else "")
-        if result.returncode == 0 and (out / "latest.pt").exists():
+        if result.returncode:
+            output = (result.stdout or "")[-4000:] + (result.stderr or "")
+            print(output, flush=True)
+            raise subprocess.CalledProcessError(result.returncode, command, output=output)
+        answer = (result.stdout or "")[-4000:]
+        if (out / "latest.pt").exists():
             target = VOLUME / run
             target.mkdir(parents=True, exist_ok=True)
             copy_checkpoint(out / "latest.pt", target / f"{validate_run(name)}.pt")
