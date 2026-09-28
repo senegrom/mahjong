@@ -53,3 +53,7 @@ last version of each as a file of its own.
   (opponent path collisions, forced BF16 recording, abandoned prefetchers,
   padded baseline batches). The policy update controls are in
   [TRAINING_SAFETY.md](TRAINING_SAFETY.md).
+- [CUSTOM_OPPONENTS.md](https://github.com/senegrom/mahjong/blob/b34d169ad6341b273866970b93a9793ffef8c2fb/docs/CUSTOM_OPPONENTS.md):
+  custom tables, now a section of [AGENT_MODES.md](AGENT_MODES.md). It said
+  saves of formats 1 to 3 replay recorded neural answers; any save from before
+  format 5 holding a trained move is refused.

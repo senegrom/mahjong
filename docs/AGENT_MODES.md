@@ -20,6 +20,44 @@ invented percentages. Additional legal kans that the network cannot name stay
 available but unscored. Advice for physical play uses the table data entered by
 the player; enter visible history accurately, and leave unknown hands empty.
 
+## Custom tables
+
+Choose **Opponents → Custom table** to pick Beginner, Club or Trained separately
+for the Left, Opposite and Right players, then press **Start custom game**.
+Cancel leaves the running match unchanged. Starting a different table confirms
+abandonment when the existing match has progress. The quick all-opponents
+selector remains available; **Edit opponents** reopens a custom setup.
+
+Each opponent's panel displays its type. Assignments belong to fixed player
+identities, not East/South/West/North winds, and stay with those people through
+dealer changes, repeat hands, the final result and reload. New game reuses the
+current assignments. A custom table can contain two or more Trained opponents;
+they share the existing model and worker, not separate downloads or servers.
+
+Only Trained players request inference. Beginner and Club use their respective
+native bots for both turns and calls. All eligible responses are gathered before
+claim priority is resolved, including native and trained competing Ron claims.
+The human cannot implicitly pass another opponent's decision.
+
+When inference fails, **Retry trained opponent** keeps the table unchanged.
+**Use Club for … opponent only** changes just the pending trained player, without
+redealing or discarding already submitted claims. **Use Club for all Trained
+opponents** changes every remaining Trained player to Club, never a Beginner.
+Fallback decisions are recorded and replayed exactly like other match commands.
+
+Saves record the three assignments from format 4 on. Older saves replay their
+original uniform opponent type, ignoring only the identity metadata added since,
+but one from before format 5 that holds a trained opponent's move is refused:
+see [UI reliability](UI_RELIABILITY.md). Tile, phase, score and legal-choice
+validation is unchanged, and new saves also validate each controller's identity.
+
+`npm run verify` covers all 27 combinations, mixed simultaneous wins,
+pending-claim recovery, complete matches, legacy restoration, cancellation,
+mobile layouts, and two Trained players sharing one load of the published model
+(the browser check counts its downloads). These test controller routing, not
+neural strength, in Chromium at desktop and six portrait and landscape sizes,
+not on a physical iPhone or in Safari.
+
 ## Watch
 
 Choose the followed agent and each other seat independently, then **Start
