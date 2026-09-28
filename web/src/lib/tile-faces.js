@@ -2,7 +2,6 @@ import { TILE_TYPES, tileFile } from './tiles.js';
 import { MATISSE_APPROVED } from './matisse-faces.js';
 import { VAN_GOGH_APPROVED } from './van-gogh-faces.js';
 import { DALI_APPROVED } from './dali-faces.js';
-export { DALI_APPROVED } from './dali-faces.js';
 
 export const TILE_FACE_CONTEXT = Symbol('tile-face');
 export const TILE_FACE_OPTIONS = Object.freeze([

@@ -113,8 +113,8 @@ callbacks, modal focus, breakpoint changes and unmount. Production checks cover
 saved preferences across reload, unchanged matches, unavailable unused artwork
 and failed face switches. Unit tests cover preload cancellation and retry.
 
-`npm run test:offline` exercises the real production service worker and shipped
-network, including a browser-process restart with HTTP cache cleared, disabled
+`scripts/offline-check.mjs`, part of `npm run test:browser`, exercises the real
+production service worker and shipped network, including a browser-process restart with HTTP cache cleared, disabled
 network access, all graphics reloaded offline, continued mixed-opponent play,
 interrupted downloads and version updates. It also checks that the optional
 button downloads only trained-AI bytes without changing the match, and that
