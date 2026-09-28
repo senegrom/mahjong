@@ -43,7 +43,11 @@ are not linted as handwritten application source.
 ## Dependency and workflow policy
 
 Dependabot checks both Cargo workspaces, at `/` and `/engine/libriichi`, npm
-at `/web`, and GitHub Actions at `/`. The root Python binding uses PyO3
+at `/web`, GitHub Actions at `/`, and pip at `/.github/actions/python-engines`,
+the exact CPU export and training tools CI installs. It ignores
+`onnxruntime-web` and leaves `web/runtime/requirements-build.txt` alone: both
+move only with a runtime rebuild (see [ONNX_RUNTIME.md](ONNX_RUNTIME.md)).
+The root Python binding uses PyO3
 0.29.2 and explicitly retains the previous GIL requirement. The vendored
 observation engine has its own dependency versions and must pass its own
 audit; a clean root audit makes no claim about that separate lockfile.

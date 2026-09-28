@@ -29,6 +29,11 @@ updates:
     ignore:
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # onnxruntime-web must be the release web/runtime was built from, which
+      # copy-runtime.mjs checks, so a pull request moving it alone can only
+      # fail. It moves with a rebuild: the reduced ONNX runtime workflow pins
+      # the release it builds in the same commit.
+      - dependency-name: onnxruntime-web
     # These peer dependencies must move together, including major upgrades.
     groups:
       svelte-vite:
@@ -40,10 +45,6 @@ updates:
       npm-minor-patch:
         applies-to: version-updates
         patterns: ['*']
-        # onnxruntime-web must be the release web/runtime was built from, so
-        # it moves only with a rebuild (reduce-onnx-runtime.yml). Its own
-        # pull request fails the build until the runtime is rebuilt at it.
-        exclude-patterns: [onnxruntime-web]
         update-types: [minor, patch]
     schedule:
       interval: weekly
@@ -70,13 +71,6 @@ updates:
         applies-to: version-updates
         patterns: ['*']
         update-types: [minor, patch]
-  - package-ecosystem: pip
-    directory: /web/runtime
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 3
-    groups:
-      runtime-tools-minor-patch:
-        applies-to: version-updates
-        patterns: ['*']
-        update-types: [minor, patch]
+# web/runtime/requirements-build.txt is left out on purpose: those tools run
+# only in the manual runtime rebuild, so their pins move with a rebuild, as
+# onnxruntime-web does, rather than in pull requests nothing exercises.
