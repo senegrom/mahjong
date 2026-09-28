@@ -14,8 +14,6 @@ const pick = choices => choices.find(c => c.kind === 'ron' || c.kind === 'tsumo'
 // 43 is the win, whether by draw or on a discard, and 45 the pass. Anything
 // else falls back to the lowest legal move, which is a discard.
 const neuralChoice = mask => mask[43] ? 43 : mask[45] ? 45 : mask.findIndex(Boolean);
-// The same preference in our own seventy-eight, for the engine itself.
-const enginePick = mask => mask[69] ? 69 : mask[68] ? 68 : mask[70] ? 70 : mask.findIndex(Boolean);
 function turn(m) {
   if (m.engine.needs_opponent_move()) {
     const player = m.engine.opponent_player();
@@ -82,7 +80,9 @@ test('uniform custom engine construction produces identical decisions to the ori
         assert.deepEqual(b.view(), a.view()); assert.deepEqual(b.choices(), a.choices());
         if (a.needs_opponent_move()) {
           assert.equal(b.opponent_player(), a.opponent_player());
-          const action = enginePick(a.opponent_mask()); a.play_opponent(action); b.play_opponent(action);
+          const action = neuralChoice(a.opponent_mask_mortal());
+          assert.deepEqual(b.opponent_mask_mortal(), a.opponent_mask_mortal());
+          assert.equal(b.play_opponent_mortal(action), a.play_opponent_mortal(action));
         } else { const c = pick(a.choices()); a.choose(c.kind,c.tile??undefined); b.choose(c.kind,c.tile??undefined); }
         a.advance(); b.advance();
       }

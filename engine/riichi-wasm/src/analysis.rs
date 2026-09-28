@@ -6,7 +6,7 @@ mod settlement;
 use super::{describe_action, describe_call, mortal_log};
 use riichi::mjai::Event as MortalEvent;
 use riichi_core::bot::{Bot, Style};
-use riichi_core::encoding::{self, ACTIONS, OBSERVATION};
+use riichi_core::encoding::{self, ACTIONS};
 use riichi_core::game::{Call, Discard, Hand, Phase};
 use riichi_core::hand::{ClaimedFrom, Meld, MeldKind, TileSet};
 use riichi_core::rng::Rng;
@@ -26,20 +26,14 @@ struct Choice {
     causes_furiten: bool,
 }
 
-pub(super) fn observation(hand: &Hand, seat: Wind) -> Vec<f32> {
-    let mut out = vec![0.0; OBSERVATION];
-    encoding::observe(hand, seat, &mut out);
-    out
-}
-
 /// Our moves that seat may make at this decision: the engine's own mask,
 /// and a pass for every seat answering another seat's discard or quad.
 ///
 /// A physical player can always decline a discard even when no call is
 /// available. The game driver normally skips such a decision entirely, but a
-/// guided or physical table stops at every discard. The listed choices, our
-/// mask, Mortal's mask and the translation of Mortal's moves back all start
-/// from this one answer, so no adviser is offered a decision it cannot make.
+/// guided or physical table stops at every discard. The listed choices,
+/// Mortal's mask and the translation of Mortal's moves back all start from
+/// this one answer, so no adviser is offered a decision it cannot make.
 pub(super) fn legal_moves(hand: &Hand, seat: Wind) -> Vec<bool> {
     let mut mask = vec![false; ACTIONS];
     encoding::legal_mask(hand, seat, &mut mask);
@@ -49,15 +43,11 @@ pub(super) fn legal_moves(hand: &Hand, seat: Wind) -> Vec<bool> {
     mask
 }
 
-pub(super) fn mask(hand: &Hand, seat: Wind) -> Vec<u8> {
-    legal_moves(hand, seat).into_iter().map(u8::from).collect()
-}
-
 fn choices(hand: &Hand, seat: Wind) -> Vec<Choice> {
-    let mut choices: Vec<Choice> = mask(hand, seat)
+    let mut choices: Vec<Choice> = legal_moves(hand, seat)
         .into_iter()
         .enumerate()
-        .filter(|(_, allowed)| *allowed != 0)
+        .filter(|(_, allowed)| *allowed)
         .filter_map(|(index, _)| {
             let action = if hand.phase == Phase::CallWindow {
                 if index == encoding::PASS {
@@ -516,12 +506,6 @@ impl PhysicalAnalysis {
     }
     pub fn agent_choices(&self) -> Result<JsValue, JsValue> {
         choices_value(&self.hand, self.seat)
-    }
-    pub fn agent_observation(&self) -> Vec<f32> {
-        observation(&self.hand, self.seat)
-    }
-    pub fn agent_mask(&self) -> Vec<u8> {
-        mask(&self.hand, self.seat)
     }
     pub fn agent_pick(&self, kind: &str) -> Result<JsValue, JsValue> {
         let style = match kind {

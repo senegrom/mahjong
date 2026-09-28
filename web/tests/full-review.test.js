@@ -84,7 +84,7 @@ for(const seed of [3,17,248])test(`exported settlement deltas balance event by e
       }
     }
     if(seed===248)assert.equal(wins,2);
-    const at=m.engine.player_index();
+    const at=m.view.seats[0].player;
     assert.equal(balance[at],before[0]);
   } finally {m.dispose();}
 });
