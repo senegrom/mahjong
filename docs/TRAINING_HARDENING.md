@@ -19,9 +19,6 @@ force-pushing or reverting the merged safety work.
 - Keep main's fixed-size minibatch contract and `optimizer_updates` /
   `checkpoint_generation` log fields. A short rollout still fails explicitly;
   the earlier #41 eager-remainder alternative is intentionally not carried over.
-- Keep current-model network-only search baselines; only actual native search
-  needs the engine-only layout restriction. No search-history approximation is
-  introduced.
 
 ## Remaining changes carried forward
 

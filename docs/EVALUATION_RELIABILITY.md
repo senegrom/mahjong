@@ -19,9 +19,9 @@ not directly comparable to corrected ones. Remeasure checkpoint candidates
 on the corrected engine; do not treat a change in benchmark semantics as a
 change in policy strength.
 
-Native terminal search and Python training share the placement-reward
-fixtures in `engine/riichi-core/tests/fixtures/placement-rewards.csv`.
-Tests exercise each fixture under all 24 player permutations. Ties pool the
+Python training's placement rewards are checked against the fixtures in
+`engine/riichi-core/tests/fixtures/placement-rewards.csv` under all 24 player
+permutations; the native search that shared them has been removed. Ties pool the
 rewards of the occupied places; a four-way tie has zero placement reward.
 
 Replay cleanup never deletes the destination generation from a failed

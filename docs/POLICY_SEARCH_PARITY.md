@@ -1,39 +1,23 @@
-# Acting-policy parity and rollout memory
+# Acting-policy precision and browser parity
 
-This follows `REVIEW_BOUNDARY_CONTRACTS.md`. The native search API stays at 5;
-training, rewards, existing checkpoints and production model weights are unchanged.
+This follows `REVIEW_BOUNDARY_CONTRACTS.md`. Training, rewards, existing
+checkpoints and production model weights are unchanged. The search whose roots,
+continuations and rollout batches this document also covered has since been
+removed, from the trainer and then from the engine.
 
 ## One acting policy
 
-`neural.policy_inference` defines the acting-policy contract used by ordinary
-Mortal-space play, search roots, conditional riichi roots and imagined continuation:
+`neural.policy_inference` defines the precision every player that chooses moves
+at a table acts at:
 
-- Scores are ordered descending with stable first-policy-index tie breaking,
-  matching ordinary `argmax` before engine-action translation.
 - CUDA 46-action policies use bfloat16 autocast, preserving their ordinary-player
   behavior. CPU policies and legacy 78-action policies use float32.
 - The helper explicitly establishes its context rather than inheriting unrelated
-  ambient autocast. Training forwards retain caller-controlled precision; value
-  leaf evaluators keep their existing separate precision contract.
+  ambient autocast. Training forwards retain caller-controlled precision.
 
-Fixing precision/tie contracts is not a claim that every accelerator kernel is
+Fixing the precision contract is not a claim that every accelerator kernel is
 bitwise identical across arbitrary batch sizes or hardware. CUDA parity tests run
 when CUDA is available; CPU-only CI must report that hardware test as skipped.
-
-## Bounded imagined inference
-
-`--rollout-batch` (default 256) bounds policy-forward inputs separately from
-`--leaf-batch`, which bounds value leaves. Both ordinary imagined decisions and
-conditional riichi discards are encoded, densified and evaluated in chunks.
-Conditional copies are created only for the current chunk. All actions retain
-the original slot ordering before the native atomic `lookahead_apply` call.
-The setting is supported by local search, completed replay collection and the
-Modal search controller, and is recorded with the experiment.
-
-The limit is not a cap on total process/GPU memory: model weights, native worlds
-and their persistent follower copies also occupy memory. At nonzero temperature,
-changing chunk sizes can change random draws; it is part of experiment identity.
-Use fixed settings and fresh paired games to compare playing strength.
 
 ## Browser integration
 

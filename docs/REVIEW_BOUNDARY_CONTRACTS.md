@@ -22,9 +22,9 @@ normal `zoo.load_player()` path. Engine and Mortal observation readers both
 round-trip. The contained standalone model's marker also survives combined
 checkpoint loading; it does not invent a reader on the combined policy.
 
-The proposal layout/distribution version is still **4**, distinct from search
-API 5. Saving/loading never automatically calibrates a reader or stamps a new
-model. Only the producer, after fitting and checking against that proposal,
-should set the marker. Missing, stale and unknown versions remain explicitly
-uniform at search time. Malformed markers (including booleans/floats) fail.
+Saving/loading never automatically calibrates a reader or stamps a new model.
+Only the producer, after fitting and checking against that proposal, should
+set the marker. Missing, stale and unknown versions remain loadable; the search
+that weighed worlds by them has been removed. Malformed markers (including
+booleans/floats) fail.
 A declaration is producer metadata, not independent evidence of calibration.

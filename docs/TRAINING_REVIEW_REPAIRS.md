@@ -16,7 +16,7 @@ or corrupt inputs abort the invocation. Indexed subdirectories prevent collision
 reference names and weights. `opponents.json` records requested names, copied-byte
 SHA-256 hashes and generations; cloud publication retains the manifest.
 
-Imitation, re-heading and native search distillation validate their requested
+Imitation and re-heading validate their requested
 resume inputs and update budgets before creating models or output. Singleton
 auxiliary batches and empty update runs are rejected. Actual update counts are
 logged, and both total loss and gradient finiteness are checked. Teacher and
@@ -29,30 +29,13 @@ or empty hands, byte planes must be binary, and each row needs a legal action.
 The existing publication and signal-recovery tests remain; their artificial
 fixtures now use the actual production schema.
 
-## Search and learning contracts
-
-Distillation stores the frozen actor probabilities with each searched decision.
-Its improvement targets are constructed once per collection, not reconstructed
-from the moving student. Illegal log-probability terms are removed before their
-zero targets are multiplied. The outcome loss trains the evaluator chosen with
-`--valued-by`; that same choice reaches searched evaluation. This remains a
-shallow-search improvement distribution, not invented visit counts.
+## Observation and action schemas
 
 Observation and action schemas are independent. The Mortal observation adapter
 supports both 46-action and 78-action models, and refuses unknown dimensions.
-Native continuation metadata includes a wanted-value mask; terminal/broken
-slots may omit history, but a **nonterminal** slot without reconstructible
-history raises `UnsupportedSearchLayout`. It is never evaluated at all-zero
-Mortal input or silently treated as terminal.
-
-The concurrent main-branch fix reconstructs new-hand and seating events after
-imagined hand boundaries and is preserved, along with its native regressions.
-Missing nonterminal events still fail closed. This repair does not claim full
-modern tree search, stronger play, or completion of AlphaZero-style training.
-
-World resampling is invariant under a common finite log-weight shift. Its
-all-invalid fallback returns the requested number of samples, with replacement
-when needed. Invalid dimensionality and counts are rejected.
+The search contracts this review also repaired (search distillation targets,
+native continuation metadata, imagined hand boundaries and world resampling)
+went with the search, which has been removed from the trainer and the engine.
 
 ## Exploration and diagnostics
 
@@ -74,9 +57,8 @@ flip.
 Run the complete discovered Python suite with both native engines installed,
 alongside the existing Rust workspace tests, Clippy and formatting checks. New
 regressions exercise actual small-network optimization, narrow legal masks,
-frozen targets, critic gradients, caller-selected value heads, nonterminal
-history rejection, modern action schemas, native exploration bookkeeping,
-resampling invariance and cloud request staging.
+frozen targets, critic gradients, caller-selected value heads, modern action
+schemas, native exploration bookkeeping and cloud request staging.
 CPU tests and controlled interfaces do not establish CUDA/AMP/compiled execution
 parity or playing strength. Preserve and regenerate historically mislabelled
 replay rather than silently relabelling it.

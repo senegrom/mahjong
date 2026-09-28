@@ -8,7 +8,7 @@ rewards are added only after **every game is finished**.
 ## Ties and measurements
 
 `neural.outcomes` is shared by self-play, the heuristic benchmark, duplicate
-arena, direct duels and search evaluation. Equal scores receive the average
+arena and direct duels. Equal scores receive the average
 of their occupied ranks and the average of the corresponding placement
 rewards. A tie for first splits one win among the tied winners: two winners
 receive 0.5 each; a four-way tie gives placement 2.5, zero placement reward
@@ -18,7 +18,7 @@ therefore fractional first-place credit, not a count of outright wins.
 Older measurements broke ties by array index. Do not interpret differences
 between old and new tie-affected metrics as policy improvements alone.
 
-The self-play, score-only measurement, duel and search loops reject an
+The self-play, score-only measurement and duel loops reject an
 unfinished batch with `IncompleteGamesError`. The default safety budget is
 still 4,000 steps. Callers may supply a larger positive `max_steps`, but may
 not use provisional scores as terminal training targets. Even an arena with
