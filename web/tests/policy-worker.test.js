@@ -1,17 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { MemoryBudget, MEMORY_LIMITS_MIB, isMemoryError } from '../src/lib/memory-budget.js';
+import { loadModule } from './fixtures/load-module.js';
 
-const source = (await readFile(new URL('../src/lib/policy.worker.js', import.meta.url), 'utf8'))
-  .replace("import * as ort from 'onnxruntime-web/wasm';", '')
-  .replace("import { policyWeights } from './policy-weights.js';", '')
-  .replace("import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';", '')
-  .replace("import { networkBytes } from './network-store.js';", '')
-  .replace('import(/* @vite-ignore */ controls)', 'loadMemoryControls(controls)');
 const MODEL = 'model-full.onnx';
 const deferred = () => {
   let resolve;
@@ -53,7 +46,7 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
     } },
   };
   const self = { postMessage: message => messages.push(message) };
-  vm.runInNewContext(source, { ort, policyWeights, self, URL, MEMORY_LIMITS_MIB, isMemoryError,
+  loadModule('policy.worker.js', { ort, policyWeights, self, URL, MEMORY_LIMITS_MIB, isMemoryError,
     // The network arrives as bytes from its bucket; the address stands in for
     // them here, so what loaded is still recognisable.
     networkBytes: async ({ url, scope }) => { scopes.push(scope); return url; },
@@ -61,7 +54,7 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
       assert.equal(url, 'https://test.invalid/ort/0123abcd/memory-budget.mjs');
       return { memoryBudget };
     },
-  });
+  }, [], { 'import(/* @vite-ignore */ controls)': 'loadMemoryControls(controls)' });
   const send = (id, url = MODEL, extra = {}) => self.onmessage({ data: {
     id, url, runtimeBase: 'https://test.invalid/ort/0123abcd/', scope: 'https://test.invalid/',
     planes: new Float32Array(34), mask: [1, 1], details: true, ...extra,

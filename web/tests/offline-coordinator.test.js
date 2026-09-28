@@ -1,14 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { MessageChannel } from 'node:worker_threads';
-
-const source = (await readFile(new URL('../src/lib/offline.js', import.meta.url), 'utf8'))
-  .replace("import { NETWORK, NETWORK_URL, networkBytes, networkIsStored } from './network-store.js';", '')
-  .replaceAll('import.meta.env.DEV', 'false').replaceAll('export ', '');
-assert.doesNotMatch(source, /^import /m, 'every import is stood in for below');
+import { loadModule } from './fixtures/load-module.js';
 
 const NETWORK = { url: 'https://model.invalid/g1', sha256: '1'.repeat(64), bytes: 116 };
 const NEXT = { url: 'https://model.invalid/g2', sha256: '2'.repeat(64), bytes: 117 };
@@ -57,7 +51,8 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
       return registration;
     },
   } };
-  const context = vm.createContext({ document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
+  // offline.js's one import, network-store.js, is stood in for here.
+  const api = loadModule('offline.js', { document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
     URL, MessageChannel, setTimeout, clearTimeout, caches: {}, isSecureContext: true, WeakSet,
     NETWORK, NETWORK_URL: NETWORK.url,
     // The page's own record of a saved network: a header check, never a read.
@@ -69,10 +64,9 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
       onProgress?.({ bytes: 1, total: 2 });
       stored.add(url);
       return new Uint8Array(1);
-    } });
-  vm.runInContext(source + '\nglobalThis.api = { startOffline, refreshOffline, prepareOfflineAi, watchOffline };', context);
-  context.api.watchOffline(value => latest = value);
-  return { api: context.api, calls, info, faults, stored, saves, navigator, state: () => latest,
+    } }, ['startOffline', 'refreshOffline', 'prepareOfflineAi', 'watchOffline'], { 'import.meta.env.DEV': 'false' });
+  api.watchOffline(value => latest = value);
+  return { api, calls, info, faults, stored, saves, navigator, state: () => latest,
     registrations: () => registrations };
 }
 const settle = async () => { for (let i = 0; i < 20; i++) await setImmediate(); };

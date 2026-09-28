@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import init, { Game, PhysicalAnalysis } from '../src/wasm/riichi.js';
 import { emptyPosition, parseTiles } from '../src/lib/physical-position.js';
 import { emptyGuided, editGuided, guidedEvent } from '../src/lib/guided-game.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { readBeliefs, readValue } from '../src/lib/beliefs.js';
 import { weightsByChoice, MORTAL_REACH } from '../src/lib/action-weights.js';
+import { loadModule } from './fixtures/load-module.js';
 
 // Loading policy.js resolves URLs, but an unsupported adapter must never
 // construct a worker or download the trained model.
@@ -22,16 +22,13 @@ const MORTAL_PASS = 45;
  * questions and the worker's softmax over the legal moves are the real ones;
  * only the network's raw preferences are made up. */
 function adviserWith(logits) {
-  const source = readFileSync(new URL('../src/lib/agents.js', import.meta.url), 'utf8')
-    .replace(/^import .*$/gm, '').replace(/^export /gm, '');
   const analyzePolicy = async (planes, mask) => {
     assert.ok(planes.length / 34 > 900, 'the network is asked about Mortal planes');
     // What policy.worker.js answers with, by the same arithmetic.
     return { ...policyWeights(logits, mask), value: 0.25, hands: new Float32Array(102) };
   };
-  const context = vm.createContext({ analyzePolicy, readBeliefs, readValue, weightsByChoice, MORTAL_REACH });
-  vm.runInContext(`${source}\nglobalThis.adviser = { evaluateAgent };`, context);
-  return context.adviser.evaluateAgent;
+  return loadModule('agents.js', { analyzePolicy, readBeliefs, readValue, weightsByChoice, MORTAL_REACH },
+    ['evaluateAgent']).evaluateAgent;
 }
 
 test('trained capability is met by the live game and by a typed-in position alike', () => {

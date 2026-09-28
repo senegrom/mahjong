@@ -4,12 +4,9 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { watchModelAvailability } from '../src/lib/model-availability.js';
+import { loadModule } from './fixtures/load-module.js';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
-const policySource = read('../src/lib/policy.js')
-  .replace(/^import .*;$/gm, '')
-  .replaceAll('import.meta.url', "'https://test.invalid/mahjong/policy.js'")
-  .replaceAll('export ', '');
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -25,16 +22,14 @@ function client(t, prepareOfflineAi) {
       this.onmessage({ data: { id: this.messages.filter(m => m.id != null).at(-1).id, ...payload } });
     }
   }
-  const context = vm.createContext({
+  const api = loadModule('policy.js', {
     document: { baseURI: 'https://test.invalid/mahjong/' },
     URL, DOMException, Worker, setTimeout, clearTimeout, prepareOfflineAi, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     // The memory allocator and model transport have their own integration tests.
     MEMORY_LIMITS_MIB: [256, 512, 1024], nextMemoryLimit: () => null,
     NETWORK_URL: 'https://test.invalid/network',
     networkIsStored: async () => false,
-  });
-  vm.runInContext(policySource + '\nglobalThis.api = { chooseAction, resetPolicy };', context);
-  const api = context.api;
+  }, ['chooseAction', 'resetPolicy']);
   t.after(() => api.resetPolicy());
   return { api, workers, ask: signal => api.chooseAction(new Float32Array(34), [1], signal, 1000) };
 }

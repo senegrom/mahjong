@@ -1,20 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import init, { Game } from '../src/wasm/riichi.js';
 import { weightsByChoice, MORTAL_REACH } from '../src/lib/action-weights.js';
 import { readBeliefs, readValue } from '../src/lib/beliefs.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
+import { loadModule } from './fixtures/load-module.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 // Exercise the actual evaluator with only its worker call replaced. The same
 // real weight mapper and actual WASM action translation run in both paths.
-const source = readFileSync(new URL('../src/lib/agents.js', import.meta.url), 'utf8')
-  .replace(/^import .*\r?\n/gm, '').replace(/^export /gm, '');
-const evaluator = analyze => vm.runInNewContext(source + '\nevaluateAgent', {
+const evaluator = analyze => loadModule('agents.js', {
   analyzePolicy: analyze, weightsByChoice, MORTAL_REACH, readBeliefs, readValue,
-});
+}, ['evaluateAgent']).evaluateAgent;
 
 for (const [alias, canonical] of [[34, 4], [35, 13], [36, 22]]) {
   test(`live advice and historical review retain both five-tile actions ${canonical}/${alias}`, async () => {

@@ -9,6 +9,7 @@ import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { MEMORY_LIMITS_MIB, isMemoryError } from '../src/lib/memory-budget.js';
 import { copyRuntime } from '../scripts/copy-runtime.mjs';
+import { moduleSource } from './fixtures/load-module.js';
 
 const folder = resolve(process.argv[2]);
 const cases = JSON.parse(await readFile(resolve(folder, 'inputs.json'), 'utf8'));
@@ -18,12 +19,7 @@ assert.ok(cases.some(row => !row.takes_legal));
 // as the production build; never fall back to the package's generic runtime.
 const { directory } = await copyRuntime();
 const runtimeBase = new URL(`../public/${directory}`, import.meta.url).href;
-const source = (await readFile(new URL('../src/lib/policy.worker.js', import.meta.url), 'utf8'))
-  .replace("import * as ort from 'onnxruntime-web/wasm';", '')
-  .replace("import { policyWeights } from './policy-weights.js';", '')
-  .replace("import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';", '')
-  .replace("import { networkBytes } from './network-store.js';", '')
-  .replace('import(/* @vite-ignore */ controls)', 'loadMemoryControls(controls)');
+const source = moduleSource('policy.worker.js', { 'import(/* @vite-ignore */ controls)': 'loadMemoryControls(controls)' });
 const tensors = [], messages = [];
 let current;
 function track(tensor) {

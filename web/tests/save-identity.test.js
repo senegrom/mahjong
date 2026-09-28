@@ -1,14 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
+import { loadModule } from './fixtures/load-module.js';
 
 // Run the actual store in an HTTP/private-context-shaped global environment.
 // Only its imported key is injected; no store behavior or methods are mocked.
 const SAVE_KEY = 'riichi.match.v2';
-const source = readFileSync(new URL('../src/lib/save-store.js', import.meta.url), 'utf8')
-  .replace(/^import .*\r?\n/gm, '').replace(/^export /gm, '');
-const load = crypto => vm.runInNewContext(`${source}\nMatchStore`, { SAVE_KEY, crypto });
+const load = crypto => loadModule('save-store.js', { SAVE_KEY, crypto }, ['MatchStore']).MatchStore;
 const snapshot = { version: 1, format: 6, seed: 11, difficulty: 'club', opponents: ['club', 'club', 'club'], commands: [], state: 'test' };
 function environment() {
   const data = new Map();

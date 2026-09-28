@@ -1,17 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
 import { NETWORK_URL } from '../src/lib/network-store.js';
+import { loadModule } from './fixtures/load-module.js';
 
-const source = (await readFile(new URL('../src/lib/policy.js', import.meta.url), 'utf8'))
-  .replace("import { prepareOfflineAi } from './offline.js';", '')
-  .replace("import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';", '')
-  .replace("import { NETWORK_URL, networkIsStored } from './network-store.js';", '')
-  .replaceAll('import.meta.url', "'https://test.invalid/mahjong/policy.js'")
-  .replaceAll('export ', '');
+/** The real request coordinator, given a stand-in Worker and offline
+ * preparation; the page and its other imports are the same for every test. */
+const policy = globals => loadModule('policy.js', {
+  document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout,
+  MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
+  networkIsStored: async () => false, prepareOfflineAi: async () => null, ...globals,
+}, ['chooseAction', 'analyzePolicy', 'modelIsAvailable', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
 
 // Run the real request coordinator with controllable downloads and responses.
 // One trained network ships, so every request names the same one.
@@ -23,15 +23,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
     terminate() { this.terminated = true; }
     answer(message, payload) { this.onmessage({ data: { id: message.id, ...payload } }); }
   }
-  const context = vm.createContext({
-    document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
-    networkIsStored: async () => false,
-    startOffline: async () => null,
-    prepareOfflineAi: (...args) => new Promise(resolve => downloads.push({ args, resolve })),
-  });
-  vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, modelIsAvailable, resetPolicy };', context);
-  const { api } = context;
+  const api = policy({ Worker, prepareOfflineAi: (...args) => new Promise(resolve => downloads.push({ args, resolve })) });
   t.after(() => api.resetPolicy());
   const planes = () => new Float32Array(34);
   const mask = [1, 1];
@@ -76,14 +68,7 @@ test('memory errors discard the worker even after cancellation, and retry starts
     terminate() { this.terminated = true; }
     answer(id, payload) { this.onmessage({ data: { id, ...payload } }); }
   }
-  const context = vm.createContext({
-    document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
-    networkIsStored: async () => false,
-    startOffline: async () => null, prepareOfflineAi: async () => null,
-  });
-  vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, resetPolicy };', context);
-  const { api } = context;
+  const api = policy({ Worker });
   t.after(() => api.resetPolicy());
   const ask = signal => api.analyzePolicy(new Float32Array(34), [1, 1], signal);
   const owner = new AbortController();
@@ -125,16 +110,10 @@ function memoryClient(t) {
         requestedBytes: requestedMiB * 1048576, limitMiB: message.memoryLimitMiB } });
     }
   }
-  const context = vm.createContext({
-    document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
-    networkIsStored: async () => false,
-    startOffline: async () => null, prepareOfflineAi: async () => null,
-  });
-  vm.runInContext(source + '\nglobalThis.api = { analyzePolicy, resetPolicy };', context);
-  t.after(() => context.api.resetPolicy());
-  return { workers, api: context.api, ask: (signal, planes = Float32Array.from({ length: 34 }, (_, i) => i / 2)) =>
-    context.api.analyzePolicy(planes, [1, 1], signal) };
+  const api = policy({ Worker });
+  t.after(() => api.resetPolicy());
+  return { workers, api, ask: (signal, planes = Float32Array.from({ length: 34 }, (_, i) => i / 2)) =>
+    api.analyzePolicy(planes, [1, 1], signal) };
 }
 
 test('memory-limit retries replay only unresolved choices with their original observations', async t => {
@@ -225,19 +204,14 @@ function loadingClient(t) {
     terminate() { this.terminated = true; }
     say(id, payload) { this.onmessage({ data: { id, ...payload } }); }
   }
-  const context = vm.createContext({
-    document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
-    // Looked up when called, so the mocked clock drives the coordinator.
-    setTimeout: (...args) => setTimeout(...args), clearTimeout: timer => clearTimeout(timer),
-    networkIsStored: async () => false,
-    prepareOfflineAi: async () => null, // no service worker, a failed start or a storage failure
-  });
-  vm.runInContext(source + '\nglobalThis.api = { chooseAction, reportProgress, resetPolicy, LOADING_SILENCE_MS };', context);
-  context.api.reportProgress(note => notes.push(note));
-  t.after(() => context.api.resetPolicy());
-  const ask = signal => context.api.chooseAction(new Float32Array(34), [1, 1], signal);
-  return { api: context.api, workers, notes, ask, silence: context.api.LOADING_SILENCE_MS };
+  // Offline preparation resolves null: no service worker, a failed start or a
+  // storage failure. The timers are looked up when called, so the mocked
+  // clock drives the coordinator.
+  const api = policy({ Worker, setTimeout: (...args) => setTimeout(...args), clearTimeout: timer => clearTimeout(timer) });
+  api.reportProgress(note => notes.push(note));
+  t.after(() => api.resetPolicy());
+  const ask = signal => api.chooseAction(new Float32Array(34), [1, 1], signal);
+  return { api, workers, notes, ask, silence: api.LOADING_SILENCE_MS };
 }
 
 test('a network still arriving is not cut off by the decision deadline', async t => {
@@ -324,15 +298,9 @@ test('bytes offline storage refused are handed to the fresh worker once, not dow
     terminate() { this.terminated = true; }
     say(id, payload) { this.onmessage({ data: { id, ...payload } }); }
   }
-  const context = vm.createContext({
-    document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
-    networkIsStored: async () => false,
-    prepareOfflineAi: async () => ({ aiReady: false, unstoredNetwork: bytes }),
-  });
-  vm.runInContext(source + '\nglobalThis.api = { chooseAction, resetPolicy };', context);
-  t.after(() => context.api.resetPolicy());
-  const ask = () => context.api.chooseAction(new Float32Array(34), [1, 1]);
+  const api = policy({ Worker, prepareOfflineAi: async () => ({ aiReady: false, unstoredNetwork: bytes }) });
+  t.after(() => api.resetPolicy());
+  const ask = () => api.chooseAction(new Float32Array(34), [1, 1]);
   const first = ask(), second = ask();
   await setImmediate();
   const [worker] = workers, [one, two] = worker.messages;
