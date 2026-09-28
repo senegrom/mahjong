@@ -1,45 +1,35 @@
 /** Exercise both Vite serving modes and Svelte HMR with the real compiler.
  * Run after npm run wasm && npm run build. No test API ships in the app. */
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer, preview } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 
 const web = fileURLToPath(new URL('../', import.meta.url));
 const output = resolve(web, 'test-results');
-const results = [];
+const cases = browserChecks();
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const match = new MatchSession(Game, 81, ['neural', 'club', 'neural']);
 let snapshot;
 try { match.advance(false); snapshot = match.snapshot(); } finally { match.dispose(); }
-const executablePath = process.env.CHROME_BIN || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
-assert.ok(executablePath, 'Set CHROME_BIN to Chrome/Chromium');
-const browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await launchChrome();
 const saved = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
 const settled = page => page.waitForFunction(() => document.querySelector('.failure, .screen, .standings, .hand button:not(:disabled), .call-options button:not(:disabled)'), { timeout: 45000 });
 
-async function check(name, run) {
-  const context = await browser.createBrowserContext();
-  try {
-    const page = await context.newPage();
-    const errors = [];
-    page.on('pageerror', error => errors.push(error.message));
-    page.on('response', response => { if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`); });
-    await run(page);
-    assert.deepEqual(errors, [], 'Browser errors or failed asset requests');
-    results.push({ name, passed: true });
-    console.log(`PASS ${name}`);
-  } catch (error) {
-    results.push({ name, passed: false, error: error.stack });
-    console.error(`FAIL ${name}\n${error.stack}`);
-  } finally { await context.close(); }
-}
+const check = (name, run) => cases.check(name, async () => {
+  const page = await (await cases.openContext(browser)).newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('response', response => { if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`); });
+  await run(page);
+  assert.deepEqual(errors, [], 'Browser errors or failed asset requests');
+});
 
 async function play(page, url, mode) {
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
@@ -114,8 +104,5 @@ try {
   } finally { await hot?.close(); await rm(temporary, { recursive: true, force: true }); }
 } finally {
   await browser.close();
-  await mkdir(output, { recursive: true });
-  await writeFile(resolve(output, 'toolchain-report.json'), JSON.stringify(results, null, 2));
+  await cases.report('toolchain checks', resolve(output, 'toolchain-report.json'));
 }
-console.log(`${results.filter(result => result.passed).length}/${results.length} toolchain checks passed`);
-if (results.some(result => !result.passed)) process.exitCode = 1;

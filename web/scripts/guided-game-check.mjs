@@ -2,10 +2,9 @@
 import assert from 'node:assert/strict';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { observeNetworkRequests } from './network-requests.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { emptyPosition, parseTiles, PHYSICAL_KEY } from '../src/lib/physical-position.js';
@@ -15,7 +14,7 @@ import { SETTINGS_KEY, SAVE_KEY } from '../src/lib/session.js';
 const root = resolve(import.meta.dirname, '..'), output = resolve(root, 'test-results');
 const server = createServer(createFixtureHandler({ root: resolve(root, 'dist'), publicRoot: resolve(root, 'public') }));
 let browser;
-const results = [];
+const cases = browserChecks();
 const saved = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)).game, GUIDED_KEY);
 async function stage(page, value) {
   await page.waitForSelector(`.guide-prompt[data-stage="${value}"]`);
@@ -33,12 +32,7 @@ async function button(page, text) {
     button.click();
   }, text);
 }
-async function check(name, run) {
-  const context = await browser.createBrowserContext();
-  try { await run(context); results.push({ name, passed: true }); console.log(`PASS ${name}`); }
-  catch (error) { results.push({ name, passed: false, error: error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
-  finally { await context.close(); }
-}
+const check = (name, run) => cases.check(name, async () => run(await cases.openContext(browser)));
 async function open(context, width = 1100) {
   const page = await context.newPage(); page.problems = [];
   page.on('pageerror', error => page.problems.push(error.message));
@@ -86,9 +80,7 @@ async function loadScoringFixture(page, riichi = false) {
 try {
   await mkdir(output, { recursive: true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
-  const executablePath = process.env.CHROME_BIN || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
-  assert.ok(executablePath, 'Set CHROME_BIN to Chrome/Chromium');
-  browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  browser = await launchChrome();
   await check('North walkthrough, automatic suggestions, cancellation, saved undo, opponent call and next hand', async context => {
     const page = await open(context);
     await setup(page);
@@ -313,7 +305,6 @@ try {
     assert.deepEqual(page.problems, []);
   });
 } finally {
-  await writeFile(resolve(output, 'guided-game.json'), JSON.stringify(results, null, 2));
   await browser?.close(); await new Promise(done => server.close(done));
+  await cases.report('guided-game checks', resolve(output, 'guided-game.json'));
 }
-if (results.some(result => !result.passed)) process.exitCode = 1;

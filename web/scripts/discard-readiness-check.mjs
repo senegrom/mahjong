@@ -3,11 +3,12 @@
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, extname, sep } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 
@@ -29,29 +30,11 @@ function fixture(seed, commands = []) {
 const initial = fixture(1), closed = fixture(81, [['discard','9s'], ['discard','5z']]);
 const openHand = fixture(1, opening), restricted = fixture(1, opening.slice(0, 7));
 const calling = fixture(1, opening.slice(0, 4)), riichi = fixture(31, [['riichi','8m']]);
-const types = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css',
-  '.svg':'image/svg+xml', '.png':'image/png', '.webp':'image/webp', '.wasm':'application/wasm', '.json':'application/json' };
-const server = createServer(async (req, res) => {
-  try {
-    const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-    if (!path.startsWith('/mahjong/')) { res.writeHead(404).end(); return; }
-    const file = resolve(dist, path.slice('/mahjong/'.length) || 'index.html');
-    if (!file.startsWith(dist + sep)) { res.writeHead(403).end(); return; }
-    const body = await readFile(file);
-    res.writeHead(200, { 'Content-Type':types[extname(file)] ?? 'application/octet-stream', 'Cache-Control':'no-store' });
-    res.end(req.method === 'HEAD' ? undefined : body);
-  } catch { res.writeHead(404).end(); }
-});
-const contexts = [], results = [];
+const server = createServer(createFixtureHandler({ root: dist, headers: { 'Cache-Control': 'no-store' } }));
+const { check, openContext, report } = browserChecks();
 let browser;
-async function check(name, task) {
-  try { await task(); results.push({ name, passed:true }); console.log(`PASS ${name}`); }
-  catch (error) { results.push({ name, passed:false, error:error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
-  finally { while (contexts.length) await contexts.pop().close(); }
-}
 async function open(f, width = 1100, height = 900) {
-  const context = await browser.createBrowserContext(); contexts.push(context);
-  const p = await context.newPage(); p.problems = [];
+  const p = await (await openContext(browser)).newPage(); p.problems = [];
   p.on('pageerror', error => p.problems.push(error.message));
   await p.setViewport({ width, height, hasTouch:width < 600, isMobile:width < 600, deviceScaleFactor:1 });
   await p.emulateMediaFeatures([{ name:'prefers-reduced-motion', value:'reduce' }]);
@@ -81,9 +64,7 @@ async function assertRings(p, expected) {
 try {
   await mkdir(output, { recursive:true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
-  const chrome = process.env.CHROME_BIN || ['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);
-  assert.ok(chrome, 'Set CHROME_BIN to Chrome/Chromium');
-  browser = await puppeteer.launch({ executablePath:chrome, headless:true, args:['--no-sandbox','--disable-dev-shm-usage'] });
+  browser = await launchChrome();
   await check('silver and gold rings match every legal hypothetical discard', async () => {
     const p = await open(closed); await assertRings(p, closed.expected);
     assert.equal(await p.$$eval('[data-readiness=ready]', els => els.length), 2);
@@ -163,9 +144,6 @@ try {
     });
   }
 } finally {
-  await writeFile(resolve(output, 'discard-readiness-report.json'), JSON.stringify(results, null, 2));
-  for (const context of contexts) await context.close();
   await browser?.close(); if (server.listening) await new Promise(done => server.close(done));
+  await report('discard-readiness browser checks', resolve(output, 'discard-readiness-report.json'));
 }
-console.log(`${results.filter(r => r.passed).length}/${results.length} discard-readiness browser checks passed`);
-if (results.some(r => !r.passed)) process.exitCode = 1;

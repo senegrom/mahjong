@@ -89,3 +89,49 @@ test('fixture server reports real HTTP statuses without exposing other files', a
     assert.equal(result.headers.allow, 'GET, HEAD');
   });
 });
+
+test('a check can add headers and count, refuse, hold or replace requests', async t => {
+  const temp = await mkdtemp(join(tmpdir(), 'riichi-fixture-'));
+  await writeFile(join(temp, 'index.html'), '<h1>Fixture</h1>');
+  await writeFile(join(temp, 'app.js'), 'export const ready = true;');
+  const seen = [];
+  let release;
+  const held = new Promise(done => { release = done; });
+  const server = createServer(createFixtureHandler({ root: temp, headers: { 'Cache-Control': 'no-store' },
+    intercept: async name => {
+      seen.push(name);
+      if (name === 'refused.js') return { status: 503 };
+      if (name === 'held.html') { await held; return { body: 'released' }; }
+      if (name === 'app.js') return { body: 'replaced' };
+    } }));
+  t.after(async () => {
+    await new Promise((done, reject) => server.close(error => error ? reject(error) : done()));
+    await rm(temp, { recursive: true, force: true });
+  });
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  const get = path => new Promise((done, reject) => {
+    const req = request({ host: '127.0.0.1', port: server.address().port, path }, res => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => done({ status: res.statusCode, body: Buffer.concat(chunks).toString(), headers: res.headers }));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  const index = await get('/mahjong/');
+  assert.equal(index.body, '<h1>Fixture</h1>');
+  assert.equal(index.headers['cache-control'], 'no-store');
+  assert.equal((await get('/mahjong/refused.js')).status, 503);
+  const replaced = await get('/mahjong/app.js');
+  assert.equal(replaced.body, 'replaced');
+  assert.equal(replaced.headers['content-type'], 'text/javascript');
+  assert.equal(Number(replaced.headers['content-length']), 'replaced'.length);
+  let answered = false;
+  const pending = get('/mahjong/held.html').then(result => { answered = true; return result; });
+  await new Promise(done => setTimeout(done, 50));
+  assert.equal(answered, false, 'held until the check releases it');
+  release();
+  assert.equal((await pending).body, 'released');
+  assert.deepEqual(seen, ['index.html', 'refused.js', 'app.js', 'held.html']);
+});

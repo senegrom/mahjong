@@ -3,28 +3,20 @@
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, extname, sep } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 await init({module_or_path:readFileSync(new URL('../src/wasm/riichi_bg.wasm',import.meta.url))});
 const web=fileURLToPath(new URL('../',import.meta.url)), dist=resolve(web,'dist'), output=resolve(web,'test-results');
 await mkdir(output,{recursive:true});
-const types={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webp':'image/webp','.png':'image/png','.ico':'image/x-icon','.json':'application/json','.wasm':'application/wasm'};
-const server=createServer(async(req,res)=>{
-  try {
-    const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
-    if(!path.startsWith('/mahjong/')){res.writeHead(404).end();return;}
-    const file=resolve(dist,path.slice('/mahjong/'.length)||'index.html');
-    if(!file.startsWith(dist+sep)){res.writeHead(403).end();return;}
-    const data=await readFile(file);res.writeHead(200,{'Content-Type':types[extname(file)]??'application/octet-stream','Cache-Control':'no-store'});res.end(req.method==='HEAD'?undefined:data);
-  }catch{res.writeHead(404).end();}
-});
+const server=createServer(createFixtureHandler({root:dist,headers:{'Cache-Control':'no-store'}}));
 let browser;
-const results=[],contexts=[];
+const {check,openContext,report}=browserChecks();
 const make=(seed,mode='club')=>{const m=new MatchSession(Game,seed,mode);m.advance(false);return m;};
 const step=(m,kind,tile)=>{m.apply({type:'choose',kind,tile:tile??null});m.advance(false);};
 function finishHand(m,riichi=true){
@@ -48,26 +40,8 @@ const final=(()=>{
  finally{m.dispose();}
 })();
 const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_KEY);
-async function check(name, fn) {
-  const failures = [];
-  try { await fn(); } catch (error) { failures.push(error); }
-  // A test may share several tabs, but no context should survive into the next
-  // test with its WASM engine, workers and service workers still running.
-  const closed = await Promise.allSettled(contexts.splice(0).map(async context => context.close()));
-  for (const result of closed) {
-    if (result.status === 'rejected') failures.push(result.reason);
-  }
-  if (failures.length) {
-    const error = failures.map(failure => failure?.stack ?? String(failure)).join('\n');
-    results.push({ name, passed: false, error });
-    console.error(`FAIL ${name}\n${error}`);
-  } else {
-    results.push({ name, passed: true });
-    console.log(`PASS ${name}`);
-  }
-}
 async function open(snapshot,{width=1100,height=900,confirm=false,hints=true}={}){
- const context=await browser.createBrowserContext();contexts.push(context);const page=await context.newPage();page.reviewErrors=[];
+ const page=await (await openContext(browser)).newPage();page.reviewErrors=[];
  page.on('pageerror',error=>page.reviewErrors.push(error.message));await page.setViewport({width,height});
  await page.evaluateOnNewDocument((key,settings,snapshot,confirm,hints)=>{
   if(!localStorage.getItem(key))localStorage.setItem(key,JSON.stringify(snapshot));
@@ -80,8 +54,7 @@ const noErrors=page=>assert.deepEqual(page.reviewErrors,[]);
 const shot=(page,name)=>page.screenshot({path:resolve(output,name+'.png'),fullPage:true});
 try{
  await new Promise(done=>server.listen(0,'127.0.0.1',done));
- const chrome=process.env.CHROME_BIN||['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);assert.ok(chrome);
- browser=await puppeteer.launch({executablePath:chrome,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+ browser=await launchChrome();
  await check('two consecutive keyboard turns retain usable hand focus',async()=>{
   const p=await open(initial);await p.focus('.hand');
   for(let n=1;n<=2;n++){
@@ -199,8 +172,6 @@ try{
   }
  });
 }finally{
- await writeFile(resolve(output,'full-review-report.json'),JSON.stringify(results,null,2));
- for(const context of contexts)await context.close();await browser?.close();if(server.listening)await new Promise(done=>server.close(done));
+ await browser?.close();if(server.listening)await new Promise(done=>server.close(done));
+ await report('full-review browser checks',resolve(output,'full-review-report.json'));
 }
-console.log(`${results.filter(r=>r.passed).length}/${results.length} full-review browser checks passed`);
-if(results.some(r=>!r.passed))process.exitCode=1;

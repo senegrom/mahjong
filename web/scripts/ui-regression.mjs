@@ -4,11 +4,12 @@
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, extname, sep } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { heldSafeCount, callLabel } from '../src/lib/ui.js';
@@ -16,27 +17,11 @@ await init({module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', i
 const web = fileURLToPath(new URL('../', import.meta.url));
 const output = resolve(web, 'test-results');
 await mkdir(output, {recursive:true});
-const types = {'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.json':'application/json','.webmanifest':'application/manifest+json','.wasm':'application/wasm','.onnx':'application/octet-stream'};
-const dist = resolve(web, 'dist');
-const server = createServer(async (request, response) => {
-  try {
-    const url = new URL(request.url, 'http://localhost');
-    if (!url.pathname.startsWith('/mahjong/')) { response.writeHead(404).end(); return; }
-    const relative = decodeURIComponent(url.pathname.slice('/mahjong/'.length)) || 'index.html';
-    const file = resolve(dist, relative);
-    if (!file.startsWith(dist + sep)) { response.writeHead(403).end(); return; }
-    const body = await readFile(file);
-    response.writeHead(200, {'Content-Type': types[extname(file)] || 'application/octet-stream','Cache-Control':'no-store'});
-    response.end(request.method === 'HEAD' ? undefined : body);
-  } catch { response.writeHead(404).end(); }
-});
+const server = createServer(createFixtureHandler({ root: resolve(web, 'dist'), headers: { 'Cache-Control': 'no-store' } }));
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const url = `http://127.0.0.1:${server.address().port}/mahjong/`;
-const chrome = process.env.CHROME_BIN || ['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);
-assert.ok(chrome, 'Set CHROME_BIN to a Chromium/Chrome executable');
-const browser = await puppeteer.launch({executablePath:chrome,headless:true,protocolTimeout:30000,args:['--no-sandbox','--disable-dev-shm-usage']});
-const results = [];
-const contexts = [];
+const browser = await launchChrome({ protocolTimeout: 30000 });
+const { check, contexts, report } = browserChecks();
 const problems = new WeakMap();
 
 function make(seed=369,difficulty='club') { const match=new MatchSession(Game,seed,difficulty); match.advance(false); return match; }
@@ -125,24 +110,6 @@ const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_
 const ui=page=>page.evaluate(()=>({failure:document.querySelector('.failure')?.textContent ?? '',selected:document.querySelectorAll('.hand .selected').length,opponents:document.querySelector('select').value}));
 async function shot(page,name) { await page.screenshot({path:resolve(output,`${name}.png`),fullPage:true}); }
 function noErrors(page) { assert.deepEqual(problems.get(page),[]); }
-async function check(name, fn) {
-  const failures = [];
-  try { await fn(); } catch (error) { failures.push(error); }
-  // A test may share several tabs, but no context should survive into the next
-  // test with its WASM engine, workers and service workers still running.
-  const closed = await Promise.allSettled(contexts.splice(0).map(async context => context.close()));
-  for (const result of closed) {
-    if (result.status === 'rejected') failures.push(result.reason);
-  }
-  if (failures.length) {
-    const error = failures.map(failure => failure?.stack ?? String(failure)).join('\n');
-    results.push({ name, passed: false, error });
-    console.error(`FAIL ${name}\n${error}`);
-  } else {
-    results.push({ name, passed: true });
-    console.log(`PASS ${name}`);
-  }
-}
 function contrast(a,b) {
   const luminance=s=>s.match(/[\d.]+/g).slice(0,3).map(Number).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
   const x=luminance(a),y=luminance(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05);
@@ -369,9 +336,6 @@ try {
     }
   }
 } finally {
-  await writeFile(resolve(output,'ui-report.json'),JSON.stringify(results,null,2));
-  for(const context of contexts) await context.close();
   await browser.close(); await new Promise(resolve=>server.close(resolve));
+  await report('browser regressions', resolve(output,'ui-report.json'));
 }
-if(results.some(test=>!test.passed)) process.exitCode=1;
-console.log(`${results.filter(test=>test.passed).length}/${results.length} browser regressions passed`);

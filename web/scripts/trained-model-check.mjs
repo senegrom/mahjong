@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
@@ -22,21 +22,13 @@ try { match.advance(false); initial = match.snapshot(); } finally { match.dispos
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist');
 const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
 assert.ok(existsSync(resolve(dist, `${await runtimeDirectory(web)}ort-wasm-simd-threaded.wasm`)), 'Missing trained runtime');
-const handler = createFixtureHandler({ root: dist, publicRoot: dist });
 const downloads = [];
-const server = createServer((request, response) => {
-  const name = new URL(request.url, 'http://localhost').pathname.split('/').pop();
-  if (request.method === 'GET' && name.endsWith('.onnx')) downloads.push(name);
-  void handler(request, response);
-});
-const results = [];
+const server = createServer(createFixtureHandler({ root: dist, intercept: (name, request) => {
+  if (request.method === 'GET' && name.endsWith('.onnx')) downloads.push(name.split('/').pop());
+} }));
+const { check, openContext, report } = browserChecks();
 const wait = ms => new Promise(done => setTimeout(done, ms));
 let browser;
-
-async function check(name, body) {
-  try { await body(); results.push(true); console.log('PASS ' + name); }
-  catch (error) { results.push(false); console.error('FAIL ' + name + '\n' + error.stack); }
-}
 
 async function open(context, base, storedModel) {
   const page = await context.newPage();
@@ -80,40 +72,34 @@ async function play(page, moves) {
 try {
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   const base = `http://127.0.0.1:${server.address().port}/mahjong/`;
-  const chrome = process.env.CHROME_BIN
-    || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
-  assert.ok(chrome, 'Set CHROME_BIN to a Chromium/Chrome executable');
-  browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  browser = await launchChrome();
 
   // Old preference IDs are migration inputs, not additional shipped networks.
   for (const storedModel of ['full', 'quick', 'strong']) {
     await check(`${storedModel} preference uses only the shipped trained network and preserves replay`, async () => {
-      const context = await browser.createBrowserContext(), before = downloads.length;
+      const context = await openContext(browser), before = downloads.length;
       const remote = [];
       const stopObserving = await observeNetworkRequests(context, request => {
         if (request.url === networkUrl && request.method === 'GET') remote.push(request.url);
       });
-      try {
-        const page = await open(context, base, storedModel);
-        assert.equal(await page.$('select[aria-label="Trained opponent"]'), null,
-          'One shipped network must not offer the retired network selector');
-        await play(page, 12);
-        const fetched = downloads.slice(before);
-        await stopObserving();
-        assert.deepEqual(remote, [networkUrl], 'The actual model must be fetched exactly once');
-        assert.deepEqual(fetched, [], 'No retired same-origin model may be requested');
-        assert.deepEqual(page.errors, []);
-        const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
-        assert.ok(saved.commands.filter(command => command.type === 'opponent').length >= 2,
-          'The trained worker must complete real decisions, not only download');
-        const restored = MatchSession.restore(Game, JSON.stringify(saved));
-        try { assert.equal(restored.stateKey(), saved.state); } finally { restored.dispose(); }
-      } finally { await context.close(); }
+      const page = await open(context, base, storedModel);
+      assert.equal(await page.$('select[aria-label="Trained opponent"]'), null,
+        'One shipped network must not offer the retired network selector');
+      await play(page, 12);
+      const fetched = downloads.slice(before);
+      await stopObserving();
+      assert.deepEqual(remote, [networkUrl], 'The actual model must be fetched exactly once');
+      assert.deepEqual(fetched, [], 'No retired same-origin model may be requested');
+      assert.deepEqual(page.errors, []);
+      const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
+      assert.ok(saved.commands.filter(command => command.type === 'opponent').length >= 2,
+        'The trained worker must complete real decisions, not only download');
+      const restored = MatchSession.restore(Game, JSON.stringify(saved));
+      try { assert.equal(restored.stateKey(), saved.state); } finally { restored.dispose(); }
     });
   }
 } finally {
   await browser?.close();
   if (server.listening) await new Promise(done => server.close(done));
+  await report('trained-model browser checks');
 }
-console.log(`${results.filter(Boolean).length}/${results.length} trained-model browser checks passed`);
-if (results.some(passed => !passed)) process.exitCode = 1;

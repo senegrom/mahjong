@@ -2,13 +2,14 @@
  * the browser with HTTP cache cleared and the server refusing every asset. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, extname, sep, join } from 'node:path';
+import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
@@ -29,37 +30,22 @@ const modelPath = MANIFEST.object, networkUrl = `${MANIFEST.origin}/${MANIFEST.o
 const count = new Map(), refused = [], overrides = new Map();
 let unavailable = false, failPath = null, holdPath = null;
 const heldResponses = new Set();
-const mime = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css',
-  '.wasm':'application/wasm', '.svg':'image/svg+xml', '.png':'image/png', '.webp':'image/webp', '.json':'application/json' };
-const server = createServer(async (req, res) => {
-  const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-  if (!path.startsWith('/mahjong/')) { res.writeHead(404).end(); return; }
-  const name = path.slice('/mahjong/'.length) || 'index.html';
+// Counts every request, and can refuse, hold or replace any of them.
+const server = createServer(createFixtureHandler({ root: dist, headers: { 'Cache-Control': 'no-store' }, intercept: async name => {
   count.set(name, (count.get(name) ?? 0) + 1);
-  if (unavailable || name === failPath) { refused.push(name); res.writeHead(503).end(); return; }
-  if (name === holdPath) {
-    // Page decoding and offline installation may request the same file.
-    // Release every waiter, not just whichever request arrived last.
-    await new Promise(done => { heldResponses.add(done); });
-  }
-  try {
-    const file = resolve(dist, name);
-    if (!file.startsWith(dist + sep)) { res.writeHead(403).end(); return; }
-    const body = overrides.get(name) ?? await readFile(file);
-    res.writeHead(200, { 'Content-Type': mime[extname(name)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
-    res.end(req.method === 'HEAD' ? undefined : body);
-  } catch { res.writeHead(404).end(); }
-});
-const chrome = process.env.CHROME_BIN || ['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);
-assert.ok(chrome);
+  if (unavailable || name === failPath) { refused.push(name); return { status: 503 }; }
+  // Page decoding and offline installation may request the same file.
+  // Release every waiter, not just whichever request arrived last.
+  if (name === holdPath) await new Promise(done => { heldResponses.add(done); });
+  if (overrides.has(name)) return { body: overrides.get(name) };
+} }));
 const fixture = (() => {
   const session = new MatchSession(Game, 81, ['neural', 'club', 'neural']);
   try { session.advance(false); return session.snapshot(); } finally { session.dispose(); }
 })();
-const results = [], browsers = new Set(), dirs = [];
+const cases = browserChecks(), browsers = new Set(), dirs = [];
 async function launch(profile) {
-  const browser = await puppeteer.launch({ executablePath: chrome, userDataDir: profile, headless: true,
-    args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  const browser = await launchChrome({ userDataDir: profile });
   // The page saves the model; its workers and the service worker must not
   // fetch it again. Observe every one of them so first-download/reuse
   // assertions remain real. A closing browser may already have disposed some.
@@ -147,9 +133,10 @@ function releaseHeldResponses() {
 }
 async function check(name, fn) {
   unavailable = false; failPath = null; holdPath = null; overrides.clear(); count.clear(); refused.length = 0;
-  try { await fn(); results.push({ name, passed:true }); console.log(`PASS ${name}`); }
-  catch (error) { results.push({ name, passed:false, error:error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
-  finally { releaseHeldResponses(); for (const b of [...browsers]) await close(b); }
+  await cases.check(name, async () => {
+    try { await fn(); }
+    finally { releaseHeldResponses(); for (const b of [...browsers]) await close(b); }
+  });
 }
 async function profile() { const dir = await mkdtemp(join(tmpdir(), 'mahjong-offline-browser-')); dirs.push(dir); return dir; }
 try {
@@ -346,10 +333,8 @@ try {
     assert.deepEqual(p.errors,[]);
   });
 } finally {
-  await writeFile(resolve(output,'offline-report.json'),JSON.stringify(results,null,2));
   for(const b of [...browsers])await close(b);
   if(server.listening)await new Promise(done=>server.close(done));
   for(const dir of dirs)await rm(dir,{recursive:true,force:true});
+  await cases.report('offline browser checks',resolve(output,'offline-report.json'));
 }
-console.log(`${results.filter(r=>r.passed).length}/${results.length} offline browser checks passed`);
-if(results.some(r=>!r.passed))process.exitCode=1;

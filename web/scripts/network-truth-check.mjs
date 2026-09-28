@@ -11,21 +11,17 @@ import { createServer } from 'node:http';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { launchChrome } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 
 const web = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(process.argv[2] ?? resolve(web, 'test-results', 'network-truth.json'));
 const wanted = Number(process.argv[3] ?? 12);
-const handler = createFixtureHandler({ root: resolve(web, 'dist'), publicRoot: resolve(web, 'dist') });
-const server = createServer((request, response) => void handler(request, response));
+const server = createServer(createFixtureHandler({ root: resolve(web, 'dist') }));
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 
-const browser = await puppeteer.launch({
-  executablePath: process.env.CHROME_BIN,
-  args: ['--no-sandbox', '--enable-features=SharedArrayBuffer'],
-});
+const browser = await launchChrome({ args: ['--enable-features=SharedArrayBuffer'] });
 try {
   const page = await browser.newPage();
   const errors = [];
@@ -33,8 +29,7 @@ try {
   await page.setViewport({ width: 1100, height: 900 });
   await page.evaluateOnNewDocument((saveKey, settingsKey) => {
     localStorage.setItem(settingsKey, JSON.stringify({
-      version: 1, difficulty: 'custom', opponents: ['neural', 'neural', 'neural'],
-      trainedModel: 'full', hints: true,
+      version: 1, difficulty: 'custom', opponents: ['neural', 'neural', 'neural'], hints: true,
     }));
     localStorage.removeItem(saveKey);
     window.asked = [];

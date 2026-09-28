@@ -4,24 +4,19 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createFixtureHandler } from './static-fixture-server.mjs';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import puppeteer from 'puppeteer-core';
 
 const web = fileURLToPath(new URL('../', import.meta.url));
 const temporary = await mkdtemp(resolve(web, '.tile-effects-'));
 const out = resolve(temporary, 'dist');
 const evidence = resolve(web, 'test-results');
-const results = [];
+const { check, report } = browserChecks();
 let browser, server;
-const check = async (name, test) => {
-  try { await test(); results.push({name, ok:true}); }
-  catch(error) { results.push({name, ok:false, error:error.stack}); }
-};
 try {
   await mkdir(evidence, {recursive:true});
   await writeFile(resolve(temporary, 'index.html'), '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Tile effects regression</title></head><body><div id="app"></div><script type="module" src="./main.js"></script></body></html>');
@@ -51,9 +46,7 @@ const cases = [
   if (!process.argv.includes('--build-only')) {
     server = createServer(createFixtureHandler({root:out,publicRoot:resolve(web,'public')}));
     await new Promise(done=>server.listen(0,'127.0.0.1',done));
-    const executablePath = process.env.CHROME_BIN || ['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);
-    assert.ok(executablePath,'Set CHROME_BIN to Chrome/Chromium');
-    browser = await puppeteer.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+    browser = await launchChrome();
     const page = await browser.newPage(); const errors = [];
     page.on('pageerror', error=>errors.push(error.message));
     await page.setViewport({width:1100,height:700,deviceScaleFactor:2});
@@ -144,11 +137,8 @@ const cases = [
       await page.screenshot({path:resolve(evidence,'matisse-white-dragon-fixture.png'),fullPage:true});
     });
     assert.deepEqual(errors,[]);
-    console.log(`${results.filter(r=>r.ok).length}/${results.length} tile-effect checks passed`);
-    for(const result of results)if(!result.ok)console.error(result.name,result.error);
-    if(results.some(r=>!r.ok))process.exitCode=1;
   }
 } finally {
-  await writeFile(resolve(evidence,'white-dragon-report.json'),JSON.stringify(results,null,2));
   await browser?.close();if(server)await new Promise(done=>server.close(done));await rm(temporary,{recursive:true,force:true});
+  await report('tile-effect checks',resolve(evidence,'white-dragon-report.json'));
 }

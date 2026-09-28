@@ -2,11 +2,11 @@
  * network. Fixtures use legal engine commands; no test API ships to users. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { observeNetworkRequests } from './network-requests.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
@@ -15,16 +15,14 @@ import { MANIFEST } from '../src/lib/model-manifest.js';
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web=fileURLToPath(new URL('../', import.meta.url));
 const output=resolve(web,'test-results');
-const handler=createFixtureHandler({root:resolve(web,'dist'),publicRoot:resolve(web,'dist')});
 let modelGets=0;
 const networkUrl=`${MANIFEST.origin}/${MANIFEST.object}`;
-const server=createServer((req,res)=>{
-  // Counted for the record: the network is fetched from its bucket, not
-  // from this server, so a request here would mean the page looked locally.
-  if(req.url===`/mahjong/${MANIFEST.object}`&&req.method==='GET')modelGets++;
-  void handler(req,res);
-});
-const results=[],contexts=[];
+// Counted for the record: the network is fetched from its bucket, not from
+// this server, so a request here would mean the page looked locally.
+const server=createServer(createFixtureHandler({root:resolve(web,'dist'),intercept:(name,req)=>{
+  if(name===MANIFEST.object&&req.method==='GET')modelGets++;
+}}));
+const {check,openContext,report}=browserChecks();
 let browser;
 function fixture(config='club') {
   const m=new MatchSession(Game,81,config);
@@ -35,7 +33,7 @@ const saved=p=>p.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_KEY);
 const labels=p=>p.evaluate(()=>['right','across','left'].map(side=>document.querySelector(`.place.${side} .opponent-type`)?.dataset.controller));
 const shot=(p,name)=>p.screenshot({path:resolve(output, name+'.png'),fullPage:true});
 async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false,missing=false}={}) {
-  const context=await browser.createBrowserContext();contexts.push(context);
+  const context=await openContext(browser);
   const p=await context.newPage();p.errors=[];p.modelLoads=0;
   p.on('pageerror',e=>p.errors.push(e.message));
   p.stopNetworkObservation=await observeNetworkRequests(context,request=>{
@@ -64,17 +62,11 @@ async function settled(p) {
   await p.waitForFunction(()=>document.querySelector('.failure')||document.querySelector('.standings')||document.querySelector('.screen')
     ||document.querySelector('.hand button:not(:disabled)')||document.querySelector('.call-options button:not(:disabled)'),{timeout:45000});
 }
-async function check(name,fn) {
-  try {await fn();results.push({name,passed:true});console.log('PASS '+name);}
-  catch(error){results.push({name,passed:false,error:error.stack});console.error('FAIL '+name+'\n'+error.stack);}
-  finally{while(contexts.length)await contexts.pop().close();}
-}
 async function custom(p) { await p.select('select[aria-label="opponent strength"]','custom');await p.waitForSelector('.custom-dialog[open]'); }
 const confirmStart=p=>p.click('.custom-dialog .primary');
 try {
   await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0,'127.0.0.1',done));
-  const chrome=process.env.CHROME_BIN||['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);
-  assert.ok(chrome);browser=await puppeteer.launch({executablePath:chrome,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+  browser=await launchChrome();
   await check('custom setup is transactional and cancel leaves the active match unchanged',async()=>{
     const p=await open(),before=await saved(p);await custom(p);
     await p.select('select[aria-label="Left opponent"]','beginner');
@@ -175,8 +167,6 @@ try {
     });
   }
 } finally {
-  await writeFile(resolve(output,'mixed-opponents-report.json'),JSON.stringify(results,null,2));
-  while(contexts.length)await contexts.pop().close();await browser?.close();if(server.listening)await new Promise(done=>server.close(done));
+  await browser?.close();if(server.listening)await new Promise(done=>server.close(done));
+  await report('mixed-opponent browser checks',resolve(output,'mixed-opponents-report.json'));
 }
-console.log(`${results.filter(r=>r.passed).length}/${results.length} mixed-opponent browser checks passed`);
-if(results.some(r=>!r.passed))process.exitCode=1;

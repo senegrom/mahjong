@@ -3,10 +3,9 @@
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { emptyPosition, PHYSICAL_KEY } from '../src/lib/physical-position.js';
 import { SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
@@ -16,14 +15,9 @@ const root = resolve(import.meta.dirname, '..');
 const output = resolve(root, 'test-results');
 const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
 const server = createServer(createFixtureHandler({ root: resolve(root, 'dist'), publicRoot: resolve(root, 'public') }));
-const results = [];
+const cases = browserChecks();
 let browser;
-async function check(name, run) {
-  const context = await browser.createBrowserContext();
-  try { await run(context); results.push({ name, passed: true }); console.log(`PASS ${name}`); }
-  catch (error) { results.push({ name, passed: false, error: error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
-  finally { await context.close(); }
-}
+const check = (name, run) => cases.check(name, async () => run(await cases.openContext(browser)));
 async function open(context, { mode = 'play', width = 1100, fixture, available = () => false, countSettings = false } = {}) {
   const page = await context.newPage();
   const errors = [];
@@ -79,9 +73,7 @@ async function undo(page) {
 try {
   await mkdir(output, { recursive: true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
-  const executablePath = process.env.CHROME_BIN || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
-  assert.ok(executablePath, 'Set CHROME_BIN to Chrome/Chromium');
-  browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  browser = await launchChrome();
   await check('reconnect enables every Trained selector without reloading or replacing the regular match', async context => {
     let reachable = false;
     const { page, errors } = await open(context, { available: () => reachable });
@@ -156,7 +148,5 @@ try {
 } finally {
   await browser?.close();
   await new Promise(done => server.close(done));
-  await writeFile(resolve(output, 'webapp-reliability.json'), JSON.stringify(results, null, 2));
+  await cases.report('webapp reliability checks', resolve(output, 'webapp-reliability.json'));
 }
-console.log(`${results.filter(result => result.passed).length}/${results.length} webapp reliability checks passed`);
-if (results.some(result => !result.passed)) process.exitCode = 1;

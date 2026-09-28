@@ -1,11 +1,11 @@
 /** Watch the actual production UI against decisions and hints from real WASM. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { WatchSession } from '../src/lib/watch-session.js';
 import { SETTINGS_KEY } from '../src/lib/session.js';
@@ -16,13 +16,12 @@ import { createFixtureHandler } from './static-fixture-server.mjs';
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), output = resolve(web, 'test-results');
 const server = createServer(createFixtureHandler({ root: resolve(web, 'dist'), publicRoot: resolve(web, 'public') }));
-const results = [], contexts = [];
+const { check, openContext, report } = browserChecks();
 let browser;
 const builtin = async (engine, agent) => ({ choice: engine.agent_pick(agent), choices: engine.agent_choices() });
 
 async function open(seed, width = 1100) {
-  const context = await browser.createBrowserContext(); contexts.push(context);
-  const page = await context.newPage(); page.problems = [];
+  const page = await (await openContext(browser)).newPage(); page.problems = [];
   page.on('pageerror', error => page.problems.push(error.message));
   await page.setViewport({ width, height: 900, deviceScaleFactor: 1, hasTouch: width < 600 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -34,12 +33,6 @@ async function open(seed, width = 1100) {
   await page.click('.watch-setup .primary');
   await page.waitForSelector('.weight-row.best .choice-action:not(:disabled)');
   return page;
-}
-
-async function check(name, task) {
-  try { await task(); results.push({ name, passed: true }); console.log(`PASS ${name}`); }
-  catch (error) { results.push({ name, passed: false, error: error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
-  finally { while (contexts.length) await contexts.pop().close(); }
 }
 
 async function assertHints(page, watch) {
@@ -65,9 +58,7 @@ async function assertHints(page, watch) {
 try {
   await mkdir(output, { recursive: true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
-  const executablePath = process.env.CHROME_BIN || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
-  assert.ok(executablePath, 'Set CHROME_BIN to Chrome/Chromium');
-  browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  browser = await launchChrome();
 
   await check('watch combines blue recommendations with gold/silver hints and confirms alternative moves', async () => {
     const watch = new WatchSession(Game, 31, ['club', 'club', 'club', 'club'], { evaluate: builtin });
@@ -137,8 +128,7 @@ try {
     } finally { watch.dispose(); }
   });
 } finally {
-  await writeFile(resolve(output, 'agent-watch.json'), JSON.stringify(results, null, 2));
   await browser?.close();
   await new Promise(done => server.close(done));
+  await report('agent-watch checks', resolve(output, 'agent-watch.json'));
 }
-if (results.some(result => !result.passed)) process.exitCode = 1;

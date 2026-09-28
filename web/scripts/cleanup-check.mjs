@@ -1,11 +1,10 @@
 /** Production browser checks for layout, app component boundaries and claimed-tile display. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { emptyPosition, parseTiles, recordChoice } from '../src/lib/physical-position.js';
 import { emptyGuided, GUIDED_FORMAT } from '../src/lib/guided-game.js';
@@ -21,14 +20,9 @@ const server = createServer((request, response) => {
     response.end('Artwork temporarily unavailable');
   } else serve(request, response);
 });
-const results = [];
+const cases = browserChecks();
 let browser;
-async function check(name, body) {
-  const context = await browser.createBrowserContext();
-  try { await body(context); results.push({ name, passed: true }); console.log(`PASS ${name}`); }
-  catch (error) { results.push({ name, passed: false, error: error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
-  finally { await context.close(); }
-}
+const check = (name, body) => cases.check(name, async () => body(await cases.openContext(browser)));
 async function pageAt(context, mode = 'play', game = null) {
   const page = await context.newPage();
   await page.setViewport({ width: 1100, height: 1000 });
@@ -71,9 +65,7 @@ function calledGame(offered) {
 try {
   await mkdir(resolve(root, 'test-results'), { recursive: true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
-  const executablePath = process.env.CHROME_BIN || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
-  assert.ok(executablePath, 'Set CHROME_BIN to Chrome/Chromium');
-  browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  browser = await launchChrome();
   await check('tablet breakpoint never overflows at phone, tablet, or desktop boundaries', async context => {
     const { page, problems } = await pageAt(context);
     await page.waitForSelector('.hand');
@@ -223,7 +215,5 @@ try {
 } finally {
   await browser?.close();
   if (server.listening) await new Promise(done => server.close(done));
-  await mkdir(resolve(root, 'test-results'), { recursive: true });
-  await writeFile(resolve(root, 'test-results/cleanup.json'), JSON.stringify(results, null, 2));
+  await cases.report('cleanup checks', resolve(root, 'test-results/cleanup.json'));
 }
-if (results.some(result => !result.passed)) process.exitCode = 1;

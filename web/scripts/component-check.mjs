@@ -1,15 +1,14 @@
 /** Mount real components under a reactive parent; never execute sliced markup. */
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import puppeteer from 'puppeteer-core';
+import { browserChecks, launchChrome } from './browser-harness.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const results = [];
+const { check: run, openContext, report, results } = browserChecks();
 let server, browser;
 const state = page => page.$eval('[data-parent-state]', el => JSON.parse(el.textContent));
 const openSettings = async page => {
@@ -18,36 +17,31 @@ const openSettings = async page => {
   assert.equal(await page.$eval('.settings-dialog', el => el.matches(':modal')), true);
 };
 async function check(name, viewport, body) {
-  const context = await browser.createBrowserContext();
-  const page = await context.newPage();
   const problems = [];
-  let failure;
-  page.on('pageerror', error => problems.push(error.message));
-  page.on('console', message => { if (['warn', 'error'].includes(message.type())) problems.push(message.text()); });
-  try {
-    await page.setViewport(viewport);
-    await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/app-components.html`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-parent-state]');
-    await body(page);
-    assert.deepEqual(problems, [], 'Mounted components must not emit ownership or runtime warnings');
-  } catch (error) {
-    failure = error;
-    await page.screenshot({ path: resolve(root, 'test-results', `components-${results.length}.png`), fullPage: true }).catch(() => {});
-    await writeFile(resolve(root, 'test-results', `components-${results.length}.html`), await page.content()).catch(() => {});
-  } finally {
-    try { await context.close(); } catch (error) { failure ??= error; }
-  }
-  results.push({ name, passed: !failure, ...(failure ? { error: failure.stack, problems } : {}) });
-  console[failure ? 'error' : 'log'](`${failure ? 'FAIL' : 'PASS'} ${name}${failure ? `\n${failure.stack}` : ''}`);
+  const passed = await run(name, async () => {
+    const page = await (await openContext(browser)).newPage();
+    page.on('pageerror', error => problems.push(error.message));
+    page.on('console', message => { if (['warn', 'error'].includes(message.type())) problems.push(message.text()); });
+    try {
+      await page.setViewport(viewport);
+      await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/app-components.html`, { waitUntil: 'networkidle0' });
+      await page.waitForSelector('[data-parent-state]');
+      await body(page);
+      assert.deepEqual(problems, [], 'Mounted components must not emit ownership or runtime warnings');
+    } catch (error) {
+      await page.screenshot({ path: resolve(root, 'test-results', `components-${results.length}.png`), fullPage: true }).catch(() => {});
+      await writeFile(resolve(root, 'test-results', `components-${results.length}.html`), await page.content()).catch(() => {});
+      throw error;
+    }
+  });
+  if (!passed) results.at(-1).problems = problems;
 }
 const desktop = { width: 1100, height: 1000 }, phone = { width: 390, height: 844 };
 try {
   await mkdir(resolve(root, 'test-results'), { recursive: true });
   server = await createServer({ root, configFile: false, plugins: [svelte()], logLevel: 'warn', server: { host: '127.0.0.1', port: 0 } });
   await server.listen();
-  const executablePath = process.env.CHROME_BIN || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
-  assert.ok(executablePath, 'Set CHROME_BIN to Chrome/Chromium');
-  browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  browser = await launchChrome();
   await check('mounted bindings, context and action callbacks reach the parent', desktop, async page => {
     assert.equal((await state(page)).handBound, true);
     await page.click('.confirm-discard button:last-child');
@@ -154,6 +148,5 @@ try {
 } finally {
   await browser?.close();
   await server?.close();
-  await writeFile(resolve(root, 'test-results/components.json'), JSON.stringify(results, null, 2));
+  await report('component checks', resolve(root, 'test-results/components.json'));
 }
-if (results.some(result => !result.passed)) process.exitCode = 1;
