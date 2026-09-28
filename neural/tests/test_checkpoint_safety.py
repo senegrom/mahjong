@@ -112,6 +112,29 @@ checkpoints.atomic_save({'generation': 2}, Path(sys.argv[1]))
                 checkpoints.publish_training_snapshot(source, target, 11)
             self.assertEqual(before,(target/'latest.pt').read_bytes())
 
+    def test_an_archive_past_the_resumed_generation_is_the_new_timelines(self):
+        # A block that resumed from generation 30 of a run that had reached
+        # 40 abandons the old timeline's gen-00040; its own replaces it,
+        # while gen-00030, history both timelines share, is never rewritten.
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder); source, target = root/'source', root/'target'
+            for generation in (30, 40):
+                checkpoints.atomic_save({**saved(generation), 'timeline': 1},
+                                        target/f'history/gen-{generation:05d}.pt')
+            def timeline(generation):
+                path = target/f'history/gen-{generation:05d}.pt'
+                return torch.load(path, weights_only=True)['timeline']
+            checkpoints.atomic_save({**saved(40), 'timeline': 2}, source/'latest.pt')
+            checkpoints.publish_training_snapshot(source, target, 40)
+            self.assertEqual(timeline(40), 1)
+            checkpoints.publish_training_snapshot(source, target, 40, resumed_at=40)
+            self.assertEqual(timeline(40), 1)
+            checkpoints.publish_training_snapshot(source, target, 40, resumed_at=30)
+            self.assertEqual([timeline(30), timeline(40)], [1, 2])
+            checkpoints.atomic_save({**saved(30), 'timeline': 2}, source/'latest.pt')
+            checkpoints.publish_training_snapshot(source, target, 30, resumed_at=30)
+            self.assertEqual(timeline(30), 1)
+
     def test_every_training_writer_uses_atomic_checkpoint_publication(self):
         root=Path(__file__).resolve().parents[1]
         for name in ('train', 'train_mortal', 'train_combined', 'imitate', 'rehead'):

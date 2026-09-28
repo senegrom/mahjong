@@ -32,6 +32,7 @@ is what the desktop supervisor already assumes.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -102,12 +103,49 @@ def _checkpoint(run: str, name: str) -> Path:
     return VOLUME / f"{name}.pt"
 
 
-def _publish(run: Path, generation: int, target_run: str) -> int:
-    """Publish only copied, fully validated checkpoints of completed generations."""
+def _publish(run: Path, generation: int, target_run: str, resumed_at: int) -> int:
+    """Publish only copied, fully validated checkpoints of completed
+    generations. `resumed_at` is the generation the block resumed from:
+    archives past it belong to this timeline (see
+    `publish_training_snapshot`)."""
     validate_run(target_run)
-    actual = publish_training_snapshot(run, VOLUME / target_run, generation)
+    actual = publish_training_snapshot(run, VOLUME / target_run, generation, resumed_at)
     volume.commit()
     return actual
+
+
+def _same_lineage(run: str, source: Path) -> bool:
+    """Whether a checkpoint a block resumes from is the run's own: its
+    latest or best, or one of its archives under `history/`. Resuming from
+    anything else starts another lineage, which must not inherit the run's
+    log, best or leash."""
+    return source.is_relative_to(VOLUME / run)
+
+
+def _carry_log(run: str, where: Path, generation: int) -> None:
+    """The run's log into the workspace, so the block appends to it, cut
+    after the records of the generation it resumes from. A record past it
+    belongs to the timeline a resume from the run's history abandons, or
+    to a generation that finished after the checkpoint was copied, and the
+    block is about to write that generation's record again."""
+    history = VOLUME / run / "log.jsonl"
+    if not history.exists():
+        return
+    kept, dropped = [], 0
+    for line in history.read_text(encoding="utf-8").splitlines():
+        try:
+            record = json.loads(line)
+            done = int(record.get("checkpoint_generation", record["generation"] + 1))
+        except (ValueError, TypeError, KeyError, AttributeError):
+            done = None
+        if done is not None and done <= generation:
+            kept.append(line + "\n")
+        elif line.strip():
+            dropped += 1
+    (where / "log.jsonl").write_text("".join(kept), encoding="utf-8")
+    if dropped:
+        print(f"the log carried stops at generation {generation}: {dropped} later "
+              "records left behind", flush=True)
 
 
 def _generation_of(checkpoint: Path) -> int:
@@ -252,18 +290,20 @@ def train(
         source = _checkpoint(run, resume)
         if source.exists():
             started_from = str(source)
-            copy_checkpoint(source, where / "latest.pt", require_generation=True)
-            for saved_name in ("best.pt", "reference.pt"):
-                saved = VOLUME / run / saved_name
-                # Cross-lineage starts must not inherit this run's old baseline.
-                if source.parent == VOLUME / run and saved.exists():
-                    copy_checkpoint(saved, where / saved_name)
-            # Carry the history forward so a resumed run appends to it rather
-            # than starting a fresh record every container.
-            for name in ("log.jsonl", "train.log"):
-                history = VOLUME / run / name
-                if source.parent == VOLUME / run and history.exists():
-                    shutil.copyfile(history, where / name)
+            generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
+            # Cross-lineage starts must not inherit this run's old baseline;
+            # a resume from the run's own history is the run's lineage.
+            if _same_lineage(run, source):
+                for saved_name in ("best.pt", "reference.pt"):
+                    saved = VOLUME / run / saved_name
+                    if saved.exists():
+                        copy_checkpoint(saved, where / saved_name)
+                # Carry the history forward so a resumed run appends to it
+                # rather than starting a fresh record every container.
+                _carry_log(run, where, generation)
+                history = VOLUME / run / "train.log"
+                if history.exists():
+                    shutil.copyfile(history, where / "train.log")
         print(f"resuming from {started_from or 'nothing: a fresh network'}", flush=True)
 
         command = [
@@ -343,13 +383,11 @@ def train(
                 # preempted container costs a single round.
                 if line.startswith("{") and '"generation"' in line:
                     try:
-                        import json
-
                         record = json.loads(line)
                         seen = int(record.get("checkpoint_generation", record["generation"] + 1))
                     except Exception:
                         continue
-                    seen = _publish(where, seen, run)
+                    seen = _publish(where, seen, run, started_at)
                     if not saved_cache:
                         _save_cache()
                         saved_cache = True
@@ -360,7 +398,7 @@ def train(
         # stamped on it, and publishing that overwrote a good record with one
         # claiming to be two hundred generations younger.
         if code == 0 and seen > started_at:
-            seen = _publish(where, seen, run)
+            seen = _publish(where, seen, run, started_at)
         else:
             print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
         return (
@@ -430,15 +468,15 @@ def train_mortal(
         if temperature is not None:
             command += ["--temperature", str(temperature)]
         if source.exists():
-            copy_checkpoint(source, where / "latest.pt", require_generation=True)
-            for saved_name in ("best.pt", "reference.pt"):
-                saved = VOLUME / run / saved_name
-                # Cross-lineage starts must not inherit this run's old baseline.
-                if source.parent == VOLUME / run and saved.exists():
-                    copy_checkpoint(saved, where / saved_name)
-            history = VOLUME / run / "log.jsonl"
-            if source.parent == VOLUME / run and history.exists():
-                shutil.copyfile(history, where / "log.jsonl")
+            generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
+            # Cross-lineage starts must not inherit this run's old baseline;
+            # a resume from the run's own history is the run's lineage.
+            if _same_lineage(run, source):
+                for saved_name in ("best.pt", "reference.pt"):
+                    saved = VOLUME / run / saved_name
+                    if saved.exists():
+                        copy_checkpoint(saved, where / saved_name)
+                _carry_log(run, where, generation)
             else:
                 (where / "log.jsonl").unlink(missing_ok=True)
             command += ["--resume", str(where / "latest.pt")]
@@ -478,20 +516,18 @@ def train_mortal(
                 print(line.rstrip(), flush=True)
                 if line.startswith("{") and '"generation"' in line:
                     try:
-                        import json
-
                         record = json.loads(line)
                         seen = int(record.get("checkpoint_generation", record["generation"] + 1))
                     except Exception:
                         continue
-                    seen = _publish(where, seen, run)
+                    seen = _publish(where, seen, run, started_at)
                     if not saved_cache:
                         _save_cache()
                         saved_cache = True
             code = process.wait()
         _save_cache()
         if code == 0 and seen > started_at:
-            seen = _publish(where, seen, run)
+            seen = _publish(where, seen, run, started_at)
         else:
             print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
         return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
@@ -570,15 +606,15 @@ def train_combined(
         if fixed:
             command += ["--fixed", *fixed]
         if source.exists():
-            copy_checkpoint(source, where / "latest.pt", require_generation=True)
-            for saved_name in ("best.pt", "reference.pt"):
-                saved = VOLUME / run / saved_name
-                # Cross-lineage starts must not inherit this run's old baseline.
-                if source.parent == VOLUME / run and saved.exists():
-                    copy_checkpoint(saved, where / saved_name)
-            history = VOLUME / run / "log.jsonl"
-            if source.parent == VOLUME / run and history.exists():
-                shutil.copyfile(history, where / "log.jsonl")
+            generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
+            # Cross-lineage starts must not inherit this run's old baseline;
+            # a resume from the run's own history is the run's lineage.
+            if _same_lineage(run, source):
+                for saved_name in ("best.pt", "reference.pt"):
+                    saved = VOLUME / run / saved_name
+                    if saved.exists():
+                        copy_checkpoint(saved, where / saved_name)
+                _carry_log(run, where, generation)
             else:
                 (where / "log.jsonl").unlink(missing_ok=True)
             command += ["--resume", str(where / "latest.pt")]
@@ -622,20 +658,18 @@ def train_combined(
                 print(line.rstrip(), flush=True)
                 if line.startswith("{") and '"generation"' in line:
                     try:
-                        import json
-
                         record = json.loads(line)
                         seen = int(record.get("checkpoint_generation", record["generation"] + 1))
                     except Exception:
                         continue
-                    seen = _publish(where, seen, run)
+                    seen = _publish(where, seen, run, started_at)
                     if not saved_cache:
                         _save_cache()
                         saved_cache = True
             code = process.wait()
         _save_cache()
         if code == 0 and seen > started_at:
-            seen = _publish(where, seen, run)
+            seen = _publish(where, seen, run, started_at)
         else:
             print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
         return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"

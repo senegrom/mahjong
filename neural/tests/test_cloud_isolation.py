@@ -96,6 +96,96 @@ class CloudIsolationTests(unittest.TestCase):
                 self.assertEqual(validate_checkpoint(volume/trainer/'latest.pt'),5)
                 self.assertEqual((volume/trainer/'generation.txt').read_text(),'5')
 
+    def launch(self, app, trainer, volume, scratch, popen, **kwargs):
+        with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
+             patch.object(app,'_environment',return_value={}),patch.object(app,'_save_cache'), \
+             patch.object(app.subprocess,'Popen',side_effect=popen),redirect_stdout(io.StringIO()):
+            return getattr(app,trainer)(**kwargs)
+
+    def test_resuming_from_the_runs_own_history_keeps_its_lineage(self):
+        # `history/gen-00030` of the run itself used to count as another
+        # lineage: the run's log stayed behind and the first publication
+        # replaced it with the block's records alone, a leashed run anchored
+        # afresh, and the abandoned timeline's gen-00040 stayed in the
+        # history beside the new timeline's latest.
+        import torch
+        app=controller()
+        record=lambda generation,timeline:json.dumps({'generation':generation,
+            'checkpoint_generation':generation+1,'timeline':timeline})
+        timeline=lambda path:torch.load(path,weights_only=True)['timeline']
+        for trainer in ('train','train_mortal','train_combined'):
+            with self.subTest(trainer=trainer),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);volume=root/'volume';run=volume/'run'
+                atomic_save({'generation':40,'timeline':1},run/'latest.pt')
+                atomic_save({'generation':35,'timeline':1},run/'best.pt')
+                atomic_save({'generation':0,'timeline':0},run/'reference.pt')
+                for generation in (30,40):
+                    atomic_save({'generation':generation,'timeline':1},run/f'history/gen-{generation:05d}.pt')
+                (run/'log.jsonl').write_text(''.join(record(g,1)+'\n' for g in range(40)))
+                seen={}
+                def popen(command,**kwargs):
+                    where=Path(command[command.index('--out')+1])
+                    seen['files']={path.name for path in where.iterdir()}
+                    seen['carried']=[json.loads(line)['generation']
+                                     for line in (where/'log.jsonl').read_text().splitlines()]
+                    # Ten generations of a new timeline from 30, each saved and logged.
+                    lines=[]
+                    for generation in range(30,40):
+                        atomic_save({'generation':generation+1,'timeline':2},where/'latest.pt')
+                        lines.append(record(generation,2))
+                        with (where/'log.jsonl').open('a') as handle:handle.write(lines[-1]+'\n')
+                    return SimpleNamespace(stdout=io.StringIO('\n'.join(lines)+'\n'),wait=lambda:0)
+                answer=self.launch(app,trainer,volume,root/'scratch',popen,
+                                   run='run',resume='history/gen-00030',generations=10)
+                self.assertIn('generation=40 from 30',answer)
+                # The log came along, cut where the new timeline branches off,
+                # and so did the run's best and, for the leashed trainer, the
+                # policy the run is leashed to.
+                self.assertEqual(seen['carried'],list(range(30)))
+                self.assertIn('best.pt',seen['files'])
+                if trainer=='train_combined':self.assertIn('reference.pt',seen['files'])
+                log=[json.loads(line) for line in (run/'log.jsonl').read_text().splitlines()]
+                self.assertEqual([entry['generation'] for entry in log],list(range(40)))
+                self.assertEqual([entry['timeline'] for entry in log],[1]*30+[2]*10)
+                self.assertEqual((run/'generation.txt').read_text(),'40')
+                self.assertEqual([timeline(run/'latest.pt'),timeline(run/'history/gen-00040.pt'),
+                                  timeline(run/'history/gen-00030.pt'),timeline(run/'reference.pt')],[2,2,1,0])
+
+    def test_a_carried_log_stops_at_the_checkpoint_it_resumes_from(self):
+        # The volume's log can be a generation ahead of its latest.pt when
+        # a publication copied the log after the trainer had logged the next
+        # generation; that generation is played again, and logged once.
+        app=controller()
+        for trainer in ('train','train_mortal','train_combined'):
+            with self.subTest(trainer=trainer),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);volume=root/'volume';run=volume/'run'
+                atomic_save({'generation':40},run/'latest.pt')
+                (run/'log.jsonl').write_text(''.join(
+                    json.dumps({'generation':g,'checkpoint_generation':g+1})+'\n' for g in range(41))+'{"generation": 41, "chec')
+                carried=[]
+                def popen(command,**kwargs):
+                    where=Path(command[command.index('--out')+1])
+                    carried.extend(json.loads(line)['generation'] for line in (where/'log.jsonl').read_text().splitlines())
+                    return SimpleNamespace(stdout=io.StringIO(),wait=lambda:0)
+                self.launch(app,trainer,volume,root/'scratch',popen,run='run',generations=1)
+                self.assertEqual(carried,list(range(40)))
+
+    def test_a_start_from_another_run_inherits_none_of_this_runs_history(self):
+        app=controller()
+        for trainer in ('train','train_mortal','train_combined'):
+            with self.subTest(trainer=trainer),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);volume=root/'volume';run=volume/'run'
+                for name in ('latest.pt','best.pt','reference.pt'):atomic_save({'generation':40},run/name)
+                (run/'log.jsonl').write_text(json.dumps({'generation':39})+'\n')
+                atomic_save({'generation':12},volume/'other/latest.pt')
+                seen={}
+                def popen(command,**kwargs):
+                    seen['files']={path.name for path in Path(command[command.index('--out')+1]).iterdir()}
+                    return SimpleNamespace(stdout=io.StringIO(),wait=lambda:0)
+                self.launch(app,trainer,volume,root/'scratch',popen,run='run',resume='other/latest',generations=1)
+                self.assertIn('latest.pt',seen['files'])
+                self.assertFalse(seen['files']&{'log.jsonl','best.pt','reference.pt'})
+
     def test_failed_rehead_and_distillation_cannot_publish_leftover_outputs(self):
         app=controller()
         with tempfile.TemporaryDirectory() as folder:

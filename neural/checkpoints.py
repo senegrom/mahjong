@@ -102,13 +102,20 @@ def copy_checkpoint(source: Path, destination: Path, *, require_generation: bool
     return generation
 
 
-def publish_training_snapshot(source: Path, target: Path, minimum_generation: int) -> int:
+def publish_training_snapshot(source: Path, target: Path, minimum_generation: int,
+                              resumed_at: int | None = None) -> int:
     """Validate all model copies before changing any live volume checkpoint.
 
     A trainer may have advanced since its stdout notification. Metadata and
     archived names always use the generation in the copied latest.pt, not the
     notification's (historically zero-based) iteration number. Each checkpoint
     replacement is atomic; this is not a multi-file filesystem transaction.
+
+    `resumed_at` is the generation the publishing block resumed from. An
+    archive past it was written by a timeline that the block abandoned by
+    resuming from an earlier generation than the run had reached, and is
+    replaced by this timeline's own; an archive at or before it is history
+    the two timelines share and is never rewritten.
     """
     source, target = Path(source), Path(target)
     target.mkdir(parents=True, exist_ok=True)
@@ -135,7 +142,8 @@ def publish_training_snapshot(source: Path, target: Path, minimum_generation: in
         # Retain each tenth complete generation from these exact copied bytes.
         if generation % 10 == 0:
             kept = target / "history" / f"gen-{generation:05d}.pt"
-            if not kept.exists():
+            after_resume = resumed_at is not None and generation > resumed_at
+            if after_resume or not kept.exists():
                 copy_checkpoint(staged / "latest.pt", kept, require_generation=True)
         for name in (*names, "latest.pt"):
             with (staged / name).open("r+b") as stream:
