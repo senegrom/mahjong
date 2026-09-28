@@ -14,11 +14,14 @@ sees. Self-play is those two, and both must match the checkpoint exactly.
     modal run neural/modal_app.py::smoke
     modal run --detach neural/modal_app.py::train --generations 40
 
-Runs live side by side on the volume, each in its own directory: `w320-run`
-is the lineage that sees the engine's planes, `w1012-run` the one that sees
-Mortal's. Every function takes the run it works in, and a checkpoint from
-another run can be named by its path from the volume's root, so the new
-lineage can be duelled against the old one and seat it as an opponent.
+Runs live side by side on the volume, each in its own directory: `w1012-run`
+is the lineage that sees Mortal's planes, and `w320-run` the retired one
+that saw the engine's, whose checkpoints read an encoding of those planes
+the engine no longer writes and are refused on loading (see
+`model.require_engine_observation`). Every function takes the run it works
+in, and a checkpoint from another run can be named by its path from the
+volume's root, so one lineage can be duelled against another, or against
+the published Mortal in `zoo`, and seat it as an opponent.
 
 The run directory lives on the container's own disk, because the replay
 ring is a few gigabytes a round and a network volume is the wrong place
@@ -81,7 +84,7 @@ DEFAULT_RUN = "w1012-run"
 def _checkpoint(run: str, name: str) -> Path:
     """Where a checkpoint named by a caller is on the volume: in the run's
     own directory, or, named by its path from the volume's root, in
-    another run's, so `w320-run/published` reaches across lineages."""
+    another run's, so `zoo/mortal_298k` reaches across lineages."""
     # Named with or without the suffix: the launchers that predate the
     # runs living side by side say "latest.pt", and a name that resolved to
     # nothing would start a fresh network over a run's history.
@@ -306,7 +309,7 @@ def train(
 
         # Older selves to seat in a share of the games, named relative to the
         # run's directory on the volume, or to the volume's root for another
-        # lineage's, so "history/gen-00290" and "w320-run/published" both work.
+        # lineage's, so "history/gen-00290" and "zoo/mortal_298k" both work.
         # Measured 6 September: the old run recovered fully against its own
         # past and only halfway against a foreign network, so a large part of
         # what it gained was knowing its own family. An older self is foreign
@@ -707,7 +710,7 @@ def arena(
 )
 def duel(
     challenger: str = "latest",
-    incumbent: str = "w320-run/published",
+    incumbent: str = "zoo/mortal_298k",
     games: int = 1000,
     seed: int = 555_000,
     channels: int = 320,
@@ -783,7 +786,7 @@ def duel(
     max_containers=1,
 )
 def distil(
-    teacher: str = "w320-run/published",
+    teacher: str,
     student: str = "",
     rounds: int = 60,
     games: int = 256,
@@ -803,15 +806,17 @@ def distil(
     network of `channels` by `blocks` is taught from nothing, which is how
     a lineage begins: a network that discards at random has most of the
     game still to discover, and imitation hands it the part that is not
-    strategy at all. The teacher may be of the other lineage, since each is
-    served the planes it sees, and an empty teacher name means the
-    heuristic player that ships with the game. The student learns the
-    teacher's whole distribution rather than its choice alone.
+    strategy at all. The teacher has no default and must be named: a
+    network of either lineage, since each is served the planes it sees, or
+    an empty name for the heuristic player that ships with the game. The
+    old default, `w320-run/published`, reads an encoding of the engine's
+    planes the engine no longer writes and is refused on loading. The
+    student learns the teacher's whole distribution rather than its choice
+    alone.
 
     With `student_planes` set to `engine` the student reads the engine's
-    ninety-seven planes instead of Mortal's thousand, which is the only
-    kind of network the browser can run: a teacher of either lineage can
-    then be distilled into something the page can play.
+    ninety-seven planes instead of Mortal's thousand. The browser plays
+    only networks that read Mortal's (see `neural.export`).
 
     The result goes to the run's directory under `name`, so it can be
     duelled before anything decides to train on from it.

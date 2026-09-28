@@ -37,6 +37,15 @@ from . import observe
 
 # The engine's own planes, which the older networks see.
 ENGINE_PLANES = riichi_py.PLANES
+# Which encoding of those planes this engine writes, as it numbers them. A
+# network of the engine's kind records the one it was trained on and is
+# refused on loading if it differs (`require_engine_observation`): planes
+# added at the end are padded with zero weights, but a plane whose meaning
+# changed cannot be. Version 1 is every such network before September
+# 2026, whose unseen-tile planes counted the seat's own called sets twice
+# and never counted a dora indicator. An engine built before the number
+# existed writes version 1.
+ENGINE_OBSERVATION = int(getattr(riichi_py, "OBSERVATION_VERSION", 1))
 # Mortal's, which the current lineage sees.
 MORTAL_PLANES = observe.PLANES
 POSITIONS = riichi_py.POSITIONS
@@ -422,6 +431,8 @@ class PolicyValueNet(nn.Module):
             "planes": self.planes,
             "attention": self.attention,
             "actions": self.actions,
+            # Mortal's planes are versioned by Mortal (`observe.VERSION`).
+            **({"engine_observation": ENGINE_OBSERVATION} if self.kind == "engine" else {}),
             **reader_metadata(self),
         }
 
@@ -437,10 +448,34 @@ def build(
     return PolicyValueNet(channels, blocks, planes, attention, actions).to(device)
 
 
+def require_engine_observation(payload: dict, planes: int) -> None:
+    """Refuses a network of the engine's kind that was trained on another
+    encoding of the engine's planes than this engine writes (see
+    `ENGINE_OBSERVATION`). A checkpoint that says nothing predates the
+    number and was trained on version 1."""
+    if planes == MORTAL_PLANES:
+        return
+    trained = payload.get("engine_observation", 1)
+    if trained != ENGINE_OBSERVATION:
+        raise ValueError(
+            f"this network reads the engine's {planes} planes as version {trained} of the "
+            f"engine wrote them, and this engine writes version {ENGINE_OBSERVATION}. "
+            "Version 1 counted the seat's own called sets twice in the unseen-tile planes "
+            "and never counted a dora indicator; a network trained on those planes would "
+            "misread the corrected ones, so it is not loaded. Retrain it, or distil it "
+            "into a new network (neural.imitate), before seating it."
+        )
+
+
 def shape_of(payload: dict, channels: int | None = None, blocks: int | None = None) -> dict:
     """The shape a checkpoint was trained at, from what it says and, for
     checkpoints from before it said, from the weights themselves. Given
-    `channels` or `blocks` they stand in where the checkpoint is silent."""
+    `channels` or `blocks` they stand in where the checkpoint is silent.
+
+    Loading and resuming build our networks from checkpoints through here,
+    so this is also where one of the engine's kind trained on another
+    encoding of its planes is refused (`require_engine_observation`);
+    `combined.load` asks the same of the half inside a fusion."""
     weights = payload["model"]
     planes = payload.get("planes")
     if planes is None:
@@ -449,6 +484,7 @@ def shape_of(payload: dict, channels: int | None = None, blocks: int | None = No
         # on loading. Only Mortal's count names itself.
         seen = int(weights["stem.0.weight"].shape[1])
         planes = MORTAL_PLANES if seen == MORTAL_PLANES else ENGINE_PLANES
+    require_engine_observation(payload, int(planes))
     attention = payload.get("attention")
     if attention is None:
         attention = any(key.startswith("tower.0.attention.") for key in weights)

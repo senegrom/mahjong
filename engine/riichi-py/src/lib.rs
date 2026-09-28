@@ -1595,6 +1595,12 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("TRAINING_API_VERSION", 2u32)?;
     module.add("SEARCH_API_VERSION", 5u32)?;
     module.add("PLANES", PLANES)?;
+    // Which encoding of those planes `observations` writes; a checkpoint of
+    // the engine's kind records it and is refused where it differs.
+    module.add(
+        "OBSERVATION_VERSION",
+        riichi_core::encoding::OBSERVATION_VERSION,
+    )?;
     module.add("POSITIONS", POSITIONS)?;
     module.add("OBSERVATION", OBSERVATION)?;
     module.add("ACTIONS", ACTIONS)?;

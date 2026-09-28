@@ -31,7 +31,10 @@ from torch import nn
 from libriichi.consts import ACTION_SPACE as ACTIONS
 
 from . import mortal_learner, mortal_model, zoo
-from .model import GROUPS, OPPONENTS, POSITIONS, PolicyValueNet, from_payload, load_weights
+from .model import (
+    GROUPS, OPPONENTS, POSITIONS, PolicyValueNet, from_payload, load_weights,
+    require_engine_observation,
+)
 
 
 class Fuse(nn.Module):
@@ -394,6 +397,7 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
             f"{path} carries the old fusion, which mapped one action space onto "
             "the other; those lineages are not resumable here"
         )
+    require_engine_observation(state, state["planes"])
     ours = PolicyValueNet(
         state["channels"],
         state["blocks"],

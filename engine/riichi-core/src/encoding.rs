@@ -24,8 +24,17 @@ use crate::Wind;
 
 /// Planes in an observation. Planes are only ever added at the end, so a
 /// network trained on fewer can be widened with zero weights for the rest
-/// and play exactly as it did.
+/// and play exactly as it did. A plane whose meaning changes cannot be
+/// widened away, and bumps [`OBSERVATION_VERSION`] instead.
 pub const PLANES: usize = 97;
+/// Which encoding of the planes [`observe`] writes. A network trained on
+/// another version reads some plane as something it no longer is, so its
+/// checkpoint is refused rather than fed these.
+///
+/// 1. Until September 2026: the unseen-tile planes counted the seat's own
+///    called sets twice and never counted a dora indicator.
+/// 2. They count what [`Hand::unseen_by`] counts.
+pub const OBSERVATION_VERSION: u32 = 2;
 /// Positions in a plane: the 34 tile kinds.
 pub const POSITIONS: usize = KINDS;
 /// Numbers in one observation.
@@ -201,7 +210,8 @@ pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
         });
     }
 
-    // The dora indicators, and how many copies of each kind nobody can see.
+    // The dora indicators, and how many copies of each kind this seat
+    // cannot see anywhere.
     unary(out, &mut plane, |tile| {
         hand.wall
             .dora_indicators()
@@ -209,7 +219,7 @@ pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
             .filter(|indicator| **indicator == tile)
             .count() as u8
     });
-    let unseen = unseen_counts(hand, seat);
+    let unseen = hand.unseen_by(seat);
     unary(out, &mut plane, |tile| unseen.count(tile));
 
     // What this hand is waiting on, and the tile awaiting a claim.
@@ -340,30 +350,6 @@ fn meld_count(hand: &Hand, seat: Wind, tile: Tile) -> u8 {
         .flat_map(|meld| meld.tiles())
         .filter(|member| *member == tile)
         .count() as u8
-}
-
-fn unseen_counts(hand: &Hand, seat: Wind) -> crate::TileSet {
-    let mut seen = hand.players[seat.index()].visible_to_self();
-    for player in &hand.players {
-        for discard in &player.discards {
-            if !discard.claimed {
-                seen.add(discard.tile);
-            }
-        }
-        for meld in &player.melds {
-            for tile in meld.tiles() {
-                seen.add(tile);
-            }
-        }
-    }
-    // The player's own tiles were counted twice above; take the smaller of
-    // what is seen and a full set, which is what matters here anyway.
-    let mut unseen = crate::TileSet::new();
-    for tile in Tile::all() {
-        let count = seen.count(tile).min(COPIES);
-        unseen.add_n(tile, COPIES - count);
-    }
-    unseen
 }
 
 fn unary(out: &mut [f32], plane: &mut usize, count: impl Fn(Tile) -> u8) {
@@ -605,6 +591,108 @@ mod tests {
         hidden_hands(&hand, Wind::North, &mut part);
         assert_eq!(part, whole[..HIDDEN_HANDS]);
         assert_eq!(part.iter().sum::<f32>(), 40.0);
+    }
+
+    /// How many copies of `tile` the unseen planes say `seat` cannot see.
+    fn unseen_on_planes(hand: &Hand, seat: Wind, tile: Tile) -> u8 {
+        let mut out = vec![0.0; OBSERVATION];
+        observe(hand, seat, &mut out);
+        // After four planes of the seat's own tiles, sixteen of called sets,
+        // nine a seat of discards and four of indicators.
+        let first = 4 + 16 + 4 * 9 + 4;
+        (first..first + COPIES as usize)
+            .filter(|plane| out[plane * POSITIONS + tile.idx()] == 1.0)
+            .count() as u8
+    }
+
+    /// The unseen planes count every tile the seat can see once: its own
+    /// called triplet once, not again as part of what it holds, a claimed
+    /// discard with its set and not in the pond, and a face-up indicator.
+    #[test]
+    fn the_unseen_planes_count_each_visible_tile_once() {
+        let tile = |text: &str| -> Tile { text.parse().unwrap() };
+        // A deal whose indicator is a character other than 5m, which
+        // nobody below holds.
+        let mut hand = (0..)
+            .map(|seed| Hand::deal(&mut Rng::from_seed(seed), Wind::East, 1, 0, 0, [25000; 4]))
+            .find(|hand| {
+                let indicator = hand.wall.dora_indicators()[0];
+                indicator.suit() == crate::tile::Suit::Characters && indicator != tile("5m")
+            })
+            .expect("some deal turns a character");
+        for player in hand.players.iter_mut() {
+            player.discards.clear();
+            player.melds.clear();
+        }
+        let seat = Wind::South;
+        // South took East's 5m for a triplet and holds no more characters.
+        hand.players[0].discards.push(crate::game::Discard {
+            tile: tile("5m"),
+            order: 0,
+            drawn: false,
+            riichi: false,
+            claimed: true,
+        });
+        hand.players[1].melds = vec![crate::hand::Meld::pon(
+            tile("5m"),
+            crate::hand::ClaimedFrom::Left,
+        )];
+        hand.players[1].hand = "123p456p789s11z".parse().unwrap();
+
+        assert_eq!(
+            unseen_on_planes(&hand, seat, tile("5m")),
+            1,
+            "a triplet of one's own leaves one copy out"
+        );
+        let indicator = hand.wall.dora_indicators()[0];
+        assert_eq!(
+            unseen_on_planes(&hand, seat, indicator),
+            3,
+            "a face-up indicator {indicator} is seen"
+        );
+        assert_eq!(unseen_on_planes(&hand, seat, tile("7z")), 4);
+    }
+
+    /// At every decision of a game the unseen planes are what the seat
+    /// cannot see, as the heuristic player and an imagined world count it.
+    #[test]
+    fn the_unseen_planes_are_what_the_seat_cannot_see() {
+        let mut checked = 0;
+        for seed in 0..4 {
+            let mut hand = Hand::deal(&mut Rng::from_seed(seed), Wind::East, 1, 0, 0, [25000; 4]);
+            let mut guard = 0;
+            while !matches!(hand.phase, Phase::Over) {
+                guard += 1;
+                assert!(guard < 500);
+                match hand.phase {
+                    Phase::Draw => {
+                        let _ = hand.draw();
+                    }
+                    Phase::Act => {
+                        for seat in Wind::ALL {
+                            let unseen = hand.unseen_by(seat);
+                            for kind in Tile::all() {
+                                assert_eq!(unseen_on_planes(&hand, seat, kind), unseen.count(kind));
+                            }
+                            checked += 1;
+                        }
+                        let action = hand.legal_actions()[0];
+                        hand.act(action).expect("an offered action");
+                    }
+                    Phase::CallWindow => {
+                        // Every call taken, so the called sets are counted too.
+                        let answers: Vec<(Wind, Call)> = hand
+                            .legal_calls()
+                            .into_iter()
+                            .map(|(seat, calls)| (seat, calls[0]))
+                            .collect();
+                        hand.resolve_calls(&answers).expect("offered calls");
+                    }
+                    Phase::Over => break,
+                }
+            }
+        }
+        assert!(checked > 100, "only {checked} positions were checked");
     }
 
     /// The hand's number has a plane of its own, at the end, so a network

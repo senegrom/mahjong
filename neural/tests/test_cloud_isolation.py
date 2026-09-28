@@ -148,6 +148,21 @@ class CloudIsolationTests(unittest.TestCase):
             # Each call copied the checkpoints into its own scratch and removed it.
             self.assertEqual(list(scratch.iterdir()),[])
 
+    def test_no_function_defaults_to_the_retired_engine_plane_lineage(self):
+        # w320-run's networks read the engine's planes as version 1 wrote
+        # them and are refused on loading, so a default naming one would
+        # fail every call that took it.
+        import inspect
+        app=controller()
+        for name,function in vars(app).items():
+            if not inspect.isfunction(function) or function.__module__!=app.__name__:continue
+            for parameter in inspect.signature(function).parameters.values():
+                if isinstance(parameter.default,str):
+                    self.assertNotIn('w320-run',parameter.default,f'{name}({parameter.name})')
+        self.assertEqual(inspect.signature(app.duel).parameters['incumbent'].default,'zoo/mortal_298k')
+        # A teacher is named by the caller: a network, or '' for the heuristic player.
+        self.assertIs(inspect.signature(app.distil).parameters['teacher'].default,inspect.Parameter.empty)
+
     def test_invalid_run_names_and_paths_fail_before_work_is_started(self):
         app=controller()
         for run in ('../other','/tmp/other','a/b','',r'a\b'):
