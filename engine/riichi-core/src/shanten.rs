@@ -33,8 +33,8 @@ pub fn standard(hand: &TileSet, called: usize) -> i32 {
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         // The same shapes come round again and again while a bot weighs its
-        // discards, so they are worth remembering; the cap keeps a long
-        // self-play run from growing without bound.
+        // discards, so they are worth remembering, but only for a while: the
+        // cache hits as often after one game as after a thousand.
         if cache.len() >= CACHE_LIMIT {
             cache.clear();
         }
@@ -43,8 +43,13 @@ pub fn standard(hand: &TileSet, called: usize) -> i32 {
     value
 }
 
-/// How many decompositions to remember before starting over.
-const CACHE_LIMIT: usize = 1 << 20;
+/// How many entries each cache, of whole hands and of single suits, keeps
+/// before starting over. Clearing keeps a cache's allocation, so the cap is
+/// what bounds a thread's memory, to about 7 MB for the whole-hand table.
+/// A cap of a million held 114 MB a thread and was slower. Starting a full
+/// cache afresh to give the memory back was slower still, because the
+/// table is then rebuilt through every size on the way up.
+const CACHE_LIMIT: usize = 1 << 16;
 
 thread_local! {
     static CACHE: RefCell<HashMap<([u8; KINDS], usize), i32>> = RefCell::new(HashMap::new());
