@@ -214,6 +214,20 @@ impl Seat {
         self.logged = self.hand.log.len();
     }
 
+    /// The game's mjai events since they were last asked for, as JSON
+    /// lines: start_game first, then every event of every hand under the
+    /// seating it was dealt with, end_game last. What a player state on
+    /// the Python side follows to describe the game the way Mortal's own
+    /// bot sees it.
+    fn take_events(&mut self) -> Vec<String> {
+        self.flush_events();
+        if self.finished && !self.ended {
+            self.events.push(mjai::Event::EndGame.to_json([0, 1, 2, 3]));
+            self.ended = true;
+        }
+        std::mem::take(&mut self.events)
+    }
+
     fn next_hand(&mut self) {
         self.flush_events();
         // Report the hand's result by person rather than by seat: the
@@ -331,9 +345,21 @@ pub struct Arena {
 
 /// One imagined world per live game from the beliefs given, as the
 /// hidden-hand planes: the body of both forms of `Arena::imagined_hands`.
-fn imagine_from<'py>(arena: &mut Arena, py: Python<'py>, beliefs: &[f32]) -> Bound<'py, PyBytes> {
+/// Beliefs of the wrong length are refused before any world is imagined,
+/// so no game's imagining stream moves.
+fn imagine_from<'py>(
+    arena: &mut Arena,
+    py: Python<'py>,
+    beliefs: &[f32],
+) -> PyResult<Bound<'py, PyBytes>> {
     let games = arena.seats.len();
-    assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
+    if beliefs.len() != games * HANDS {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "expected {} beliefs, {HANDS} for each of {games} games, got {}",
+            games * HANDS,
+            beliefs.len()
+        )));
+    }
     let mut planes = vec![0.0f32; games * HIDDEN_HANDS];
     for (game, seat) in arena.seats.iter_mut().enumerate() {
         let Some(wind) = seat.pending() else {
@@ -347,7 +373,7 @@ fn imagine_from<'py>(arena: &mut Arena, py: Python<'py>, beliefs: &[f32]) -> Bou
             &mut planes[game * HIDDEN_HANDS..(game + 1) * HIDDEN_HANDS],
         );
     }
-    PyBytes::new(py, bytemuck_cast(&planes))
+    Ok(PyBytes::new(py, bytemuck_cast(&planes)))
 }
 
 #[pymethods]
@@ -360,8 +386,15 @@ impl Arena {
     /// against the benchmark.
     #[new]
     #[pyo3(signature = (games, seed = 0, bot_places = vec![]))]
-    fn new(games: usize, seed: u64, bot_places: Vec<usize>) -> Arena {
-        Arena {
+    fn new(games: usize, seed: u64, bot_places: Vec<usize>) -> PyResult<Arena> {
+        // A place past the fourth would be taken by nobody, and the table
+        // would play without the bot its caller asked for.
+        if let Some(place) = bot_places.iter().find(|place| **place >= 4) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "bot place {place} is not one of the four places 0 to 3"
+            )));
+        }
+        Ok(Arena {
             seats: (0..games)
                 .map(|index| Seat::new(seed.wrapping_add(index as u64), &bot_places))
                 .collect(),
@@ -369,7 +402,7 @@ impl Arena {
             oracle: vec![0.0; games * ORACLE],
             mask: vec![false; games * ACTIONS],
             hands: vec![0.0; games * HANDS],
-        }
+        })
     }
 
     /// How many games are running.
@@ -442,7 +475,11 @@ impl Arena {
     /// the hidden-hand planes the reader is shown: the negatives it learns
     /// to tell from the real hands, which [`Arena::oracle`] carries. Zeros
     /// for a game that owes nothing.
-    fn imagined_hands<'py>(&mut self, py: Python<'py>, beliefs: Vec<f32>) -> Bound<'py, PyBytes> {
+    fn imagined_hands<'py>(
+        &mut self,
+        py: Python<'py>,
+        beliefs: Vec<f32>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
         imagine_from(self, py, &beliefs)
     }
 
@@ -453,8 +490,13 @@ impl Arena {
         &mut self,
         py: Python<'py>,
         beliefs: &[u8],
-    ) -> Bound<'py, PyBytes> {
-        assert_eq!(beliefs.len() % 4, 0, "float32 bytes");
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        if beliefs.len() % 4 != 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "beliefs are float32s, four bytes each, and {} bytes is not a whole number of them",
+                beliefs.len()
+            )));
+        }
         let floats: Vec<f32> = beliefs
             .chunks_exact(4)
             .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
@@ -539,25 +581,11 @@ impl Arena {
         Ok(())
     }
 
-    /// One game's mjai events since they were last asked for, as JSON
-    /// lines: start_game first, then every event of every hand under the
-    /// seating it was dealt with, end_game last. What a player state on
-    /// the Python side follows to describe the game the way Mortal's own
-    /// bot sees it.
-    fn mjai(&mut self, game: usize) -> Vec<String> {
-        let seat = &mut self.seats[game];
-        seat.flush_events();
-        if seat.finished && !seat.ended {
-            seat.events.push(mjai::Event::EndGame.to_json([0, 1, 2, 3]));
-            seat.ended = true;
-        }
-        std::mem::take(&mut seat.events)
-    }
-
-    /// The same for every game at once, one list per game, so a round's
-    /// worth of following costs one call a step rather than one a game.
+    /// Every game's mjai events since they were last asked for, one list
+    /// per game (see `Seat::take_events`), so a round's worth of following
+    /// costs one call a step rather than one a game.
     fn mjai_all(&mut self) -> Vec<Vec<String>> {
-        (0..self.seats.len()).map(|game| self.mjai(game)).collect()
+        self.seats.iter_mut().map(Seat::take_events).collect()
     }
 
     /// Whether every game has finished.

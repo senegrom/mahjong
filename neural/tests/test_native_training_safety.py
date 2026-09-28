@@ -42,6 +42,26 @@ class NativeTrainingSafetyTests(unittest.TestCase):
             arena.step(np.frombuffer(arena.teacher(), dtype=np.uint8).astype(int).tolist())
         self.assertTrue(found, "fixture must exercise a real claim window")
 
+    def test_wrong_shaped_inputs_are_refused_before_anything_moves(self):
+        # Each of these used to panic inside the extension, which Python
+        # sees as a PanicException, a BaseException that `except Exception`
+        # does not catch.
+        with self.assertRaisesRegex(ValueError, 'bot place 4'):
+            riichi_py.Arena(games=1, seed=3, bot_places=[1, 4])
+        arena = riichi_py.Arena(games=2, seed=17)
+        control = riichi_py.Arena(games=2, seed=17)
+        beliefs = np.ones(2 * riichi_py.HANDS, dtype=np.float32)
+        for bad in (beliefs.tobytes()[:-1], beliefs[:-1].tobytes(), b''):
+            with self.subTest(size=len(bad)), self.assertRaises(ValueError):
+                arena.imagined_hands_bytes(bad)
+        # Nothing was imagined, so both still imagine the same next worlds.
+        self.assertEqual(arena.imagined_hands_bytes(beliefs.tobytes()),
+                         control.imagined_hands_bytes(beliefs.tobytes()))
+        # One game's events are only reached through mjai_all, which cannot
+        # name a game that does not exist.
+        self.assertFalse(hasattr(arena, 'mjai'))
+        self.assertEqual(len(arena.mjai_all()), 2)
+
     def test_every_hand_the_native_bots_finish_is_reported(self):
         # Four heuristic players play whole games while the arena is made,
         # before any step: the endings are reported until the first step,
