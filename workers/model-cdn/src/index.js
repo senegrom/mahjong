@@ -7,16 +7,15 @@
  * charges nothing for egress, so the bytes live here and the repository
  * carries a manifest naming them instead.
  *
- * Keys are content-addressed - `models/<generation>/<sha256>` - so a response
- * can be immutable and a new export is a new key. Nothing is overwritten,
- * which also means a bad network is rolled back by changing one field of the
- * site's manifest.
+ * Keys are content-addressed - `models/g<generation>/<sha256>`, as
+ * web/scripts/publish-model-r2.mjs writes them - so a response can be
+ * immutable and a new export is a new key. Nothing is overwritten, which also
+ * means a bad network is rolled back by changing one field of the site's
+ * manifest.
  *
- * The page is cross-origin isolated for returning visitors (COEP
- * require-corp, for multi-threaded WebAssembly), and a cors-mode fetch from
- * such a page needs its response to pass the CORS check. CORS alone is
- * enough; Cross-Origin-Resource-Policy is only required for no-cors
- * requests, which these are not.
+ * The page reads the network with a plain cors-mode GET, so a response needs
+ * only to pass the CORS check. It reads no response header: the size and the
+ * digest it checks come from its own manifest.
  */
 
 // Only these may read the bucket. A request from anywhere else still gets the
@@ -45,12 +44,6 @@ function corsHeaders(origin) {
   const headers = new Headers();
   if (!origin) return headers;
   headers.set('Access-Control-Allow-Origin', origin);
-  // Only a handful of response headers reach cross-origin script by default,
-  // and Content-Encoding is not among them. The page needs it: the object is
-  // stored gzipped, so Content-Length is the compressed size while the stream
-  // yields the network's real length, and a progress bar told the compressed
-  // figure runs past 100%.
-  headers.set('Access-Control-Expose-Headers', 'Content-Encoding, Content-Length, Content-Range');
   // The allowed origin varies by request, so caches must key on it.
   headers.set('Vary', 'Origin');
   return headers;
@@ -63,7 +56,6 @@ export default {
     if (request.method === 'OPTIONS') {
       const headers = corsHeaders(origin);
       headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-      headers.set('Access-Control-Allow-Headers', 'Range');
       headers.set('Access-Control-Max-Age', '86400');
       return new Response(null, { status: 204, headers });
     }
@@ -71,18 +63,20 @@ export default {
       return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD, OPTIONS' } });
     }
 
-    const key = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '');
+    let key;
+    try {
+      key = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '');
+    } catch {
+      // A malformed escape, such as a `%` not followed by two hex digits,
+      // names no model; decodeURIComponent throws on it.
+      return new Response('Not found', { status: 404 });
+    }
     if (!KEY.test(key)) return new Response('Not found', { status: 404 });
 
-    // Range support costs nothing here and lets the page resume an
-    // interrupted download later without this Worker changing. Whether the
-    // client asked has to be remembered: R2 reports a range on every object,
-    // so trusting `object.range` answers 206 to a plain GET.
-    const wantsRange = request.headers.has('Range');
-    const object = await env.MODELS.get(key, {
-      range: wantsRange ? request.headers : undefined,
-      onlyIf: request.headers,
-    });
+    // A Range header is ignored and the whole object sent, as HTTP allows:
+    // the object is stored gzipped, and a byte range of a gzip stream cannot
+    // be decoded on its own, so a range could never resume a download.
+    const object = await env.MODELS.get(key, { onlyIf: request.headers });
     if (object === null) return new Response('Not found', { status: 404 });
 
     const headers = corsHeaders(origin);
@@ -92,7 +86,6 @@ export default {
     object.writeHttpMetadata(headers);
     headers.set('ETag', object.httpEtag);
     headers.set('Cache-Control', `public, max-age=${YEAR}, immutable`);
-    headers.set('Accept-Ranges', 'bytes');
 
     // The object is stored gzipped and says so, so its bytes are already in
     // their final form. Without `encodeBody: 'manual'` the runtime compresses
@@ -102,12 +95,6 @@ export default {
 
     // `onlyIf` turns a matching conditional request into a bodyless object.
     if (!('body' in object) || object.body === null) return manual(304, null);
-    if (wantsRange && object.range && 'offset' in object.range) {
-      const start = object.range.offset ?? 0;
-      const length = object.range.length ?? (object.size - start);
-      headers.set('Content-Range', `bytes ${start}-${start + length - 1}/${object.size}`);
-      return manual(206, request.method === 'HEAD' ? null : object.body);
-    }
     return manual(200, request.method === 'HEAD' ? null : object.body);
   },
 };
