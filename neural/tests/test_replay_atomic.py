@@ -22,14 +22,11 @@ def batch(value, n=3):
     held = torch.zeros(n, riichi_py.OPPONENTS, riichi_py.POSITIONS)
     held[:, :, tile] = 1
     oracle = torch.zeros(n, riichi_py.ORACLE_PLANES, riichi_py.POSITIONS, dtype=torch.uint8)
-    imagined = torch.zeros(n, riichi_py.HIDDEN_HANDS_PLANES, riichi_py.POSITIONS, dtype=torch.uint8)
     oracle[:, 0, tile] = 1
-    imagined[:, 0, tile] = 1
     return SimpleNamespace(
         decisions=n, legal=torch.ones(n, riichi_py.ACTIONS, dtype=torch.bool),
         held=held,
         oracle=oracle,
-        imagined=imagined,
         returns=torch.full((n,), float(value)),
         observations=Planes(np.arange(n+1, dtype=np.int64), np.zeros(n, dtype=np.uint16),
                             np.full(n, value, dtype=np.float16)))
@@ -40,13 +37,13 @@ class ReplayTests(unittest.TestCase):
         sampled = ring.sample(3, np.random.default_rng(0))
         self.assertTrue((sampled['observations'].values == value).all())
         expected = batch(value, n=len(sampled['returns']))
-        for field in ('legal', 'held', 'oracle', 'imagined', 'returns'):
+        for field in replay.FIELDS:
             np.testing.assert_array_equal(sampled[field].numpy(), getattr(expected, field).numpy(),
                                           err_msg=field)
 
     def test_every_array_write_failure_preserves_old_data_and_in_memory_state(self):
         save = np.save
-        for failure_at in range(1, 9):
+        for failure_at in range(1, len(replay.FIELDS) + len(Planes.ARRAYS) + 1):
             with self.subTest(write=failure_at), tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
                 root = Path(folder)
                 ring = replay.Ring(root, 1); ring.push(batch(1))

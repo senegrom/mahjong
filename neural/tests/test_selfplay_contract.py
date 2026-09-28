@@ -5,9 +5,8 @@ that ended on a step nobody recorded went unpaid and its decisions were
 then paid by the next hand; a round that ran out of steps turned games
 still in progress into final placements; an index naming no legal move was
 replaced by one that was legal while the record kept the move that was
-asked for; imagining a world drew from the generator that deals the cards,
-so thinking harder changed the deal; and a round too small for one
-minibatch trained on nothing and said so nowhere.
+asked for; and a round too small for one minibatch trained on nothing and
+said so nowhere.
 
     python -m unittest neural.tests.test_selfplay_contract -v
 """
@@ -109,33 +108,6 @@ class StrictActions(unittest.TestCase):
             np.frombuffer(lenient.final_scores(), dtype=np.int32).tolist(),
             np.frombuffer(strict.final_scores(), dtype=np.int32).tolist(),
         )
-
-
-class SeparateStreams(unittest.TestCase):
-    """What is imagined must not disturb what is dealt."""
-
-    def deal_after_imagining(self, times: int):
-        arena = riichi_py.Arena(games=GAMES, seed=SEED, bot_places=[])
-        beliefs = np.full(GAMES * riichi_py.HANDS, 1.0 / riichi_py.POSITIONS, dtype=np.float32)
-        for _ in range(times):
-            arena.imagined_hands_bytes(beliefs.tobytes())
-        played_out(arena, GAMES)
-        return np.frombuffer(arena.final_scores(), dtype=np.int32).tolist()
-
-    def test_imagining_more_does_not_change_the_games(self):
-        none = self.deal_after_imagining(0)
-        some = self.deal_after_imagining(1)
-        many = self.deal_after_imagining(25)
-        self.assertEqual(none, some, "one imagined world changed the deal")
-        self.assertEqual(none, many, "twenty-five imagined worlds changed the deal")
-
-    def test_imagining_is_still_random(self):
-        """Separate does not mean frozen: the worlds must still vary."""
-        arena = riichi_py.Arena(games=GAMES, seed=SEED, bot_places=[])
-        beliefs = np.full(GAMES * riichi_py.HANDS, 1.0 / riichi_py.POSITIONS, dtype=np.float32)
-        first = arena.imagined_hands_bytes(beliefs.tobytes())
-        second = arena.imagined_hands_bytes(beliefs.tobytes())
-        self.assertNotEqual(bytes(first), bytes(second), "every world came out the same")
 
 
 class TruncationIsNotAnEnding(unittest.TestCase):
@@ -291,7 +263,7 @@ class LabelsAreReadOnlyWhenWanted(unittest.TestCase):
         batch, calls = self.play(FirstLegal())
         self.assertGreater(calls["oracle"], 0)
         self.assertGreater(calls["opponent_hands"], 0)
-        for name in ("held", "oracle", "imagined"):
+        for name in ("held", "oracle"):
             self.assertEqual(len(getattr(batch, name)), batch.decisions, name)
 
 

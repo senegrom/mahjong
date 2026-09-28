@@ -27,7 +27,6 @@
 //! - [`encoding`] how a position is shown to a network
 //! - [`mjai`] the event log other riichi programs read
 //! - [`review`] judging a decision after the hand is over
-//! - [`worlds`] imagining the hands a seat cannot see
 //!
 //! The arena and the rules fuzzer are the `riichi-cli` crate beside this one.
 //!
@@ -55,7 +54,6 @@ pub mod shanten;
 pub mod table;
 pub mod tile;
 pub mod wall;
-pub mod worlds;
 pub mod yaku;
 
 pub use hand::{ClaimedFrom, Meld, MeldKind, TileSet};

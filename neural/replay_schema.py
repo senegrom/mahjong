@@ -19,7 +19,6 @@ def validate_dense_replay(maps: dict, n: int) -> None:
         "legal": ((n, riichi_py.ACTIONS), np.dtype(np.bool_)),
         "held": ((n, riichi_py.OPPONENTS, riichi_py.POSITIONS), np.dtype(np.float32)),
         "oracle": ((n, riichi_py.ORACLE_PLANES, riichi_py.POSITIONS), np.dtype(np.uint8)),
-        "imagined": ((n, riichi_py.HIDDEN_HANDS_PLANES, riichi_py.POSITIONS), np.dtype(np.uint8)),
         "returns": ((n,), np.dtype(np.float32)),
     }
     for name, (shape, dtype) in shapes.items():
@@ -38,6 +37,5 @@ def validate_dense_replay(maps: dict, n: int) -> None:
         mass = held.sum(axis=2)
         if not np.all((mass == 0) | np.isclose(mass, 1, rtol=1e-5, atol=1e-6)):
             raise ValueError("Replay held targets must sum to one or describe an empty hand")
-        for name in ("oracle", "imagined"):
-            if np.any(maps[name][section] > 1):
-                raise ValueError(f"Replay {name} must contain binary byte planes")
+        if np.any(maps["oracle"][section] > 1):
+            raise ValueError("Replay oracle must contain binary byte planes")

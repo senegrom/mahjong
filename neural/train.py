@@ -42,7 +42,6 @@ from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
 from .model import (
     DEFAULT_BLOCKS,
     DEFAULT_CHANNELS,
-    HIDDEN_HANDS_PLANES,
     PolicyValueNet,
     load_weights,
     shape_of,
@@ -90,7 +89,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=8,
         help="how many past rounds the ring on disk keeps for the value "
-        "heads, the reader and the head that reads the table to train on",
+        "heads and the head that reads the table to train on",
     )
     parser.add_argument(
         "--replay-steps",
@@ -103,24 +102,16 @@ def parse_args() -> argparse.Namespace:
         "--freeze-aux",
         action="store_true",
         help="train only the policy tower and its heads, by the policy loss "
-        "alone: no value, table reading, critic, oracle, reader or replay "
-        "pass. For finding whether the PPO step by itself flattens the "
-        "policy",
+        "alone: no value, table reading, critic, oracle or replay pass. For "
+        "finding whether the PPO step by itself flattens the policy",
     )
     parser.add_argument(
         "--freeze-policy",
         action="store_true",
-        help="train only the critic, the oracle and the reader; the policy "
-        "tower and its heads keep their weights. For a night when the "
-        "evaluator is worth improving and the policy is not to be trusted "
-        "to improve itself",
-    )
-    parser.add_argument(
-        "--reader-weight",
-        type=float,
-        default=1.0,
-        help="how hard the reader of hidden hands is trained to tell the "
-        "real ones from the ones the proposal imagines",
+        help="train only the value heads and the head that reads the table; "
+        "the policy tower and its heads keep their weights. For a night when "
+        "the evaluator is worth improving and the policy is not to be "
+        "trusted to improve itself",
     )
     parser.add_argument(
         "--distil-weight",
@@ -237,16 +228,15 @@ def main() -> None:
 
     if args.freeze_policy:
         for name, parameter in net.named_parameters():
-            if not name.startswith(("critic", "oracle_", "reader", "belief_", "hands.", "value.")):
+            if not name.startswith(("critic", "oracle_", "belief_", "hands.", "value.")):
                 parameter.requires_grad_(False)
-        print("policy frozen: training the critic, the oracle and the reader", flush=True)
+        print("policy frozen: training the value heads and the reading of the table", flush=True)
     if args.freeze_aux:
         for name, parameter in net.named_parameters():
-            if name.startswith(("critic", "oracle_", "reader", "belief_", "hands.", "value.")):
+            if name.startswith(("critic", "oracle_", "belief_", "hands.", "value.")):
                 parameter.requires_grad_(False)
         args.value_weight = 0.0
         args.hands_weight = 0.0
-        args.reader_weight = 0.0
         args.replay_steps = 0
         print("auxiliaries frozen: training the policy by the policy loss alone", flush=True)
     trainable = [parameter for parameter in net.parameters() if parameter.requires_grad]
@@ -306,7 +296,6 @@ def main() -> None:
         return guessed, oracle_value, criticised
 
     learn = torch.compile(net.with_oracle) if args.compile else net.with_oracle
-    read = torch.compile(net.read_plausibility) if args.compile else net.read_plausibility
     values = torch.compile(value_heads) if args.compile else value_heads
     auxiliary = torch.compile(auxiliary_heads) if args.compile else auxiliary_heads
     if args.compile:
@@ -385,25 +374,6 @@ def main() -> None:
             covered = (overlap * holding).sum() / holding.sum().clamp(min=1)
         return loss, covered
 
-    def reader_loss_of(planes, real, fake):
-        """The reader, shown the position with the real hidden hands and
-        with the hands the proposal imagined, learns to tell which is
-        which; what it learns is the likelihood ratio a search weighs
-        imagined worlds by. Returns the loss and how often it was right."""
-        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-            verdict = read(torch.cat([planes, planes]), torch.cat([real, fake]))
-        verdict = verdict.float()
-        truth = torch.cat(
-            [
-                torch.ones(len(planes), device=device),
-                torch.zeros(len(planes), device=device),
-            ]
-        )
-        loss = nn.functional.binary_cross_entropy_with_logits(verdict, truth)
-        with torch.no_grad():
-            right = ((verdict > 0).float() == truth).float().mean()
-        return loss, right
-
     print(
         f"device {device} | {net.channels} channels x {net.blocks} blocks "
         f"| {net.planes} planes | {net.parameter_count() / 1e6:.2f}M parameters",
@@ -413,11 +383,11 @@ def main() -> None:
     # A round of planes is a few gigabytes on the host, kept sparse. The
     # names below are cleared before the next round is played, so the
     # machine carries one round rather than two.
-    batch = observations = oracle = imagined = on_card = None
+    batch = observations = oracle = on_card = None
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
-        batch = observations = oracle = imagined = on_card = None
+        batch = observations = oracle = on_card = None
         batch = selfplay.play(
             net,
             games=args.games,
@@ -447,10 +417,8 @@ def main() -> None:
         legal = batch.legal.to(device)
         actions = batch.actions.to(device)
         held = batch.held.to(device)
-        # The oracle's planes likewise, in bytes, and the hands the proposal
-        # imagined, the reader's negatives.
+        # The oracle's planes likewise, in bytes.
         oracle = batch.oracle
-        imagined = batch.imagined
         returns = batch.returns.to(device)
         old_log_probs = batch.log_probs.to(device)
         # The round's planes go to the card whole when it has room, and
@@ -460,7 +428,6 @@ def main() -> None:
         on_card = resident(observations, device)
         if on_card is not None:
             oracle = oracle.to(device)
-            imagined = imagined.to(device)
         loaded = time.time() - began - played
 
         # The value head predicts the return in the reward's own units: the
@@ -531,8 +498,6 @@ def main() -> None:
         total_oracle = zero()
         total_distil = zero()
         total_critic = zero()
-        total_reader = zero()
-        total_read_right = zero()
         total_clipped = zero()
         total_kl = zero()
         total_hands = zero()
@@ -571,17 +536,11 @@ def main() -> None:
                     drawn.to(device),
                     observations.rows(drawn.numpy()).dense(device),
                     oracle[drawn].to(device).float(),
-                    imagined[drawn].to(device).float(),
                 )
 
             def gather_on_card(drawn: torch.Tensor):
                 picks = drawn.to(device)
-                return (
-                    picks,
-                    on_card.rows(picks),
-                    oracle[picks].float(),
-                    imagined[picks].float(),
-                )
+                return picks, on_card.rows(picks), oracle[picks].float()
 
             minibatches = (
                 (gather_on_card(drawn) for drawn in slices)
@@ -589,7 +548,7 @@ def main() -> None:
                 else Prefetcher(slices, prepare)
             )
             with closing(minibatches):
-                for picks, planes, seen, fake in minibatches:
+                for picks, planes, seen in minibatches:
                     optimiser.zero_grad(set_to_none=True)
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                         logits, value, guessed, oracle_value, criticised = learn(
@@ -601,9 +560,6 @@ def main() -> None:
                     guessed = guessed.float()
                     oracle_value = oracle_value.float()
                     criticised = criticised.float()
-                    reader_loss, reader_right = reader_loss_of(
-                        planes, seen[:, :HIDDEN_HANDS_PLANES], fake
-                    )
                     distribution = torch.distributions.Categorical(logits=logits)
                     log_prob = distribution.log_prob(actions[picks])
                     if drift.check(old_log_probs[picks], log_prob):
@@ -649,7 +605,6 @@ def main() -> None:
                         + args.value_weight * (value_loss + oracle_loss + critic_loss)
                         + args.value_weight * distil_weight * distil_loss
                         + args.hands_weight * hands_loss
-                        + args.reader_weight * reader_loss
                         - args.entropy * entropy
                     )
 
@@ -663,8 +618,6 @@ def main() -> None:
                         total_oracle += oracle_loss
                         total_critic += critic_loss
                         total_distil += distil_loss
-                        total_reader += reader_loss
-                        total_read_right += reader_right
                         total_entropy += entropy
                         total_hands += hands_loss
                         total_covered += covered
@@ -676,19 +629,18 @@ def main() -> None:
         epochs_seconds = time.time() - phase
         phase = time.time()
         # The heads that may learn from stale play take a pass over the
-        # ring: the value heads, the reader and the head that reads the
-        # table, on minibatches drawn evenly from the last several rounds.
+        # ring: the value heads and the head that reads the table, on
+        # minibatches drawn evenly from the last several rounds.
         # No policy term, and no distillation, since the oracle's pre-round
         # estimate exists only for the round just played.
         replay_critic = zero()
         replay_oracle = zero()
-        replay_read_right = zero()
         replay_steps = 0
         if args.replay_steps and ring.total() >= args.batch:
             # Nothing in this pass reaches the policy tower: the critic, the
-            # oracle and the reader each read it without gradient or not at
-            # all. `auxiliary` also avoids calculating policy outputs that
-            # this loss never reads.
+            # oracle and the head that reads the table each read it without
+            # gradient. `auxiliary` also avoids calculating policy outputs
+            # that this loss never reads.
             def prepare_replay(_step: int):
                 # The ring's rows come off the disk's memory maps, which is
                 # slower still than the host gather above; the same thread
@@ -700,11 +652,10 @@ def main() -> None:
                     rows["oracle"].to(device).float(),
                     rows["returns"].to(device),
                     rows["held"].to(device),
-                    rows["imagined"].to(device).float(),
                 )
 
             with Prefetcher(range(args.replay_steps), prepare_replay) as minibatches:
-                for planes, seen, target, held_rows, fake in minibatches:
+                for planes, seen, target, held_rows in minibatches:
                     optimiser.zero_grad(set_to_none=True)
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                         guessed, oracle_value, criticised = auxiliary(planes, seen)
@@ -714,13 +665,9 @@ def main() -> None:
                     critic_loss = nn.functional.mse_loss(criticised, target)
                     oracle_loss = nn.functional.mse_loss(oracle_value, target)
                     hands_loss, _covered = hands_loss_of(guessed, held_rows)
-                    reader_loss, reader_right = reader_loss_of(
-                        planes, seen[:, :HIDDEN_HANDS_PLANES], fake
-                    )
                     loss = (
                         args.value_weight * (critic_loss + oracle_loss)
                         + args.hands_weight * hands_loss
-                        + args.reader_weight * reader_loss
                     )
                     loss.backward()
                     nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
@@ -728,7 +675,6 @@ def main() -> None:
                     with torch.no_grad():
                         replay_critic += critic_loss
                         replay_oracle += oracle_loss
-                        replay_read_right += reader_right
                     replay_steps += 1
 
             # One synchronisation here replaces the many per-minibatch metric
@@ -784,12 +730,7 @@ def main() -> None:
             "replay_rounds": len(ring),
             "replay_critic_loss": round(float(replay_critic / max(replay_steps, 1)), 4),
             "replay_oracle_loss": round(float(replay_oracle / max(replay_steps, 1)), 4),
-            "replay_reader_right": round(float(replay_read_right / max(replay_steps, 1)), 4),
             "distil": round(float(total_distil / denom), 4),
-            # The reader's loss and how often it tells a real set of hidden
-            # hands from an imagined one; a half is guessing.
-            "reader_loss": round(float(total_reader / denom), 4),
-            "reader_right": round(float(total_read_right / denom), 4),
             # What a constant guess would score, so the two losses above
             # read as how much of the return each head explains.
             "return_variance": round(float(returns.var(unbiased=False)), 4),

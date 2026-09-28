@@ -23,7 +23,7 @@ class ReplaySignalTests(unittest.TestCase):
         sample = ring.sample(3, np.random.default_rng(0))
         np.testing.assert_array_equal(sample['observations'].values, value)
         expected = batch(value, n=len(sample['returns']))
-        for field in ('legal', 'held', 'oracle', 'imagined', 'returns'):
+        for field in replay.FIELDS:
             np.testing.assert_array_equal(sample[field].numpy(), getattr(expected, field).numpy(),
                                           err_msg=field)
 

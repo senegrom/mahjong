@@ -32,8 +32,6 @@ POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
 OPPONENTS = riichi_py.OPPONENTS
 ORACLE_PLANES = riichi_py.ORACLE_PLANES
-HANDS = riichi_py.HANDS
-HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 
 # What a hand moved, brought to about the size of the placement term below
 # so neither drowns the other. A big hand is worth a few tenths.
@@ -89,8 +87,8 @@ def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> t
     suffered the same. Now every move is recorded at pi(a): given the coin
     said "policy", the move is a draw from pi and that is the right ratio;
     a forced move is flagged, and the trainer keeps it out of the policy
-    gradient altogether (see `train_combined`), while the value, hands and
-    reader terms still see the position it led to, which was the point.
+    gradient altogether (see `train_combined`), while the value and hands
+    terms still see the position it led to, which was the point.
     """
     validate_exploration(epsilon)
     distribution = torch.distributions.Categorical(logits=logits)
@@ -135,10 +133,6 @@ class Batch:
     #: network is never shown this when choosing. Empty for a learner that
     #: decides for itself unless asked for (`want_oracle`).
     oracle: torch.Tensor
-    #: What the proposal imagined the opponents held at each decision, dealt
-    #: from the network's own belief about them: the reader's negatives,
-    #: against the real hands the oracle planes carry.
-    imagined: torch.Tensor
     returns: torch.Tensor
     log_probs: torch.Tensor
     games: int
@@ -158,14 +152,6 @@ class Batch:
     #: and the follower, the encoder, the network, the seated others, and
     #: the bookkeeping. For finding what to make faster.
     timing: dict[str, float] = field(default_factory=dict)
-
-
-def imagine(arena, beliefs: np.ndarray) -> bytes:
-    """One imagined world per game from the network's beliefs, as the
-    hidden-hand planes. The beliefs cross as bytes where the engine takes
-    them so: a list of a hundred thousand floats a step cost seconds a
-    round to build and read."""
-    return arena.imagined_hands_bytes(np.ascontiguousarray(beliefs, dtype=np.float32).tobytes())
 
 
 def gather(blocks: list[np.ndarray]) -> torch.Tensor:
@@ -210,8 +196,8 @@ def play(
     is copied out for every game on every step. The oracle's planes are
     4.4 kilobytes a game a step: a learner that decides for itself (one
     with `decide`) has them only with `want_oracle`, and the network that
-    `train.py` trains always has them, for its oracle critic and its
-    reader. `want_held=False` leaves out what the opponents held, for a
+    `train.py` trains always has them, for its oracle critic.
+    `want_held=False` leaves out what the opponents held, for a
     learner with no head that reads it: a gigabyte of host memory on a
     round of 2.8 million decisions. Neither changes a move or a reward.
 
@@ -289,7 +275,6 @@ def play(
     legal_masks: list[np.ndarray] = []
     held: list[np.ndarray] = []
     oracle: list[np.ndarray] = []
-    imagined: list[np.ndarray] = []
     wandered: list[np.ndarray] = []
     actions: list[int] = []
     log_probs: list[float] = []
@@ -452,19 +437,9 @@ def play(
                 batch_planes = views.dense(net.kind, index, deciding[index], device)
             batch_mask = torch.from_numpy(mask[index]).to(device)
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
-                logits, _value, guessed = net.everything(batch_planes, batch_mask)
+                logits, _value, _guessed = net.everything(batch_planes, batch_mask)
             logits = logits.float()
             distribution = torch.distributions.Categorical(logits=logits)
-            # What the network believes the opponents hold, so the engine
-            # can imagine one world per game from it: the reader's
-            # negatives, the hands the proposal deals that were not the
-            # real ones.
-            beliefs = np.zeros((games, HANDS), dtype=np.float32)
-            beliefs[index] = (
-                torch.softmax(guessed.float(), dim=2).reshape(len(index), HANDS).cpu().numpy()
-            )
-            proposed = np.frombuffer(imagine(arena, beliefs), dtype=np.float32)
-            proposed = proposed.reshape(games, HIDDEN_HANDS_PLANES, POSITIONS)
             if greedy:
                 chosen = logits.argmax(dim=1)
                 chosen_log_prob = distribution.log_prob(chosen)
@@ -487,7 +462,6 @@ def play(
             if want_held:
                 held.append(truth[index].copy())
             oracle.append(hidden[index].astype(np.uint8))
-            imagined.append(proposed[index].astype(np.uint8))
             timing["network"] += clock() - began
             began = clock()
 
@@ -593,11 +567,10 @@ def play(
         legal=gather(legal_masks),
         actions=torch.tensor(actions, dtype=torch.int64),
         # A label nobody collected is empty: a learner that decides for
-        # itself imagines no hands and has the oracle's planes only when
-        # asked, and `want_held=False` leaves out what the opponents held.
+        # itself has the oracle's planes only when asked, and
+        # `want_held=False` leaves out what the opponents held.
         held=gather(held) if held else torch.zeros(0),
         oracle=gather(oracle) if oracle else torch.zeros(0),
-        imagined=gather(imagined) if imagined else torch.zeros(0),
         explored=gather(wandered) if wandered else None,
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
@@ -628,8 +601,7 @@ def evaluate_games(
 
     This is a score-only loop rather than `play(..., greedy=True)`: it does
     not fetch oracle/truth labels, construct rewards, or retain a round-sized
-    training batch. Imagined worlds use an independent native RNG, so
-    benchmarking has no need to generate unused hidden-hand proposals.
+    training batch.
     """
     require_training_engine()
     validate_budget(games, max_steps)

@@ -206,7 +206,7 @@ def main() -> None:
     else:
         student = student_from(teacher, device)
 
-    # Only the head learns: the trunk, the value and the reader are the
+    # Only the head learns: the trunk and every other head are the
     # teacher's and stay exactly as they are.
     head = list(student.policy_tiles.parameters()) + list(student.policy_pooled.parameters())
     for parameter in student.parameters():

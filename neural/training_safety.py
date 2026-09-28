@@ -85,8 +85,8 @@ def validate_training_options(args) -> None:
         value = getattr(args, name, None)
         if value is not None and (not math.isfinite(value) or value <= 0):
             raise ValueError(f'{name} must be finite and positive')
-    for name in ('target_kl', 'entropy', 'value_weight', 'hands_weight', 'reader_weight',
-                 'distil_weight', 'leash'):
+    for name in ('target_kl', 'entropy', 'value_weight', 'hands_weight', 'distil_weight',
+                 'leash'):
         value = getattr(args, name, 0.0)
         if not math.isfinite(value) or value < 0:
             raise ValueError(f'{name} must be finite and nonnegative')

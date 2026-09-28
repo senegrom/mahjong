@@ -106,7 +106,7 @@ class ControlTests(unittest.TestCase):
                     return SimpleNamespace(decisions=n,observations=planes,legal=torch.ones(n,actions,dtype=torch.bool),
                         actions=torch.zeros(n,dtype=torch.int64),returns=torch.linspace(-1,1,n),log_probs=torch.zeros(n),
                         held=torch.full((n,3,34),1/34),oracle=torch.zeros(n,model.ORACLE_PLANES,34,dtype=torch.uint8),
-                        imagined=torch.zeros(n,model.HIDDEN_HANDS_PLANES,34,dtype=torch.uint8),games=1,hands=1,timing={})
+                        games=1,hands=1,timing={})
                 checks=[]
                 def check(guard,*_args):
                     checks.append(1);guard.stopped=len(checks)==2;return guard.stopped

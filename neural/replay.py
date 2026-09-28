@@ -2,9 +2,9 @@
 stale play.
 
 The policy is trained on the round it just played, as PPO wants. The value
-heads, the reader and the head that reads the table are not so constrained:
-what a position is worth, what the hidden hands were and how they read do
-not go stale as the policy moves a little. Trained on one round at a time,
+heads and the head that reads the table are not so constrained: what a
+position is worth and what the hidden hands were do not go stale as the
+policy moves a little. Trained on one round at a time,
 those heads memorised it. The public value head's error inside the epochs
 fell to two thirds of its error on the next round, which was no better than
 guessing the mean: a round is 370,000 decisions but only about two thousand
@@ -38,7 +38,7 @@ import torch
 from .observe import Planes
 from .replay_schema import validate_dense_replay
 
-FIELDS = ("legal", "held", "oracle", "imagined", "returns")
+FIELDS = ("legal", "held", "oracle", "returns")
 SPARSE = "observations"
 
 

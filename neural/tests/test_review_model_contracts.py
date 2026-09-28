@@ -20,33 +20,35 @@ class ModelContractTests(unittest.TestCase):
     def tearDownClass(cls):
         torch.set_num_threads(cls.threads)
 
-    def test_reader_declaration_roundtrips(self):
-        for planes, actions in ((riichi_py.PLANES, riichi_py.ACTIONS), (1012, 46)):
-            for version in (None, 3, 4, 999):
-                with self.subTest(planes=planes, version=version), tempfile.TemporaryDirectory() as temp:
-                    torch.manual_seed(5)
-                    net = model.PolicyValueNet(8, 1, planes=planes, actions=actions).eval()
-                    if version is not None:
-                        # Synthetic declaration exercises the contract, NOT a calibration claim.
-                        net.reader_proposal_version = version
-                    path = Path(temp) / 'reader.pt'
-                    atomic_save({'model': net.state_dict(), **net.payload_fields()}, path)
-                    restored = zoo.unwrap(zoo.load_player(path, 'cpu'))
-                    self.assertEqual(getattr(restored, 'reader_proposal_version', None), version)
-                    if version is None:
-                        self.assertNotIn('reader_proposal_version', restored.payload_fields())
-    def test_explicit_file_marker_loads_but_malformed_declarations_fail(self):
-        net = model.PolicyValueNet(8, 1, actions=46)
-        payload = dict(model=net.state_dict(), **net.payload_fields())
-        # Producer-authored old files with an explicit marker need not have
-        # called the new metadata writer first.
-        loaded = model.from_payload({**payload, 'reader_proposal_version': 4}, 'cpu')
-        self.assertEqual(loaded.reader_proposal_version, 4)
-        for value in (None, True, 4., '4', 0, -1, 2**32):
-            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'reader_proposal_version'):
-                model.from_payload({**payload, 'reader_proposal_version': value}, 'cpu')
-            net.reader_proposal_version = value
-            with self.assertRaises(ValueError): net.payload_fields()
+    def test_a_checkpoint_saved_with_the_reader_of_hidden_hands_still_loads(self):
+        # The reader served the search removed in September 2026. A
+        # checkpoint from before then carries its weights and its
+        # declaration, and loads with both left behind, alone or in a fusion.
+        from neural import combined, mortal_model
+        reader = {'reader_stem.0.weight': torch.zeros(128, 1048, 3),
+                  'reader_tower.0.conv1.weight': torch.zeros(128, 128, 3),
+                  'reader_tail.0.weight': torch.ones(128),
+                  'reader.2.bias': torch.zeros(1)}
+        with tempfile.TemporaryDirectory() as temp:
+            torch.manual_seed(5)
+            net = model.PolicyValueNet(8, 1, actions=46).eval()
+            old = {'model': {**net.state_dict(), **reader}, **net.payload_fields(),
+                   'reader_proposal_version': 4}
+            path = Path(temp) / 'reader.pt'
+            atomic_save(old, path)
+            restored = zoo.unwrap(zoo.load_player(path, 'cpu'))
+            for key, value in net.state_dict().items():
+                self.assertTrue(torch.equal(restored.state_dict()[key], value), key)
+            self.assertFalse(any(key.startswith('reader') for key in restored.state_dict()))
+            self.assertNotIn('reader_proposal_version', restored.payload_fields())
+            fused = combined.Combined(net, mortal_model.build(8, 1))
+            fused.mortal_config = {'resnet': {'conv_channels': 8, 'num_blocks': 1}, 'control': {'version': 4}}
+            state = fused.state()
+            state['model'] = {**state['model'], **reader}
+            torch.save({**state, 'reader_proposal_version': 4}, Path(temp) / 'fused.pt')
+            loaded, _state = combined.load(Path(temp) / 'fused.pt', 'cpu')
+            self.assertFalse(any(key.startswith('reader') for key in loaded.ours.state_dict()))
+
 
 
 class EngineObservationContractTests(unittest.TestCase):

@@ -53,7 +53,6 @@ ACTIONS = riichi_py.ACTIONS
 # The three players a network may be asked to read, in relative seat order.
 OPPONENTS = riichi_py.OPPONENTS
 ORACLE_PLANES = riichi_py.ORACLE_PLANES
-HIDDEN_HANDS_PLANES = riichi_py.HIDDEN_HANDS_PLANES
 
 # What a network built without saying is: the current lineage.
 DEFAULT_CHANNELS = 320
@@ -70,10 +69,6 @@ GROUPS = 8
 # planes together. A fraction of the main tower.
 ORACLE_CHANNELS = 128
 ORACLE_BLOCKS = 4
-
-# The reader of hidden hands: the same shape, for the same reason.
-READER_CHANNELS = 128
-READER_BLOCKS = 4
 
 # The critic's own tower. It also reads the policy tower's pooled features,
 # so it need not be large to be good; what it must not do is train them.
@@ -229,31 +224,6 @@ class PolicyValueNet(nn.Module):
             nn.Linear(256, 1),
         )
 
-        # The reader of hidden hands: the learned distribution a search
-        # weighs imagined worlds by. Shown the position and a set of three
-        # hidden hands, it says how much more likely those hands are than
-        # the proposal that deals from per-tile marginals would make them.
-        # It learns that by telling the real hidden hands from imagined
-        # ones during self-play, and what a well-trained discriminator's
-        # logit converges to is exactly that likelihood ratio. What the
-        # marginals miss is what it is for: shape, and the selection in
-        # what an opponent kept. Nothing at play time in the browser calls
-        # it; the search does.
-        self.reader_stem = nn.Sequential(
-            nn.Conv1d(planes + HIDDEN_HANDS_PLANES, READER_CHANNELS, 3, padding=1, bias=False),
-            nn.GroupNorm(GROUPS, READER_CHANNELS),
-            nn.ReLU(),
-        )
-        self.reader_tower = nn.Sequential(
-            *[Residual(READER_CHANNELS, attention) for _ in range(READER_BLOCKS)]
-        )
-        self.reader_tail = nn.Sequential(nn.GroupNorm(GROUPS, READER_CHANNELS), nn.ReLU())
-        self.reader = nn.Sequential(
-            nn.Linear(READER_CHANNELS, 128),
-            nn.ReLU(),
-            nn.Linear(128, 1),
-        )
-
         # The critic: the value the search reads and the baseline the policy
         # gradient is measured against, on a tower of its own. The value
         # head above shares the policy's tower, and training that tower on
@@ -262,8 +232,8 @@ class PolicyValueNet(nn.Module):
         # entropy crept up every generation the ring was in use and stood
         # still when it was not. The critic reads the policy tower's pooled
         # features without gradient and adds a tower of its own over the
-        # planes, so it can be trained on anything, as the oracle and the
-        # reader are, and the policy tower is trained by the policy alone.
+        # planes, so it can be trained on anything, as the oracle is, and
+        # the policy tower is trained by the policy alone.
         self.critic_stem = nn.Sequential(
             nn.Conv1d(planes, CRITIC_CHANNELS, 3, padding=1, bias=False),
             nn.GroupNorm(GROUPS, CRITIC_CHANNELS),
@@ -303,16 +273,6 @@ class PolicyValueNet(nn.Module):
         policy tower's pooled features, which it reads but does not train."""
         own = self.critic_tail(self.critic_tower(self.critic_stem(planes))).mean(dim=2)
         return self.critic(torch.cat([pooled.detach(), own], dim=1)).squeeze(1)
-
-    def read_plausibility(self, planes: torch.Tensor, hands: torch.Tensor) -> torch.Tensor:
-        """How much more likely these hidden hands are, given the position,
-        than the proposal made them: a logit per row, the log of the
-        likelihood ratio once trained. `hands` holds HIDDEN_HANDS_PLANES
-        planes, the three opponents' concealed tiles as unary counts in the
-        observation's seat order, real or imagined."""
-        together = torch.cat([planes, hands], dim=1)
-        features = self.reader_tail(self.reader_tower(self.reader_stem(together)))
-        return self.reader(features.mean(dim=2)).squeeze(1)
 
     def forward(
         self, planes: torch.Tensor, legal: torch.Tensor
@@ -382,8 +342,6 @@ class PolicyValueNet(nn.Module):
     def payload_fields(self) -> dict:
         """What a checkpoint records about the shape, so it can be rebuilt
         without being told."""
-        from .reader_contract import metadata as reader_metadata
-
         return {
             "channels": self.channels,
             "blocks": self.blocks,
@@ -392,7 +350,6 @@ class PolicyValueNet(nn.Module):
             "actions": self.actions,
             # Mortal's planes are versioned by Mortal (`observe.VERSION`).
             **({"engine_observation": ENGINE_OBSERVATION} if self.kind == "engine" else {}),
-            **reader_metadata(self),
         }
 
 
@@ -467,8 +424,6 @@ def from_payload(
     shape = shape_of(payload, channels, blocks)
     net = PolicyValueNet(**shape).to(device)
     load_weights(net, payload["model"])
-    from .reader_contract import restore as restore_reader
-    restore_reader(net, payload)
     return net
 
 
@@ -496,15 +451,18 @@ def load_weights(net: PolicyValueNet, saved: dict[str, torch.Tensor]) -> None:
     # A checkpoint from before the network read the opponents' hands, or
     # before it had an oracle critic, or with an oracle critic of another
     # shape, has no such head or the wrong one. Those start fresh, and
-    # everything else loads as saved; any other gap is still an error.
+    # everything else loads as saved; any other gap is still an error. One
+    # from when the network had a reader of hidden hands, which served the
+    # search removed in September 2026, carries its weights, which nothing
+    # reads now.
     fresh = net.state_dict()
     saved = dict(saved)
     for key, value in fresh.items():
-        if key.startswith(("hands.", "oracle_", "reader", "critic", "belief_")) and (
+        if key.startswith(("hands.", "oracle_", "critic", "belief_")) and (
             key not in saved or saved[key].shape != value.shape
         ):
             saved[key] = value
     for key in [key for key in saved if key not in fresh]:
-        if key.startswith("oracle_"):
+        if key.startswith(("oracle_", "reader")):
             del saved[key]
     net.load_state_dict(saved)

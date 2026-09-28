@@ -59,7 +59,7 @@ pub const ORACLE_PLANES: usize = OPPONENTS * COPIES as usize + ORACLE_DRAWS + CO
 pub const ORACLE: usize = ORACLE_PLANES * POSITIONS;
 /// Planes holding the three opponents' concealed tiles as unary counts, in
 /// the observation's relative seat order: the first part of the oracle's
-/// view, and what a reader of imagined hands is shown.
+/// view.
 pub const HIDDEN_HANDS_PLANES: usize = OPPONENTS * COPIES as usize;
 /// Numbers in one set of hidden hands.
 pub const HIDDEN_HANDS: usize = HIDDEN_HANDS_PLANES * POSITIONS;
@@ -318,9 +318,7 @@ pub fn oracle(hand: &Hand, seat: Wind, out: &mut [f32]) {
 
 /// Writes the three opponents' concealed tiles into `out`, which must hold
 /// [`HIDDEN_HANDS`] numbers, as unary counts in the observation's relative
-/// seat order. This is what a reader of hidden hands is shown: the same
-/// planes whether the hands are real or imagined ([`crate::worlds`]), so
-/// that what it learns of the one it can say of the other.
+/// seat order: the first part of what [`oracle`] writes.
 pub fn hidden_hands(hand: &Hand, seat: Wind, out: &mut [f32]) {
     assert_eq!(
         out.len(),
@@ -580,7 +578,7 @@ mod tests {
     }
 
     /// The hidden hands on their own are the first part of the oracle's
-    /// view, plane for plane, so a reader shown either sees the same thing.
+    /// view, plane for plane.
     #[test]
     fn the_hidden_hands_are_the_front_of_the_oracle() {
         let hand = fresh();
@@ -653,7 +651,7 @@ mod tests {
     }
 
     /// At every decision of a game the unseen planes are what the seat
-    /// cannot see, as the heuristic player and an imagined world count it.
+    /// cannot see, as the heuristic player counts it.
     #[test]
     fn the_unseen_planes_are_what_the_seat_cannot_see() {
         let mut checked = 0;

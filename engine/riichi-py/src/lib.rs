@@ -31,14 +31,12 @@ use pyo3::types::PyBytes;
 
 use riichi_core::bot::Bot;
 use riichi_core::encoding::{
-    self, ACTIONS, HANDS, HIDDEN_HANDS, HIDDEN_HANDS_PLANES, OBSERVATION, OPPONENTS, ORACLE,
-    ORACLE_PLANES, PASS, PLANES, POSITIONS,
+    self, ACTIONS, HANDS, OBSERVATION, OPPONENTS, ORACLE, ORACLE_PLANES, PASS, PLANES, POSITIONS,
 };
 use riichi_core::game::{Call, Hand, Outcome, Phase};
 use riichi_core::mjai;
 use riichi_core::rng::Rng;
 use riichi_core::table::Table;
-use riichi_core::worlds;
 use riichi_core::Wind;
 
 /// One game, and where its next decision sits.
@@ -47,9 +45,6 @@ struct Seat {
     hand: Hand,
     /// Deals the hands. Nothing hypothetical may draw from it.
     rng: Rng,
-    /// Deals the imagined worlds, so that imagining never consumes the
-    /// generator that deals real hands.
-    imagining: Rng,
     /// Seats that still owe an answer to the claim on the table.
     asking: VecDeque<Wind>,
     /// Answers gathered so far in this claim window.
@@ -96,9 +91,6 @@ impl Seat {
             table,
             hand,
             rng,
-            // A stream of its own, far from the dealing one, so that how
-            // much is imagined cannot change what is dealt.
-            imagining: Rng::from_seed(seed ^ 0x5EA5_C400),
             asking: VecDeque::new(),
             answers: Vec::new(),
             endings: Vec::new(),
@@ -322,39 +314,6 @@ pub struct Arena {
     hands: Vec<f32>,
 }
 
-/// One imagined world per live game from the beliefs given, as the
-/// hidden-hand planes: the body of `Arena::imagined_hands_bytes`.
-/// Beliefs of the wrong length are refused before any world is imagined,
-/// so no game's imagining stream moves.
-fn imagine_from<'py>(
-    arena: &mut Arena,
-    py: Python<'py>,
-    beliefs: &[f32],
-) -> PyResult<Bound<'py, PyBytes>> {
-    let games = arena.seats.len();
-    if beliefs.len() != games * HANDS {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "expected {} beliefs, {HANDS} for each of {games} games, got {}",
-            games * HANDS,
-            beliefs.len()
-        )));
-    }
-    let mut planes = vec![0.0f32; games * HIDDEN_HANDS];
-    for (game, seat) in arena.seats.iter_mut().enumerate() {
-        let Some(wind) = seat.pending() else {
-            continue;
-        };
-        let belief = worlds::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-        let world = worlds::imagine(&seat.hand, wind, &belief, &mut seat.imagining);
-        encoding::hidden_hands(
-            &world,
-            wind,
-            &mut planes[game * HIDDEN_HANDS..(game + 1) * HIDDEN_HANDS],
-        );
-    }
-    Ok(PyBytes::new(py, bytemuck_cast(&planes)))
-}
-
 #[pymethods]
 impl Arena {
     /// Starts `games` games, each seeded from `seed`.
@@ -445,31 +404,6 @@ impl Arena {
             }
         }
         PyBytes::new(py, bytemuck_cast(&self.hands))
-    }
-
-    /// One imagined world per live game, from the belief's marginals, as
-    /// the hidden-hand planes the reader is shown: the negatives it learns
-    /// to tell from the real hands, which [`Arena::oracle`] carries. Zeros
-    /// for a game that owes nothing. The beliefs come as the raw bytes of
-    /// float32s, three rows of thirty-four a game, rather than a Python
-    /// list: a round has thousands of steps and a list of a hundred
-    /// thousand floats each step cost seconds to build and read.
-    fn imagined_hands_bytes<'py>(
-        &mut self,
-        py: Python<'py>,
-        beliefs: &[u8],
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        if beliefs.len() % 4 != 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "beliefs are float32s, four bytes each, and {} bytes is not a whole number of them",
-                beliefs.len()
-            )));
-        }
-        let floats: Vec<f32> = beliefs
-            .chunks_exact(4)
-            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-            .collect();
-        imagine_from(self, py, &floats)
     }
 
     /// One legality mask per game, as bytes of 0 and 1.
@@ -707,7 +641,6 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ACTIONS", ACTIONS)?;
     module.add("OPPONENTS", OPPONENTS)?;
     module.add("ORACLE_PLANES", ORACLE_PLANES)?;
-    module.add("HIDDEN_HANDS_PLANES", HIDDEN_HANDS_PLANES)?;
     module.add(
         "PLACEMENT_VALUE",
         riichi_core::encoding::PLACEMENT_VALUE.to_vec(),

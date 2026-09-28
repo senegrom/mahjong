@@ -131,8 +131,8 @@ fn discarded(action: Action) -> Option<Tile> {
 /// answers both "how many of these could still come" for the acceptance
 /// count and "how thin is this wait" for the player.
 pub fn visible_to(hand: &Hand, seat: Wind) -> TileSet {
-    // One answer, shared with the heuristic player, the observation and the
-    // imagined worlds, which all ask the same question. A tile claimed for a
+    // One answer, shared with the heuristic player and the observation,
+    // which ask the same question. A tile claimed for a
     // set stays in the pond it came from and is counted with the set, so
     // counting both made a wait look a tile thinner than it is.
     hand.seen_by(seat)

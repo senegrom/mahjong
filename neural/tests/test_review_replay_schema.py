@@ -16,7 +16,6 @@ def arrays(n=2):
     return dict(legal=np.ones((n,r.ACTIONS),bool),
                 held=np.full((n,r.OPPONENTS,r.POSITIONS),1/r.POSITIONS,np.float32),
                 oracle=np.zeros((n,r.ORACLE_PLANES,r.POSITIONS),np.uint8),
-                imagined=np.zeros((n,r.HIDDEN_HANDS_PLANES,r.POSITIONS),np.uint8),
                 returns=np.arange(n,dtype=np.float32))
 
 
@@ -33,7 +32,7 @@ def bad_cases():
     yield 'held',np.full_like(good['held'],.001)
     yield 'held',good['held'][:,:,:1]
     yield 'oracle',np.full_like(good['oracle'],2)
-    yield 'imagined',good['imagined'].astype(np.float32)
+    yield 'oracle',good['oracle'].astype(np.float32)
 
 
 class DenseReplayHelpersTests(unittest.TestCase):

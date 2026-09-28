@@ -1234,8 +1234,8 @@ impl Hand {
     ///
     /// What is left, [`Hand::unseen_by`], is what the other hands and the
     /// rest of the wall hold between them. The heuristic player counts its
-    /// acceptance against it, the observation shows it to a network, and an
-    /// imagined world deals it out again, so all three ask this one question.
+    /// acceptance against it and the observation shows it to a network, so
+    /// both ask this one question.
     pub fn seen_by(&self, seat: Wind) -> TileSet {
         let mut seen = self.players[seat.index()].hand;
         for player in &self.players {
@@ -1247,9 +1247,8 @@ impl Hand {
             for discard in &player.discards {
                 // A tile claimed for a set stays in the pond it came from,
                 // turned sideways against the set that took it. It is counted
-                // with that set, so counting it here as well counts it twice:
-                // that made a wait look a tile thinner than it is, and left
-                // an imagined world one tile short.
+                // with that set, so counting it here as well counts it twice,
+                // which made a wait look a tile thinner than it is.
                 if !discard.claimed {
                     seen.add(discard.tile);
                 }

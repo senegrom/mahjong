@@ -1,4 +1,4 @@
-"""Real native tests for strict actions and simulation/dealing RNG isolation."""
+"""Real native tests for strict actions, refused inputs and reported hand endings."""
 import json
 import unittest
 
@@ -49,14 +49,6 @@ class NativeTrainingSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'bot place 4'):
             riichi_py.Arena(games=1, seed=3, bot_places=[1, 4])
         arena = riichi_py.Arena(games=2, seed=17)
-        control = riichi_py.Arena(games=2, seed=17)
-        beliefs = np.ones(2 * riichi_py.HANDS, dtype=np.float32)
-        for bad in (beliefs.tobytes()[:-1], beliefs[:-1].tobytes(), b''):
-            with self.subTest(size=len(bad)), self.assertRaises(ValueError):
-                arena.imagined_hands_bytes(bad)
-        # Nothing was imagined, so both still imagine the same next worlds.
-        self.assertEqual(arena.imagined_hands_bytes(beliefs.tobytes()),
-                         control.imagined_hands_bytes(beliefs.tobytes()))
         # One game's events are only reached through mjai_all, which cannot
         # name a game that does not exist.
         self.assertFalse(hasattr(arena, 'mjai'))
@@ -83,29 +75,6 @@ class NativeTrainingSafetyTests(unittest.TestCase):
             np.testing.assert_array_equal(results[game], np.subtract(after, dealt))
         arena.step([0, 0, 0])
         self.assertFalse(np.frombuffer(arena.hand_ended(), dtype=np.uint8).any())
-
-    def test_imagining_worlds_does_not_change_real_deals_or_outcomes(self):
-        plain = riichi_py.Arena(games=2, seed=17)
-        imagined = riichi_py.Arena(games=2, seed=17)
-        beliefs = np.ones(2 * riichi_py.HANDS, dtype=np.float32).tobytes()
-        hands = 0
-        for _ in range(8000):
-            self.assertEqual(plain.seats(), imagined.seats())
-            self.assertEqual(plain.mjai_all(), imagined.mjai_all())
-            if plain.all_finished():
-                break
-            self.assertEqual(plain.observations(), imagined.observations())
-            for _extra in range(2):
-                imagined.imagined_hands_bytes(beliefs)
-            actions = np.frombuffer(plain.teacher(), dtype=np.uint8).astype(int).tolist()
-            other = np.frombuffer(imagined.teacher(), dtype=np.uint8).astype(int).tolist()
-            self.assertEqual(actions, other)
-            plain.step(actions)
-            imagined.step(other)
-            hands += int(np.frombuffer(plain.hand_ended(), dtype=np.uint8).sum())
-        self.assertTrue(plain.all_finished() and imagined.all_finished())
-        self.assertGreaterEqual(hands, 16, "must compare subsequent hands, not just the initial deal")
-        self.assertEqual(plain.final_scores(), imagined.final_scores())
 
 
 if __name__ == "__main__":
