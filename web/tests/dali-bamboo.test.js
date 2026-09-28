@@ -15,6 +15,15 @@ const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 // pinned byte for byte.
 const FACES = [
   {
+    tile: '8s', name: 'Sou8', words: 'eight bamboo', direction: 'Emerald Moonlit Seascape',
+    source: 'docs/design/dali/studies/eight-bamboo-emerald-moonlit-approved.svg',
+    artwork: '05e1d03a51c52ffb88a9df62985cd4d3b007364bd400a95a260d47d3d8832767',
+    original: 'b57c7c4d29433d4c07fe78a57b6962f8b0184c5d760284e935fb31f7e102dd67',
+    raster: '8308e85ce25d05b21d790eb6b06579e5a55ee2b225d8ce65eb3ff2e6c47e9974',
+    originalFilename: 'emerald_moonlit_bamboo_seascape.png', rasterDimensions: [300, 400],
+    processing: /Complete approved greener portrait resized with Lanczos/,
+  },
+  {
     tile: '9s', name: 'Sou9', words: 'nine bamboo', direction: 'The Surreal Grove',
     source: 'docs/design/dali/studies/nine-bamboo-surreal-grove-approved.svg',
     artwork: 'bcab49c117abc90e41582bcf83fdc40cd0038941413171546dbb00dbd22e9573',
@@ -34,10 +43,10 @@ const FACES = [
   },
 ];
 
-test('fourteen approved identities and twenty placeholders cover the thirty-four tiles once', () => {
-  assert.deepEqual([...DALI_APPROVED], ['1p', '3p', '5p', '1s', '2s', '5s', '7s', '9s', '5m', '6m', '7m', '8m', '9m', '7z']);
-  assert.equal(set.tiles.length, 14);
-  assert.equal(set.placeholders.length, 20);
+test('fifteen approved identities and nineteen placeholders cover the thirty-four tiles once', () => {
+  assert.deepEqual([...DALI_APPROVED], ['1p', '3p', '5p', '1s', '2s', '5s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '7z']);
+  assert.equal(set.tiles.length, 15);
+  assert.equal(set.placeholders.length, 19);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   const identities = [...set.tiles, ...set.placeholders].map(entry => entry.tile);
   assert.equal(new Set(identities).size, 34);
@@ -106,8 +115,8 @@ test('nine bamboo is represented in both reproducible export definitions and the
   assert.match(exporter, /\['Sou9', '9s', '9 bamboo', 'The Surreal Grove', 'nine-bamboo-surreal-grove-approved.svg', \[0, 0, 300, 400\]\]/);
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou9.svg'));
-  assert.ok(preview.includes('14 approved faces'));
-  assert.ok(preview.includes('remaining 20 tiles'));
+  assert.ok(preview.includes('15 approved faces'));
+  assert.ok(preview.includes('remaining 19 tiles'));
 });
 
 test('all existing PNG-backed Dali exports retain their recorded source and raster hashes', () => {
@@ -119,4 +128,18 @@ test('all existing PNG-backed Dali exports retain their recorded source and rast
     assert.equal(sha256(raster), entry.pngSha256);
     assert.ok(svg.includes(`data:image/png;base64,${raster.toString('base64')}`));
   }
+});
+
+test('eight bamboo is the greener revision in the exporter, preview and provenance', () => {
+  const exporter = readFileSync(new URL('../scripts/export-dali-tiles.mjs', import.meta.url), 'utf8');
+  assert.match(exporter, /\['Sou8', '8s', '8 bamboo', 'Emerald Moonlit Seascape', 'eight-bamboo-emerald-moonlit-approved.svg', \[0, 0, 300, 400\]\]/);
+  const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
+  assert.ok(preview.includes('approved/Sou8.svg'));
+  assert.ok(preview.includes('15 approved faces'));
+  assert.ok(preview.includes('remaining 19 tiles'));
+  const provenance = JSON.parse(readFileSync(new URL('docs/design/dali/eight-bamboo.json', root), 'utf8'));
+  const face = FACES.find(entry => entry.tile === '8s');
+  assert.equal(provenance.originalSha256, face.original);
+  assert.equal(provenance.rasterSha256, face.raster);
+  assert.equal(provenance.svgSha256, face.artwork);
 });
