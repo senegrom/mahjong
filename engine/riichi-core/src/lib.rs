@@ -29,7 +29,7 @@
 //! - [`review`] judging a decision after the hand is over
 //! - [`search`] looking ahead by imagining the hands you cannot see
 //!
-//! Still to come: the log format, a command-line arena and the bots.
+//! The arena and the rules fuzzer are the `riichi-cli` crate beside this one.
 //!
 //! ```
 //! use riichi_core::hand::TileSet;

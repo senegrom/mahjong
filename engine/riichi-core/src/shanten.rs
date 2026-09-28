@@ -5,9 +5,10 @@
 //! measured and the smallest wins: the ordinary four sets and a pair, Seven
 //! Pairs and Thirteen Orphans (EMA 2025, sections 3.2 and 3.3.8).
 //!
-//! The search is a plain backtracking decomposition. It is exact and easy to
-//! check against the rulebook; a table-driven version can replace it later
-//! if self-play throughput needs one.
+//! The ordinary shape is worked out a suit at a time: each suit's readings
+//! are found by backtracking and cached, and a small dynamic program
+//! combines the four. It is exact, and the tests check it against a plain
+//! search of the whole hand.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
