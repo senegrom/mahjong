@@ -410,22 +410,16 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
                 claim.tile,
                 &consumed,
             ));
+            // An open quad's replacement is not drawn here. The caller's
+            // next discard does not come out of the hand (`discards_after`),
+            // so the draw told ahead of it is the replacement; a caller that
+            // has not discarded since holds it as the tile drawn now, told
+            // at the end. Drawing it here as well gave the caller a second
+            // tile, one Mortal refuses when it is the caller's own.
             if meld.kind == MeldKind::ClaimedKan {
                 if let Some(indicator) = turning.pop() {
                     tail.push(dora_json(indicator));
                 }
-                // The replacement, which its next discard sends out again.
-                let next = hand.players[claim.claimer.index()]
-                    .discards
-                    .iter()
-                    .find(|d| d.order > discard.order)
-                    .map(|d| d.tile);
-                draw(
-                    &mut tail,
-                    &mut drawn,
-                    claim.claimer,
-                    (claim.claimer == seat).then_some(next).flatten(),
-                );
             }
         }
     }
@@ -592,6 +586,83 @@ mod tests {
         observation.iter().copied().collect()
     }
 
+    /// The planes of thirty-four on which two observations differ.
+    fn differing(want: &[f32], got: &[f32]) -> Vec<usize> {
+        assert_eq!(want.len(), got.len());
+        (0..want.len() / 34)
+            .filter(|plane| {
+                (0..34).any(|at| (want[plane * 34 + at] - got[plane * 34 + at]).abs() > 1e-6)
+            })
+            .collect()
+    }
+
+    /// How many draws a replay tells.
+    fn draws_told(lines: &[String]) -> usize {
+        lines
+            .iter()
+            .filter(|line| line.starts_with("{\"type\":\"tsumo\""))
+            .count()
+    }
+
+    /// How many draws the hand really made, the dealer's fourteenth tile
+    /// and every replacement included.
+    fn draws_made(hand: &Hand) -> usize {
+        hand.log
+            .iter()
+            .filter(|event| matches!(event, riichi_core::mjai::Event::Tsumo { .. }))
+            .count()
+    }
+
+    /// Plays the hand `seed` deals, claiming every open quad a seat is
+    /// offered and otherwise playing as the club player does, and shows
+    /// `look` every decision on the way: the seat to act, and the table
+    /// while a tile is on offer. Taking every quad makes them common enough
+    /// to test, where the club player alone seldom calls one.
+    fn claiming_every_quad(seed: u64, mut look: impl FnMut(&Hand)) {
+        use riichi_core::game::Call;
+        let table = Table::new();
+        let mut rng = Rng::from_seed(seed);
+        let mut hand = table.deal(&mut rng);
+        let mut bot = Bot::with_style(seed, Style::club());
+        for _ in 0..400 {
+            match hand.phase {
+                Phase::Over => return,
+                Phase::Draw => {
+                    let _ = hand.draw();
+                }
+                Phase::Act => {
+                    look(&hand);
+                    let action = bot.act(&hand);
+                    hand.act(action).unwrap();
+                }
+                Phase::CallWindow => {
+                    look(&hand);
+                    let answers: Vec<_> = hand
+                        .legal_calls()
+                        .into_iter()
+                        .map(|(who, calls)| {
+                            let call = if calls.contains(&Call::Kan) {
+                                Call::Kan
+                            } else {
+                                bot.call(&hand, who, &calls)
+                            };
+                            (who, call)
+                        })
+                        .collect();
+                    hand.resolve_calls(&answers).unwrap();
+                }
+            }
+        }
+        panic!("seed {seed}: the hand did not end");
+    }
+
+    /// Whether any seat holds a set of this kind.
+    fn stands(hand: &Hand, kind: MeldKind) -> bool {
+        hand.players
+            .iter()
+            .any(|player| player.melds.iter().any(|meld| meld.kind == kind))
+    }
+
     /// The two planes a position cannot carry, and where they sit.
     ///
     /// libriichi freezes which discards keep the shanten number and which
@@ -632,15 +703,7 @@ mod tests {
                     let position = hidden(hand.clone(), seat);
                     let state = state_for(&position, seat)
                         .unwrap_or_else(|| panic!("seed {seed} step {steps} seat {seat:?}"));
-                    let got = planes(&state);
-                    assert_eq!(want.len(), got.len());
-                    let wrong: Vec<usize> = (0..want.len() / 34)
-                        .filter(|plane| {
-                            (0..34).any(|at| {
-                                (want[plane * 34 + at] - got[plane * 34 + at]).abs() > 1e-6
-                            })
-                        })
-                        .collect();
+                    let wrong = differing(&want, &planes(&state));
                     let excused = hand.players[seat.index()].has_riichi()
                         && wrong
                             .iter()
@@ -682,13 +745,7 @@ mod tests {
                     }
                     let want = planes(&told(&hand, seat));
                     let got = planes(&state_for(&hidden(hand.clone(), seat), seat).unwrap());
-                    let wrong: Vec<usize> = (0..want.len() / 34)
-                        .filter(|plane| {
-                            (0..34).any(|at| {
-                                (want[plane * 34 + at] - got[plane * 34 + at]).abs() > 1e-6
-                            })
-                        })
-                        .collect();
+                    let wrong = differing(&want, &got);
                     assert!(
                         wrong.is_empty(),
                         "seed {seed} step {steps} seat {seat:?} phase {:?}: planes {:?}",
@@ -700,5 +757,133 @@ mod tests {
             }
         }
         assert!(checked > 150, "only {checked} positions were compared");
+    }
+
+    /// An open quad draws one replacement, which a position does not record:
+    /// the caller's next discard sends it out again, or the caller holds it
+    /// now. Replayed from every later decision of hands that claim every
+    /// open quad offered, a position must tell exactly the draws the hand
+    /// made and read exactly as Mortal read the hand itself, the caller's
+    /// own seat included. Only open quads stand in the positions compared:
+    /// theirs is the one moment a position records, where a concealed or
+    /// added quad is given one. A seat in riichi is excused its two frozen
+    /// planes.
+    #[test]
+    fn an_open_quad_replays_into_the_observation_it_came_from() {
+        let (mut compared, mut callers) = (0, 0);
+        let (mut refused, mut miscounted, mut misread) = (Vec::new(), Vec::new(), Vec::new());
+        for seed in 1..=60u64 {
+            claiming_every_quad(seed, |hand| {
+                if !stands(hand, MeldKind::ClaimedKan)
+                    || stands(hand, MeldKind::ConcealedKan)
+                    || stands(hand, MeldKind::ExtendedKan)
+                {
+                    return;
+                }
+                for seat in Wind::ALL {
+                    if hand.phase == Phase::Act && hand.turn != seat {
+                        continue;
+                    }
+                    let at = format!("seed {seed} {seat:?} {:?}", hand.phase);
+                    compared += 1;
+                    callers += usize::from(
+                        hand.players[seat.index()]
+                            .melds
+                            .iter()
+                            .any(|meld| meld.kind == MeldKind::ClaimedKan),
+                    );
+                    let position = hidden(hand.clone(), seat);
+                    let lines = events(&position, seat).expect("the claims pair up");
+                    if draws_told(&lines) != draws_made(hand) {
+                        miscounted.push(format!(
+                            "{at}: {} draws told, {} made",
+                            draws_told(&lines),
+                            draws_made(hand)
+                        ));
+                    }
+                    let Some(state) = state_for(&position, seat) else {
+                        refused.push(at);
+                        continue;
+                    };
+                    let wrong = differing(&planes(&told(hand, seat)), &planes(&state));
+                    let excused = hand.players[seat.index()].has_riichi()
+                        && wrong
+                            .iter()
+                            .all(|plane| FROZEN_SHANTEN_DISCARDS.contains(plane));
+                    if !wrong.is_empty() && !excused {
+                        misread.push(format!("{at}: planes {:?}", &wrong[..wrong.len().min(8)]));
+                    }
+                }
+            });
+        }
+        println!(
+            "open quads: {compared} replays ({callers} by the caller), {} refused, {} miscounted, {} misread",
+            refused.len(),
+            miscounted.len(),
+            misread.len()
+        );
+        assert!(
+            refused.is_empty() && miscounted.is_empty() && misread.is_empty(),
+            "refused {:?}\nmiscounted {:?}\nmisread {:?}",
+            &refused[..refused.len().min(4)],
+            &miscounted[..miscounted.len().min(4)],
+            &misread[..misread.len().min(4)],
+        );
+        assert!(compared > 200, "only {compared} replays after an open quad");
+        assert!(callers > 50, "only {callers} of them by the caller");
+    }
+
+    /// The first decision after an open quad is the caller's, holding its
+    /// replacement: the replay tells the quad, turns its indicator and
+    /// draws that one tile, which only the caller is told.
+    #[test]
+    fn the_caller_of_an_open_quad_draws_its_replacement_once() {
+        let mut found = false;
+        for seed in 1..=40u64 {
+            claiming_every_quad(seed, |hand| {
+                let n = hand.log.len();
+                let fresh = hand.phase == Phase::Act
+                    && n >= 3
+                    && matches!(hand.log[n - 3], riichi_core::mjai::Event::Daiminkan { .. });
+                if found || !fresh {
+                    return;
+                }
+                found = true;
+                let caller = hand.turn;
+                let drawn = hand.drawn.expect("the replacement is in hand");
+                for seat in Wind::ALL {
+                    let lines = events(&hidden(hand.clone(), seat), seat).unwrap();
+                    let quad = lines
+                        .iter()
+                        .rposition(|line| line.contains("\"type\":\"daiminkan\""))
+                        .expect("the quad is told");
+                    assert!(lines[quad + 1].contains("\"type\":\"dora\""), "seed {seed}");
+                    let pai = if seat == caller {
+                        name(drawn)
+                    } else {
+                        "?".into()
+                    };
+                    assert_eq!(
+                        lines[quad + 2..],
+                        [format!(
+                            "{{\"type\":\"tsumo\",\"actor\":{},\"pai\":\"{pai}\"}}",
+                            caller.index()
+                        )],
+                        "seed {seed}, told to {seat:?}"
+                    );
+                }
+                let state = state_for(&hidden(hand.clone(), caller), caller)
+                    .expect("the caller's replay is read");
+                assert_eq!(
+                    differing(&planes(&told(hand, caller)), &planes(&state)),
+                    Vec::<usize>::new(),
+                    "seed {seed}"
+                );
+            });
+            if found {
+                return;
+            }
+        }
+        panic!("no open quad was claimed in forty hands");
     }
 }
