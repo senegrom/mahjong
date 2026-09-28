@@ -197,9 +197,9 @@ each of which is a referee's judgement rather than a decidable rule:
   bet up front, which is the common house reading and simpler to show.
 - **The deal and the wall are abstracted.** Tiles are dealt thirteen at a
   time rather than in blocks of four, and the wall is a shuffled sequence
-  rather than a broken square. The dice are still rolled and logged so a
-  replay can show the table, and under a shuffled wall the two are
-  equivalent.
+  rather than a broken square. Under a shuffled wall, where the wall is
+  broken changes nothing, so the break is not modelled and no log records
+  a dice roll.
 
 Everything else in those chapters is implemented, including the parts most
 easily got wrong: the dead wall's composition, all three quads and the
@@ -240,19 +240,21 @@ the only additions.
 
 Design
 
-- Tiles as 0..33 indices; hands as 34-count arrays; a game is an explicit
-  state machine with phases (deal, draw, act, call window, kan replacement,
-  win resolution, exhaustive draw, hand end, game end).
+- Tiles as 0..33 indices; hands as 34-count arrays. A hand is an explicit
+  state machine whose phases are draw, act, call window and over
+  (`game.rs`); `table.rs` carries the game across hands: rounds, the deal
+  moving on, and uma.
 - Deterministic: a seeded RNG builds the wall, so any game replays exactly
   from its seed and action list. Every action is validated against the
   legal-action list, never trusted.
 - Legal actions per player per phase: discard (with tsumogiri flag), riichi
   with discard, chii (which sequence), pon, three quad kinds, ron, tsumo,
   pass.
-- Shanten and waits by the standard per-suit decomposition tables (one table
-  for a 9-number suit, one for the 7 honours), which also give acceptance
-  counts for hints and for the efficiency oracle. Winning-hand decomposition
-  enumerates every reading so the scorer can take the maximum.
+- Shanten is exact: each suit's readings are found by backtracking and
+  cached, and a small dynamic program combines the four, for the ordinary
+  shape, Seven Pairs and Thirteen Orphans; the same module gives waits and
+  acceptance counts for the hints. Winning-hand decomposition enumerates
+  every reading so the scorer can take the maximum.
 - Scoring returns a full breakdown (yaku list with han, fu items with reasons,
   limit name, payments per player) because the UI shows it.
 - Logs in the mjai JSON event format, the de facto standard for riichi bots,
@@ -260,19 +262,22 @@ Design
 
 Testing (the engine is only as good as this)
 
-- Every numbered rule in the card above becomes at least one named test that
-  cites its section; the ten scoring examples of section 4.3 are literal
-  tests, and the four invalid-quad examples of section 6.7.1 are tests in
-  `engine/riichi-core`.
-- Differential scoring: one million random winning hands scored by the Rust
-  engine and by the MIT-licensed `mahjong` Python library (validated against
-  26 million Tenhou hands), with its optional rules set to EMA (no red fives,
-  kiriage mangan, no counted yakuman, no double yakuman). Every disagreement
-  is either a documented EMA-specific rule or a bug.
-- Property tests: tile conservation across a whole game, phase invariants,
-  score sums always zero apart from riichi sticks on the table, replay from
-  seed reproduces the log.
-- Fuzzing: the CLI plays millions of random-policy games under debug asserts.
+- Rules are tested by name, citing their sections. Scoring examples 1 to 5,
+  7 and 10 of section 4.3 are literal tests in `score.rs` and example 8 in
+  `agari.rs`; examples 6 and 9 have no test yet. The four invalid-quad
+  hands of section 6.7.1 are tests in `tests/riichi_quads.rs`, and
+  `tests/every_yaku.rs` builds a hand for every yaku the rulebook lists.
+- Differential scoring: `engine/riichi-cli/differential.py` scores the hands
+  `riichi-cli dump` writes again with the MIT-licensed `mahjong` Python
+  library (validated against millions of Tenhou hands), its optional rules
+  set to EMA (no red fives, kiriage mangan, no counted yakuman, no double
+  yakuman). Every disagreement is either a documented EMA-specific rule or a
+  bug; one million random winning hands left none unexplained.
+- `tests/mjai_replay.rs` rebuilds every hand from its logged events alone and
+  compares the result with what the engine holds.
+- Fuzzing: `riichi-cli fuzz` plays games of random legal choices and checks
+  after every step that no tile is in play five times and that points are
+  only ever moved; CI plays 500 such games on every run.
 
 ## 4. Web application
 

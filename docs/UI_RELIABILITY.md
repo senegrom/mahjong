@@ -65,8 +65,9 @@ responses exercise recovery, inputs, hints, and small-screen layouts.
 
 Set `CHROME_BIN` when Chrome/Chromium is not in a standard system location.
 Screenshots and the structured browser report are saved to `web/test-results/`.
-CI requires both the rules-engine job and the web regression job before Pages
-publication. Browser viewport emulation is not a physical iPhone/Safari test.
+Pages publication needs three CI jobs to pass: the rules engine, the web app
+and the browser worker parity check. Browser viewport emulation is not a
+physical iPhone/Safari test.
 
 ## Second-review corrections
 

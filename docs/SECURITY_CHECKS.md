@@ -96,8 +96,12 @@ with serialized, resumed training, including AdamW state and resulting weights.
 
 The browser export contract is Mortal version 4: 1,012 observation planes,
 34 tile positions and 46 actions, with named policy, value and hands outputs.
-Engine-plane students, mismatched action heads and fusion checkpoints are
-rejected before touching the destination. The exporter checks real positions
+Engine-plane students and mismatched action heads are rejected before touching
+the destination. A fusion checkpoint, which the published network is, is
+exported whole: Mortal, our network and the head joining them, with the
+legality mask as a second `legal` input. Its half alone is refused, and so is
+a fusion without `--float32`, since int8 weights blunt its value head.
+The exporter checks real positions
 from deterministic native-engine play rather than random binary inputs.
 All three heads must be finite, have the expected shape and have mean absolute
 error at most 10% of the reference standard deviation (with a 0.01 scale floor).
