@@ -97,7 +97,7 @@ class EvaluationIntegrityTests(unittest.TestCase):
                     self.assertTrue(0 <= report['wins'] <= 1)
                     self.assertTrue(all(row['hands'] > 0 for row in report['by_seat']))
 
-    def test_shared_native_search_reward_fixtures(self):
+    def test_placement_reward_fixtures(self):
         rows = np.loadtxt(ROOT / 'engine/riichi-core/tests/fixtures/placement-rewards.csv', delimiter=',')
         scores, expected = rows[:, :4], rows[:, 4:]
         for order in itertools.permutations(range(4)):

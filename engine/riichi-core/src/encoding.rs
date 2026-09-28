@@ -42,17 +42,10 @@ pub const OBSERVATION: usize = PLANES * POSITIONS;
 
 /// Opponents whose hands a network may be asked to guess at.
 pub const OPPONENTS: usize = 3;
-/// The points one unit of the value head is worth. The reward a network is
-/// trained on is the points a hand moved divided by this, plus a bonus for
-/// the place the game ended in, so a value of 0.5 means about two thousand
-/// points. A search that mixes valued positions with hands that actually
-/// ended needs the two in the same units, and this is the conversion.
-pub const POINTS_PER_UNIT: f32 = 4000.0;
 /// What finishing a game in each place is worth, best place first, in the
 /// value head's units. Training adds this to every decision of a game on
 /// top of what each hand moved, so it is the network's idea of what a game
-/// is for, and a search that plays an imagined world to the end of the
-/// game needs the same numbers.
+/// is for.
 pub const PLACEMENT_VALUE: [f32; 4] = [1.5, 0.5, -0.5, -1.5];
 /// How many of the coming draws the oracle is shown: four rounds of the
 /// table, so it knows every seat's next four turns.

@@ -383,6 +383,7 @@ mod tests {
     use super::*;
     use crate::hand::Meld;
     use crate::score::Riichi;
+    use crate::table::Table;
 
     #[test]
     fn interrupted_joint_attempt_restores_every_reserved_tile() {

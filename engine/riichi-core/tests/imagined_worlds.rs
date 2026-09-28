@@ -12,9 +12,9 @@
 use riichi_core::bot::Bot;
 use riichi_core::game::{Call, Phase};
 use riichi_core::rng::Rng;
-use riichi_core::search::{imagine, Belief};
 use riichi_core::table::Table;
 use riichi_core::tile::{Tile, COPIES};
+use riichi_core::worlds::{imagine, Belief};
 use riichi_core::Wind;
 
 /// Plays games out and, at every decision, checks from every seat that the

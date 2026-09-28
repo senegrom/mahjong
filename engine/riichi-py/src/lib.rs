@@ -34,16 +34,12 @@ use riichi_core::encoding::{
     self, ACTIONS, HANDS, HIDDEN_HANDS, HIDDEN_HANDS_PLANES, OBSERVATION, OPPONENTS, ORACLE,
     ORACLE_PLANES, PASS, PLANES, POSITIONS,
 };
-use riichi_core::game::Action;
 use riichi_core::game::{Call, Hand, Outcome, Phase};
 use riichi_core::mjai;
 use riichi_core::rng::Rng;
-use riichi_core::search;
 use riichi_core::table::Table;
+use riichi_core::worlds;
 use riichi_core::Wind;
-
-/// Native leaf bytes, per-game counts, settled rewards and wanted-value mask.
-type LeafBatch<'py> = (Bound<'py, PyBytes>, Vec<usize>, Vec<f32>, Vec<u8>);
 
 /// One game, and where its next decision sits.
 struct Seat {
@@ -51,8 +47,9 @@ struct Seat {
     hand: Hand,
     /// Deals the hands. Nothing hypothetical may draw from it.
     rng: Rng,
-    /// Simulation must never consume the generator that deals real hands.
-    search_rng: Rng,
+    /// Deals the imagined worlds, so that imagining never consumes the
+    /// generator that deals real hands.
+    imagining: Rng,
     /// Seats that still owe an answer to the claim on the table.
     asking: VecDeque<Wind>,
     /// Answers gathered so far in this claim window.
@@ -88,8 +85,6 @@ impl Seat {
     fn new(seed: u64, bot_places: &[usize]) -> Seat {
         let table = Table::new();
         let mut rng = Rng::from_seed(seed);
-        // A stream of its own, far from the dealing one, so that how much
-        // a search imagines cannot change what is dealt.
         let hand = table.deal(&mut rng);
         let opening_scores = scores_of(&hand);
         let bots = std::array::from_fn(|place| {
@@ -101,7 +96,9 @@ impl Seat {
             table,
             hand,
             rng,
-            search_rng: Rng::from_seed(seed ^ 0x5EA5_C400),
+            // A stream of its own, far from the dealing one, so that how
+            // much is imagined cannot change what is dealt.
+            imagining: Rng::from_seed(seed ^ 0x5EA5_C400),
             asking: VecDeque::new(),
             answers: Vec::new(),
             opening_scores,
@@ -341,54 +338,6 @@ pub struct Arena {
     mask: Vec<bool>,
     /// What the opponents are holding, filled in only when asked for.
     hands: Vec<f32>,
-    /// How the search has spent itself, across every game.
-    searched: search::Tally,
-    /// What the last decision judged of every candidate, per game: the
-    /// move's index, its weighted mean over the worlds, and its worth in
-    /// each world (NaN where it could not be tried). Empty for a game that
-    /// was not searched. See [`Arena::judgements`].
-    judgements: Vec<Vec<(usize, f64, Vec<f64>)>>,
-    judgement_weights: Vec<Vec<f64>>,
-    /// For each game, the candidates and leaves of a search whose values
-    /// have been asked for and not yet given back.
-    pending: Vec<Option<(Vec<usize>, search::Leaves)>>,
-    /// For each game, the worlds imagined for a weighed search and not yet
-    /// weighed.
-    imagined: Vec<Vec<Hand>>,
-    /// Fresh continuation chance attached to proposal identity before resampling.
-    /// The real environment RNG is never used by search.
-    imagined_chance: Vec<Vec<u64>>,
-    /// For each game, a lookahead the caller is playing the other seats
-    /// of, with its candidates.
-    lookaheads: Vec<Option<(Vec<usize>, search::Lookahead)>>,
-}
-
-/// Collapse resampling multiplicities before simulation. One proposal is one
-/// independent world, even for stochastic rollouts; repeated mass becomes its
-/// weight, not extra confidence or extra conditional simulations.
-fn unique_proposals(
-    kept: &[usize],
-    weights: &[f32],
-    available: usize,
-) -> PyResult<(Vec<usize>, Vec<f64>)> {
-    use std::collections::BTreeMap;
-    if kept.len() != weights.len() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "one weight per kept world",
-        ));
-    }
-    let mut mass = BTreeMap::new();
-    for (&index, &weight) in kept.iter().zip(weights) {
-        if index >= available || !weight.is_finite() || weight < 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "invalid proposal index or weight",
-            ));
-        }
-        if weight > 0.0 {
-            *mass.entry(index).or_insert(0.0) += weight as f64;
-        }
-    }
-    Ok(mass.into_iter().unzip())
 }
 
 /// One imagined world per live game from the beliefs given, as the
@@ -401,8 +350,8 @@ fn imagine_from<'py>(arena: &mut Arena, py: Python<'py>, beliefs: &[f32]) -> Bou
         let Some(wind) = seat.pending() else {
             continue;
         };
-        let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-        let world = search::imagine(&seat.hand, wind, &belief, &mut seat.search_rng);
+        let belief = worlds::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
+        let world = worlds::imagine(&seat.hand, wind, &belief, &mut seat.imagining);
         encoding::hidden_hands(
             &world,
             wind,
@@ -431,13 +380,6 @@ impl Arena {
             oracle: vec![0.0; games * ORACLE],
             mask: vec![false; games * ACTIONS],
             hands: vec![0.0; games * HANDS],
-            searched: search::Tally::default(),
-            judgements: (0..games).map(|_| Vec::new()).collect(),
-            judgement_weights: (0..games).map(|_| Vec::new()).collect(),
-            pending: (0..games).map(|_| None).collect(),
-            imagined: (0..games).map(|_| Vec::new()).collect(),
-            imagined_chance: (0..games).map(|_| Vec::new()).collect(),
-            lookaheads: (0..games).map(|_| None).collect(),
         }
     }
 
@@ -507,630 +449,6 @@ impl Arena {
         PyBytes::new(py, bytemuck_cast(&self.hands))
     }
 
-    /// The first half of a search valued by the network. For every live
-    /// game, imagines `worlds` worlds, makes each of the first `candidates`
-    /// moves of `ranked` in each, runs the other players round to the
-    /// deciding seat's next turn, and returns the positions that result.
-    ///
-    /// Returns, in order: every observation concatenated, as float32; how
-    /// many slots each game contributed; what each slot has already
-    /// settled, as float32, which is what the hands that ended on the way
-    /// moved and the placement if the game ended; and whether each slot's
-    /// observation wants the network's value added to that, as bytes of 0
-    /// and 1. Slots are numbered candidate-major within a game. A game
-    /// that owes no decision, or owes a call, contributes no slots.
-    ///
-    /// Python values every slot with one forward pass and hands the numbers
-    /// to [`Arena::decide`].
-    #[pyo3(signature = (ranked, beliefs, worlds=200, candidates=4, hurried=true))]
-    fn leaves<'py>(
-        &mut self,
-        py: Python<'py>,
-        ranked: Vec<Vec<usize>>,
-        beliefs: Vec<f32>,
-        worlds: usize,
-        candidates: usize,
-        hurried: bool,
-    ) -> PyResult<LeafBatch<'py>> {
-        let effort = search::Effort {
-            worlds,
-            candidates,
-            margin: 2.0,
-            hurried,
-            boundary: false,
-        };
-        let games = self.seats.len();
-        assert_eq!(ranked.len(), games, "one ranking per game");
-        assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
-
-        let mut observations: Vec<f32> = Vec::new();
-        let mut counts = Vec::with_capacity(games);
-        let mut settled: Vec<f32> = Vec::new();
-        let mut wanted: Vec<u8> = Vec::new();
-        for (game, ranking) in ranked.iter().enumerate() {
-            self.pending[game] = None;
-            let seat = &mut self.seats[game];
-            let Some(wind) = seat.pending() else {
-                counts.push(0);
-                continue;
-            };
-            if !seat.asking.is_empty() {
-                counts.push(0);
-                continue;
-            }
-            let shortlist: Vec<Action> = ranking
-                .iter()
-                .filter_map(|index| encoding::decode_action(&seat.hand, *index))
-                .take(candidates.max(1))
-                .collect();
-            if shortlist.is_empty() {
-                counts.push(0);
-                continue;
-            }
-            let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-            let got = search::leaves(
-                &seat.hand,
-                wind,
-                &shortlist,
-                effort,
-                &belief,
-                &mut seat.search_rng,
-            );
-            if got.counted.iter().any(|counted| !counted) {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "search has broken worlds; no candidate evidence was published",
-                ));
-            }
-            counts.push(got.counted.len());
-            observations.extend_from_slice(&got.observations);
-            settled.extend(got.settled.iter().map(|worth| *worth as f32));
-            wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
-            self.pending[game] = Some((
-                shortlist.iter().copied().map(action_to_index).collect(),
-                got,
-            ));
-        }
-        Ok((
-            PyBytes::new(py, bytemuck_cast(&observations)),
-            counts,
-            settled,
-            wanted,
-        ))
-    }
-
-    /// The first step of a weighed search. For every live game that owes a
-    /// move, imagines `worlds` worlds from the belief's per-tile marginals
-    /// and returns what each puts in the three hidden hands, as float32
-    /// planes of [`HIDDEN_HANDS_PLANES`] by thirty-four, one world after
-    /// another, with how many each game contributed. The marginals are
-    /// only a proposal; the reader weighs the worlds and
-    /// [`Arena::leaves_from`] takes the ones to keep.
-    #[pyo3(signature = (beliefs, worlds=800, active=None, search_calls=false))]
-    fn imagine<'py>(
-        &mut self,
-        py: Python<'py>,
-        beliefs: Vec<f32>,
-        worlds: usize,
-        active: Option<Vec<bool>>,
-        search_calls: bool,
-    ) -> (Bound<'py, PyBytes>, Vec<usize>) {
-        let games = self.seats.len();
-        assert_eq!(beliefs.len(), games * HANDS, "one belief per game");
-        assert!(
-            active.as_ref().is_none_or(|flags| flags.len() == games),
-            "one active flag per game"
-        );
-        let mut planes: Vec<f32> = Vec::new();
-        let mut counts = Vec::with_capacity(games);
-        for (game, stored) in self.imagined.iter_mut().enumerate() {
-            stored.clear();
-            self.imagined_chance[game].clear();
-            let seat = &mut self.seats[game];
-            let Some(wind) = seat.pending() else {
-                counts.push(0);
-                continue;
-            };
-            if (!search_calls && !seat.asking.is_empty())
-                || active.as_ref().is_some_and(|flags| !flags[game])
-            {
-                counts.push(0);
-                continue;
-            }
-            let belief = search::Belief::from(&beliefs[game * HANDS..(game + 1) * HANDS]);
-            let imagined =
-                search::imagine_worlds(&seat.hand, wind, &belief, &mut seat.search_rng, worlds);
-            let start = planes.len();
-            planes.resize(start + imagined.len() * HIDDEN_HANDS, 0.0);
-            for (index, world) in imagined.iter().enumerate() {
-                let slot = start + index * HIDDEN_HANDS;
-                encoding::hidden_hands(world, wind, &mut planes[slot..slot + HIDDEN_HANDS]);
-            }
-            self.imagined_chance[game] = (0..imagined.len())
-                .map(|_| seat.search_rng.next_u64())
-                .collect();
-            counts.push(imagined.len());
-            *stored = imagined;
-        }
-        (PyBytes::new(py, bytemuck_cast(&planes)), counts)
-    }
-
-    /// The second step: takes, per game, which of the imagined worlds to
-    /// keep and how much each counts, makes each of the first `candidates`
-    /// moves of `ranked` in every kept world, and returns the leaves as
-    /// [`Arena::leaves`] does. A game that imagined no worlds, or keeps
-    /// none, contributes no slots and comes back as its first move.
-    /// With `boundary`, the club plays the root hand out and the leaf is the
-    /// searching player's first decision of the hand after it, for a
-    /// placement-only head to judge with the root hand's result banked.
-    #[pyo3(signature = (ranked, kept, weights, candidates=4, hurried=true, boundary=false, placement_only=false))]
-    #[allow(clippy::too_many_arguments)]
-    fn leaves_from<'py>(
-        &mut self,
-        py: Python<'py>,
-        ranked: Vec<Vec<usize>>,
-        kept: Vec<Vec<usize>>,
-        weights: Vec<Vec<f32>>,
-        candidates: usize,
-        hurried: bool,
-        boundary: bool,
-        placement_only: bool,
-    ) -> PyResult<LeafBatch<'py>> {
-        if placement_only && !boundary {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "placement-only search needs boundary leaves",
-            ));
-        }
-        let games = self.seats.len();
-        assert_eq!(ranked.len(), games, "one ranking per game");
-        assert_eq!(kept.len(), games, "one list of kept worlds per game");
-        assert_eq!(weights.len(), games, "one list of weights per game");
-        let effort = search::Effort {
-            worlds: 0,
-            candidates,
-            margin: 2.0,
-            hurried,
-            boundary,
-        };
-        let selected: Vec<_> = kept
-            .iter()
-            .zip(&weights)
-            .zip(&self.imagined)
-            .map(|((kept, weights), pool)| unique_proposals(kept, weights, pool.len()))
-            .collect::<PyResult<_>>()?;
-        let mut observations: Vec<f32> = Vec::new();
-        let mut counts = Vec::with_capacity(games);
-        let mut settled: Vec<f32> = Vec::new();
-        let mut wanted: Vec<u8> = Vec::new();
-        for (game, ranking) in ranked.iter().enumerate() {
-            self.pending[game] = None;
-            let imagined = std::mem::take(&mut self.imagined[game]);
-            let chance = std::mem::take(&mut self.imagined_chance[game]);
-            let seat = &mut self.seats[game];
-            let Some(wind) = seat.pending() else {
-                counts.push(0);
-                continue;
-            };
-            if !seat.asking.is_empty() || imagined.is_empty() || selected[game].0.is_empty() {
-                counts.push(0);
-                continue;
-            }
-            let shortlist: Vec<Action> = ranking
-                .iter()
-                .filter_map(|index| encoding::decode_action(&seat.hand, *index))
-                .take(candidates.max(1))
-                .collect();
-            if shortlist.is_empty() {
-                counts.push(0);
-                continue;
-            }
-            let (indices, world_weights) = &selected[game];
-            let worlds: Vec<Hand> = indices
-                .iter()
-                .map(|index| imagined[*index].clone())
-                .collect();
-            let chance_seeds: Vec<_> = indices.iter().map(|index| chance[*index]).collect();
-            let got = search::leaves_from_for_objective(
-                wind,
-                &shortlist,
-                &worlds,
-                world_weights,
-                effort,
-                placement_only,
-                &chance_seeds,
-            );
-            if got.counted.iter().any(|counted| !counted) {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "search has broken worlds; no candidate evidence was published",
-                ));
-            }
-            counts.push(got.counted.len());
-            observations.extend_from_slice(&got.observations);
-            settled.extend(got.settled.iter().map(|worth| *worth as f32));
-            wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
-            self.pending[game] = Some((
-                shortlist.iter().copied().map(action_to_index).collect(),
-                got,
-            ));
-        }
-        Ok((
-            PyBytes::new(py, bytemuck_cast(&observations)),
-            counts,
-            settled,
-            wanted,
-        ))
-    }
-
-    /// Begins, for every live game that owes a move, a lookahead in which
-    /// the caller plays every decision on the way: the weighed search of
-    /// [`Arena::leaves_from`] with the network rather than the heuristic
-    /// player moving the other seats. Takes, per game, which of the
-    /// imagined worlds to keep and how much each counts, makes each of the
-    /// first `candidates` moves of `ranked` in every kept world, and
-    /// advances every slot to the first decision somebody owes. `depth` is
-    /// how many of the deciding player's own turns to act the caller plays
-    /// before the position is valued; zero values the next one.
-    ///
-    /// Returns how many games have a lookahead running. The caller then
-    /// alternates [`Arena::lookahead_owed`] and [`Arena::lookahead_apply`]
-    /// until nothing is owed, and takes the leaves with
-    /// [`Arena::lookahead_leaves`] for [`Arena::decide`].
-    ///
-    /// With `boundary`, the leaf is the searching player's first decision of
-    /// the hand after the root hand, which is played out and banked first
-    /// (`until_hand_ends` is implied), for a placement-only head to judge.
-    #[pyo3(signature = (ranked, kept, weights, candidates=4, depth=0, until_hand_ends=false, boundary=false, placement_only=false, search_calls=false))]
-    #[allow(clippy::too_many_arguments)]
-    fn lookahead_begin(
-        &mut self,
-        ranked: Vec<Vec<usize>>,
-        kept: Vec<Vec<usize>>,
-        weights: Vec<Vec<f32>>,
-        candidates: usize,
-        depth: usize,
-        until_hand_ends: bool,
-        boundary: bool,
-        placement_only: bool,
-        search_calls: bool,
-    ) -> PyResult<usize> {
-        if placement_only && !boundary {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "placement-only search needs boundary leaves",
-            ));
-        }
-        let games = self.seats.len();
-        assert_eq!(ranked.len(), games, "one ranking per game");
-        assert_eq!(kept.len(), games, "one list of kept worlds per game");
-        assert_eq!(weights.len(), games, "one list of weights per game");
-        let selected: Vec<_> = kept
-            .iter()
-            .zip(&weights)
-            .zip(&self.imagined)
-            .map(|((kept, weights), pool)| unique_proposals(kept, weights, pool.len()))
-            .collect::<PyResult<_>>()?;
-        let mut running = 0;
-        for (game, ranking) in ranked.iter().enumerate() {
-            self.pending[game] = None;
-            self.lookaheads[game] = None;
-            let imagined = std::mem::take(&mut self.imagined[game]);
-            let chance = std::mem::take(&mut self.imagined_chance[game]);
-            let seat = &self.seats[game];
-            let Some(wind) = seat.pending() else {
-                continue;
-            };
-            if (!search_calls && !seat.asking.is_empty())
-                || imagined.is_empty()
-                || selected[game].0.is_empty()
-            {
-                continue;
-            }
-            let shortlist: Vec<(usize, search::RootMove)> = ranking
-                .iter()
-                .filter_map(|index| {
-                    if seat.asking.is_empty() {
-                        encoding::decode_action(&seat.hand, *index).map(search::RootMove::Turn)
-                    } else {
-                        encoding::decode_call(&seat.hand, wind, *index).map(search::RootMove::Claim)
-                    }
-                    .map(|action| (*index, action))
-                })
-                .take(candidates.max(1))
-                .collect();
-            if shortlist.is_empty() {
-                continue;
-            }
-            let (indices, world_weights) = &selected[game];
-            let worlds: Vec<Hand> = indices
-                .iter()
-                .map(|index| imagined[*index].clone())
-                .collect();
-            let chance_seeds: Vec<_> = indices.iter().map(|index| chance[*index]).collect();
-            let lookahead = search::Lookahead::begin_moves(
-                wind,
-                &shortlist
-                    .iter()
-                    .map(|(_, action)| *action)
-                    .collect::<Vec<_>>(),
-                &worlds,
-                world_weights,
-                depth,
-                until_hand_ends || boundary,
-                boundary,
-                placement_only,
-                &chance_seeds,
-            );
-            self.lookaheads[game] = Some((
-                shortlist.iter().map(|(index, _)| *index).collect(),
-                lookahead,
-            ));
-            running += 1;
-        }
-        Ok(running)
-    }
-
-    /// The decisions the lookaheads are waiting on: the observations, as
-    /// float32, and the legality masks, as bytes of 0 and 1, of every
-    /// waiting slot across every game, in game and slot order, and how
-    /// many there are. Nothing waiting means the leaves are ready.
-    fn lookahead_owed<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> (Bound<'py, PyBytes>, Bound<'py, PyBytes>, usize) {
-        let mut observations: Vec<f32> = Vec::new();
-        let mut masks: Vec<bool> = Vec::new();
-        let mut count = 0;
-        for (_, lookahead) in self.lookaheads.iter().flatten() {
-            count += lookahead.observe_into(&mut observations, &mut masks);
-        }
-        let bytes: Vec<u8> = masks.iter().map(|flag| u8::from(*flag)).collect();
-        (
-            PyBytes::new(py, bytemuck_cast(&observations)),
-            PyBytes::new(py, &bytes),
-            count,
-        )
-    }
-
-    /// How many slots each game's lookahead holds, candidates times
-    /// worlds, and zero for a game with none: what a caller keeping a copy
-    /// of every seat's state per slot needs to lay them out.
-    fn lookahead_slots(&self) -> Vec<usize> {
-        self.lookaheads
-            .iter()
-            .map(|entry| entry.as_ref().map_or(0, |(_, lookahead)| lookahead.slots()))
-            .collect()
-    }
-
-    /// What each slot's world dealt each real player, right after
-    /// [`Arena::lookahead_begin`]: per game with a lookahead, per slot, four
-    /// lists of mjai tile names indexed by real player. A copy of a seat's
-    /// state is given these before the world's events, since the world
-    /// dealt the seats the searcher cannot see hands of its own.
-    fn lookahead_hands(&self) -> Vec<Vec<[Vec<String>; 4]>> {
-        self.lookaheads
-            .iter()
-            .enumerate()
-            .filter_map(|(game, entry)| entry.as_ref().map(|(_, lookahead)| (game, lookahead)))
-            .map(|(game, lookahead)| {
-                // As the search began, so the seats are the real hand's.
-                let real = self.seats[game].table.seating();
-                lookahead
-                    .hands()
-                    .into_iter()
-                    .map(|by_seat| {
-                        let mut by_player: [Vec<String>; 4] = Default::default();
-                        for seat in 0..4 {
-                            let player = real[seat];
-                            by_player[player] = riichi_core::tile::Tile::all()
-                                .flat_map(|tile| {
-                                    std::iter::repeat_n(
-                                        mjai::name(tile),
-                                        by_seat[seat][tile.idx()] as usize,
-                                    )
-                                })
-                                .collect();
-                        }
-                        by_player
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-
-    /// Initial searcher identity and sampled furiten flags, in real-player order.
-    fn lookahead_initial_state(&self) -> Vec<Vec<(usize, [bool; 4])>> {
-        self.lookaheads
-            .iter()
-            .enumerate()
-            .filter_map(|(game, entry)| {
-                let (_, lookahead) = entry.as_ref()?;
-                let real = self.seats[game].table.seating();
-                Some(
-                    lookahead
-                        .initial_state()
-                        .into_iter()
-                        .map(|(seat, flags)| {
-                            let mut mapped = [false; 4];
-                            for p in 0..4 {
-                                mapped[real[p]] = flags[p];
-                            }
-                            (real[seat.index()], mapped)
-                        })
-                        .collect(),
-                )
-            })
-            .collect()
-    }
-
-    /// Sampled deciding-seat furiten and drawn tile, aligned with owed_mjai.
-    /// These belong to the hypothetical worlds, not the actual hidden hands.
-    fn lookahead_decision_state(&self) -> (Vec<bool>, Vec<Option<String>>) {
-        self.lookaheads
-            .iter()
-            .flatten()
-            .flat_map(|(_, lookahead)| lookahead.decision_state())
-            .map(|(furiten, drawn)| (furiten, drawn.map(mjai::name)))
-            .unzip()
-    }
-
-    /// The decisions the lookaheads are waiting on, for a network that
-    /// reads Mortal's planes: per waiting slot, in the order
-    /// [`Arena::lookahead_owed`] gives them, the game, the slot's index in
-    /// its game, the real player who owes the decision, and the events the
-    /// world invented since that slot was last asked, as mjai lines naming
-    /// real players. The legality masks come with them, as bytes of 0 and
-    /// 1 over our actions, so the engine's observations need not be built.
-    #[allow(clippy::type_complexity)]
-    fn lookahead_owed_mjai<'py>(
-        &mut self,
-        py: Python<'py>,
-    ) -> (
-        Vec<usize>,
-        Vec<usize>,
-        Vec<usize>,
-        Bound<'py, PyBytes>,
-        Vec<Vec<String>>,
-    ) {
-        let mut games = Vec::new();
-        let mut slots = Vec::new();
-        let mut players = Vec::new();
-        let mut masks: Vec<u8> = Vec::new();
-        let mut lines: Vec<Vec<String>> = Vec::new();
-        for (game, entry) in self.lookaheads.iter_mut().enumerate() {
-            let Some((_, lookahead)) = entry else {
-                continue;
-            };
-            let real = self.seats[game].table.seating();
-            let seatings = lookahead.seatings();
-            let mut observations: Vec<f32> = Vec::new();
-            let mut flags: Vec<bool> = Vec::new();
-            lookahead.observe_into(&mut observations, &mut flags);
-            masks.extend(flags.iter().map(|flag| u8::from(*flag)));
-            for (slot, seat, events) in lookahead.owed_events() {
-                let now: [usize; 4] = std::array::from_fn(|s| real[seatings[slot][s]]);
-                games.push(game);
-                slots.push(slot);
-                players.push(now[seat.index()]);
-                lines.push(
-                    events
-                        .iter()
-                        .map(|(event, under)| {
-                            let then: [usize; 4] = std::array::from_fn(|s| real[under[s]]);
-                            event.to_json(then)
-                        })
-                        .collect(),
-                );
-            }
-        }
-        (games, slots, players, PyBytes::new(py, &masks), lines)
-    }
-
-    /// Answers them: one action index per waiting slot, in the order
-    /// [`Arena::lookahead_owed`] gave them, and every lookahead advances
-    /// to the next decision it owes.
-    fn lookahead_apply(&mut self, actions: Vec<usize>) -> PyResult<()> {
-        let expected: usize = self
-            .lookaheads
-            .iter()
-            .flatten()
-            .map(|(_, lookahead)| lookahead.owed().len())
-            .sum();
-        if actions.len() != expected {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "expected {expected} actions, got {}",
-                actions.len()
-            )));
-        }
-        let mut offset = 0;
-        for (_, lookahead) in self.lookaheads.iter().flatten() {
-            let waiting = lookahead.owed().len();
-            lookahead
-                .validate_actions(&actions[offset..offset + waiting])
-                .map_err(pyo3::exceptions::PyValueError::new_err)?;
-            offset += waiting;
-        }
-        offset = 0;
-        for (_, lookahead) in self.lookaheads.iter_mut().flatten() {
-            let waiting = lookahead.owed().len();
-            lookahead
-                .apply(&actions[offset..offset + waiting])
-                .map_err(pyo3::exceptions::PyValueError::new_err)?;
-            offset += waiting;
-        }
-        Ok(())
-    }
-
-    /// The leaves of every lookahead, as [`Arena::leaves_from`] gives
-    /// them, ready for [`Arena::decide`]. A slot still waiting on a
-    /// decision does not count. The lookaheads are spent.
-    fn lookahead_leaves<'py>(&mut self, py: Python<'py>) -> PyResult<LeafBatch<'py>> {
-        for (_, lookahead) in self.lookaheads.iter().flatten() {
-            lookahead
-                .validate_finished()
-                .map_err(pyo3::exceptions::PyValueError::new_err)?;
-        }
-        let games = self.seats.len();
-        let mut observations: Vec<f32> = Vec::new();
-        let mut counts = Vec::with_capacity(games);
-        let mut settled: Vec<f32> = Vec::new();
-        let mut wanted: Vec<u8> = Vec::new();
-        for game in 0..games {
-            self.pending[game] = None;
-            let Some((shortlist, lookahead)) = self.lookaheads[game].take() else {
-                counts.push(0);
-                continue;
-            };
-            let got = lookahead.leaves();
-            counts.push(got.counted.len());
-            observations.extend_from_slice(&got.observations);
-            settled.extend(got.settled.iter().map(|worth| *worth as f32));
-            wanted.extend(got.wanted.iter().map(|wants| u8::from(*wants)));
-            self.pending[game] = Some((shortlist, got));
-        }
-        Ok((
-            PyBytes::new(py, bytemuck_cast(&observations)),
-            counts,
-            settled,
-            wanted,
-        ))
-    }
-
-    /// For every leaf the last [`Arena::leaves_from`] or
-    /// [`Arena::lookahead_leaves`] produced, whose
-    /// view it is and what its world invented, in the same slot order.
-    ///
-    /// A network that reads Mortal's planes cannot be given the engine's
-    /// observations. It is given instead the player whose state to copy —
-    /// the number the follower knows, not the seat — and the mjai lines to
-    /// advance that copy by. A slot with no lines is one nothing can value
-    /// this way: it settled, it broke, or its world dealt a new hand and
-    /// moved the seats out from under the actor numbers.
-    fn leaves_mjai(&self) -> (Vec<usize>, Vec<Vec<String>>) {
-        let mut players = Vec::new();
-        let mut lines = Vec::new();
-        for (game, seat) in self.seats.iter().enumerate() {
-            let Some((_, leaves)) = &self.pending[game] else {
-                continue;
-            };
-            // The real table's seating names the people in the hand the
-            // search began in; a world that dealt on names them through
-            // its own seating, composed with that.
-            let real = seat.table.seating();
-            for (slot, viewpoint) in leaves.viewpoints.iter().enumerate() {
-                let now: [usize; 4] = std::array::from_fn(|s| real[leaves.seatings[slot][s]]);
-                players.push(now[viewpoint.index()]);
-                let mut told: Vec<String> = leaves.carried[slot]
-                    .iter()
-                    .map(|(event, under)| {
-                        let then: [usize; 4] = std::array::from_fn(|s| real[under[s]]);
-                        event.to_json(then)
-                    })
-                    .collect();
-                told.extend(leaves.invented[slot].iter().map(|event| event.to_json(now)));
-                lines.push(told);
-            }
-        }
-        (players, lines)
-    }
-
     /// One imagined world per live game, from the belief's marginals, as
     /// the hidden-hand planes the reader is shown: the negatives it learns
     /// to tell from the real hands, which [`Arena::oracle`] carries. Zeros
@@ -1153,125 +471,6 @@ impl Arena {
             .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
             .collect();
         imagine_from(self, py, &floats)
-    }
-
-    /// The second half: takes one value per slot, in the order `leaves`
-    /// gave them, and returns the move each game came to. Games that
-    /// contributed no slots come back as the first entry of their ranking,
-    /// or [`PASS`] when there was none.
-    #[pyo3(signature = (valued, margin, ranked, count_tally=true))]
-    fn decide(
-        &mut self,
-        valued: Vec<f32>,
-        margin: f64,
-        ranked: Vec<Vec<usize>>,
-        count_tally: bool,
-    ) -> Vec<usize> {
-        let games = self.seats.len();
-        assert_eq!(ranked.len(), games, "one ranking per game");
-        let mut offset = 0;
-        let mut chosen = Vec::with_capacity(games);
-        for (game, ranking) in ranked.iter().enumerate() {
-            let fallback = ranking.first().copied().unwrap_or(PASS);
-            self.judgements[game].clear();
-            self.judgement_weights[game].clear();
-            let Some((candidates, leaves)) = self.pending[game].take() else {
-                chosen.push(fallback);
-                continue;
-            };
-            let slots = leaves.counted.len();
-            let values: Vec<f64> = valued[offset..offset + slots]
-                .iter()
-                .map(|value| *value as f64)
-                .collect();
-            offset += slots;
-            if count_tally {
-                self.searched.asked += 1;
-            }
-            self.judgement_weights[game] = leaves.weights.clone();
-            let judged = search::judge_all(&candidates, &leaves, &values);
-            self.judgements[game] = judged
-                .iter()
-                .map(|entry| {
-                    (
-                        entry.action,
-                        entry.value,
-                        entry
-                            .per_world
-                            .iter()
-                            .map(|world| world.unwrap_or(f64::NAN))
-                            .collect(),
-                    )
-                })
-                .collect();
-            match search::pick_by_margin(&judged, margin) {
-                Some(judged) => {
-                    let picked = judged.action;
-                    if count_tally && Some(picked) != ranking.first().copied() {
-                        self.searched.overrode += 1;
-                    }
-                    chosen.push(picked);
-                }
-                None => chosen.push(fallback),
-            }
-        }
-        assert_eq!(offset, valued.len(), "every value was spent");
-        chosen
-    }
-
-    /// What the last [`Arena::decide`] judged of every candidate, per
-    /// game: the move's index, its weighted mean over the worlds, and its
-    /// worth in each world in the order the worlds were made, NaN where
-    /// the move could not be tried there. Empty for a game not searched.
-    /// Record a completed multi-stage search exactly once, not each pilot.
-    fn record_search_tally(&mut self, asked: usize, overrode: usize) -> PyResult<()> {
-        if overrode > asked {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "overrides exceed searched decisions",
-            ));
-        }
-        self.searched.asked += asked;
-        self.searched.overrode += overrode;
-        Ok(())
-    }
-
-    /// Independent search-stream seeds for resampling; no environment RNG is used.
-    fn search_resample_seeds(&mut self, active: Vec<bool>) -> PyResult<Vec<u64>> {
-        if active.len() != self.seats.len() {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "one search eligibility flag per game",
-            ));
-        }
-        Ok(self
-            .seats
-            .iter_mut()
-            .zip(active)
-            .map(
-                |(seat, yes)| {
-                    if yes {
-                        seat.search_rng.next_u64()
-                    } else {
-                        0
-                    }
-                },
-            )
-            .collect())
-    }
-
-    fn judgement_weights(&self) -> Vec<Vec<f64>> {
-        self.judgement_weights.clone()
-    }
-
-    fn judgements(&self) -> Vec<Vec<(usize, f64, Vec<f64>)>> {
-        self.judgements.clone()
-    }
-
-    /// How many decisions the search was asked about, and how many of them
-    /// it changed. A search that never changes anything is a no-op dressed
-    /// up as a calculation; one that changes everything has a margin that
-    /// is not doing its job.
-    fn search_tally(&self) -> (usize, usize) {
-        (self.searched.asked, self.searched.overrode)
     }
 
     /// One legality mask per game, as bytes of 0 and 1.
@@ -1505,7 +704,6 @@ fn cast_i32(values: &[i32]) -> &[u8] {
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
     module.add("TRAINING_API_VERSION", 2u32)?;
-    module.add("SEARCH_API_VERSION", 5u32)?;
     module.add("PLANES", PLANES)?;
     // Which encoding of those planes `observations` writes; a checkpoint of
     // the engine's kind records it and is refused where it differs.
@@ -1519,7 +717,6 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("OPPONENTS", OPPONENTS)?;
     module.add("ORACLE_PLANES", ORACLE_PLANES)?;
     module.add("HIDDEN_HANDS_PLANES", HIDDEN_HANDS_PLANES)?;
-    module.add("POINTS_PER_UNIT", riichi_core::encoding::POINTS_PER_UNIT)?;
     module.add(
         "PLACEMENT_VALUE",
         riichi_core::encoding::PLACEMENT_VALUE.to_vec(),

@@ -3,9 +3,9 @@ use riichi_core::bot::Bot;
 use riichi_core::game::{Action, Call, Hand, Phase};
 use riichi_core::hand::TileSet;
 use riichi_core::rng::Rng;
-use riichi_core::search::{imagine, Belief};
 use riichi_core::table::Table;
 use riichi_core::tile::Tile;
+use riichi_core::worlds::{imagine, Belief};
 use riichi_core::Wind;
 
 fn check(world: &Hand, observer: Wind) {
