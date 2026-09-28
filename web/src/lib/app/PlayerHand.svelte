@@ -63,7 +63,7 @@
   {/if}
   <div class="hand" class:has-draw={Boolean(me.drawn)} role="group" aria-label="your tiles" aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
     {#each handTiles as tile, index (index)}
-      <HandTile {tile} handIndex={index} onclick={() => selectTile(tile, index)}
+      <HandTile {tile} handIndex={index} onclick={() => selectTile(tile, index)} toggle
         disabled={!canDiscard(tile)} muted={view.phase === 'over'} selected={myTurn && (picked === index || selected === index)}
         drawn={Boolean(me.drawn) && index === me.hand.length}
         discardShanten={discardHints.get(tile)?.shanten ?? null}

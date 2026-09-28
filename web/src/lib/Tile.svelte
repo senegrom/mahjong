@@ -39,6 +39,9 @@
      * would hide the artwork, so the tiles that belong are lifted instead. */
     inShape = false,
     onclick = null,
+    /** A button whose press selects it: only then is `selected` announced as
+     * pressed. Palette, remove and play-this buttons are plain buttons. */
+    toggle = false,
     disabled = false,
     muted = disabled,
     title = '',
@@ -107,7 +110,7 @@
     data-hand-index={handIndex ?? undefined}
     data-drawn={drawn ? 'true' : undefined}
     data-readiness={readiness ?? undefined}
-    aria-pressed={selected}
+    aria-pressed={toggle ? selected : undefined}
     type="button"
     class:ringed={marks.length > 0}
     class:in-shape={inShape}

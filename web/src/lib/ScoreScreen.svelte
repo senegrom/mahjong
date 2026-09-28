@@ -104,12 +104,12 @@
       </div>
 
       <div class="bonus-indicators">
-        <div class="indicator-row" aria-label="winning hand dora indicators">
+        <div class="indicator-row" role="group" aria-label="winning hand dora indicators">
           <span>Dora indicators</span>
           <div class="indicator-tiles">{#each win.dora_indicators ?? [] as tile, slot (slot)}<Tile {tile} size="small" />{/each}</div>
         </div>
         {#if win.ura_indicators?.length}
-          <div class="indicator-row ura" aria-label="winning hand ura-dora indicators">
+          <div class="indicator-row ura" role="group" aria-label="winning hand ura-dora indicators">
             <span>Ura-dora indicators</span>
             <div class="indicator-tiles">{#each win.ura_indicators as tile, slot (slot)}<Tile {tile} size="small" />{/each}</div>
           </div>

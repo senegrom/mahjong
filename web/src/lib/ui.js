@@ -54,6 +54,15 @@ export function meldTiles(meld) {
   return tiles;
 }
 
+const MELD_WORDS = { chii: 'Chii', pon: 'Pon', kan: 'Open kan', 'extended-kan': 'Added kan', 'concealed-kan': 'Concealed kan' };
+
+/** A called set in words, as a screen reader should say it: "Pon of 5 bamboo". */
+export function meldWords(meld) {
+  const lowest = [...(meld.tiles ?? [])].sort()[0];
+  const tiles = meld.kind === 'chii' ? sequenceWords(lowest) : tileWords(lowest);
+  return `${MELD_WORDS[meld.kind] ?? 'Called set'} of ${tiles}`;
+}
+
 export function placeLabel(row) {
   const place = ['1st', '2nd', '3rd', '4th'][row.place - 1] ?? String(row.place);
   return row.tied ? `Joint ${place}` : place;

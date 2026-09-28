@@ -9,7 +9,7 @@
   let { discards = [], compact = false, dora = [] } = $props();
 </script>
 
-<div class="pool" class:compact aria-label="discards">
+<div class="pool" class:compact role="group" aria-label="discards">
   {#each discards as discard, index (index)}
     <Tile
       tile={discard.tile}

@@ -54,7 +54,7 @@
 <section class="seat {side}" class:turn={seat.turn} class:thinking aria-label="{NAMES[seat.seat]} seat">
   <header>
     <span class="wind" class:dealer>{NAMES[seat.seat]}</span>
-    {#if dealer}<span class="dealer-badge" aria-label="dealer">Dealer</span>{/if}
+    {#if dealer}<span class="dealer-badge">Dealer</span>{/if}
     <span class="score score-full">{seat.score.toLocaleString()}</span>
     <span class="score score-short" title={seat.score.toLocaleString()}>{shortScore(seat.score)}</span>
     {#if OPPONENT_LABELS[seat.controller]}
@@ -67,7 +67,7 @@
     {/if}
   </header>
 
-  <div class="held" aria-label="{seat.hand_size} tiles in hand">
+  <div class="held" role="img" aria-label="{seat.hand_size} tiles in hand">
     {#each Array(Math.min(seat.hand_size, 14)) as _, index (index)}
       <span class="back"></span>
     {/each}

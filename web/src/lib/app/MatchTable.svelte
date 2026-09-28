@@ -5,6 +5,7 @@
   import Discards from '../Discards.svelte';
   import Melds from '../Melds.svelte';
   import { SEAT_NAMES as NAMES } from '../tiles.js';
+  import { OPPONENT_POSITIONS } from '../opponents.js';
 
   let { view, hints, thinking, pendingOpponent }: MatchTableProps = $props();
   let tableDialog = $state<HTMLDialogElement | null>(null);
@@ -19,17 +20,17 @@
 <div class="board">
   <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player} /></div>
   <div class="place left"><Seat seat={left} side="left" dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player} /></div>
-  <div class="centre" aria-label="the table">
+  <div class="centre" role="group" aria-label="the table">
     <div class="round-details">
       <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>Round</span></div>
       <div class="wall"><strong>{view.wall}</strong><span>tiles left</span></div>
     </div>
     <div class="table-indicators">
-      <div class="indicator-line"><span>Dora</span><div class="indicators" aria-label="dora indicators">
+      <div class="indicator-line"><span>Dora</span><div class="indicators" role="group" aria-label="dora indicators">
         {#each view.dora_indicators as indicator, slot (slot)}<Tile tile={indicator} size="small" />{/each}
       </div></div>
       {#if uraIndicators.length}
-        <div class="indicator-line"><span>Ura-dora</span><div class="ura-indicators" aria-label="ura-dora indicators">
+        <div class="indicator-line"><span>Ura-dora</span><div class="ura-indicators" role="group" aria-label="ura-dora indicators">
           {#each uraIndicators as indicator, slot (slot)}<Tile tile={indicator} size="small" />{/each}
         </div></div>
       {/if}
@@ -52,7 +53,7 @@
   <header><h2 id="table-dialog-title">All discards and called sets</h2><button class="app-control" onclick={() => tableDialog?.close()}>Close</button></header>
   <div class="inspection-grid">
     {#each view.seats as seat, index (index)}
-      <section><h3>{index === 0 ? 'You' : NAMES[seat.seat]} · {NAMES[seat.seat]} · {seat.score.toLocaleString()}</h3>
+      <section><h3>{index === 0 ? 'You' : OPPONENT_POSITIONS[index - 1]} · {NAMES[seat.seat]} · {seat.score.toLocaleString()}</h3>
         <Discards discards={seat.discards} dora={shownDora} />
         {#if seat.melds.length}<Melds melds={seat.melds} dora={shownDora} />{/if}
         {#if seat.discards.length === 0}<p>No discards yet.</p>{/if}

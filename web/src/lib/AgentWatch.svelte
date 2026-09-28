@@ -115,7 +115,7 @@
         <section class:followed={index === 0} class:turn={seat.turn}>
           <header><strong>{index === 0 ? 'Following' : positions[index]} · {WINDS[['east','south','west','north'].indexOf(seat.seat)]}</strong><span>{AGENTS[watch.lineup[index]]} · {seat.score.toLocaleString()}{seat.riichi ? ' · Riichi' : ''}</span></header>
           {#if index === 0}
-            <div class="tiles hand" aria-label="Followed agent hand">
+            <div class="tiles hand" role="group" aria-label="Followed agent hand">
               {#each [...seat.hand, ...(seat.drawn ? [seat.drawn] : [])] as tile, slot (slot)}
                 <HandTile {tile} size="small" handIndex={slot} drawn={Boolean(seat.drawn) && slot === seat.hand.length}
                   onclick={() => chooseAlternative(discardChoices.get(tile))} disabled={busy || !discardChoices.has(tile)} muted={view.phase === 'over'}

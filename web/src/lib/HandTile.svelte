@@ -9,6 +9,7 @@
     showRemaining = false,
     handIndex = null,
     onclick = null,
+    toggle = false,
     disabled = false,
     muted = disabled,
     selected = false,
@@ -20,7 +21,7 @@
 </script>
 
 <span class="hand-tile" class:small={size === 'small'} data-hand-drawn={drawn ? 'true' : undefined}>
-  <Tile {tile} {size} {handIndex} {onclick} {disabled} {muted} {selected} {drawn}
+  <Tile {tile} {size} {handIndex} {onclick} {toggle} {disabled} {muted} {selected} {drawn}
     {discardShanten} {safe} {dora} />
   {#if showRemaining && remaining !== null}
     <span class="copy-count" class:dead={remaining === 0} class:thin={remaining === 1}

@@ -145,7 +145,7 @@
       </p>
     {/if}
     {#if !['setup', 'hand', 'dora'].includes(state.stage)}
-      <div class="your-hand" aria-label="Your guided hand">
+      <div class="your-hand" role="group" aria-label="Your guided hand">
         <div class="hand-caption"><strong>Your hand</strong><span>{mine.riichi !== 'none' ? 'Riichi · ' : ''}{mine.furiten ? 'Passed win · furiten · ' : ''}{position.wall} live tiles left</span></div>
         <div class="held-tiles">{#each hand as tile, i (i)}{@const choice = analysis?.choices.find(c => c.tile === tile && c.kind === 'discard')}
           <HandTile {tile} size="small" dora={dora.includes(tile)} remaining={4 - counts.get(tile)} showRemaining={hints}

@@ -1,6 +1,7 @@
 <script>
   import Tile from './Tile.svelte';
   import { TILES, parseTiles } from './physical-position.js';
+  import { tileWords } from './tiles.js';
   let { label, tiles = [], onchange = null, onadd = null, limit = 14, notation = true, expanded = false } = $props();
   let text = $state('');
   let error = $state('');
@@ -20,11 +21,11 @@
 
 <div class="tile-entry">
   <span class="entry-label">{label}</span>
-  {#if tiles.length}<div class="entered">{#each tiles as tile, index (index)}<Tile {tile} size="small" title={`Remove ${tile}`} onclick={onchange ? () => onchange(tiles.filter((_, i) => i !== index)) : null} />{/each}</div>{/if}
+  {#if tiles.length}<div class="entered">{#each tiles as tile, index (index)}<Tile {tile} size="small" title={`Remove ${tileWords(tile)}`} onclick={onchange ? () => onchange(tiles.filter((_, i) => i !== index)) : null} />{/each}</div>{/if}
   <details open={expanded}>
     <summary>{onadd ? 'Choose a tile' : `Add tiles · ${tiles.length}/${limit}`}</summary>
-    <div class="palette" aria-label={label}>
-      {#each TILES as tile (tile)}<Tile {tile} size="small" title={`Add ${tile} to ${label}`} onclick={() => add([tile])} disabled={!onadd && tiles.length >= limit} muted={false} />{/each}
+    <div class="palette" role="group" aria-label={label}>
+      {#each TILES as tile (tile)}<Tile {tile} size="small" title={`Add ${tileWords(tile)} to ${label}`} onclick={() => add([tile])} disabled={!onadd && tiles.length >= limit} muted={false} />{/each}
     </div>
     {#if notation && !onadd}<div class="notation"><input aria-label={`${label} in tile notation`} bind:value={text} placeholder="123m456p789s11z" onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); enter(); } }} /><button onclick={enter}>Add</button></div>{/if}
   </details>

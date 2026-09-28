@@ -1,6 +1,6 @@
 <script>
   import Tile from './Tile.svelte';
-  import { meldTiles } from './ui.js';
+  import { meldTiles, meldWords } from './ui.js';
 
   /**
    * Called sets, shown to the right of a player's tiles. The claimed tile is
@@ -24,7 +24,7 @@
 
 <div class="melds">
   {#each melds as meld, meldIndex (meldIndex)}
-    <div class="meld" aria-label="{meld.kind} of {meld.tiles[0]}">
+    <div class="meld" role="group" aria-label={meldWords(meld)}>
       {#each meldTiles(meld) as tile, index (index)}
         <Tile
           {tile}
