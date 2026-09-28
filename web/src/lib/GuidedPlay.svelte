@@ -14,7 +14,7 @@
   import AgentWeights from './AgentWeights.svelte';
   import GuidedResult from './GuidedResult.svelte';
 
-  let { ready, trainedAvailable, storage, hints = true } = $props();
+  let { trainedAvailable, storage, hints = true } = $props();
   const trainedSupported = supportsTrainedAgent(PhysicalAnalysis.prototype);
   let game = $state(emptyGuided());
   let state = $derived(game.state);
@@ -23,7 +23,6 @@
   let dora = $derived(hints ? doraTiles(position) : []);
   let counts = $derived(visibleCounts(position));
   let hand = $derived([...mine.hand].sort((a, b) => TILES.indexOf(a) - TILES.indexOf(b)));
-  let mounted = $state(false);
   let loaded = $state(false), unreadable = $state(false), conflict = $state(''), warning = $state('');
   let failure = $state(''), busy = $state(false), analysis = $state(null);
   let discardRiichi = $state(false), discardDrawn = $state(false);
@@ -33,7 +32,7 @@
   let loadedStore, request, analyzedKey = '', closed = false;
   const snapshot = () => JSON.parse(JSON.stringify(game));
   const decisionKey = () => JSON.stringify([state.stage, position, state.agent]);
-  let blocked = $derived(!ready || !loaded || unreadable || Boolean(conflict));
+  let blocked = $derived(!loaded || unreadable || Boolean(conflict));
   let ownTurn = $derived(state.nextSeat === position.seat);
   let inputPrompt = $derived(ownTurn
     ? position.after_quad ? 'What is your replacement tile?' : 'What did you draw?'
@@ -52,13 +51,10 @@
       onWarning: message => { if (!closed) warning = message.replaceAll('physical table', 'guided game'); },
       onConflict: message => { if (!closed) { conflict = message.replaceAll('physical table', 'guided game'); request?.abort(); analysis = null; busy = false; } },
     });
-    mounted = true;
+    void load();
     const changed = event => loadedStore.changed(event);
     window.addEventListener('storage', changed);
     return () => window.removeEventListener('storage', changed);
-  });
-  $effect(() => {
-    if (ready && mounted) untrack(() => { void load(); });
   });
   $effect(() => {
     if (loaded && !unreadable && !conflict) void loadedStore.save(snapshot());

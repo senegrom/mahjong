@@ -43,7 +43,6 @@
   .opponent-fields select { width: 60%; min-width: 0; }
   .custom-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
   .custom-help { opacity: .85; }
-  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
 

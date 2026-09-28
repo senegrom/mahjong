@@ -8,8 +8,6 @@ import { normalizeTileFace } from './tile-faces.js';
 export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
 const VERSION = 1;
-// Mortal action schema: never reuse the engine-space pass (70) here.
-const MORTAL_PASS = 45;
 const MAX_COMMANDS = 20000;
 const MAX_SAVE_BYTES = 2_000_000;
 const DIFFICULTIES = OPPONENT_TYPES;
@@ -20,12 +18,11 @@ function require(condition, message) {
 }
 
 export function readSettings(storage, touch = false) {
-  const defaults = { difficulty: 'club', hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', trainedModel: 'quick', reviewAdviser: 'club' };
+  const defaults = { difficulty: 'club', hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: 'club' };
   try {
     const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
     if (value?.version !== VERSION) return defaults;
     defaults.tileFace = normalizeTileFace(value.tileFace);
-    if (['quick', 'strong'].includes(value.trainedModel)) defaults.trainedModel = value.trainedModel;
     if (['club', 'strong'].includes(value.reviewAdviser)) defaults.reviewAdviser = value.reviewAdviser;
     for (const key of ['hints', 'confirmDiscards', 'shortcuts']) {
       if (typeof value[key] === 'boolean') defaults[key] = value[key];
@@ -111,7 +108,9 @@ export class MatchSession {
     // Up to format 4 a trained opponent's move was recorded in our own
     // seventy-eight actions. It is Mortal's forty-six now, and the two
     // numberings mean different moves, so replaying an older one would play
-    // a different game rather than the one that was saved.
+    // a different game rather than the one that was saved. A trained
+    // opponent's discard is such a move, so this also refuses every old
+    // save in which the player answered one.
     require(format >= 5 || !saved.commands.some(command => command?.type === 'opponent'), 'Unsupported legacy opponent moves');
     const opponents = format >= 4 ? normalizeOpponents(saved.opponents) : normalizeOpponents(saved.difficulty);
     require(format < 4 || saved.difficulty === opponentPreset(opponents), 'Saved opponents disagree with their preset');
@@ -119,18 +118,8 @@ export class MatchSession {
     try {
       session.advance(false);
       for (const command of saved.commands) {
-        const legacyCall = saved.format === undefined && session.difficulty === 'neural'
-          && command.type === 'choose' && session.view.phase === 'call';
         session.apply(command);
         session.advance(false);
-        // The old binding implicitly passed all unasked opponents after a
-        // human call. Preserve those historical decisions as explicit legal
-        // passes, never by asking a new network to rewrite the past.
-        while (legacyCall && !session.over && session.view.phase === 'call' && session.engine.needs_opponent_move()) {
-          require(session.engine.opponent_mask_mortal()[MORTAL_PASS], 'Cannot migrate a historical claim');
-          session.apply({ type: 'opponent', action: MORTAL_PASS });
-          session.advance(false);
-        }
       }
       // Prior saves did not include the claimed tile in meld presentation.
       // Compare every former field, then migrate only this additive metadata.

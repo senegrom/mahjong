@@ -2,7 +2,7 @@
   import Tile from './Tile.svelte';
   import { TILES, parseTiles } from './physical-position.js';
   import { tileWords } from './tiles.js';
-  let { label, tiles = [], onchange = null, onadd = null, limit = 14, notation = true, expanded = false } = $props();
+  let { label, tiles = [], onchange = null, onadd = null, limit = 14, expanded = false } = $props();
   let text = $state('');
   let error = $state('');
   function add(values) {
@@ -27,7 +27,7 @@
     <div class="palette" role="group" aria-label={label}>
       {#each TILES as tile (tile)}<Tile {tile} size="small" title={`Add ${tileWords(tile)} to ${label}`} onclick={() => add([tile])} disabled={!onadd && tiles.length >= limit} muted={false} />{/each}
     </div>
-    {#if notation && !onadd}<div class="notation"><input aria-label={`${label} in tile notation`} bind:value={text} placeholder="123m456p789s11z" onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); enter(); } }} /><button onclick={enter}>Add</button></div>{/if}
+    {#if !onadd}<div class="notation"><input aria-label={`${label} in tile notation`} bind:value={text} placeholder="123m456p789s11z" onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); enter(); } }} /><button onclick={enter}>Add</button></div>{/if}
   </details>
   {#if error}<p role="alert">{error}</p>{/if}
 </div>

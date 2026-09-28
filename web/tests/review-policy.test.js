@@ -85,9 +85,10 @@ test('the trained review sends historical positions sequentially and matches mov
     assert.ok(notes.some(note => note.call_tile), 'call responses must be included');
     const abort = new AbortController();
     let calls = 0, running = false;
-    const results = await reviewWithStrong(match.engine, notes, async (planes, mask, signal, model) => {
+    const results = await reviewWithStrong(match.engine, notes, async (...args) => {
+      const [planes, mask, signal] = args;
       assert.equal(running, false); running = true;
-      assert.equal(signal, abort.signal); assert.equal(model, 'full');
+      assert.equal(signal, abort.signal); assert.equal(args.length, 3, 'one network: no model is named');
       const decision = expected[calls++];
       assert.deepEqual(planes, decision.mortalPlanes); assert.deepEqual(mask, decision.mortalMask);
       // Prefer the matching plain discard over riichi, where it is available.

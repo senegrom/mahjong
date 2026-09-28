@@ -27,13 +27,13 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
     const { planes, mask, choices } = inputs[index];
     inputs[index] = null;
     onProgress(index, notes.length);
-    let { action, weights } = await analyze(planes, mask, signal, 'full');
+    let { action, weights } = await analyze(planes, mask, signal);
     aborted(signal);
     let afterReach = false;
     if (action === MORTAL_REACH) {
       afterReach = true;
       ({ action } = await analyze(
-        engine.review_observation_after_reach(index), engine.review_mask_after_reach(index), signal, 'full',
+        engine.review_observation_after_reach(index), engine.review_mask_after_reach(index), signal,
       ));
       aborted(signal);
     }

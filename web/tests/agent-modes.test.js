@@ -239,10 +239,15 @@ test('a manually entered kan leads to a replacement win and ends ippatsu', () =>
     'the open hand needs the replacement-draw yaku to win'));
 });
 
-test('watch uses the retained choice, names the trained network for each of its seats, and finishes hands', async () => {
-  const models = new Set();
+test('watch uses the retained choice, asks the network for its trained seats, and finishes hands', async () => {
+  let asked = 0;
   const w = new WatchSession(Game, 287, ['beginner', 'full', 'full', 'club'], {
-    ai: async (_planes, mask, _signal, model) => { models.add(model); return pick(mask); }, evaluate: builtin,
+    ai: async (...args) => {
+      assert.equal(args.length, 3, 'one network: no model is named');
+      const pending = w.match.pendingOpponent;
+      assert.notEqual(pending?.position, 'Left', 'the Club seat plays without the network');
+      asked++; return pick(args[1]);
+    }, evaluate: builtin,
   });
   try {
     await w.prepare();
@@ -255,7 +260,7 @@ test('watch uses the retained choice, names the trained network for each of its 
       assert.deepEqual(w.match.commands[before], { type: 'choose', kind: choice.kind, tile: choice.tile ?? null });
     }
     assert.ok(decisions < 500 && decisions > 1); assert.ok(calls > 0);
-    assert.deepEqual([...models], ['full']);
+    assert.ok(asked > 0, 'the trained seats asked the network');
   } finally { w.dispose(); }
 });
 

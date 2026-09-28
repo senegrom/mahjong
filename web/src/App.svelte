@@ -148,7 +148,7 @@
 
   const callbacks = {
     // Greedy: the opponent plays its best move, not a sample of them.
-    ai: (planes, mask, signal) => chooseAction(planes, mask, 0, 20000, signal),
+    ai: (planes, mask, signal) => chooseAction(planes, mask, signal),
     onChange: update,
     onSave: (snapshot) => matchStore.save(snapshot),
     guard: (task) => matchStore.run(task),
@@ -432,11 +432,11 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {ready} {trainedAvailable} {opponents} {hints} />
+    <AgentWatch {trainedAvailable} {opponents} {hints} />
   {:else if ready && mode === 'guided'}
-    <GuidedPlay {ready} {trainedAvailable} {storage} {hints} />
+    <GuidedPlay {trainedAvailable} {storage} {hints} />
   {:else if ready && mode === 'physical'}
-    <PhysicalPlay {ready} {trainedAvailable} {storage} />
+    <PhysicalPlay {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
     <MatchTable {view} {hints} {thinking} {pendingOpponent} />
 
@@ -451,8 +451,8 @@
         {/if}
         {#if view.phase === 'over' && view.outcome}
           <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
-            bets={view.riichi_sticks ?? 0} gameOver={session?.over ?? false} onnext={nextHand}
-            ongame={() => start()} onreview={showReview} reviewed={notes !== null} onlog={saveLog} finalHand={Boolean(standings)} />
+            bets={view.riichi_sticks ?? 0} onnext={nextHand}
+            onreview={showReview} reviewed={notes !== null} onlog={saveLog} finalHand={Boolean(standings)} />
           {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} bind:adviser={reviewAdviser} />{/if}
         {:else}
           <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
@@ -499,7 +499,6 @@
     .play-area { grid-column: 2; grid-row: auto; position: sticky; top: 8px; bottom: auto; }
     .controls { font-size: .8rem; }
   }
-  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 
   @media (min-width: 761px) and (min-height: 501px) {
     main { max-width: 1280px; padding-inline: 18px; gap: 14px; }

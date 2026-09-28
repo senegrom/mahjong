@@ -7,11 +7,9 @@
     outcome,
     seats = [],
     onnext,
-    ongame,
     onreview,
     reviewed = false,
     onlog,
-    gameOver = false,
     finalHand = false,
     dora = [],
     bets = 0,
@@ -163,7 +161,6 @@
 
   <div class="buttons">
     {#if finalHand}<span class="final-caption">Final hand</span>
-    {:else if gameOver}<button disabled={busy} class="primary" onclick={ongame}>Play again</button>
     {:else}<button disabled={busy} class="primary" onclick={onnext}>Next hand</button>{/if}
     {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{finalHand ? 'Review final hand' : 'View table / my hand'}</button>{/if}
     {#if onlog}<button class="quiet" onclick={onlog} title="The hand as an mjai event log, which replayers and other riichi programs read">{finalHand ? 'Save final hand' : 'Save this hand'}</button>{/if}

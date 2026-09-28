@@ -97,26 +97,18 @@ test('restoration rejects invalid versions, illegal commands and changed state',
 });
 
 test('preferences tolerate inaccessible or malformed storage', () => {
-  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'club',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',trainedModel:'quick',reviewAdviser:'club'});
+  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'club',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'club'});
   assert.equal(readSettings({getItem(){return '{broken';}}).hints, true);
   const value = {version:1,difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false};
-  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic',trainedModel:'quick',reviewAdviser:'club'});
+  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic',reviewAdviser:'club'});
 });
 
-test('the trained opponent chosen is remembered, and nonsense is not', () => {
-  const read = value => readSettings({ getItem: () => JSON.stringify(value) }).trainedModel;
-  assert.equal(read({ version: 1, trainedModel: 'strong' }), 'strong');
-  assert.equal(read({ version: 1, trainedModel: 'quick' }), 'quick');
-  for (const trainedModel of [undefined, null, '', false, {}, 'huge', '../other']) {
-    assert.equal(read({ version: 1, trainedModel }), 'quick');
-  }
-});
-
-test('the review adviser is remembered independently of the opponent network', () => {
+test('the review adviser is remembered, and a retired network preference is ignored', () => {
   for (const reviewAdviser of ['club', 'strong', 'quick', null, '../other']) {
-    const settings = readSettings({ getItem: () => JSON.stringify({ version: 1, trainedModel: 'quick', reviewAdviser }) });
+    // Older builds also stored which of two networks played; one ships now.
+    const settings = readSettings({ getItem: () => JSON.stringify({ version: 1, trainedModel: 'strong', reviewAdviser }) });
     assert.equal(settings.reviewAdviser, reviewAdviser === 'strong' ? 'strong' : 'club');
-    assert.equal(settings.trainedModel, 'quick');
+    assert.equal(Object.hasOwn(settings, 'trainedModel'), false);
   }
 });
 

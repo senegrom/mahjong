@@ -1,16 +1,14 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
 import { prepareOfflineAi } from './offline.js';
-import { NETWORK, NETWORK_URL, networkIsStored } from './network-store.js';
+import { NETWORK_URL, networkIsStored } from './network-store.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
 
 /** The trained opponent: the network itself, not a small copy taught to
  * imitate it. It reads Mortal's 1012 planes, which the engine in this page
  * builds, and answers in Mortal's forty-six moves, which the engine turns
- * back into moves it can play. */
-export const MODEL_URLS = Object.freeze({ full: NETWORK_URL });
-export const MODEL_GENERATION = NETWORK.generation;
-export const MODEL_CHOICES = Object.freeze(Object.keys(MODEL_URLS));
+ * back into moves it can play. One network ships, so every request names it.
+ */
 const RUNTIME_BASE = new URL('ort/', document.baseURI).href;
 let worker = null;
 // Preparation belongs to the runtime lifetime, not to every decision. Even
@@ -35,9 +33,9 @@ export function resetPolicy(reason = new DOMException('Match changed', 'AbortErr
   waiting.clear();
 }
 
-function preparePolicy(model) {
+function preparePolicy() {
   if (!preparation) {
-    const job = prepareOfflineAi(model);
+    const job = prepareOfflineAi();
     const held = job.catch(error => {
       if (preparation === held) preparation = null;
       throw error;
@@ -60,7 +58,7 @@ function ensureWorker() {
     if (error) {
       const larger = pending && memory?.limitMiB === memoryLimitMiB ? nextMemoryLimit(memoryLimitMiB, memory) : null;
       if (larger) {
-        // Keep unresolved decisions and their original model/position. Release
+        // Keep unresolved decisions and their original position. Release
         // the old reservation before asking the browser for bounded headroom.
         worker = null;
         current.terminate();
@@ -93,27 +91,26 @@ function ensureWorker() {
   return current;
 }
 
-export async function modelIsAvailable(which = 'full') {
-  if (!MODEL_CHOICES.includes(which)) return false;
+export async function modelIsAvailable() {
   try {
     // Held here already, or the bucket answers. The runtime that runs it is
     // the service worker's business; this is about the network itself.
-    if (await networkIsStored(MODEL_URLS[which])) return true;
-    const response = await fetch(MODEL_URLS[which], { method: 'HEAD', signal: AbortSignal.timeout(10000) });
+    if (await networkIsStored(NETWORK_URL)) return true;
+    const response = await fetch(NETWORK_URL, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
     return response.ok;
   } catch { return false; }
 }
 
-export function chooseAction(planes, mask, temperature = 0, timeout = 20000, signal, model = 'full') {
-  return requestPolicy(planes, mask, temperature, timeout, signal, model, false);
+/** The network's best legal move for this position; it is never sampled. */
+export function chooseAction(planes, mask, signal, timeout = 20000) {
+  return requestPolicy(planes, mask, timeout, signal, false);
 }
 
-export function analyzePolicy(planes, mask, signal, model = 'full') {
-  return requestPolicy(planes, mask, 0, 20000, signal, model, true);
+export function analyzePolicy(planes, mask, signal) {
+  return requestPolicy(planes, mask, 20000, signal, true);
 }
 
-async function requestPolicy(planes, mask, temperature, timeout, signal, model, details) {
-  if (!MODEL_CHOICES.includes(model)) throw new Error('Unknown trained agent');
+async function requestPolicy(planes, mask, timeout, signal, details) {
   // Prepare once before the inference deadline starts. Cache eviction or a
   // failed persistence retry must not gate a network already resident in ORT.
   if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
@@ -122,7 +119,7 @@ async function requestPolicy(planes, mask, temperature, timeout, signal, model, 
   planes = planes.slice();
   mask = Array.from(mask);
   const owner = generation;
-  const prepared = preparePolicy(model);
+  const prepared = preparePolicy();
   if (signal) {
     await new Promise((resolve, reject) => {
       const abort = () => { signal.removeEventListener('abort', abort); reject(new DOMException('Match changed', 'AbortError')); };
@@ -154,8 +151,8 @@ async function requestPolicy(planes, mask, temperature, timeout, signal, model, 
       clearTimeout(timer);
       timer = setTimeout(() => resetPolicy(new Error('The trained opponent did not answer in time')), timeout);
       const copy = planes.slice();
-      ensureWorker().postMessage({ id, url: MODEL_URLS[model], runtimeBase: RUNTIME_BASE,
-        planes: copy, mask, temperature, details, memoryLimitMiB }, [copy.buffer]);
+      ensureWorker().postMessage({ id, url: NETWORK_URL, runtimeBase: RUNTIME_BASE,
+        planes: copy, mask, details, memoryLimitMiB }, [copy.buffer]);
     };
     waiting.set(id, { resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error), dispatch });
     signal?.addEventListener('abort', abort, { once: true });

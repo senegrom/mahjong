@@ -17,7 +17,7 @@ export function rememberEnding(state, kind, winners = []) {
   delete state.settlement;
 }
 
-export function validSettlement(result, ending) {
+function validSettlement(result, ending) {
   return result && result.kind === ending.kind
     && vector(result.before) && vector(result.after) && vector(result.deltas)
     && result.deltas.every((n, i) => n === result.after[i] - result.before[i])

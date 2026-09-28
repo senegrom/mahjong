@@ -4,12 +4,12 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
-import { NETWORK, NETWORK_URL } from '../src/lib/network-store.js';
+import { NETWORK_URL } from '../src/lib/network-store.js';
 
 const source = (await readFile(new URL('../src/lib/policy.js', import.meta.url), 'utf8'))
   .replace("import { prepareOfflineAi } from './offline.js';", '')
   .replace("import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';", '')
-  .replace("import { NETWORK, NETWORK_URL, networkIsStored } from './network-store.js';", '')
+  .replace("import { NETWORK_URL, networkIsStored } from './network-store.js';", '')
   .replaceAll('import.meta.url', "'https://test.invalid/mahjong/policy.js'")
   .replaceAll('export ', '');
 
@@ -25,10 +25,10 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK, NETWORK_URL,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL,
     networkIsStored: async () => false,
     startOffline: async () => null,
-    prepareOfflineAi: (model) => new Promise(resolve => downloads.push({ model, resolve })),
+    prepareOfflineAi: (...args) => new Promise(resolve => downloads.push({ args, resolve })),
   });
   vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, modelIsAvailable, resetPolicy };', context);
   const { api } = context;
@@ -38,7 +38,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
 
   const first = api.chooseAction(planes(), mask);
   const firstResult = first.then(value => ({ value }), error => ({ error }));
-  assert.equal(downloads[0].model, 'full');
+  assert.deepEqual(downloads[0].args, [], 'one network: preparation names none');
   downloads[0].resolve();
   await setImmediate();
   const worker = workers[0], initial = worker.messages[0];
@@ -48,7 +48,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   assert.deepEqual(await firstResult, { value: 1 });
 
   const next = api.chooseAction(planes(), mask);
-  const analysis = api.analyzePolicy(planes(), mask, undefined, 'full');
+  const analysis = api.analyzePolicy(planes(), mask);
   const results = Promise.all([next, analysis]);
   assert.equal(downloads.length, 1, 'warm decisions reuse preparation');
   await setImmediate();
@@ -61,10 +61,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   worker.answer(move, { action: 0 });
   worker.answer(detailed, { analysis: { action: 1, weights: [0.2, 0.8] } });
   assert.deepEqual(await results, [0, { action: 1, weights: [0.2, 0.8] }]);
-  for (const retired of ['quick', 'strong']) {
-    await assert.rejects(api.analyzePolicy(planes(), mask, undefined, retired), /Unknown trained agent/);
-    assert.equal(await api.modelIsAvailable(retired), false);
-  }
+  for (const message of [initial, move, detailed]) assert.equal('temperature' in message, false, 'moves are never sampled');
 });
 
 test('memory errors discard the worker even after cancellation, and retry starts a fresh runtime', async (t) => {
@@ -77,14 +74,14 @@ test('memory errors discard the worker even after cancellation, and retry starts
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK, NETWORK_URL,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL,
     networkIsStored: async () => false,
     startOffline: async () => null, prepareOfflineAi: async () => null,
   });
   vm.runInContext(source + '\nglobalThis.api = { chooseAction, analyzePolicy, resetPolicy };', context);
   const { api } = context;
   t.after(() => api.resetPolicy());
-  const ask = signal => api.analyzePolicy(new Float32Array(34), [1, 1], signal, 'full');
+  const ask = signal => api.analyzePolicy(new Float32Array(34), [1, 1], signal);
   const owner = new AbortController();
   const cancelled = ask(owner.signal);
   const aborted = assert.rejects(cancelled, { name: 'AbortError' });
@@ -126,20 +123,20 @@ function memoryClient(t) {
   }
   const context = vm.createContext({
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK, NETWORK_URL,
+    URL, DOMException, Worker, setTimeout, clearTimeout, MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL,
     networkIsStored: async () => false,
     startOffline: async () => null, prepareOfflineAi: async () => null,
   });
   vm.runInContext(source + '\nglobalThis.api = { analyzePolicy, resetPolicy };', context);
   t.after(() => context.api.resetPolicy());
-  return { workers, api: context.api, ask: (model = 'full', signal, planes = Float32Array.from({ length: 34 }, (_, i) => i / 2)) =>
-    context.api.analyzePolicy(planes, [1, 1], signal, model) };
+  return { workers, api: context.api, ask: (signal, planes = Float32Array.from({ length: 34 }, (_, i) => i / 2)) =>
+    context.api.analyzePolicy(planes, [1, 1], signal) };
 }
 
 test('memory-limit retries replay only unresolved choices with their original observations', async t => {
   const { ask, workers } = memoryClient(t);
   const planes = Float32Array.from({ length: 34 }, (_, i) => i / 2), expected = Array.from(planes);
-  const first = ask('full', undefined, planes);
+  const first = ask(undefined, planes);
   planes.fill(99); // Changes in the caller must not change a retained decision.
   await setImmediate();
   const original = workers[0], pending = original.messages.at(-1);
@@ -149,7 +146,7 @@ test('memory-limit retries replay only unresolved choices with their original ob
   const completed = ask();
   await setImmediate();
   const done = original.messages.at(-1);
-  const abort = new AbortController(), cancelled = ask('full', abort.signal);
+  const abort = new AbortController(), cancelled = ask(abort.signal);
   const cancellation = assert.rejects(cancelled, { name: 'AbortError' });
   await setImmediate();
   original.answer(done.id, { analysis: { action: 1 } });

@@ -83,8 +83,7 @@ try {
     current = cases[id];
     await self.onmessage({ data: {
       id, url: resolve(folder, current.model), runtimeBase,
-      planes: Float32Array.from(current.planes), mask: current.mask,
-      temperature: 0, details: true,
+      planes: Float32Array.from(current.planes), mask: current.mask, details: true,
     } });
     const failed = messages.find(message => message.id === id && message.error);
     assert.equal(failed, undefined, failed?.error);

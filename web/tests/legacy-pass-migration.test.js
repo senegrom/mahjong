@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MatchSession } from '../src/lib/session.js';
 
-// A saved human call with two unasked opponents. No historical network
-// actions are supplied: those old action schemas must still be rejected.
+// Before format 5 a trained opponent's move was recorded in the engine's own
+// seventy-eight actions, not Mortal's forty-six. Such saves are refused
+// rather than replayed as different moves. (A neural save in which the player
+// answered a discard always holds that discard as such a move, so older
+// implicit passes after a call never reach the restore loop either.)
 class LegacyCallGame {
   constructor() { this.chosen = false; this.remaining = 0; this.freed = false; }
   view() {
@@ -31,32 +34,6 @@ function legacySave() {
   expected.dispose();
   return text;
 }
-
-test('implicit legacy passes migrate to legal Mortal passes and restore twice', () => {
-  const saved = legacySave();
-  const match = MatchSession.restore(LegacyCallGame, saved, { ai() { throw new Error('No new inference'); } });
-  assert.deepEqual(match.commands, [
-    { type: 'choose', kind: 'pass', tile: null },
-    { type: 'opponent', action: 45 }, { type: 'opponent', action: 45 },
-  ]);
-  const restored = MatchSession.restore(LegacyCallGame, JSON.stringify(match.snapshot()));
-  assert.equal(restored.stateKey(), match.stateKey());
-  match.dispose(); restored.dispose();
-});
-
-test('an unavailable historical pass fails closed without applying another move', () => {
-  let game;
-  class RefusesPass extends LegacyCallGame {
-    constructor() { super(); game = this; }
-    opponent_mask_mortal() { const mask = new Uint8Array(46); mask[43] = 1; return mask; }
-    play_opponent_mortal() { assert.fail('No substitute action may be played'); }
-  }
-  const text = legacySave();
-  assert.throws(() => MatchSession.restore(RefusesPass, text), /Cannot migrate a historical claim/);
-  assert.equal(game.freed, true);
-  assert.equal(game.remaining, 2);
-  assert.equal(text, legacySave());
-});
 
 test('explicit old-schema network actions remain rejected', () => {
   const saved = JSON.parse(legacySave());

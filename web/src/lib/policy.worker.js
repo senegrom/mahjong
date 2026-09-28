@@ -67,12 +67,8 @@ async function load(url, runtimeBase, memoryLimitMiB, onProgress) {
   return session;
 }
 
-/**
- * Picks among the legal entries. Early in a hand the choice is sampled from
- * the policy's own odds so the opponents do not all play the same game;
- * later it takes the best it knows.
- */
-function pick(logits, mask, temperature) {
+/** The legal entry the policy rates highest: opponents play their best move. */
+function pick(logits, mask) {
   let best = -1;
   let bestValue = -Infinity;
   for (let index = 0; index < mask.length; index += 1) {
@@ -82,26 +78,10 @@ function pick(logits, mask, temperature) {
       best = index;
     }
   }
-  if (temperature <= 0 || best < 0) return best;
-
-  let total = 0;
-  const weights = new Float64Array(mask.length);
-  for (let index = 0; index < mask.length; index += 1) {
-    if (!mask[index]) continue;
-    const weight = Math.exp((logits[index] - bestValue) / temperature);
-    weights[index] = weight;
-    total += weight;
-  }
-  let target = Math.random() * total;
-  for (let index = 0; index < mask.length; index += 1) {
-    if (!mask[index]) continue;
-    target -= weights[index];
-    if (target <= 0) return index;
-  }
   return best;
 }
 
-async function infer({ id, url, runtimeBase, planes, mask, temperature, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
+async function infer({ id, url, runtimeBase, planes, mask, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
   let input, output, allowed;
   try {
     self.postMessage({ id, progress: 'loading the network' });
@@ -124,7 +104,7 @@ async function infer({ id, url, runtimeBase, planes, mask, temperature, details,
       value: output.value ? output.value.data[0] : null,
       hands: output.hands ? Float32Array.from(output.hands.data) : null,
     };
-    self.postMessage({ id, action: pick(logits, mask, temperature ?? 0), ...read,
+    self.postMessage({ id, action: pick(logits, mask), ...read,
       ...(details ? { analysis: { ...analysis, ...read } } : {}) });
   } finally {
     input?.dispose();

@@ -70,7 +70,6 @@
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     .prompt { font-size: .8rem; }
   }
-  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 
   .call-stage {
     display: grid;

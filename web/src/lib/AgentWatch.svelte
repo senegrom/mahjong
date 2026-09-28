@@ -13,7 +13,7 @@
   import ScoreScreen from './ScoreScreen.svelte';
   import Standings from './Standings.svelte';
 
-  let { ready, trainedAvailable, opponents, hints = true } = $props();
+  let { trainedAvailable, opponents, hints = true } = $props();
   let lineup = $state(['club', 'club', 'club', 'club']);
   let watch = $state.raw(null);
   let view = $state(null);
@@ -42,7 +42,7 @@
   let displayLeft = $derived(recommendedHint?.waits_left ?? view?.waits_left ?? []);
   let hintShanten = $derived(recommendedHint?.shanten ?? view?.shanten);
   $effect(() => {
-    if (!configured && ready) {
+    if (!configured) {
       // Availability may arrive after selected-set startup. Keep an untouched
       // draft provisional, but freeze it on explicit edits or Start watching.
       if (trainedAvailable) configured = true;
@@ -65,7 +65,7 @@
     configured = true;
     watch?.dispose();
     watch = new WatchSession(Game, Date.now() % 2 ** 31, lineup, {
-      ai: (planes, mask, signal, model) => chooseAction(planes, mask, 0, 20000, signal, model),
+      ai: (planes, mask, signal) => chooseAction(planes, mask, signal),
       evaluate: evaluateAgent, onChange: update, delay: speed,
     });
     watch.autoplay = auto;
@@ -98,7 +98,7 @@
         </select></label>
       {/each}
     </div>
-    <button class="primary" onclick={start} disabled={!ready}>{view ? 'Start a new watched game' : 'Start watching'}</button>
+    <button class="primary" onclick={start}>{view ? 'Start a new watched game' : 'Start watching'}</button>
   </details>
   <div class="watch-controls">
     <label><input type="checkbox" checked={auto} onchange={event => { auto = event.currentTarget.checked; watch?.setAutoplay(auto); }} /> Auto play</label>
@@ -145,8 +145,8 @@
     {#if showWeights}<AgentWeights {analysis} onchoose={chooseAlternative} disabled={busy || Boolean(standings)} dora={shownDora} />{/if}
     {#if standings}<Standings {standings} onagain={start} />{/if}
     {#if view.phase === 'over' && view.outcome}
-      <ScoreScreen outcome={view.outcome} seats={view.seats} gameOver={Boolean(standings)} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
-        onnext={() => watch.step()} ongame={start} reviewed={true} />
+      <ScoreScreen outcome={view.outcome} seats={view.seats} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
+        onnext={() => watch.step()} reviewed={true} />
     {/if}
     <details><summary>Hand history · {log.length} events</summary>{#each log as line, index (index)}<p class="log-line">{line}</p>{/each}</details>
   {/if}

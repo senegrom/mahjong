@@ -9,7 +9,7 @@
   import Tile from './Tile.svelte';
   import AgentWeights from './AgentWeights.svelte';
 
-  let { ready, trainedAvailable, storage } = $props();
+  let { trainedAvailable, storage } = $props();
   const trainedSupported = supportsTrainedAgent(PhysicalAnalysis.prototype);
   let position = $state(emptyPosition());
   let agent = $state('club');
@@ -167,7 +167,7 @@
   <div class="physical-toolbar">
     <label>Analyse seat<select value={position.seat} onchange={event => edit(p => { p.seat = Number(event.currentTarget.value); if (p.phase === 'act') { p.turn = p.seat; p.drawn = null; p.just_claimed = null; } })} aria-label="Analyse seat">{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
     <label>Agent<select bind:value={agent} onchange={() => agentChosen = true} aria-label="Physical play agent">{#each Object.entries(AGENTS) as [key, label] (key)}{#if !isTrained(key) || trainedAvailable}<option value={key} disabled={isTrained(key) && (!trainedSupported || !trainedAvailable)}>{label}</option>{/if}{/each}</select></label>
-    <button class="primary" onclick={analyze} disabled={!ready || busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
+    <button class="primary" onclick={analyze} disabled={busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
   </div>
   {#if !trainedSupported}<p class="adviser-availability" role="status">{TRAINED_HISTORY_REQUIRED}</p>{/if}
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}

@@ -17,18 +17,18 @@
  */
 
 /** The thirty-four kinds, in the order the network writes them. */
-export const KINDS = Object.freeze([
+const KINDS = Object.freeze([
   ...Array.from({ length: 9 }, (_, i) => `${i + 1}m`),
   ...Array.from({ length: 9 }, (_, i) => `${i + 1}p`),
   ...Array.from({ length: 9 }, (_, i) => `${i + 1}s`),
   'E', 'S', 'W', 'N', 'P', 'F', 'C',
 ]);
 
-export const POSITIONS = KINDS.length;
-export const OPPONENTS = 3;
+const POSITIONS = KINDS.length;
+const OPPONENTS = 3;
 
 /** Named for the seat that was asked, not for the table. */
-export const RELATIVE = Object.freeze(['Next', 'Across', 'Previous']);
+const RELATIVE = Object.freeze(['Next', 'Across', 'Previous']);
 
 function softmax(row) {
   const best = row.reduce((a, b) => (b > a ? b : a), -Infinity);

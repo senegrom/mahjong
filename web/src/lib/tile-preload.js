@@ -5,7 +5,7 @@ import { createImagePreloader } from './image-preloader.js';
 
 const images = createImagePreloader();
 /** Selected faces and their actual foil artwork, not unused face sets. */
-export function faceImageUrls(face) {
+function faceImageUrls(face) {
   face = normalizeTileFace(face);
   return [...new Set([
     'tiles/Back.svg', 'tiles/Front.svg',

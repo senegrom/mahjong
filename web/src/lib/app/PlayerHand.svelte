@@ -111,7 +111,6 @@
     .hand :global(button.tile) { width: 100%; min-height: 44px; }
     .hint { margin-left: 0; }
   }
-  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 
   .my-dealer {
     padding: 1px 7px;

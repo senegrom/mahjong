@@ -8,7 +8,7 @@
 <button data-available onclick={() => available = true}>Model became available</button>
 <button data-unavailable onclick={() => available = false}>Model became unavailable</button>
 {#if watchMode}
-  <AgentWatch ready={true} trainedAvailable={available} opponents={['neural', 'beginner', 'club']} />
+  <AgentWatch trainedAvailable={available} opponents={['neural', 'beginner', 'club']} />
 {:else}
-  <PhysicalPlay ready={true} trainedAvailable={available} storage={localStorage} />
+  <PhysicalPlay trainedAvailable={available} storage={localStorage} />
 {/if}

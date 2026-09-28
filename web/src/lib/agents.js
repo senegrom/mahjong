@@ -32,13 +32,13 @@ export async function evaluateAgent(engine, agent, signal) {
       throw new Error(TRAINED_HISTORY_REQUIRED);
     }
     let { action, weights, value, hands } = await analyzePolicy(
-      engine.agent_observation_mortal(), engine.agent_mask_mortal(), signal, agent,
+      engine.agent_observation_mortal(), engine.agent_mask_mortal(), signal,
     );
     let afterReach = false;
     if (action === MORTAL_REACH) {
       afterReach = true;
       ({ action } = await analyzePolicy(
-        engine.agent_observation_after_reach(), engine.agent_mask_after_reach(), signal, agent,
+        engine.agent_observation_after_reach(), engine.agent_mask_after_reach(), signal,
       ));
     }
     const index = engine.agent_action_from_mortal(action, afterReach);

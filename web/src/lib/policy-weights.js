@@ -1,5 +1,5 @@
 /** Stable softmax over legal moves only. These are policy preferences, not
- * estimated chances of winning. Inference remains greedy at temperature 0. */
+ * estimated chances of winning. Play stays greedy: the highest legal move. */
 export function policyWeights(logits, mask) {
   if (logits.length !== mask.length) throw new Error('The policy returned the wrong number of choices');
   const legal = Array.from(mask, (allowed, index) => allowed ? index : -1).filter(index => index >= 0);

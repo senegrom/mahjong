@@ -30,13 +30,13 @@ function client(t, prepareOfflineAi) {
     URL, DOMException, Worker, setTimeout, clearTimeout, prepareOfflineAi,
     // The memory allocator and model transport have their own integration tests.
     MEMORY_LIMITS_MIB: [256, 512, 1024], nextMemoryLimit: () => null,
-    NETWORK: { generation: 1 }, NETWORK_URL: 'https://test.invalid/network',
+    NETWORK_URL: 'https://test.invalid/network',
     networkIsStored: async () => false,
   });
   vm.runInContext(policySource + '\nglobalThis.api = { chooseAction, resetPolicy };', context);
   const api = context.api;
   t.after(() => api.resetPolicy());
-  return { api, workers, ask: signal => api.chooseAction(new Float32Array(34), [1], 0, 1000, signal) };
+  return { api, workers, ask: signal => api.chooseAction(new Float32Array(34), [1], signal, 1000) };
 }
 
 test('warm decisions do not recheck, hash or fetch offline model bytes', async t => {

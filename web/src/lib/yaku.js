@@ -65,9 +65,9 @@ const suit = tile => tile[1];
 const isHonour = tile => suit(tile) === 'z';
 
 /** Where a tile sits in what the result screen draws. */
-export const AT_HAND = index => `hand:${index}`;
-export const AT_WON = 'won';
-export const AT_MELD = (meld, index) => `meld:${meld}:${index}`;
+const AT_HAND = index => `hand:${index}`;
+const AT_WON = 'won';
+const AT_MELD = (meld, index) => `meld:${meld}:${index}`;
 
 /** The concealed tiles and the winning tile, with where each is shown. */
 function concealed(win) {
@@ -101,7 +101,7 @@ function setOfMeld(meld) {
  * matters: two identical sequences are a double sequence only under the
  * reading that makes them sequences at all.
  */
-export function splittings(places) {
+function splittings(places) {
   const byTile = new Map();
   for (const place of places) {
     if (!byTile.has(place.tile)) byTile.set(place.tile, []);

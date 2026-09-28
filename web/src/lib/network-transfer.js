@@ -5,7 +5,7 @@
 export const NETWORK_CACHE = 'mahjong-network-v1';
 // A page has no event deadline, so a slow but progressing transfer may take
 // hours; a stalled one still ends after a minute without bytes.
-export const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 3 * 60 * 60 * 1000, idleMs: 60000 });
+const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 3 * 60 * 60 * 1000, idleMs: 60000 });
 
 export function validateNetwork(expect) {
   if (!expect || !Number.isSafeInteger(expect.bytes) || expect.bytes <= 0

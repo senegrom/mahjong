@@ -254,7 +254,6 @@
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     .bar, .preferences { grid-column: 1 / -1; }
   }
-  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
   .settings-trigger, .mobile-preferences-head, .mobile-new-game { display: none; }
 
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {

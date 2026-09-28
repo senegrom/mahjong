@@ -108,7 +108,6 @@
     .right { grid-area: 2 / 3; justify-self: stretch; }
     .place { --tile-width: 23px; }
   }
-  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 
   @media (min-width: 761px) and (min-height: 501px) {
     .board {
