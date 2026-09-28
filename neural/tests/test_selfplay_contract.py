@@ -205,16 +205,6 @@ class EveryHandIsPaidOnce(unittest.TestCase):
         self.assertGreater(batch.hands, 0)
 
 
-class RewardsAreVersioned(unittest.TestCase):
-    def test_a_round_says_which_objective_built_it(self):
-        from neural import selfplay
-
-        self.assertEqual(selfplay.REWARD_VERSION, 1)
-        batch = selfplay.play(FirstLegal(), games=2, seed=SEED, device="cpu")
-        self.assertEqual(batch.reward_version, selfplay.REWARD_VERSION)
-        self.assertEqual(len(batch.returns), batch.decisions)
-
-
 class FirstLegalDecider(FirstLegal):
     """FirstLegal on the path of a learner that records its own decisions,
     as the Mortal-space learners do."""

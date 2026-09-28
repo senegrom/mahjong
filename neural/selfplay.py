@@ -49,28 +49,19 @@ HAND_SCALE = 1.0 / 4000.0
 # honest way to say what the game is for. The numbers live in the engine.
 PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 
-#: What the network is being asked to maximise, named and numbered.
-#:
-#: The target is a hybrid and should be read as one rather than as final
-#: placement with a detail attached:
-#:
-#:     z = (points the decision's hand moved) / 4000  +  placement bonus
-#:
-#: The first term is credited only within the hand it belongs to; the
-#: second reaches every decision that player made in the game. So a hand
-#: worth four thousand points weighs as much in the target as a whole place
-#: at the table. That is a deliberate choice — it gives a decision
-#: something to learn from long before the game ends — but it means
-#: training and evaluation are not measuring the same thing: `neural.duel`
-#: and `measure` report placement alone.
-#:
-#: The number is here so that a checkpoint records which objective it was
-#: trained against. A saved round carries it, and a trainer must refuse a
-#: round from a different one rather than mix two objectives in one replay:
-#: the returns would not be on one scale and nothing would say so.
-#:
-#: 1 — hand points over four thousand, plus the placement bonus.
-REWARD_VERSION = 1
+# What the network is being asked to maximise. The target is a hybrid and
+# should be read as one rather than as final placement with a detail
+# attached:
+#
+#     z = (points the decision's hand moved) / 4000  +  placement bonus
+#
+# The first term is credited only within the hand it belongs to; the
+# second reaches every decision that player made in the game. So a hand
+# worth four thousand points weighs as much in the target as a whole place
+# at the table. That is a deliberate choice — it gives a decision
+# something to learn from long before the game ends — but it means
+# training and evaluation are not measuring the same thing: `neural.duel`
+# and `measure` report placement alone.
 
 
 def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> tuple:
@@ -154,33 +145,19 @@ class Batch:
     hands: int
     decisions: int
     final_scores: np.ndarray
-    #: Which objective `returns` was built against, so a trainer can refuse
-    #: a round that was not built against the one it is learning.
-    reward_version: int = REWARD_VERSION
     #: Which decisions were a legal move taken at random rather than the
-    #: policy's own choice. The positions that follow one are the positions
-    #: a search asks the value head about, so a diagnostic can weigh the
-    #: critic's error on them apart from the rest.
+    #: policy's own choice: the policy gradient leaves them out (see
+    #: `explore`), and the other heads learn from them.
     explored: torch.Tensor | None = None
-    #: Actual exploration coefficient at each recorded decision, including zero
-    #: for the second reach stage. Diagnostic provenance, not the PPO denominator.
-    behaviour_epsilon: torch.Tensor | None = None
-    #: This information state follows a forced decision by the same player in
-    #: this hand. It is not the coin flip about the action chosen *here*.
-    after_exploration: torch.Tensor | None = None
-    #: Which of the seated others took a place in each game, by index into
-    #: the list given, or -1 where the learner held all four. Kept so a
-    #: round can say who it played rather than only how it did on average.
-    seated: np.ndarray | None = None
-    #: How the learner placed against each of them, one row a player. Never
-    #: summed: improving against your own recent past while losing to a
-    #: fixed reference is specialisation, and an average hides it.
+    #: How the learner placed against each of the seated others it met,
+    #: one row a player. Never summed: improving against your own recent
+    #: past while losing to a fixed reference is specialisation, and an
+    #: average hides it.
     matchups: list[dict] = field(default_factory=list)
     #: Where the round's wall time went, in seconds by part: the engine
     #: and the follower, the encoder, the network, the seated others, and
     #: the bookkeeping. For finding what to make faster.
     timing: dict[str, float] = field(default_factory=dict)
-    seed: int | None = None
 
 
 def imagine(arena, beliefs: np.ndarray) -> bytes:
@@ -314,9 +291,6 @@ def play(
     oracle: list[np.ndarray] = []
     imagined: list[np.ndarray] = []
     wandered: list[np.ndarray] = []
-    coefficients: list[np.ndarray] = []
-    after_exploration: list[bool] = []
-    last_forced = np.zeros((games, 4), dtype=bool)
     actions: list[int] = []
     log_probs: list[float] = []
     rewards: list[float] = []
@@ -359,7 +333,6 @@ def play(
         counted = 0
         for game in np.nonzero(ended)[0]:
             counted += int(ended[game])
-            last_forced[game] = False
             for person in range(4):
                 value = float(results[game][person]) * HAND_SCALE
                 for step_index in pending[game][person]:
@@ -467,12 +440,6 @@ def play(
             if record_forced is None:
                 record_forced = np.zeros(len(record_slots), dtype=bool)
             wandered.append(record_forced)
-            epsilon = getattr(records, "epsilon", None)
-            if epsilon is None:
-                if explore_share > 0 and not greedy:
-                    raise ValueError("An exploring recorder must expose per-decision epsilon")
-                epsilon = np.zeros(len(record_slots), dtype=np.float32)
-            coefficients.append(epsilon)
             began = clock()
         else:
             if recording:
@@ -510,9 +477,7 @@ def play(
             record_log_probs = chosen_log_prob.cpu().numpy()
             record_slots = np.arange(len(index))
             choice[index] = record_actions
-            record_forced = was_forced.cpu().numpy()
-            wandered.append(record_forced)
-            coefficients.append(np.full(len(record_slots), 0.0 if greedy else explore_share, dtype=np.float32))
+            wandered.append(was_forced.cpu().numpy())
 
             # Copies, not views: a view would keep the whole step's buffer
             # alive until the round is gathered at the end.
@@ -526,22 +491,16 @@ def play(
             timing["network"] += clock() - began
             began = clock()
 
-        forced_this_step = np.zeros((games, 4), dtype=bool)
         for record in range(len(record_actions)):
             game = int(index[record_slots[record]])
             seat = int(seats[game])
             person = int(players[game][seat])
-            after_exploration.append(bool(last_forced[game, person] or forced_this_step[game, person]))
-            forced_this_step[game, person] |= bool(record_forced[record])
             step_index = len(actions)
             actions.append(int(record_actions[record]))
             log_probs.append(float(record_log_probs[record]))
             rewards.append(0.0)
             pending[game][person].append(step_index)
             everything[game][person].append(step_index)
-        for game in index:
-            person = deciding[game]
-            last_forced[game, person] = forced_this_step[game, person]
         timing["other"] += clock() - began
         began = clock()
 
@@ -629,7 +588,6 @@ def play(
         against = _matchups(seated_in, learner_place, population.members)
 
     return Batch(
-        seated=seated_in,
         matchups=against,
         observations=Planes.cat(observations),
         legal=gather(legal_masks),
@@ -641,10 +599,7 @@ def play(
         oracle=gather(oracle) if oracle else torch.zeros(0),
         imagined=gather(imagined) if imagined else torch.zeros(0),
         explored=gather(wandered) if wandered else None,
-        behaviour_epsilon=gather(coefficients),
-        after_exploration=torch.tensor(after_exploration, dtype=torch.bool),
         returns=torch.tensor(rewards, dtype=torch.float32),
-        seed=int(seed),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,
         hands=hands,

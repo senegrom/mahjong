@@ -137,8 +137,6 @@ class ARoundSaysWhoItPlayed(unittest.TestCase):
             opponent_share=0.5,
             population=roster,
         )
-        self.assertIsNotNone(batch.seated)
-        self.assertEqual(len(batch.seated), 8)
         names = {row["name"] for row in batch.matchups}
         self.assertIn("stand-in", names, f"nobody was reported: {batch.matchups}")
         self.assertIn("itself", names, "the tables it held alone are a row too")
