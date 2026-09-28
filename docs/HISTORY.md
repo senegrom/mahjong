@@ -42,3 +42,14 @@ reader of hidden hands, a candidate/champion gate, and red-five aliases.
   completed-game rewards, ties, incomplete games and replay publication.
 - [POLICY_SEARCH_PARITY.md](https://github.com/senegrom/mahjong/blob/b34d169ad6341b273866970b93a9793ffef8c2fb/docs/POLICY_SEARCH_PARITY.md):
   the acting policy's precision and the browser worker parity fixture.
+
+## Merged documents
+
+Documents whose current content now lives in another one; the link is the
+last version of each as a file of its own.
+
+- [TRAINING_CONTROLS.md](https://github.com/senegrom/mahjong/blob/b34d169ad6341b273866970b93a9793ffef8c2fb/docs/TRAINING_CONTROLS.md):
+  bounded updates on training API 2 and the review findings they answered
+  (opponent path collisions, forced BF16 recording, abandoned prefetchers,
+  padded baseline batches). The policy update controls are in
+  [TRAINING_SAFETY.md](TRAINING_SAFETY.md).

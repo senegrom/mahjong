@@ -1,4 +1,7 @@
-# Checkpoints, run identity and supported training contracts
+# Training safety
+
+Checkpoints, run identity, rewards, replay and the controls on each policy
+update: what the trainers guarantee and what they do not.
 
 ## Completed checkpoint publication
 
@@ -158,3 +161,47 @@ that exact historical sampling cannot be reconstructed. The deterministic CPU
 regression exercises the actual trainer entry point with controlled rollouts;
 GPU/compiler determinism and deployed Modal behaviour need environment-specific
 verification and are not implied by that test.
+
+## Policy update controls
+
+All three self-play trainers accept `--target-kl` and `--baseline-batch`,
+and the cloud training functions and the main cloud launcher forward them.
+The KL guard is opt-in (`0`, the default, keeps the full update budget). For
+example, as a CPU smoke run:
+
+```sh
+python -m neural.train --rounds 1 --games 1 --channels 8 --blocks 1 \
+  --batch 32 --epochs 2 --replay-steps 1 --measure-games 1 \
+  --baseline-batch 16 --target-kl 0.02 --out runs/smoke
+```
+
+A smoke configuration checks correctness, not playing strength; choose
+production settings by held-out comparisons. Nonfinite learning rates and
+weights and invalid clipping or precision settings are refused before a
+learner is built.
+
+`--baseline-batch` bounds the rows of each value-baseline forward. Without it
+the forward takes `--batch` rows, capped at the rollout's size; the final
+chunk is still padded to that size for compiled shape stability.
+
+For a sampled log-probability change `d = new_log_prob - old_log_prob`, the
+guard's diagnostic is `mean(expm1(d) - d)`. It is nonnegative, and under
+old-policy samples with equal legal support its expectation is
+`KL(old || new)`. The signed `approx_kl` field remains for log
+compatibility; the guard's own fields are `sampled_kl_last`,
+`sampled_kl_max`, `target_kl` and `kl_early_stop`.
+
+When the diagnostic exceeds the threshold, the pending optimizer step is not
+applied and the round's remaining PPO epochs stop. Updates already made are
+not rolled back: this is a sampled minibatch safeguard, not a hard bound on
+the whole policy's KL. The main trainer may still run its detached auxiliary
+replay pass. A round stopped before any update fails rather than publish a
+learned generation. Checkpoints record the settings under
+`training_controls` for provenance, but the command line is authoritative
+and must supply them again on resume. With the guard on, every minibatch
+reads a scalar back from the GPU, which costs time; with it off, nothing
+waits.
+
+PPO clipping alone does not guarantee a small policy change; the original
+Spinning Up implementation stops early too:
+https://spinningup.openai.com/en/latest/algorithms/ppo.html
