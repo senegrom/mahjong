@@ -279,8 +279,8 @@ pub struct Hand {
     /// The dealer's seat, always East within a hand.
     pub round: Wind,
     /// Which hand of the round this is, counting from one. The log records
-    /// it, and a search that plays an imagined world into the next hand
-    /// needs it to know how far the game has to run.
+    /// it, and the observation shows it, since how many hands are left
+    /// is most of what placement play turns on.
     pub kyoku: u8,
     /// Counters on the table (EMA section 3.4.4).
     pub counters: u32,
@@ -323,9 +323,7 @@ pub struct Hand {
 
 impl Hand {
     /// Deals a new hand. `scores` are the players' points, by seat, and
-    /// `kyoku` is which hand of the round this is, counting from one, which
-    /// the log records and a search reads when it plays an imagined world
-    /// into the next hand.
+    /// `kyoku` is which hand of the round this is, counting from one.
     pub fn deal(
         rng: &mut Rng,
         round: Wind,

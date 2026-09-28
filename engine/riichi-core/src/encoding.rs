@@ -319,8 +319,8 @@ pub fn oracle(hand: &Hand, seat: Wind, out: &mut [f32]) {
 /// Writes the three opponents' concealed tiles into `out`, which must hold
 /// [`HIDDEN_HANDS`] numbers, as unary counts in the observation's relative
 /// seat order. This is what a reader of hidden hands is shown: the same
-/// planes whether the hands are real, in training, or imagined, in a
-/// search, so that what it learns of the one it can say of the other.
+/// planes whether the hands are real or imagined ([`crate::worlds`]), so
+/// that what it learns of the one it can say of the other.
 pub fn hidden_hands(hand: &Hand, seat: Wind, out: &mut [f32]) {
     assert_eq!(
         out.len(),
