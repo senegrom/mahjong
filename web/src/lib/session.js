@@ -41,6 +41,17 @@ export function readSettings(storage, touch = false) {
   return defaults;
 }
 
+/** Writes the preferences only when they differ from the last write. Every
+ * write replaces the whole record, so writing an equal copy each time the
+ * effect reruns would overwrite a change another tab made meanwhile. Returns
+ * what this tab last stored, for the next call. */
+export function writeSettings(storage, settings, last = null) {
+  const text = JSON.stringify({ version: VERSION, ...settings });
+  if (text === last) return last;
+  try { storage?.setItem(SETTINGS_KEY, text); } catch { return last; /* Gameplay still works. */ }
+  return text;
+}
+
 export class MatchSession {
   constructor(Game, seed, difficulty, { ai, onChange = () => {}, onSave = () => {}, guard = (task) => task() } = {}) {
     require(Number.isSafeInteger(seed) && seed >= 0 && seed < 2 ** 31, 'Invalid match seed');

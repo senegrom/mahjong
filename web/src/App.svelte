@@ -17,11 +17,11 @@
   import GuidedPlay from './lib/GuidedPlay.svelte';
   import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { watchModelAvailability } from './lib/model-availability.js';
-  import { MatchSession, SETTINGS_KEY, readSettings } from './lib/session.js';
+  import { MatchSession, readSettings, writeSettings } from './lib/session.js';
   import { acceptsHandKey, moveHandFocus } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
-  import { normalizeOpponents, OPPONENT_TYPES } from './lib/opponents.js';
+  import { normalizeOpponents, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
   const touch = matchMedia('(pointer: coarse)').matches;
@@ -77,9 +77,11 @@
   let shownDora = $derived(hints ? (view?.dora_types ?? []) : []);
   let selectedTile = $derived(selected === null ? null : handTiles[selected]);
 
+  // Stored when a preference changes, not whenever this effect reruns.
+  let storedSettings = null;
   $effect(() => {
-    const value = { version: 1, difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser };
-    try { storage?.setItem(SETTINGS_KEY, JSON.stringify(value)); } catch { /* Gameplay still works. */ }
+    storedSettings = writeSettings(storage,
+      { difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser }, storedSettings);
   });
 
   // A call is offered under a table that fills the window, so the choices
@@ -117,7 +119,9 @@
     failure = owner.failure;
     recovery = owner.needsRecovery;
     difficulty = owner.difficulty;
-    opponents = [...owner.opponents];
+    // Every move updates the view. A fresh copy of an unchanged table would
+    // rerun the preferences effect each time, over other tabs' changes.
+    if (!sameOpponents(opponents, owner.opponents)) opponents = [...owner.opponents];
     pendingOpponent = owner.pendingOpponent;
     standings = owner.over ? owner.engine.standings() : null;
     if (!thinking) loadNote = '';

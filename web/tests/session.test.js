@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MatchSession, readSettings } from '../src/lib/session.js';
+import { MatchSession, readSettings, writeSettings, SETTINGS_KEY } from '../src/lib/session.js';
+import { sameOpponents } from '../src/lib/opponents.js';
 import { heldSafeCount, callTiles, callLabel, unseenTileCounts } from '../src/lib/ui.js';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
@@ -117,6 +118,34 @@ test('the review adviser is remembered independently of the opponent network', (
     assert.equal(settings.reviewAdviser, reviewAdviser === 'strong' ? 'strong' : 'club');
     assert.equal(settings.trainedModel, 'quick');
   }
+});
+
+test('preferences are written when they change, not each time the effect reruns', () => {
+  const writes = [];
+  let fail = false;
+  const storage = { setItem(key, value) { if (fail) throw new Error('denied'); writes.push([key, value]); } };
+  const preferences = { difficulty: 'club', opponents: ['club', 'club', 'club'], hints: true };
+  let last = writeSettings(storage, preferences);
+  // App's effect reruns with an equal copy after every move of a match.
+  for (let move = 0; move < 5; move++) last = writeSettings(storage, { ...preferences, opponents: [...preferences.opponents] }, last);
+  assert.deepEqual(writes, [[SETTINGS_KEY, JSON.stringify({ version: 1, ...preferences })]]);
+  assert.deepEqual(readSettings({ getItem: () => writes[0][1] }).opponents, preferences.opponents);
+  // Another tab's change stays until this tab changes something itself.
+  last = writeSettings(storage, { ...preferences, hints: false }, last);
+  assert.equal(writes.length, 2);
+  fail = true;
+  const kept = writeSettings(storage, { ...preferences, hints: true }, last);
+  assert.equal(kept, last, 'a write that failed is not remembered as stored');
+  fail = false;
+  writeSettings(storage, { ...preferences, hints: true }, kept);
+  assert.equal(writes.length, 3);
+  assert.doesNotThrow(() => writeSettings(null, preferences));
+});
+
+test('an equal opponent table is not a change of table', () => {
+  assert.equal(sameOpponents(['club', 'neural', 'beginner'], ['club', 'neural', 'beginner']), true);
+  assert.equal(sameOpponents(['club', 'neural', 'beginner'], ['club', 'club', 'beginner']), false);
+  assert.equal(sameOpponents(['club', 'club', 'club'], ['club', 'club']), false);
 });
 
 test('safe count includes held copies, not absent globally safe kinds', () => {

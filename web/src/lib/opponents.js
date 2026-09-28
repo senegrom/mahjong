@@ -16,3 +16,8 @@ export function normalizeOpponents(value) {
 export function opponentPreset(opponents) {
   return opponents.every(type => type === opponents[0]) ? opponents[0] : 'custom';
 }
+
+/** The same controllers in the same seats: an equal copy is not a change. */
+export function sameOpponents(a, b) {
+  return a.length === b.length && a.every((type, index) => type === b[index]);
+}

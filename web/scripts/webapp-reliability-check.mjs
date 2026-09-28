@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { emptyPosition, PHYSICAL_KEY } from '../src/lib/physical-position.js';
-import { SAVE_KEY } from '../src/lib/session.js';
+import { SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -24,10 +24,20 @@ async function check(name, run) {
   catch (error) { results.push({ name, passed: false, error: error.stack }); console.error(`FAIL ${name}\n${error.stack}`); }
   finally { await context.close(); }
 }
-async function open(context, { mode = 'play', width = 1100, fixture, available = () => false } = {}) {
+async function open(context, { mode = 'play', width = 1100, fixture, available = () => false, countSettings = false } = {}) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  // Count the page's own writes of the preferences; `otherTab` writes as another tab would.
+  if (countSettings) await page.evaluateOnNewDocument(key => {
+    const setItem = Storage.prototype.setItem;
+    window.settingsWrites = 0;
+    window.otherTab = value => setItem.call(localStorage, key, value);
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key) window.settingsWrites++;
+      return setItem.call(this, name, value);
+    };
+  }, SETTINGS_KEY);
   await page.setViewport({ width, height: 900, hasTouch: width < 600 });
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -86,6 +96,25 @@ try {
     await mode(page, 'Physical agent play'); await page.waitForSelector('[aria-label="Physical play agent"] option[value="full"]');
     await mode(page, 'Guided physical game'); await page.waitForSelector('[aria-label="Guided game adviser"] option[value="full"]');
     assert.equal(await page.evaluate(key => localStorage.getItem(key), SAVE_KEY), before);
+    assert.deepEqual(errors, []);
+  });
+  await check('moves leave unchanged preferences alone, including another tab\'s change', async context => {
+    const { page, errors } = await open(context, { countSettings: true });
+    const before = await page.evaluate(() => window.settingsWrites);
+    const otherTab = JSON.stringify({ ...JSON.parse(await page.evaluate(key => localStorage.getItem(key), SETTINGS_KEY)), hints: false });
+    await page.evaluate(value => window.otherTab(value), otherTab);
+    for (let move = 0; move < 4; move++) {
+      await page.waitForFunction(() => document.querySelector('.failure, .screen, .hand button:not(:disabled), .call-options button:not(:disabled)'), { timeout: 45000 });
+      if (await page.$('.screen, .failure')) break;
+      const commands = await page.evaluate(key => JSON.parse(localStorage.getItem(key)).commands.length, SAVE_KEY);
+      const call = await page.$('.call-options [data-choice=pass], .call-options [data-choice=ron], .call-options [data-choice=tsumo]');
+      await (call ?? await page.$('.hand button:not(:disabled)')).click();
+      if (await page.$('.confirm-discard .primary')) await page.click('.confirm-discard .primary');
+      await page.waitForFunction((key, count) => JSON.parse(localStorage.getItem(key)).commands.length > count, { timeout: 45000 }, SAVE_KEY, commands);
+    }
+    assert.ok(await page.evaluate(key => JSON.parse(localStorage.getItem(key)).commands.length, SAVE_KEY) >= 2, 'moves were played');
+    assert.equal(await page.evaluate(() => window.settingsWrites), before, 'no move rewrites the preferences');
+    assert.equal(await page.evaluate(key => localStorage.getItem(key), SETTINGS_KEY), otherTab);
     assert.deepEqual(errors, []);
   });
   for (const width of [1100, 390]) await check(`physical edits undo independently and numeric typing stays usable at ${width}px`, async context => {
