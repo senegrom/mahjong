@@ -162,7 +162,6 @@ class Batch:
     hands: int
     decisions: int
     final_scores: np.ndarray
-    hand_results: list[int] = field(default_factory=list)
     #: Which objective `returns` was built against, so a trainer can refuse
     #: a round that was not built against the one it is learning.
     reward_version: int = REWARD_VERSION
@@ -229,7 +228,6 @@ def play(
     games: int,
     seed: int,
     device: str = "cuda",
-    bot_places: list[int] | None = None,
     greedy: bool = False,
     max_steps: int = 4000,
     amp: bool = False,
@@ -280,7 +278,9 @@ def play(
     net.eval()
     for other in opponents or []:
         other.eval()
-    arena = riichi_py.Arena(games=games, seed=seed, bot_places=bot_places or [])
+    # Every place is played by the learner or the others given; the
+    # heuristic players' tables are `evaluate_games`'.
+    arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
     kinds = {net.kind} | {other.kind for other in opponents or []}
     views = Views(arena, games, kinds)
     recording = net.kind == "mortal"

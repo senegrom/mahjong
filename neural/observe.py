@@ -344,11 +344,6 @@ class Observer:
         indptr, indices, values, _mask = self.follower.encode(who)
         return Planes.from_follower(indptr, indices, values)
 
-    def finish(self) -> None:
-        """Reads to the end, so a game that ended is read to its end_game
-        and nothing is left in the arena."""
-        self.advance()
-
 
 class Views:
     """What each kind of network sees, from one arena.

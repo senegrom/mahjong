@@ -321,12 +321,11 @@ def main() -> None:
 
     # The older selves that share the table, loaded once, each at whatever
     # shape and of whatever kind its checkpoint says. They are only ever
-    # asked for a move, so they need no optimiser and no gradients.
+    # asked for a move, so they need no optimiser and no gradients. A
+    # missing one was refused by validate_training_options before any of
+    # this was built.
     seated = []
     for path in args.opponents:
-        if not Path(path).exists():
-            print(f"no opponent at {path}, skipping", flush=True)
-            continue
         older = zoo.load_player(path, device, compile=args.compile)
         older.eval()
         for parameter in getattr(older, "parameters", list)():

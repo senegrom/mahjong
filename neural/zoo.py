@@ -115,15 +115,6 @@ def first_meaning(actions: np.ndarray, legal: np.ndarray) -> np.ndarray:
     return np.where(found, best, -1)
 
 
-def translate(action: int, legal: np.ndarray) -> list[int]:
-    """Our actions that Mortal's `action` could mean, best first, kept to
-    the legal ones. Empty when none is legal, and for riichi, which is
-    decided in a second step."""
-    if action == MORTAL_RIICHI:
-        return []
-    return [index for index in meanings(action) if legal[index]]
-
-
 def choose_in_mortal_space(
     ask,
     views: Views,

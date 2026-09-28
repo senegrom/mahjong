@@ -419,10 +419,6 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
     return net, state
 
 
-def is_combined(payload: dict) -> bool:
-    return isinstance(payload, dict) and "combined" in payload
-
-
 def migrate_belief_optimizer(saved: dict, optimiser, net: Combined) -> dict:
     """Expand legacy Adam moments alongside the equivalent model conversion.
 

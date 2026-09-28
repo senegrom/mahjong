@@ -146,9 +146,6 @@ class Population:
             )
         return cls(members=members)
 
-    def names(self) -> list[str]:
-        return [member.name for member in self.members]
-
     def describe(self) -> list[dict]:
         """The roster as it should appear in a run's log: who was available
         to be seated, in what role, and how often."""

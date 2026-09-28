@@ -94,29 +94,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--opponents", type=Path, nargs="*", default=[],
-        help="kept for launchers that name opponents directly; the roster "
-             "in neural.population is what seats them now",
+        help="checkpoints to seat at the tables, as the cloud stages them. "
+             "Each is a member of the roster (see neural.population): a "
+             "name it knows keeps its role and weight there, any other is "
+             "drawn with weight one",
     )
     parser.add_argument(
         "--explore", type=float, default=0.0,
         help="how often a legal move is taken at random instead of the "
-             "policy's, so the value head sees the positions a search asks "
-             "it about rather than only the ones the policy reaches. The "
-             "probability written down is the mixture's, not the policy's, "
-             "so PPO divides by who actually chose",
-    )
-    parser.add_argument(
-        "--champion", default=None,
-        help="the checkpoint that last passed the gate, seated most often",
-    )
-    parser.add_argument(
-        "--recent", nargs="*", default=[],
-        help="checkpoints from the last few blocks of this lineage",
-    )
-    parser.add_argument(
-        "--older", nargs="*", default=[],
-        help="checkpoints from further back, which catch a policy going "
-             "round in circles",
+             "policy's, so the value head and the reader of hands see "
+             "positions the policy alone would not reach. The probability "
+             "written down is the policy's own, and a forced move is kept "
+             "out of the policy gradient; the other heads learn from it",
     )
     parser.add_argument("--opponent-share", type=float, default=0.0)
     parser.add_argument(
@@ -233,43 +222,18 @@ def main() -> None:
     else:
         learn = net.everything
 
-    # Who else sits at the tables, as a roster with roles and shares rather
-    # than a list of paths typed on the launch line: see `neural.population`.
-    # A member that is missing is dropped from the roster rather than
-    # skipped silently at seating time, so the shares still add up and the
-    # log says who was actually available.
-    #
-    # Checkpoints named with `--opponents` still seat: a launcher that
-    # copies them to local files and passes the paths is how every run has
-    # started one, and quietly seating nobody because the roster wanted
-    # different flags would be a silent loss of the whole population.
-    wanted = [
-        (Path(path), member)
-        for path, member in zip(
-            args.opponents, population.Population.from_paths(args.opponents).members
-        )
-    ]
-    for name in (args.champion, *args.recent, *args.older):
-        if name:
-            role = (
-                "champion" if name == args.champion
-                else "recent" if name in args.recent
-                else "older"
-            )
-            weight = {"champion": 3.0, "recent": 1.0, "older": 0.5}[role]
-            wanted.append(
-                (Path(name), population.Member(str(name), role, f"named as {role}", weight))
-            )
-    seated, members = [], []
-    for path, member in wanted:
-        if not path.exists():
-            print(f"no opponent at {path}, left out of the roster", flush=True)
-            continue
+    # Who else sits at the tables, as a roster with roles and shares: see
+    # `neural.population`. The checkpoints are the ones `--opponents`
+    # names, which is how every launcher passes them, and a name the roster
+    # knows keeps its role and weight there. validate_training_options has
+    # refused a missing one already, so the roster and the players loaded
+    # line up one for one.
+    roster = population.Population.from_paths(args.opponents)
+    seated = []
+    for path in args.opponents:
         other = zoo.load_player(path, device, compile=args.compile)
         other.eval()
         seated.append(other)
-        members.append(member)
-    roster = population.Population(members=members)
     if seated:
         print(
             f"{len(seated)} others seated in "
@@ -586,14 +550,12 @@ def main() -> None:
         if measured is not None:
             payload["placement"] = measured["placement"]
         if is_best:
-            # `candidate.pt` is the generation the heuristic table liked
-            # best so far, and that is all it is. The bots compress real
-            # differences several-fold and this measures one seat, so
-            # being the best of these readings is a reason to put a
-            # checkpoint forward, not a finding that it is stronger.
-            # Duels at one table (`neural.duel`), pooled over many deals,
-            # decide that; nothing here may write `champion.pt`.
-            atomic_save(payload, args.out / "candidate.pt")
+            # `best.pt` is the generation the heuristic table liked best so
+            # far, and that is all it is. The bots compress real differences
+            # several-fold and this measures one seat, so being the best of
+            # these readings is a reason to put a checkpoint forward, not a
+            # finding that it is stronger. Duels at one table
+            # (`neural.duel`), pooled over many deals, decide that.
             atomic_save(payload, args.out / "best.pt")
         atomic_save(payload, args.out / "latest.pt")
         print(json.dumps(record), flush=True)

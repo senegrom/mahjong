@@ -67,9 +67,6 @@ def validate_training_options(args) -> None:
         if path is not None and not Path(path).is_file():
             raise FileNotFoundError(f"{name} checkpoint does not exist: {path}")
     roster = list(getattr(args, "opponents", []))
-    roster += list(getattr(args, "recent", [])) + list(getattr(args, "older", []))
-    if getattr(args, "champion", None):
-        roster.append(args.champion)
     for path in roster:
         if not Path(path).is_file():
             raise FileNotFoundError(f"opponent checkpoint does not exist: {path}")

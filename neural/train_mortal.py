@@ -1,12 +1,13 @@
 """Fine-tuning a published Mortal on our rules, by self-play.
 
 The same loop as `train.py`, for a learner of the zoo's kind (see
-`mortal_learner.py`): play a round with the learner at every seat, credit
-each decision with what its hand moved and where its game placed, and
-take a clipped policy-gradient step towards the decisions that did better
-than the learner's own value head expected. Mortal's Q values are the
-policy's logits and everything of Mortal's learns; there are no auxiliary
-heads and no replay ring, since it has none of the heads those serve.
+`mortal_learner.py`): play a round with the learner at every seat that
+none of `--opponents` holds, credit each of its decisions with what its
+hand moved and where its game placed, and take a clipped policy-gradient
+step towards the decisions that did better than the learner's own value
+head expected. Mortal's Q values are the policy's logits and everything
+of Mortal's learns; there are no auxiliary heads and no replay ring,
+since it has none of the heads those serve.
 
     python -m neural.train_mortal --mortal mortal.pth --rounds 30 --out runs/mortal
 """
@@ -120,15 +121,18 @@ def main() -> None:
         smoothed, best_placement = benchmark_history(payload)
         optimiser_state = payload.get("optimizer_state")
         sampling_state = payload.get("sampling_state")
+        # Mortal's config, which every checkpoint of this trainer carries
+        # so that it loads wherever a published Mortal does.
+        config = payload["config"]
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.mortal is not None and args.mortal.exists():
         temperature = 1.0 if args.temperature is None else args.temperature
         net = mortal_learner.from_mortal(args.mortal, device, temperature)
+        # Read once more for its config, and let go.
+        config = torch.load(args.mortal, map_location="cpu", weights_only=False)["config"]
         print(f"starting from {args.mortal}", flush=True)
     else:
         raise SystemExit("give --mortal, a published Mortal, or --resume, a checkpoint of this trainer's")
-    source_state = torch.load(args.resume or args.mortal, map_location="cpu", weights_only=False)
-    config = source_state["config"]
 
     optimiser = torch.optim.AdamW(
         net.parameters(), lr=args.lr, weight_decay=0.01, fused=device == "cuda"
