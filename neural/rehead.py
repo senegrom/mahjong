@@ -126,18 +126,15 @@ def collect(
         spread = torch.softmax(logits.float() / temperature, dim=1)
 
         # The same weight, said in Mortal's words: the riichi block lands
-        # whole on its single reach, the three kans on its one kan. The
-        # mapping is not one to one, since our discard of a five is meant
-        # both by Mortal's plain five and by its red one, so what Mortal
-        # may actually do here decides what the weight is allowed to land
-        # on before it is normalised.
+        # whole on its single reach, the three kans on its one kan, a win
+        # either way on its one win. Every move of ours has one meaning in
+        # Mortal's space at most, since its red fives mean nothing here, so
+        # a five's weight lands whole on the plain five: split across the
+        # red one as well, a five the teacher preferred by less than two to
+        # one lost its place as the student's best move.
         allowed = zoo.translatable(legal[rows])
-        # Several Mortal aliases can mean the same engine move (red/plain
-        # fives). Split that move's mass rather than duplicating it when the
-        # authoritative mask allows both aliases.
         allowed_tensor = torch.from_numpy(allowed).to(device)
-        multiplicity = allowed_tensor.float() @ means.T
-        target = ((spread / multiplicity.clamp(min=1)) @ means) * allowed_tensor
+        target = (spread @ means) * allowed_tensor
         total = target.sum(dim=1)
         usable = allowed.any(axis=1) & (total.cpu().numpy() > 1e-6)
         if usable.any():

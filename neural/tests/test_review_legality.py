@@ -63,7 +63,12 @@ class LegalityReviewTests(unittest.TestCase):
         self.assertGreater(targets[0,37],.99)
         self.assertGreater(targets[1,1],.99)
 
-    def test_reheading_does_not_duplicate_red_five_alias_probability(self):
+    def test_reheading_puts_a_fives_whole_weight_on_the_plain_five(self):
+        # Split across the plain five and Mortal's red one, a five the
+        # teacher preferred by less than two to one lost the student's
+        # argmax to the runner-up: 0.69% of the teacher's choices, all of
+        # them fives. Our tables have no red fives, so the red one means
+        # nothing and is never opened.
         from neural import rehead, zoo
         legal=np.zeros((1,78),bool);legal[0,[0,4]]=True
         class Arena:
@@ -73,10 +78,40 @@ class LegalityReviewTests(unittest.TestCase):
             def legal_mask(self):return legal.astype(np.uint8).tobytes()
             def step(self,actions):self.finished=True
         def teacher(planes,mask):
-            return torch.zeros_like(mask,dtype=torch.float32).masked_fill(~mask,-torch.inf),torch.zeros(len(mask))
+            logits=torch.full(mask.shape,-torch.inf)
+            logits[:,0]=np.log(.4);logits[:,4]=np.log(.6)
+            return logits,torch.zeros(len(mask))
         with patch.object(rehead.riichi_py,'Arena',Arena),patch.object(rehead,'Views',Views):
-            _,_,targets,_=rehead.collect(teacher,object(),1,1,'cpu',1.)
-        # 0.5 on tile 0, 0.5 split across ordinary/red aliases of tile 4.
-        self.assertAlmostEqual(float(targets[0,0]),.5,places=6)
-        self.assertAlmostEqual(float(targets[0,4]+targets[0,34]),.5,places=6)
+            _,masks,targets,_=rehead.collect(teacher,object(),1,1,'cpu',1.)
+        self.assertEqual(np.flatnonzero(masks[0]).tolist(),[0,4])
+        self.assertFalse(masks[:,list(zoo.MORTAL_RED_FIVES)].any())
+        np.testing.assert_allclose(targets[0,[0,4]],[.4,.6],atol=1e-6)
+        self.assertEqual(int(targets[0].argmax()),4)
         self.assertAlmostEqual(float(targets.sum()),1,places=6)
+
+    def test_mortals_red_fives_mean_nothing_at_our_tables(self):
+        from neural import mortal_learner, zoo
+        from neural.tests.test_evaluation_masks import ConflictingViews
+        for red in zoo.MORTAL_RED_FIVES:
+            self.assertEqual(zoo.meanings(red),[])
+        # Every five and nothing else is ours to discard.
+        legal=np.zeros((1,78),bool);legal[0,[4,13,22]]=True
+        allowed=zoo.translatable(legal)
+        self.assertEqual(np.flatnonzero(allowed[0]).tolist(),[4,13,22])
+        self.assertEqual(zoo.first_meaning(np.array(zoo.MORTAL_RED_FIVES),legal.repeat(3,0)).tolist(),[-1]*3)
+        # A network that rates a red five highest still plays a plain one:
+        # the red one is closed, as the learner records it and as a table
+        # asks for a move.
+        def score(planes,mask):
+            logits=torch.zeros(mask.shape);logits[:,34]=30;logits[:,35]=20;logits[:,13]=10
+            return logits.masked_fill(~mask,-torch.inf)
+        choice,records=mortal_learner.decide_in_mortal_space(score,ConflictingViews(),
+            np.array([0]),np.array([0]),legal,greedy=True,device='cpu')
+        self.assertEqual(choice.tolist(),[13]);self.assertEqual(records.actions.tolist(),[13])
+        self.assertFalse(records.masks[:,list(zoo.MORTAL_RED_FIVES)].any())
+        asked=[]
+        def ask(who,fresh,allowed):
+            asked.append(allowed.copy())
+            return score(None,torch.from_numpy(allowed)).numpy(),np.zeros_like(allowed)
+        self.assertEqual(zoo.choose_in_mortal_space(ask,ConflictingViews(),np.array([0]),np.array([0]),legal).tolist(),[13])
+        self.assertFalse(asked[0][:,list(zoo.MORTAL_RED_FIVES)].any())

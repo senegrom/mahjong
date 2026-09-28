@@ -45,7 +45,14 @@ EXTENDED_KAN = 77
 # Mortal's action space: 34 discards by kind, three red-five discards, then
 # riichi, chi with the called tile lowest, middle and highest, pon, kan,
 # a win, an abortive draw, and pass.
-MORTAL_RED = {34: 4, 35: 13, 36: 22}
+#
+# The red fives (34 to 36) mean nothing at our tables, which have none:
+# they are never opened in a mask and never produced. They used to be
+# opened as aliases of the plain fives, which split a five's weight across
+# two actions and let a network pick a move whose value it had never been
+# trained on. `engine/riichi-wasm` translates the same way; the two must
+# not drift.
+MORTAL_RED_FIVES = (34, 35, 36)
 MORTAL_RIICHI = 37
 MORTAL_CHI_LOW, MORTAL_CHI_MID, MORTAL_CHI_HIGH = 38, 39, 40
 MORTAL_PON = 41
@@ -58,11 +65,10 @@ MORTAL_PASS = 45
 def meanings(action: int) -> list[int]:
     """Our actions that Mortal's `action` could mean, best first. Riichi
     means any of the riichi discards, the tile being decided in a second
-    step; an abortive draw means nothing, our rules not offering one."""
+    step; a red five and an abortive draw mean nothing, our rules offering
+    neither."""
     if action < 34:
         return [DISCARD + action]
-    if action in MORTAL_RED:
-        return [DISCARD + MORTAL_RED[action]]
     if action == MORTAL_RIICHI:
         return list(range(RIICHI_DISCARD, TSUMO))
     if action == MORTAL_CHI_LOW:

@@ -1216,6 +1216,11 @@ mod tests {
     fn trained_and_listed_agree(hand: &Hand, seat: Wind) {
         let listed = choices(hand, seat);
         let open = crate::mortal_mask_of(hand, seat, false);
+        // Our rules have no red fives, so Mortal's are never offered.
+        assert!(
+            !open[34..37].iter().any(|flag| *flag),
+            "a red five is open for {seat:?}"
+        );
         for (action, allowed) in open.iter().enumerate() {
             let ours = crate::action_from_mortal(hand, seat, action, false);
             assert_eq!(*allowed, ours >= 0, "Mortal's move {action} at {seat:?}");

@@ -28,8 +28,6 @@ const MORTAL_VERSION: u32 = 4;
 
 /// Mortal's moves: thirty-four discards, three red fives, then the rest.
 const MORTAL_ACTIONS: usize = riichi::consts::ACTION_SPACE;
-/// Mortal's red fives, each with the plain five it names in our tiles.
-const MORTAL_RED_FIVES: [(usize, usize); 3] = [(34, 4), (35, 13), (36, 22)];
 const MORTAL_REACH: usize = 37;
 const MORTAL_CHI_LOW: usize = 38;
 const MORTAL_CHI_MID: usize = 39;
@@ -40,23 +38,21 @@ const MORTAL_AGARI: usize = 43;
 const MORTAL_PASS: usize = 45;
 
 /// The tile one of Mortal's discards names, as one of our thirty-four
-/// kinds, or nothing where the move is not a discard. Our rules have no red
-/// fives, so one means the plain tile.
+/// kinds, or nothing where the move is not a plain discard.
+///
+/// Mortal's three red fives (34 to 36) name nothing: our rules have no red
+/// fives, so the mask never opens them and no answer is read from them.
+/// Opened as aliases of the plain fives, they split a five's weight in two
+/// and let the network pick a move whose value it was never trained on.
 fn mortal_discard(action: usize) -> Option<usize> {
-    if action < 34 {
-        return Some(action);
-    }
-    MORTAL_RED_FIVES
-        .iter()
-        .find(|(red, _)| *red == action)
-        .map(|(_, plain)| *plain)
+    (action < 34).then_some(action)
 }
 
 /// Our moves that one of Mortal's could mean, best first.
 ///
 /// The same table as `meanings` in `neural/zoo.py`, which is what the
-/// network was trained through; the two must not drift. An abortive draw
-/// means nothing here, our rules not offering one.
+/// network was trained through; the two must not drift. A red five and an
+/// abortive draw mean nothing here, our rules offering neither.
 fn meanings(action: usize) -> Vec<usize> {
     if let Some(tile) = mortal_discard(action) {
         return vec![encoding::DISCARD + tile];
@@ -2093,6 +2089,74 @@ mod ui_review_tests {
         assert!(!game.pending_reach_for(Wind::South));
         game.hand.discards_made += 1;
         assert!(!game.pending_reach_for(Wind::East));
+    }
+
+    /// East, a trained opponent, to act holding `hand`, which includes the
+    /// tile it has just drawn, `drawn`, with nothing declared.
+    fn east_to_act(hand: &str, drawn: &str) -> Game {
+        let mut game = Game::new(81.0, Some("neural".into()));
+        game.player = 3;
+        game.seat = Wind::North;
+        game.hand_seating = [0, 1, 2, 3];
+        game.hand.turn = Wind::East;
+        game.hand.phase = Phase::Act;
+        game.hand.players[0].hand = hand.parse().unwrap();
+        game.hand.drawn = Some(drawn.parse().unwrap());
+        game
+    }
+
+    #[test]
+    fn mortals_red_fives_mean_nothing_at_our_tables() {
+        // Our rules have no red fives. Opened as aliases of the plain fives,
+        // Mortal's 34 to 36 split a five's weight in two and let the network
+        // pick a move it was never trained to value; `neural/zoo.py`
+        // translates the same way.
+        for red in 34..37 {
+            assert!(meanings(red).is_empty(), "Mortal's {red} means something");
+            assert_eq!(mortal_discard(red), None);
+        }
+        // (A refused move is answered with a JsValue, which a native test
+        // cannot build, so the refusals are read from the translation that
+        // `play_opponent_mortal` asks.)
+        let mut game = east_to_act("555m555p555s11223z", "3z");
+        let open = mortal_mask_of(&game.hand, Wind::East, false);
+        assert!(open[4] && open[13] && open[22]);
+        assert!(!open[34..37].iter().any(|flag| *flag));
+        for red in 34..37 {
+            for after_reach in [false, true] {
+                assert_eq!(
+                    move_from_mortal(&game.hand, Wind::East, red, after_reach),
+                    None
+                );
+                assert_eq!(
+                    action_from_mortal(&game.hand, Wind::East, red, after_reach),
+                    -1
+                );
+            }
+        }
+        for plain in [4, 13, 22] {
+            assert_eq!(mortal_action_for(encoding::DISCARD + plain), plain as i32);
+        }
+        assert_eq!(game.opponent_mask_mortal()[34..37], [0, 0, 0]);
+        assert!(!game.play_opponent_mortal(4).unwrap());
+    }
+
+    #[test]
+    fn a_declared_reach_names_a_plain_five_and_never_a_red_one() {
+        // Throwing the drawn five leaves a single south wind to wait on, so
+        // the five may be thrown with the declaration.
+        let mut game = east_to_act("1235m123p123s1112z", "5m");
+        assert!(game.play_opponent_mortal(MORTAL_REACH).unwrap());
+        let mask = game.opponent_mask_mortal();
+        assert_eq!(mask[4], 1);
+        assert_eq!(mask[34..37], [0, 0, 0]);
+        assert_eq!(move_from_mortal(&game.hand, Wind::East, 34, true), None);
+        assert_eq!(
+            move_from_mortal(&game.hand, Wind::East, 4, true),
+            Some(encoding::RIICHI_DISCARD + 4)
+        );
+        assert!(!game.play_opponent_mortal(4).unwrap());
+        assert!(game.hand.players[0].has_riichi());
     }
 
     #[test]
