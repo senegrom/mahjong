@@ -19,9 +19,11 @@ jobs:
         with:
           node-version: 22
       - name: Install image export dependency
-        run: sudo apt-get update -qq && sudo apt-get install -y imagemagick
+        run: sudo apt-get update -qq && sudo apt-get install -y imagemagick > /dev/null
       - name: Assemble and register exact selected C artwork
-        run: python3 .van-gogh-7s-import/prepare.py
+        run: |
+          python3 .van-gogh-7s-import/patch.py
+          python3 .van-gogh-7s-import/prepare.py
       - name: Install web dependencies
         working-directory: web
         run: npm ci
@@ -33,7 +35,7 @@ jobs:
         run: npx eslint scripts/export-van-gogh-tiles.mjs tests/tile-faces.test.js --max-warnings 0
       - name: Remove temporary import files and publish tested asset changes
         run: |
-          rm -rf .van-gogh-7s-import .github/workflows/prepare-van-gogh-7s.yml
+          rm -rf .van-gogh-7s-import
           git add -A
           git diff --cached --check
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Export approved Seven with Irises C for Van Gogh 7 bamboo'
