@@ -1,0 +1,18 @@
+{
+  "tile": "8s",
+  "name": "Sou8",
+  "direction": "The Bamboo Raft",
+  "approval": "Carl requested the raft concept for eight bamboo, then approved deployment of the resulting image.",
+  "originalFilename": "a_vertical_painterly_impasto_oil_paint_style_ill.png",
+  "originalSha256": "19a9ca0948f628609844b640a94b94ba29ceb33108c751fcae9e20ab36aaa0fa",
+  "originalDimensions": [1024, 1536],
+  "rasterDimensions": [300, 400],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "c0dbf2f2b2793681a2b31d28282b80113b4cd33f33b7bb50d52a6ffb69580aa3",
+  "processing": "Entire approved image resized with Lanczos to the existing 300 x 400 game canvas; WebP quality 80, method 6. No redraw, recolouring, added symbols or crop. Standard 1% bleed and 26-unit corner clipping are applied only by the SVG wrapper.",
+  "palette": "The blue river, golden sky, green bamboo and brown lashings are preserved as explicitly approved. This is an artwork exception to the set's all-green palette convention for 8s, not a change to Mahjong rules or All Green eligibility.",
+  "source": "docs/design/van-gogh/studies/14-eight-bamboo-raft-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Sou8.svg",
+  "svgSha256": "94f1651a4aff20b81f82467e7183c886c189c0e5f2a69824026313798a35a856",
+  "sourceAvailability": "The repository SVG embeds a game-sized WebP export, not the full-resolution original PNG. The original image is identified by the SHA-256 above."
+}

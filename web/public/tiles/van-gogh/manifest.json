@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring.",
   "fallback": "classic",
   "sources": [
     {
@@ -68,6 +68,11 @@
       "id": "sevenIrises",
       "source": "docs/design/van-gogh/studies/14-seven-bamboo-irises-c.webp",
       "sha256": "68713fe1b285477dd38fd38bb329f59753f02fb263dd76bbe06d72eb4ae5cf4f"
+    },
+    {
+      "id": "bambooRaft",
+      "source": "docs/design/van-gogh/studies/14-eight-bamboo-raft-approved.svg",
+      "sha256": "94f1651a4aff20b81f82467e7183c886c189c0e5f2a69824026313798a35a856"
     }
   ],
   "tiles": [
@@ -359,6 +364,24 @@
         "height": 400
       },
       "pngSha256": "e469700f145e5718db8244492d8ded8118226f8a639326256de233e2d61170a1"
+    },
+    {
+      "candidate": "Bamboo Raft",
+      "tile": "8s",
+      "name": "Sou8",
+      "label": "Eight bamboo",
+      "source": "docs/design/van-gogh/studies/14-eight-bamboo-raft-approved.svg",
+      "status": "approved",
+      "svg": "approved/Sou8.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      },
+      "svgSha256": "94f1651a4aff20b81f82467e7183c886c189c0e5f2a69824026313798a35a856",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "c0dbf2f2b2793681a2b31d28282b80113b4cd33f33b7bb50d52a6ffb69580aa3"
     }
   ],
   "rejected": [
@@ -402,7 +425,6 @@
     "7p",
     "8p",
     "5s",
-    "8s",
     "9s",
     "2z",
     "3z",

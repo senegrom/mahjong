@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { TILE_TYPES, tileFile } from '../src/lib/tiles.js';
 
-// Export selected artwork; the 2s, 3s, 4s and 7s studies use documented optimized sources.
+// Export selected artwork; newer studies use documented optimized sources.
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const out = path.join(root, 'web/public/tiles/van-gogh');
 const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
@@ -21,6 +21,7 @@ const sources = {
   tripleShootsGreen: 'docs/design/van-gogh/studies/12-three-bamboo-triple-shoots-green.webp',
   moonlitFourGreen: 'docs/design/van-gogh/studies/13-four-bamboo-moonlit-four-green.webp',
   sevenIrises: 'docs/design/van-gogh/studies/14-seven-bamboo-irises-c.webp',
+  bambooRaft: 'docs/design/van-gogh/studies/14-eight-bamboo-raft-approved.svg',
 };
 const definitions = [
   ['A', '1p', 'One disk', 'first', [54, 122, 357, 462]],
@@ -40,6 +41,7 @@ const definitions = [
   ['Bamboo B (green)', '2s', 'Two bamboo', 'gardenRhythmGreen', [0, 0, 300, 400]],
   ['Bamboo C (green)', '4s', 'Four bamboo', 'moonlitFourGreen', [0, 0, 300, 400]],
   ['Seven C', '7s', 'Seven bamboo', 'sevenIrises', [0, 0, 300, 400]],
+  ['Bamboo Raft', '8s', 'Eight bamboo', 'bambooRaft', [0, 0, 300, 400]],
 ];
 const onlyArgument = process.argv.find(argument => argument.startsWith('--only='));
 const onlyTiles = onlyArgument ? new Set(onlyArgument.slice(7).split(',')) : null;
@@ -51,7 +53,7 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const manifest = {
   version: 1, id: 'van-gogh', name: 'Van Gogh',
   canvas: { width: 300, height: 400 }, facePresentation,
-  approval: 'Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies.',
+  approval: 'Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring.',
   fallback: 'classic',
   sources: Object.entries(sources).map(([id, source]) => ({ id, source, sha256: hash(readFileSync(path.join(root, source))) })),
   tiles: [],
@@ -67,24 +69,40 @@ for (const [candidate, tile, label, sourceId, crop] of definitions) {
   const name = tileFile(tile), source = sources[sourceId];
   const [x, y, width, height] = crop;
   const png = `approved/${name}.png`, svg = `approved/${name}.svg`;
-  const raster = onlyTiles && !onlyTiles.has(tile)
+  const selected = !onlyTiles || onlyTiles.has(tile);
+  // Self-contained approved SVG studies are copied exactly, never rasterized or repainted.
+  if (source.endsWith('.svg')) {
+    const artwork = readFileSync(path.join(root, source));
+    const match = artwork.toString('utf8').match(/href="data:image\/webp;base64,([A-Za-z0-9+/=]+)"/);
+    if (!match) throw new Error(`Missing embedded WebP in ${source}`);
+    const raster = Buffer.from(match[1], 'base64');
+    if (selected) writeFileSync(path.join(out, svg), artwork);
+    manifest.tiles.push({ candidate, tile, name, label, source, status: 'approved', svg,
+      crop: { x, y, width, height }, svgSha256: hash(artwork),
+      rasterMimeType: 'image/webp', rasterSha256: hash(raster) });
+    continue;
+  }
+  const raster = !selected
     ? readFileSync(path.join(out, png))
     : fullFaceSources.has(sourceId)
       ? readFileSync(path.join(root, source))
       : execFileSync('convert', [path.join(root, source), '-crop', `${width}x${height}+${x}+${y}`, '+repage', '-strip', 'PNG:-'], { maxBuffer: 8 * 1024 * 1024 });
-  writeFileSync(path.join(out, png), raster);
-  const { radius, bleed, preserveAspectRatio } = facePresentation;
-  const verticalBleed = bleed * 4 / 3;
-  writeFileSync(path.join(out, svg), `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Van Gogh</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" x="${-bleed}" y="${-verticalBleed}" width="${300 + 2 * bleed}" height="${400 + 2 * verticalBleed}" preserveAspectRatio="${preserveAspectRatio}" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`);
+  if (selected) {
+    writeFileSync(path.join(out, png), raster);
+    const { radius, bleed, preserveAspectRatio } = facePresentation;
+    const verticalBleed = bleed * 4 / 3;
+    writeFileSync(path.join(out, svg), `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Van Gogh</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" x="${-bleed}" y="${-verticalBleed}" width="${300 + 2 * bleed}" height="${400 + 2 * verticalBleed}" preserveAspectRatio="${preserveAspectRatio}" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`);
+  }
   manifest.tiles.push({ candidate, tile, name, label, source, status: 'approved', png, svg,
     crop: { x, y, width, height }, pngSha256: hash(raster) });
 }
 const approved = manifest.tiles.map(entry => entry.tile);
 manifest.remaining = TILE_TYPES.filter(tile => !approved.includes(tile));
 writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-writeFileSync(path.join(root, 'web/src/lib/van-gogh-faces.js'), `// Generated by web/scripts/export-van-gogh-tiles.mjs. Characters A replaces D; Characters B (2m), Characters C (4m), East A, North B, green Garden Rhythm B (2s) green Triple Shoots A (3s) green Moonlit Four C (4s) and Seven with Irises C (7s) included; K excluded; L replaces F.\nexport const VAN_GOGH_APPROVED = Object.freeze(${JSON.stringify(approved)});\n`);
+writeFileSync(path.join(root, 'web/src/lib/van-gogh-faces.js'), `// Generated by web/scripts/export-van-gogh-tiles.mjs. Includes the approved Bamboo Raft (8s); all earlier selections remain unchanged.\nexport const VAN_GOGH_APPROVED = Object.freeze(${JSON.stringify(approved)});\n`);
 const gallery = manifest.tiles.map(entry => `<figure><img src="${entry.svg}" alt="${entry.label}" width="300" height="400"><figcaption>${entry.candidate} · ${entry.label}</figcaption></figure>`).join('');
-const handTiles = ['7s', '4s', '3s', '2s', '2m', '3m', '4m', ...approved.filter(tile => !['7s', '4s', '3s', '2s', '2m', '3m', '4m'].includes(tile)).slice(0, 5), '2z', '6z'];
+const featured = ['8s', '7s', '4s', '3s', '2s', '2m', '3m', '4m'];
+const handTiles = [...featured, ...approved.filter(tile => !featured.includes(tile)).slice(0, 4), '2z', '6z'];
 const hand = handTiles.map(tile => {
   const entry = manifest.tiles.find(entry => entry.tile === tile);
   return `<img src="${entry ? entry.svg : `../${tileFile(tile)}.svg`}" alt="${entry?.label ?? tile}" width="300" height="400">`;
@@ -92,7 +110,7 @@ const hand = handTiles.map(tile => {
 writeFileSync(path.join(out, 'preview.html'), `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Van Gogh Mahjong — Approved Tiles</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#f5efdf;color:#173457;font:16px/1.5 system-ui,sans-serif}main{max-width:1000px;margin:auto;padding:32px 20px 56px}h1{font:48px/1.1 Georgia,serif;margin:8px 0 16px}h2{font-size:22px;margin:36px 0 16px}p{max-width:680px}a{color:inherit}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:24px}figure{margin:0}figure img{width:100%;height:auto;display:block}figcaption{font-size:14px;margin-top:8px}.scroll{overflow-x:auto;padding:12px 4px 24px}.rack{display:flex;gap:2px;width:390px;padding:20px 12px;background:#173d34;border-radius:12px}.rack img{width:calc((100% - 26px)/14);height:auto;aspect-ratio:3/4;min-width:0;flex:none;border-radius:2px}.notes{color:#5d655f;font-size:14px}select{font:inherit;padding:6px;background:#fff;border:1px solid #aaa;border-radius:6px}@media(max-width:500px){main{padding:24px 16px}.gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}</style></head>
-<body><main><a href="../../">← Mahjong</a><h1>Van Gogh</h1><p>${approved.length} approved faces, including Seven with Irises for 7 bamboo, green Moonlit Four for 4 bamboo, green Triple Shoots for 3 bamboo, green Garden Rhythm for 2 bamboo, Night Cafe for 2 of characters, Almond Branches for 3, Cypress Fields for 4, Blazing Dawn for East and Wind Ribbons for North. Choose <strong>Options → Tile face → Van Gogh</strong> in the game. The remaining tiles use Classic artwork.</p><h2>Approved artwork</h2><div class="gallery">${gallery}</div>
+<body><main><a href="../../">← Mahjong</a><h1>Van Gogh</h1><p>${approved.length} approved faces, including the Bamboo Raft for 8 bamboo, Seven with Irises C for 7 bamboo, green Moonlit Four for 4 bamboo, green Triple Shoots for 3 bamboo, green Garden Rhythm for 2 bamboo, Night Cafe for 2 of characters, Almond Branches for 3, Cypress Fields for 4, Blazing Dawn for East and Wind Ribbons for North. Choose <strong>Options → Tile face → Van Gogh</strong> in the game. The remaining ${manifest.remaining.length} tiles use Classic artwork.</p><h2>Approved artwork</h2><div class="gallery">${gallery}</div>
 <h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label><div class="scroll"><div class="rack" id="rack">${hand}</div></div>
-<p class="notes">The last two tiles use Classic artwork. East wind K is excluded. White dragon L keeps its pale painted dragon under the normal dora ring and foil sheen.</p><p class="notes">Earlier selected art is preserved in lossless PNG crops. Garden Rhythm 2 bamboo, Triple Shoots 3 bamboo, Moonlit Four 4 bamboo and Seven with Irises 7 bamboo use high-quality, web-optimized crops of their approved studies; their source and crop provenance are documented. <a href="manifest.json">Export manifest</a></p></main><script>document.getElementById('width').addEventListener('change',event=>{document.getElementById('rack').style.width=event.target.value+'px'});</script></body></html>\n`);
+<p class="notes">The last two tiles use Classic artwork. East wind K is excluded. White dragon L keeps its pale painted dragon under the normal dora ring and foil sheen.</p><p class="notes">Earlier selected art is preserved in lossless PNG crops. The newer green bamboo studies use web-optimized crops. The Bamboo Raft preserves the complete approved composition and colours in a 300 × 400 WebP embedded in its SVG; it is not the full-resolution source PNG. Source checksums and processing are documented. <a href="manifest.json">Export manifest</a></p></main><script>document.getElementById('width').addEventListener('change',event=>{document.getElementById('rack').style.width=event.target.value+'px'});</script></body></html>\n`);
 console.log(`Exported ${approved.length} approved Van Gogh faces; ${manifest.remaining.length} identities use Classic artwork.`);
