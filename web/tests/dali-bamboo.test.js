@@ -15,6 +15,17 @@ const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 // pinned byte for byte.
 const FACES = [
   {
+    tile: '3s', name: 'Sou3', words: 'three bamboo', direction: 'The Bamboo That Tied Itself — A',
+    source: 'docs/design/dali/studies/three-bamboo-a-approved.svg',
+    artwork: '43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95',
+    original: '67d151a89d59f2f3907b6e9fa0b0968ca1d5c95faa2e6e6003a53fd567e122a0',
+    raster: '45efaeaf1bef0f270dea09d039a93070ea2ae218eef02454ffa474429c3f8eb7',
+    originalFilename: 'wide_triptych_art_image_with_three_vertical_panels.png',
+    originalDimensions: [1536, 1024], rasterDimensions: [300, 400],
+    processing: /Selected panel A cropped from the original triptych; border and caption removed/,
+    vanGoghImage: 'tiles/van-gogh/approved/Sou3.svg',
+  },
+  {
     tile: '8s', name: 'Sou8', words: 'eight bamboo', direction: 'Emerald Moonlit Seascape',
     source: 'docs/design/dali/studies/eight-bamboo-emerald-moonlit-approved.svg',
     artwork: '05e1d03a51c52ffb88a9df62985cd4d3b007364bd400a95a260d47d3d8832767',
@@ -43,17 +54,19 @@ const FACES = [
   },
 ];
 
-test('fifteen approved identities and nineteen placeholders cover the thirty-four tiles once', () => {
-  assert.deepEqual([...DALI_APPROVED], ['1p', '3p', '5p', '1s', '2s', '5s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '7z']);
-  assert.equal(set.tiles.length, 15);
-  assert.equal(set.placeholders.length, 19);
+test('sixteen approved identities and eighteen placeholders cover the thirty-four tiles once', () => {
+  assert.deepEqual([...DALI_APPROVED], ['1p', '3p', '5p', '1s', '2s', '3s', '5s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '7z']);
+  assert.equal(set.tiles.length, 16);
+  assert.equal(set.placeholders.length, 18);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   const identities = [...set.tiles, ...set.placeholders].map(entry => entry.tile);
   assert.equal(new Set(identities).size, 34);
   assert.deepEqual(identities.sort(), [...TILE_TYPES].sort());
-  // Three bamboo stays unselected beside its approved neighbours.
-  assert.equal(DALI_APPROVED.includes('3s'), false);
-  assert.equal(tileImage('3s', 'dali'), 'tiles/dali/placeholders/placeholder.svg');
+  assert.equal(DALI_APPROVED.includes('3s'), true);
+  assert.equal(tileImage('3s', 'dali'), 'tiles/dali/approved/Sou3.svg');
+  for (const tile of ['4s', '6s']) {
+    assert.equal(tileImage(tile, 'dali'), 'tiles/dali/placeholders/placeholder.svg');
+  }
   assert.equal(tileImage('5s', 'dali'), 'tiles/dali/approved/Sou5.svg');
 });
 
@@ -85,7 +98,7 @@ for (const face of FACES) {
     const metadata = JSON.parse(svg.match(/<metadata>([\s\S]*?)<\/metadata>/)[1]);
     assert.equal(metadata.originalFilename, face.originalFilename);
     assert.equal(metadata.originalSha256, face.original);
-    assert.deepEqual(metadata.originalDimensions, [1086, 1448]);
+    assert.deepEqual(metadata.originalDimensions, face.originalDimensions ?? [1086, 1448]);
     assert.deepEqual(metadata.rasterDimensions, face.rasterDimensions);
     assert.equal(metadata.rasterMimeType, 'image/webp');
     assert.equal(metadata.rasterSha256, face.raster);
@@ -106,7 +119,7 @@ for (const face of FACES) {
     for (const { value } of TILE_FACE_OPTIONS) assert.equal(tileImage(face.tile, value, true), 'tiles/Back.svg');
     assert.equal(tileImage(face.tile, 'classic'), `tiles/${face.name}.svg`);
     assert.equal(tileImage(face.tile, 'matisse'), `tiles/matisse/approved/${face.name}.svg`);
-    assert.equal(tileImage(face.tile, 'van-gogh'), `tiles/${face.name}.svg`);
+    assert.equal(tileImage(face.tile, 'van-gogh'), face.vanGoghImage ?? `tiles/${face.name}.svg`);
   });
 }
 
@@ -115,8 +128,8 @@ test('nine bamboo is represented in both reproducible export definitions and the
   assert.match(exporter, /\['Sou9', '9s', '9 bamboo', 'The Surreal Grove', 'nine-bamboo-surreal-grove-approved.svg', \[0, 0, 300, 400\]\]/);
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou9.svg'));
-  assert.ok(preview.includes('15 approved faces'));
-  assert.ok(preview.includes('remaining 19 tiles'));
+  assert.ok(preview.includes('16 approved faces'));
+  assert.ok(preview.includes('remaining 18 tiles'));
 });
 
 test('all existing PNG-backed Dali exports retain their recorded source and raster hashes', () => {
@@ -135,11 +148,33 @@ test('eight bamboo is the greener revision in the exporter, preview and provenan
   assert.match(exporter, /\['Sou8', '8s', '8 bamboo', 'Emerald Moonlit Seascape', 'eight-bamboo-emerald-moonlit-approved.svg', \[0, 0, 300, 400\]\]/);
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou8.svg'));
-  assert.ok(preview.includes('15 approved faces'));
-  assert.ok(preview.includes('remaining 19 tiles'));
+  assert.ok(preview.includes('16 approved faces'));
+  assert.ok(preview.includes('remaining 18 tiles'));
   const provenance = JSON.parse(readFileSync(new URL('docs/design/dali/eight-bamboo.json', root), 'utf8'));
   const face = FACES.find(entry => entry.tile === '8s');
   assert.equal(provenance.originalSha256, face.original);
   assert.equal(provenance.rasterSha256, face.raster);
   assert.equal(provenance.svgSha256, face.artwork);
+});
+
+test('three bamboo preserves selected panel A and is reproducible in the exporter and preview', () => {
+  const face = FACES.find(entry => entry.tile === '3s');
+  const provenance = JSON.parse(readFileSync(new URL('docs/design/dali/three-bamboo.json', root), 'utf8'));
+  assert.equal(provenance.tile, '3s');
+  assert.equal(provenance.selectedPanel, 'A');
+  assert.equal(provenance.originalSha256, face.original);
+  assert.equal(provenance.rasterSha256, face.raster);
+  assert.equal(provenance.svgSha256, face.artwork);
+  assert.deepEqual(provenance.originalCrop, { x: 11, y: 12, width: 482, height: 877 });
+  const svg = readFileSync(new URL(face.source, root), 'utf8');
+  const metadata = JSON.parse(svg.match(/<metadata>([\s\S]*?)<\/metadata>/)[1]);
+  assert.equal(metadata.selectedPanel, 'A');
+  assert.deepEqual(metadata.originalCrop, provenance.originalCrop);
+  const exporter = readFileSync(new URL('../scripts/export-dali-tiles.mjs', import.meta.url), 'utf8');
+  assert.match(exporter, /\['Sou3', '3s', '3 bamboo', 'The Bamboo That Tied Itself — A', 'three-bamboo-a-approved.svg', \[0, 0, 300, 400\]\]/);
+  const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
+  assert.ok(preview.includes('approved/Sou3.svg'));
+  assert.ok(preview.includes('The Bamboo That Tied Itself'));
+  assert.ok(preview.includes('16 approved faces'));
+  assert.ok(preview.includes('remaining 18 tiles'));
 });

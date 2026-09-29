@@ -1,6 +1,6 @@
 # Dalí mahjong tile set
 
-A surrealist tile face set for the mahjong game. Fifteen faces are approved, drawn from the original studies and Carl's later selections. The latest is eight-bamboo **Emerald Moonlit Seascape**, using the selected left-hand composition after its approved greener hue adjustment.
+A surrealist tile face set for the mahjong game. Sixteen faces are approved, drawn from the original studies and Carl's later selections. The latest is three-bamboo **The Bamboo That Tied Itself — A**, extracted from the selected left-hand panel of the three-candidate board.
 
 ## Approved first studies
 
@@ -11,6 +11,7 @@ A surrealist tile face set for the mahjong game. Fifteen faces are approved, dra
 | `Pin5.svg` | 5 dots | Levitation — five polished, slightly softened disks floating over the desert |
 | `Sou1.svg` | 1 bamboo | Stilt Bird — one elongated surreal crane-like bird with impossibly long legs |
 | `Sou2.svg` | 2 bamboo | Elastic Growth — two sinuous segmented bamboo stalks; all visible colour remains green |
+| `Sou3.svg` | 3 bamboo | The Bamboo That Tied Itself — A: three green stalks, with an impossible knot in the tall central stem |
 | `Sou5.svg` | 5 bamboo | The Soft Grove — A: four jade stems and one ruby stem soften into droplets and pools, retaining the five-pip arrangement |
 | `Sou7.svg` | 7 bamboo | The Dream Cabinet — one ruby and six jade reeds in a 1–3–3 layout; drawers contain a cloud, crescent moon and ocean |
 | `Sou8.svg` | 8 bamboo | Emerald Moonlit Seascape — eight green reeds, a suspended moon, a pendulum and a living spiral; the approved greener revision |
@@ -22,7 +23,7 @@ A surrealist tile face set for the mahjong game. Fifteen faces are approved, dra
 | `Man9.svg` | 9 characters | Sapphire Suspension — C: ivory 九 with sapphire joints above a complete ruby 萬 suspended over sunset water |
 | `Chun.svg` | Red dragon | Molten Ruby — translucent ruby-red 中 stretched into an uncanny molten form |
 
-The other 19 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. Three bamboo remains a placeholder pending selection of its all-green artwork.
+The other 18 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. Four and six bamboo remain placeholders; three bamboo now uses selected A.
 
 ## Presentation
 
@@ -30,13 +31,15 @@ The set follows the existing tile system's 300 × 400 face, 26-unit rounded clip
 
 Three disks uses the exact [selected B image](studies/three-disks-b-approved.png), preserving the complete 1086 × 1448 source and its original PNG bytes. Alternatives A (the river) and C (the butterflies) were not selected. Keep the chosen artwork when exporting; do not regenerate or redraw it.
 
+Three bamboo uses [selected A — The Bamboo That Tied Itself](studies/three-bamboo-a-approved.svg). The source is panel A of the conversation attachment `wide_triptych_art_image_with_three_vertical_panels.png` (1536 × 1024; SHA-256 `67d151a89d59f2f3907b6e9fa0b0968ca1d5c95faa2e6e6003a53fd567e122a0`). The crop at x=11, y=12, width=482, height=877 removes only the board surround and caption, retaining all three stalks and the central knot. The complete cropped painting is resized to the standard 300 × 400 face with Lanczos and encoded as WebP quality 80, method 6. There is no redraw, recolouring or added tile texture. The source and runtime SVGs are byte-identical and self-contained, using the existing clipping and bleed. The original PNG remains in the conversation; the repository stores the optimized rendering and [provenance](three-bamboo.json), not the original PNG bytes. B — The Sleeping Landscape was also liked, but is not assigned to another tile by this deployment; C was not selected.
+
 Five bamboo uses the exact [selected A image](studies/five-bamboo-a-approved.png), preserving the complete 1086 × 1448 source and its original PNG bytes. Its four green stems and central ruby stem remain clearly countable. Alternatives B (floating joints) and C (the hand shadow) were not selected.
 
-Seven bamboo uses [the approved Dream Cabinet adaptation](studies/seven-bamboo-dream-cabinets-approved.svg), not the earlier three-stalk design. This game-ready SVG embeds a 432 × 576 WebP rendering of the complete approved 1086 × 1448 portrait, resized with Lanczos and encoded at quality 80; it is not a vector redraw. Its metadata records the original PNG SHA-256 (`f788e4ea0232f5d6ed23d7acf453936f2f55383de5a2695e917e4178d77168f7`), raster dimensions, processing and embedded-raster hash. The original full-resolution PNG is the conversation attachment `seven_bamboo_dream_cabinets.png`; the repository stores the optimized game rendering rather than claiming to preserve those original PNG bytes. The exporter copies the self-contained source SVG unchanged, keeping the small-size artwork available offline without external image requests. This design is deliberately not assigned to three bamboo, which needs an all-green palette.
+Seven bamboo uses [the approved Dream Cabinet adaptation](studies/seven-bamboo-dream-cabinets-approved.svg), not the earlier three-stalk design. This game-ready SVG embeds a 432 × 576 WebP rendering of the complete approved 1086 × 1448 portrait, resized with Lanczos and encoded at quality 80; it is not a vector redraw. Its metadata records the original PNG SHA-256 (`f788e4ea0232f5d6ed23d7acf453936f2f55383de5a2695e917e4178d77168f7`), raster dimensions, processing and embedded-raster hash. The original full-resolution PNG is the conversation attachment `seven_bamboo_dream_cabinets.png`; the repository stores the optimized game rendering rather than claiming to preserve those original PNG bytes. The exporter copies the self-contained source SVG unchanged, keeping the small-size artwork available offline without external image requests. This design is deliberately not assigned to three bamboo, which now has its own selected A artwork.
 
 Eight bamboo uses [the approved greener Emerald Moonlit Seascape](studies/eight-bamboo-emerald-moonlit-approved.svg). The eight reeds retain their distinct curves, pendulum, open window and spiral details, with no red stalks or red leaves. Its complete 1086 × 1448 portrait is resized with Lanczos and encoded as a 300 × 400 WebP at quality 80, method 6; this is not a redraw or an additional color edit. No tile texture or decorative frame is baked into the raster. The original PNG remains the conversation attachment `emerald_moonlit_bamboo_seascape.png`; its SHA-256 is `b57c7c4d29433d4c07fe78a57b6962f8b0184c5d760284e935fb31f7e102dd67`. See [provenance](eight-bamboo.json). The source SVG and runtime SVG are identical, with only the existing game clipping and bleed. All earlier artwork, including seven and nine bamboo, remains unchanged.
 
-Nine bamboo uses [the final approved Surreal Grove](studies/nine-bamboo-surreal-grove-approved.svg), not the earlier uniform-bend, all-green or framed alternatives. The embedded 300 × 400 WebP is a game-optimized rendering of the complete approved 1086 × 1448 PNG: Lanczos resizing, quality 80, method 6, with no redraw or added texture, frame or color edit. The original PNG remains the conversation attachment `surreal_bamboo_grid_in_a_dreamy_landscape.png`; its SHA-256 is `b0775f5a4990ac3cdb5c866ed9663f60e07cdbd380b716faf25ae7bffb52abb8`. See [provenance](nine-bamboo.json) for the source and runtime hashes. Only the standard game clipping and bleed are applied at rendering time. This adds `9s` without altering any earlier approved artwork or selecting the still-unapproved `3s`.
+Nine bamboo uses [the final approved Surreal Grove](studies/nine-bamboo-surreal-grove-approved.svg), not the earlier uniform-bend, all-green or framed alternatives. The embedded 300 × 400 WebP is a game-optimized rendering of the complete approved 1086 × 1448 PNG: Lanczos resizing, quality 80, method 6, with no redraw or added texture, frame or color edit. The original PNG remains the conversation attachment `surreal_bamboo_grid_in_a_dreamy_landscape.png`; its SHA-256 is `b0775f5a4990ac3cdb5c866ed9663f60e07cdbd380b716faf25ae7bffb52abb8`. See [provenance](nine-bamboo.json) for the source and runtime hashes. Only the standard game clipping and bleed are applied at rendering time. This adds `9s` without altering any earlier approved artwork.
 
 Five characters adapts [the original A theatre study](studies/six-characters-a-theatre-study.png) from 六 to 五 at Carl's request. The [resulting five-character image](studies/five-characters-a-approved.png) preserves the moonlit opening, river, stage, ivory drapery and complete ruby 萬. Six characters uses the exact [selected B image](studies/six-characters-b-approved.png), without redrawing or cropping. Both exports preserve the complete 1086 × 1448 source PNG bytes.
 
@@ -46,7 +49,7 @@ Nine characters uses the exact [approved repaired C image](studies/nine-characte
 
 Present three alternatives for each new tile before selection.
 
-Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: fifteen approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
+Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: sixteen approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
 
 ## Reproducing the exports
 

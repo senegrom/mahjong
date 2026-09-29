@@ -101,6 +101,23 @@
       }
     },
     {
+      "name": "Sou3",
+      "tile": "3s",
+      "label": "3 bamboo",
+      "direction": "The Bamboo That Tied Itself — A",
+      "status": "approved",
+      "svg": "approved/Sou3.svg",
+      "source": "docs/design/dali/studies/three-bamboo-a-approved.svg",
+      "sourceSha256": "43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95",
+      "svgSha256": "43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      }
+    },
+    {
       "name": "Sou5",
       "tile": "5s",
       "label": "5 bamboo",
@@ -317,10 +334,6 @@
     },
     {
       "tile": "9p",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "3s",
       "svg": "placeholders/placeholder.svg"
     },
     {
