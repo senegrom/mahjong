@@ -1,0 +1,33 @@
+{
+  "tile": "7s",
+  "name": "Sou7",
+  "candidate": "Seven C",
+  "title": "Seven with Irises",
+  "source": "docs/design/van-gogh/studies/14-seven-bamboo-irises-c.webp",
+  "sourceSha256": "68713fe1b285477dd38fd38bb329f59753f02fb263dd76bbe06d72eb4ae5cf4f",
+  "originalBoardDimensions": [
+    1536,
+    1024
+  ],
+  "originalBoardSha256": "4908b6b85b891c064037d783005a0a5f11c78f7d23001c134b4c9fccb1e8bd0c",
+  "originalCrop": {
+    "x": 1043,
+    "y": 115,
+    "width": 479,
+    "height": 793
+  },
+  "fullResolutionCropSha256": "553840fd892b8e4ffe15528ace354965f7b8910b8c26743aaabb9bf66f8a3825",
+  "productionDimensions": [
+    300,
+    400
+  ],
+  "encoding": {
+    "format": "WebP",
+    "quality": 95,
+    "method": 6,
+    "resize": "Lanczos"
+  },
+  "generationId": "574e8b87-564a-4801-8ba3-778307fe264e",
+  "approval": "Carl selected C and requested deployment as 7 bamboo on 29 September 2026.",
+  "notes": "Mechanically cropped and resized from selected C; no repainting. The repository source is an optimized export, not the full-resolution lossless original. The study-sheet heading, gutters and caption are excluded."
+}
