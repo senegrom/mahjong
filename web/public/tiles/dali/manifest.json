@@ -277,6 +277,23 @@
       }
     },
     {
+      "name": "Ton",
+      "tile": "1z",
+      "label": "East wind",
+      "direction": "The Dreaming East",
+      "status": "approved",
+      "svg": "approved/Ton.svg",
+      "source": "docs/design/dali/studies/east-wind-first-approved.svg",
+      "sourceSha256": "8e60789814934608ce33f7dfae8959d14b30d045fb97b3529e5cf9dbb5e6dd48",
+      "svgSha256": "8e60789814934608ce33f7dfae8959d14b30d045fb97b3529e5cf9dbb5e6dd48",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      }
+    },
+    {
       "name": "Chun",
       "tile": "7z",
       "label": "Red dragon",
@@ -342,10 +359,6 @@
     },
     {
       "tile": "6s",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "1z",
       "svg": "placeholders/placeholder.svg"
     },
     {

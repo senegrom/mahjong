@@ -1,0 +1,20 @@
+{
+  "originalFilename": "a_clean_white_background_with_three_surreal_paint.png",
+  "originalSha256": "343c96e9ebcd5c84f0c86923327c2ea6ea0952feb4e18587e6888e88f4f2a622",
+  "originalDimensions": [1536, 1024],
+  "selectedPanel": "first (left), approved East Wind",
+  "crop": [0, 85, 558, 864],
+  "paddedPortraitDimensions": [648, 864],
+  "padding": {"left": 45, "right": 45},
+  "portraitSha256": "62a538a03b454a4964649287b3ef0af68ee569493569a7ace35650d7441d38d2",
+  "rasterDimensions": [300, 400],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "5345a14add4224499edc9e94338c9dc45a8a205caa227789fa153fc1369b9686",
+  "processing": "Mechanical crop of the approved first panel; white side padding to preserve its proportions at 3:4; Lanczos resize and WebP quality 80 method 6. No redraw, tile background, added frame or colour edits.",
+  "tile": "1z",
+  "name": "Ton",
+  "direction": "The Dreaming East",
+  "source": "docs/design/dali/studies/east-wind-first-approved.svg",
+  "runtime": "web/public/tiles/dali/approved/Ton.svg",
+  "svgSha256": "8e60789814934608ce33f7dfae8959d14b30d045fb97b3529e5cf9dbb5e6dd48"
+}

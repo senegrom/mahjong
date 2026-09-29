@@ -1,0 +1,11 @@
+{
+  "tile": "4z",
+  "name": "Pei",
+  "status": "composition-selected-character-adaptation-pending",
+  "selectedPanel": "second (middle)",
+  "direction": "The Wind-Carved Arch",
+  "originalFilename": "a_clean_white_background_with_three_surreal_paint.png",
+  "originalSha256": "343c96e9ebcd5c84f0c86923327c2ea6ea0952feb4e18587e6888e88f4f2a622",
+  "requiredChange": "Use the second stone-character, arch and wind-ribbon painting for North. Replace 東 with 北 as part of the painting, not as a separate text label. Preserve the selected composition and plain background.",
+  "runtime": "Not deployed; retain the North placeholder until a faithful 北 adaptation exists."
+}
