@@ -26,6 +26,7 @@ import torch
 import riichi_py
 
 from . import mortal_model, policy_inference
+from .population import CLUB
 from .observe import Planes, Views
 
 ACTIONS = riichi_py.ACTIONS
@@ -248,6 +249,17 @@ class MortalSpacePlayer:
         return choice
 
 
+class ClubPlayer:
+    """The engine's Club-tier heuristic player, seated among the others by
+    the name `club`. The arena plays its places itself (`table_bots`), so
+    it is never asked for a move and needs no view of the table."""
+
+    kind = "club"
+
+    def eval(self) -> ClubPlayer:
+        return self
+
+
 class MortalPlayer:
     """A published Mortal, choosing moves in our action space."""
 
@@ -334,9 +346,12 @@ def load_player(
     """A player from a checkpoint of either kind: one of ours, rebuilt at
     the shape it says, or a Mortal, told apart by what the file holds.
     With `compile`, the forward it plays with is compiled, the batch's
-    size left symbolic."""
+    size left symbolic. `club` names the engine's heuristic player, never
+    a file."""
     from .model import from_payload
 
+    if str(path) == CLUB:
+        return ClubPlayer()
     path = Path(path)
     try:
         payload = torch.load(path, map_location=device, weights_only=True)

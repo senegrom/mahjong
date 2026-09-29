@@ -53,9 +53,13 @@ def validate_training_options(args) -> None:
         path = getattr(args, name, None)
         if path is not None and not Path(path).is_file():
             raise FileNotFoundError(f"{name} checkpoint does not exist: {path}")
+    # Here, not at the top: the deploying client imports this module and has
+    # no NumPy, which the roster needs.
+    from .population import CLUB
+
     roster = list(getattr(args, "opponents", []))
     for path in roster:
-        if not Path(path).is_file():
+        if str(path) != CLUB and not Path(path).is_file():
             raise FileNotFoundError(f"opponent checkpoint does not exist: {path}")
     share = getattr(args, "opponent_share", 0.0)
     if not 0.0 <= share <= 1.0:

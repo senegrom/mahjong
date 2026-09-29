@@ -33,7 +33,7 @@ has specialised, and one averaged number would hide it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -51,6 +51,14 @@ class Member:
     note: str
     #: How often it takes a seat, relative to the others.
     weight: float = 1.0
+    #: The chance it is in the pool at all in any one round. Below one, it
+    #: comes and goes at irregular intervals (see `Population.for_round`).
+    presence: float = 1.0
+
+
+#: The name that seats the engine's Club-tier heuristic player: no
+#: checkpoint, a player the arena plays itself (`zoo.ClubPlayer`).
+CLUB = "club"
 
 
 #: Players that do not change, so a reading against them keeps its meaning.
@@ -84,6 +92,15 @@ REFERENCES: tuple[Member, ...] = (
         note="our own network on Mortal's planes, speaking Mortal's moves; "
         "the other half of the fusion",
         weight=1.0,
+    ),
+    Member(
+        name=CLUB,
+        role="reference",
+        note="the engine's Club-tier heuristic player, the benchmark the "
+        "placement figure is read against: a style no network here has, "
+        "seated in about one round in four",
+        weight=1.0,
+        presence=0.25,
     ),
 )
 
@@ -126,10 +143,24 @@ class Population:
                 "name": member.name,
                 "role": member.role,
                 "share": round(member.weight / total, 3),
+                **({"presence": member.presence} if member.presence < 1 else {}),
                 "note": member.note,
             }
             for member in self.members
         ]
+
+    def for_round(self, seed: int) -> Population:
+        """The roster as one round seats it. A member whose presence is
+        below one sits the round out with the rest of that chance, drawn
+        from the round's seed, so it comes and goes at irregular intervals
+        rather than taking a thin share of every round; one sitting out
+        weighs nought."""
+        rng = np.random.default_rng(seed ^ 0x5EA7_ED00)
+        return Population(members=[
+            member if member.presence >= 1 or rng.random() < member.presence
+            else replace(member, weight=0.0)
+            for member in self.members
+        ])
 
     def seat(self, games: int, share: float, rng: np.random.Generator) -> np.ndarray:
         """Which member sits in each game, or -1 for a table of the
@@ -143,7 +174,7 @@ class Population:
         be drowned by.
         """
         chosen = np.full(games, -1, dtype=np.int64)
-        if not self.members or share <= 0:
+        if not self.members or share <= 0 or not self.weights().any():
             return chosen
         taken = rng.random(games) < share
         count = int(taken.sum())
@@ -155,7 +186,9 @@ class Population:
     def weights(self) -> np.ndarray:
         """How often each member is drawn, as probabilities."""
         weights = np.array([member.weight for member in self.members], dtype=np.float64)
-        return weights / weights.sum()
+        total = weights.sum()
+        # Nought throughout when every member sits the round out.
+        return weights / total if total > 0 else weights
 
 
 def mixed_tables(games: int, share: float, weights, rng: np.random.Generator) -> np.ndarray:

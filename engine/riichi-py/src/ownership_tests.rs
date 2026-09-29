@@ -1,4 +1,4 @@
-use super::Seat;
+use super::{places_by_table, Seat};
 
 #[test]
 fn every_exported_decision_belongs_to_an_external_player() {
@@ -106,4 +106,34 @@ fn each_step_reports_the_hands_it_ended() {
             "a step forgets what the last one ended"
         );
     }
+}
+
+#[test]
+fn each_table_can_seat_the_bots_in_places_of_its_own() {
+    let uniform = places_by_table(3, vec![1, 2], None).expect("the same places everywhere");
+    assert_eq!(uniform, vec![vec![1, 2]; 3]);
+    let tables = vec![vec![], vec![0], vec![1, 3]];
+    assert_eq!(
+        places_by_table(3, vec![], Some(tables.clone())),
+        Ok(tables.clone())
+    );
+    for (index, places) in tables.iter().enumerate() {
+        let game = Seat::new(40 + index as u64, places);
+        for place in 0..4 {
+            assert_eq!(game.bots[place].is_some(), places.contains(&place));
+        }
+    }
+    assert!(
+        places_by_table(3, vec![1], Some(tables.clone())).is_err(),
+        "not both"
+    );
+    assert!(
+        places_by_table(2, vec![], Some(tables)).is_err(),
+        "one list a table"
+    );
+    assert!(
+        places_by_table(1, vec![], Some(vec![vec![4]])).is_err(),
+        "four places"
+    );
+    assert!(places_by_table(1, vec![4], None).is_err(), "four places");
 }

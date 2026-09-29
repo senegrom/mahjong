@@ -214,6 +214,10 @@ def play(
     one of them with that chance, so a table can hold the learner,
     published Mortal and an old checkpoint at once (see
     `population.mixed_tables`). One or the other share, not both.
+
+    One of them may be the engine's heuristic player (`zoo.ClubPlayer`,
+    seated by the name `club`): the arena plays its places itself, and
+    its presence below one in the roster seats it only in some rounds.
     """
     require_training_engine()
     validate_budget(games, max_steps)
@@ -225,11 +229,10 @@ def play(
     net.eval()
     for other in opponents or []:
         other.eval()
-    # Every place is played by the learner or the others given; the
-    # heuristic players' tables are `evaluate_games`'.
-    arena = riichi_py.Arena(games=games, seed=seed, bot_places=[])
-    kinds = {net.kind} | {other.kind for other in opponents or []}
-    views = Views(arena, games, kinds)
+    # The roster as this round seats it: a member whose presence is below
+    # one may be sitting the round out.
+    if population is not None:
+        population = population.for_round(seed)
     recording = net.kind == "mortal"
     decides = hasattr(net, "decide")
     wants_oracle = want_oracle or not decides
@@ -250,7 +253,8 @@ def play(
 
         picker = np.random.default_rng(seed ^ 0x0DDBA11)
         weights = population.weights() if population is not None else np.ones(len(opponents))
-        owner = mixed_tables(games, seat_share, weights, picker)
+        if weights.any():
+            owner = mixed_tables(games, seat_share, weights, picker)
         seated_in = owner
     elif opponents and opponent_share > 0:
         # One foreign seat a game, drawn in the order it always was, so a
@@ -267,6 +271,16 @@ def play(
             seated_in[taken] = foreign_which[taken]
         foreign_player = picker.integers(0, 4, size=int(taken.sum()))
         owner[np.nonzero(taken)[0], foreign_player] = foreign_which[taken]
+
+    # Every place is played from here, by the learner or a network among
+    # the others, except where the draw seated the heuristic player: the
+    # arena plays those places itself. Tables of heuristic players alone
+    # are `evaluate_games`'.
+    club = [index for index, other in enumerate(opponents or []) if other.kind == "club"]
+    table_bots = [np.nonzero(row)[0].tolist() for row in np.isin(owner, club)] if club else None
+    arena = riichi_py.Arena(games=games, seed=seed, bot_places=[], table_bots=table_bots)
+    kinds = {net.kind} | {other.kind for other in opponents or [] if other.kind != "club"}
+    views = Views(arena, games, kinds)
 
     # One block per step, holding the live games' rows in the order the
     # decisions are numbered below: a round is a few hundred blocks rather

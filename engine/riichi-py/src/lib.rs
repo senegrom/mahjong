@@ -302,6 +302,36 @@ impl Seat {
     }
 }
 
+/// The places the heuristic player takes at each of `games` tables: the
+/// same `bot_places` at every one, or `table_bots` table by table.
+fn places_by_table(
+    games: usize,
+    bot_places: Vec<usize>,
+    table_bots: Option<Vec<Vec<usize>>>,
+) -> Result<Vec<Vec<usize>>, String> {
+    let tables = match table_bots {
+        None => vec![bot_places; games],
+        Some(_) if !bot_places.is_empty() => {
+            return Err("name the bots' places for every table or table by table, not both".into())
+        }
+        Some(tables) if tables.len() != games => {
+            return Err(format!(
+                "table_bots names {} tables for {games} games",
+                tables.len()
+            ))
+        }
+        Some(tables) => tables,
+    };
+    // A place past the fourth would be taken by nobody, and the table
+    // would play without the bot its caller asked for.
+    if let Some(place) = tables.iter().flatten().find(|place| **place >= 4) {
+        return Err(format!(
+            "bot place {place} is not one of the four places 0 to 3"
+        ));
+    }
+    Ok(tables)
+}
+
 /// Many games of riichi, advancing together.
 #[pyclass]
 pub struct Arena {
@@ -321,20 +351,24 @@ impl Arena {
     /// `bot_places` names the places at every table that the built-in
     /// heuristic player takes; their decisions never reach Python. Leave it
     /// empty for self-play, or pass three places to measure one policy
-    /// against the benchmark.
+    /// against the benchmark. `table_bots` names them table by table
+    /// instead, one list a game, for self-play that seats the heuristic
+    /// player at some tables and not others.
     #[new]
-    #[pyo3(signature = (games, seed = 0, bot_places = vec![]))]
-    fn new(games: usize, seed: u64, bot_places: Vec<usize>) -> PyResult<Arena> {
-        // A place past the fourth would be taken by nobody, and the table
-        // would play without the bot its caller asked for.
-        if let Some(place) = bot_places.iter().find(|place| **place >= 4) {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "bot place {place} is not one of the four places 0 to 3"
-            )));
-        }
+    #[pyo3(signature = (games, seed = 0, bot_places = vec![], table_bots = None))]
+    fn new(
+        games: usize,
+        seed: u64,
+        bot_places: Vec<usize>,
+        table_bots: Option<Vec<Vec<usize>>>,
+    ) -> PyResult<Arena> {
+        let places = places_by_table(games, bot_places, table_bots)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
         Ok(Arena {
-            seats: (0..games)
-                .map(|index| Seat::new(seed.wrapping_add(index as u64), &bot_places))
+            seats: places
+                .iter()
+                .enumerate()
+                .map(|(index, places)| Seat::new(seed.wrapping_add(index as u64), places))
                 .collect(),
             observations: vec![0.0; games * OBSERVATION],
             oracle: vec![0.0; games * ORACLE],
