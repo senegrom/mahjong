@@ -149,16 +149,24 @@ class ClubAtTheTableTests(unittest.TestCase):
     def test_presence_below_one_comes_and_goes_by_round(self):
         roster = population.Population.from_paths(["/stage/0000/zoo--mortal_298k.pt", "club"])
         published, club = roster.members
-        self.assertEqual((club.name, club.role, club.presence), (population.CLUB, "reference", 0.25))
+        self.assertEqual((club.name, club.role, club.presence), (population.CLUB, "reference", 0.75))
         rounds = [roster.for_round(seed) for seed in range(400)]
         present = [one.members[1].weight > 0 for one in rounds]
-        self.assertAlmostEqual(sum(present) / len(present), 0.25, delta=0.06)
+        self.assertAlmostEqual(sum(present) / len(present), 0.75, delta=0.06)
         self.assertTrue(all(one.members[0].weight == published.weight for one in rounds))
         self.assertEqual([m.weight for m in roster.for_round(9).members],
                          [m.weight for m in roster.for_round(9).members])
         described = {row["name"]: row for row in roster.describe()}
-        self.assertEqual(described[population.CLUB]["presence"], 0.25)
+        self.assertEqual(described[population.CLUB]["presence"], 0.75)
         self.assertNotIn("presence", described["zoo/mortal_298k"])
+
+    def test_the_club_sits_at_about_one_table_in_seven_in_a_round_it_attends(self):
+        """What the roster's note promises, beside published Mortal and one
+        older checkpoint seated by player at one half."""
+        roster = population.Population.from_paths([
+            "/stage/0000/zoo--mortal_298k.pt", "/stage/0001/mortal-run--history--gen-00030.pt", "club"])
+        owner = population.mixed_tables(40_000, 0.5, roster.weights(), np.random.default_rng(2))
+        self.assertAlmostEqual(float((owner == 2).any(axis=1).mean()), 0.137, delta=0.01)
 
     def test_a_round_nobody_else_attends_seats_nobody(self):
         absent = population.Population(members=[

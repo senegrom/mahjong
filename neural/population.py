@@ -97,10 +97,12 @@ REFERENCES: tuple[Member, ...] = (
         name=CLUB,
         role="reference",
         note="the engine's Club-tier heuristic player, the benchmark the "
-        "placement figure is read against: a style no network here has, "
-        "seated in about one round in four",
-        weight=1.0,
-        presence=0.25,
+        "placement figure is read against: a style no network here has. In "
+        "about three rounds in four, and then, beside published Mortal and "
+        "one older checkpoint seated by player at one half, at about one "
+        "table in seven: one table in ten over the run",
+        weight=0.2,
+        presence=0.75,
     ),
 )
 
