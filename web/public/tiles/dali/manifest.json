@@ -118,6 +118,23 @@
       }
     },
     {
+      "name": "Sou4",
+      "tile": "4s",
+      "label": "4 bamboo",
+      "direction": "The Sleeping Landscape — B",
+      "status": "approved",
+      "svg": "approved/Sou4.svg",
+      "source": "docs/design/dali/studies/four-bamboo-b-approved.svg",
+      "sourceSha256": "b27a56b41777865aebd0b6c4e089ec6dc6cb5255da68b5ff27852f4d2234bbcd",
+      "svgSha256": "b27a56b41777865aebd0b6c4e089ec6dc6cb5255da68b5ff27852f4d2234bbcd",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      }
+    },
+    {
       "name": "Sou5",
       "tile": "5s",
       "label": "5 bamboo",
@@ -368,10 +385,6 @@
     },
     {
       "tile": "9p",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "4s",
       "svg": "placeholders/placeholder.svg"
     },
     {
