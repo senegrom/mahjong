@@ -1,0 +1,34 @@
+{
+  "tile": "6s",
+  "name": "Sou6",
+  "candidate": "Six B (green)",
+  "title": "Green Still Life",
+  "originalFilename": "six_stalk_bamboo_still_life.png",
+  "originalSha256": "40bd5b533cd3545a40fbc7019fde14f0134a38cb5f0d7a794c2d241bea2d3936",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "91cadccb181114f3e51e923aadedd4d04fc7c6d95ac55a154de07dd6e89bd0db",
+  "processing": "Complete approved six-stalk B portrait resized with Lanczos to 300 x 400; WebP quality 80, method 6, following the raft game-export convention. No redraw, recolouring, reframing, added objects or lost stalks. Standard 1% bleed and rounded clipping only.",
+  "source": "docs/design/van-gogh/studies/15-six-bamboo-green-still-life-b-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Sou6.svg",
+  "svgSha256": "8cf0cb5071682f70ae26ac336b3f8ce22e994444a73c7cbbf1ef1979c6e36561",
+  "approval": "Carl approved the corrected green B still life with six bamboo stalks and requested deployment. This replaces Green Rhythm J for 6s only; earlier five-stalk options are not used.",
+  "supersedes": {
+    "candidate": "J",
+    "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png"
+  },
+  "originalBackup": "Van_Gogh_6_Bamboo_Green_Still_Life_Approved.zip (downloadable full-resolution approval archive; the committed SVG is an optimized game export, not the original PNG)"
+}

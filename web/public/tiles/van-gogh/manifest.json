@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept. Carl approved the corrected all-green B still life with six bamboo stalks to replace Green Rhythm J for 6s; its complete composition and colours are preserved.",
   "fallback": "classic",
   "sources": [
     {
@@ -78,6 +78,11 @@
       "id": "copperFive",
       "source": "docs/design/van-gogh/studies/15-five-bamboo-copper-sunset.webp",
       "sha256": "16552f26fc7e7090adbc13cf659afcdb9b2549cd1a543441b93eed7d5f742d81"
+    },
+    {
+      "id": "sixStillLife",
+      "source": "docs/design/van-gogh/studies/15-six-bamboo-green-still-life-b-approved.svg",
+      "sha256": "8cf0cb5071682f70ae26ac336b3f8ce22e994444a73c7cbbf1ef1979c6e36561"
     }
   ],
   "tiles": [
@@ -218,21 +223,22 @@
       "pngSha256": "61eb9c2563a8039eb755315b1f5ef670a472fcff2e1facaef4b0e05e1af0267d"
     },
     {
-      "candidate": "J",
+      "candidate": "Six B (green)",
       "tile": "6s",
       "name": "Sou6",
       "label": "Six bamboo",
-      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+      "source": "docs/design/van-gogh/studies/15-six-bamboo-green-still-life-b-approved.svg",
       "status": "approved",
-      "png": "approved/Sou6.png",
       "svg": "approved/Sou6.svg",
       "crop": {
-        "x": 38,
-        "y": 645,
-        "width": 380,
-        "height": 495
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
       },
-      "pngSha256": "98282e530a5f32c20e7e51c11a504909ce88108a391ce556b3dd9d0dd801d81b"
+      "svgSha256": "8cf0cb5071682f70ae26ac336b3f8ce22e994444a73c7cbbf1ef1979c6e36561",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "91cadccb181114f3e51e923aadedd4d04fc7c6d95ac55a154de07dd6e89bd0db"
     },
     {
       "candidate": "L",
@@ -432,6 +438,12 @@
       "tile": "3s",
       "activeCandidate": "Bamboo A (green)",
       "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png"
+    },
+    {
+      "candidate": "J",
+      "tile": "6s",
+      "activeCandidate": "Six B (green)",
+      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png"
     }
   ],
   "remaining": [
