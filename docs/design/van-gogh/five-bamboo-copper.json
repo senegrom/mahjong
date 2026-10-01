@@ -13,7 +13,12 @@
   "originalWidth": 1086,
   "originalHeight": 1448,
   "originalBytes": 2973191,
-  "originalCrop": { "x": 0, "y": 0, "width": 1086, "height": 1448 },
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
   "processing": "Complete approved composition resized to 300 x 400 with Pillow Lanczos; WebP quality 95, method 6. No cropping, recolouring or repainting. This game-sized source is not the full-resolution lossless original.",
   "approval": "User approved the revised image with four green stalks and one reddish-brown central stalk, then explicitly requested deployment. The prior all-green image was not selected.",
   "originalPreservation": "Untouched original PNG preserved in the downloadable van-gogh-five-bamboo-copper-original.zip supplied in chat."
