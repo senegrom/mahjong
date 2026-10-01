@@ -1,0 +1,25 @@
+{
+  "tile": "5s",
+  "name": "Sou5",
+  "candidate": "Copper Sunset",
+  "title": "Copper Bamboo at Sunset",
+  "source": "docs/design/van-gogh/studies/15-five-bamboo-copper-sunset.webp",
+  "sourceSha256": "16552f26fc7e7090adbc13cf659afcdb9b2549cd1a543441b93eed7d5f742d81",
+  "sourceBytes": 89232,
+  "sourceWidth": 300,
+  "sourceHeight": 400,
+  "originalFilename": "copper_bamboo_at_sunset.png",
+  "originalSha256": "20f7812e84d67802c9768baf28c7a2b7d89fa0e68a2a42783fa655380dca51c0",
+  "originalWidth": 1086,
+  "originalHeight": 1448,
+  "originalBytes": 2973191,
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "processing": "Complete approved composition resized to 300 x 400 with Pillow Lanczos; WebP quality 95, method 6. No cropping, recolouring or repainting. This game-sized source is not the full-resolution lossless original.",
+  "approval": "User approved the revised image with four green stalks and one reddish-brown central stalk, then explicitly requested deployment. The prior all-green image was not selected.",
+  "originalPreservation": "Untouched original PNG preserved in the downloadable van-gogh-five-bamboo-copper-original.zip supplied in chat."
+}

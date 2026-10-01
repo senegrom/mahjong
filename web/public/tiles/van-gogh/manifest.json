@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept.",
   "fallback": "classic",
   "sources": [
     {
@@ -73,6 +73,11 @@
       "id": "bambooRaft",
       "source": "docs/design/van-gogh/studies/14-eight-bamboo-raft-approved.svg",
       "sha256": "94f1651a4aff20b81f82467e7183c886c189c0e5f2a69824026313798a35a856"
+    },
+    {
+      "id": "copperFive",
+      "source": "docs/design/van-gogh/studies/15-five-bamboo-copper-sunset.webp",
+      "sha256": "16552f26fc7e7090adbc13cf659afcdb9b2549cd1a543441b93eed7d5f742d81"
     }
   ],
   "tiles": [
@@ -382,6 +387,23 @@
       "svgSha256": "94f1651a4aff20b81f82467e7183c886c189c0e5f2a69824026313798a35a856",
       "rasterMimeType": "image/webp",
       "rasterSha256": "c0dbf2f2b2793681a2b31d28282b80113b4cd33f33b7bb50d52a6ffb69580aa3"
+    },
+    {
+      "candidate": "Copper Sunset",
+      "tile": "5s",
+      "name": "Sou5",
+      "label": "Five bamboo",
+      "source": "docs/design/van-gogh/studies/15-five-bamboo-copper-sunset.webp",
+      "status": "approved",
+      "png": "approved/Sou5.png",
+      "svg": "approved/Sou5.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      },
+      "pngSha256": "84a457f7666ec7b2099cb2b65498e3791298fd1e1c65df87f54a86055b5840db"
     }
   ],
   "rejected": [
@@ -424,7 +446,6 @@
     "6p",
     "7p",
     "8p",
-    "5s",
     "9s",
     "2z",
     "3z",
