@@ -9,6 +9,8 @@ import { TILE_FACE_OPTIONS, TILE_IMAGE_URLS, tileImage } from '../src/lib/tile-f
 const root = new URL('../../', import.meta.url);
 const publicRoot = new URL('../public/', import.meta.url);
 const set = JSON.parse(readFileSync(new URL('tiles/dali/manifest.json', publicRoot), 'utf8'));
+// Other sets can gain approved art independently; test against their own manifest.
+const vanGogh = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
 // The approved bamboo faces whose artwork, original and embedded raster are
@@ -23,7 +25,6 @@ const FACES = [
     originalFilename: 'wide_triptych_art_image_with_three_vertical_panels.png',
     originalDimensions: [1536, 1024], rasterDimensions: [300, 400],
     processing: /Selected panel A cropped from the original triptych; border and caption removed/,
-    vanGoghImage: 'tiles/van-gogh/approved/Sou3.svg',
   },
   {
     tile: '8s', name: 'Sou8', words: 'eight bamboo', direction: 'Emerald Moonlit Seascape',
@@ -54,10 +55,10 @@ const FACES = [
   },
 ];
 
-test('seventeen approved identities and seventeen placeholders cover the thirty-four tiles once', () => {
-  assert.deepEqual([...DALI_APPROVED], ['1p', '3p', '5p', '1s', '2s', '3s', '5s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '7z']);
-  assert.equal(set.tiles.length, 17);
-  assert.equal(set.placeholders.length, 17);
+test('eighteen approved identities and sixteen placeholders cover the thirty-four tiles once', () => {
+  assert.deepEqual([...DALI_APPROVED], ['1p', '3p', '5p', '1s', '2s', '3s', '5s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '7z']);
+  assert.equal(set.tiles.length, 18);
+  assert.equal(set.placeholders.length, 16);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   const identities = [...set.tiles, ...set.placeholders].map(entry => entry.tile);
   assert.equal(new Set(identities).size, 34);
@@ -119,7 +120,8 @@ for (const face of FACES) {
     for (const { value } of TILE_FACE_OPTIONS) assert.equal(tileImage(face.tile, value, true), 'tiles/Back.svg');
     assert.equal(tileImage(face.tile, 'classic'), `tiles/${face.name}.svg`);
     assert.equal(tileImage(face.tile, 'matisse'), `tiles/matisse/approved/${face.name}.svg`);
-    assert.equal(tileImage(face.tile, 'van-gogh'), face.vanGoghImage ?? `tiles/${face.name}.svg`);
+    const other = vanGogh.tiles.find(entry => entry.tile === face.tile);
+    assert.equal(tileImage(face.tile, 'van-gogh'), other ? `tiles/van-gogh/${other.svg}` : `tiles/${face.name}.svg`);
   });
 }
 
@@ -128,8 +130,8 @@ test('nine bamboo is represented in both reproducible export definitions and the
   assert.match(exporter, /\['Sou9', '9s', '9 bamboo', 'The Surreal Grove', 'nine-bamboo-surreal-grove-approved.svg', \[0, 0, 300, 400\]\]/);
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou9.svg'));
-  assert.ok(preview.includes('17 approved faces'));
-  assert.ok(preview.includes('remaining 17 tiles'));
+  assert.ok(preview.includes('18 approved faces'));
+  assert.ok(preview.includes('remaining 16 tiles'));
 });
 
 test('all existing PNG-backed Dali exports retain their recorded source and raster hashes', () => {
@@ -148,8 +150,8 @@ test('eight bamboo is the greener revision in the exporter, preview and provenan
   assert.match(exporter, /\['Sou8', '8s', '8 bamboo', 'Emerald Moonlit Seascape', 'eight-bamboo-emerald-moonlit-approved.svg', \[0, 0, 300, 400\]\]/);
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou8.svg'));
-  assert.ok(preview.includes('17 approved faces'));
-  assert.ok(preview.includes('remaining 17 tiles'));
+  assert.ok(preview.includes('18 approved faces'));
+  assert.ok(preview.includes('remaining 16 tiles'));
   const provenance = JSON.parse(readFileSync(new URL('docs/design/dali/eight-bamboo.json', root), 'utf8'));
   const face = FACES.find(entry => entry.tile === '8s');
   assert.equal(provenance.originalSha256, face.original);
@@ -175,6 +177,6 @@ test('three bamboo preserves selected panel A and is reproducible in the exporte
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou3.svg'));
   assert.ok(preview.includes('The Bamboo That Tied Itself'));
-  assert.ok(preview.includes('17 approved faces'));
-  assert.ok(preview.includes('remaining 17 tiles'));
+  assert.ok(preview.includes('18 approved faces'));
+  assert.ok(preview.includes('remaining 16 tiles'));
 });

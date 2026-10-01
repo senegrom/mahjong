@@ -15,17 +15,18 @@ const selected = set.tiles.find(entry => entry.tile === '1z');
 const svg = read('web/public/tiles/dali/approved/Ton.svg');
 const metadata = JSON.parse(svg.toString().match(/<metadata>([\s\S]*?)<\/metadata>/)[1]);
 
-test('the approved first wind painting is East, without relabelling it North', () => {
+test('the approved first wind painting is East, distinct from the selected North adaptation', () => {
   assert.equal(selected.name, 'Ton');
   assert.equal(selected.direction, 'The Dreaming East');
   assert.equal(selected.status, 'approved');
   assert.equal(tileImage('1z', 'dali'), 'tiles/dali/approved/Ton.svg');
-  assert.equal(DALI_APPROVED.includes('4z'), false);
-  assert.equal(tileImage('4z', 'dali'), 'tiles/dali/placeholders/placeholder.svg');
+  assert.equal(DALI_APPROVED.includes('4z'), true);
+  assert.equal(tileImage('4z', 'dali'), 'tiles/dali/approved/Pei.svg');
+  assert.notDeepEqual(svg, read('web/public/tiles/dali/approved/Pei.svg'));
   const north = JSON.parse(read('docs/design/dali/north-wind-selection.json'));
   assert.equal(north.tile, '4z');
   assert.equal(north.selectedPanel, 'second (middle)');
-  assert.equal(north.status, 'composition-selected-character-adaptation-pending');
+  assert.equal(north.status, 'approved');
 });
 
 test('East source, runtime and embedded approved image are hash-pinned', () => {
@@ -58,14 +59,14 @@ test('East uses the existing clipping and preload without exposing hidden tiles'
 });
 
 test('the registry covers all tiles once and East is reproducibly exported and previewed', () => {
-  assert.equal(set.tiles.length, 17);
-  assert.equal(set.placeholders.length, 17);
+  assert.equal(set.tiles.length, 18);
+  assert.equal(set.placeholders.length, 16);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   assert.deepEqual([...set.tiles, ...set.placeholders].map(entry => entry.tile).sort(), [...TILE_TYPES].sort());
   const exporter = read('web/scripts/export-dali-tiles.mjs').toString();
   assert.match(exporter, /\['Ton', '1z', 'East wind', 'The Dreaming East', 'east-wind-first-approved.svg', \[0, 0, 300, 400\]\]/);
   const preview = read('web/public/tiles/dali/preview.html').toString();
   assert.ok(preview.includes('approved/Ton.svg'));
-  assert.ok(preview.includes('17 approved faces'));
-  assert.ok(preview.includes('remaining 17 tiles'));
+  assert.ok(preview.includes('18 approved faces'));
+  assert.ok(preview.includes('remaining 16 tiles'));
 });

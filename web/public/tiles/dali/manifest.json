@@ -294,6 +294,23 @@
       }
     },
     {
+      "name": "Pei",
+      "tile": "4z",
+      "label": "North wind",
+      "direction": "The Wind-Carved Arch",
+      "status": "approved",
+      "svg": "approved/Pei.svg",
+      "source": "docs/design/dali/studies/north-wind-second-approved.svg",
+      "sourceSha256": "7a7433ce493b402bc8c82c43b733b8ed0616215a66072e1108cfabac26485ee2",
+      "svgSha256": "7a7433ce493b402bc8c82c43b733b8ed0616215a66072e1108cfabac26485ee2",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      }
+    },
+    {
       "name": "Chun",
       "tile": "7z",
       "label": "Red dragon",
@@ -367,10 +384,6 @@
     },
     {
       "tile": "3z",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "4z",
       "svg": "placeholders/placeholder.svg"
     },
     {

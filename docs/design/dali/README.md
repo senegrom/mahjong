@@ -1,6 +1,6 @@
 # Dalí mahjong tile set
 
-A surrealist tile face set for the mahjong game. Seventeen faces are approved, drawn from the original studies and Carl's later selections. The latest is East wind **The Dreaming East**, using the approved first plain-image composition with the wind woven into its painted 東. The selected second composition is reserved for North; its painted character must be adapted to 北 before deployment.
+A surrealist tile face set for the mahjong game. Eighteen faces are approved, drawn from the original studies and Carl's later selections. East wind **The Dreaming East** uses the approved first plain-image composition with the wind woven into its painted 東. North wind **The Wind-Carved Arch** uses the selected second composition, with a sculptural 北 integrated into its wind ribbons above the arch.
 
 ## Approved first studies
 
@@ -22,15 +22,18 @@ A surrealist tile face set for the mahjong game. Seventeen faces are approved, d
 | `Man8.svg` | 8 characters | The Window in Reality — B: star-filled 八 openings through a floating ivory membrane above a ruby 萬 |
 | `Man9.svg` | 9 characters | Sapphire Suspension — C: ivory 九 with sapphire joints above a complete ruby 萬 suspended over sunset water |
 | `Ton.svg` | East wind | The Dreaming East — first plain-image composition: a melting profile with a seascape window, cypresses and cloud-wind flowing through 東 |
+| `Pei.svg` | North wind | The Wind-Carved Arch — second composition: sculptural 北, flowing wind ribbons, cypresses and an impossible stone arch |
 | `Chun.svg` | Red dragon | Molten Ruby — translucent ruby-red 中 stretched into an uncanny molten form |
 
-The other 17 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. Four and six bamboo remain placeholders; three bamboo now uses selected A. North remains a placeholder until the selected second wind composition has a faithful 北 adaptation; do not ship its current 東 as North. The assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
+The other 16 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. Four and six bamboo remain placeholders; three bamboo now uses selected A. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
 
 ## Presentation
 
 The set follows the existing tile system's 300 × 400 face, 26-unit rounded clipping and 1% bleed. Each SVG embeds approved raster artwork. The existing twelve PNG-backed faces remain unchanged. The five remaining faces from the first studies are lossless crops of [the approved board](studies/01-first-six-approved.png), excluding its labels and surround. The board also preserves the earlier eight-character design that Carl replaced with B.
 
 East wind uses [the approved first plain-image composition](studies/east-wind-first-approved.svg), mechanically extracted from the first panel of `a_clean_white_background_with_three_surreal_paint.png`. The source board is 1536 × 1024; the crop is `(0, 85, 558, 864)`, with 45 white pixels added on each side to preserve the entire artwork at 648 × 864 (3:4), without stretching or redrawing it. Its game rendering is 300 × 400 WebP, resized with Lanczos and encoded at quality 80, method 6. No ceramic surface, tile background, frame or colour edit is baked into the artwork. The conversation retains the original board and the repository stores the self-contained optimized rendering, not those original PNG bytes. Source and runtime SVGs are byte-identical. See [provenance](east-wind.json) for the board, cropped portrait, raster and SVG hashes. The later regenerated East portraits are not used. All sixteen earlier approved faces are unchanged.
+
+North wind uses [the existing North adaptation of the selected second composition](studies/north-wind-second-approved.svg). The conversation attachment `north-wind-second-north-adaptation.png` (648 × 864; SHA-256 `6422a05ce9bbb980eb28289fa03080bd70c1eeb7fae54018c8612e5e62def9a5`) replaces the East character with a sculptural 北 while retaining the wind ribbons, cypresses, arch and plain white background. The complete portrait is resized with Lanczos to a 300 × 400 WebP at quality 80, method 6; this deployment does not redraw or recolour it. No ceramic surface or decorative frame is added. The original PNG remains in the conversation; the repository stores the optimized self-contained SVG and [provenance](north-wind.json), not the original PNG bytes. Source and runtime SVGs are byte-identical. All seventeen earlier faces, including the exact selected East wind, remain unchanged.
 
 Three disks uses the exact [selected B image](studies/three-disks-b-approved.png), preserving the complete 1086 × 1448 source and its original PNG bytes. Alternatives A (the river) and C (the butterflies) were not selected. Keep the chosen artwork when exporting; do not regenerate or redraw it.
 
@@ -52,7 +55,7 @@ Nine characters uses the exact [approved repaired C image](studies/nine-characte
 
 Present three alternatives for each new tile before selection.
 
-Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: seventeen approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
+Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: eighteen approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
 
 ## Reproducing the exports
 
