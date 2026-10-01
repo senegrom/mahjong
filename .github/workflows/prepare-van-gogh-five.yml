@@ -1,0 +1,49 @@
+name: Prepare approved Van Gogh copper five
+on:
+  push:
+    branches: [design/van-gogh-copper-five-bamboo-20261002]
+permissions:
+  contents: write
+concurrency:
+  group: prepare-van-gogh-copper-five
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Ensure image exporter is available
+        run: |
+          if ! command -v convert >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+      - name: Import approved source and verify unchanged artwork
+        run: python3 .van-gogh-five-transfer/prepare.py
+      - name: Lint
+        working-directory: web
+        run: npm run lint
+      - name: Tile and offline regression tests
+        working-directory: web
+        run: node --test tests/tile-faces.test.js tests/offline.test.js
+      - name: Commit verified artwork and remove one-time transport
+        run: |
+          rm -rf .van-gogh-five-transfer
+          rm .github/workflows/prepare-van-gogh-five.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/design/van-gogh web/public/tiles/van-gogh web/src/lib/van-gogh-faces.js web/scripts/export-van-gogh-tiles.mjs web/tests/tile-faces.test.js .van-gogh-five-transfer .github/workflows/prepare-van-gogh-five.yml
+          git diff --cached --check
+          git commit -m 'feat(tiles): add Copper Sunset as Van Gogh 5 bamboo'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
