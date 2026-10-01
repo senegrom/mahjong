@@ -1,6 +1,6 @@
 # Dalí mahjong tile set
 
-A surrealist tile face set for the mahjong game. Eighteen faces are approved, drawn from the original studies and Carl's later selections. East wind **The Dreaming East** uses the approved first plain-image composition with the wind woven into its painted 東. North wind **The Wind-Carved Arch** uses the selected second composition, with a sculptural 北 integrated into its wind ribbons above the arch.
+A surrealist tile face set for the mahjong game. Nineteen faces are approved, drawn from the original studies and Carl's later selections. The latest is four bamboo **The Sleeping Landscape — B**, using the approved right-hand painting with exactly four green stalks on a sleeping stone eyelid and a suspended green tear. The existing three-bamboo A artwork is unchanged. East wind **The Dreaming East** uses the approved first plain-image composition with the wind woven into its painted 東. North wind **The Wind-Carved Arch** uses the selected second composition, with a sculptural 北 integrated into its wind ribbons above the arch.
 
 ## Approved first studies
 
@@ -12,6 +12,7 @@ A surrealist tile face set for the mahjong game. Eighteen faces are approved, dr
 | `Sou1.svg` | 1 bamboo | Stilt Bird — one elongated surreal crane-like bird with impossibly long legs |
 | `Sou2.svg` | 2 bamboo | Elastic Growth — two sinuous segmented bamboo stalks; all visible colour remains green |
 | `Sou3.svg` | 3 bamboo | The Bamboo That Tied Itself — A: three green stalks, with an impossible knot in the tall central stem |
+| `Sou4.svg` | 4 bamboo | The Sleeping Landscape — B: four green bamboo stalks on a sleeping stone eyelid above a suspended green tear |
 | `Sou5.svg` | 5 bamboo | The Soft Grove — A: four jade stems and one ruby stem soften into droplets and pools, retaining the five-pip arrangement |
 | `Sou7.svg` | 7 bamboo | The Dream Cabinet — one ruby and six jade reeds in a 1–3–3 layout; drawers contain a cloud, crescent moon and ocean |
 | `Sou8.svg` | 8 bamboo | Emerald Moonlit Seascape — eight green reeds, a suspended moon, a pendulum and a living spiral; the approved greener revision |
@@ -25,7 +26,7 @@ A surrealist tile face set for the mahjong game. Eighteen faces are approved, dr
 | `Pei.svg` | North wind | The Wind-Carved Arch — second composition: sculptural 北, flowing wind ribbons, cypresses and an impossible stone arch |
 | `Chun.svg` | Red dragon | Molten Ruby — translucent ruby-red 中 stretched into an uncanny molten form |
 
-The other 16 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. Four and six bamboo remain placeholders; three bamboo now uses selected A. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
+The other 15 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. Six bamboo is the only remaining bamboo placeholder; three uses selected A and four uses the approved B adaptation. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
 
 ## Presentation
 
@@ -37,7 +38,9 @@ North wind uses [the existing North adaptation of the selected second compositio
 
 Three disks uses the exact [selected B image](studies/three-disks-b-approved.png), preserving the complete 1086 × 1448 source and its original PNG bytes. Alternatives A (the river) and C (the butterflies) were not selected. Keep the chosen artwork when exporting; do not regenerate or redraw it.
 
-Three bamboo uses [selected A — The Bamboo That Tied Itself](studies/three-bamboo-a-approved.svg). The source is panel A of the conversation attachment `wide_triptych_art_image_with_three_vertical_panels.png` (1536 × 1024; SHA-256 `67d151a89d59f2f3907b6e9fa0b0968ca1d5c95faa2e6e6003a53fd567e122a0`). The crop at x=11, y=12, width=482, height=877 removes only the board surround and caption, retaining all three stalks and the central knot. The complete cropped painting is resized to the standard 300 × 400 face with Lanczos and encoded as WebP quality 80, method 6. There is no redraw, recolouring or added tile texture. The source and runtime SVGs are byte-identical and self-contained, using the existing clipping and bleed. The original PNG remains in the conversation; the repository stores the optimized rendering and [provenance](three-bamboo.json), not the original PNG bytes. B — The Sleeping Landscape was also liked, but is not assigned to another tile by this deployment; C was not selected.
+Three bamboo uses [selected A — The Bamboo That Tied Itself](studies/three-bamboo-a-approved.svg). The source is panel A of the conversation attachment `wide_triptych_art_image_with_three_vertical_panels.png` (1536 × 1024; SHA-256 `67d151a89d59f2f3907b6e9fa0b0968ca1d5c95faa2e6e6003a53fd567e122a0`). The crop at x=11, y=12, width=482, height=877 removes only the board surround and caption, retaining all three stalks and the central knot. The complete cropped painting is resized to the standard 300 × 400 face with Lanczos and encoded as WebP quality 80, method 6. There is no redraw, recolouring or added tile texture. The source and runtime SVGs are byte-identical and self-contained, using the existing clipping and bleed. The original PNG remains in the conversation; the repository stores the optimized rendering and [provenance](three-bamboo.json), not the original PNG bytes. B — The Sleeping Landscape has since been adapted and selected for four bamboo (see below); C was not selected.
+
+Four bamboo uses [the approved B adaptation — The Sleeping Landscape](studies/four-bamboo-b-approved.svg), extracted from the right panel of `a_surreal_painterly_diptych_style_illustration_sp.png` (1536 × 1024; SHA-256 `38d1319631e5c70d30110109b14fcc6f5f8ccd31a92c2f39857e88ab91b056bb`). The crop at x=782, y=0, width=754, height=1024 excludes the white divider and keeps the complete four-stalk painting. It is resized to 300 × 400 with Lanczos and encoded as WebP quality 80, method 6, without redrawing, recolouring, or adding a tile background or frame. The existing clipping and bleed are unchanged. The source and runtime SVGs are byte-identical and self-contained. The original PNG remains in the conversation; the repository stores the optimized rendering and [provenance](four-bamboo.json), not the original PNG bytes. The diptych left panel is not deployed: the previously approved three-bamboo A remains byte-for-byte unchanged.
 
 Five bamboo uses the exact [selected A image](studies/five-bamboo-a-approved.png), preserving the complete 1086 × 1448 source and its original PNG bytes. Its four green stems and central ruby stem remain clearly countable. Alternatives B (floating joints) and C (the hand shadow) were not selected.
 
@@ -55,7 +58,7 @@ Nine characters uses the exact [approved repaired C image](studies/nine-characte
 
 Present three alternatives for each new tile before selection.
 
-Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: eighteen approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
+Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: nineteen approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
 
 ## Reproducing the exports
 

@@ -67,8 +67,8 @@ test('North preloads once, stays self-contained and never exposes a hidden tile'
 });
 
 test('North is registered in the reproducible exporter and appears in the preview', () => {
-  assert.equal(set.tiles.length, 18);
-  assert.equal(set.placeholders.length, 16);
+  assert.equal(set.tiles.length, 19);
+  assert.equal(set.placeholders.length, 15);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   assert.deepEqual(selected.crop, { x: 0, y: 0, width: 300, height: 400 });
   const exporter = read('web/scripts/export-dali-tiles.mjs').toString();
@@ -76,6 +76,6 @@ test('North is registered in the reproducible exporter and appears in the previe
   const preview = read('web/public/tiles/dali/preview.html').toString();
   assert.ok(preview.includes('approved/Pei.svg'));
   assert.ok(preview.includes('The Wind-Carved Arch'));
-  assert.ok(preview.includes('18 approved faces'));
-  assert.ok(preview.includes('remaining 16 tiles'));
+  assert.ok(preview.includes('19 approved faces'));
+  assert.ok(preview.includes('remaining 15 tiles'));
 });
