@@ -2,11 +2,11 @@
 
 Choose **Options → Tile face → Van Gogh**. The nineteen approved faces appear in hands, discards, melds, indicators, waits, agent modes, reviews and scoring. The preference is saved on this device, and the new faces are included in preloading and offline preparation.
 
-The selected studies are A–B, E, G–J and L, plus **Bamboo Raft** for 8 bamboo, **Seven with Irises C** for 7 bamboo, green Moonlit Four C for 4 bamboo, green Triple Shoots A for 3 bamboo, green Garden Rhythm B for 2 bamboo, **Almond Branches (Characters A)** for 3 of characters, **Night Cafe (Characters B)** for 2 of characters, **Cypress Fields (Characters C)** for 4 of characters, **Blazing Dawn (East A)** and **Wind Ribbons (North B)**. Almond Branches replaces the earlier Painted Letters D. White dragon uses the later, simpler L. East wind K is excluded. The other 15 identities awaiting Van Gogh artwork use their Classic faces. Hidden tiles keep the shared back. The white dragon retains its own pale dragon under the normal dora ring and foil sheen.
+The selected studies are A–B, E, G–I and L, plus **Green Still Life B** replacing J for 6 bamboo, **Copper Sunset** for 5 bamboo, **Bamboo Raft** for 8 bamboo, **Seven with Irises C** for 7 bamboo, green Moonlit Four C for 4 bamboo, green Triple Shoots A for 3 bamboo, green Garden Rhythm B for 2 bamboo, **Almond Branches (Characters A)** for 3 of characters, **Night Cafe (Characters B)** for 2 of characters, **Cypress Fields (Characters C)** for 4 of characters, **Blazing Dawn (East A)** and **Wind Ribbons (North B)**. Almond Branches replaces the earlier Painted Letters D. White dragon uses the later, simpler L. East wind K is excluded. The other 15 identities awaiting Van Gogh artwork use their Classic faces. Hidden tiles keep the shared back. The white dragon retains its own pale dragon under the normal dora ring and foil sheen.
 
-The [preview](preview.html) shows the actual exports and a mixed hand. The [manifest](manifest.json) records approval, source hashes and exact crop rectangles. [Design studies](../../../../docs/design/van-gogh/README.md) preserve the original boards and generation prompts; the [raft record](../../../../docs/design/van-gogh/eight-bamboo-raft.json) records the latest addition.
+The [preview](preview.html) shows the actual exports and a mixed hand. The [manifest](manifest.json) records approval, source hashes and exact crop rectangles. [Design studies](../../../../docs/design/van-gogh/README.md) preserve the original boards and generation prompts; the [raft record](../../../../docs/design/van-gogh/eight-bamboo-raft.json) records eight bamboo, and the [green still-life record](../../../../docs/design/van-gogh/six-bamboo-green-still-life.json) records the six-bamboo replacement.
 
-Earlier PNG sources are cropped losslessly. The newer green bamboo sources, Copper Sunset and Seven with Irises use documented quality-95 WebP game exports, without regeneration or repainting. The raft uses a documented quality-80 WebP embedded in its source SVG. The self-contained SVGs use the shared 300 × 400 canvas, 26-unit rounded corners and 1% bleed. Reproduce exports from the repository root with Node.js and ImageMagick:
+Earlier PNG sources are cropped losslessly. The green 2, 3 and 4 bamboo sources, Copper Sunset and Seven with Irises use documented quality-95 WebP game exports, without regeneration or repainting. The raft and Green Still Life B use documented quality-80 WebP images embedded in their source SVGs. The self-contained SVGs use the shared 300 × 400 canvas, 26-unit rounded corners and 1% bleed. Reproduce exports from the repository root with Node.js and ImageMagick:
 
 ```sh
 node web/scripts/export-van-gogh-tiles.mjs
@@ -61,3 +61,15 @@ The approved **Copper Sunset** is active for `5s` / `Sou5`: four green bamboo st
 `studies/15-five-bamboo-copper-sunset.webp` is a 300×400, quality-95 WebP game export, following the recent bamboo convention. It is not a lossless full-resolution original. Source and original checksums, full-canvas coordinates and processing details are recorded in `docs/design/van-gogh/five-bamboo-copper.json`; the untouched original is preserved in `van-gogh-five-bamboo-copper-original.zip` supplied in chat.
 
 The set now contains **19 painted faces and 15 Classic fallbacks**. All 18 previous painted faces and their source artwork are unchanged. Regenerate this addition alone with `node web/scripts/export-van-gogh-tiles.mjs --only=5s`.
+
+## Green Still Life B: corrected green 6 bamboo
+
+Carl approved the corrected B still life with **six distinct bamboo stalks**, a pale green two-handled pot, green bottle and two limes, and requested deployment. This replaces **J — Green Rhythm** for `6s` (`Sou6`); none of the earlier five-stalk candidates is used. The approved green colours, objects and complete composition are preserved without repainting or recolouring.
+
+The full 1086 × 1448 approved portrait is resized proportionally to 300 × 400 with Lanczos and saved as quality-80 WebP, following the raft convention. The source `docs/design/van-gogh/studies/15-six-bamboo-green-still-life-b-approved.svg` and playable `approved/Sou6.svg` are identical, with the standard 1% bleed and rounded clip. The obsolete J runtime PNG is removed; its original artwork remains in the second study sheet and Git history. Original, raster and SVG checksums are recorded in `docs/design/van-gogh/six-bamboo-green-still-life.json`. The downloadable approval archive preserves the full-resolution original PNG; the committed SVG is an optimized game export, not that original.
+
+```sh
+node web/scripts/export-van-gogh-tiles.mjs --only=6s
+```
+
+This copies the approved B SVG exactly and leaves the other eighteen faces unchanged, including Copper Sunset, the raft and Seven with Irises. The set remains at **19 painted faces and 15 Classic fallbacks**. Focused regressions cover the approved image hashes, replacement of J, registration, the 14-tile preview hand and isolated export preservation.
