@@ -212,6 +212,13 @@ impl Tile {
         }
     }
 
+    /// The sequence this tile is the lowest of: itself and the next two up
+    /// in its suit, or `None` for an 8, a 9 or an honour, which start none.
+    pub fn sequence(self) -> Option<[Tile; 3]> {
+        let second = self.next_in_suit()?;
+        Some([self, second, second.next_in_suit()?])
+    }
+
     /// Every tile kind, in index order.
     pub fn all() -> impl Iterator<Item = Tile> {
         (0..KINDS as u8).map(Tile)
@@ -346,5 +353,12 @@ mod tests {
         );
         assert!("9m".parse::<Tile>().unwrap().next_in_suit().is_none());
         assert!(EAST.next_in_suit().is_none());
+        let tile = |text: &str| text.parse::<Tile>().unwrap();
+        assert_eq!(
+            tile("7p").sequence(),
+            Some([tile("7p"), tile("8p"), tile("9p")])
+        );
+        assert_eq!(tile("8p").sequence(), None);
+        assert_eq!(WHITE.sequence(), None);
     }
 }

@@ -8,7 +8,12 @@ origin, immutable object key, and SHA-256. Inspect those fields for the current
 release. `neural.export` checks the graph's operators; the publication tool
 `web/scripts/publish-model-r2.mjs` writes the delivery manifest, reading the
 precision from the exported weights and refusing to run without the source
-checkpoint's name. It uploads with an exact wrangler release.
+checkpoint's name. It uploads with an exact wrangler release, gzipped, under
+`models/g<generation>/<sha256>`, which `workers/model-cdn` serves to the page,
+and writes the manifest only after the upload, staged and atomically renamed:
+a failed upload leaves the previous manifest in place. It expects an export
+`neural.export` has already checked; uploading proves nothing about parity or
+playing strength.
 
 No ONNX model is served from `web/public`. Both packaging and offline inventory
 creation reject unexpected local ONNX files, including nested files. There is
@@ -80,12 +85,23 @@ includes real inference, legacy preference migration, saved-state, memory,
 worker, offline, and browser layout checks. Optional external model/checkpoint
 fixtures remain explicitly identified by their individual tests.
 
+The memory regression loads the published network through the reduced runtime
+three times over. It needs a local copy named by `MAHJONG_NETWORK`, which
+`node scripts/prepare-test-network.mjs <path>` fetches and verifies against the
+manifest. CI always supplies it and fails without it; a local run without it
+skips that one test.
+
 The JavaScript in `onnxruntime-web` calls into the WASM, and those calls change
 between releases, so `web/package.json` pins the package to exactly the ONNX
 Runtime release the reduced WASM was built from. `copy-runtime.mjs` refuses to
 build when the installed package differs from the release recorded in the
-binary, so a Dependabot update of that package alone fails until the runtime
-is rebuilt at the new release.
+binary, so an update of that package alone can only fail. Dependabot still
+proposes it, in a pull request of its own that fails until the runtime is
+rebuilt: that pull request is the signal to dispatch the reduced ONNX runtime
+workflow with the new release, merge the branch it pushes (which moves the pin
+with the rebuilt WASM), and close Dependabot's. The build tools in
+`web/runtime/requirements-build.txt` get Dependabot pull requests too, checked
+by an install and `pip check`; the next rebuild runs them for real.
 
 The manual reduced-runtime workflow builds the pinned release from source with
 the reviewed `reduced-ops.config`; dispatched with another release, it builds

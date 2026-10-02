@@ -23,8 +23,13 @@ IMPORT = "import { memoryBudget as mahjongMemoryBudget } from './memory-budget.m
 CEILING = re.compile(r"function (\w+)\(\)\{return 4294901760\}")
 
 # The grower: takes a byte count, checks the current heap, and calls grow on
-# the memory before telling the module its views moved.
-GROWER = re.compile(r"function (\w+)\(a\)\{a>>>=0;var b=\(B\(\),I\)\.length;")
+# the memory before telling the module its views moved. Matched by its bounds
+# check, not by the minifier's names, which change between releases: 1.29
+# emitted `(B(),I).length`, 1.30 `(A(),H).length`.
+GROWER = re.compile(
+    r"function (\w+)\(a\)\{a>>>=0;var b=\(\w+\(\),\w+\)\.length;"
+    r"if\(a<=b\|\|4294901760<a\)return!1;"
+)
 
 # Which name holds the memory, and which redoes the views after it grows.
 INSIDE = re.compile(r"(\w+)\.grow\(c\);(\w+)\(\);")

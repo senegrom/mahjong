@@ -59,19 +59,8 @@ It does not pretend to compute yaku or transfers.
 
 ## Regression checks
 
-After installing the repository toolchain and dependencies:
-
-```sh
-cargo fmt --all --check
-cargo test --locked --workspace
-cd web
-npm run wasm
-npm run lint
-npm run check
-npm run build
-npm run test:unit
-node scripts/guided-game-check.mjs
-```
+Run `npm run verify` in `web/`, or `./check.sh --web` from the repository root
+to add the engine's formatting, lints and tests.
 
 `guided-settlement-state.test.js` isolates the bookkeeping boundary with a mock
 scorer. `guided-settlement.test.js` uses real WASM for ron, dealer/nondealer

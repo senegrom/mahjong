@@ -11,6 +11,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "web/runtime/**"
+      - ".github/actions/python-engines/**"
       - ".github/workflows/neural.yml"
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "web/runtime/**"
+      - ".github/actions/python-engines/**"
       - ".github/workflows/neural.yml"
   schedule:
     - cron: '23 6 * * 1'
@@ -70,27 +72,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
         with:
           toolchain: 1.98.1
-          components: rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
             . -> target
             engine/libriichi -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Check follower formatting
-        run: rustfmt --edition 2024 --check engine/libriichi/src/follow.rs
-      - name: Install CPU training and export dependencies
-        run: |
-          python -m pip install "numpy>=2,<3" "maturin>=1.7,<2" "onnx>=1.17,<2" "onnxruntime>=1.22,<2"
-          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-      - name: Build the training engine
-        working-directory: engine/riichi-py
-        run: maturin build --release --locked --out ../../wheels
-      - name: Build the observation engine
-        working-directory: engine/libriichi
-        run: maturin build --release --locked --out ../../wheels
-      - name: Install the real Python engines
-        run: python -m pip install wheels/*.whl
+      # The same pinned tools and engine wheels as the build workflow's
+      # browser worker parity job.
+      - name: Install the training tools and the real Python engines
+        uses: ./.github/actions/python-engines
       # The browser worker parity check runs in the build workflow, which
       # publishes the site only after it passes.
       - name: Run the trainer's tests

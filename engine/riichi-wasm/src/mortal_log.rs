@@ -32,13 +32,17 @@ use riichi::mjai::Event as MortalEvent;
 use riichi::state::PlayerState as MortalState;
 use riichi_core::game::{Discard, Hand, Phase};
 use riichi_core::hand::MeldKind;
-use riichi_core::mjai::name;
+use riichi_core::mjai::{name, Event};
 use riichi_core::tile::Tile;
 use riichi_core::Wind;
 
 /// Tiles in the live wall before the dealer's first draw, which is where
 /// libriichi's own count starts.
 const WALL_AT_START: usize = 70;
+
+/// The replay numbers the players by seat, East first, which is how the
+/// hand it deals says it: the dealer is player 0.
+const BY_SEAT: [usize; 4] = [0, 1, 2, 3];
 
 /// Mortal's state for one seat of a position on its own, having been told
 /// everything the position says happened.
@@ -89,8 +93,16 @@ fn tiles_json(tiles: &[String]) -> String {
     out
 }
 
+/// An event as the replay tells it, written the way the engine writes its
+/// own log.
+fn line(event: Event) -> String {
+    event.to_json(BY_SEAT)
+}
+
 /// A draw. Only the seat being observed sees what it drew; for the other
-/// three, libriichi reads nothing but the fact that the wall shrank.
+/// three, libriichi reads nothing but the fact that the wall shrank. The
+/// engine's own log always knows the tile, so an unknown one is written
+/// here.
 fn tsumo(actor: Wind, tile: Option<Tile>) -> String {
     format!(
         "{{\"type\":\"tsumo\",\"actor\":{},\"pai\":\"{}\"}}",
@@ -99,50 +111,21 @@ fn tsumo(actor: Wind, tile: Option<Tile>) -> String {
     )
 }
 
-fn dahai(actor: Wind, tile: Tile, tsumogiri: bool) -> String {
-    format!(
-        "{{\"type\":\"dahai\",\"actor\":{},\"pai\":\"{}\",\"tsumogiri\":{}}}",
-        actor.index(),
-        name(tile),
-        tsumogiri,
-    )
-}
-
-fn claim_json(kind: &str, actor: Wind, target: Wind, tile: Tile, consumed: &[Tile]) -> String {
-    let names: Vec<String> = consumed.iter().copied().map(name).collect();
-    format!(
-        "{{\"type\":\"{kind}\",\"actor\":{},\"target\":{},\"pai\":\"{}\",\"consumed\":{}}}",
-        actor.index(),
-        target.index(),
-        name(tile),
-        tiles_json(&names),
-    )
-}
-
-fn kakan_json(actor: Wind, tile: Tile) -> String {
-    let names = vec![name(tile), name(tile), name(tile)];
-    format!(
-        "{{\"type\":\"kakan\",\"actor\":{},\"pai\":\"{}\",\"consumed\":{}}}",
-        actor.index(),
-        name(tile),
-        tiles_json(&names),
-    )
-}
-
-fn dora_json(indicator: Tile) -> String {
-    format!(
-        "{{\"type\":\"dora\",\"dora_marker\":\"{}\"}}",
-        name(indicator)
-    )
-}
-
-fn ankan_json(actor: Wind, tile: Tile) -> String {
-    let names = vec![name(tile), name(tile), name(tile), name(tile)];
-    format!(
-        "{{\"type\":\"ankan\",\"actor\":{},\"consumed\":{}}}",
-        actor.index(),
-        tiles_json(&names),
-    )
+/// A quad a seat declared itself: four concealed tiles, or a fourth added
+/// to a triplet it claimed.
+fn own_quad(actor: Wind, kind: MeldKind, tile: Tile) -> String {
+    line(if kind == MeldKind::ConcealedKan {
+        Event::Ankan {
+            actor,
+            consumed: vec![tile; 4],
+        }
+    } else {
+        Event::Kakan {
+            actor,
+            tile,
+            consumed: vec![tile; 3],
+        }
+    })
 }
 
 /// The tiles a set takes out of the hand its owner was dealt.
@@ -150,32 +133,19 @@ fn ankan_json(actor: Wind, tile: Tile) -> String {
 /// Three for every set, whatever kind it is: a quad's fourth tile comes off
 /// the draw, and a sequence or triplet is followed by a discard from hand,
 /// which is the third. That is why thirteen tiles always come to thirteen
-/// again, however many sets stand in front of a seat.
-fn consumed_from_hand(kind: MeldKind, tile: Tile, claimed: Option<Tile>) -> Vec<Tile> {
-    match kind {
+/// again, however many sets stand in front of a seat. `None` for a
+/// sequence that cannot hold the tile it was claimed on.
+fn consumed_from_hand(kind: MeldKind, tile: Tile, claimed: Option<Tile>) -> Option<Vec<Tile>> {
+    Some(match kind {
         MeldKind::Chii => {
-            let run = [
-                tile,
-                tile.next_in_suit().unwrap_or(tile),
-                tile.next_in_suit()
-                    .and_then(|t| t.next_in_suit())
-                    .unwrap_or(tile),
-            ];
+            let mut rest = tile.sequence()?.to_vec();
             let taken = claimed.unwrap_or(tile);
-            let mut rest: Vec<Tile> = Vec::new();
-            let mut skipped = false;
-            for t in run {
-                if !skipped && t == taken {
-                    skipped = true;
-                    continue;
-                }
-                rest.push(t);
-            }
+            rest.remove(rest.iter().position(|member| *member == taken)?);
             rest
         }
         MeldKind::Pon | MeldKind::ExtendedKan => vec![tile, tile],
         MeldKind::ClaimedKan | MeldKind::ConcealedKan => vec![tile, tile, tile],
-    }
+    })
 }
 
 /// Whether a set is followed by a discard out of the hand rather than a
@@ -281,7 +251,7 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
             .iter()
             .find(|claim| claim.claimer == seat && claim.meld == at)
             .map(|claim| claim.tile);
-        dealt.extend(consumed_from_hand(meld.kind, meld.tile, claimed));
+        dealt.extend(consumed_from_hand(meld.kind, meld.tile, claimed)?);
     }
     for discard in &mine.discards {
         if from_hand.contains(&(seat.index(), discard.order)) {
@@ -340,51 +310,51 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
     for (who, discard) in &rows {
         let mine = *who == seat;
         let post = from_hand.contains(&(who.index(), discard.order));
-        // A quad on this turn supplies the tile the discard sends out: it
-        // was drawn, declared, and the replacement taken in its place.
-        let mut supplied = false;
-        for (owner, kind, tile) in standing
+        // Quads on this turn supply the tile the discard sends out. The
+        // turn's draw made the first, each quad's replacement made the next,
+        // and the last one's replacement is the tile that goes: one draw
+        // for the turn and one for each quad, however many share it.
+        let quads = standing
             .remove(&(who.index(), discard.order))
-            .unwrap_or_default()
-        {
-            draw(
-                &mut tail,
-                &mut drawn,
-                owner,
-                (owner == seat).then_some(tile),
-            );
-            tail.push(if kind == MeldKind::ConcealedKan {
-                ankan_json(owner, tile)
-            } else {
-                kakan_json(owner, tile)
-            });
-            if let Some(indicator) = turning.pop() {
-                tail.push(dora_json(indicator));
+            .unwrap_or_default();
+        for (at, &(owner, kind, tile)) in quads.iter().enumerate() {
+            if at == 0 {
+                draw(
+                    &mut tail,
+                    &mut drawn,
+                    owner,
+                    (owner == seat).then_some(tile),
+                );
             }
+            tail.push(own_quad(owner, kind, tile));
+            if let Some(indicator) = turning.pop() {
+                tail.push(line(Event::Dora { indicator }));
+            }
+            let replacement = quads.get(at + 1).map_or(discard.tile, |&(_, _, next)| next);
             draw(
                 &mut tail,
                 &mut drawn,
                 owner,
-                (owner == seat).then_some(discard.tile),
+                (owner == seat).then_some(replacement),
             );
-            supplied = true;
         }
-        if !post && !supplied {
+        if !post && quads.is_empty() {
             draw(&mut tail, &mut drawn, *who, mine.then_some(discard.tile));
         }
         if discard.riichi {
-            tail.push(format!("{{\"type\":\"reach\",\"actor\":{}}}", who.index()));
+            tail.push(line(Event::Reach { actor: *who }));
         }
         // Its own discards are replayed as tiles drawn and let go, which is
         // what the extra draw above supplied; the other three keep the mark
         // that was entered for them.
         let tsumogiri = if mine { !post } else { discard.drawn && !post };
-        tail.push(dahai(*who, discard.tile, tsumogiri));
+        tail.push(line(Event::Dahai {
+            actor: *who,
+            tile: discard.tile,
+            drawn: tsumogiri,
+        }));
         if discard.riichi && !is_pending(hand, *who, discard) {
-            tail.push(format!(
-                "{{\"type\":\"reach_accepted\",\"actor\":{}}}",
-                who.index()
-            ));
+            tail.push(line(Event::ReachAccepted { actor: *who }));
         }
         if let Some(at) = by_order.get(&discard.order) {
             let claim = &taken[*at];
@@ -397,35 +367,38 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
                 },
                 meld.tile,
                 Some(claim.tile),
-            );
-            let kind = match meld.kind {
-                MeldKind::Chii => "chi",
-                MeldKind::ClaimedKan => "daiminkan",
-                _ => "pon",
-            };
-            tail.push(claim_json(
-                kind,
-                claim.claimer,
-                claim.target,
-                claim.tile,
-                &consumed,
-            ));
+            )?;
+            let (actor, target, tile) = (claim.claimer, claim.target, claim.tile);
+            tail.push(line(match meld.kind {
+                MeldKind::Chii => Event::Chi {
+                    actor,
+                    target,
+                    tile,
+                    consumed,
+                },
+                MeldKind::ClaimedKan => Event::Daiminkan {
+                    actor,
+                    target,
+                    tile,
+                    consumed,
+                },
+                _ => Event::Pon {
+                    actor,
+                    target,
+                    tile,
+                    consumed,
+                },
+            }));
+            // An open quad's replacement is not drawn here. The caller's
+            // next discard does not come out of the hand (`discards_after`),
+            // so the draw told ahead of it is the replacement; a caller that
+            // has not discarded since holds it as the tile drawn now, told
+            // at the end. Drawing it here as well gave the caller a second
+            // tile, one Mortal refuses when it is the caller's own.
             if meld.kind == MeldKind::ClaimedKan {
                 if let Some(indicator) = turning.pop() {
-                    tail.push(dora_json(indicator));
+                    tail.push(line(Event::Dora { indicator }));
                 }
-                // The replacement, which its next discard sends out again.
-                let next = hand.players[claim.claimer.index()]
-                    .discards
-                    .iter()
-                    .find(|d| d.order > discard.order)
-                    .map(|d| d.tile);
-                draw(
-                    &mut tail,
-                    &mut drawn,
-                    claim.claimer,
-                    (claim.claimer == seat).then_some(next).flatten(),
-                );
             }
         }
     }
@@ -439,18 +412,14 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
             owner,
             (owner == seat).then_some(tile),
         );
-        tail.push(if kind == MeldKind::ConcealedKan {
-            ankan_json(owner, tile)
-        } else {
-            kakan_json(owner, tile)
-        });
+        tail.push(own_quad(owner, kind, tile));
         // A quad still open to robbery has not turned its indicator, and
         // its replacement has not been taken; both wait on the answer.
         if robbed.is_some_and(|robbable| robbable == tile) {
             continue;
         }
         if let Some(indicator) = turning.pop() {
-            tail.push(dora_json(indicator));
+            tail.push(line(Event::Dora { indicator }));
         }
     }
 
@@ -479,10 +448,11 @@ fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
     };
 
     let mut out = Vec::with_capacity(tail.len() + filler + 2);
-    out.push(
-        "{\"type\":\"start_game\",\"names\":[\"player 0\",\"player 1\",\"player 2\",\"player 3\"]}"
-            .to_string(),
-    );
+    out.push(line(Event::StartGame {
+        names: std::array::from_fn(|player| format!("player {player}")),
+    }));
+    // The deal is written here: the engine's own start_kyoku knows every
+    // hand, and this one shows three of them face down.
     out.push(format!(
         "{{\"type\":\"start_kyoku\",\"bakaze\":\"{}\",\"kyoku\":{},\"honba\":{},\"kyotaku\":{},\"oya\":0,\"dora_marker\":\"{}\",\"scores\":[{},{},{},{}],\"tehais\":{}}}",
         name(hand.round.tile()),
@@ -592,6 +562,83 @@ mod tests {
         observation.iter().copied().collect()
     }
 
+    /// The planes of thirty-four on which two observations differ.
+    fn differing(want: &[f32], got: &[f32]) -> Vec<usize> {
+        assert_eq!(want.len(), got.len());
+        (0..want.len() / 34)
+            .filter(|plane| {
+                (0..34).any(|at| (want[plane * 34 + at] - got[plane * 34 + at]).abs() > 1e-6)
+            })
+            .collect()
+    }
+
+    /// How many draws a replay tells.
+    fn draws_told(lines: &[String]) -> usize {
+        lines
+            .iter()
+            .filter(|line| line.starts_with("{\"type\":\"tsumo\""))
+            .count()
+    }
+
+    /// How many draws the hand really made, the dealer's fourteenth tile
+    /// and every replacement included.
+    fn draws_made(hand: &Hand) -> usize {
+        hand.log
+            .iter()
+            .filter(|event| matches!(event, riichi_core::mjai::Event::Tsumo { .. }))
+            .count()
+    }
+
+    /// Plays the hand `seed` deals, claiming every open quad a seat is
+    /// offered and otherwise playing as the club player does, and shows
+    /// `look` every decision on the way: the seat to act, and the table
+    /// while a tile is on offer. Taking every quad makes them common enough
+    /// to test, where the club player alone seldom calls one.
+    fn claiming_every_quad(seed: u64, mut look: impl FnMut(&Hand)) {
+        use riichi_core::game::Call;
+        let table = Table::new();
+        let mut rng = Rng::from_seed(seed);
+        let mut hand = table.deal(&mut rng);
+        let mut bot = Bot::with_style(seed, Style::club());
+        for _ in 0..400 {
+            match hand.phase {
+                Phase::Over => return,
+                Phase::Draw => {
+                    let _ = hand.draw();
+                }
+                Phase::Act => {
+                    look(&hand);
+                    let action = bot.act(&hand);
+                    hand.act(action).unwrap();
+                }
+                Phase::CallWindow => {
+                    look(&hand);
+                    let answers: Vec<_> = hand
+                        .legal_calls()
+                        .into_iter()
+                        .map(|(who, calls)| {
+                            let call = if calls.contains(&Call::Kan) {
+                                Call::Kan
+                            } else {
+                                bot.call(&hand, who, &calls)
+                            };
+                            (who, call)
+                        })
+                        .collect();
+                    hand.resolve_calls(&answers).unwrap();
+                }
+            }
+        }
+        panic!("seed {seed}: the hand did not end");
+    }
+
+    /// Whether any seat holds a set of this kind.
+    fn stands(hand: &Hand, kind: MeldKind) -> bool {
+        hand.players
+            .iter()
+            .any(|player| player.melds.iter().any(|meld| meld.kind == kind))
+    }
+
     /// The two planes a position cannot carry, and where they sit.
     ///
     /// libriichi freezes which discards keep the shanten number and which
@@ -632,15 +679,7 @@ mod tests {
                     let position = hidden(hand.clone(), seat);
                     let state = state_for(&position, seat)
                         .unwrap_or_else(|| panic!("seed {seed} step {steps} seat {seat:?}"));
-                    let got = planes(&state);
-                    assert_eq!(want.len(), got.len());
-                    let wrong: Vec<usize> = (0..want.len() / 34)
-                        .filter(|plane| {
-                            (0..34).any(|at| {
-                                (want[plane * 34 + at] - got[plane * 34 + at]).abs() > 1e-6
-                            })
-                        })
-                        .collect();
+                    let wrong = differing(&want, &planes(&state));
                     let excused = hand.players[seat.index()].has_riichi()
                         && wrong
                             .iter()
@@ -682,13 +721,7 @@ mod tests {
                     }
                     let want = planes(&told(&hand, seat));
                     let got = planes(&state_for(&hidden(hand.clone(), seat), seat).unwrap());
-                    let wrong: Vec<usize> = (0..want.len() / 34)
-                        .filter(|plane| {
-                            (0..34).any(|at| {
-                                (want[plane * 34 + at] - got[plane * 34 + at]).abs() > 1e-6
-                            })
-                        })
-                        .collect();
+                    let wrong = differing(&want, &got);
                     assert!(
                         wrong.is_empty(),
                         "seed {seed} step {steps} seat {seat:?} phase {:?}: planes {:?}",
@@ -700,5 +733,295 @@ mod tests {
             }
         }
         assert!(checked > 150, "only {checked} positions were compared");
+    }
+
+    /// An open quad draws one replacement, which a position does not record:
+    /// the caller's next discard sends it out again, or the caller holds it
+    /// now. Replayed from every later decision of hands that claim every
+    /// open quad offered, a position must tell exactly the draws the hand
+    /// made and read exactly as Mortal read the hand itself, the caller's
+    /// own seat included. Only open quads stand in the positions compared:
+    /// theirs is the one moment a position records, where a concealed or
+    /// added quad is given one. A seat in riichi is excused its two frozen
+    /// planes.
+    #[test]
+    fn an_open_quad_replays_into_the_observation_it_came_from() {
+        let (mut compared, mut callers) = (0, 0);
+        let (mut refused, mut miscounted, mut misread) = (Vec::new(), Vec::new(), Vec::new());
+        for seed in 1..=60u64 {
+            claiming_every_quad(seed, |hand| {
+                if !stands(hand, MeldKind::ClaimedKan)
+                    || stands(hand, MeldKind::ConcealedKan)
+                    || stands(hand, MeldKind::ExtendedKan)
+                {
+                    return;
+                }
+                for seat in Wind::ALL {
+                    if hand.phase == Phase::Act && hand.turn != seat {
+                        continue;
+                    }
+                    let at = format!("seed {seed} {seat:?} {:?}", hand.phase);
+                    compared += 1;
+                    callers += usize::from(
+                        hand.players[seat.index()]
+                            .melds
+                            .iter()
+                            .any(|meld| meld.kind == MeldKind::ClaimedKan),
+                    );
+                    let position = hidden(hand.clone(), seat);
+                    let lines = events(&position, seat).expect("the claims pair up");
+                    if draws_told(&lines) != draws_made(hand) {
+                        miscounted.push(format!(
+                            "{at}: {} draws told, {} made",
+                            draws_told(&lines),
+                            draws_made(hand)
+                        ));
+                    }
+                    let Some(state) = state_for(&position, seat) else {
+                        refused.push(at);
+                        continue;
+                    };
+                    let wrong = differing(&planes(&told(hand, seat)), &planes(&state));
+                    let excused = hand.players[seat.index()].has_riichi()
+                        && wrong
+                            .iter()
+                            .all(|plane| FROZEN_SHANTEN_DISCARDS.contains(plane));
+                    if !wrong.is_empty() && !excused {
+                        misread.push(format!("{at}: planes {:?}", &wrong[..wrong.len().min(8)]));
+                    }
+                }
+            });
+        }
+        println!(
+            "open quads: {compared} replays ({callers} by the caller), {} refused, {} miscounted, {} misread",
+            refused.len(),
+            miscounted.len(),
+            misread.len()
+        );
+        assert!(
+            refused.is_empty() && miscounted.is_empty() && misread.is_empty(),
+            "refused {:?}\nmiscounted {:?}\nmisread {:?}",
+            &refused[..refused.len().min(4)],
+            &miscounted[..miscounted.len().min(4)],
+            &misread[..misread.len().min(4)],
+        );
+        assert!(compared > 200, "only {compared} replays after an open quad");
+        assert!(callers > 50, "only {callers} of them by the caller");
+    }
+
+    /// The first decision after an open quad is the caller's, holding its
+    /// replacement: the replay tells the quad, turns its indicator and
+    /// draws that one tile, which only the caller is told.
+    #[test]
+    fn the_caller_of_an_open_quad_draws_its_replacement_once() {
+        let mut found = false;
+        for seed in 1..=40u64 {
+            claiming_every_quad(seed, |hand| {
+                let n = hand.log.len();
+                let fresh = hand.phase == Phase::Act
+                    && n >= 3
+                    && matches!(hand.log[n - 3], riichi_core::mjai::Event::Daiminkan { .. });
+                if found || !fresh {
+                    return;
+                }
+                found = true;
+                let caller = hand.turn;
+                let drawn = hand.drawn.expect("the replacement is in hand");
+                for seat in Wind::ALL {
+                    let lines = events(&hidden(hand.clone(), seat), seat).unwrap();
+                    let quad = lines
+                        .iter()
+                        .rposition(|line| line.contains("\"type\":\"daiminkan\""))
+                        .expect("the quad is told");
+                    assert!(lines[quad + 1].contains("\"type\":\"dora\""), "seed {seed}");
+                    let pai = if seat == caller {
+                        name(drawn)
+                    } else {
+                        "?".into()
+                    };
+                    assert_eq!(
+                        lines[quad + 2..],
+                        [format!(
+                            "{{\"type\":\"tsumo\",\"actor\":{},\"pai\":\"{pai}\"}}",
+                            caller.index()
+                        )],
+                        "seed {seed}, told to {seat:?}"
+                    );
+                }
+                let state = state_for(&hidden(hand.clone(), caller), caller)
+                    .expect("the caller's replay is read");
+                assert_eq!(
+                    differing(&planes(&told(hand, caller)), &planes(&state)),
+                    Vec::<usize>::new(),
+                    "seed {seed}"
+                );
+            });
+            if found {
+                return;
+            }
+        }
+        panic!("no open quad was claimed in forty hands");
+    }
+
+    /// The quads a seat declared itself, concealed or added to a triplet.
+    fn own_quads(hand: &Hand, seat: Wind) -> usize {
+        hand.players[seat.index()]
+            .melds
+            .iter()
+            .filter(|meld| matches!(meld.kind, MeldKind::ConcealedKan | MeldKind::ExtendedKan))
+            .count()
+    }
+
+    /// However many quads stand, of whatever kind and whoever declared
+    /// them, a replay tells exactly the draws the hand made. Where a seat
+    /// holds two quads of its own, which the replay gives one turn, Mortal
+    /// must also read that seat as holding exactly the tiles it holds.
+    #[test]
+    fn every_replay_tells_the_draws_the_hand_made() {
+        let (mut replays, mut quads, mut shared) = (0, 0, 0);
+        let mut wrong = Vec::new();
+        let mut doubled = std::collections::BTreeSet::new();
+        for seed in 1..=200u64 {
+            claiming_every_quad(seed, |hand| {
+                let any_quad = hand
+                    .players
+                    .iter()
+                    .any(|player| player.melds.iter().any(|meld| meld.kind.is_kan()));
+                if Wind::ALL.into_iter().any(|seat| own_quads(hand, seat) >= 2) {
+                    doubled.insert(seed);
+                }
+                for seat in Wind::ALL {
+                    if hand.phase == Phase::Act && hand.turn != seat {
+                        continue;
+                    }
+                    let at = format!("seed {seed} {seat:?} {:?}", hand.phase);
+                    replays += 1;
+                    quads += usize::from(any_quad);
+                    let position = hidden(hand.clone(), seat);
+                    let lines = events(&position, seat).expect("the claims pair up");
+                    if draws_told(&lines) != draws_made(hand) {
+                        wrong.push(format!(
+                            "{at}: {} draws told, {} made",
+                            draws_told(&lines),
+                            draws_made(hand)
+                        ));
+                    }
+                    if own_quads(hand, seat) < 2 {
+                        continue;
+                    }
+                    shared += 1;
+                    match state_for(&position, seat) {
+                        None => wrong.push(format!("{at}: refused")),
+                        Some(state)
+                            if state.tehai() != *hand.players[seat.index()].hand.counts() =>
+                        {
+                            wrong.push(format!("{at}: holds other tiles"))
+                        }
+                        Some(_) => {}
+                    }
+                }
+            });
+        }
+        println!(
+            "draws: {replays} replays, {quads} with a quad standing, {shared} by a seat holding two of its own (seeds {doubled:?}); {} wrong",
+            wrong.len()
+        );
+        assert!(
+            wrong.is_empty(),
+            "{} wrong: {:?}",
+            wrong.len(),
+            &wrong[..wrong.len().min(6)]
+        );
+        assert!(quads > 500, "only {quads} replays with a quad standing");
+        // Seeds 163 and 195 give a seat two quads of its own.
+        assert!(shared > 0, "no seat held two quads of its own");
+    }
+
+    /// South has declared two quads of its own, of 7p and 7s, has discarded
+    /// since, and is to act on a fresh draw. Nothing in a position says when
+    /// either quad was declared, so the replay gives both to South's latest
+    /// turn that began with a draw. That turn's draw made the first quad,
+    /// the first one's replacement made the second, and the second one's
+    /// replacement is the tile the turn let go: two quads, two replacements,
+    /// and Mortal reads South as holding exactly what it holds.
+    #[test]
+    fn two_quads_on_one_turn_draw_one_replacement_each() {
+        use riichi_core::hand::{Meld, TileSet};
+        use riichi_core::wall::Wall;
+        let tile = |text: &str| -> Tile { text.parse().unwrap() };
+        let mut hand = Hand::deal(&mut Rng::from_seed(1), Wind::East, 1, 0, 0, [25000; 4]);
+        hand.log.clear();
+        // The seats discard in turn from East, seventeen tiles so far, none
+        // of them claimed; South's are orders 1, 5, 9 and 13.
+        let rivers: [&[&str]; 4] = [
+            &["1z", "2z", "3z", "4z", "9m"],
+            &["1m", "9p", "1s", "9s"],
+            &["6z", "7z", "1p", "2p"],
+            &["8m", "8p", "8s", "3p"],
+        ];
+        for (index, river) in rivers.iter().enumerate() {
+            let player = &mut hand.players[index];
+            player.hand = TileSet::new();
+            player.discards = river
+                .iter()
+                .enumerate()
+                .map(|(turn, text)| Discard {
+                    tile: tile(text),
+                    order: (4 * turn + index) as u32,
+                    drawn: true,
+                    riichi: false,
+                    claimed: false,
+                })
+                .collect();
+        }
+        let south = &mut hand.players[Wind::South.index()];
+        south.melds = vec![
+            Meld::concealed_kan(tile("7p")),
+            Meld::concealed_kan(tile("7s")),
+        ];
+        south.hand = "234m456p55z".parse().unwrap();
+        hand.players[Wind::North.index()].hand = "123m567m123p456s1z".parse().unwrap();
+        hand.turn = Wind::South;
+        hand.phase = Phase::Act;
+        hand.drawn = Some(tile("5z"));
+        hand.discards_made = 17;
+        hand.first_turns_unbroken = false;
+        // Twenty draws: East's five, South's five with the one it holds,
+        // four each for West and North, and the two replacements. Each quad
+        // also moved a live tile into the dead wall.
+        hand.wall = Wall::for_analysis(50, &[tile("3m"), tile("6m"), tile("2s")], 2).unwrap();
+
+        // Told to South, whose quads they are, and to North, who sees only
+        // that South drew.
+        for seat in [Wind::South, Wind::North] {
+            let position = hidden(hand.clone(), seat);
+            let lines = events(&position, seat).expect("the position is told");
+            assert_eq!(draws_told(&lines), 20, "told to {seat:?}");
+            let state = state_for(&position, seat)
+                .unwrap_or_else(|| panic!("the replay told to {seat:?} is refused"));
+            assert_eq!(
+                state.tehai(),
+                *hand.players[seat.index()].hand.counts(),
+                "told to {seat:?}"
+            );
+        }
+        let lines = events(&hand, Wind::South).unwrap();
+        let first = lines
+            .iter()
+            .position(|line| line.contains("\"type\":\"ankan\""))
+            .expect("the quads are told");
+        assert_eq!(
+            lines[first - 1..first + 7],
+            [
+                "{\"type\":\"tsumo\",\"actor\":1,\"pai\":\"7p\"}",
+                "{\"type\":\"ankan\",\"actor\":1,\"consumed\":[\"7p\",\"7p\",\"7p\",\"7p\"]}",
+                "{\"type\":\"dora\",\"dora_marker\":\"6m\"}",
+                "{\"type\":\"tsumo\",\"actor\":1,\"pai\":\"7s\"}",
+                "{\"type\":\"ankan\",\"actor\":1,\"consumed\":[\"7s\",\"7s\",\"7s\",\"7s\"]}",
+                "{\"type\":\"dora\",\"dora_marker\":\"2s\"}",
+                "{\"type\":\"tsumo\",\"actor\":1,\"pai\":\"9s\"}",
+                "{\"type\":\"dahai\",\"actor\":1,\"pai\":\"9s\",\"tsumogiri\":true}",
+            ]
+        );
     }
 }

@@ -33,7 +33,8 @@ standard Linux paths. No separate dev server is required. `test:unit` and
 From the repository root, `./check.sh` runs engine formatting, lint, tests,
 the Python binding smoke test, arena games, and randomized legal play.
 `./check.sh --web` also runs web verification. Rust dependency auditing is a
-separate CI step.
+separate CI step. On Windows run it from Git Bash, with `PYTHON` naming the
+interpreter when `python3` is only the Microsoft Store alias.
 
 ## Offline play and the trained model
 
@@ -55,11 +56,12 @@ reports core, runtime, remote-model, and excluded-workspace byte totals.
 
 ## Engine and training
 
-The `engine/` workspace supplies the CLI, browser, and Python bindings.
+The `engine/` workspace supplies the CLI, browser, and Python bindings. The
+[rules and engine reference](docs/PLAN.md) lists the rules it enforces, what
+it leaves out, and how it is tested.
 `neural/` contains self-play, evaluation, export, checkpoint management, and
-cloud training. Training behavior is unchanged by web packaging.
-See [training controls](docs/TRAINING_CONTROLS.md) and
-[training safety](docs/TRAINING_SAFETY.md).
+cloud training. See [training safety](docs/TRAINING_SAFETY.md) for
+checkpoints, runs, rewards and the controls on each policy update.
 
 Dated benchmark narratives and earlier implementation reports are indexed in
 [historical evidence](docs/HISTORY.md). They describe the recorded revision,

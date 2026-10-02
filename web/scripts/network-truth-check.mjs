@@ -10,6 +10,7 @@
 import { createServer } from 'node:http';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { launchChrome } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
@@ -75,7 +76,7 @@ try {
     const failure = await page.$('.failure');
     if (failure) throw new Error(await page.$eval('.failure', el => el.textContent.trim()));
     const screen = await page.$('.screen .buttons .primary');
-    if (screen) { await screen.click(); await page.waitForTimeout?.(200); continue; }
+    if (screen) { await screen.click(); await sleep(200); continue; }
     const choice = await page.$('.call-options button:not(:disabled)');
     if (choice) { await choice.click(); continue; }
     const tile = await page.$('.hand button:not(:disabled)');
@@ -85,7 +86,7 @@ try {
       if (confirm) await confirm.click();
       continue;
     }
-    await new Promise(done => setTimeout(done, 250));
+    await sleep(250);
   }
   const asked = await page.evaluate(() => window.asked);
   await writeFile(out, JSON.stringify({ decisions: asked, errors }, null, 1), 'utf8');

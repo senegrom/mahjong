@@ -23,11 +23,6 @@ impl TileSet {
         TileSet { counts: [0; KINDS] }
     }
 
-    /// Builds from raw counts.
-    pub const fn from_counts(counts: [u8; KINDS]) -> TileSet {
-        TileSet { counts }
-    }
-
     /// Collects tiles into a set.
     pub fn from_tiles<I: IntoIterator<Item = Tile>>(tiles: I) -> TileSet {
         let mut set = TileSet::new();
@@ -271,11 +266,11 @@ impl Meld {
     /// The tiles this set occupies, four for a quad.
     pub fn tiles(&self) -> Vec<Tile> {
         match self.kind {
-            MeldKind::Chii => {
-                let second = self.tile.next_in_suit().expect("sequence starts below 8");
-                let third = second.next_in_suit().expect("sequence starts below 8");
-                vec![self.tile, second, third]
-            }
+            MeldKind::Chii => self
+                .tile
+                .sequence()
+                .expect("a sequence starts below 8")
+                .to_vec(),
             MeldKind::Pon => vec![self.tile; 3],
             _ => vec![self.tile; 4],
         }

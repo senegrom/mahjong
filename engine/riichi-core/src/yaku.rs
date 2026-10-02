@@ -292,9 +292,10 @@ impl Group {
     /// The tiles the group is made of.
     pub fn tiles(self) -> Vec<Tile> {
         if self.is_sequence {
-            let second = self.tile.next_in_suit().expect("sequence starts below 8");
-            let third = second.next_in_suit().expect("sequence starts below 8");
-            vec![self.tile, second, third]
+            self.tile
+                .sequence()
+                .expect("a sequence starts below 8")
+                .to_vec()
         } else {
             vec![self.tile; if self.is_quad { 4 } else { 3 }]
         }

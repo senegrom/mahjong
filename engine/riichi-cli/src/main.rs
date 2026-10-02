@@ -27,7 +27,8 @@ use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
 use riichi_core::mjai;
 use riichi_core::rng::Rng;
 use riichi_core::table::Table;
-use riichi_core::tile::{Tile, COPIES, KINDS};
+use riichi_core::tile::{Tile, COPIES, SET_SIZE};
+use riichi_core::wall::DEAD_WALL;
 use riichi_core::{TileSet, Wind};
 
 fn main() -> ExitCode {
@@ -254,7 +255,6 @@ fn fuzz(games: usize, seed: u64) -> Result<(), String> {
                 return Err(format!("game {game} ran for {guard} hands"));
             }
             let mut hand = table.deal(&mut rng);
-            let opening = census(&hand);
             let mut turns = 0;
             while !matches!(hand.phase, Phase::Over) {
                 turns += 1;
@@ -287,7 +287,7 @@ fn fuzz(games: usize, seed: u64) -> Result<(), String> {
                     }
                     Phase::Over => break,
                 }
-                check_invariants(&hand, &opening, game)?;
+                check_invariants(&hand, game)?;
             }
             let points: i32 = hand.players.iter().map(|player| player.score).sum::<i32>()
                 + (hand.riichi_sticks * 1000) as i32;
@@ -304,7 +304,7 @@ fn fuzz(games: usize, seed: u64) -> Result<(), String> {
     Ok(())
 }
 
-/// Every tile accounted for: hands, called sets, discards and the wall.
+/// Every tile out of the wall: hands, called sets and discards.
 fn census(hand: &Hand) -> TileSet {
     let mut seen = TileSet::new();
     for player in &hand.players {
@@ -328,7 +328,7 @@ fn census(hand: &Hand) -> TileSet {
     seen
 }
 
-fn check_invariants(hand: &Hand, opening: &TileSet, game: usize) -> Result<(), String> {
+fn check_invariants(hand: &Hand, game: usize) -> Result<(), String> {
     // No hand may hold a fifth copy of anything.
     for player in &hand.players {
         if !player.hand.is_legal() {
@@ -349,7 +349,24 @@ fn check_invariants(hand: &Hand, opening: &TileSet, game: usize) -> Result<(), S
             ));
         }
     }
-    let _ = opening;
+    // Nor do they vanish: with the live wall and the fourteen tiles the
+    // dead wall always holds, they make a full set. A discard won on stays
+    // in its river, marked claimed, without joining a set; a quad robbed
+    // for a win keeps the tile it was robbed of.
+    let won_on = hand.robbable_quad.is_none()
+        && matches!(
+            hand.outcome,
+            Some(Outcome::Win {
+                discarder: Some(_),
+                ..
+            })
+        );
+    let accounted = now.len() + usize::from(won_on) + hand.wall.remaining() + DEAD_WALL;
+    if accounted != SET_SIZE {
+        return Err(format!(
+            "game {game}: {accounted} tiles accounted for, not {SET_SIZE}"
+        ));
+    }
     // Points are only moved, never made.
     let total: i32 = hand.players.iter().map(|player| player.score).sum::<i32>()
         + (hand.riichi_sticks * 1000) as i32;
@@ -358,7 +375,6 @@ fn check_invariants(hand: &Hand, opening: &TileSet, game: usize) -> Result<(), S
             "game {game}: points are not whole hundreds: {total}"
         ));
     }
-    let _ = KINDS;
     Ok(())
 }
 

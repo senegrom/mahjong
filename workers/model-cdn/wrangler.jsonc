@@ -4,7 +4,7 @@
   //   npx --yes wrangler@4.131.2 deploy --config workers/model-cdn/wrangler.jsonc
   //
   // The same exact wrangler release as web/scripts/publish-model-r2.mjs. The
-  // bucket holds one object per export under models/<generation>/, written
+  // bucket holds one object per export under models/g<generation>/, written
   // by that script. Nothing here is secret: the bucket is private and
   // reachable only through this Worker.
   "$schema": "https://cdn.jsdelivr.net/npm/wrangler@4.131.2/config-schema.json",

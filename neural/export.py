@@ -14,9 +14,13 @@ that from 10 to 16 September 2026. The fusion's head reads the legality
 mask, so its graph takes the mask as a second input.
 
 Usage:
-  python -m neural.export network.pt web/public/model-full.onnx
-  python -m neural.export fused.pt web/public/model-full.onnx --float32
+  python -m neural.export network.pt network.onnx
+  python -m neural.export fused.pt fused.onnx --float32
   python -m neural.export network.pt measured.onnx --float32 --allow-any-operator
+
+Nothing is exported into web/public: the web build refuses any ONNX file
+there. The site plays the network its model manifest names; publish an
+export with web/scripts/publish-model-r2.mjs.
 """
 
 from __future__ import annotations

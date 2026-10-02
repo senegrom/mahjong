@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, open, rename, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { gzip } from 'node:zlib';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, win32 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -90,11 +90,22 @@ export function weightPrecision(bytes) {
   return PRECISIONS.get(largest[0]);
 }
 
+/** The program and arguments that run npx, never through a shell: a shell
+ * joins the arguments unquoted, so a staged file under a temporary directory
+ * with a space in its path would split. On Windows npx is a batch file, which
+ * Node refuses to start without a shell (EINVAL), so node runs the script
+ * that npx.cmd itself runs, which npm installs beside node. */
+export function npxCommand(args, platform = process.platform, node = process.execPath) {
+  if (platform !== 'win32') return ['npx', args];
+  const script = win32.join(win32.dirname(node), 'node_modules', 'npm', 'bin', 'npx-cli.js');
+  return [node, [script, ...args]];
+}
+
 async function uploadR2(bucket, key, file) {
-  const { stdout, stderr } = await run('npx', ['--yes', WRANGLER, 'r2', 'object', 'put',
+  const [command, args] = npxCommand(['--yes', WRANGLER, 'r2', 'object', 'put',
     `${bucket}/${key}`, '--file', file, '--content-type', 'application/octet-stream',
-    '--content-encoding', 'gzip', '--remote',
-  ], { cwd: ROOT, shell: process.platform === 'win32', maxBuffer: 1 << 24 });
+    '--content-encoding', 'gzip', '--remote']);
+  const { stdout, stderr } = await run(command, args, { cwd: ROOT, maxBuffer: 1 << 24 });
   process.stdout.write(stdout || stderr);
 }
 

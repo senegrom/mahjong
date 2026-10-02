@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Rules-engine checks; --web also runs the same complete web verification as CI.
-# Dependencies must already be installed. Browser checks use CHROME_BIN when set.
+# Dependencies must already be installed. Browser checks use CHROME_BIN when set,
+# and the binding smoke test runs under PYTHON when set, python3 otherwise (on
+# Windows python3 is often only the Microsoft Store alias).
 set -euo pipefail
 cd "$(dirname "$0")"
 case "${1:-}" in
@@ -16,7 +18,7 @@ echo "== tests"
 cargo test --locked --workspace
 echo "== Python binding"
 cargo build --locked -p riichi-py
-python3 engine/riichi-py/smoke-test.py
+"${PYTHON:-python3}" engine/riichi-py/smoke-test.py
 echo "== arena and randomized legal play"
 cargo build --locked --release -p riichi-cli
 ./target/release/riichi-cli arena --games 20 --seed 1

@@ -19,13 +19,13 @@ function finishHand(match) {
     const choice = choices.find(c => ['ron', 'tsumo', 'riichi'].includes(c.kind))
       ?? choices.find(c => c.kind === 'pass') ?? choices.find(c => c.kind === 'discard') ?? choices[0];
     assert.ok(choice);
-    // The same position twice over: as our own encoder reads it, and as
-    // Mortal's does, which is what the trained network is asked. Where a
-    // reach is open, the position its declaration would leave behind is
-    // kept too, for the second question a declaration asks.
+    // The position as Mortal's encoder reads it, which is what the trained
+    // network is asked. Where a reach is open, the position its declaration
+    // would leave behind is kept too, for the second question a declaration
+    // asks.
     const mortalMask = match.engine.agent_mask_mortal();
     decisions.push({
-      planes: match.engine.agent_observation(), mask: match.engine.agent_mask(), choices: match.engine.agent_choices(), choice,
+      choices: match.engine.agent_choices(), choice,
       mortalPlanes: match.engine.agent_observation_mortal(), mortalMask,
       reachPlanes: mortalMask[MORTAL_REACH] ? match.engine.agent_observation_after_reach() : null,
       reachMask: mortalMask[MORTAL_REACH] ? match.engine.agent_mask_after_reach() : null,
@@ -40,8 +40,6 @@ function assertInputs(engine, expected) {
   const notes = engine.review();
   assert.equal(notes.length, expected.length);
   expected.forEach((decision, index) => {
-    assert.deepEqual(engine.review_observation(index), decision.planes, `historical observation ${index}`);
-    assert.deepEqual(engine.review_mask(index), decision.mask);
     assert.deepEqual(engine.review_observation_mortal(index), decision.mortalPlanes, `Mortal observation ${index}`);
     assert.deepEqual(engine.review_mask_mortal(index), decision.mortalMask);
     if (decision.reachMask) {
@@ -52,8 +50,8 @@ function assertInputs(engine, expected) {
     assert.equal(notes[index].played_kind, decision.choice.kind);
     assert.equal(notes[index].played_tile ?? null, decision.choice.tile ?? null);
   });
-  for (const method of ['review_observation', 'review_mask', 'review_choices',
-    'review_observation_mortal', 'review_mask_mortal', 'review_observation_after_reach', 'review_mask_after_reach']) {
+  for (const method of ['review_choices', 'review_observation_mortal', 'review_mask_mortal',
+    'review_observation_after_reach', 'review_mask_after_reach']) {
     assert.throws(() => engine[method](expected.length), /No recorded decision/);
   }
 }

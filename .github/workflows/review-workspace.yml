@@ -1,0 +1,44 @@
+name: Temporary review workspace
+on:
+  push:
+    branches: [fix/adviser-weights-and-reward-20260928]
+    paths: [.github/workflows/review-workspace.yml]
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          save-if: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install pinned wasm-pack
+        run: |
+          if ! command -v wasm-pack >/dev/null || [ "$(wasm-pack --version)" != "wasm-pack 0.15.0" ]; then
+            cargo install wasm-pack --version 0.15.0 --locked
+          fi
+      - run: npm ci && npm audit --audit-level=low && npm run wasm
+        working-directory: web
+      - name: Package read-only test inputs
+        run: |
+          git rev-parse HEAD > REVIEW_COMMIT
+          tar --exclude='web/public' --exclude='web/dist' --exclude='web/test-results' -czf "$RUNNER_TEMP/review-workspace.tgz" web workers REVIEW_COMMIT
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: review-workspace
+          path: ${{ runner.temp }}/review-workspace.tgz
+          retention-days: 1
+          compression-level: 0

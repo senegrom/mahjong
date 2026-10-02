@@ -1,5 +1,9 @@
 name: Runtime maintenance checks
 
+# The rebuild's publication guard, tested without the rebuild, and the build
+# tools in web/runtime/requirements-build.txt installed and checked for
+# consistency whenever they change (Dependabot's pull requests). The rebuild
+# (reduce-onnx-runtime.yml) is where they really run.
 on:
   push:
     branches: [main]

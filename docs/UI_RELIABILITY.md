@@ -18,7 +18,9 @@ choose the past moves again. A pending opponent turn resumes after restoration.
 Replay is deliberately fail-closed: malformed records, illegal actions and an
 engine version producing a different state are rejected without overwriting the
 saved record. The user can deliberately choose New game to replace it. Storage
-failure leaves play available and displays a warning. This is local restoration,
+failure leaves play available and displays a warning. A new match takes its
+identity only inside its first real save, so missing storage, Web Locks or
+`crypto.randomUUID` never stop unsaved play. This is local restoration,
 not cloud sync or an offline-installation feature. Clearing website data removes
 the saved match. A future change to engine rules may require a save migration.
 
@@ -46,27 +48,18 @@ an unfinished match has progress, including between hands.
 
 ## Verification
 
-From `web/`, after `npm ci`:
-
-```sh
-npm run wasm
-npm run build
-npm run test:unit
-npm run test:browser
-node scripts/check-icons.mjs
-node scripts/check-icons.mjs --built
-```
-
-`test:unit` includes pure session tests and tests against the rebuilt WASM,
-including a complete-match save/restore and the seed-369 duplicate-indicator
-regression. Browser tests use the production build under `/mahjong/`, without
+Run `npm run verify` in `web/` after `npm ci`. Its unit tests include pure
+session tests and tests against the rebuilt WASM, including a complete-match
+save/restore and the seed-369 duplicate-indicator regression. Its browser
+tests use the production build under `/mahjong/`, without
 application test hooks; deterministic saved positions and test-only worker
 responses exercise recovery, inputs, hints, and small-screen layouts.
 
 Set `CHROME_BIN` when Chrome/Chromium is not in a standard system location.
 Screenshots and the structured browser report are saved to `web/test-results/`.
-CI requires both the rules-engine job and the web regression job before Pages
-publication. Browser viewport emulation is not a physical iPhone/Safari test.
+Pages publication needs three CI jobs to pass: the rules engine, the web app
+and the browser worker parity check. Browser viewport emulation is not a
+physical iPhone/Safari test.
 
 ## Second-review corrections
 

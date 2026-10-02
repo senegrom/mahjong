@@ -1,9 +1,5 @@
-"""The acting policy's precision contract (`neural.policy_inference`).
-
-The search whose roots and continuations these tests once also compared
-with ordinary play is gone; what remains is the precision every table
-player chooses its moves at.
-"""
+"""The acting policy's precision contract (`neural.policy_inference`): the
+precision every player at a table chooses its moves at."""
 import unittest
 from unittest.mock import patch
 
@@ -12,7 +8,7 @@ import torch
 from neural import policy_inference
 
 
-class PolicyParityTests(unittest.TestCase):
+class PolicyPrecisionTests(unittest.TestCase):
     def test_precision_resolution_preserves_ordinary_layouts(self):
         self.assertEqual(policy_inference.precision("cpu", 46), "float32")
         self.assertEqual(policy_inference.precision("cuda:0", 46), "bfloat16")

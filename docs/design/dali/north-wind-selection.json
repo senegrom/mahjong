@@ -1,0 +1,14 @@
+{
+  "tile": "4z",
+  "name": "Pei",
+  "status": "approved",
+  "selectedPanel": "second (middle)",
+  "direction": "The Wind-Carved Arch",
+  "originalFilename": "a_clean_white_background_with_three_surreal_paint.png",
+  "originalSha256": "343c96e9ebcd5c84f0c86923327c2ea6ea0952feb4e18587e6888e88f4f2a622",
+  "completedChange": "The existing North adaptation replaces 東 with a sculptural 北 within the selected second stone-character, arch and wind-ribbon painting. Preserve the selected composition and plain background.",
+  "adaptationFilename": "north-wind-second-north-adaptation.png",
+  "adaptationSha256": "6422a05ce9bbb980eb28289fa03080bd70c1eeb7fae54018c8612e5e62def9a5",
+  "runtime": "web/public/tiles/dali/approved/Pei.svg",
+  "provenance": "docs/design/dali/north-wind.json"
+}

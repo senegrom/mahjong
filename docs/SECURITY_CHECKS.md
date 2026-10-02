@@ -15,35 +15,28 @@ The CI audit tool is pinned to cargo-audit 0.22.2. The build workflow audits
 the root graph on every change, and the neural workflow audits the standalone
 graph on relevant changes and weekly, with no advisory exemptions.
 
-On the Linux CI runner, build the training extension with
-`cargo build --locked -p riichi-py` and run
-`python3 engine/riichi-py/smoke-test.py`. This loads the real extension, checks
-its observation and legality buffers, and exercises a batch of legal moves.
-The Python binding requires Rust 1.83 or newer; CI uses Rust 1.98.1.
+Build the training extension with `cargo build --locked -p riichi-py` and run
+`python3 engine/riichi-py/smoke-test.py`, as CI does on Linux; the script also
+finds the library under its Windows and macOS names. This loads the real
+extension, checks its observation and legality buffers, and exercises a batch
+of legal moves. The Python binding requires Rust 1.83 or newer; CI uses Rust
+1.98.1.
 
-In `web/`, run:
-
-```sh
-npm ci
-npm run wasm
-npm run lint
-npm run check
-npm run build
-npm run test:unit
-npm run test:browser
-npm audit --audit-level=low
-node scripts/check-icons.mjs
-node scripts/check-icons.mjs --built
-```
-
-`npm run check` runs Svelte diagnostics, and `npm run verify` runs every check
-above. Generated WASM, third-party runtime files, build output and screenshots
-are not linted as handwritten application source.
+In `web/`, run `npm ci` and then `npm run verify`, the command CI runs: it
+audits npm dependencies at `--audit-level=low`, builds the WASM engine, lints,
+runs Svelte diagnostics (`npm run check`), builds the site and runs the unit,
+browser and icon checks. Generated WASM, third-party runtime files, build
+output and screenshots are not linted as handwritten application source.
 
 ## Dependency and workflow policy
 
 Dependabot checks both Cargo workspaces, at `/` and `/engine/libriichi`, npm
-at `/web`, and GitHub Actions at `/`. The root Python binding uses PyO3
+at `/web`, GitHub Actions at `/`, and pip at `/.github/actions/python-engines`,
+the exact CPU export and training tools CI installs, and at `/web/runtime`,
+the runtime rebuild's tools. `onnxruntime-web` gets a pull request of its own,
+which fails until the runtime is rebuilt at that release (see
+[ONNX_RUNTIME.md](ONNX_RUNTIME.md)).
+The root Python binding uses PyO3
 0.29.2 and explicitly retains the previous GIL requirement. The vendored
 observation engine has its own dependency versions and must pass its own
 audit; a clean root audit makes no claim about that separate lockfile.
@@ -67,8 +60,9 @@ deployment dependency.
 
 ## Training and browser-export regressions
 
-After installing both native Python engines and the CPU training/export
-dependencies from `.github/workflows/neural.yml`, run:
+Install the pinned CPU training and export tools and both native Python
+engines as `.github/actions/python-engines/action.yml` does for CI (the pins
+are in `constraints.txt` beside it), then run:
 
 ```sh
 python -m unittest discover -s neural/tests -v
@@ -92,8 +86,12 @@ with serialized, resumed training, including AdamW state and resulting weights.
 
 The browser export contract is Mortal version 4: 1,012 observation planes,
 34 tile positions and 46 actions, with named policy, value and hands outputs.
-Engine-plane students, mismatched action heads and fusion checkpoints are
-rejected before touching the destination. The exporter checks real positions
+Engine-plane students and mismatched action heads are rejected before touching
+the destination. A fusion checkpoint, which the published network is, is
+exported whole: Mortal, our network and the head joining them, with the
+legality mask as a second `legal` input. Its half alone is refused, and so is
+a fusion without `--float32`, since int8 weights blunt its value head.
+The exporter checks real positions
 from deterministic native-engine play rather than random binary inputs.
 All three heads must be finite, have the expected shape and have mean absolute
 error at most 10% of the reference standard deviation (with a 0.01 scale floor).

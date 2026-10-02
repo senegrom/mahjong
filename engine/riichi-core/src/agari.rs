@@ -24,11 +24,7 @@ impl Block {
     /// The tiles this block is made of.
     pub fn tiles(self) -> Vec<Tile> {
         match self {
-            Block::Sequence(low) => {
-                let second = low.next_in_suit().expect("sequence starts below 8");
-                let third = second.next_in_suit().expect("sequence starts below 8");
-                vec![low, second, third]
-            }
+            Block::Sequence(low) => low.sequence().expect("a sequence starts below 8").to_vec(),
             Block::Triplet(tile) => vec![tile; 3],
             Block::Pair(tile) => vec![tile; 2],
         }
@@ -59,16 +55,6 @@ pub struct Reading {
     /// The blocks of the concealed portion, sorted for comparison. Called
     /// sets are not repeated here; scoring adds them.
     pub blocks: Vec<Block>,
-}
-
-impl Reading {
-    /// The pair of an ordinary reading, if it has one.
-    pub fn pair(&self) -> Option<Tile> {
-        self.blocks.iter().find_map(|block| match block {
-            Block::Pair(tile) => Some(*tile),
-            _ => None,
-        })
-    }
 }
 
 /// Every reading of the concealed tiles, for a hand that is already complete.
@@ -234,7 +220,9 @@ mod tests {
         assert_eq!(readings.len(), 1);
         assert_eq!(readings[0].shape, Shape::Standard);
         assert_eq!(readings[0].blocks.len(), 5);
-        assert_eq!(readings[0].pair().unwrap().to_string(), "1s");
+        assert!(readings[0]
+            .blocks
+            .contains(&Block::Pair("1s".parse().unwrap())));
     }
 
     /// EMA 2025, scoring example 8: 1112223334455 style hands can be read as

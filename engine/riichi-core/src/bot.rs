@@ -28,8 +28,6 @@ pub struct Style {
     /// declared riichi. Zero means fold unless already waiting; a large
     /// number means never fold at all.
     pub fold_beyond_shanten: i32,
-    /// Whether to declare riichi whenever it is available.
-    pub always_riichi: bool,
     /// How often to take a plausible discard rather than the best one, as a
     /// share between zero and one. A little of this is what separates a
     /// beginner from a player who counts.
@@ -51,7 +49,6 @@ impl Style {
     pub fn beginner() -> Style {
         Style {
             fold_beyond_shanten: 99,
-            always_riichi: true,
             looseness: 0.35,
             dora_worth: 0,
         }
@@ -61,7 +58,6 @@ impl Style {
     pub fn club() -> Style {
         Style {
             fold_beyond_shanten: 1,
-            always_riichi: true,
             looseness: 0.0,
             // A dora is worth about twelve tiles of acceptance. Measured
             // in the duel against three club players with no dora sense,
@@ -115,22 +111,20 @@ impl Bot {
         let player = &hand.players[seat.index()];
         let threats = threats(hand, seat);
 
-        // Riichi, when the hand is worth locking down.
-        if self.style.always_riichi {
-            let riichi: Vec<Action> = actions
-                .iter()
-                .copied()
-                .filter(|action| matches!(action, Action::Riichi(_)))
-                .collect();
-            if !riichi.is_empty() {
-                let choice = self.best_discard(
-                    hand,
-                    player,
-                    riichi.iter().filter_map(discarded_tile).collect(),
-                    &threats,
-                );
-                return Action::Riichi(choice);
-            }
+        // Riichi whenever it is offered, both styles alike.
+        let riichi: Vec<Action> = actions
+            .iter()
+            .copied()
+            .filter(|action| matches!(action, Action::Riichi(_)))
+            .collect();
+        if !riichi.is_empty() {
+            let choice = self.best_discard(
+                hand,
+                player,
+                riichi.iter().filter_map(discarded_tile).collect(),
+                &threats,
+            );
+            return Action::Riichi(choice);
         }
 
         // A concealed quad, but never one that costs the hand its shape.
@@ -175,16 +169,11 @@ impl Bot {
                     shanten::shanten(&probe, player.melds.len() + 1)
                 }
                 Call::Chii(low) => {
+                    let Some(run) = low.sequence() else {
+                        continue;
+                    };
                     let mut probe = player.hand;
-                    let second = match low.next_in_suit() {
-                        Some(tile) => tile,
-                        None => continue,
-                    };
-                    let third = match second.next_in_suit() {
-                        Some(tile) => tile,
-                        None => continue,
-                    };
-                    for member in [*low, second, third] {
+                    for member in run {
                         if member != tile {
                             probe.remove(member);
                         }

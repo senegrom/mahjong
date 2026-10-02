@@ -1,9 +1,19 @@
 """Exercise the actual Python extension without training/NumPy dependencies."""
 import importlib.util
+import sys
+from importlib.machinery import ExtensionFileLoader
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location("riichi_py", root / "target/debug/libriichi_py.so")
+# What `cargo build -p riichi-py` names the library on each platform. Only
+# the Linux name ends in a suffix Python recognises as an extension, so the
+# loader is named rather than guessed from the suffix.
+built = {"win32": "riichi_py.dll", "darwin": "libriichi_py.dylib"}.get(sys.platform, "libriichi_py.so")
+library = root / "target" / "debug" / built
+if not library.is_file():
+    sys.exit(f"{library} is missing: run `cargo build --locked -p riichi-py` first")
+spec = importlib.util.spec_from_file_location(
+    "riichi_py", library, loader=ExtensionFileLoader("riichi_py", str(library)))
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 arena = module.Arena(games=2, seed=81)

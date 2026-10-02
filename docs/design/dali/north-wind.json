@@ -1,0 +1,19 @@
+{
+  "tile": "4z",
+  "name": "Pei",
+  "status": "approved",
+  "direction": "The Wind-Carved Arch",
+  "source": "docs/design/dali/studies/north-wind-second-approved.svg",
+  "runtime": "web/public/tiles/dali/approved/Pei.svg",
+  "originalFilename": "north-wind-second-north-adaptation.png",
+  "originalSha256": "6422a05ce9bbb980eb28289fa03080bd70c1eeb7fae54018c8612e5e62def9a5",
+  "originalDimensions": [648, 864],
+  "selectedPanel": "second (middle)",
+  "selectedBoardSha256": "343c96e9ebcd5c84f0c86923327c2ea6ea0952feb4e18587e6888e88f4f2a622",
+  "glyph": "北",
+  "rasterDimensions": [300, 400],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "36189aa118e271f964dc22b6a4e850f220b8ef029161292ff9e62ec701115cc0",
+  "processing": "Use the existing North adaptation of the selected second composition; complete portrait resized with Lanczos, WebP quality 80, method 6. No new redraw, tile background, border or colour changes.",
+  "svgSha256": "7a7433ce493b402bc8c82c43b733b8ed0616215a66072e1108cfabac26485ee2"
+}

@@ -40,15 +40,18 @@ updates:
       npm-minor-patch:
         applies-to: version-updates
         patterns: ['*']
-        # onnxruntime-web must be the release web/runtime was built from, so
-        # it moves only with a rebuild (reduce-onnx-runtime.yml). Its own
-        # pull request fails the build until the runtime is rebuilt at it.
+        # onnxruntime-web must be the release web/runtime was built from, which
+        # copy-runtime.mjs checks, so it gets a pull request of its own that
+        # fails until the runtime is rebuilt at that release: dispatch the
+        # reduced ONNX runtime workflow with it, merge that branch, and close
+        # this one. Kept out of the group so it never holds other updates back.
         exclude-patterns: [onnxruntime-web]
         update-types: [minor, patch]
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 3
+    # Room for an onnxruntime-web pull request waiting on its rebuild.
+    open-pull-requests-limit: 6
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -59,6 +62,20 @@ updates:
         applies-to: version-updates
         patterns: ['*']
   - package-ecosystem: pip
+    # The exact CPU export and training tools CI installs: the browser worker
+    # parity job, which every Pages deploy needs, and the trainer's tests.
+    directory: /.github/actions/python-engines
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      python-engine-tools:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: [minor, patch]
+  - package-ecosystem: pip
+    # The runtime rebuild's tools (onnx, flatbuffers, ...). Their pull requests
+    # get an install and dependency check; the next rebuild runs them for real.
     directory: /web/runtime
     schedule:
       interval: monthly

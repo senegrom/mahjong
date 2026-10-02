@@ -62,17 +62,21 @@ def stage_opponents(where: Path, opponents: Sequence[str] | None,
     returned carry the same numbers, so the two cannot disagree. A
     manifest written before `seat_share` was recorded has no such key:
     absent means not recorded, not nought.
+
+    `club` names the engine's heuristic player rather than a checkpoint: it
+    is passed on by name, and the manifest records it as heuristic.
     """
     from .checkpoints import copy_checkpoint
+    from .population import CLUB
 
     validate_cloud_request(1, opponents, opponent_share, seat_share)
     where = Path(where)
     names = list(opponents or [])
     # Resolve the entire population first: a partially missing population must
     # not be silently reduced to whichever paths happen to exist.
-    sources = [Path(resolve(name)) for name in names]
+    sources = [None if name == CLUB else Path(resolve(name)) for name in names]
     missing = [f"{name}: {source}" for name, source in zip(names, sources)
-               if not source.is_file()]
+               if source is not None and not source.is_file()]
     if missing:
         raise FileNotFoundError("Missing opponent checkpoints: " + "; ".join(missing))
     if not names:
@@ -85,6 +89,10 @@ def stage_opponents(where: Path, opponents: Sequence[str] | None,
     entries = []
     paths = []
     for index, (name, source) in enumerate(zip(names, sources)):
+        if source is None:
+            entries.append({"index": index, "requested": name, "heuristic": True})
+            paths.append(name)
+            continue
         basename = name.removesuffix(".pt").replace("/", "--") + ".pt"
         destination = target / f"{index:04d}" / basename
         destination.parent.mkdir()

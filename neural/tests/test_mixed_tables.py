@@ -112,6 +112,87 @@ class SelfPlayOnMixedTablesTests(unittest.TestCase):
                           seat_share=1.0)
 
 
+class ClubAtTheTableTests(unittest.TestCase):
+    """The engine's heuristic player seated among the others by name, at
+    some tables of some rounds, its places played by the arena itself."""
+
+    def test_the_arena_plays_the_heuristic_players_places(self):
+        from neural import selfplay, zoo
+        from neural.tests.test_selfplay_contract import FirstLegal, FirstLegalDecider
+
+        for learner in (FirstLegal(), FirstLegalDecider()):
+            with self.subTest(learner=type(learner).__name__):
+                other = Counting()
+                roster = population.Population(members=[
+                    population.Member("gen31", "reference", "a stand-in", 1.0),
+                    population.Member(population.CLUB, "reference", "the heuristic player", 1.0),
+                ])
+                # The club player has no `choose`: asking it for a move fails.
+                batch = selfplay.play(learner, games=16, seed=7, device="cpu",
+                                      opponents=[other, zoo.ClubPlayer()], seat_share=0.5,
+                                      population=roster)
+                self.assertGreater(batch.decisions, 0)
+                self.assertGreater(other.asked, 0)
+                games = {row["name"]: row["games"] for row in batch.matchups}
+                self.assertGreater(games.get(population.CLUB, 0), 0, batch.matchups)
+
+    def test_the_arena_takes_places_table_by_table(self):
+        import riichi_py
+
+        arena = riichi_py.Arena(games=3, seed=5, bot_places=[], table_bots=[[], [0], [1, 2, 3]])
+        self.assertEqual(arena.games, 3)
+        for kwargs in ({"table_bots": [[0]]}, {"table_bots": [[4], [], []]},
+                       {"bot_places": [1], "table_bots": [[], [], []]}):
+            with self.subTest(**{k: str(v) for k, v in kwargs.items()}), self.assertRaises(ValueError):
+                riichi_py.Arena(games=3, seed=5, **{"bot_places": [], **kwargs})
+
+    def test_presence_below_one_comes_and_goes_by_round(self):
+        roster = population.Population.from_paths(["/stage/0000/zoo--mortal_298k.pt", "club"])
+        published, club = roster.members
+        self.assertEqual((club.name, club.role, club.presence), (population.CLUB, "reference", 0.75))
+        rounds = [roster.for_round(seed) for seed in range(400)]
+        present = [one.members[1].weight > 0 for one in rounds]
+        self.assertAlmostEqual(sum(present) / len(present), 0.75, delta=0.06)
+        self.assertTrue(all(one.members[0].weight == published.weight for one in rounds))
+        self.assertEqual([m.weight for m in roster.for_round(9).members],
+                         [m.weight for m in roster.for_round(9).members])
+        described = {row["name"]: row for row in roster.describe()}
+        self.assertEqual(described[population.CLUB]["presence"], 0.75)
+        self.assertNotIn("presence", described["zoo/mortal_298k"])
+
+    def test_the_club_sits_at_about_one_table_in_seven_in_a_round_it_attends(self):
+        """What the roster's note promises, beside published Mortal and one
+        older checkpoint seated by player at one half."""
+        roster = population.Population.from_paths([
+            "/stage/0000/zoo--mortal_298k.pt", "/stage/0001/mortal-run--history--gen-00030.pt", "club"])
+        owner = population.mixed_tables(40_000, 0.5, roster.weights(), np.random.default_rng(2))
+        self.assertAlmostEqual(float((owner == 2).any(axis=1).mean()), 0.137, delta=0.01)
+
+    def test_a_round_nobody_else_attends_seats_nobody(self):
+        absent = population.Population(members=[
+            population.Member(population.CLUB, "reference", "never here", 1.0, presence=0.0)])
+        this_round = absent.for_round(3)
+        self.assertFalse(this_round.weights().any())
+        self.assertTrue((this_round.seat(8, 1.0, np.random.default_rng(0)) < 0).all())
+
+    def test_the_trainers_and_the_cloud_seat_it_by_name(self):
+        from neural.cloud_requests import stage_opponents
+
+        options = SimpleNamespace(batch=8, epochs=1, games=4, measure_every=1, measure_games=4,
+                                  opponents=[Path(population.CLUB)], seat_share=0.5)
+        validate_training_options(options)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); where = root/"scratch"; where.mkdir()
+            atomic_save({"generation": 3}, root/"a.pt")
+            args = stage_opponents(where, ["a", population.CLUB], 0.0,
+                                   lambda name: root/(name + ".pt"), seat_share=0.5)
+            paths = args[args.index("--opponents") + 1:args.index("--opponent-share")]
+            self.assertEqual(paths[1], population.CLUB)
+            self.assertTrue(Path(paths[0]).is_file())
+            saved = json.loads((where/"opponents.json").read_text())
+            self.assertEqual(saved["opponents"][1], {"index": 1, "requested": "club", "heuristic": True})
+
+
 class TrainerChecksTests(unittest.TestCase):
     def options(self, **kwargs):
         base = dict(batch=8, epochs=1, games=4, measure_every=1, measure_games=4)

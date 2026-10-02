@@ -1,0 +1,15 @@
+# Exact versions of the CPU export and training tools that action.yml installs
+# for the build workflow's browser-worker parity job, which gates every Pages
+# deploy, and for the neural workflow's trainer tests. Every package that
+# install resolves is pinned, so a new PyPI release reaches CI only through a
+# reviewed Dependabot pull request. PyTorch is pinned in action.yml instead:
+# it comes from PyTorch's CPU index, not PyPI.
+flatbuffers==25.12.19
+maturin==1.15.0
+ml_dtypes==0.6.0
+numpy==2.5.3
+onnx==1.23.0
+onnxruntime==1.30.0
+packaging==26.3
+protobuf==7.36.2
+typing_extensions==4.16.0

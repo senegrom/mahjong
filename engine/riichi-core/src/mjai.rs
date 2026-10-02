@@ -37,37 +37,6 @@ pub fn name(tile: Tile) -> String {
     }
 }
 
-/// Reads a tile back from the way an mjai log writes it.
-///
-/// Red fives arrive as `5mr`; this rule set has none, so the tile is taken
-/// as the ordinary five rather than refused, which lets logs from other
-/// programs be read.
-pub fn parse(text: &str) -> Option<Tile> {
-    match text {
-        "E" => return Some(crate::tile::EAST),
-        "S" => return Some(crate::tile::SOUTH),
-        "W" => return Some(crate::tile::WEST),
-        "N" => return Some(crate::tile::NORTH),
-        "P" => return Some(crate::tile::WHITE),
-        "F" => return Some(crate::tile::GREEN),
-        "C" => return Some(crate::tile::RED),
-        _ => {}
-    }
-    let text = text.strip_suffix('r').unwrap_or(text);
-    let mut chars = text.chars();
-    let rank = chars.next()?.to_digit(10)? as u8;
-    let suit = match chars.next()? {
-        'm' => Suit::Characters,
-        'p' => Suit::Circles,
-        's' => Suit::Bamboo,
-        _ => return None,
-    };
-    if chars.next().is_some() || !(1..=9).contains(&rank) {
-        return None;
-    }
-    Some(Tile::numbered(suit, rank))
-}
-
 /// One thing that happened, in the order it happened.
 ///
 /// Seats are held as winds because that is what the game state machine
@@ -440,6 +409,35 @@ pub fn hora_points(score: &Score, by_discard: bool) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reads a tile back from the way an mjai log writes it, which is how
+    /// the writing is checked. Red fives arrive as `5mr`; this rule set has
+    /// none, so they read as the ordinary five.
+    fn parse(text: &str) -> Option<Tile> {
+        match text {
+            "E" => return Some(crate::tile::EAST),
+            "S" => return Some(crate::tile::SOUTH),
+            "W" => return Some(crate::tile::WEST),
+            "N" => return Some(crate::tile::NORTH),
+            "P" => return Some(crate::tile::WHITE),
+            "F" => return Some(crate::tile::GREEN),
+            "C" => return Some(crate::tile::RED),
+            _ => {}
+        }
+        let text = text.strip_suffix('r').unwrap_or(text);
+        let mut chars = text.chars();
+        let rank = chars.next()?.to_digit(10)? as u8;
+        let suit = match chars.next()? {
+            'm' => Suit::Characters,
+            'p' => Suit::Circles,
+            's' => Suit::Bamboo,
+            _ => return None,
+        };
+        if chars.next().is_some() || !(1..=9).contains(&rank) {
+            return None;
+        }
+        Some(Tile::numbered(suit, rank))
+    }
 
     #[test]
     fn tiles_are_written_the_japanese_way() {

@@ -56,7 +56,7 @@ test('physical positions reject impossible tiles, incomplete hands, calls and hi
   inspect(basic(), a => assert.ok(a.agent_choices().some(c => c.kind === 'discard')));
 });
 
-test('manually entered starting positions have exactly the same observation and legal mask as live play', () => {
+test('manually entered starting positions have exactly the same trained observation and legal mask as live play', () => {
   for (const seed of [1, 2, 3, 7, 19, 31, 81, 287]) {
     const g = new Game(seed, 'club');
     try {
@@ -82,9 +82,12 @@ test('manually entered starting positions have exactly the same observation and 
           }
           // No calls made by the followed bot in this test: every turn has a draw.
           assert.ok(p.drawn);
+          // Mortal's planes, which the trained network reads: the typed-in
+          // position is replayed into events, the live game was told them
+          // as they happened, and the two must read the same.
           inspect(p, a => {
-            assert.deepEqual(a.agent_observation(), g.agent_observation(), `observation, seed ${seed}, turn ${turn}`);
-            assert.deepEqual(a.agent_mask(), g.agent_mask(), `mask, seed ${seed}, turn ${turn}`);
+            assert.deepEqual(a.agent_observation_mortal(), g.agent_observation_mortal(), `observation, seed ${seed}, turn ${turn}`);
+            assert.deepEqual(a.agent_mask_mortal(), g.agent_mask_mortal(), `mask, seed ${seed}, turn ${turn}`);
           });
         }
         const choices = g.choices();

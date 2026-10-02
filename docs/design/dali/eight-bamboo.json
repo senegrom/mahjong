@@ -1,0 +1,21 @@
+{
+  "originalFilename": "emerald_moonlit_bamboo_seascape.png",
+  "originalSha256": "b57c7c4d29433d4c07fe78a57b6962f8b0184c5d760284e935fb31f7e102dd67",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "8308e85ce25d05b21d790eb6b06579e5a55ee2b225d8ce65eb3ff2e6c47e9974",
+  "processing": "Complete approved greener portrait resized with Lanczos, WebP quality 80, method 6; no redraw, added border, tile texture or color changes.",
+  "tile": "8s",
+  "name": "Sou8",
+  "direction": "Emerald Moonlit Seascape",
+  "source": "docs/design/dali/studies/eight-bamboo-emerald-moonlit-approved.svg",
+  "runtime": "web/public/tiles/dali/approved/Sou8.svg",
+  "svgSha256": "05e1d03a51c52ffb88a9df62985cd4d3b007364bd400a95a260d47d3d8832767"
+}

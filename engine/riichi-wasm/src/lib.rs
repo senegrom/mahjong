@@ -572,9 +572,6 @@ pub struct Game {
     /// to be named. The declaration is not played until the tile is known,
     /// our engine taking the two as one move.
     mortal_awaiting_riichi: Option<(usize, u32)>,
-    /// Points each seat held when the hand was dealt, so the score screen
-    /// can say what the hand cost or paid.
-    opening: [i32; 4],
     /// The position before each of the player's own decisions, with what
     /// they did from it, which is all a review needs.
     decisions: Vec<RecordedDecision>,
@@ -612,7 +609,7 @@ impl Game {
         let hand = table.deal(&mut rng);
         let seat = table.seat_of(player);
         let hand_seating = table.seating();
-        let mut game = Game {
+        Game {
             table,
             hand,
             rng,
@@ -630,15 +627,12 @@ impl Game {
             mortal_logged: 0,
             mortal_events: Vec::new(),
             mortal_awaiting_riichi: None,
-            opening: [0; 4],
             decisions: Vec::new(),
             external,
             controllers: [controller; 4],
             asking: Vec::new(),
             gathered: Vec::new(),
-        };
-        game.opening = game.hand.scores();
-        game
+        }
     }
 
     /// Creates a custom table. The order is right, opposite, left relative
@@ -796,27 +790,9 @@ impl Game {
         mortal_action_for(ours)
     }
 
-    /// Which entries of the action space that seat may choose.
-    pub fn opponent_mask(&self) -> Vec<u8> {
-        let mut mask = vec![false; ACTIONS];
-        if let Some(seat) = self.opponent_owing() {
-            encoding::legal_mask(&self.hand, seat, &mut mask);
-        }
-        mask.iter().map(|flag| u8::from(*flag)).collect()
-    }
-
-    /// Policy inputs for the followed player, using exactly their information.
-    pub fn agent_observation(&self) -> Vec<f32> {
-        analysis::observation(&self.hand, self.seat)
-    }
-
     /// Legal encoded choices, including every kind of claim, for Watch mode.
     pub fn agent_choices(&self) -> Result<JsValue, JsValue> {
         analysis::choices_value(&self.hand, self.seat)
-    }
-
-    pub fn agent_mask(&self) -> Vec<u8> {
-        analysis::mask(&self.hand, self.seat)
     }
 
     /// Samples a built-in agent once. The page retains this exact choice until
@@ -830,8 +806,10 @@ impl Game {
         analysis::pick_value(&self.hand, self.seat, &mut self.bots[self.player])
     }
 
-    /// Takes the page's answer for that opponent.
-    pub fn play_opponent(&mut self, index: usize) -> Result<(), JsValue> {
+    /// Plays one of our own moves for the opponent owing a decision: the
+    /// move a trained opponent's answer meant, once `play_opponent_mortal`
+    /// has translated it.
+    fn play_opponent(&mut self, index: usize) -> Result<(), JsValue> {
         let seat = match self.opponent_owing() {
             Some(seat) => seat,
             None => return Err(JsValue::from_str("no opponent owes a decision")),
@@ -1318,18 +1296,9 @@ impl Game {
             .collect()
     }
 
-    /// The deciding player's observation before a recorded decision. Historical
-    /// advice sees only the information available when that move was played.
-    pub fn review_observation(&self, index: usize) -> Result<Vec<f32>, JsValue> {
-        let decision = self
-            .decisions
-            .get(index)
-            .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        Ok(analysis::observation(&decision.position, decision.seat))
-    }
-
-    /// The same recorded decision as Mortal read it, for a review by the
-    /// network the opponents play.
+    /// The deciding player's observation before a recorded decision, as
+    /// Mortal read it, for a review by the network the opponents play.
+    /// Historical advice sees only what was known when the move was played.
     pub fn review_observation_mortal(&self, index: usize) -> Result<Vec<f32>, JsValue> {
         let decision = self
             .decisions
@@ -1389,15 +1358,6 @@ impl Game {
         })
     }
 
-    /// The legal policy mask at the same recorded decision.
-    pub fn review_mask(&self, index: usize) -> Result<Vec<u8>, JsValue> {
-        let decision = self
-            .decisions
-            .get(index)
-            .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        Ok(analysis::mask(&decision.position, decision.seat))
-    }
-
     /// Named legal moves at the same recorded decision, including unscored kans.
     pub fn review_choices(&self, index: usize) -> Result<JsValue, JsValue> {
         let decision = self
@@ -1452,7 +1412,6 @@ impl Game {
             self.seat = self.table.seat_of(self.player);
             self.hand_seating = self.table.seating();
             self.hand = self.table.deal(&mut self.rng);
-            self.opening = self.hand.scores();
             self.decisions.clear();
             self.mortal_logged = 0;
         }
@@ -1511,12 +1470,6 @@ impl Game {
             return None;
         }
         self.hand.drawn
-    }
-
-    /// Which of the four people at the table the player is, so the final
-    /// scores can be read.
-    pub fn player_index(&self) -> usize {
-        self.player
     }
 
     /// The opponent seat owing a decision, when the page answers for them.
@@ -1607,12 +1560,9 @@ impl Game {
     /// How the hand ended, with enough to show a score screen.
     fn describe_outcome(&self) -> Option<OutcomeView> {
         let outcome = self.hand.outcome.as_ref()?;
-        let now = self.hand.scores();
+        let moved = self.hand.deltas();
         let changes = (0..4)
-            .map(|offset| {
-                let seat = self.seat.plus(offset);
-                now[seat.index()] - self.opening[seat.index()]
-            })
+            .map(|offset| moved[self.seat.plus(offset).index()])
             .collect();
 
         Some(match outcome {
@@ -1702,34 +1652,17 @@ impl Game {
                                 matches!(seat, Wind::East),
                                 discarder.is_some(),
                             ),
-                            bets: (now[seat.index()] - self.opening[seat.index()])
-                                - score.payments.total as i32,
+                            bets: moved[seat.index()] - score.payments.total as i32,
                         }
                     })
                     .collect();
-                let line = wins
+                let how = match discarder {
+                    Some(from) => format!("on {}'s discard", seat_title(*from)),
+                    None => "by self-draw".to_string(),
+                };
+                let line = winners
                     .iter()
-                    .map(|win| {
-                        let how = match &win.from {
-                            Some(from) => {
-                                let name = match from.as_str() {
-                                    "east" => "East",
-                                    "south" => "South",
-                                    "west" => "West",
-                                    _ => "North",
-                                };
-                                format!("on {name}'s discard")
-                            }
-                            None => "by self-draw".to_string(),
-                        };
-                        let seat = match win.seat.as_str() {
-                            "east" => "East",
-                            "south" => "South",
-                            "west" => "West",
-                            _ => "North",
-                        };
-                        format!("{seat} wins {how}")
-                    })
+                    .map(|(seat, _)| format!("{} wins {how}", seat_title(*seat)))
                     .collect::<Vec<String>>()
                     .join("; ");
                 OutcomeView {
@@ -2228,6 +2161,8 @@ mod ui_review_tests {
                     }
                     _ => {}
                 }
+                // What the responder saw, before anybody's answer was known.
+                let planes = game.agent_observation_mortal();
                 let before = game.hand.clone();
                 let seat = game.seat;
                 let choice = describe_call(call);
@@ -2237,15 +2172,15 @@ mod ui_review_tests {
                 assert_eq!(decision.position, before);
                 assert_eq!(decision.seat, seat);
                 assert_eq!(decision.played, ReviewedMove::Call(call));
-                assert_eq!(
-                    game.review_observation(0).unwrap(),
-                    analysis::observation(&before, seat)
-                );
-                assert_eq!(game.review_mask(0).unwrap(), analysis::mask(&before, seat));
-                assert_ne!(
-                    game.review_mask(0).unwrap(),
-                    analysis::mask(&before, before.turn)
-                );
+                assert_eq!(game.review_observation_mortal(0).unwrap(), planes);
+                let mask = |seat| -> Vec<u8> {
+                    mortal_mask_of(&before, seat, false)
+                        .into_iter()
+                        .map(u8::from)
+                        .collect()
+                };
+                assert_eq!(game.review_mask_mortal(0).unwrap(), mask(seat));
+                assert_ne!(game.review_mask_mortal(0).unwrap(), mask(before.turn));
 
                 while !game.asking.is_empty() {
                     game.play_opponent(encoding::PASS).unwrap();

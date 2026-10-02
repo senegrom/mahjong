@@ -101,6 +101,40 @@
       }
     },
     {
+      "name": "Sou3",
+      "tile": "3s",
+      "label": "3 bamboo",
+      "direction": "The Bamboo That Tied Itself — A",
+      "status": "approved",
+      "svg": "approved/Sou3.svg",
+      "source": "docs/design/dali/studies/three-bamboo-a-approved.svg",
+      "sourceSha256": "43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95",
+      "svgSha256": "43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      }
+    },
+    {
+      "name": "Sou4",
+      "tile": "4s",
+      "label": "4 bamboo",
+      "direction": "The Sleeping Landscape — B",
+      "status": "approved",
+      "svg": "approved/Sou4.svg",
+      "source": "docs/design/dali/studies/four-bamboo-b-approved.svg",
+      "sourceSha256": "b27a56b41777865aebd0b6c4e089ec6dc6cb5255da68b5ff27852f4d2234bbcd",
+      "svgSha256": "b27a56b41777865aebd0b6c4e089ec6dc6cb5255da68b5ff27852f4d2234bbcd",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      }
+    },
+    {
       "name": "Sou5",
       "tile": "5s",
       "label": "5 bamboo",
@@ -133,6 +167,23 @@
         "y": 0,
         "width": 432,
         "height": 576
+      }
+    },
+    {
+      "name": "Sou8",
+      "tile": "8s",
+      "label": "8 bamboo",
+      "direction": "Emerald Moonlit Seascape",
+      "status": "approved",
+      "svg": "approved/Sou8.svg",
+      "source": "docs/design/dali/studies/eight-bamboo-emerald-moonlit-approved.svg",
+      "sourceSha256": "05e1d03a51c52ffb88a9df62985cd4d3b007364bd400a95a260d47d3d8832767",
+      "svgSha256": "05e1d03a51c52ffb88a9df62985cd4d3b007364bd400a95a260d47d3d8832767",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
       }
     },
     {
@@ -243,6 +294,40 @@
       }
     },
     {
+      "name": "Ton",
+      "tile": "1z",
+      "label": "East wind",
+      "direction": "The Dreaming East",
+      "status": "approved",
+      "svg": "approved/Ton.svg",
+      "source": "docs/design/dali/studies/east-wind-first-approved.svg",
+      "sourceSha256": "8e60789814934608ce33f7dfae8959d14b30d045fb97b3529e5cf9dbb5e6dd48",
+      "svgSha256": "8e60789814934608ce33f7dfae8959d14b30d045fb97b3529e5cf9dbb5e6dd48",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      }
+    },
+    {
+      "name": "Pei",
+      "tile": "4z",
+      "label": "North wind",
+      "direction": "The Wind-Carved Arch",
+      "status": "approved",
+      "svg": "approved/Pei.svg",
+      "source": "docs/design/dali/studies/north-wind-second-approved.svg",
+      "sourceSha256": "7a7433ce493b402bc8c82c43b733b8ed0616215a66072e1108cfabac26485ee2",
+      "svgSha256": "7a7433ce493b402bc8c82c43b733b8ed0616215a66072e1108cfabac26485ee2",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      }
+    },
+    {
       "name": "Chun",
       "tile": "7z",
       "label": "Red dragon",
@@ -303,23 +388,7 @@
       "svg": "placeholders/placeholder.svg"
     },
     {
-      "tile": "3s",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "4s",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
       "tile": "6s",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "8s",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "1z",
       "svg": "placeholders/placeholder.svg"
     },
     {
@@ -328,10 +397,6 @@
     },
     {
       "tile": "3z",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "4z",
       "svg": "placeholders/placeholder.svg"
     },
     {
