@@ -49,6 +49,32 @@ function corsHeaders(origin) {
   return headers;
 }
 
+/** RFC 9110 section 13.2.2: failed write-style preconditions win over
+ * cache validators. Evaluate against the same object whose stream we serve.
+ * Entity tags can contain commas, so do not split the list at every comma. */
+function conditionalStatus(headers, object) {
+  const matches = (value, weak = false) => value.trim() === '*'
+    || (value.match(/(?:W\/)?"[^"]*"/g) ?? []).some(tag =>
+      (weak ? tag.replace(/^W\//, '') : tag) === object.httpEtag);
+  // HTTP dates have whole-second precision, unlike R2's upload timestamp.
+  const modified = Math.floor(object.uploaded.getTime() / 1000) * 1000;
+  const match = headers.get('If-Match');
+  if (match !== null) {
+    if (!matches(match)) return 412;
+  } else {
+    const unmodified = Date.parse(headers.get('If-Unmodified-Since'));
+    if (Number.isFinite(unmodified) && modified > unmodified) return 412;
+  }
+  const none = headers.get('If-None-Match');
+  if (none !== null) {
+    if (matches(none, true)) return 304;
+  } else {
+    const since = Date.parse(headers.get('If-Modified-Since'));
+    if (Number.isFinite(since) && modified <= since) return 304;
+  }
+  return 200;
+}
+
 export default {
   async fetch(request, env) {
     const origin = allowedOrigin(request);
@@ -76,7 +102,11 @@ export default {
     // A Range header is ignored and the whole object sent, as HTTP allows:
     // the object is stored gzipped, and a byte range of a gzip stream cannot
     // be decoded on its own, so a range could never resume a download.
-    const object = await env.MODELS.get(key, { onlyIf: request.headers });
+    // R2's bodyless onlyIf result does not distinguish 304 from 412 and
+    // cannot express HTTP's precedence between all four request conditions.
+    // One lookup supplies both metadata and a stream; rejected/HEAD requests
+    // cancel that stream without buffering or reading the model.
+    const object = await env.MODELS.get(key);
     if (object === null) return new Response('Not found', { status: 404 });
 
     const headers = corsHeaders(origin);
@@ -85,6 +115,7 @@ export default {
     // so the network is stored gzipped and labelled as such.
     object.writeHttpMetadata(headers);
     headers.set('ETag', object.httpEtag);
+    headers.set('Last-Modified', object.uploaded.toUTCString());
     headers.set('Cache-Control', `public, max-age=${YEAR}, immutable`);
 
     // The object is stored gzipped and says so, so its bytes are already in
@@ -93,8 +124,18 @@ export default {
     // browser would unwrap it once and hand the decoder a gzip stream.
     const manual = (status, body) => new Response(body, { status, headers, encodeBody: 'manual' });
 
-    // `onlyIf` turns a matching conditional request into a bodyless object.
-    if (!('body' in object) || object.body === null) return manual(304, null);
-    return manual(200, request.method === 'HEAD' ? null : object.body);
+    const status = conditionalStatus(request.headers, object);
+    if (status !== 200 || request.method === 'HEAD') {
+      await object.body.cancel();
+      if (status === 412) {
+        // This is not an immutable model representation or a gzip body.
+        const rejected = corsHeaders(origin);
+        rejected.set('ETag', object.httpEtag);
+        rejected.set('Cache-Control', 'no-store');
+        return new Response(null, { status, headers: rejected });
+      }
+      return manual(status, null);
+    }
+    return manual(200, object.body);
   },
 };
