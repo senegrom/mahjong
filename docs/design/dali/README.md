@@ -1,6 +1,6 @@
 # Dalí mahjong tile set
 
-A surrealist tile face set for the mahjong game. Nineteen faces are approved, drawn from the original studies and Carl's later selections. The latest is four bamboo **The Sleeping Landscape — B**, using the approved right-hand painting with exactly four green stalks on a sleeping stone eyelid and a suspended green tear. The existing three-bamboo A artwork is unchanged. East wind **The Dreaming East** uses the approved first plain-image composition with the wind woven into its painted 東. North wind **The Wind-Carved Arch** uses the approved recreation of the selected second composition, with clearly separated stone 北 strokes integrated into its wind ribbons above the arch.
+A surrealist tile face set for the mahjong game. Twenty faces are approved, drawn from the original studies and Carl's later selections. The latest is six bamboo **The Impossible Reflection — Green C**, the selected third option with its approved green hue. This completes all nine bamboo faces. The previously selected four bamboo **The Sleeping Landscape — B** uses the approved right-hand painting with exactly four green stalks on a sleeping stone eyelid and a suspended green tear. The existing three-bamboo A artwork is unchanged. East wind **The Dreaming East** uses the approved first plain-image composition with the wind woven into its painted 東. North wind **The Wind-Carved Arch** uses the approved recreation of the selected second composition, with clearly separated stone 北 strokes integrated into its wind ribbons above the arch.
 
 ## Approved first studies
 
@@ -14,6 +14,7 @@ A surrealist tile face set for the mahjong game. Nineteen faces are approved, dr
 | `Sou3.svg` | 3 bamboo | The Bamboo That Tied Itself — A: three green stalks, with an impossible knot in the tall central stem |
 | `Sou4.svg` | 4 bamboo | The Sleeping Landscape — B: four green bamboo stalks on a sleeping stone eyelid above a suspended green tear |
 | `Sou5.svg` | 5 bamboo | The Soft Grove — A: four jade stems and one ruby stem soften into droplets and pools, retaining the five-pip arrangement |
+| `Sou6.svg` | 6 bamboo | The Impossible Reflection — Green C: six green stalks surround a pool containing a different mountain landscape |
 | `Sou7.svg` | 7 bamboo | The Dream Cabinet — one ruby and six jade reeds in a 1–3–3 layout; drawers contain a cloud, crescent moon and ocean |
 | `Sou8.svg` | 8 bamboo | Emerald Moonlit Seascape — eight green reeds, a suspended moon, a pendulum and a living spiral; the approved greener revision |
 | `Sou9.svg` | 9 bamboo | The Surreal Grove — nine varied stalks, a ruby centre and red leaf accents; no baked tile frame |
@@ -26,7 +27,7 @@ A surrealist tile face set for the mahjong game. Nineteen faces are approved, dr
 | `Pei.svg` | North wind | The Wind-Carved Arch — second composition: sculptural 北, flowing wind ribbons, cypresses and an impossible stone arch |
 | `Chun.svg` | Red dragon | Molten Ruby — translucent ruby-red 中 stretched into an uncanny molten form |
 
-The other 15 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. Six bamboo is the only remaining bamboo placeholder; three uses selected A and four uses the approved B adaptation. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
+The other 14 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. All nine bamboo faces are now approved; six uses the selected green-hued C, three uses selected A and four uses the approved B adaptation. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
 
 ## Presentation
 
@@ -44,6 +45,8 @@ Four bamboo uses [the approved B adaptation — The Sleeping Landscape](studies/
 
 Five bamboo uses the exact [selected A image](studies/five-bamboo-a-approved.png), preserving the complete 1086 × 1448 source and its original PNG bytes. Its four green stems and central ruby stem remain clearly countable. Alternatives B (floating joints) and C (the hand shadow) were not selected.
 
+Six bamboo uses [the selected third option with its approved green hue](studies/six-bamboo-c-green-approved.svg), **The Impossible Reflection — Green C**. Six clearly separated stalks surround a pool containing an impossible mountain landscape. The source is `emerald_oasis_in_a_surreal_landscape.png` (1086 × 1448; SHA-256 `233988575615df0c4a4247b0f3ca05b67aad37a0135274b21e281fc79c280da6`), not the original warmer C, floating-roots A or folded-landscape B. The complete portrait is resized proportionally with Lanczos to a 450 × 600 WebP at quality 80, method 6; no additional crop, redraw, recolouring, tile background or decorative frame is added. The SVG retains the existing 300 × 400 logical canvas, rounded clipping and bleed. Source and runtime SVGs are byte-identical. The original PNG remains in the conversation, while the repository stores the optimized rendering and [provenance](six-bamboo.json), not those original PNG bytes. All nineteen previously approved faces and all other sets remain unchanged.
+
 Seven bamboo uses [the approved Dream Cabinet adaptation](studies/seven-bamboo-dream-cabinets-approved.svg), not the earlier three-stalk design. This game-ready SVG embeds a 432 × 576 WebP rendering of the complete approved 1086 × 1448 portrait, resized with Lanczos and encoded at quality 80; it is not a vector redraw. Its metadata records the original PNG SHA-256 (`f788e4ea0232f5d6ed23d7acf453936f2f55383de5a2695e917e4178d77168f7`), raster dimensions, processing and embedded-raster hash. The original full-resolution PNG is the conversation attachment `seven_bamboo_dream_cabinets.png`; the repository stores the optimized game rendering rather than claiming to preserve those original PNG bytes. The exporter copies the self-contained source SVG unchanged, keeping the small-size artwork available offline without external image requests. This design is deliberately not assigned to three bamboo, which now has its own selected A artwork.
 
 Eight bamboo uses [the approved greener Emerald Moonlit Seascape](studies/eight-bamboo-emerald-moonlit-approved.svg). The eight reeds retain their distinct curves, pendulum, open window and spiral details, with no red stalks or red leaves. Its complete 1086 × 1448 portrait is resized with Lanczos and encoded as a 300 × 400 WebP at quality 80, method 6; this is not a redraw or an additional color edit. No tile texture or decorative frame is baked into the raster. The original PNG remains the conversation attachment `emerald_moonlit_bamboo_seascape.png`; its SHA-256 is `b57c7c4d29433d4c07fe78a57b6962f8b0184c5d760284e935fb31f7e102dd67`. See [provenance](eight-bamboo.json). The source SVG and runtime SVG are identical, with only the existing game clipping and bleed. All earlier artwork, including seven and nine bamboo, remains unchanged.
@@ -58,7 +61,7 @@ Nine characters uses the exact [approved repaired C image](studies/nine-characte
 
 Present three alternatives for each new tile before selection.
 
-Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: nineteen approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
+Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: twenty approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
 
 ## Reproducing the exports
 
