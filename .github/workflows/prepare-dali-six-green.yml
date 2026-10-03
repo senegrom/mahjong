@@ -1,0 +1,40 @@
+name: Prepare approved Dali six bamboo
+
+on:
+  push:
+    branches: [art/dali-six-green-20261003]
+    paths: [.github/workflows/prepare-dali-six-green.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: art/dali-six-green-20261003
+          persist-credentials: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Integrate selected artwork without re-encoding older art
+        run: python3 .github/integrate-dali-six.py
+      - name: Verify Dali artwork regressions
+        run: |
+          node --test web/tests/dali-*.test.js
+          git diff --check
+      - name: Remove temporary staging and commit verified files
+        run: |
+          git rm -r .github/dali-six-payload .github/integrate-dali-six.py .github/workflows/prepare-dali-six-green.yml
+          git add docs/design/dali web/public/tiles/dali web/src/lib/dali-faces.js web/scripts/export-dali-tiles.mjs web/tests/dali-bamboo.test.js web/tests/dali-east-wind.test.js web/tests/dali-north-wind.test.js web/tests/dali-six-bamboo.test.js web/tests/tile-faces.test.js
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Prepare approved green C six bamboo with verified artwork preservation'
+          git push origin HEAD:refs/heads/art/dali-six-green-20261003
+          git rev-parse HEAD
+          git rev-parse 'HEAD^{tree}'
