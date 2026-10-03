@@ -1,51 +1,54 @@
-name: Recover approved Dali high-resolution assets
+name: Verify and import approved Dali high-resolution assets
 on:
   push:
     branches: [deploy/dali-bamboo-hires-retry]
     paths: ['.dali-hires-transfer/**', '.github/workflows/dali-hires-recover.yml']
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: dali-hires-import
+  cancel-in-progress: false
 jobs:
-  recover:
+  import:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
-      - name: Inspect and recover existing GitHub-only image transfer
+          ref: deploy/dali-bamboo-hires-retry
+      - name: Reassemble and verify the full-resolution approved art
         run: |
-          mkdir -p recovered
-          python3 - <<'PY'
-          from pathlib import Path
-          import hashlib, json
-          chunks = sorted(Path('.dali-hires-transfer').glob('*.bin'))
-          report = []
-          for p in chunks:
-              b = p.read_bytes()
-              row = {'file': p.name, 'bytes': len(b), 'sha256': hashlib.sha256(b).hexdigest(), 'header': b[:64].hex()}
-              report.append(row)
-              print(json.dumps(row))
-          for name, group in [('three', chunks[:6]), ('four', chunks[6:])]:
-              b = b''.join(p.read_bytes() for p in group)
-              Path('recovered', name + '.bin').write_bytes(b)
-              print(name, len(b), hashlib.sha256(b).hexdigest(), b[:128].hex())
-          Path('recovered/report.json').write_text(json.dumps(report, indent=2))
-          PY
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+          mkdir -p hires-evidence
+          python3 .dali-hires-transfer/import.py | tee hires-evidence/import.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          name: dali-hires-recovery
-          retention-days: 3
-          include-hidden-files: true
-          path: |
-            recovered
-            .dali-hires-transfer
-            docs/design/dali
-            web/public/tiles/dali
-            web/public/tiles/van-gogh/manifest.json
-            web/src/lib
-            web/scripts/export-dali-tiles.mjs
-            web/tests/dali-*.test.js
-            web/tests/tile-faces.test.js
-            web/package.json
-            web/package-lock.json
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install existing pinned web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Verify tile regressions and lint changed JavaScript
+        run: |
+          set -o pipefail
+          node --test web/tests/dali-*.test.js web/tests/tile-faces.test.js | tee hires-evidence/tests.txt
+          cd web
+          npx eslint tests/dali-bamboo.test.js tests/tile-faces.test.js scripts/export-dali-tiles.mjs --max-warnings 0
+      - name: Decode and render both full-resolution assets in Chrome
+        run: node .dali-hires-transfer/browser.mjs
+      - name: Commit only the tested replacements and remove temporary import tooling
+        run: |
+          git rm -r .dali-hires-transfer .github/workflows/dali-hires-recover.yml
+          git add docs/design/dali web/public/tiles/dali web/scripts/export-dali-tiles.mjs web/tests/dali-bamboo.test.js web/tests/tile-faces.test.js
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          git commit -m 'Deploy full-resolution approved Dalí 3 and 4 Bamboo portraits' -m 'Keep both approved standalone images at 1086 x 1448 pixels inside the existing tile SVG geometry. Verify source hashes, AVIF dimensions, browser decoding and tile regressions. Preserve all other artwork; remove temporary GitHub-only transfer tooling.'
+          git push origin HEAD:deploy/dali-bamboo-hires-retry
+      - name: Retain verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dali-bamboo-hires-verification
+          path: hires-evidence
+          retention-days: 7
