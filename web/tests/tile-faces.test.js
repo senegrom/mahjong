@@ -19,7 +19,7 @@ test('Van Gogh preserves selected Almond Branches, East A and North B, excludes 
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'I', 'Six B (green)', 'L', 'East A', 'North B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'Disks C', 'Six B (green)', 'L', 'East A', 'North B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
