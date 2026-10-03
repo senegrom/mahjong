@@ -29,20 +29,22 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
     onProgress(index, notes.length);
     let { action, weights } = await analyze(planes, mask, signal);
     aborted(signal);
-    let afterReach = false;
+    let afterReach = false, reachWeights = null;
     if (action === MORTAL_REACH) {
       afterReach = true;
-      ({ action } = await analyze(
+      ({ action, weights: reachWeights } = await analyze(
         engine.review_observation_after_reach(index), engine.review_mask_after_reach(index), signal,
       ));
       aborted(signal);
     }
     const chosen = engine.review_action_from_mortal(index, action, afterReach);
     const weighted = weightsByChoice(engine, choices, weights,
-      action => engine.review_action_from_mortal(index, action, false));
+      action => engine.review_action_from_mortal(index, action, false),
+      reachWeights ? { weights: reachWeights, fromMortal: action => engine.review_action_from_mortal(index, action, true) } : null);
     const preferred = weighted.find(choice => choice.index === chosen);
     // The weight belongs to the declaration, not to the tile it names: the
-    // second question is asked only once the first is decided.
+    // second question is asked only once the first is decided. Keep its
+    // conditional weight separate rather than claiming it is a first-stage move.
     const weight = preferred?.weight;
     if (!preferred || !Number.isFinite(weight) || weight < 0 || weight > 1) {
       throw new Error('The trained network returned an invalid review choice');
@@ -57,6 +59,9 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
       dora_types: note.dora_types, advised: preferred.label, advised_tile: preferred.tile,
       agreed: played.kind === preferred.kind && (played.tile ?? null) === (preferred.tile ?? null),
       preferred_weight: weight, played_weight: played.weight,
+      advised_kind: preferred.kind,
+      preferred_conditional_weight: preferred.conditionalWeight ?? null,
+      played_conditional_weight: played.conditionalWeight ?? null,
     });
     onProgress(index + 1, notes.length);
   }
