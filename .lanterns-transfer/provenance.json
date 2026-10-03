@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "tile": "3p",
+  "name": "Pin3",
+  "candidate": "Lanterns B",
+  "title": "Three Café Lanterns",
+  "approval": "Carl selected the middle panel B and explicitly requested deployment as 3 disks.",
+  "source": "docs/design/van-gogh/studies/17-three-disks-cafe-lanterns-b-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Pin3.svg",
+  "sourceSha256": "a5fe322fffbe4717b57897209fca1cbaa737989bb318884a510330c5fb6d8713",
+  "originalFile": "van_gogh_mahjong_three_disk_concepts.png",
+  "originalBoardSha256": "878e3350a936d15eec6658fd4f8d698e9ee8fc9f8c294565124776bab30d3591",
+  "originalSize": { "width": 1448, "height": 1086 },
+  "originalCrop": { "x": 503, "y": 127, "width": 442, "height": 860 },
+  "fullResolutionCropSha256": "27628def3f7ff38810daf9fcac5b6ae0efa48b2fe76417eb5c16f0f4999447b6",
+  "approvalArchive": "van-gogh-3-disks-lanterns-prepared.zip",
+  "archiveLocation": "Supplied in this ChatGPT conversation; retains the original board and full-resolution selected PNG.",
+  "raster": {
+    "mimeType": "image/webp", "width": 300, "height": 400,
+    "quality": 90, "method": 6, "lossless": false, "bytes": 68688,
+    "sha256": "74d9a2bf1807c3f58a4f5728794d83dfacfdeac1b7fd3400051c35077d57e105"
+  },
+  "processing": [
+    "Crop the exact approved middle panel; exclude presentation heading, gutters and caption.",
+    "Resize the entire selected crop to the existing 300 by 400 game canvas with Lanczos.",
+    "Encode as quality-90 WebP, method 6; no repainting or recolouring.",
+    "Embed in a self-contained SVG using the shared 26-unit clipping radius and 1% bleed."
+  ],
+  "fullResolution": false,
+  "note": "This source is an optimized game export. The full-resolution original is retained in the approval archive, not represented by the WebP."
+}

@@ -6,9 +6,9 @@
   "direction": "The Wind-Carved Arch",
   "originalFilename": "a_clean_white_background_with_three_surreal_paint.png",
   "originalSha256": "343c96e9ebcd5c84f0c86923327c2ea6ea0952feb4e18587e6888e88f4f2a622",
-  "completedChange": "The existing North adaptation replaces 東 with a sculptural 北 within the selected second stone-character, arch and wind-ribbon painting. Preserve the selected composition and plain background.",
-  "adaptationFilename": "north-wind-second-north-adaptation.png",
-  "adaptationSha256": "6422a05ce9bbb980eb28289fa03080bd70c1eeb7fae54018c8612e5e62def9a5",
+  "completedChange": "Use Carl's approved recreated stone North painting with clearly separated 北 strokes, wind ribbons, cypresses, an impossible arch and a plain white background. This supersedes the earlier unclear character adaptation; do not regenerate the selected recreation during deployment.",
+  "adaptationFilename": "stone_north_in_a_dreamscape.png",
+  "adaptationSha256": "0c514cd4e8c83ba7f0e57889b953d97d1a2a3918fa71ae721e12a2ab04430c65",
   "runtime": "web/public/tiles/dali/approved/Pei.svg",
   "provenance": "docs/design/dali/north-wind.json"
 }

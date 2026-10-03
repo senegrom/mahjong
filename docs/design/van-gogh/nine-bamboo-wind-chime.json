@@ -1,0 +1,19 @@
+{
+  "tile": "9s",
+  "name": "Sou9",
+  "candidate": "Wind Chime A",
+  "title": "Moonlit Bamboo Wind Chime",
+  "source": "docs/design/van-gogh/studies/16-nine-bamboo-wind-chime-a-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Sou9.svg",
+  "originalFilename": "nine_tube_bamboo_chime_under_moonlight.png",
+  "originalSha256": "0aa8568cf2f329f1fffa41eabef13135fcd1e265f82586cd2a4c6fccff8ceda1",
+  "originalDimensions": [1086, 1448],
+  "originalCrop": {"x": 0, "y": 0, "width": 1086, "height": 1448},
+  "rasterDimensions": [300, 400],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "ab954a7208567a80d87d3be0f0ba15373dd5cc644feb8c766880f404435dc2f3",
+  "svgSha256": "8085bc2a65d372c8b28fc673063a4fd3de090849e4de6749a96de6c719da74ac",
+  "processing": "Full approved portrait resized proportionally with Pillow Lanczos to 300 x 400; WebP quality 80, method 6, embedded in the shared 300 x 400 SVG with 26-unit corner radius and 1% bleed. No repainting, recolouring, added symbols or compositional crop. This game-sized source is not the full-resolution original PNG.",
+  "approval": "User selected the first of three nine-bamboo options and explicitly requested deployment. Nine hanging tubes are arranged in three groups of three; the horizontal support and background foliage remain part of the approved painting.",
+  "originalPreservation": "Untouched original PNG preserved in Van_Gogh_9_Bamboo_Wind_Chime_Approved.zip supplied in chat."
+}
