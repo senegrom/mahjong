@@ -19,22 +19,24 @@ const FACES = [
   {
     tile: '4s', name: 'Sou4', words: 'four bamboo', direction: 'The Sleeping Landscape — B',
     source: 'docs/design/dali/studies/four-bamboo-b-approved.svg',
-    artwork: 'b27a56b41777865aebd0b6c4e089ec6dc6cb5255da68b5ff27852f4d2234bbcd',
-    original: '38d1319631e5c70d30110109b14fcc6f5f8ccd31a92c2f39857e88ab91b056bb',
-    raster: '9ce157ce654326e6246abb5b281ab98a73ae7f1585e4f27024d528aaced907b9',
-    originalFilename: 'a_surreal_painterly_diptych_style_illustration_sp.png',
-    originalDimensions: [1536, 1024], rasterDimensions: [300, 400],
-    processing: /Selected right panel cropped from the approved diptych; white divider removed/,
+    artwork: 'e9bf09cc66fa70e4e57935e530ef60c6e139ebc60c4239246c2371a5c0faa2c6',
+    original: 'dd94c79cc3eb82895ae55d92729d4c72639deab6bdb6b44f1bec03f2d87a45d9',
+    raster: 'd9e06e6d80d9d5af1931817d8832ccb2093ed9349108a6e55c0a6ee462676611',
+    originalFilename: 'moonlit_tear_of_the_bamboo_eye.png',
+    originalDimensions: [1086, 1448], rasterDimensions: [1086, 1448],
+    mime: 'image/avif',
+    processing: /Approved standalone high-resolution portrait encoded at its full 1086 x 1448 pixel dimensions/,
   },
   {
     tile: '3s', name: 'Sou3', words: 'three bamboo', direction: 'The Bamboo That Tied Itself — A',
     source: 'docs/design/dali/studies/three-bamboo-a-approved.svg',
-    artwork: '43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95',
-    original: '67d151a89d59f2f3907b6e9fa0b0968ca1d5c95faa2e6e6003a53fd567e122a0',
-    raster: '45efaeaf1bef0f270dea09d039a93070ea2ae218eef02454ffa474429c3f8eb7',
-    originalFilename: 'wide_triptych_art_image_with_three_vertical_panels.png',
-    originalDimensions: [1536, 1024], rasterDimensions: [300, 400],
-    processing: /Selected panel A cropped from the original triptych; border and caption removed/,
+    artwork: '40272a4ec59ec4d663efcd57af66010fdadbeb5607b7800a9b91fecb613153b8',
+    original: '45ddc490ac33a4cd00da6f61da61204f459c52d7788ebc62c8ec65fb541e177e',
+    raster: '98d4ff4e204e5c60068666757ca65c79980fd8db9db4b257100d27d8917eec9f',
+    originalFilename: 'surreal_bamboo_knot_shoreline.png',
+    originalDimensions: [1086, 1448], rasterDimensions: [1086, 1448],
+    mime: 'image/avif',
+    processing: /Approved standalone high-resolution portrait encoded at its full 1086 x 1448 pixel dimensions/,
   },
   {
     tile: '8s', name: 'Sou8', words: 'eight bamboo', direction: 'Emerald Moonlit Seascape',
@@ -103,19 +105,27 @@ for (const face of FACES) {
     assert.deepEqual(selected.crop, { x: 0, y: 0, width: face.rasterDimensions[0], height: face.rasterDimensions[1] });
   });
 
-  test(`${face.words}: the embedded WebP records its original and makes no external requests`, () => {
+  test(`${face.words}: the embedded raster records its original and makes no external requests`, () => {
     const svg = readFileSync(new URL(`tiles/dali/${selected.svg}`, publicRoot), 'utf8');
     const metadata = JSON.parse(svg.match(/<metadata>([\s\S]*?)<\/metadata>/)[1]);
     assert.equal(metadata.originalFilename, face.originalFilename);
     assert.equal(metadata.originalSha256, face.original);
     assert.deepEqual(metadata.originalDimensions, face.originalDimensions ?? [1086, 1448]);
     assert.deepEqual(metadata.rasterDimensions, face.rasterDimensions);
-    assert.equal(metadata.rasterMimeType, 'image/webp');
+    assert.equal(metadata.rasterMimeType, face.mime ?? 'image/webp');
     assert.equal(metadata.rasterSha256, face.raster);
     assert.match(metadata.processing, face.processing);
-    const raster = Buffer.from(svg.match(/data:image\/webp;base64,([^"\s]+)/)[1], 'base64');
-    assert.equal(raster.toString('ascii', 0, 4), 'RIFF');
-    assert.equal(raster.toString('ascii', 8, 12), 'WEBP');
+    const raster = Buffer.from(svg.match(/data:image\/(?:webp|avif);base64,([^"\s]+)/)[1], 'base64');
+    if (face.mime === 'image/avif') {
+      assert.equal(raster.toString('ascii', 4, 12), 'ftypavif');
+      const ispe = raster.indexOf(Buffer.from('ispe'));
+      assert.ok(ispe >= 0);
+      assert.deepEqual([raster.readUInt32BE(ispe + 8), raster.readUInt32BE(ispe + 12)], [1086, 1448]);
+      assert.deepEqual(raster, readFileSync(new URL(metadata.rasterSource, root)));
+    } else {
+      assert.equal(raster.toString('ascii', 0, 4), 'RIFF');
+      assert.equal(raster.toString('ascii', 8, 12), 'WEBP');
+    }
     assert.equal(sha256(raster), face.raster);
     assert.match(svg, /viewBox="0 0 300 400"/);
     assert.match(svg, /rx="26"/);
@@ -168,7 +178,7 @@ test('eight bamboo is the greener revision in the exporter, preview and provenan
   assert.equal(provenance.svgSha256, face.artwork);
 });
 
-test('three bamboo preserves selected panel A and is reproducible in the exporter and preview', () => {
+test('three bamboo preserves the approved high-resolution A portrait and is reproducible in the exporter and preview', () => {
   const face = FACES.find(entry => entry.tile === '3s');
   const provenance = JSON.parse(readFileSync(new URL('docs/design/dali/three-bamboo.json', root), 'utf8'));
   assert.equal(provenance.tile, '3s');
@@ -176,13 +186,13 @@ test('three bamboo preserves selected panel A and is reproducible in the exporte
   assert.equal(provenance.originalSha256, face.original);
   assert.equal(provenance.rasterSha256, face.raster);
   assert.equal(provenance.svgSha256, face.artwork);
-  assert.deepEqual(provenance.originalCrop, { x: 11, y: 12, width: 482, height: 877 });
+  assert.deepEqual(provenance.originalCrop, { x: 0, y: 0, width: 1086, height: 1448 });
   const svg = readFileSync(new URL(face.source, root), 'utf8');
   const metadata = JSON.parse(svg.match(/<metadata>([\s\S]*?)<\/metadata>/)[1]);
   assert.equal(metadata.selectedPanel, 'A');
   assert.deepEqual(metadata.originalCrop, provenance.originalCrop);
   const exporter = readFileSync(new URL('../scripts/export-dali-tiles.mjs', import.meta.url), 'utf8');
-  assert.match(exporter, /\['Sou3', '3s', '3 bamboo', 'The Bamboo That Tied Itself — A', 'three-bamboo-a-approved.svg', \[0, 0, 300, 400\]\]/);
+  assert.match(exporter, /\['Sou3', '3s', '3 bamboo', 'The Bamboo That Tied Itself — A', 'three-bamboo-a-approved.svg', \[0, 0, 1086, 1448\]\]/);
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou3.svg'));
   assert.ok(preview.includes('The Bamboo That Tied Itself'));
@@ -190,7 +200,7 @@ test('three bamboo preserves selected panel A and is reproducible in the exporte
   assert.ok(preview.includes('remaining 14 tiles'));
 });
 
-test('four bamboo preserves the selected right panel and is reproducibly exported and previewed', () => {
+test('four bamboo preserves the approved high-resolution B portrait and is reproducibly exported and previewed', () => {
   const face = FACES.find(entry => entry.tile === '4s');
   const provenance = JSON.parse(readFileSync(new URL('docs/design/dali/four-bamboo.json', root), 'utf8'));
   assert.equal(provenance.tile, '4s');
@@ -199,20 +209,20 @@ test('four bamboo preserves the selected right panel and is reproducibly exporte
   assert.equal(provenance.rasterSha256, face.raster);
   assert.equal(provenance.svgSha256, face.artwork);
   assert.equal(provenance.originalStoredInRepository, false);
-  assert.deepEqual(provenance.originalCrop, { x: 782, y: 0, width: 754, height: 1024 });
+  assert.deepEqual(provenance.originalCrop, { x: 0, y: 0, width: 1086, height: 1448 });
   const svg = readFileSync(new URL(face.source, root), 'utf8');
   const metadata = JSON.parse(svg.match(/<metadata>([\s\S]*?)<\/metadata>/)[1]);
   assert.equal(metadata.selectedPanel, provenance.selectedPanel);
   assert.deepEqual(metadata.originalCrop, provenance.originalCrop);
   const exporter = readFileSync(new URL('../scripts/export-dali-tiles.mjs', import.meta.url), 'utf8');
-  assert.match(exporter, /\['Sou4', '4s', '4 bamboo', 'The Sleeping Landscape — B', 'four-bamboo-b-approved.svg', \[0, 0, 300, 400\]\]/);
+  assert.match(exporter, /\['Sou4', '4s', '4 bamboo', 'The Sleeping Landscape — B', 'four-bamboo-b-approved.svg', \[0, 0, 1086, 1448\]\]/);
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou4.svg'));
   assert.ok(preview.includes('The Sleeping Landscape'));
   assert.ok(preview.includes('20 approved faces'));
   assert.ok(preview.includes('remaining 14 tiles'));
-  // Three bamboo remains the original selected A, not the regenerated diptych left panel.
+  // Three bamboo uses the separately approved high-resolution A portrait.
   const three = set.tiles.find(entry => entry.tile === '3s');
   assert.equal(three.source, 'docs/design/dali/studies/three-bamboo-a-approved.svg');
-  assert.equal(three.svgSha256, '43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95');
+  assert.equal(three.svgSha256, FACES.find(entry => entry.tile === '3s').artwork);
 });

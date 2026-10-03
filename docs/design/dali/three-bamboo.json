@@ -4,25 +4,63 @@
   "direction": "The Bamboo That Tied Itself — A",
   "source": "docs/design/dali/studies/three-bamboo-a-approved.svg",
   "runtime": "web/public/tiles/dali/approved/Sou3.svg",
-  "originalFilename": "wide_triptych_art_image_with_three_vertical_panels.png",
-  "originalSha256": "67d151a89d59f2f3907b6e9fa0b0968ca1d5c95faa2e6e6003a53fd567e122a0",
+  "originalFilename": "surreal_bamboo_knot_shoreline.png",
+  "originalSha256": "45ddc490ac33a4cd00da6f61da61204f459c52d7788ebc62c8ec65fb541e177e",
   "originalDimensions": [
-    1536,
-    1024
+    1086,
+    1448
   ],
   "selectedPanel": "A",
+  "revision": "approved standalone high-resolution portrait",
   "originalCrop": {
-    "x": 11,
-    "y": 12,
-    "width": 482,
-    "height": 877
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
   },
   "rasterDimensions": [
-    300,
-    400
+    1086,
+    1448
   ],
-  "rasterMimeType": "image/webp",
-  "rasterSha256": "45efaeaf1bef0f270dea09d039a93070ea2ae218eef02454ffa474429c3f8eb7",
-  "processing": "Selected panel A cropped from the original triptych; border and caption removed; complete 482 x 877 artwork resized to the standard 300 x 400 face with Lanczos; WebP quality 80, method 6; no redraw or color edits.",
-  "svgSha256": "43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95"
+  "rasterMimeType": "image/avif",
+  "rasterSha256": "98d4ff4e204e5c60068666757ca65c79980fd8db9db4b257100d27d8917eec9f",
+  "rasterSource": "docs/design/dali/studies/three-bamboo-a-hires.avif",
+  "encoding": {
+    "encoder": "Pillow 12.3.0 AVIF",
+    "quality": 50,
+    "speed": 0,
+    "lossless": false
+  },
+  "processing": "Approved standalone high-resolution portrait encoded at its full 1086 x 1448 pixel dimensions; AVIF quality 50; no resizing, crop, redraw, colour edit, added border or tile texture. The 300 x 400 SVG viewBox controls layout only, not embedded raster resolution.",
+  "svgSha256": "40272a4ec59ec4d663efcd57af66010fdadbeb5607b7800a9b91fecb613153b8",
+  "originalStoredInRepository": false,
+  "originalLocation": "Approved PNG conversation attachment; repository retains the full-dimension AVIF and self-contained SVG, not the original PNG bytes.",
+  "supersedes": {
+    "tile": "3s",
+    "name": "Sou3",
+    "direction": "The Bamboo That Tied Itself — A",
+    "source": "docs/design/dali/studies/three-bamboo-a-approved.svg",
+    "runtime": "web/public/tiles/dali/approved/Sou3.svg",
+    "originalFilename": "wide_triptych_art_image_with_three_vertical_panels.png",
+    "originalSha256": "67d151a89d59f2f3907b6e9fa0b0968ca1d5c95faa2e6e6003a53fd567e122a0",
+    "originalDimensions": [
+      1536,
+      1024
+    ],
+    "selectedPanel": "A",
+    "originalCrop": {
+      "x": 11,
+      "y": 12,
+      "width": 482,
+      "height": 877
+    },
+    "rasterDimensions": [
+      300,
+      400
+    ],
+    "rasterMimeType": "image/webp",
+    "rasterSha256": "45efaeaf1bef0f270dea09d039a93070ea2ae218eef02454ffa474429c3f8eb7",
+    "processing": "Selected panel A cropped from the original triptych; border and caption removed; complete 482 x 877 artwork resized to the standard 300 x 400 face with Lanczos; WebP quality 80, method 6; no redraw or color edits.",
+    "svgSha256": "43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95"
+  }
 }

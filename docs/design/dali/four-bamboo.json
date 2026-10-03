@@ -4,27 +4,65 @@
   "direction": "The Sleeping Landscape — B",
   "source": "docs/design/dali/studies/four-bamboo-b-approved.svg",
   "runtime": "web/public/tiles/dali/approved/Sou4.svg",
-  "originalFilename": "a_surreal_painterly_diptych_style_illustration_sp.png",
-  "originalSha256": "38d1319631e5c70d30110109b14fcc6f5f8ccd31a92c2f39857e88ab91b056bb",
+  "originalFilename": "moonlit_tear_of_the_bamboo_eye.png",
+  "originalSha256": "dd94c79cc3eb82895ae55d92729d4c72639deab6bdb6b44f1bec03f2d87a45d9",
   "originalDimensions": [
-    1536,
-    1024
+    1086,
+    1448
   ],
   "selectedPanel": "right (B adapted to four bamboo)",
+  "revision": "approved standalone high-resolution portrait",
   "originalCrop": {
-    "x": 782,
+    "x": 0,
     "y": 0,
-    "width": 754,
-    "height": 1024
+    "width": 1086,
+    "height": 1448
   },
   "rasterDimensions": [
-    300,
-    400
+    1086,
+    1448
   ],
-  "rasterMimeType": "image/webp",
-  "rasterSha256": "9ce157ce654326e6246abb5b281ab98a73ae7f1585e4f27024d528aaced907b9",
-  "processing": "Selected right panel cropped from the approved diptych; white divider removed. Complete painting resized to 300 x 400 with Lanczos, WebP quality 80, method 6; no redraw, added border, tile texture or color changes.",
-  "svgSha256": "b27a56b41777865aebd0b6c4e089ec6dc6cb5255da68b5ff27852f4d2234bbcd",
+  "rasterMimeType": "image/avif",
+  "rasterSha256": "d9e06e6d80d9d5af1931817d8832ccb2093ed9349108a6e55c0a6ee462676611",
+  "rasterSource": "docs/design/dali/studies/four-bamboo-b-hires.avif",
+  "encoding": {
+    "encoder": "Pillow 12.3.0 AVIF",
+    "quality": 50,
+    "speed": 4,
+    "lossless": false
+  },
+  "processing": "Approved standalone high-resolution portrait encoded at its full 1086 x 1448 pixel dimensions; AVIF quality 50; no resizing, crop, redraw, colour edit, added border or tile texture. The 300 x 400 SVG viewBox controls layout only, not embedded raster resolution.",
+  "svgSha256": "e9bf09cc66fa70e4e57935e530ef60c6e139ebc60c4239246c2371a5c0faa2c6",
   "originalStoredInRepository": false,
-  "originalLocation": "Conversation attachment; repository stores the optimized self-contained SVG."
+  "originalLocation": "Approved PNG conversation attachment; repository retains the full-dimension AVIF and self-contained SVG, not the original PNG bytes.",
+  "supersedes": {
+    "tile": "4s",
+    "name": "Sou4",
+    "direction": "The Sleeping Landscape — B",
+    "source": "docs/design/dali/studies/four-bamboo-b-approved.svg",
+    "runtime": "web/public/tiles/dali/approved/Sou4.svg",
+    "originalFilename": "a_surreal_painterly_diptych_style_illustration_sp.png",
+    "originalSha256": "38d1319631e5c70d30110109b14fcc6f5f8ccd31a92c2f39857e88ab91b056bb",
+    "originalDimensions": [
+      1536,
+      1024
+    ],
+    "selectedPanel": "right (B adapted to four bamboo)",
+    "originalCrop": {
+      "x": 782,
+      "y": 0,
+      "width": 754,
+      "height": 1024
+    },
+    "rasterDimensions": [
+      300,
+      400
+    ],
+    "rasterMimeType": "image/webp",
+    "rasterSha256": "9ce157ce654326e6246abb5b281ab98a73ae7f1585e4f27024d528aaced907b9",
+    "processing": "Selected right panel cropped from the approved diptych; white divider removed. Complete painting resized to 300 x 400 with Lanczos, WebP quality 80, method 6; no redraw, added border, tile texture or color changes.",
+    "svgSha256": "b27a56b41777865aebd0b6c4e089ec6dc6cb5255da68b5ff27852f4d2234bbcd",
+    "originalStoredInRepository": false,
+    "originalLocation": "Conversation attachment; repository stores the optimized self-contained SVG."
+  }
 }
