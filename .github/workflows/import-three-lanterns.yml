@@ -1,0 +1,41 @@
+name: import approved three lanterns
+
+on:
+  push:
+    branches: [art/van-gogh-three-lanterns]
+    paths: [.lanterns-transfer/ready.json]
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    if: github.repository == 'senegrom/mahjong' && github.ref == 'refs/heads/art/van-gogh-three-lanterns'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: art/van-gogh-three-lanterns
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Assemble and verify the approved artwork
+        run: python3 .lanterns-transfer/install.py
+      - name: Install web test dependencies
+        working-directory: web
+        run: npm ci
+      - name: Check the tile integration
+        working-directory: web
+        run: |
+          node --check scripts/export-van-gogh-tiles.mjs
+          node --test tests/tile-faces.test.js tests/van-gogh-three-lanterns.test.js tests/dali-bamboo.test.js
+          git diff --check
+      - name: Commit only the verified tile integration to its branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/design/van-gogh web/public/tiles/van-gogh web/src/lib/van-gogh-faces.js web/scripts/export-van-gogh-tiles.mjs web/tests/tile-faces.test.js web/tests/van-gogh-three-lanterns.test.js
+          git rm -r .lanterns-transfer
+          git commit -m 'Add approved Three Café Lanterns B for Van Gogh 3 disks'
+          git push origin HEAD:refs/heads/art/van-gogh-three-lanterns
