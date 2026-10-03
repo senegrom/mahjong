@@ -1,0 +1,51 @@
+name: Recover approved Dali high-resolution assets
+on:
+  push:
+    branches: [deploy/dali-bamboo-hires-retry]
+    paths: ['.dali-hires-transfer/**', '.github/workflows/dali-hires-recover.yml']
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Inspect and recover existing GitHub-only image transfer
+        run: |
+          mkdir -p recovered
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          chunks = sorted(Path('.dali-hires-transfer').glob('*.bin'))
+          report = []
+          for p in chunks:
+              b = p.read_bytes()
+              row = {'file': p.name, 'bytes': len(b), 'sha256': hashlib.sha256(b).hexdigest(), 'header': b[:64].hex()}
+              report.append(row)
+              print(json.dumps(row))
+          for name, group in [('three', chunks[:6]), ('four', chunks[6:])]:
+              b = b''.join(p.read_bytes() for p in group)
+              Path('recovered', name + '.bin').write_bytes(b)
+              print(name, len(b), hashlib.sha256(b).hexdigest(), b[:128].hex())
+          Path('recovered/report.json').write_text(json.dumps(report, indent=2))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dali-hires-recovery
+          retention-days: 3
+          include-hidden-files: true
+          path: |
+            recovered
+            .dali-hires-transfer
+            docs/design/dali
+            web/public/tiles/dali
+            web/public/tiles/van-gogh/manifest.json
+            web/src/lib
+            web/scripts/export-dali-tiles.mjs
+            web/tests/dali-*.test.js
+            web/tests/tile-faces.test.js
+            web/package.json
+            web/package-lock.json
