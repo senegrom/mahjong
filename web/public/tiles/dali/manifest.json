@@ -153,6 +153,23 @@
       }
     },
     {
+      "name": "Sou6",
+      "tile": "6s",
+      "label": "6 bamboo",
+      "direction": "The Impossible Reflection — Green C",
+      "status": "approved",
+      "svg": "approved/Sou6.svg",
+      "source": "docs/design/dali/studies/six-bamboo-c-green-approved.svg",
+      "sourceSha256": "174285598c4569561efa7f0832f3b6c34fd52e653ffca6bba5dc3e941c237762",
+      "svgSha256": "174285598c4569561efa7f0832f3b6c34fd52e653ffca6bba5dc3e941c237762",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 450,
+        "height": 600
+      }
+    },
+    {
       "name": "Sou7",
       "tile": "7s",
       "label": "7 bamboo",
@@ -385,10 +402,6 @@
     },
     {
       "tile": "9p",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "6s",
       "svg": "placeholders/placeholder.svg"
     },
     {
