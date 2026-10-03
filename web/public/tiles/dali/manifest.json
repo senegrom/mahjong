@@ -108,13 +108,13 @@
       "status": "approved",
       "svg": "approved/Sou3.svg",
       "source": "docs/design/dali/studies/three-bamboo-a-approved.svg",
-      "sourceSha256": "43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95",
-      "svgSha256": "43741c2f0f26ef70f89044f9a822ecfcffdb95fbdc2f130b7152eb3302363c95",
+      "sourceSha256": "40272a4ec59ec4d663efcd57af66010fdadbeb5607b7800a9b91fecb613153b8",
+      "svgSha256": "40272a4ec59ec4d663efcd57af66010fdadbeb5607b7800a9b91fecb613153b8",
       "crop": {
         "x": 0,
         "y": 0,
-        "width": 300,
-        "height": 400
+        "width": 1086,
+        "height": 1448
       }
     },
     {
@@ -125,13 +125,13 @@
       "status": "approved",
       "svg": "approved/Sou4.svg",
       "source": "docs/design/dali/studies/four-bamboo-b-approved.svg",
-      "sourceSha256": "b27a56b41777865aebd0b6c4e089ec6dc6cb5255da68b5ff27852f4d2234bbcd",
-      "svgSha256": "b27a56b41777865aebd0b6c4e089ec6dc6cb5255da68b5ff27852f4d2234bbcd",
+      "sourceSha256": "e9bf09cc66fa70e4e57935e530ef60c6e139ebc60c4239246c2371a5c0faa2c6",
+      "svgSha256": "e9bf09cc66fa70e4e57935e530ef60c6e139ebc60c4239246c2371a5c0faa2c6",
       "crop": {
         "x": 0,
         "y": 0,
-        "width": 300,
-        "height": 400
+        "width": 1086,
+        "height": 1448
       }
     },
     {

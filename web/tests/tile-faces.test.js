@@ -88,7 +88,8 @@ test('Dali resolves nineteen approved images and placeholders for the rest', () 
     assert.match(svg, /viewBox="0 0 300 400"/);
     if (approved.has(tile)) {
       assert.match(url, /\/dali\/approved\//);
-      assert.match(svg, ['3s', '4s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
+      assert.match(svg, ['3s', '4s'].includes(tile) ? /data:image\/avif;base64,/
+        : ['7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
     }
     else assert.equal(url, 'tiles/dali/placeholders/placeholder.svg');
   }
