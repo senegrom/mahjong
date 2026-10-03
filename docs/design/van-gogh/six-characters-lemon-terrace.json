@@ -1,0 +1,19 @@
+{
+  "tile": "6m",
+  "name": "Man6",
+  "candidate": "Lemon Terrace",
+  "title": "Lemon Terrace",
+  "source": "docs/design/van-gogh/studies/19-six-characters-lemon-terrace-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Man6.svg",
+  "originalFilename": "a_richly_textured_painterly_impressionist_van_go.png",
+  "originalSha256": "5d112801bf30a7e9f16b145c8e84deb71e8e13474b5cfe165189b23c3b4a55f9",
+  "originalDimensions": [1295, 1214],
+  "originalCrop": {"x": 0, "y": 0, "width": 1295, "height": 1214},
+  "rasterDimensions": [300, 400],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "1fb6ccae9c621b881d676d89d79e452ce6b79e44f365dfc89df404de2ea80cf0",
+  "svgSha256": "dcd95ef26e4a2dec009d4d5c12aa8b87cd00a57be03f395349707b5fb3808418",
+  "processing": "Entire approved 1295 x 1214 canvas fitted to the established 300 x 400 game face with Pillow Lanczos and WebP quality 80, method 6. This changes the aspect ratio, matching the set's preserveAspectRatio=none convention; it is not a proportional resize. Standard 26-unit rounded clip and 1% bleed. No selective crop, repainting or colour edits. The committed SVG is a game export, not the full-resolution original.",
+  "approval": "Carl approved GitHub deployment of the latest red 六萬 calligraphy with lemons, cypresses, lake and village as 6 characters (6m). The earlier sunflower study is not selected and no other tile is changed.",
+  "originalPreservation": "Untouched full-resolution PNG preserved in Van_Gogh_6_Characters_Lemon_Terrace_Approved.zip supplied in chat."
+}
