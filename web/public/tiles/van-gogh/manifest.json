@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept. Carl approved the corrected all-green B still life with six bamboo stalks to replace Green Rhythm J for 6s; its complete composition and colours are preserved. Carl selected the first nine-bamboo option, Moonlit Bamboo Wind Chime, and explicitly approved deployment; the nine hanging tubes and complete painted composition are preserved.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept. Carl approved the corrected all-green B still life with six bamboo stalks to replace Green Rhythm J for 6s; its complete composition and colours are preserved. Carl selected the first nine-bamboo option, Moonlit Bamboo Wind Chime, and explicitly approved deployment; the nine hanging tubes and complete painted composition are preserved. Carl approved B, Three Cafe Lanterns, for 3 disks and explicitly requested deployment. The complete selected middle-panel crop is preserved without repainting or recolouring in a documented quality-90 WebP game export.",
   "fallback": "classic",
   "sources": [
     {
@@ -88,6 +88,11 @@
       "id": "nineWindChime",
       "source": "docs/design/van-gogh/studies/16-nine-bamboo-wind-chime-a-approved.svg",
       "sha256": "8085bc2a65d372c8b28fc673063a4fd3de090849e4de6749a96de6c719da74ac"
+    },
+    {
+      "id": "threeLanterns",
+      "source": "docs/design/van-gogh/studies/17-three-disks-cafe-lanterns-b-approved.svg",
+      "sha256": "a5fe322fffbe4717b57897209fca1cbaa737989bb318884a510330c5fb6d8713"
     }
   ],
   "tiles": [
@@ -433,6 +438,24 @@
       "svgSha256": "8085bc2a65d372c8b28fc673063a4fd3de090849e4de6749a96de6c719da74ac",
       "rasterMimeType": "image/webp",
       "rasterSha256": "ab954a7208567a80d87d3be0f0ba15373dd5cc644feb8c766880f404435dc2f3"
+    },
+    {
+      "candidate": "Lanterns B",
+      "tile": "3p",
+      "name": "Pin3",
+      "label": "Three disks",
+      "source": "docs/design/van-gogh/studies/17-three-disks-cafe-lanterns-b-approved.svg",
+      "status": "approved",
+      "svg": "approved/Pin3.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      },
+      "svgSha256": "a5fe322fffbe4717b57897209fca1cbaa737989bb318884a510330c5fb6d8713",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "74d9a2bf1807c3f58a4f5728794d83dfacfdeac1b7fd3400051c35077d57e105"
     }
   ],
   "rejected": [
@@ -476,7 +499,6 @@
     "7m",
     "8m",
     "9m",
-    "3p",
     "4p",
     "6p",
     "7p",
