@@ -1,6 +1,6 @@
 # Van Gogh
 
-**Current set:** 21 painted faces and 13 Classic fallbacks; all nine bamboo identities are covered. Three Café Lanterns B is active for 3 disks, and Moonlit Wind Chime A remains active for 9 bamboo. The development history below retains earlier milestone counts.
+**Current set:** 23 painted faces and 11 Classic fallbacks; all nine bamboo identities are covered. Lemon Terrace is active for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table for 9 disks. The history below retains earlier milestone counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -148,3 +148,11 @@ Carl selected the **first option, The Red Vineyard**, for `5m` / `Man5` (`五萬
 The complete 1086 × 1448 portrait is resized proportionally with Lanczos to a 300 × 400 quality-80 WebP, following the raft and green still-life export convention. The source `docs/design/van-gogh/studies/18-five-characters-vineyard-a-approved.svg` and game `web/public/tiles/van-gogh/approved/Man5.svg` are identical and use the standard rounded clip and 1% bleed. This is an optimized game export, not the full-resolution original PNG. Original, raster and SVG checksums are recorded in `docs/design/van-gogh/five-characters-vineyard.json`; the untouched original is preserved in `Van_Gogh_5_Characters_Vineyard_Approved.zip` supplied in chat.
 
 Regenerate only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=5m`. All 21 previously approved Van Gogh faces and all other sets remain unchanged. This addition brings the set to **22 painted faces and 12 Classic fallbacks**, with all nine bamboo faces preserved.
+
+## Lemon Terrace — 6 characters (六萬)
+
+Carl approved the latest red 六萬 calligraphy with lemons, cypresses, a lake and village for `6m` / `Man6`. This is the selected character painting, not the earlier sunflower study. No existing tile artwork is changed.
+
+The complete 1295 × 1214 source is fitted to the shared 300 × 400 face using Lanczos and quality-80 WebP, embedded in a self-contained SVG with the usual rounded clip and 1% bleed. Fitting changes the aspect ratio; it is not a proportional resize. There is no selective cropping, repainting or colour edit. The unchanged full-resolution original is preserved in `Van_Gogh_6_Characters_Lemon_Terrace_Approved.zip` supplied in chat. See `docs/design/van-gogh/six-characters-lemon-terrace.json` for original, raster and SVG hashes.
+
+The set now has **23 painted faces and 11 Classic fallbacks**. `node web/scripts/export-van-gogh-tiles.mjs --only=6m` copies the approved source to the game exactly without rewriting other faces. Regression tests cover hashes, registration, preloading, hidden tiles, the fourteen-tile preview hand and repeated selective export.

@@ -15,11 +15,11 @@ const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', 
 const faces = TILE_FACE_OPTIONS.map(face => face.value);
 
 test('Van Gogh preserves selected Almond Branches, East A and North B, excludes K and uses L for white dragon', () => {
-  const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z', '2m', '4m', '2s', '4s', '7s', '8s', '5s', '9s', '3p', '5m'];
+  const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z', '2m', '4m', '2s', '4s', '7s', '8s', '5s', '9s', '3p', '5m', '6m'];
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'Disks C', 'Six B (green)', 'L', 'East A', 'North B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'Disks C', 'Six B (green)', 'L', 'East A', 'North B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Lemon Terrace']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -80,16 +80,15 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('Dali resolves nineteen approved images and placeholders for the rest', () => {
-  const approved = new Set(['1p', '3p', '5p', '1s', '2s', '3s', '4s', '5s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '7z']);
+test('Dali resolves twenty approved images and placeholders for the rest', () => {
+  const approved = new Set(['1p', '3p', '5p', '1s', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '7z']);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'dali');
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
     assert.match(svg, /viewBox="0 0 300 400"/);
     if (approved.has(tile)) {
       assert.match(url, /\/dali\/approved\//);
-      assert.match(svg, ['3s', '4s'].includes(tile) ? /data:image\/avif;base64,/
-        : ['7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
+      assert.match(svg, ['3s', '4s'].includes(tile) ? /data:image\/avif;base64,/ : ['3s', '4s', '6s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
     }
     else assert.equal(url, 'tiles/dali/placeholders/placeholder.svg');
   }
@@ -98,6 +97,7 @@ test('Dali resolves nineteen approved images and placeholders for the rest', () 
   assert.equal(tileImage('3s', 'dali'), 'tiles/dali/approved/Sou3.svg');
   assert.equal(tileImage('4s', 'dali'), 'tiles/dali/approved/Sou4.svg');
   assert.equal(tileImage('5s', 'dali'), 'tiles/dali/approved/Sou5.svg');
+  assert.equal(tileImage('6s', 'dali'), 'tiles/dali/approved/Sou6.svg');
   assert.equal(tileImage('7s', 'dali'), 'tiles/dali/approved/Sou7.svg');
   assert.equal(tileImage('8s', 'dali'), 'tiles/dali/approved/Sou8.svg');
   assert.equal(tileImage('9s', 'dali'), 'tiles/dali/approved/Sou9.svg');
@@ -188,7 +188,7 @@ test('the real Tile component respects the selected face and hidden state', asyn
     assert.match(vanGoghWhite, /\bringed\b/);
     assert.match(vanGoghWhite, /class="foil/);
     assert.doesNotMatch(vanGoghWhite, /haku-dragon-reveal|Haku-foil/);
-    for (const tile of ['1z', '4z', '2m', '4m', '2s', '3s', '4s', '6s', '7s', '8s', '5s', '9s', '3p', '5m']) {
+    for (const tile of ['1z', '4z', '2m', '4m', '2s', '3s', '4s', '6s', '7s', '8s', '5s', '9s', '3p', '5m', '6m']) {
       const wind = show(tile, 'van-gogh', { dora: true, size: 'small' });
       assert.match(wind, /\bvan-gogh\b/);
       assert.match(wind, /\bringed\b/);

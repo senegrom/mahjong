@@ -1,0 +1,24 @@
+{
+  "tile": "6s",
+  "name": "Sou6",
+  "status": "approved",
+  "direction": "The Impossible Reflection — Green C",
+  "source": "docs/design/dali/studies/six-bamboo-c-green-approved.svg",
+  "runtime": "web/public/tiles/dali/approved/Sou6.svg",
+  "selectedOption": "C (third), green-hued revision",
+  "originalFilename": "emerald_oasis_in_a_surreal_landscape.png",
+  "originalSha256": "233988575615df0c4a4247b0f3ca05b67aad37a0135274b21e281fc79c280da6",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalStoredInRepository": false,
+  "rasterDimensions": [
+    450,
+    600
+  ],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "b71742d237ae7bce1595ec0baecac878c666f27949a2ccceb1b696e4ee6676ea",
+  "processing": "Complete approved green-hued third portrait resized with Lanczos to 450 x 600 and encoded as WebP quality 80, method 6. No crop, redraw, added tile background, border or further colour changes.",
+  "svgSha256": "174285598c4569561efa7f0832f3b6c34fd52e653ffca6bba5dc3e941c237762"
+}

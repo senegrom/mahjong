@@ -67,10 +67,10 @@ const FACES = [
   },
 ];
 
-test('nineteen approved identities and fifteen placeholders cover the thirty-four tiles once', () => {
-  assert.deepEqual([...DALI_APPROVED], ['1p', '3p', '5p', '1s', '2s', '3s', '4s', '5s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '7z']);
-  assert.equal(set.tiles.length, 19);
-  assert.equal(set.placeholders.length, 15);
+test('twenty approved identities and fourteen placeholders cover the thirty-four tiles once', () => {
+  assert.deepEqual([...DALI_APPROVED], ['1p', '3p', '5p', '1s', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '7z']);
+  assert.equal(set.tiles.length, 20);
+  assert.equal(set.placeholders.length, 14);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   const identities = [...set.tiles, ...set.placeholders].map(entry => entry.tile);
   assert.equal(new Set(identities).size, 34);
@@ -78,9 +78,7 @@ test('nineteen approved identities and fifteen placeholders cover the thirty-fou
   assert.equal(DALI_APPROVED.includes('3s'), true);
   assert.equal(tileImage('3s', 'dali'), 'tiles/dali/approved/Sou3.svg');
   assert.equal(tileImage('4s', 'dali'), 'tiles/dali/approved/Sou4.svg');
-  for (const tile of ['6s']) {
-    assert.equal(tileImage(tile, 'dali'), 'tiles/dali/placeholders/placeholder.svg');
-  }
+  assert.equal(tileImage('6s', 'dali'), 'tiles/dali/approved/Sou6.svg');
   assert.equal(tileImage('5s', 'dali'), 'tiles/dali/approved/Sou5.svg');
 });
 
@@ -151,8 +149,8 @@ test('nine bamboo is represented in both reproducible export definitions and the
   assert.match(exporter, /\['Sou9', '9s', '9 bamboo', 'The Surreal Grove', 'nine-bamboo-surreal-grove-approved.svg', \[0, 0, 300, 400\]\]/);
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou9.svg'));
-  assert.ok(preview.includes('19 approved faces'));
-  assert.ok(preview.includes('remaining 15 tiles'));
+  assert.ok(preview.includes('20 approved faces'));
+  assert.ok(preview.includes('remaining 14 tiles'));
 });
 
 test('all existing PNG-backed Dali exports retain their recorded source and raster hashes', () => {
@@ -171,8 +169,8 @@ test('eight bamboo is the greener revision in the exporter, preview and provenan
   assert.match(exporter, /\['Sou8', '8s', '8 bamboo', 'Emerald Moonlit Seascape', 'eight-bamboo-emerald-moonlit-approved.svg', \[0, 0, 300, 400\]\]/);
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou8.svg'));
-  assert.ok(preview.includes('19 approved faces'));
-  assert.ok(preview.includes('remaining 15 tiles'));
+  assert.ok(preview.includes('20 approved faces'));
+  assert.ok(preview.includes('remaining 14 tiles'));
   const provenance = JSON.parse(readFileSync(new URL('docs/design/dali/eight-bamboo.json', root), 'utf8'));
   const face = FACES.find(entry => entry.tile === '8s');
   assert.equal(provenance.originalSha256, face.original);
@@ -198,8 +196,8 @@ test('three bamboo preserves the approved high-resolution A portrait and is repr
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou3.svg'));
   assert.ok(preview.includes('The Bamboo That Tied Itself'));
-  assert.ok(preview.includes('19 approved faces'));
-  assert.ok(preview.includes('remaining 15 tiles'));
+  assert.ok(preview.includes('20 approved faces'));
+  assert.ok(preview.includes('remaining 14 tiles'));
 });
 
 test('four bamboo preserves the approved high-resolution B portrait and is reproducibly exported and previewed', () => {
@@ -221,8 +219,8 @@ test('four bamboo preserves the approved high-resolution B portrait and is repro
   const preview = readFileSync(new URL('tiles/dali/preview.html', publicRoot), 'utf8');
   assert.ok(preview.includes('approved/Sou4.svg'));
   assert.ok(preview.includes('The Sleeping Landscape'));
-  assert.ok(preview.includes('19 approved faces'));
-  assert.ok(preview.includes('remaining 15 tiles'));
+  assert.ok(preview.includes('20 approved faces'));
+  assert.ok(preview.includes('remaining 14 tiles'));
   // Three bamboo uses the separately approved high-resolution A portrait.
   const three = set.tiles.find(entry => entry.tile === '3s');
   assert.equal(three.source, 'docs/design/dali/studies/three-bamboo-a-approved.svg');
