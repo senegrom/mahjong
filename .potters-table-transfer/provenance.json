@@ -1,0 +1,29 @@
+{
+  "tile": "9p",
+  "name": "Pin9",
+  "candidate": "Disks C",
+  "title": "The Potter’s Table",
+  "source": "docs/design/van-gogh/studies/17-nine-disks-potters-table-c-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Pin9.svg",
+  "originalFilename": "a_clean_composition_with_two_main_areas_on_the_le.png",
+  "originalDimensions": [1295, 1214],
+  "originalBytes": 2515223,
+  "originalSha256": "dcd5614654e482e650982f9fe7e98a9b22e834219fea0fec4effc3deb268e209",
+  "originalCrop": { "x": 551, "y": 56, "width": 729, "height": 1093 },
+  "fullResolutionCropSha256": "f81be31b80ba4d9eb0f80e3bf3efb565a824dce9fc2ad3741ca9a21df4276c07",
+  "rasterMimeType": "image/webp",
+  "rasterDimensions": [300, 400],
+  "rasterBytes": 77626,
+  "rasterSha256": "847c979c08614d41bbcaab6c802e100050b4d684de46c6474eff7aa348d2d670",
+  "svgSha256": "7bfed3b794e8a09dc61f2020662d9c70572d883f05194267df07f535778591b1",
+  "processing": "Crop the selected right-hand C painting only; exclude the inaccurate checklist and exterior margin. Resize the complete selected composition to 300 x 400 using Pillow Lanczos; WebP quality 95, method 6. Embed it in the standard 300 x 400 SVG with radius 26 and 1% bleed. No repainting, recolouring or symbols added. This is a game-sized export, not the full-resolution lossless original.",
+  "approval": "Carl explicitly selected C — The Potter’s Table from the final artwork-only A/B/C board and requested GitHub deployment. Replace the existing Nine Stars I face for 9p only.",
+  "originalPreservation": "Untouched composite and lossless selected crop preserved in van-gogh-nine-disks-potters-table-C-originals.zip supplied in chat. The original composite’s checklist is inaccurate and is not used as a set inventory.",
+  "supersedes": {
+    "candidate": "I",
+    "title": "Nine Stars",
+    "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+    "archivedPng": "docs/design/van-gogh/superseded/nine-stars-Pin9.png",
+    "archivedSvg": "docs/design/van-gogh/superseded/nine-stars-Pin9.svg"
+  }
+}
