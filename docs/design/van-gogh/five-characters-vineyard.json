@@ -1,0 +1,19 @@
+{
+  "tile": "5m",
+  "name": "Man5",
+  "candidate": "Vineyard A",
+  "title": "The Red Vineyard",
+  "source": "docs/design/van-gogh/studies/18-five-characters-vineyard-a-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Man5.svg",
+  "originalFilename": "vineyard_characters_at_golden_sunset.png",
+  "originalSha256": "770fcd714d8d8e99990e73a78389989bcb7d1b6ebc8c1229e62062c288c9503a",
+  "originalDimensions": [1086, 1448],
+  "originalCrop": {"x": 0, "y": 0, "width": 1086, "height": 1448},
+  "rasterDimensions": [300, 400],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "c7b5707a3a4ac45425326ba9f38d29b47d5cb52b0a3f2a9d80d1ee5e561e7922",
+  "svgSha256": "167d067218dcb1a9ae71ba43e0f4d4552ef39057c84c6f0d7f52ec566a3a9280",
+  "processing": "Complete approved portrait resized proportionally to 300 x 400 with Pillow Lanczos, then encoded as WebP quality 80, method 6; standard rounded SVG clip and 1% bleed. No repainting, recolouring or selective cropping. This is an optimized game export, not the lossless full-resolution original.",
+  "approval": "Carl selected the first option, the vineyard painting, for 5 characters (5m / 五萬) and explicitly requested GitHub deployment. The wheat and iris alternatives are not used.",
+  "originalPreservation": "Untouched full-resolution source PNG included in Van_Gogh_5_Characters_Vineyard_Approved.zip supplied in chat."
+}
