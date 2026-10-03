@@ -1,8 +1,8 @@
 # Van Gogh
 
-Choose **Options → Tile face → Van Gogh**. The nineteen approved faces appear in hands, discards, melds, indicators, waits, agent modes, reviews and scoring. The preference is saved on this device, and the new faces are included in preloading and offline preparation.
+Choose **Options → Tile face → Van Gogh**. The twenty approved faces appear in hands, discards, melds, indicators, waits, agent modes, reviews and scoring. The preference is saved on this device, and the new faces are included in preloading and offline preparation.
 
-The selected studies are A–B, E, G–I and L, plus **Green Still Life B** replacing J for 6 bamboo, **Copper Sunset** for 5 bamboo, **Bamboo Raft** for 8 bamboo, **Seven with Irises C** for 7 bamboo, green Moonlit Four C for 4 bamboo, green Triple Shoots A for 3 bamboo, green Garden Rhythm B for 2 bamboo, **Almond Branches (Characters A)** for 3 of characters, **Night Cafe (Characters B)** for 2 of characters, **Cypress Fields (Characters C)** for 4 of characters, **Blazing Dawn (East A)** and **Wind Ribbons (North B)**. Almond Branches replaces the earlier Painted Letters D. White dragon uses the later, simpler L. East wind K is excluded. The other 15 identities awaiting Van Gogh artwork use their Classic faces. Hidden tiles keep the shared back. The white dragon retains its own pale dragon under the normal dora ring and foil sheen.
+The selected studies are A–B, E, G–I and L, plus **Green Still Life B** replacing J for 6 bamboo, **Copper Sunset** for 5 bamboo, **Moonlit Wind Chime A** for 9 bamboo, **Bamboo Raft** for 8 bamboo, **Seven with Irises C** for 7 bamboo, green Moonlit Four C for 4 bamboo, green Triple Shoots A for 3 bamboo, green Garden Rhythm B for 2 bamboo, **Almond Branches (Characters A)** for 3 of characters, **Night Cafe (Characters B)** for 2 of characters, **Cypress Fields (Characters C)** for 4 of characters, **Blazing Dawn (East A)** and **Wind Ribbons (North B)**. Almond Branches replaces the earlier Painted Letters D. White dragon uses the later, simpler L. East wind K is excluded. The other 14 identities awaiting Van Gogh artwork use their Classic faces. Hidden tiles keep the shared back. The white dragon retains its own pale dragon under the normal dora ring and foil sheen.
 
 The [preview](preview.html) shows the actual exports and a mixed hand. The [manifest](manifest.json) records approval, source hashes and exact crop rectangles. [Design studies](../../../../docs/design/van-gogh/README.md) preserve the original boards and generation prompts; the [raft record](../../../../docs/design/van-gogh/eight-bamboo-raft.json) records eight bamboo, and the [green still-life record](../../../../docs/design/van-gogh/six-bamboo-green-still-life.json) records the six-bamboo replacement.
 
@@ -73,3 +73,13 @@ node web/scripts/export-van-gogh-tiles.mjs --only=6s
 ```
 
 This copies the approved B SVG exactly and leaves the other eighteen faces unchanged, including Copper Sunset, the raft and Seven with Irises. The set remains at **19 painted faces and 15 Classic fallbacks**. Focused regressions cover the approved image hashes, replacement of J, registration, the 14-tile preview hand and isolated export preservation.
+
+## Moonlit Bamboo Wind Chime — 9 bamboo
+
+Carl selected the **first option, Wind Chime A**, for `9s` / `Sou9` and explicitly requested deployment. Nine hanging bamboo tubes are arranged in three groups of three against a swirling cobalt sky and golden moon. The support rail, copper-orange cords, foliage and village remain part of the exact approved painting. No repainting, recolouring or additional symbols were applied.
+
+The source `docs/design/van-gogh/studies/16-nine-bamboo-wind-chime-a-approved.svg` and playable `web/public/tiles/van-gogh/approved/Sou9.svg` are byte-for-byte identical. They embed a proportional 300 × 400 quality-80 WebP export of the complete 1086 × 1448 portrait, with the shared rounded clipping and 1% bleed. This is a game-sized export, not the full-resolution original. Original, raster and SVG hashes are recorded in `docs/design/van-gogh/nine-bamboo-wind-chime.json`; the untouched original is preserved in `Van_Gogh_9_Bamboo_Wind_Chime_Approved.zip` supplied in chat.
+
+Run `node web/scripts/export-van-gogh-tiles.mjs --only=9s` to reproduce the approved SVG, registration, manifest and preview without rewriting any other tile artwork.
+
+This addition completes **all nine bamboo identities**. The set now has **20 painted faces and 14 Classic fallbacks**. All nineteen previously approved faces are unchanged.
