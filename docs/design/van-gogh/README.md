@@ -133,6 +133,14 @@ Source `docs/design/van-gogh/studies/17-three-disks-cafe-lanterns-b-approved.svg
 
 Run `node web/scripts/export-van-gogh-tiles.mjs --only=3p` to reproduce the game SVG, registration, manifest and preview without rewriting other artwork. This addition brings the set to **21 painted faces and 13 Classic fallbacks**. All twenty previously approved faces, including the complete bamboo suit, are unchanged.
 
+## The Potter’s Table C — 9 disks replacement
+
+Carl selected **C — The Potter’s Table** from the final artwork-only comparison and requested deployment. It replaces **I — Nine Stars** for `9p` / `Pin9`: nine blue-and-cream patterned plates in a three-by-three arrangement, with a wooden table, sunflower corners and swirling sky. This is the selected painting, not a regeneration.
+
+Only the right-hand painting is cropped from the original composite at `[551, 56, 729, 1093]`; its inaccurate checklist and exterior margin are excluded. The complete selected crop is resized to a 300 × 400 quality-95 WebP and embedded in the standard SVG. This game export is not the lossless full-resolution original. Original, crop, embedded-raster and SVG checksums are recorded in `docs/design/van-gogh/nine-disks-potters-table-c.json`. The untouched original and lossless selected crop are preserved in the downloadable `van-gogh-nine-disks-potters-table-C-originals.zip` supplied in chat.
+
+The original Nine Stars PNG and SVG are preserved byte-for-byte under `docs/design/van-gogh/superseded/nine-stars-Pin9.*`; the earlier study board is untouched. The stale Nine Stars PNG is removed from the playable directory after archiving. All other artwork is unchanged. This replacement retains **21 approved faces and 13 Classic fallbacks**. Regenerate only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=9p`.
+
 ## The Red Vineyard A — 5 characters
 
 Carl selected the **first option, The Red Vineyard**, for `5m` / `Man5` (`五萬`) and explicitly requested deployment. Copper-red vines and grape clusters form the characters over the golden vineyard landscape. The wheat and iris alternatives are not used. The entire approved composition and colours are retained without repainting or recolouring.
