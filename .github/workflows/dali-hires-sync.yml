@@ -68,13 +68,14 @@ jobs:
               if 'assert.match(svg, [' in line and '/data:image\\/webp;base64,/' in line:
                   lines[i]=line.replace('assert.match(svg, ',"assert.match(svg, ['3s', '4s'].includes(tile) ? /data:image\\/avif;base64,/ : "); changed+=1
           assert changed==1; put(fp,''.join(lines))
-          Path(files[2]).write_text(get('origin/main',files[2]))
-          art=Path('web/public/tiles/dali/approved')
-          preserved={str(p):p.read_bytes() for p in art.glob('*') if p.name not in ('Sou3.svg','Sou4.svg')}
-          subprocess.run(['node','web/scripts/export-dali-tiles.mjs'],check=True)
-          assert all(Path(p).read_bytes()==b for p,b in preserved.items()), 'An unrelated tile changed during export'
-          actual=json.loads(Path(mp).read_text())
-          assert actual==main, 'Exporter did not preserve the merged manifest'
+          preview=get('origin/main',files[2])
+          preview,n=re.subn(r'Four bamboo uses B — The Sleeping Landscape:.*?East wind uses',intro+'East wind uses',preview,count=1); assert n==1
+          preview=preview.replace('extracted from the selected panel without its border or caption.','using its approved high-resolution standalone portrait.')
+          put(files[2],preview)
+          for entry in main['tiles']:
+              runtime='web/public/tiles/dali/'+entry['svg']
+              expected=get(ours,runtime).encode() if entry['tile'] in ('3s','4s') else subprocess.check_output(['git','show','origin/main:'+runtime])
+              assert Path(runtime).read_bytes()==expected, runtime+' was changed unexpectedly'
           subprocess.run(['git','add',*files],check=True)
           assert not subprocess.check_output(['git','diff','--name-only','--diff-filter=U']).strip()
           print('Preserved all',count-2,'other approved Dalí identities and concurrent Van Gogh changes.')
