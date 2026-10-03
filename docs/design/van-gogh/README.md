@@ -1,6 +1,6 @@
 # Van Gogh
 
-**Current set:** 20 painted faces and 14 Classic fallbacks; all nine bamboo identities are now covered. The approved Moonlit Wind Chime A is active for 9 bamboo. The development history below retains earlier milestone counts.
+**Current set:** 21 painted faces and 13 Classic fallbacks; all nine bamboo identities are covered. Three Café Lanterns B is active for 3 disks, and Moonlit Wind Chime A remains active for 9 bamboo. The development history below retains earlier milestone counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -122,3 +122,13 @@ The source `docs/design/van-gogh/studies/16-nine-bamboo-wind-chime-a-approved.sv
 Run `node web/scripts/export-van-gogh-tiles.mjs --only=9s` to reproduce the approved SVG, registration, manifest and preview without rewriting any other tile artwork.
 
 This addition completes **all nine bamboo identities**. The set now has **20 painted faces and 14 Classic fallbacks**. All nineteen previously approved faces are unchanged.
+
+## Three Café Lanterns B — 3 disks
+
+Carl selected **B — Three Café Lanterns**, the middle panel of the three-disk concept board, for `3p` / `Pin3` and explicitly approved deployment. Three large golden lanterns hang above the night café. No repainting, recolouring, additional lanterns or symbol substitutions were applied.
+
+The caption and presentation gutters are excluded with the exact `[503, 127, 442, 860]` crop from the original 1448 × 1086 board. Its entire composition is resized to the shared 300 × 400 game canvas using Lanczos and encoded as quality-90 WebP. This is an optimized game export, not a full-resolution or lossless copy. The untouched board and full-resolution selected PNG remain in the approval archive `van-gogh-3-disks-lanterns-prepared.zip` supplied in chat.
+
+Source `docs/design/van-gogh/studies/17-three-disks-cafe-lanterns-b-approved.svg` and runtime `web/public/tiles/van-gogh/approved/Pin3.svg` are byte-for-byte identical. The embedded image uses the existing 26-unit rounded clipping and 1% bleed. Original-board, full-resolution-crop, WebP and SVG checksums are recorded in `docs/design/van-gogh/three-disks-lanterns.json`.
+
+Run `node web/scripts/export-van-gogh-tiles.mjs --only=3p` to reproduce the game SVG, registration, manifest and preview without rewriting other artwork. This addition brings the set to **21 painted faces and 13 Classic fallbacks**. All twenty previously approved faces, including the complete bamboo suit, are unchanged.
