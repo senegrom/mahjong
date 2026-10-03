@@ -1,0 +1,113 @@
+name: Preserve concurrent artwork and verify high-resolution bamboo
+on:
+  push:
+    branches: [deploy/dali-bamboo-hires-retry]
+    paths: ['.github/workflows/dali-hires-sync.yml']
+permissions:
+  contents: write
+jobs:
+  synchronize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: deploy/dali-bamboo-hires-retry
+          fetch-depth: 0
+      - name: Preserve new Six Bamboo and Van Gogh artwork from main
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git merge --no-commit --no-ff origin/main || test "$(git diff --name-only --diff-filter=U | wc -l)" -gt 0
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, re, subprocess, hashlib
+          ours = '27e86a538a24a30c6d3d561419b8cc65d708ff11'
+          def get(ref, path): return subprocess.check_output(['git','show',ref+':'+path]).decode()
+          def put(path, text): Path(path).write_text(text)
+          files = ['docs/design/dali/README.md','web/public/tiles/dali/manifest.json','web/public/tiles/dali/preview.html','web/scripts/export-dali-tiles.mjs','web/tests/dali-bamboo.test.js','web/tests/tile-faces.test.js']
+          conflicts = subprocess.check_output(['git','diff','--name-only','--diff-filter=U']).decode().splitlines()
+          assert set(conflicts) <= set(files), conflicts
+          mp = files[1]
+          main = json.loads(get('origin/main',mp)); selected = json.loads(get(ours,mp))
+          for tile in ('3s','4s'):
+              index = next(i for i,e in enumerate(main['tiles']) if e['tile']==tile)
+              main['tiles'][index] = next(e for e in selected['tiles'] if e['tile']==tile)
+          put(mp,json.dumps(main,ensure_ascii=False,indent=2)+'\n')
+          count = len(main['tiles']); remaining = len(main['placeholders'])
+          ep = files[3]; e = get('origin/main',ep); old = get(ours,ep)
+          for name in ('Sou3','Sou4'):
+              pattern = r"^  \['"+name+r"'.*$"
+              replacement = re.search(pattern,old,re.M).group()
+              e,n = re.subn(pattern,lambda m:replacement,e,flags=re.M); assert n==1
+          intro = 'Three and four bamboo use the approved standalone high-resolution portraits at their full 1086 × 1448 pixel dimensions. Both embed full-dimension AVIF artwork; the 300 × 400 SVG viewBox controls game layout only. '
+          e,n = re.subn(r'Four bamboo uses B — The Sleeping Landscape:.*?East wind uses',intro+'East wind uses',e,count=1); assert n==1
+          e=e.replace('extracted from the selected panel without its border or caption.','using its approved high-resolution standalone portrait.')
+          put(ep,e)
+          rp=files[0]; r=get('origin/main',rp); old=get(ours,rp)
+          for word in ('Three','Four'):
+              pattern=r'^'+word+r' bamboo uses .*$'
+              replacement=re.search(pattern,old,re.M).group()
+              r,n=re.subn(pattern,lambda m:replacement,r,flags=re.M); assert n==1
+          r=r.replace('The existing three-bamboo A artwork is unchanged.','Three and four bamboo now use the approved full-resolution 1086 × 1448 portraits.')
+          put(rp,r)
+          tp=files[4]; t=get('origin/main',tp); old=get(ours,tp)
+          for tile in ('3s','4s'):
+              def bounds(s):
+                  a=s.index("  {\n    tile: '"+tile+"'"); return a,s.index('\n  },',a)+len('\n  },')
+              a,b=bounds(t); x,y=bounds(old); t=t[:a]+old[x:y]+t[b:]
+          a=t.index('  test(`${face.words}: the embedded'); b=t.index('  test(`${face.words} preloads',a)
+          x=old.index('  test(`${face.words}: the embedded'); y=old.index('  test(`${face.words} preloads',x)
+          t=t[:a]+old[x:y]+t[b:]
+          a=t.index("test('three bamboo "); x=old.index("test('three bamboo ")
+          tail=old[x:].replace('19 approved faces',f'{count} approved faces').replace('remaining 15 tiles',f'remaining {remaining} tiles')
+          t=t[:a]+tail; put(tp,t)
+          fp=files[5]; f=get('origin/main',fp); lines=f.splitlines(keepends=True); changed=0
+          for i,line in enumerate(lines):
+              if 'assert.match(svg, [' in line and '/data:image\\/webp;base64,/' in line:
+                  lines[i]=line.replace('assert.match(svg, ',"assert.match(svg, ['3s', '4s'].includes(tile) ? /data:image\\/avif;base64,/ : "); changed+=1
+          assert changed==1; put(fp,''.join(lines))
+          Path(files[2]).write_text(get('origin/main',files[2]))
+          art=Path('web/public/tiles/dali/approved')
+          preserved={str(p):p.read_bytes() for p in art.glob('*') if p.name not in ('Sou3.svg','Sou4.svg')}
+          subprocess.run(['node','web/scripts/export-dali-tiles.mjs'],check=True)
+          assert all(Path(p).read_bytes()==b for p,b in preserved.items()), 'An unrelated tile changed during export'
+          actual=json.loads(Path(mp).read_text())
+          assert actual==main, 'Exporter did not preserve the merged manifest'
+          subprocess.run(['git','add',*files],check=True)
+          assert not subprocess.check_output(['git','diff','--name-only','--diff-filter=U']).strip()
+          print('Preserved all',count-2,'other approved Dalí identities and concurrent Van Gogh changes.')
+          PY
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install pinned dependencies and verify merged tile suite
+        run: |
+          mkdir -p hires-evidence
+          cd web
+          npm ci
+          set -o pipefail
+          node --test tests/dali-*.test.js tests/tile-faces.test.js tests/van-gogh-six-characters.test.js | tee ../hires-evidence/merged-tests.txt
+          npx eslint tests/dali-bamboo.test.js tests/tile-faces.test.js scripts/export-dali-tiles.mjs --max-warnings 0
+      - name: Recheck both high-resolution browser renderings
+        run: |
+          mkdir -p .dali-hires-transfer
+          git show aabff5bc6e549cbd1589b1a01809db789b0cb814:.dali-hires-transfer/browser.mjs > .dali-hires-transfer/browser.mjs
+          node .dali-hires-transfer/browser.mjs
+          rm .dali-hires-transfer/browser.mjs
+          rmdir .dali-hires-transfer
+      - name: Commit verified merge and remove one-off workflow
+        run: |
+          git rm .github/workflows/dali-hires-sync.yml
+          git add docs/design/dali web/public/tiles/dali web/scripts/export-dali-tiles.mjs web/tests/dali-bamboo.test.js web/tests/tile-faces.test.js
+          git commit -m 'Preserve concurrent Six Bamboo and Van Gogh art with verified high-resolution 3 and 4 Bamboo'
+          git push origin HEAD:deploy/dali-bamboo-hires-retry
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: dali-bamboo-hires-merged-verification
+          path: hires-evidence
+          retention-days: 7
