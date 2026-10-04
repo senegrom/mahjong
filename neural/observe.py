@@ -45,24 +45,35 @@ class Planes:
     minibatch is made dense on the card, where the zeros cost nothing to
     write and the whole batch is a few hundred megabytes rather than the
     round being gigabytes on the host.
+
+    `trusted` marks planes this process's encoder wrote this step, every
+    value of which Mortal's encoder writes between 0 and 1: making them
+    dense still checks that every column is in bounds, but not that every
+    value is finite, which was most of the check's cost on each step's
+    thousands of rows. The rows and slices of such planes are trusted too;
+    anything stacked, saved or loaded is not, and is checked in full.
     """
 
-    __slots__ = ("indptr", "indices", "values")
+    __slots__ = ("indptr", "indices", "values", "trusted")
     ARRAYS = ("indptr", "indices", "values")
 
-    def __init__(self, indptr: np.ndarray, indices: np.ndarray, values: np.ndarray) -> None:
+    def __init__(
+        self, indptr: np.ndarray, indices: np.ndarray, values: np.ndarray, trusted: bool = False
+    ) -> None:
         self.indptr = indptr
         self.indices = indices
         self.values = values
+        self.trusted = trusted
 
     @classmethod
-    def from_follower(cls, indptr, indices, values) -> Planes:
+    def from_follower(cls, indptr, indices, values, trusted: bool = False) -> Planes:
         """From what the follower's `encode` returned: the offsets widened
         so a round's worth of entries can be counted, the values halved."""
         return cls(
             np.asarray(indptr, dtype=np.int64),
             np.asarray(indices, dtype=np.uint16),
             np.asarray(values, dtype=np.float16),
+            trusted=trusted,
         )
 
     @classmethod
@@ -80,8 +91,10 @@ class Planes:
     def nnz(self) -> int:
         return int(self.indptr[-1])
 
-    def validate(self, expected_rows: int | None = None) -> None:
-        """Check untrusted arrays before a column can address another observation."""
+    def validate(self, expected_rows: int | None = None, finite: bool = True) -> None:
+        """Check untrusted arrays before a column can address another
+        observation. `finite=False` leaves out the check that every value
+        is finite, and only that."""
         if (any(not isinstance(a, np.ndarray) or a.ndim != 1
                 for a in (self.indptr, self.indices, self.values))
                 or self.indptr.dtype != np.dtype(np.int64)
@@ -96,30 +109,42 @@ class Planes:
         for start in range(0, self.nnz, 1_000_000):
             stop = start + 1_000_000
             if (np.any(self.indices[start:stop] >= WIDTH)
-                    or not np.isfinite(self.values[start:stop]).all()):
+                    or finite and not np.isfinite(self.values[start:stop]).all()):
                 raise ValueError("Sparse observation columns must be in bounds and values finite")
 
     def rows(self, rows: np.ndarray) -> Planes:
-        """The rows asked for, in that order. Works on memory maps: the
-        entries of each row are contiguous, so a sorted `rows` reads the
-        file forwards."""
+        """The rows asked for, in that order, copied. Works on memory maps:
+        the entries of each row are contiguous, so each row is one slice
+        of the source, and a sorted `rows` reads the file forwards."""
         rows = np.asarray(rows, dtype=np.int64)
         starts = self.indptr[rows]
-        counts = self.indptr[rows + 1] - starts
+        ends = self.indptr[rows + 1]
+        counts = ends - starts
+        if len(counts) and counts.min() < 0:
+            raise ValueError("rows must be within the observations")
         indptr = np.zeros(len(rows) + 1, dtype=np.int64)
         np.cumsum(counts, out=indptr[1:])
         total = int(indptr[-1])
-        # Every entry's place in the source: its row's start plus its
-        # offset within the row.
-        within = np.arange(total, dtype=np.int64) - np.repeat(indptr[:-1], counts)
-        flat = np.repeat(starts, counts) + within
-        return Planes(indptr, np.asarray(self.indices[flat]), np.asarray(self.values[flat]))
+        indices = np.empty(total, dtype=self.indices.dtype)
+        values = np.empty(total, dtype=self.values.dtype)
+        if total:
+            # A slice a row, copied in one pass. Naming every entry's
+            # place in the source instead, and gathering by it, cost ten
+            # to twenty times as much. The slices are cut from plain views
+            # of the arrays, which copy nothing: a memory map's own slices
+            # take twice as long to make.
+            source_indices, source_values = np.asarray(self.indices), np.asarray(self.values)
+            spans = list(zip(starts.tolist(), ends.tolist()))
+            np.concatenate([source_indices[a:b] for a, b in spans], out=indices)
+            np.concatenate([source_values[a:b] for a, b in spans], out=values)
+        return Planes(indptr, indices, values, trusted=self.trusted)
 
     def slice(self, start: int, stop: int) -> Planes:
         """Rows `start` to `stop`, a contiguous view."""
         stop = min(stop, len(self))
         lo, hi = int(self.indptr[start]), int(self.indptr[stop])
-        return Planes(self.indptr[start : stop + 1] - lo, self.indices[lo:hi], self.values[lo:hi])
+        return Planes(self.indptr[start : stop + 1] - lo, self.indices[lo:hi], self.values[lo:hi],
+                      trusted=self.trusted)
 
     def dense(self, device: str | torch.device) -> torch.Tensor:
         """The rows as float32 planes on `device`, shape (rows, PLANES, 34).
@@ -128,7 +153,7 @@ class Planes:
         and are widened there: widening them on the host first cost more
         than the copy. Torch has no unsigned 16-bit kind, so the indices
         travel as signed and are put right on the card."""
-        self.validate()
+        self.validate(finite=not self.trusted)
         n = len(self)
         out = torch.zeros(n * WIDTH, dtype=torch.float32, device=device)
         nnz = self.nnz
@@ -366,12 +391,17 @@ class Views:
             self._step = None
             return
         who = list(zip(np.asarray(games).tolist(), np.asarray(players).tolist()))
-        indptr, indices, values, masks = self.observer.follower.encode(who)
         self._step = (
             {pair: index for index, pair in enumerate(who)},
-            Planes.from_follower(indptr, indices, values),
-            np.asarray(masks, dtype=bool),
+            *self._encode(who),
         )
+
+    def _encode(self, who: list[tuple[int, int]]) -> tuple[Planes, np.ndarray]:
+        """The follower's encoding of those players now, trusted (see
+        `Planes`)."""
+        indptr, indices, values, masks = self.observer.follower.encode(who)
+        return (Planes.from_follower(indptr, indices, values, trusted=True),
+                np.asarray(masks, dtype=bool))
 
     def sparse_and_masks(
         self, rows: np.ndarray, players: np.ndarray, fresh: bool = False
@@ -388,8 +418,7 @@ class Views:
             if all(pair in where for pair in who):
                 picked = np.array([where[pair] for pair in who], dtype=np.int64)
                 return planes.rows(picked), masks[picked]
-        indptr, indices, values, masks = self.observer.follower.encode(who)
-        return Planes.from_follower(indptr, indices, values), np.asarray(masks, dtype=bool)
+        return self._encode(who)
 
     def engine(self) -> np.ndarray:
         """The engine's own planes for every game this step, dense."""
