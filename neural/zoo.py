@@ -374,8 +374,9 @@ def play_in_bfloat16(player, device: str):
     Mortal, one of ours that answers in Mortal's moves, or a joined
     player. One of ours over the engine's seventy-eight moves plays in
     float32 and is left as it is, as is the heuristic player, which has no
-    network. For a player that is only ever asked for moves: its network
-    can no longer run in float32."""
+    network. For a player that is only ever asked for moves, and eagerly:
+    its network can no longer run in float32, and a compiled one so cast
+    answers with other bits (see `ppo_loop.load_others`)."""
     if policy_inference.precision(device, getattr(player, "actions", MORTAL_ACTIONS)) == "bfloat16":
         network = getattr(player, "net", player)
         if isinstance(network, torch.nn.Module):

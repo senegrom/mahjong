@@ -38,7 +38,8 @@ def precast(net: nn.Module) -> nn.Module:
     float32: autocast runs group norm in float32, and batch norm in the
     input's precision with float32 parameters, and either would be handed
     other numbers. Only for a network that plays on the card under
-    autocast: one cast here cannot run in float32 any more."""
+    autocast, and eagerly: one cast here cannot run in float32 any more,
+    and the compiler makes another graph of it, whose answers differ."""
     for module in net.modules():
         if isinstance(module, (nn.Conv1d, nn.Linear)):
             module.to(torch.bfloat16)

@@ -66,8 +66,12 @@ def setup(args, check=None) -> tuple[str, bool, Path]:
 def load_others(args, device: str) -> list:
     """The players `--opponents` names, each loaded once, at whatever shape
     and of whatever kind its checkpoint says. They are only ever asked for
-    a move, so they need no gradients, and those that play on the card in
-    bfloat16 hold their weights that way (see `zoo.play_in_bfloat16`).
+    a move, so they need no gradients, and those that play eagerly on the
+    card in bfloat16 hold their weights that way (see
+    `zoo.play_in_bfloat16`). Compiled players keep their float32 weights:
+    the compiler arranges a graph of weights cast once otherwise than one
+    that casts them itself, and on this desktop's card a compiled Mortal so
+    cast answered 64 rows of 64 with other bits.
     With `--skip-forced` they leave the rows with one move open unasked
     (see `zoo.choose_in_mortal_space`); without it, or in a trainer that
     has no such option, they ask about every row, as they always did.
@@ -80,7 +84,7 @@ def load_others(args, device: str) -> list:
             parameter.requires_grad_(False)
         if getattr(args, "skip_forced", False) and hasattr(other, "skip_forced"):
             other.skip_forced = True
-        seated.append(zoo.play_in_bfloat16(other, device))
+        seated.append(other if args.compile else zoo.play_in_bfloat16(other, device))
     return seated
 
 

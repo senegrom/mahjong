@@ -89,19 +89,27 @@ class PrecastTests(unittest.TestCase):
                 self.assertTrue(all(p.dtype == torch.bfloat16 for p in module.parameters()))
 
     def test_only_players_on_the_card_in_bfloat16_are_cast(self):
+        """And only those that play eagerly: compiled, the weights cast
+        once are arranged into another graph than the one that casts them
+        itself, and the answers change, so compiled players are left as
+        they were. The compiler does not run here; it would only on the
+        first move."""
         with tempfile.TemporaryDirectory() as folder:
             paths = checkpoints(Path(folder))
             for device in ("cpu", "cuda") if CUDA else ("cpu",):
-                args = SimpleNamespace(opponents=[*paths.values(), "club"], compile=False)
-                seated = dict(zip([*paths, "club"], ppo_loop.load_others(args, device)))
-                for name, player in seated.items():
-                    with self.subTest(device=device, player=name):
-                        if name == "club":
-                            self.assertEqual(player.kind, "club")
-                            continue
-                        found = kinds_of_parameters(network(player))
-                        cast = device == "cuda" and name != "ours, our moves"
-                        self.assertEqual(torch.bfloat16 in found, cast)
+                for compiled in (False, True):
+                    args = SimpleNamespace(opponents=[*paths.values(), "club"], compile=compiled)
+                    seated = dict(zip([*paths, "club"], ppo_loop.load_others(args, device)))
+                    for name, player in seated.items():
+                        with self.subTest(device=device, compiled=compiled, player=name):
+                            if name == "club":
+                                self.assertEqual(player.kind, "club")
+                                continue
+                            found = kinds_of_parameters(network(player))
+                            cast = device == "cuda" and name != "ours, our moves" and not compiled
+                            self.assertEqual(torch.bfloat16 in found, cast)
+                            if compiled:
+                                self.assertEqual(set(found), {torch.float32})
 
 
 @unittest.skipUnless(CUDA, "the bfloat16 path is the card's")
