@@ -55,6 +55,21 @@ async function assertHints(page, watch) {
   assert.deepEqual(page.problems, []);
 }
 
+// Every seat's discard row carries the engine's record of each discard:
+// thrown straight from the draw (a darker face) and claimed (see-through),
+// to the eye and in the tile's name. Returns those records, row by row.
+async function assertMarks(page, watch) {
+  const expected = watch.match.view.seats.map(seat => seat.discards.map(discard => [Boolean(discard.drawn), discard.claimed]));
+  const shown = await page.$$eval('.watch-table .pool', pools => pools.map(pool => [...pool.querySelectorAll('.tile')].map(tile => {
+    const label = tile.getAttribute('aria-label');
+    return { marks: [tile.classList.contains('from-draw'), tile.classList.contains('claimed')],
+      words: [label.includes('discarded from the draw'), label.includes(', claimed')] };
+  })));
+  assert.deepEqual(shown.map(row => row.map(tile => tile.marks)), expected);
+  for (const tile of shown.flat()) assert.deepEqual(tile.words, tile.marks);
+  return expected;
+}
+
 try {
   await mkdir(output, { recursive: true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
@@ -92,6 +107,7 @@ try {
         && document.querySelector('.weight-row.best .choice-action:not(:disabled)'));
       assert.equal((await page.$eval('.followed .pool .tile', el => el.getAttribute('aria-label'))).split(',')[0], tileWords(alternative.tile));
       await assertHints(page, watch);
+      await assertMarks(page, watch);
       await page.screenshot({ path: resolve(output, 'agent-watch-desktop.png'), fullPage: true });
     } finally { watch.dispose(); }
   });
@@ -111,6 +127,9 @@ try {
           && document.querySelector('.weight-row.best .choice-action:not(:disabled)'), {}, history);
       }
       await assertHints(page, watch);
+      const marks = (await assertMarks(page, watch)).flat();
+      assert.ok(marks.some(([drawn]) => drawn) && marks.some(([, claimed]) => claimed),
+        `the fixture must hold a discard from the draw and a claimed one: ${JSON.stringify(marks)}`);
       const gaps = await page.$$eval('.watch-table section:not(.followed) .melds', elements => elements.map(el =>
         el.getBoundingClientRect().top - el.previousElementSibling.getBoundingClientRect().bottom));
       assert.ok(gaps.length > 0, 'fixture must contain an opponent call');

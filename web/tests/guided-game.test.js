@@ -99,6 +99,29 @@ test('opponent pon skips seats and their next discard does not consume another w
   assert.equal(next(pass(g)).state.nextSeat, 3);
 });
 
+test('the remembered discards say which came from the draw and which were claimed, as the table showed it', () => {
+  // The discard rows mark both, so the guide must record them faithfully: an
+  // opponent's tile is from the draw when ticked or once they are in riichi,
+  // never straight after a call, and a called tile is claimed.
+  let g = next(pass(discard(start(), '9m', { drawn: true })));
+  g = next(pass(discard(g, '8m')));
+  g = next(pass(discard(g, '2p', { riichi: true })));
+  g = next(choose(act(g, { type: 'draw', tile: '4z' }), 'discard', '4z'));
+  g = next(pass(discard(g, '7m')));
+  g = next(act(pass(discard(g, '5s', { drawn: true })), { type: 'call', seat: 0, kind: 'pon' }));
+  g = next(pass(discard(g, '6p', { drawn: true })));
+  g = next(pass(discard(g, '9s')));
+  g = next(pass(discard(g, '1s')));
+  const rows = g.state.position.players.map(player => player.discards.map(({ tile, drawn, claimed, riichi }) =>
+    [tile, drawn && 'from the draw', claimed && 'claimed', riichi && 'riichi'].filter(Boolean).join(' ')));
+  assert.deepEqual(rows, [
+    ['9m from the draw', '7m', '6p'],
+    ['8m', '5s from the draw claimed', '9s'],
+    ['2p riichi', '1s from the draw'],
+    ['4z from the draw'],
+  ]);
+});
+
 test('opponent chii enforces the left-hand source, sequence and available copies', () => {
   const g = pass(discard(start(), '3m'));
   assert.throws(() => act(g, { type: 'call', seat: 2, kind: 'chii', tile: '1m' }), /from the left/);
