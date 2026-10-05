@@ -133,8 +133,13 @@ def main() -> None:
     # In mixed precision the learning reads its planes only under autocast,
     # whose convolutions would cast float32 planes to bfloat16 first, so they
     # are made dense in bfloat16 straight away: half the bytes, and the same
-    # bits handed to the convolutions (see `Planes.dense`).
-    planes_dtype = torch.bfloat16 if amp_enabled else torch.float32
+    # bits handed to the convolutions (see `Planes.dense`). Only for eager
+    # learning, as the learner's bfloat16 copy below: compiled, it gave the
+    # same bits on this desktop's torch, but the compiler builds another
+    # graph for inputs of another kind, which changed a compiled player's
+    # answers when its weights were cast once (see `ppo_loop.load_others`),
+    # and under the cloud's torch 2.8 it is untried.
+    planes_dtype = torch.bfloat16 if amp_enabled and not args.compile else torch.float32
 
     start = 0
     benchmark = ppo_loop.Benchmark()

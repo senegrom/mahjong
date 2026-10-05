@@ -3,8 +3,14 @@ bit of what it learns changing: made dense in bfloat16 where only autocast
 reads them, copied from page-locked memory on a stream of their own, and
 checked in full once a round rather than once a minibatch."""
 
+import contextlib
+import io
+from pathlib import Path
+import sys
+import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from contextlib import closing
 from unittest.mock import patch
@@ -12,7 +18,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from neural import combined, mortal_model, ppo_loop
+from neural import combined, mortal_model, ppo_loop, train_combined
 from neural.model import PolicyValueNet
 from neural.observe import WIDTH, DevicePlanes, Planes
 from neural.prefetch import Prefetcher
@@ -139,6 +145,62 @@ class BfloatPlanesTests(unittest.TestCase):
         self.assertGreater(len(grads), 50)
         for got, want in zip(grads_half, grads):
             same_bits(self, got, want)
+
+
+class TrainerPlanesTests(unittest.TestCase):
+    @unittest.skipUnless(CUDA, "mixed precision is the card's")
+    def test_bfloat16_planes_only_for_eager_learning_in_mixed_precision(self):
+        """The joined player's trainer makes its planes dense in bfloat16
+        with --amp, and in float32, as it always did, without it or with
+        --compile, whose graphs were not shown to give the same bits under
+        the cloud's torch. The compiler itself is not run here."""
+        torch.set_num_threads(1)
+        real_baseline, real_minibatches = ppo_loop.baseline, ppo_loop.minibatches
+
+        def round_of_eight(_learner, **_kwargs):
+            n = 8
+            planes = Planes(np.arange(n + 1, dtype=np.int64), np.zeros(n, dtype=np.uint16),
+                            np.ones(n, dtype=np.float16))
+            return SimpleNamespace(
+                decisions=n, observations=planes, legal=torch.ones(n, 46, dtype=torch.bool),
+                actions=torch.zeros(n, dtype=torch.int64), returns=torch.linspace(-1, 1, n),
+                log_probs=torch.zeros(n), held=torch.full((n, 3, 34), 1 / 34),
+                games=1, hands=1, timing={})
+
+        for flags, wanted in ((["--amp"], torch.bfloat16), (["--amp", "--compile"], torch.float32),
+                              ([], torch.float32)):
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                origin = root / "source.pt"
+                torch.manual_seed(3)
+                net = combined.Combined(PolicyValueNet(8, 1, actions=46), mortal_model.build(8, 1))
+                net.mortal_config = {"resnet": {"conv_channels": 8, "num_blocks": 1},
+                                     "control": {"version": 4}}
+                torch.save(net.state(), origin)
+                handed = []
+
+                def baseline(*args, dtype=torch.float32, **kwargs):
+                    handed.append(("baseline", dtype))
+                    return real_baseline(*args, dtype=dtype, **kwargs)
+
+                def minibatches(*args, dtype=torch.float32, **kwargs):
+                    handed.append(("minibatches", dtype))
+                    return real_minibatches(*args, dtype=dtype, **kwargs)
+
+                argv = ["trainer", "--resume", str(origin), "--out", str(root / "run"), "--rounds", "1",
+                        "--batch", "4", "--epochs", "1", "--games", "1", "--measure-games", "1",
+                        "--fixed", "none", *flags]
+                with patch.object(sys, "argv", argv), \
+                        patch.object(torch, "compile", lambda function, **_kwargs: function), \
+                        patch.object(train_combined.selfplay, "play", side_effect=round_of_eight), \
+                        patch.object(train_combined.selfplay, "measure",
+                                     return_value={"placement": 2.5, "score": 0.0, "wins": 0.25}), \
+                        patch.object(ppo_loop, "baseline", side_effect=baseline), \
+                        patch.object(ppo_loop, "minibatches", side_effect=minibatches), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    train_combined.main()
+                self.assertEqual({name for name, _dtype in handed}, {"baseline", "minibatches"})
+                self.assertEqual({dtype for _name, dtype in handed}, {wanted})
 
 
 class StagedMinibatchTests(unittest.TestCase):
