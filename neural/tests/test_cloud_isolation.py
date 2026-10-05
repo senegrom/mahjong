@@ -91,10 +91,114 @@ class CloudIsolationTests(unittest.TestCase):
                      patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
                      patch.object(app,'_environment',return_value={}),patch.object(app,'_save_cache'), \
                      patch.object(app.subprocess,'Popen',side_effect=popen),redirect_stdout(io.StringIO()):
-                    result=getattr(app,trainer)(run=trainer,generations=2)
-                self.assertIn('exit=1',result)
+                    # Short of the generation it was to reach, the call fails, so
+                    # Modal's retries resume it; a returned call simply ended.
+                    with self.assertRaises(subprocess.CalledProcessError) as failed:
+                        getattr(app,trainer)(run=trainer,generations=2)
+                self.assertEqual(failed.exception.returncode,1)
+                self.assertIn('generation 5 of 6',failed.exception.output)
                 self.assertEqual(validate_checkpoint(volume/trainer/'latest.pt'),5)
                 self.assertEqual((volume/trainer/'generation.txt').read_text(),'5')
+
+    def test_a_trainer_that_dies_short_of_its_target_fails_the_call_and_one_past_it_does_not(self):
+        # Killed, as at generation 147 on 1 October, the call returned and the
+        # run stood until someone noticed. A failure after the last generation
+        # has nothing left to resume, so that call still answers.
+        app=controller()
+        for trainer in ('train','train_mortal','train_combined'):
+            for code,generations,raises in ((-9,3,True),(1,1,False),(-9,1,False)):
+                with self.subTest(trainer=trainer,code=code,generations=generations), \
+                     tempfile.TemporaryDirectory() as folder:
+                    root=Path(folder);volume=root/'volume'
+                    atomic_save({'generation':4},volume/'run/latest.pt')
+                    def popen(command,**kwargs):
+                        where=Path(command[command.index('--out')+1])
+                        atomic_save({'generation':5},where/'latest.pt')
+                        record=json.dumps({'generation':4,'checkpoint_generation':5})
+                        return SimpleNamespace(stdout=io.StringIO(record+'\n'),wait=lambda:code)
+                    call=lambda:self.launch(app,trainer,volume,root/'scratch',popen,run='run',
+                                            generations=generations)
+                    if raises:
+                        with self.assertRaises(subprocess.CalledProcessError) as failed:call()
+                        self.assertEqual(failed.exception.returncode,code)
+                    else:
+                        self.assertIn(f'exit={code} generation=5 from 4',call())
+                    self.assertEqual((volume/'run/generation.txt').read_text(),'5')
+
+    def stop_before_timeout(self, app, trainer, setup=0.0, generation=10_000.0, generations=20):
+        """Runs `trainer` from generation 4 on a clock that `setup` seconds
+        pass on before the trainer starts and `generation` seconds a
+        generation after; answers what was published, what happened in what
+        order, and how many generations the trainer was let finish."""
+        clock=SimpleNamespace(now=0.0)
+        fake_time=SimpleNamespace(time=lambda:clock.now)
+        events,finished=[],[]
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume'
+            atomic_save({'generation':4},volume/'run/latest.pt')
+            def reload():
+                clock.now+=setup
+            def popen(command,**kwargs):
+                where=Path(command[command.index('--out')+1])
+                def lines():
+                    for number in range(4,4+generations):
+                        clock.now+=generation
+                        atomic_save({'generation':number+1},where/'latest.pt')
+                        finished.append(number)
+                        yield json.dumps({'generation':number,'checkpoint_generation':number+1})+'\n'
+                return SimpleNamespace(stdout=lines(),poll=lambda:None,wait=lambda timeout=None:
+                                       events.append('wait') or (-15 if 'terminate' in events else 0),
+                                       terminate=lambda:events.append('terminate'))
+            with patch.object(app,'VOLUME',volume),patch.object(app,'time',fake_time), \
+                 patch.object(app,'volume',SimpleNamespace(reload=reload,commit=lambda:None)), \
+                 patch.object(app,'workspace',partial(cloud_runs.workspace,root=root/'scratch')), \
+                 patch.object(app,'_environment',return_value={}), \
+                 patch.object(app,'_save_cache',side_effect=lambda:events.append('cache')), \
+                 patch.object(app.subprocess,'Popen',side_effect=popen),redirect_stdout(io.StringIO()):
+                try:
+                    answer=getattr(app,trainer)(run='run',generations=generations)
+                except app.StoppedBeforeTimeout as stopped:
+                    answer=stopped
+            published=validate_checkpoint(volume/'run/latest.pt')
+            self.assertEqual((volume/'run/generation.txt').read_text(),str(published))
+        return answer,published,events,finished
+
+    def test_a_trainer_stops_between_generations_before_the_timeout_and_fails_the_call(self):
+        # Ten thousand seconds a generation: after the eighth, at 80,000 s,
+        # the ninth would end past 86,400, so the trainer is stopped seconds
+        # into it, with generation 12 published, the cache saved after the
+        # trainer is gone, and the call failed so Modal retries it from there.
+        app=controller()
+        for trainer in ('train','train_mortal','train_combined'):
+            with self.subTest(trainer=trainer):
+                answer,published,events,finished=self.stop_before_timeout(app,trainer)
+                self.assertIsInstance(answer,app.StoppedBeforeTimeout)
+                self.assertEqual(published,12)
+                self.assertEqual(finished,list(range(4,12)))
+                self.assertEqual(events,['cache','terminate','wait','cache'])
+
+    def test_the_timeout_counts_from_the_call_not_from_the_trainer(self):
+        # Copying the run in took 50,000 s of the same day, so only three
+        # generations fit: the third ends at 80,000 s and the fourth would not.
+        app=controller()
+        answer,published,events,finished=self.stop_before_timeout(app,'train_combined',setup=50_000.0)
+        self.assertIsInstance(answer,app.StoppedBeforeTimeout)
+        self.assertEqual(published,7)
+        self.assertEqual(finished,[4,5,6])
+
+    def test_a_trainer_with_time_to_spare_or_at_its_last_generation_is_left_alone(self):
+        app=controller()
+        # A hundred seconds a generation: twenty of them take a fraction of the day.
+        answer,published,events,finished=self.stop_before_timeout(app,'train_combined',generation=100.0)
+        self.assertIn('exit=0 generation=24 from 4',answer)
+        self.assertEqual(events,['cache','wait','cache'])
+        # The last generation ends 85,000 s in, where another would not fit,
+        # but none is due: the trainer finishes on its own and the call answers.
+        answer,published,events,finished=self.stop_before_timeout(
+            app,'train_combined',setup=5_000.0,generation=80_000.0,generations=1)
+        self.assertIn('exit=0 generation=5 from 4',answer)
+        self.assertEqual(published,5)
+        self.assertNotIn('terminate',events)
 
     def launch(self, app, trainer, volume, scratch, popen, **kwargs):
         with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
