@@ -66,15 +66,16 @@ def setup(args, check=None) -> tuple[str, bool, Path]:
 def load_others(args, device: str) -> list:
     """The players `--opponents` names, each loaded once, at whatever shape
     and of whatever kind its checkpoint says. They are only ever asked for
-    a move, so they need no gradients. validate_training_options has
-    refused a missing checkpoint already."""
+    a move, so they need no gradients, and those that play on the card in
+    bfloat16 hold their weights that way (see `zoo.play_in_bfloat16`).
+    validate_training_options has refused a missing checkpoint already."""
     seated = []
     for path in args.opponents:
         other = zoo.load_player(path, device, compile=args.compile)
         other.eval()
         for parameter in getattr(other, "parameters", list)():
             parameter.requires_grad_(False)
-        seated.append(other)
+        seated.append(zoo.play_in_bfloat16(other, device))
     return seated
 
 

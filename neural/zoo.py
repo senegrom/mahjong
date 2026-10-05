@@ -353,6 +353,21 @@ def choose(
     return torch.distributions.Categorical(logits=logits.float()).sample().cpu().numpy()
 
 
+def play_in_bfloat16(player, device: str):
+    """`player`, with its network's weights cast to bfloat16 once (see
+    `policy_inference.precast`) when it plays on the card in bfloat16: a
+    Mortal, one of ours that answers in Mortal's moves, or a joined
+    player. One of ours over the engine's seventy-eight moves plays in
+    float32 and is left as it is, as is the heuristic player, which has no
+    network. For a player that is only ever asked for moves: its network
+    can no longer run in float32."""
+    if policy_inference.precision(device, getattr(player, "actions", MORTAL_ACTIONS)) == "bfloat16":
+        network = getattr(player, "net", player)
+        if isinstance(network, torch.nn.Module):
+            policy_inference.precast(network)
+    return player
+
+
 def load_player(
     path: Path | str,
     device: str,

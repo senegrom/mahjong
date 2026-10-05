@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
+import copy
 import math
 import time
 from pathlib import Path
@@ -22,7 +23,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from . import combined, ppo_loop, selfplay
+from . import combined, policy_inference, ppo_loop, selfplay
 from .behavior import validate_exploration
 from .checkpoints import atomic_save
 from .observe import pad_rows
@@ -183,6 +184,17 @@ def main() -> None:
         except (ValueError, RuntimeError) as error:
             print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
 
+    # The joined player as it plays: a copy whose convolutions and linear
+    # layers hold their weights in bfloat16, refreshed from the learner
+    # before every round (see `policy_inference.precast`). Played from the
+    # learner itself, autocast cast those weights afresh at every step, five
+    # hundred small kernels each time, to the same numbers, so the moves and
+    # the probabilities recorded are bit for bit what they were. For eager
+    # play in mixed precision only: compiled, the player is the learner.
+    actor = None
+    if amp_enabled and not args.compile:
+        actor = policy_inference.precast(copy.deepcopy(net)).requires_grad_(False)
+
     if args.compile:
         # Deciding, with the batch's size left symbolic; the learning
         # forward compiles per mode, three graphs in all.
@@ -251,8 +263,11 @@ def main() -> None:
         fixed = str(drawer.choice(args.fixed))
         net.set_mode(fixed)
         net.eval()
+        if actor is not None:
+            # Copied with the same rounding autocast makes.
+            actor.load_state_dict(net.state_dict())
         batch = selfplay.play(
-            net,
+            net if actor is None else actor,
             games=args.games,
             seed=round_seed(args.seed, generation, args.games),
             device=device,
