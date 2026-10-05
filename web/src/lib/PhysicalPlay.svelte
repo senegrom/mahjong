@@ -229,7 +229,7 @@
           </div>
           <div class="discard-editor"><strong>Discards · chronological order across the table</strong>
             {#each player.discards as discard, slot (slot)}
-              <div class="discard-fields"><Tile tile={discard.tile} size="tiny" />
+              <div class="discard-fields"><Tile tile={discard.tile} size="tiny" claimed={discard.claimed} fromDraw={discard.drawn} />
                 <label>Order<input type="number" min="0" max="399" bind:value={() => discard.order, value => editNumber(value, `order-${index}-${slot}`, (p, n) => { p.players[index].discards[slot].order = n; })} onblur={endNumberEdit} /></label>
                 <label><input type="checkbox" checked={discard.drawn} onchange={event => edit(p => { p.players[index].discards[slot].drawn = event.currentTarget.checked; })} /> From draw</label>
                 <label><input type="checkbox" checked={discard.riichi} onchange={event => edit(p => { p.players[index].discards[slot].riichi = event.currentTarget.checked; })} /> Riichi</label>
@@ -238,7 +238,7 @@
               </div>
             {/each}
             <TileEntry label={`${WINDS[index]} · add an earlier discard`} onadd={tile => appendPastDiscard(index, tile)} />
-            <p class="help">Order starts at 0 and counts all players’ discards. Mark the riichi declaration tile and tiles taken into calls.</p>
+            <p class="help">Order starts at 0 and counts all players’ discards. Mark the riichi declaration tile, tiles taken into calls (shown see-through) and tiles thrown straight from the draw (shown darker).</p>
           </div>
         </div>
       </details>

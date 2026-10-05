@@ -4,7 +4,9 @@
 
   /**
    * A discard row, six to a line as at a real table, with the riichi
-   * declaration turned sideways and claimed tiles greyed out.
+   * declaration turned sideways, tiles thrown straight from the draw
+   * shaded a little darker, and claimed tiles see-through. The tile's name
+   * says the same, for the pointer and for screen readers.
    */
   let { discards = [], compact = false, dora = [] } = $props();
 </script>
@@ -14,7 +16,8 @@
     <Tile
       tile={discard.tile}
       rotated={discard.riichi}
-      dimmed={discard.claimed}
+      claimed={discard.claimed}
+      fromDraw={discard.drawn}
       dora={dora.includes(discard.tile)}
       size={compact ? 'tiny' : 'small'}
       title={`${tileWords(discard.tile)}${discard.claimed ? ', claimed' : ''}${discard.riichi ? ', riichi declaration' : ''}${discard.drawn ? ', discarded from the draw' : ''}${dora.includes(discard.tile) ? ', dora' : ''}`}

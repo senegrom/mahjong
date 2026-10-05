@@ -91,3 +91,50 @@ test('explicit tile descriptions are exposed to assistive technology', () => {
   assert.match(html, new RegExp(`aria-label="${description}"`));
   assert.match(html, new RegExp(`title="${description}"`));
 });
+
+const classes = html => html.match(/class="(tile [^"]*)"/)[1].split(/\s+/);
+
+test('a discard thrown from the draw is shaded and says so; one from the hand does neither', () => {
+  for (const onclick of [null, () => {}]) {
+    const thrown = tile({ tile: '3p', fromDraw: true, onclick });
+    assert.ok(classes(thrown).includes('from-draw'));
+    assert.match(thrown, /aria-label="3 circles, discarded from the draw"/);
+    assert.match(thrown, /title="3 circles, discarded from the draw"/);
+    const kept = tile({ tile: '3p', onclick });
+    assert.doesNotMatch(kept, /\bfrom-draw\b|from the draw/);
+    assert.match(kept, /aria-label="3 circles"/);
+  }
+});
+
+test('a claimed discard is see-through and says so; an unclaimed one does neither', () => {
+  for (const onclick of [null, () => {}]) {
+    const taken = tile({ tile: '6z', claimed: true, onclick });
+    assert.ok(classes(taken).includes('claimed'));
+    assert.match(taken, /aria-label="green dragon, claimed"/);
+    assert.match(taken, /title="green dragon, claimed"/);
+    const left = tile({ tile: '6z', onclick });
+    assert.doesNotMatch(left, /\bclaimed\b/);
+    assert.match(left, /aria-label="green dragon"/);
+  }
+});
+
+test('a hidden face carries neither discard mark, in its look or its name', () => {
+  // As with dora, a face-down tile is only ever named as face down.
+  for (const onclick of [null, () => {}]) {
+    const hidden = tile({ tile: '3p', facedown: true, fromDraw: true, claimed: true, onclick });
+    assert.doesNotMatch(hidden, /\bfrom-draw\b|from the draw|\bclaimed\b/);
+    assert.match(hidden, /aria-label="face-down tile"/);
+  }
+  assert.doesNotMatch(tile({ tile: null, fromDraw: true, claimed: true }), /\bfrom-draw\b|\bclaimed\b/);
+});
+
+test('both discard marks combine with the riichi turn and the dora ring and foil', () => {
+  const html = tile({ tile: '7z', fromDraw: true, rotated: true, claimed: true, dora: true, size: 'small' });
+  for (const name of ['rotated', 'claimed', 'from-draw', 'ringed']) assert.ok(classes(html).includes(name), name);
+  assert.match(html, /--ring:\s*#e2453d/);
+  assert.match(html, /class="foil\b/);
+  assert.match(html, /aria-label="red dragon, claimed, discarded from the draw, dora"/);
+  // Each mark alone leaves the other off.
+  assert.ok(!classes(tile({ tile: '7z', fromDraw: true })).includes('claimed'));
+  assert.ok(!classes(tile({ tile: '7z', claimed: true })).includes('from-draw'));
+});

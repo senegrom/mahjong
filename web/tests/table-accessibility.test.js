@@ -76,6 +76,65 @@ test('the table inspection names each opponent once: position, wind, score', asy
   assert.match(body, /class="indicators[^"]*" role="group" aria-label="dora indicators"/);
 });
 
+// Every displayed tile in some markup: its classes, its accessible name and its hover text.
+const shownTiles = markup => [...markup.matchAll(/<span class="(tile [^"]*)"[^>]*aria-label="([^"]*)" title="([^"]*)"/g)]
+  .map(([, classes, label, title]) => ({ classes: classes.split(/\s+/), label, title }));
+const marks = tile => ['from-draw', 'claimed'].filter(name => tile.classes.includes(name));
+
+test('discard rows mark tiles thrown from the draw and claimed tiles, to the eye and by name', async () => {
+  const row = await html('Discards.svelte', { dora: ['5p'], discards: [
+    { tile: '3p', drawn: true, riichi: false, claimed: false },
+    { tile: '4p', drawn: false, riichi: false, claimed: false },
+    { tile: '5p', drawn: true, riichi: true, claimed: true },
+    { tile: '6p', riichi: false, claimed: false },
+    { tile: '7p', drawn: false, riichi: false, claimed: true },
+  ] });
+  const tiles = shownTiles(row);
+  assert.deepEqual(tiles.map(tile => tile.label), ['3 circles, discarded from the draw', '4 circles',
+    '5 circles, claimed, riichi declaration, discarded from the draw, dora', '6 circles', '7 circles, claimed']);
+  // The pointer's hover text and the screen reader's name are the same words.
+  for (const tile of tiles) assert.equal(tile.title, tile.label);
+  assert.deepEqual(tiles.map(marks), [['from-draw'], [], ['from-draw', 'claimed'], [], ['claimed']]);
+  for (const name of ['rotated', 'ringed']) assert.ok(tiles[2].classes.includes(name), name);
+});
+
+test('the table, the inspection of all discards and your own row all carry both marks', async () => {
+  const thrown = { tile: '2s', drawn: true, riichi: false, claimed: false };
+  const taken = { tile: '8m', drawn: false, riichi: false, claimed: true };
+  const kept = { tile: '9p', drawn: false, riichi: false, claimed: false };
+  const own = { tile: '4z', drawn: true, riichi: false, claimed: true };
+  const view = { phase: 'call', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
+    dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: null, pending_from: null, outcome: null,
+    seats: [seat('east', 0, { hand: ['1m'], drawn: null, discards: [own] }), seat('south', 1, { discards: [thrown, taken, kept] }),
+      seat('west', 2), seat('north', 3)] };
+  // The opponent's row at the table, then the inspection's rows for you and for them.
+  const table = shownTiles(await html('app/MatchTable.svelte', { view, hints: true, thinking: false, pendingOpponent: null }))
+    .filter(tile => !tile.label.startsWith('east wind'));
+  assert.deepEqual(table.map(tile => [tile.label, marks(tile)]), [
+    ['2 bamboo, discarded from the draw', ['from-draw']], ['8 characters, claimed', ['claimed']], ['9 circles', []],
+    ['north wind, claimed, discarded from the draw', ['from-draw', 'claimed']],
+    ['2 bamboo, discarded from the draw', ['from-draw']], ['8 characters, claimed', ['claimed']], ['9 circles', []],
+  ]);
+  const hand = await html('app/PlayerHand.svelte', { view, engine: null, closed: false, hints: true, busy: false, blocked: false,
+    discardChoices: [], picked: null, selected: null, canDiscard: () => false, selectTile() {}, syncHandFocus() {} });
+  const discards = shownTiles(hand.slice(hand.indexOf('class="own-discards')));
+  assert.deepEqual(discards.map(tile => [tile.label, marks(tile)]), [['north wind, claimed, discarded from the draw', ['from-draw', 'claimed']]]);
+});
+
+test('the tile guide explains both discard marks, each with its swatch', async () => {
+  const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
+    ready: true, busy: false, saveConflict: '', trainedAvailable: false,
+    offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
+    changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
+    onconfirmationchange() {}, onshortcutschange() {} });
+  const guide = settings.slice(settings.indexOf('class="guide'));
+  for (const [swatch, words] of [['from-draw', /darker face[\s\S]*thrown straight from the draw \(tsumogiri\)/],
+    ['claimed', /see-through tile[\s\S]*claimed the tile for a call/]]) {
+    assert.match(guide, new RegExp(`<dt[^>]*><span class="swatch ${swatch}[ "][^>]*></span>`), swatch);
+    assert.match(guide, words);
+  }
+});
+
 test('no generic element carries a name a screen reader would ignore', async () => {
   // ARIA gives a span, div or paragraph no name: its aria-label is dropped
   // unless the element also has a role. Check every component's markup.

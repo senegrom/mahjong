@@ -109,6 +109,28 @@ try {
     assert.equal(await page.evaluate(key => localStorage.getItem(key), SETTINGS_KEY), otherTab);
     assert.deepEqual(errors, []);
   });
+  await check('the physical editor shows each discard\'s marks on its tile as they are ticked', async context => {
+    const initial = emptyPosition(); initial.first_turns = false;
+    initial.players[0].discards = [
+      { tile: '3p', order: 0, drawn: true, riichi: false, claimed: false },
+      { tile: '6z', order: 1, drawn: false, riichi: false, claimed: true },
+      { tile: '9m', order: 2, drawn: false, riichi: false, claimed: false },
+    ];
+    const { page, errors } = await open(context, { mode: 'physical', fixture: initial });
+    const tiles = () => page.$$eval('.physical-seat:first-child .discard-fields', rows => rows.map(row => {
+      const tile = row.querySelector('.tile');
+      return [tile.getAttribute('aria-label'), getComputedStyle(tile).opacity, getComputedStyle(tile.querySelector('.face')).filter];
+    }));
+    assert.deepEqual(await tiles(), [['3 circles, discarded from the draw', '1', 'brightness(0.86)'],
+      ['green dragon, claimed', '0.6', 'none'], ['9 characters', '1', 'none']]);
+    // Ticking the boxes marks the tile beside them, as the discard row will.
+    for (const name of ['From draw', 'Claimed']) await page.evaluate(name => [...document.querySelectorAll('.physical-seat:first-child .discard-fields')][2]
+      .querySelectorAll('label').forEach(label => { if (label.textContent.trim() === name) label.querySelector('input').click(); }), name);
+    const marked = structuredClone(initial); Object.assign(marked.players[0].discards[2], { drawn: true, claimed: true });
+    await expectPosition(page, marked);
+    assert.deepEqual((await tiles())[2], ['9 characters, claimed, discarded from the draw', '0.6', 'brightness(0.86)']);
+    assert.deepEqual(errors, []);
+  });
   for (const width of [1100, 390]) await check(`physical edits undo independently and numeric typing stays usable at ${width}px`, async context => {
     const initial = emptyPosition(); initial.players[0].score = 31000;
     const { page, errors } = await open(context, { mode: 'physical', width, fixture: initial });
