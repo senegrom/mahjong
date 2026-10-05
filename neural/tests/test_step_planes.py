@@ -1,6 +1,6 @@
 """A step's planes are served faster without a bit of them changing: rows
-gathered by slicing, and planes encoded this step checked for their columns
-but not value by value."""
+gathered by slicing, values halved by the encoder's own workers, and planes
+encoded this step checked for their columns but not value by value."""
 
 import tempfile
 import unittest
@@ -8,8 +8,10 @@ from pathlib import Path
 
 import numpy as np
 import riichi_py
+from libriichi.follow import Follower
 
-from neural.observe import WIDTH, Planes, Views
+from neural import zoo
+from neural.observe import VERSION, WIDTH, Planes, Views
 
 
 def rows_by_index(planes, rows):
@@ -180,6 +182,56 @@ class TrustedPlanesTests(unittest.TestCase):
                 assert_same(self, planes, reference)
                 np.testing.assert_array_equal(own, masks)
             play_on(arena, games)
+
+
+class HalvedByTheEncoderTests(unittest.TestCase):
+    def test_the_encoders_float16_is_numpys_rounding_of_its_float32(self):
+        """Over real positions from whole hands: the values the encoder
+        halves itself are the bits numpy makes of its float32 values,
+        everything else it returns is unchanged, and the planes take the
+        halved values as they are."""
+        games = 12
+        arena = riichi_py.Arena(games=games, seed=20261004)
+        follower = Follower(games, VERSION)
+        rows = entries = rounded = previews = 0
+        for _ in range(300):
+            if arena.all_finished():
+                break
+            follower.feed(arena.mjai_all())
+            live, players = deciding(arena, games)
+            who = list(zip(live.tolist(), players.tolist()))
+            single = follower.encode(who)
+            halved = follower.encode(who, half=True)
+            self.assert_halved(single, halved)
+            # Neither converted again nor copied on the way in.
+            self.assertIs(Planes.from_follower(*halved[:3]).values, halved[2])
+            rows += len(who)
+            entries += len(single[2])
+            exact = np.asarray(single[2], dtype=np.float16).astype(np.float32)
+            rounded += int(np.count_nonzero(exact != single[2]))
+            # And for the view a reach is previewed in.
+            ready = [pair for pair, mask in zip(who, single[3]) if mask[zoo.MORTAL_RIICHI]]
+            if ready:
+                self.assert_halved(follower.encode(ready, after_reach=True),
+                                   follower.encode(ready, after_reach=True, half=True))
+                previews += len(ready)
+            play_on(arena, games)
+        self.assertGreater(rows, 2000)
+        self.assertGreater(entries, 2_000_000)
+        self.assertGreater(previews, 0)
+        # Values that float16 cannot hold were among them, so the rounding
+        # itself was compared, not only values it keeps as they are.
+        self.assertGreater(rounded, 0)
+
+    def assert_halved(self, single, halved):
+        indptr, indices, values, masks = halved
+        self.assertEqual(values.dtype, np.float16)
+        self.assertEqual(single[2].dtype, np.float32)
+        for got, want in ((indptr, single[0]), (indices, single[1]), (masks, single[3])):
+            self.assertEqual(got.dtype, want.dtype)
+            np.testing.assert_array_equal(got, want)
+        np.testing.assert_array_equal(values.view(np.uint16),
+                                      np.asarray(single[2], dtype=np.float16).view(np.uint16))
 
 
 if __name__ == "__main__":

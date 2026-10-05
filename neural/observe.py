@@ -68,7 +68,9 @@ class Planes:
     @classmethod
     def from_follower(cls, indptr, indices, values, trusted: bool = False) -> Planes:
         """From what the follower's `encode` returned: the offsets widened
-        so a round's worth of entries can be counted, the values halved."""
+        so a round's worth of entries can be counted, the values halved.
+        Values the follower already halved (`encode(..., half=True)`) are
+        taken as they are."""
         return cls(
             np.asarray(indptr, dtype=np.int64),
             np.asarray(indices, dtype=np.uint16),
@@ -398,8 +400,9 @@ class Views:
 
     def _encode(self, who: list[tuple[int, int]]) -> tuple[Planes, np.ndarray]:
         """The follower's encoding of those players now, trusted (see
-        `Planes`)."""
-        indptr, indices, values, masks = self.observer.follower.encode(who)
+        `Planes`), with the values halved by the encoder's own workers
+        rather than here on one thread."""
+        indptr, indices, values, masks = self.observer.follower.encode(who, half=True)
         return (Planes.from_follower(indptr, indices, values, trusted=True),
                 np.asarray(masks, dtype=bool))
 
