@@ -108,6 +108,13 @@ def parse_args() -> argparse.Namespace:
         help="each player of each game is one of --opponents with this chance, so one table "
         "can hold several of them and the learner at once; instead of --opponent-share",
     )
+    parser.add_argument(
+        "--skip-forced", action="store_true",
+        help="ask the seated --opponents nothing about a row with a single move open in "
+        "Mortal's moves, whose move is then that one. Off by default: the rows still asked "
+        "are scored in a smaller batch, which on the card can change their values in the "
+        "last bit, and so turn a near tie",
+    )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260908)

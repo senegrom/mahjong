@@ -1,9 +1,15 @@
-"""A seated player is not asked about a row with a single move open in
-Mortal's moves: the best of one move is that move whatever the network
-says, so every choice stays what asking would have made it, and the
-forwards shrink by the rows that had no choice to make."""
+"""A seated player asked to (`--skip-forced`) is not asked about a row with
+a single move open in Mortal's moves: the best of one move is that move
+whatever the network says, so every choice stays what asking would have
+made it, and the forwards shrink by the rows that had no choice to make.
+The rows still asked are then scored in a smaller batch, which on the card
+can change their bits, so it is a switch, off unless a trainer is told,
+and off it asks every row in the very batches it always did."""
 
 import json
+from pathlib import Path
+import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -12,8 +18,10 @@ import numpy as np
 import riichi_py
 import torch
 
-from neural import mortal_model, zoo
+from neural import combined, mortal_model, ppo_loop, train_combined, train_mortal, zoo
 from neural.observe import Views
+from neural.tests import test_mixed_tables
+from neural.tests.test_bfloat16_players import checkpoints
 from neural.tests.test_step_planes import deciding
 
 
@@ -72,29 +80,66 @@ def row_values(who, fresh):
     return values, own
 
 
+def random_rows(rng):
+    """A step's rows of every kind that has one move open or several:
+    discards, reaches by one tile or several, calls, wins, passes, and the
+    orphan with nothing Mortal can name."""
+    n = int(rng.integers(1, 12))
+    legal = np.zeros((n, riichi_py.ACTIONS), dtype=bool)
+    for row in range(n):
+        kind = rng.integers(0, 5)
+        if kind == 0:  # a declared riichi's draw: throw it
+            legal[row, rng.integers(0, 34)] = True
+        elif kind == 1:  # a reach, by one tile or several
+            tiles = rng.choice(34, size=int(rng.integers(1, 4)), replace=False)
+            legal[row, tiles] = True
+            legal[row, zoo.RIICHI_DISCARD + tiles] = True
+        elif kind == 2:  # a call or a pass
+            legal[row, rng.choice([68, 69, 71, 72, 73, 74, 75])] = True
+            legal[row, zoo.PASS] = True
+        elif kind == 3:  # two kans, or a win either way: Mortal's one move
+            legal[row, [[75, 76], [68, 69], [zoo.PASS]][rng.integers(0, 3)]] = True
+        # kind 4: nothing at all, the orphan
+    return rng.integers(0, 50, size=n), rng.integers(0, 4, size=n), legal
+
+
 class ForcedRowsTests(unittest.TestCase):
+    def test_by_default_every_row_is_asked_in_the_same_batches_as_before(self):
+        """Without the switch nothing changes: the same questions, about
+        the same rows in the same order with the same moves allowed, so the
+        values every row is scored with are what they were, and so are the
+        choices, the reaches told and the counts."""
+        rng = np.random.default_rng(23)
+        questions = 0
+        for trial in range(300):
+            rows, players, legal = random_rows(rng)
+            asked = {"old": [], "new": []}
+
+            def asking(which):
+                def ask(who, fresh, allowed):
+                    asked[which].append((list(who), fresh, allowed.copy()))
+                    return row_values(who, fresh)
+                return ask
+
+            old_views, new_views = Telling(), Telling()
+            old_stats, new_stats = {}, {}
+            want = choose_by_asking_every_row(asking("old"), old_views, rows, players, legal, old_stats)
+            got = zoo.choose_in_mortal_space(asking("new"), new_views, rows, players, legal, new_stats)
+            np.testing.assert_array_equal(got, want, err_msg=f"trial {trial}")
+            self.assertEqual(new_views.told, old_views.told)
+            self.assertEqual(new_stats, old_stats)
+            self.assertEqual(len(asked["new"]), len(asked["old"]))
+            for (who, fresh, allowed), (want_who, want_fresh, want_allowed) in zip(asked["new"], asked["old"]):
+                self.assertEqual((who, fresh), (want_who, want_fresh))
+                np.testing.assert_array_equal(allowed, want_allowed)
+            questions += len(asked["new"])
+        self.assertGreater(questions, 300)
+
     def test_the_same_choices_without_asking_about_rows_with_one_move(self):
         rng = np.random.default_rng(17)
         asked_rows = forced = 0
         for trial in range(300):
-            n = int(rng.integers(1, 12))
-            legal = np.zeros((n, riichi_py.ACTIONS), dtype=bool)
-            for row in range(n):
-                kind = rng.integers(0, 5)
-                if kind == 0:  # a declared riichi's draw: throw it
-                    legal[row, rng.integers(0, 34)] = True
-                elif kind == 1:  # a reach, by one tile or several
-                    tiles = rng.choice(34, size=int(rng.integers(1, 4)), replace=False)
-                    legal[row, tiles] = True
-                    legal[row, zoo.RIICHI_DISCARD + tiles] = True
-                elif kind == 2:  # a call or a pass
-                    legal[row, rng.choice([68, 69, 71, 72, 73, 74, 75])] = True
-                    legal[row, zoo.PASS] = True
-                elif kind == 3:  # two kans, or a win either way: Mortal's one move
-                    legal[row, [[75, 76], [68, 69], [zoo.PASS]][rng.integers(0, 3)]] = True
-                # kind 4: nothing at all, the orphan
-            rows = rng.integers(0, 50, size=n)
-            players = rng.integers(0, 4, size=n)
+            rows, players, legal = random_rows(rng)
             asked = []
 
             def ask(who, fresh, allowed):
@@ -105,7 +150,8 @@ class ForcedRowsTests(unittest.TestCase):
             old_stats, new_stats = {}, {}
             want = choose_by_asking_every_row(lambda who, fresh, allowed: row_values(who, fresh),
                                               old_views, rows, players, legal, old_stats)
-            got = zoo.choose_in_mortal_space(ask, new_views, rows, players, legal, new_stats)
+            got = zoo.choose_in_mortal_space(ask, new_views, rows, players, legal, new_stats,
+                                             skip_forced=True)
             np.testing.assert_array_equal(got, want, err_msg=f"trial {trial}")
             self.assertEqual(new_views.told, old_views.told)
             self.assertEqual(new_stats["orphans"], old_stats["orphans"])
@@ -126,7 +172,8 @@ class ForcedRowsTests(unittest.TestCase):
         def ask(who, fresh, allowed):
             raise AssertionError("asked about a row with one move")
 
-        choice = zoo.choose_in_mortal_space(ask, Telling(), np.arange(3), np.zeros(3), legal)
+        choice = zoo.choose_in_mortal_space(ask, Telling(), np.arange(3), np.zeros(3), legal,
+                                            skip_forced=True)
         self.assertEqual(choice.tolist(), [5, 68, 75])
 
 
@@ -188,7 +235,7 @@ class SeatedMortalTests(unittest.TestCase):
             want = choose_by_asking_every_row(steered(0, teacher), views[0], live, players,
                                               legal, old_stats)
             got = zoo.choose_in_mortal_space(steered(1, teacher), views[1], live, players,
-                                             legal, new_stats)
+                                             legal, new_stats, skip_forced=True)
             np.testing.assert_array_equal(got, want)
             counts["rows"] += len(live)
             counts["reaches"] += int(((got >= zoo.RIICHI_DISCARD) & (got < zoo.TSUMO)).sum())
@@ -205,6 +252,51 @@ class SeatedMortalTests(unittest.TestCase):
         self.assertGreater(counts["tiles asked"], 0, counts)
         self.assertEqual(new_stats.get("orphans", 0), old_stats.get("orphans", 0))
         self.assertLessEqual(new_stats.get("fallbacks", 0), old_stats.get("fallbacks", 0))
+
+
+class SwitchTests(unittest.TestCase):
+    def test_seated_players_ask_every_row_unless_the_trainer_says_otherwise(self):
+        """Every player that chooses in Mortal's moves asks every row unless
+        the trainer seating it was given `--skip-forced`; a trainer that has
+        no such option, as `train.py`, seats them asking every row too."""
+        legal = np.zeros((1, riichi_py.ACTIONS), dtype=bool)
+        legal[0, 0] = True
+        with tempfile.TemporaryDirectory() as folder:
+            paths = checkpoints(Path(folder))
+            names = ("mortal", "reheaded", "fused")
+            for options in ({"skip_forced": False}, {"skip_forced": True}, {}):
+                args = SimpleNamespace(opponents=[*(paths[name] for name in names), "club"],
+                                       compile=False, **options)
+                seated = ppo_loop.load_others(args, "cpu")
+                self.assertEqual(seated[-1].kind, "club")
+                for name, player in zip(names, seated):
+                    with self.subTest(player=name, **options):
+                        passed = {}
+
+                        def choose(*_args, **kwargs):
+                            passed.update(kwargs)
+                            return np.zeros(1, dtype=np.int64)
+
+                        with patch.object(zoo, "choose_in_mortal_space", side_effect=choose):
+                            player.choose(None, np.zeros(1), np.zeros(1), legal)
+                        self.assertIs(passed["skip_forced"], options.get("skip_forced", False))
+        # Players nobody seated, as a duel or the measurement loads them.
+        self.assertFalse(zoo.MortalPlayer.skip_forced)
+        self.assertFalse(zoo.MortalSpacePlayer.skip_forced)
+        self.assertFalse(combined.Combined.skip_forced)
+
+    def test_the_trainers_and_the_cloud_leave_it_off_unless_asked(self):
+        for module in (train_combined, train_mortal):
+            with self.subTest(trainer=module.__name__):
+                with patch.object(sys, "argv", ["trainer"]):
+                    self.assertFalse(module.parse_args().skip_forced)
+                with patch.object(sys, "argv", ["trainer", "--skip-forced"]):
+                    self.assertTrue(module.parse_args().skip_forced)
+        launch = test_mixed_tables.CloudLaunchTests.launch
+        for trainer in ("train_mortal", "train_combined"):
+            with self.subTest(cloud=trainer):
+                self.assertNotIn("--skip-forced", launch(self, trainer))
+                self.assertIn("--skip-forced", launch(self, trainer, skip_forced=True))
 
 
 if __name__ == "__main__":

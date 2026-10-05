@@ -506,6 +506,7 @@ def train_mortal(
     target_kl: float = 0.0,
     baseline_batch: int | None = None,
     until: int = 0,
+    skip_forced: bool = False,
 ) -> str:
     """Fine-tunes a published Mortal on our rules by self-play, in a run
     directory of its own: see `neural/train_mortal.py`. Resumes from the
@@ -521,6 +522,9 @@ def train_mortal(
     `temperature` is passed on only when given: a run resumes at the one
     its checkpoint was trained at, and one from the published Mortal
     starts at 1.0 (see `neural/train_mortal.py`).
+
+    `skip_forced` has the seated others leave the rows with one move open
+    unasked, the trainer's `--skip-forced`; off, they play as they did.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
@@ -539,6 +543,8 @@ def train_mortal(
         ]
         if temperature is not None:
             command += ["--temperature", str(temperature)]
+        if skip_forced:
+            command.append("--skip-forced")
         if source.exists():
             _carry(run, source, where)
             command += ["--resume", str(where / "latest.pt")]
@@ -601,12 +607,14 @@ def train_combined(
     entropy_target: float = 0.0,
     entropy_max: float = 0.05,
     until: int = 0,
+    skip_forced: bool = False,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
     `neural/train_combined.py`. Resumes from the checkpoint of that name
     in the run when it is there, and otherwise joins the two checkpoints
-    named, which may be any run's. `until` is as for `train_mortal`.
+    named, which may be any run's. `until` and `skip_forced` are as for
+    `train_mortal`.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
@@ -633,6 +641,8 @@ def train_combined(
         # its first generation; eager is the choice when that is not worth it.
         if compile:
             command.append("--compile")
+        if skip_forced:
+            command.append("--skip-forced")
         if fixed:
             command += ["--fixed", *fixed]
         if source.exists():

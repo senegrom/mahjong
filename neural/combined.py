@@ -169,6 +169,9 @@ class Combined(nn.Module):
 
     kind = "mortal"
     actions = ACTIONS
+    #: Whether, seated as another player, it leaves rows with a single move
+    #: open unasked; see `zoo.choose_in_mortal_space`.
+    skip_forced = False
 
     #: What a generation may hold still: either network beneath the head,
     #: the head itself, or any combination of them written with a plus.
@@ -306,7 +309,8 @@ class Combined(nn.Module):
         """Its best move per row, in our engine's actions. The same two
         steps as `decide`, with nothing recorded."""
         return zoo.choose_in_mortal_space(
-            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal
+            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal,
+            skip_forced=self.skip_forced,
         )
 
     @torch.no_grad()

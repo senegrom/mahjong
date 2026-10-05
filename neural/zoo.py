@@ -129,6 +129,7 @@ def choose_in_mortal_space(
     players: np.ndarray,
     legal: np.ndarray,
     stats: dict | None = None,
+    skip_forced: bool = False,
 ) -> np.ndarray:
     """One of our engine's actions per row, from values in Mortal's own
     action space.
@@ -140,12 +141,16 @@ def choose_in_mortal_space(
     from the state in which it is declared, and the tile is decided by the
     discards of that second answer.
 
-    A row with a single move open is not asked at all, at either step: the
-    best of one move is that move, whatever the values, so its answer is
-    the one asking would give. About one decision in fifteen is such a row,
-    a declared riichi's draw most of all, and a step whose rows are all
-    such asks nothing. `stats` counts a fallback only among the rows asked,
-    since nothing was chosen in the others.
+    With `skip_forced`, a row with a single move open is not asked at all,
+    at either step: the best of one move is that move, whatever the values,
+    so its answer is the one asking would give. About one decision in
+    fifteen is such a row, a declared riichi's draw most of all, and a step
+    whose rows are all such asks nothing. It is not the default because the
+    rows that are asked are then scored in a smaller batch, and on the card
+    a batch of another size is worked through by other kernels: on this
+    desktop's card a small Mortal gave 13 of 63 rows other bits once the
+    64th was left out, and a near tie can turn on a bit. `stats` counts a
+    fallback only among the rows asked, and never at an orphan.
     """
     who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
     legal = np.atleast_2d(legal)
@@ -158,16 +163,17 @@ def choose_in_mortal_space(
     orphan = ~allowed.any(axis=1)
     allowed[orphan, MORTAL_PASS] = True
     # The one open move of a row that has only one, and the asked rows'
-    # best below.
+    # best below: every row unless `skip_forced`.
     best = allowed.argmax(axis=1)
-    asked = np.flatnonzero(allowed.sum(axis=1) > 1)
-    if len(asked):
+    asked = np.flatnonzero(allowed.sum(axis=1) > 1) if skip_forced else np.arange(len(who))
+    if len(asked) or not skip_forced:
         values, own = ask([who[i] for i in asked], False, allowed[asked])
         best[asked] = np.where(allowed[asked], values, -np.inf).argmax(axis=1)
         if stats is not None:
             # A fallback is its own first choice not being a move here.
             stats["fallbacks"] = stats.get("fallbacks", 0) + int(
-                (np.where(own, values, -np.inf).argmax(axis=1) != best[asked]).sum()
+                ((np.where(own, values, -np.inf).argmax(axis=1) != best[asked])
+                 & ~orphan[asked]).sum()
             )
     if stats is not None:
         stats["orphans"] = stats.get("orphans", 0) + int(orphan.sum())
@@ -181,9 +187,10 @@ def choose_in_mortal_space(
             game, player = who[i]
             follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
         tiles = legal[second, RIICHI_DISCARD:TSUMO]
-        # Likewise a reach that only one tile keeps ready.
+        # Likewise, with `skip_forced`, a reach that only one tile keeps ready.
         tile = tiles.argmax(axis=1)
-        open_tiles = np.flatnonzero(tiles.sum(axis=1) > 1)
+        open_tiles = (np.flatnonzero(tiles.sum(axis=1) > 1) if skip_forced
+                      else np.arange(len(second)))
         if len(open_tiles):
             allowed_after = np.zeros((len(open_tiles), MORTAL_ACTIONS), dtype=bool)
             allowed_after[:, :34] = tiles[open_tiles]
@@ -213,6 +220,10 @@ class MortalSpacePlayer:
     """
 
     actions = MORTAL_ACTIONS
+    #: Whether rows with a single move open go unasked; see
+    #: `choose_in_mortal_space`. A trainer turns it on for its seated
+    #: others (`ppo_loop.load_others`).
+    skip_forced = False
 
     def __init__(self, net, device: str = "cuda", compile: bool = False) -> None:
         self.net = net.eval()
@@ -259,7 +270,8 @@ class MortalSpacePlayer:
     ) -> np.ndarray:
         stats: dict = {}
         choice = choose_in_mortal_space(
-            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal, stats
+            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal, stats,
+            skip_forced=self.skip_forced,
         )
         self.orphans += stats.get("orphans", 0)
         self.fallbacks += stats.get("fallbacks", 0)
@@ -281,6 +293,8 @@ class MortalPlayer:
     """A published Mortal, choosing moves in our action space."""
 
     kind = "mortal"
+    #: As `MortalSpacePlayer.skip_forced`.
+    skip_forced = False
 
     def __init__(self, path: Path | str, device: str = "cuda", compile: bool = False) -> None:
         self.net = mortal_model.load(path, device)
@@ -322,7 +336,8 @@ class MortalPlayer:
         actions that our engine allows, translated."""
         stats: dict = {}
         choice = choose_in_mortal_space(
-            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal, stats
+            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal, stats,
+            skip_forced=self.skip_forced,
         )
         self.orphans += stats.get("orphans", 0)
         self.fallbacks += stats.get("fallbacks", 0)

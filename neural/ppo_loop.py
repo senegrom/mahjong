@@ -68,6 +68,9 @@ def load_others(args, device: str) -> list:
     and of whatever kind its checkpoint says. They are only ever asked for
     a move, so they need no gradients, and those that play on the card in
     bfloat16 hold their weights that way (see `zoo.play_in_bfloat16`).
+    With `--skip-forced` they leave the rows with one move open unasked
+    (see `zoo.choose_in_mortal_space`); without it, or in a trainer that
+    has no such option, they ask about every row, as they always did.
     validate_training_options has refused a missing checkpoint already."""
     seated = []
     for path in args.opponents:
@@ -75,6 +78,8 @@ def load_others(args, device: str) -> list:
         other.eval()
         for parameter in getattr(other, "parameters", list)():
             parameter.requires_grad_(False)
+        if getattr(args, "skip_forced", False) and hasattr(other, "skip_forced"):
+            other.skip_forced = True
         seated.append(zoo.play_in_bfloat16(other, device))
     return seated
 
