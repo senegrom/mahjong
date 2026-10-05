@@ -280,7 +280,13 @@ def main() -> None:
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                 return (learn(planes, mask)[1],)
 
+        valued = time.time()
         (guess,) = ppo_loop.baseline(rollout, rows, values_of)
+        if device == "cuda":
+            # Waited for, so that the time is the card's and not only the
+            # launching of its work.
+            torch.cuda.synchronize()
+        valued = time.time() - valued
         value_error = float(((rollout.returns - guess) ** 2).mean())
         advantages, spread = ppo_loop.standardised(rollout.returns, guess)
 
@@ -410,6 +416,8 @@ def main() -> None:
             on_mortal=round(weights[1], 4),
             on_ours=round(weights[2], 4),
             value_error=round(value_error, 4),
+            # The pass that values the round before it is learned.
+            baseline_seconds=round(valued, 1),
             entropy_coef=round(entropy_coef(), 6),
             # Peaks, so the container's reservation can be sized from data:
             # memory is billed by what is reserved, not what is used.

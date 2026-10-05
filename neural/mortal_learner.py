@@ -81,6 +81,10 @@ def decide_in_mortal_space(
     riichi names no tile there, so when one is chosen the reach is told to
     the follower and the same question asked again from the state in which
     it stands; both answers are recorded, because the policy made both.
+
+    `timing`, when given, is added to in seconds: `encode` for gathering
+    the rows' planes, `translate`, `network` for the first answer and
+    `riichi` for the whole of the second.
     """
     clock = time.perf_counter
     timing = timing if timing is not None else {}
@@ -155,6 +159,7 @@ def decide_in_mortal_space(
         record_forced = [was_forced[keep]]
 
     if second:
+        began = clock()
         # The reach declared ahead of the table; then the tile, from the
         # state in which it is declared.
         for i in second:
@@ -181,6 +186,7 @@ def decide_in_mortal_space(
         # The tile a declaration throws is never a forced move; see
         # `Records.forced`.
         record_forced.append(np.zeros(len(second), dtype=bool))
+        timing["riichi"] = timing.get("riichi", 0.0) + clock() - began
 
     if len(record_planes) == 1:
         records = Records(
@@ -221,7 +227,7 @@ class MortalLearner(nn.Module):
         self.device = "cpu"
         # Where a round's deciding went, in seconds, for the play record;
         # `selfplay.play` reads and clears it.
-        self.timing = {"encode": 0.0, "translate": 0.0, "network": 0.0}
+        self.timing = {"encode": 0.0, "translate": 0.0, "network": 0.0, "riichi": 0.0}
         # The forward used when deciding; a trainer may set a compiled one.
         self.inference = self.policy
 

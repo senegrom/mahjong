@@ -189,6 +189,11 @@ class Combined(nn.Module):
         self.mortal.eval()
         # The forward a trainer may replace with a compiled one.
         self.backbones_forward = self.backbones
+        # Where a round's deciding went, in seconds, for the play record;
+        # `selfplay.play` reads and clears it. Without it the learner's own
+        # share of a round, a few minutes of a generation, was recorded
+        # nowhere.
+        self.timing = {"encode": 0.0, "translate": 0.0, "network": 0.0, "riichi": 0.0}
 
     def always_trained(self) -> list[nn.Parameter]:
         """The critic and the reading of the hands, both halves of each.
@@ -337,6 +342,7 @@ class Combined(nn.Module):
             legal,
             greedy,
             str(next(self.parameters()).device),
+            self.timing,
             explore_share=explore_share,
             wanderer=wanderer,
         )

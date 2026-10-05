@@ -150,7 +150,10 @@ class Batch:
     matchups: list[dict] = field(default_factory=list)
     #: Where the round's wall time went, in seconds by part: the engine
     #: and the follower, the encoder, the network, the seated others, and
-    #: the bookkeeping. For finding what to make faster.
+    #: the bookkeeping. A learner that decides for itself adds its own
+    #: account: gathering its rows' planes to the encoder, its first answer
+    #: to the network, translating its moves, and asking for a riichi's
+    #: tile. For finding what to make faster.
     timing: dict[str, float] = field(default_factory=dict)
 
 
