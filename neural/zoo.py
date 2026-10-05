@@ -139,6 +139,13 @@ def choose_in_mortal_space(
     the reach is told to the follower and the same question asked again,
     from the state in which it is declared, and the tile is decided by the
     discards of that second answer.
+
+    A row with a single move open is not asked at all, at either step: the
+    best of one move is that move, whatever the values, so its answer is
+    the one asking would give. About one decision in fifteen is such a row,
+    a declared riichi's draw most of all, and a step whose rows are all
+    such asks nothing. `stats` counts a fallback only among the rows asked,
+    since nothing was chosen in the others.
     """
     who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
     legal = np.atleast_2d(legal)
@@ -150,15 +157,20 @@ def choose_in_mortal_space(
     allowed = translatable(legal)
     orphan = ~allowed.any(axis=1)
     allowed[orphan, MORTAL_PASS] = True
-    values, own = ask(who, False, allowed)
-    ranked = np.where(allowed, values, -np.inf)
-    best = ranked.argmax(axis=1)
+    # The one open move of a row that has only one, and the asked rows'
+    # best below.
+    best = allowed.argmax(axis=1)
+    asked = np.flatnonzero(allowed.sum(axis=1) > 1)
+    if len(asked):
+        values, own = ask([who[i] for i in asked], False, allowed[asked])
+        best[asked] = np.where(allowed[asked], values, -np.inf).argmax(axis=1)
+        if stats is not None:
+            # A fallback is its own first choice not being a move here.
+            stats["fallbacks"] = stats.get("fallbacks", 0) + int(
+                (np.where(own, values, -np.inf).argmax(axis=1) != best[asked]).sum()
+            )
     if stats is not None:
         stats["orphans"] = stats.get("orphans", 0) + int(orphan.sum())
-        # A fallback is its own first choice not being a move here.
-        stats["fallbacks"] = stats.get("fallbacks", 0) + int(
-            ((np.where(own, values, -np.inf).argmax(axis=1) != best) & ~orphan).sum()
-        )
     choice = first_meaning(best, legal)
     choice = np.where(orphan | (choice < 0), legal.argmax(axis=1), choice)
 
@@ -169,11 +181,16 @@ def choose_in_mortal_space(
             game, player = who[i]
             follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
         tiles = legal[second, RIICHI_DISCARD:TSUMO]
-        allowed_after = np.zeros((len(second), MORTAL_ACTIONS), dtype=bool)
-        allowed_after[:, :34] = tiles
-        after, _own_after = ask([who[i] for i in second], True, allowed_after)
-        ranked_tiles = np.where(tiles, after[:, :riichi_py.POSITIONS], -np.inf)
-        choice[second] = RIICHI_DISCARD + ranked_tiles.argmax(axis=1)
+        # Likewise a reach that only one tile keeps ready.
+        tile = tiles.argmax(axis=1)
+        open_tiles = np.flatnonzero(tiles.sum(axis=1) > 1)
+        if len(open_tiles):
+            allowed_after = np.zeros((len(open_tiles), MORTAL_ACTIONS), dtype=bool)
+            allowed_after[:, :34] = tiles[open_tiles]
+            after, _own_after = ask([who[second[i]] for i in open_tiles], True, allowed_after)
+            ranked_tiles = np.where(tiles[open_tiles], after[:, :riichi_py.POSITIONS], -np.inf)
+            tile[open_tiles] = ranked_tiles.argmax(axis=1)
+        choice[second] = RIICHI_DISCARD + tile
     return choice.astype(np.int64)
 
 
