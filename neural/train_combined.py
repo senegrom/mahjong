@@ -123,6 +123,11 @@ def main() -> None:
     device, amp_enabled, log_path = ppo_loop.setup(
         args, lambda options: validate_exploration(options.explore)
     )
+    # In mixed precision the learning reads its planes only under autocast,
+    # whose convolutions would cast float32 planes to bfloat16 first, so they
+    # are made dense in bfloat16 straight away: half the bytes, and the same
+    # bits handed to the convolutions (see `Planes.dense`).
+    planes_dtype = torch.bfloat16 if amp_enabled else torch.float32
 
     start = 0
     benchmark = ppo_loop.Benchmark()
@@ -296,7 +301,7 @@ def main() -> None:
                 return (learn(planes, mask)[1],)
 
         valued = time.time()
-        (guess,) = ppo_loop.baseline(rollout, rows, values_of)
+        (guess,) = ppo_loop.baseline(rollout, rows, values_of, dtype=planes_dtype)
         if device == "cuda":
             # Waited for, so that the time is the card's and not only the
             # launching of its work.
@@ -322,7 +327,7 @@ def main() -> None:
         )
         steps = 0
         for _epoch in range(args.epochs):
-            with closing(ppo_loop.minibatches(rollout, args.batch)) as minibatches:
+            with closing(ppo_loop.minibatches(rollout, args.batch, dtype=planes_dtype)) as minibatches:
                 for picks, planes in minibatches:
                     optimiser.zero_grad(set_to_none=True)
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
@@ -330,12 +335,22 @@ def main() -> None:
                     logits = logits.float()
                     value = value.float()
                     hands_loss, covered = ppo_loop.hands_loss_of(guessed.float(), held[picks])
-                    distribution = torch.distributions.Categorical(logits=logits)
+                    # Unvalidated: checking the logits and the moves for the
+                    # distribution waited on the card twice a step, and a
+                    # logit that is not a number still stops the step, at the
+                    # gradient's clip below.
+                    distribution = torch.distributions.Categorical(logits=logits, validate_args=False)
                     log_prob = distribution.log_prob(rollout.actions[picks])
                     old_log_prob = rollout.old_log_probs[picks]
                     chosen = ~explored[picks]
                     own = chosen.sum().clamp(min=1)
-                    if chosen.any() and drift.check(old_log_prob[chosen], log_prob[chosen]):
+                    if args.explore:
+                        stop = bool(chosen.any()) and drift.check(old_log_prob[chosen], log_prob[chosen])
+                    else:
+                        # Nothing was explored, so every row is the policy's;
+                        # asking the card which ones would wait on it.
+                        stop = drift.check(old_log_prob, log_prob)
+                    if stop:
                         break
                     # PPO's clipped objective over the rows the policy chose.
                     advantage = advantages[picks].masked_fill(~chosen, 0.0)
@@ -415,6 +430,10 @@ def main() -> None:
             with torch.no_grad():
                 net.eval()
                 allowed = rollout.legal[picks]
+                if planes.dtype != torch.float32:
+                    # This runs without autocast, so the minibatch is made
+                    # dense again as it always was.
+                    planes = ppo_loop.planes_of(rollout, picks)
                 phi, q, features, a1, _value, _guessed = net.backbones(planes, allowed)
                 joined = net.fuse(phi.float(), q.float(), features.float(), a1.float(), allowed)
                 shift = (joined - a1).abs().masked_fill(~allowed, 0.0)

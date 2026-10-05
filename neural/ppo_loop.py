@@ -134,7 +134,9 @@ def on_device(batch, device: str) -> Round:
 
 
 @torch.no_grad()
-def baseline(rollout: Round, rows: int, value, heads: int = 1) -> list[torch.Tensor]:
+def baseline(
+    rollout: Round, rows: int, value, heads: int = 1, dtype: torch.dtype = torch.float32
+) -> list[torch.Tensor]:
     """What the value heads made of every decision before any of them
     learned the round, so the advantages cannot collapse as a head fits the
     very targets they are measured against.
@@ -144,18 +146,29 @@ def baseline(rollout: Round, rows: int, value, heads: int = 1) -> list[torch.Ten
     `chunk` names, with their planes padded to `rows`, so a compiled graph
     sees one shape all round. The last chunk was a new shape every
     generation, which had the compiler rebuild the graph now and then:
-    minutes each time."""
+    minutes each time. The planes are float32, or `dtype` for a `value`
+    that reads them only under autocast (see `Planes.dense`).
+
+    This is the one pass over the whole round, and it checks every row of
+    planes kept on the host in full as it makes it dense. The round is
+    trusted from then on (see `Planes`): the minibatches that follow, each
+    row twice over, check only that every column is in bounds."""
     guesses = [torch.empty(rollout.decisions, device=rollout.device) for _ in range(heads)]
     for start in range(0, rollout.decisions, rows):
         chunk = slice(start, start + rows)
         if rollout.on_card is not None:
-            planes = rollout.on_card.slice(start, start + rows)
+            planes = rollout.on_card.slice(start, start + rows, dtype)
         else:
-            planes = rollout.observations.slice(start, start + rows).dense(rollout.device)
+            planes = rollout.observations.slice(start, start + rows).dense(rollout.device, dtype)
         count = planes.shape[0]
         answers = value(chunk, pad_rows(planes, rows))
         for guess, answer in zip(guesses, answers):
             guess[chunk] = answer.float()[:count]
+    observations = rollout.observations
+    if isinstance(observations, Planes) and not observations.trusted:
+        rollout.observations = Planes(
+            observations.indptr, observations.indices, observations.values, trusted=True
+        )
     return guesses
 
 
@@ -167,9 +180,28 @@ def standardised(returns: torch.Tensor, baseline: torch.Tensor) -> tuple[torch.T
     return (advantages - advantages.mean()) / (spread + 1e-6), float(spread)
 
 
-def minibatches(rollout: Round, size: int, extra=None):
+_STAGING: dict[torch.device, torch.cuda.Stream] = {}
+
+
+def staging_stream(device: str | torch.device) -> torch.cuda.Stream:
+    """The stream minibatches are made dense on, one a device for the life
+    of the process. The caching allocator keeps freed memory a stream at a
+    time, and a fresh stream each epoch left the last one's minibatches'
+    memory where no other stream could use it, over a gigabyte an epoch,
+    until the card was full and every allocation stalled to free it."""
+    device = torch.device(device)
+    if device.index is None:
+        device = torch.device("cuda", torch.cuda.current_device())
+    if device not in _STAGING:
+        _STAGING[device] = torch.cuda.Stream(device)
+    return _STAGING[device]
+
+
+def minibatches(rollout: Round, size: int, extra=None, dtype: torch.dtype = torch.float32):
     """One pass over the round in a fresh order, as (picks, planes, ...)
-    per minibatch, the rows `extra(index)` gathers for them last.
+    per minibatch, the rows `extra(index)` gathers for them last. The
+    planes are float32, or `dtype` for a step that reads them only under
+    autocast (see `Planes.dense`).
 
     The shuffle is made on the host, where the planes may be: a permutation
     made on the card had every minibatch's indices copied back before they
@@ -178,7 +210,14 @@ def minibatches(rollout: Round, size: int, extra=None):
     a new size each generation had it rebuilt now and then, minutes each
     time; the few rows left over differ every epoch. Planes on the host are
     made dense on the device in a thread of their own, a few minibatches
-    ahead of the step. Close what this returns when done with it."""
+    ahead of the step. Close what this returns when done with it.
+
+    On the card, that thread copies from page-locked memory and makes the
+    planes dense on a stream of its own, and the step's stream waits for
+    each minibatch only as it takes it. Copied from ordinary memory, on the
+    step's stream, every copy waited until the card had finished all the
+    work queued before it, so the thread fell behind the step it was meant
+    to run ahead of, and the step's kernels waited behind its copies."""
     order = torch.randperm(rollout.decisions)
     slices = [order[start : start + size] for start in range(0, rollout.decisions, size)]
     slices = [drawn for drawn in slices if drawn.numel() == size]
@@ -186,18 +225,49 @@ def minibatches(rollout: Round, size: int, extra=None):
     if rollout.on_card is not None:
         def gather(drawn: torch.Tensor):
             picks = drawn.to(rollout.device)
-            return (picks, rollout.on_card.rows(picks), *more(picks))
+            return (picks, rollout.on_card.rows(picks, dtype), *more(picks))
 
         return (gather(drawn) for drawn in slices)
 
-    def prepare(drawn: torch.Tensor):
-        return (
-            drawn.to(rollout.device),
-            rollout.observations.rows(drawn.numpy()).dense(rollout.device),
-            *more(drawn),
-        )
+    if torch.device(rollout.device).type != "cuda":
+        def prepare(drawn: torch.Tensor):
+            return (
+                drawn.to(rollout.device),
+                rollout.observations.rows(drawn.numpy()).dense(rollout.device, dtype),
+                *more(drawn),
+            )
 
-    return Prefetcher(slices, prepare)
+        return Prefetcher(slices, prepare)
+
+    side = staging_stream(rollout.device)
+    step = torch.cuda.current_stream(rollout.device)
+
+    def staged(drawn: torch.Tensor):
+        rows = rollout.observations.rows(drawn.numpy())
+        with torch.cuda.stream(side):
+            picks = drawn.pin_memory().to(rollout.device, non_blocking=True)
+            planes = rows.dense(rollout.device, dtype, pinned=True)
+            ready = torch.cuda.Event()
+            ready.record(side)
+        # Made on the side stream and read on the step's: their memory is
+        # not handed out again until the step has finished with them.
+        picks.record_stream(step)
+        planes.record_stream(step)
+        return ready, picks, planes, *more(drawn)
+
+    def receive(prepared):
+        ready, *taken = prepared
+        torch.cuda.current_stream(rollout.device).wait_event(ready)
+        return tuple(taken)
+
+    return Prefetcher(slices, staged, receive=receive)
+
+
+def planes_of(rollout: Round, picks: torch.Tensor, dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    """The planes of the decisions `picks` names, dense on the device."""
+    if rollout.on_card is not None:
+        return rollout.on_card.rows(picks, dtype)
+    return rollout.observations.rows(picks.cpu().numpy()).dense(rollout.device, dtype)
 
 
 def clipped_policy_loss(

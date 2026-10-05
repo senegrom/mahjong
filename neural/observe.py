@@ -51,7 +51,9 @@ class Planes:
     dense still checks that every column is in bounds, but not that every
     value is finite, which was most of the check's cost on each step's
     thousands of rows. The rows and slices of such planes are trusted too;
-    anything stacked, saved or loaded is not, and is checked in full.
+    anything stacked, saved or loaded is not, and is checked in full,
+    except a round whose every row has already been checked in full once,
+    by the pass that values it (see `ppo_loop.baseline`).
     """
 
     __slots__ = ("indptr", "indices", "values", "trusted")
@@ -148,25 +150,44 @@ class Planes:
         return Planes(self.indptr[start : stop + 1] - lo, self.indices[lo:hi], self.values[lo:hi],
                       trusted=self.trusted)
 
-    def dense(self, device: str | torch.device) -> torch.Tensor:
-        """The rows as float32 planes on `device`, shape (rows, PLANES, 34).
+    def dense(
+        self, device: str | torch.device, dtype: torch.dtype = torch.float32, pinned: bool = False
+    ) -> torch.Tensor:
+        """The rows as planes on `device`, shape (rows, PLANES, 34), in
+        float32 or in `dtype`.
+
+        bfloat16 is for a learning step that runs under autocast, whose
+        convolutions would only cast float32 planes to it: the values are
+        float16, which float32 holds exactly, so there is one rounding to
+        bfloat16 either way, the same one, and the convolutions are handed
+        the same bits. Planes read without autocast must be float32.
 
         The entries cross to the card as they are stored, two bytes each,
         and are widened there: widening them on the host first cost more
         than the copy. Torch has no unsigned 16-bit kind, so the indices
-        travel as signed and are put right on the card."""
+        travel as signed and are put right on the card. With `pinned` they
+        cross from page-locked memory without waiting for the card, in the
+        order of the current stream (see `ppo_loop.minibatches`); without,
+        each copy waits until the card has done everything asked of it."""
         self.validate(finite=not self.trusted)
         n = len(self)
-        out = torch.zeros(n * WIDTH, dtype=torch.float32, device=device)
+        out = torch.zeros(n * WIDTH, dtype=dtype, device=device)
         nnz = self.nnz
+
+        def to_device(array: np.ndarray) -> torch.Tensor:
+            host = torch.from_numpy(array)
+            if pinned:
+                return host.pin_memory().to(device, non_blocking=True)
+            return host.to(device)
+
         if nnz:
-            counts = torch.from_numpy(np.diff(self.indptr)).to(device)
+            counts = to_device(np.diff(self.indptr))
             row = torch.repeat_interleave(
                 torch.arange(n, device=device, dtype=torch.int64), counts, output_size=nnz
             )
             signed = np.ascontiguousarray(self.indices).view(np.int16)
-            columns = torch.from_numpy(signed).to(device).to(torch.int64) & 0xFFFF
-            values = torch.from_numpy(np.ascontiguousarray(self.values)).to(device).float()
+            columns = to_device(signed).to(torch.int64) & 0xFFFF
+            values = to_device(np.ascontiguousarray(self.values)).to(dtype)
             out[row * WIDTH + columns] = values
         return out.reshape(n, PLANES, POSITIONS)
 
@@ -234,8 +255,11 @@ class FlatPlanes:
     def slice(self, start: int, stop: int) -> FlatPlanes:
         return FlatPlanes(self.array[start:stop])
 
-    def dense(self, device: str | torch.device) -> torch.Tensor:
-        return torch.from_numpy(np.ascontiguousarray(self.array)).to(device).float()
+    def dense(
+        self, device: str | torch.device, dtype: torch.dtype = torch.float32, pinned: bool = False
+    ) -> torch.Tensor:
+        """As `Planes.dense`; these are small enough to cross as they are."""
+        return torch.from_numpy(np.ascontiguousarray(self.array)).to(device).to(dtype)
 
     @staticmethod
     def cat(blocks: list[FlatPlanes]) -> FlatPlanes:
@@ -279,15 +303,16 @@ class DevicePlanes:
         """What holding `planes` on the card would take."""
         return planes.nnz * 6 + len(planes) * 8 + 8
 
-    def rows(self, picks: torch.Tensor) -> torch.Tensor:
+    def rows(self, picks: torch.Tensor, dtype: torch.dtype = torch.float32) -> torch.Tensor:
         """The rows `picks` (a tensor of indices on the card) as dense
-        float32 planes, shape (rows, PLANES, 34)."""
+        planes, shape (rows, PLANES, 34), in float32 or in `dtype` (see
+        `Planes.dense`)."""
         picks = picks.to(self.device, torch.int64)
         n = int(picks.numel())
         starts = self.indptr[picks]
         counts = self.indptr[picks + 1] - starts
         total = int(counts.sum())
-        out = torch.zeros(n * WIDTH, dtype=torch.float32, device=self.device)
+        out = torch.zeros(n * WIDTH, dtype=dtype, device=self.device)
         if total:
             offsets = torch.cumsum(counts, 0) - counts
             row = torch.repeat_interleave(
@@ -298,12 +323,12 @@ class DevicePlanes:
             )
             flat = torch.repeat_interleave(starts, counts, output_size=total) + within
             columns = self.indices[flat].to(torch.int64)
-            out[row * WIDTH + columns] = self.values[flat].float()
+            out[row * WIDTH + columns] = self.values[flat].to(dtype)
         return out.reshape(n, PLANES, POSITIONS)
 
-    def slice(self, start: int, stop: int) -> torch.Tensor:
+    def slice(self, start: int, stop: int, dtype: torch.dtype = torch.float32) -> torch.Tensor:
         stop = min(stop, len(self))
-        return self.rows(torch.arange(start, stop, device=self.device))
+        return self.rows(torch.arange(start, stop, device=self.device), dtype)
 
 
 def resident(
