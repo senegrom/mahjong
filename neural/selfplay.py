@@ -202,6 +202,7 @@ def play(
     explore_share: float = 0.0,
     want_oracle: bool = False,
     want_held: bool = True,
+    preview_reach: bool = False,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -235,6 +236,12 @@ def play(
     One of them may be the engine's heuristic player (`zoo.ClubPlayer`,
     seated by the name `club`): the arena plays its places itself, and
     its presence below one in the roster seats it only in some rounds.
+
+    `preview_reach` has a learner that decides in Mortal's moves ask which
+    tile a reach would throw in the same forward as the reach, instead of
+    telling the follower the reach and asking again (see
+    `mortal_learner.decide_in_mortal_space`). The others are asked as their
+    trainer seated them (`ppo_loop.load_others`).
     """
     require_training_engine()
     validate_budget(games, max_steps)
@@ -435,6 +442,7 @@ def play(
                 picked, records = net.decide(
                     views, index, deciding[index], mask[index], greedy,
                     explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
+                    preview_reach=preview_reach,
                 )
             choice[index] = picked
             observations.append(records.planes)

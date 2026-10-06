@@ -102,6 +102,7 @@ def decide_in_mortal_space(
     timing: dict | None = None,
     explore_share: float = 0.0,
     wanderer=None,
+    preview_reach: bool = False,
 ) -> tuple[np.ndarray, Records]:
     """One of our engine's actions per row, and the records of everything
     the policy decided to get there, in Mortal's action space.
@@ -114,9 +115,23 @@ def decide_in_mortal_space(
     from the state in which it stands; both answers are recorded, because
     the policy made both.
 
+    With `preview_reach` nobody is told and nothing is asked again: every
+    row that may declare riichi is asked as well, in the first forward,
+    which tile it would throw as it would stand having declared, from the
+    follower's preview of the reach (see `Views.sparse_and_masks`), and a
+    row that chooses the reach draws its tile from that answer. The states
+    and the questions are the ones telling would have made, and so are the
+    records; the draws are made in the same order from batches of the same
+    shapes, so the random numbers are the ones they always were. Only the
+    batch the answers come from is larger, which in bfloat16 can move them
+    in their last bits, so it is a switch, off unless the trainer is told.
+    It saves a second forward, a few hundred kernels, wherever a reach is
+    chosen, about eleven hundred times in a round of four thousand tables,
+    for a few more rows in the first.
+
     `timing`, when given, is added to in seconds: `encode` for gathering
-    the rows' planes, `translate`, `network` for the first answer and
-    `riichi` for the whole of the second.
+    the rows' planes, those previewed included, `translate`, `network` for
+    the first answer and `riichi` for the whole of the second.
     """
     clock = time.perf_counter
     timing = timing if timing is not None else {}
@@ -140,12 +155,35 @@ def decide_in_mortal_space(
     # move and not recorded; it does not happen in practice.
     decidable = allowed.any(axis=1)
     allowed[~decidable, zoo.MORTAL_PASS] = True
+    # With `preview_reach`, the rows that may declare riichi, each asked
+    # ahead which tile it would throw, with only those tiles allowed.
+    ahead = (np.flatnonzero(allowed[:, zoo.MORTAL_RIICHI]) if preview_reach
+             else np.zeros(0, dtype=np.int64))
+    allowed_ahead = np.zeros((len(ahead), zoo.MORTAL_ACTIONS), dtype=bool)
+    allowed_ahead[:, :34] = legal[ahead, zoo.RIICHI_DISCARD:zoo.TSUMO]
     timing["translate"] = timing.get("translate", 0.0) + clock() - began
+    if len(ahead):
+        began = clock()
+        previews, _own_ahead = views.sparse_and_masks(
+            np.asarray(rows)[ahead], np.asarray(players)[ahead], after_reach=True
+        )
+        timing["encode"] = timing.get("encode", 0.0) + clock() - began
     began = clock()
-    mask = torch.from_numpy(allowed).to(device)
-    # Precision is owned by the caller, matching the later PPO forward.
-    logits, value, phi = scored(score(planes.dense(device), mask))
-    logits = logits.float()
+    if len(ahead):
+        # One forward for both questions: the rows as they stand, then the
+        # same players' reaches as they would stand, split apart again.
+        asked = torch.from_numpy(np.concatenate([allowed, allowed_ahead])).to(device)
+        logits, value, phi = scored(score(Planes.dense_of([planes, previews], device), asked))
+        logits = logits.float()
+        mask = asked[: len(who)]
+        logits, logits_ahead = logits[: len(who)], logits[len(who):]
+        value, value_ahead = (None, None) if value is None else (value[: len(who)], value[len(who):])
+        phi, phi_ahead = (None, None) if phi is None else (phi[: len(who)], phi[len(who):])
+    else:
+        mask = torch.from_numpy(allowed).to(device)
+        # Precision is owned by the caller, matching the later PPO forward.
+        logits, value, phi = scored(score(planes.dense(device), mask))
+        logits = logits.float()
     distribution = torch.distributions.Categorical(logits=logits)
     if greedy:
         picked = logits.argmax(dim=1)
@@ -200,18 +238,33 @@ def decide_in_mortal_space(
 
     if second:
         began = clock()
-        # The reach declared ahead of the table; then the tile, from the
-        # state in which it is declared.
-        for i in second:
-            game, player = who[i]
-            follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
-        indptr, indices, values, masks = follower.encode([who[i] for i in second])
-        after = Planes.from_follower(indptr, indices, values)
-        allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
-        allowed_after[:, :34] = legal[second, zoo.RIICHI_DISCARD:zoo.TSUMO]
-        mask_after = torch.from_numpy(allowed_after).to(device)
-        logits_after, value_after, phi_after = scored(score(after.dense(device), mask_after))
-        logits_after = logits_after.float()
+        if preview_reach:
+            # Asked already, each from the state telling the reach would
+            # have left it in: the answers of those who chose it.
+            place = np.full(len(who), -1, dtype=np.int64)
+            place[ahead] = np.arange(len(ahead))
+            at = place[second]
+            if (at < 0).any():
+                raise RuntimeError("the policy declared riichi where it was not allowed to")
+            after = previews.rows(at)
+            allowed_after = allowed_ahead[at]
+            chosen = torch.from_numpy(at).to(device)
+            logits_after = logits_ahead[chosen]
+            value_after = None if value_ahead is None else value_ahead[chosen]
+            phi_after = None if phi_ahead is None else phi_ahead[chosen]
+        else:
+            # The reach declared ahead of the table; then the tile, from the
+            # state in which it is declared.
+            for i in second:
+                game, player = who[i]
+                follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+            indptr, indices, values, masks = follower.encode([who[i] for i in second])
+            after = Planes.from_follower(indptr, indices, values)
+            allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
+            allowed_after[:, :34] = legal[second, zoo.RIICHI_DISCARD:zoo.TSUMO]
+            mask_after = torch.from_numpy(allowed_after).to(device)
+            logits_after, value_after, phi_after = scored(score(after.dense(device), mask_after))
+            logits_after = logits_after.float()
         distribution_after = torch.distributions.Categorical(logits=logits_after)
         tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()
         log_prob_after = distribution_after.log_prob(tile).cpu().numpy()
@@ -323,10 +376,13 @@ class MortalLearner(nn.Module):
         greedy: bool = False,
         explore_share: float = 0.0,
         wanderer=None,
+        preview_reach: bool = False,
     ) -> tuple[np.ndarray, Records]:
         """One of our actions per row, and the records of the decisions
         made, in Mortal's action space, that produced them, with the value
-        head's value of each, which the same forward has worked out."""
+        head's value of each, which the same forward has worked out; a
+        reach's tile from that forward too with `preview_reach` (see
+        `decide_in_mortal_space`)."""
         return decide_in_mortal_space(
             self.inference,
             views,
@@ -338,6 +394,7 @@ class MortalLearner(nn.Module):
             self.timing,
             explore_share=explore_share,
             wanderer=wanderer,
+            preview_reach=preview_reach,
         )
 
     def choose(

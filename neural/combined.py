@@ -172,6 +172,10 @@ class Combined(nn.Module):
     #: Whether, seated as another player, it leaves rows with a single move
     #: open unasked; see `zoo.choose_in_mortal_space`.
     skip_forced = False
+    #: Whether, seated as another player, it asks a reach's tile in the
+    #: first question, from the follower's preview of the reach; see
+    #: `zoo.choose_in_mortal_space`. As the learner it is told by `decide`.
+    preview_reach = False
     #: Whether deciding keeps Mortal's vector of every decision in its
     #: records, for a generation that learns from it rather than running
     #: Mortal again (`train_combined --reuse-phi`). A trainer turns it on
@@ -358,19 +362,18 @@ class Combined(nn.Module):
         """Its best move per row, in our engine's actions. The same two
         steps as `decide`, with nothing recorded."""
         return zoo.choose_in_mortal_space(
-            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal,
-            skip_forced=self.skip_forced,
+            lambda who, fresh, allowed, ahead=(): self._ask(views, who, fresh, allowed, ahead),
+            views, rows, players, legal,
+            skip_forced=self.skip_forced, preview_reach=self.preview_reach,
         )
 
     @torch.no_grad()
-    def _ask(self, views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray):
-        rows = np.array([game for game, _player in who], dtype=np.int64)
-        players = np.array([player for _game, player in who], dtype=np.int64)
-        sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
+    def _ask(self, views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray, ahead=()):
         device = str(next(self.parameters()).device)
+        planes, masks = zoo.asked_planes(views, who, fresh, ahead, device)
         mask = torch.from_numpy(allowed).to(device)
         with policy_inference.autocast(device, self.actions):
-            logits, _value, _phi = self.decision(sparse.dense(device), mask)
+            logits, _value, _phi = self.decision(planes, mask)
         return logits.float().cpu().numpy(), masks
 
     @torch.no_grad()
@@ -383,12 +386,15 @@ class Combined(nn.Module):
         greedy: bool = False,
         explore_share: float = 0.0,
         wanderer=None,
+        preview_reach: bool = False,
     ):
         """One of our engine's actions per row, and what the policy decided
         to get there, with the value its head gave each decision: the
         fusion's judgement, the one the baseline pass reads; and, with
         `keep_phi`, Mortal's vector of each. Its moves are Mortal's, so a
-        riichi is answered in two steps and both are recorded."""
+        riichi is answered in two steps and both are recorded; with
+        `preview_reach`, from one forward (see
+        `mortal_learner.decide_in_mortal_space`)."""
 
         def score(planes: torch.Tensor, mask: torch.Tensor):
             answer = self.decision(planes, mask)
@@ -405,6 +411,7 @@ class Combined(nn.Module):
             self.timing,
             explore_share=explore_share,
             wanderer=wanderer,
+            preview_reach=preview_reach,
         )
 
     def parameter_count(self) -> int:

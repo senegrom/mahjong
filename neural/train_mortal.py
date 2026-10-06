@@ -70,6 +70,14 @@ def parse_args() -> argparse.Namespace:
         "last bit, and so turn a near tie",
     )
     parser.add_argument(
+        "--preview-reach", action="store_true",
+        help="ask which tile a reach would throw in the forward that decides on the reach, "
+        "from the follower's preview of it, for the learner and the seated --opponents, "
+        "instead of telling the follower the reach and asking again: one forward where there "
+        "were two. The same questions from the same states; the answers come from a larger "
+        "batch, which in bfloat16 can move them in their last bits. Off by default",
+    )
+    parser.add_argument(
         "--baseline-from-play", action="store_true",
         help="measure the advantages against the value head's value of each decision as the "
         "learner played, instead of a pass over the round before it is learned. The same head, "
@@ -206,6 +214,7 @@ def main() -> None:
             # Mortal has no head that reads the opponents' hands, and they
             # are a gigabyte of host memory on a large round.
             want_held=False,
+            preview_reach=args.preview_reach,
         )
         require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began

@@ -71,10 +71,16 @@ class Taught:
         return self
 
     @torch.no_grad()
-    def decide(self, views, rows, players, legal, greedy=False, explore_share=0.0, wanderer=None):
+    def decide(self, views, rows, players, legal, greedy=False, explore_share=0.0, wanderer=None,
+               preview_reach=False):
         taught = np.frombuffer(views.arena.teacher(), dtype=np.uint8)[rows].astype(np.int64)
-        # The rows asked a second time, for a riichi's tile, in their order.
-        reaching = [i for i, move in enumerate(taught) if zoo.RIICHI_DISCARD <= move < zoo.TSUMO]
+        reaches = (taught >= zoo.RIICHI_DISCARD) & (taught < zoo.TSUMO)
+        # The rows asked a second time, for a riichi's tile, in their order;
+        # with `preview_reach`, every row that may reach is asked its tile
+        # after the rows themselves, in the first question.
+        reaching = np.flatnonzero(reaches)
+        tiles = np.atleast_2d(legal)[:, zoo.RIICHI_DISCARD:zoo.TSUMO]
+        ready = np.flatnonzero(tiles.any(axis=1))
         asked = []
 
         def score(planes, mask):
@@ -84,6 +90,11 @@ class Taught:
             answer = answer if self.keep_phi else answer[:2]
             if not asked:
                 wanted = TO_MORTAL[taught]
+                if len(mask) > len(taught):
+                    # The taught tile where it reaches, the first open one
+                    # where it does not and the answer is never read.
+                    wanted = np.concatenate([wanted, np.where(
+                        reaches[ready], taught[ready] - zoo.RIICHI_DISCARD, tiles[ready].argmax(axis=1))])
             else:
                 wanted = taught[reaching] - zoo.RIICHI_DISCARD
             asked.append(len(mask))
@@ -93,7 +104,7 @@ class Taught:
 
         return mortal_learner.decide_in_mortal_space(
             score, views, rows, players, legal, greedy, str(next(self.net.parameters()).device),
-            self.timing, explore_share=explore_share, wanderer=wanderer)
+            self.timing, explore_share=explore_share, wanderer=wanderer, preview_reach=preview_reach)
 
 
 def passed(net, batch, device, rows=64, amp=False, dtype=torch.float32):

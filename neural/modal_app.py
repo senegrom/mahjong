@@ -551,6 +551,7 @@ def train_mortal(
     skip_forced: bool = False,
     baseline_from_play: bool = False,
     check_baseline: bool = False,
+    preview_reach: bool = False,
 ) -> str:
     """Fine-tunes a published Mortal on our rules by self-play, in a run
     directory of its own: see `neural/train_mortal.py`. Resumes from the
@@ -575,6 +576,10 @@ def train_mortal(
     `check_baseline` makes the pass as well and records how far the two
     are apart: the trainer's `--baseline-from-play` and `--check-baseline`.
     Each is passed on only when true.
+
+    `preview_reach` has the learner and the seated others ask a reach's
+    tile in the forward that decides on the reach, the trainer's
+    `--preview-reach`; passed on only when true.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
@@ -599,6 +604,8 @@ def train_mortal(
             command.append("--baseline-from-play")
         if check_baseline:
             command.append("--check-baseline")
+        if preview_reach:
+            command.append("--preview-reach")
         if source.exists():
             _carry(run, source, where)
             command += ["--resume", str(where / "latest.pt")]
@@ -666,13 +673,15 @@ def train_combined(
     check_baseline: bool = False,
     reuse_phi: bool = False,
     compile_learning: bool = False,
+    preview_reach: bool = False,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
     `neural/train_combined.py`. Resumes from the checkpoint of that name
     in the run when it is there, and otherwise joins the two checkpoints
     named, which may be any run's. `until`, `skip_forced`,
-    `baseline_from_play` and `check_baseline` are as for `train_mortal`.
+    `baseline_from_play`, `check_baseline` and `preview_reach` are as for
+    `train_mortal`.
 
     `reuse_phi` has a generation that holds Mortal still learn from
     Mortal's vectors as play worked them out, the trainer's `--reuse-phi`;
@@ -719,6 +728,8 @@ def train_combined(
             command.append("--check-baseline")
         if reuse_phi:
             command.append("--reuse-phi")
+        if preview_reach:
+            command.append("--preview-reach")
         if fixed:
             command += ["--fixed", *fixed]
         if source.exists():

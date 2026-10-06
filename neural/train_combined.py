@@ -184,6 +184,14 @@ def parse_args() -> argparse.Namespace:
         "last bit, and so turn a near tie",
     )
     parser.add_argument(
+        "--preview-reach", action="store_true",
+        help="ask which tile a reach would throw in the forward that decides on the reach, "
+        "from the follower's preview of it, for the joined player and the seated --opponents, "
+        "instead of telling the follower the reach and asking again: one forward where there "
+        "were two. The same questions from the same states; the answers come from a larger "
+        "batch, which in bfloat16 can move them in their last bits. Off by default",
+    )
+    parser.add_argument(
         "--baseline-from-play", action="store_true",
         help="measure the advantages against the value the joined player's head gave each "
         "decision as it played, instead of a pass over the round before it is learned. The "
@@ -402,6 +410,7 @@ def main() -> None:
             seat_share=args.seat_share,
             population=roster,
             explore_share=args.explore,
+            preview_reach=args.preview_reach,
         )
         require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began

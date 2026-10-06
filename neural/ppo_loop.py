@@ -75,7 +75,10 @@ def load_others(args, device: str) -> list:
     cast answered 64 rows of 64 with other bits.
     With `--skip-forced` they leave the rows with one move open unasked
     (see `zoo.choose_in_mortal_space`); without it, or in a trainer that
-    has no such option, they ask about every row, as they always did.
+    has no such option, they ask about every row, as they always did. With
+    `--preview-reach` they ask a reach's tile in the question that chooses
+    the reach, from the follower's preview of it, and tell the follower
+    nothing; without it they tell it and ask again, as they always did.
     validate_training_options has refused a missing checkpoint already."""
     seated = []
     for path in args.opponents:
@@ -85,6 +88,8 @@ def load_others(args, device: str) -> list:
             parameter.requires_grad_(False)
         if getattr(args, "skip_forced", False) and hasattr(other, "skip_forced"):
             other.skip_forced = True
+        if getattr(args, "preview_reach", False) and hasattr(other, "preview_reach"):
+            other.preview_reach = True
         seated.append(other if args.compile else zoo.play_in_bfloat16(other, device))
     return seated
 

@@ -169,10 +169,26 @@ class Planes:
         cross from page-locked memory without waiting for the card, in the
         order of the current stream (see `ppo_loop.minibatches`); without,
         each copy waits until the card has done everything asked of it."""
-        self.validate(finite=not self.trusted)
-        n = len(self)
+        return Planes.dense_of([self], device, dtype, pinned)
+
+    @staticmethod
+    def dense_of(
+        parts: list[Planes],
+        device: str | torch.device,
+        dtype: torch.dtype = torch.float32,
+        pinned: bool = False,
+    ) -> torch.Tensor:
+        """The rows of `parts`, one part after another, as planes on
+        `device`, made as `dense` makes them: the planes
+        `Planes.cat(parts).dense(...)` would be, without first copying the
+        parts into one on the host. A forward asked about rows from two
+        encodings at once, as when a reach's tile is asked with the step's
+        own question (see `zoo.choose_in_mortal_space`), is handed them
+        this way; a step's thousand rows were a few megabytes to copy."""
+        for part in parts:
+            part.validate(finite=not part.trusted)
+        n = sum(len(part) for part in parts)
         out = torch.zeros(n * WIDTH, dtype=dtype, device=device)
-        nnz = self.nnz
 
         def to_device(array: np.ndarray) -> torch.Tensor:
             host = torch.from_numpy(array)
@@ -180,15 +196,20 @@ class Planes:
                 return host.pin_memory().to(device, non_blocking=True)
             return host.to(device)
 
-        if nnz:
-            counts = to_device(np.diff(self.indptr))
-            row = torch.repeat_interleave(
-                torch.arange(n, device=device, dtype=torch.int64), counts, output_size=nnz
-            )
-            signed = np.ascontiguousarray(self.indices).view(np.int16)
-            columns = to_device(signed).to(torch.int64) & 0xFFFF
-            values = to_device(np.ascontiguousarray(self.values)).to(dtype)
-            out[row * WIDTH + columns] = values
+        first = 0
+        for part in parts:
+            rows, nnz = len(part), part.nnz
+            if nnz:
+                counts = to_device(np.diff(part.indptr))
+                row = torch.repeat_interleave(
+                    torch.arange(first, first + rows, device=device, dtype=torch.int64), counts,
+                    output_size=nnz,
+                )
+                signed = np.ascontiguousarray(part.indices).view(np.int16)
+                columns = to_device(signed).to(torch.int64) & 0xFFFF
+                values = to_device(np.ascontiguousarray(part.values)).to(dtype)
+                out[row * WIDTH + columns] = values
+            first += rows
         return out.reshape(n, PLANES, POSITIONS)
 
     @staticmethod
@@ -423,30 +444,42 @@ class Views:
             *self._encode(who),
         )
 
-    def _encode(self, who: list[tuple[int, int]]) -> tuple[Planes, np.ndarray]:
+    def _encode(
+        self, who: list[tuple[int, int]], after_reach: bool = False
+    ) -> tuple[Planes, np.ndarray]:
         """The follower's encoding of those players now, trusted (see
         `Planes`), with the values halved by the encoder's own workers
-        rather than here on one thread."""
-        indptr, indices, values, masks = self.observer.follower.encode(who, half=True)
+        rather than here on one thread; with `after_reach`, as each would
+        stand having declared riichi."""
+        indptr, indices, values, masks = self.observer.follower.encode(
+            who, after_reach=after_reach, half=True
+        )
         return (Planes.from_follower(indptr, indices, values, trusted=True),
                 np.asarray(masks, dtype=bool))
 
     def sparse_and_masks(
-        self, rows: np.ndarray, players: np.ndarray, fresh: bool = False
+        self, rows: np.ndarray, players: np.ndarray, fresh: bool = False, after_reach: bool = False
     ) -> tuple[Planes, np.ndarray]:
         """Mortal's view of `players[i]` in game `rows[i]`, sparse, with
         Mortal's own action masks. From the step's prepared encoding when
         it covers them and `fresh` is not asked for; a player told an event
-        ahead of the table wants a fresh one."""
+        ahead of the table wants a fresh one.
+
+        With `after_reach`, each as it would stand having declared riichi:
+        the follower previews the declaration on a copy of the player's
+        state and changes nothing (see `Follower.encode`), so the tile a
+        reach would throw can be asked about before the reach is chosen,
+        and nobody need be told it ahead of the table. The table's own copy
+        of the reach then leaves the player as telling it would have."""
         if self.observer is None:
             raise RuntimeError("this table was not set up to serve Mortal's planes")
         who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
-        if not fresh and self._step is not None:
+        if not fresh and not after_reach and self._step is not None:
             where, planes, masks = self._step
             if all(pair in where for pair in who):
                 picked = np.array([where[pair] for pair in who], dtype=np.int64)
                 return planes.rows(picked), masks[picked]
-        return self._encode(who)
+        return self._encode(who, after_reach)
 
     def engine(self) -> np.ndarray:
         """The engine's own planes for every game this step, dense."""

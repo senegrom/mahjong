@@ -130,6 +130,7 @@ def choose_in_mortal_space(
     legal: np.ndarray,
     stats: dict | None = None,
     skip_forced: bool = False,
+    preview_reach: bool = False,
 ) -> np.ndarray:
     """One of our engine's actions per row, from values in Mortal's own
     action space.
@@ -151,6 +152,20 @@ def choose_in_mortal_space(
     desktop's card a small Mortal gave 13 of 63 rows other bits once the
     64th was left out, and a near tie can turn on a bit. `stats` counts a
     fallback only among the rows asked, and never at an orphan.
+
+    With `preview_reach` nobody is told anything and there is no second
+    question: every row asked that may declare riichi is asked as well, in
+    the first question, which tile it would throw having declared, and a
+    row whose best is the reach takes its tile from that answer.
+    `ask(who, fresh, allowed, ahead)` answers `ahead`'s players after
+    `who`'s, each as the follower previews it standing with its reach
+    declared (see `Views.sparse_and_masks`), their moves in `allowed` below
+    `who`'s. The same questions from the same states are answered by one
+    forward instead of two wherever a reach is chosen, a few hundred
+    kernels a time, for a few more rows in the first. Those answers come
+    from a batch of another size, which on the card can change their last
+    bits, so it is a switch, off unless a trainer is told; off, every
+    question is asked as it always was.
     """
     who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
     legal = np.atleast_2d(legal)
@@ -166,8 +181,25 @@ def choose_in_mortal_space(
     # best below: every row unless `skip_forced`.
     best = allowed.argmax(axis=1)
     asked = np.flatnonzero(allowed.sum(axis=1) > 1) if skip_forced else np.arange(len(who))
+    # The tiles each row's reach may throw, and, with `preview_reach`, the
+    # rows asked which of them ahead: every asked row that may declare,
+    # less, with `skip_forced`, a reach that only one tile keeps ready.
+    tiles_of = legal[:, RIICHI_DISCARD:TSUMO]
+    ahead = np.zeros(0, dtype=np.int64)
+    if preview_reach:
+        ahead = asked[allowed[asked, MORTAL_RIICHI]]
+        if skip_forced:
+            ahead = ahead[tiles_of[ahead].sum(axis=1) > 1]
     if len(asked) or not skip_forced:
-        values, own = ask([who[i] for i in asked], False, allowed[asked])
+        if len(ahead):
+            allowed_ahead = np.zeros((len(ahead), MORTAL_ACTIONS), dtype=bool)
+            allowed_ahead[:, :riichi_py.POSITIONS] = tiles_of[ahead]
+            answers, own = ask([who[i] for i in asked], False,
+                               np.concatenate([allowed[asked], allowed_ahead]),
+                               [who[i] for i in ahead])
+            values, previewed = answers[: len(asked)], answers[len(asked):]
+        else:
+            values, own = ask([who[i] for i in asked], False, allowed[asked])
         best[asked] = np.where(allowed[asked], values, -np.inf).argmax(axis=1)
         if stats is not None:
             # A fallback is its own first choice not being a move here.
@@ -182,23 +214,56 @@ def choose_in_mortal_space(
 
     second = np.nonzero((best == MORTAL_RIICHI) & ~orphan)[0]
     if len(second):
-        follower = views.observer.follower
-        for i in second:
-            game, player = who[i]
-            follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
-        tiles = legal[second, RIICHI_DISCARD:TSUMO]
-        # Likewise, with `skip_forced`, a reach that only one tile keeps ready.
+        tiles = tiles_of[second]
         tile = tiles.argmax(axis=1)
-        open_tiles = (np.flatnonzero(tiles.sum(axis=1) > 1) if skip_forced
-                      else np.arange(len(second)))
-        if len(open_tiles):
-            allowed_after = np.zeros((len(open_tiles), MORTAL_ACTIONS), dtype=bool)
-            allowed_after[:, :34] = tiles[open_tiles]
-            after, _own_after = ask([who[second[i]] for i in open_tiles], True, allowed_after)
-            ranked_tiles = np.where(tiles[open_tiles], after[:, :riichi_py.POSITIONS], -np.inf)
-            tile[open_tiles] = ranked_tiles.argmax(axis=1)
+        if preview_reach:
+            # Answered already, where the reach had a choice of tile; where
+            # it had none, that tile.
+            answered = np.flatnonzero(np.isin(second, ahead))
+            if len(answered):
+                at = np.searchsorted(ahead, second[answered])
+                ranked_tiles = np.where(tiles[answered], previewed[at, :riichi_py.POSITIONS], -np.inf)
+                tile[answered] = ranked_tiles.argmax(axis=1)
+        else:
+            follower = views.observer.follower
+            for i in second:
+                game, player = who[i]
+                follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+            # Likewise, with `skip_forced`, a reach that only one tile keeps ready.
+            open_tiles = (np.flatnonzero(tiles.sum(axis=1) > 1) if skip_forced
+                          else np.arange(len(second)))
+            if len(open_tiles):
+                allowed_after = np.zeros((len(open_tiles), MORTAL_ACTIONS), dtype=bool)
+                allowed_after[:, :34] = tiles[open_tiles]
+                after, _own_after = ask([who[second[i]] for i in open_tiles], True, allowed_after)
+                ranked_tiles = np.where(tiles[open_tiles], after[:, :riichi_py.POSITIONS], -np.inf)
+                tile[open_tiles] = ranked_tiles.argmax(axis=1)
         choice[second] = RIICHI_DISCARD + tile
     return choice.astype(np.int64)
+
+
+def asked_planes(
+    views: Views,
+    who: list[tuple[int, int]],
+    fresh: bool,
+    ahead: list[tuple[int, int]],
+    device: str | torch.device,
+) -> tuple[torch.Tensor, np.ndarray]:
+    """What a seated player's question is put to, dense on `device`, and
+    Mortal's own masks of `who`: `who`'s views, from the step's encoding
+    unless `fresh` is asked for, and after them `ahead`'s, each as it would
+    stand having declared riichi (see `choose_in_mortal_space`)."""
+    rows = np.array([game for game, _player in who], dtype=np.int64)
+    players = np.array([player for _game, player in who], dtype=np.int64)
+    sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
+    if not len(ahead):
+        return sparse.dense(device), masks
+    previews, _own = views.sparse_and_masks(
+        np.array([game for game, _player in ahead], dtype=np.int64),
+        np.array([player for _game, player in ahead], dtype=np.int64),
+        after_reach=True,
+    )
+    return Planes.dense_of([sparse, previews], device), masks
 
 
 def unwrap(net):
@@ -224,6 +289,10 @@ class MortalSpacePlayer:
     #: `choose_in_mortal_space`. A trainer turns it on for its seated
     #: others (`ppo_loop.load_others`).
     skip_forced = False
+    #: Whether a reach's tile is asked in the first question, from the
+    #: follower's preview of the reach, rather than after telling it; see
+    #: `choose_in_mortal_space`. Likewise turned on by a trainer.
+    preview_reach = False
 
     def __init__(self, net, device: str = "cuda", compile: bool = False) -> None:
         self.net = net.eval()
@@ -254,14 +323,13 @@ class MortalSpacePlayer:
 
     @torch.no_grad()
     def _ask(
-        self, views: Views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray
+        self, views: Views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray,
+        ahead: list[tuple[int, int]] = (),
     ) -> tuple[np.ndarray, np.ndarray]:
-        rows = np.array([game for game, _player in who], dtype=np.int64)
-        players = np.array([player for _game, player in who], dtype=np.int64)
-        sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
+        planes, masks = asked_planes(views, who, fresh, ahead, self.device)
         mask = torch.from_numpy(allowed).to(self.device)
         with torch.no_grad(), policy_inference.autocast(self.device, MORTAL_ACTIONS):
-            logits, _value = self.forward(sparse.dense(self.device), mask)
+            logits, _value = self.forward(planes, mask)
         return logits.float().cpu().numpy(), masks
 
     @torch.no_grad()
@@ -270,8 +338,9 @@ class MortalSpacePlayer:
     ) -> np.ndarray:
         stats: dict = {}
         choice = choose_in_mortal_space(
-            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal, stats,
-            skip_forced=self.skip_forced,
+            lambda who, fresh, allowed, ahead=(): self._ask(views, who, fresh, allowed, ahead),
+            views, rows, players, legal, stats,
+            skip_forced=self.skip_forced, preview_reach=self.preview_reach,
         )
         self.orphans += stats.get("orphans", 0)
         self.fallbacks += stats.get("fallbacks", 0)
@@ -293,8 +362,9 @@ class MortalPlayer:
     """A published Mortal, choosing moves in our action space."""
 
     kind = "mortal"
-    #: As `MortalSpacePlayer.skip_forced`.
+    #: As `MortalSpacePlayer.skip_forced` and `preview_reach`.
     skip_forced = False
+    preview_reach = False
 
     def __init__(self, path: Path | str, device: str = "cuda", compile: bool = False) -> None:
         self.net = mortal_model.load(path, device)
@@ -313,15 +383,14 @@ class MortalPlayer:
         return self
 
     def _ask(
-        self, views: Views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray
+        self, views: Views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray,
+        ahead: list[tuple[int, int]] = (),
     ) -> tuple[np.ndarray, np.ndarray]:
         """Mortal's Q values for those players, in its own action space,
         and its own mask of what it believes it may do. From the step's
-        shared encoding unless a fresh one is asked for."""
-        rows = np.array([game for game, _player in who], dtype=np.int64)
-        players = np.array([player for _game, player in who], dtype=np.int64)
-        sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
-        planes = sparse.dense(self.device)
+        shared encoding unless a fresh one is asked for; `ahead`'s rows
+        follow, each as it would stand having declared riichi."""
+        planes, masks = asked_planes(views, who, fresh, ahead, self.device)
         mask = torch.from_numpy(allowed).to(self.device)
         with torch.no_grad(), policy_inference.autocast(self.device, MORTAL_ACTIONS):
             q = self.forward(planes, mask)
@@ -336,8 +405,9 @@ class MortalPlayer:
         actions that our engine allows, translated."""
         stats: dict = {}
         choice = choose_in_mortal_space(
-            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal, stats,
-            skip_forced=self.skip_forced,
+            lambda who, fresh, allowed, ahead=(): self._ask(views, who, fresh, allowed, ahead),
+            views, rows, players, legal, stats,
+            skip_forced=self.skip_forced, preview_reach=self.preview_reach,
         )
         self.orphans += stats.get("orphans", 0)
         self.fallbacks += stats.get("fallbacks", 0)
