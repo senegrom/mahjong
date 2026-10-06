@@ -2,7 +2,7 @@
 
 **Current 9 disks:** Nine Stars I has been restored from the exact original PNG/SVG. The Potter’s Table C is preserved in the design archive. The eight-star adaptation is not deployed; 8 disks is unchanged. Earlier sections below describe the design history.
 
-**Current set:** 23 painted faces and 11 Classic fallbacks; all nine bamboo identities are covered. Lemon Terrace is active for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table for 9 disks. The history below retains earlier milestone counts.
+**Current set:** 24 painted faces and 10 Classic fallbacks; all nine bamboo identities are covered. Four Oranges A is active for 4 disks, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table for 9 disks. The history below retains earlier milestone counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -164,3 +164,13 @@ The set now has **23 painted faces and 11 Classic fallbacks**. `node web/scripts
 The original nine luminous disks in a 3×3 arrangement are active again for `9p` / `Pin9`. Both the 380×471 PNG and its existing game SVG are byte-for-byte identical to the archived originals. The Potter’s Table C source, original provenance and archived runtime SVG are all retained. No other tile or tile coverage changes.
 
 `docs/design/van-gogh/nine-stars-restored.json` records this decision and the hashes. Run `node web/scripts/export-van-gogh-tiles.mjs --only=9p` to reproduce the restored face without rewriting other artwork.
+
+## Four Oranges A — 4 disks
+
+Carl selected **A**, the left panel with **four whole oranges on blue cloth**, for `4p` / `Pin4` and explicitly requested GitHub deployment. The blue-and-white jug, leafy branch, yellow wall, window and distant village are preserved. The bowl (B) and orange slices (C) are not used.
+
+The source `docs/design/van-gogh/studies/20-four-disks-oranges-a-approved.svg` and playable `web/public/tiles/van-gogh/approved/Pin4.svg` are identical. They embed a quality-90 300 × 400 WebP of the complete approved crop `[25, 138, 442, 796]` from the 1448 × 1086 concept board, with the set's 26-unit corners and 1% bleed. The label and presentation gutters were excluded; nothing was repainted or recoloured. This is a game-sized export, not the full-resolution original.
+
+Board, full-resolution crop, decoded crop pixels, raster and SVG checksums are recorded in `docs/design/van-gogh/four-disks-oranges.json`. The original board and lossless selected crop are preserved in `Van_Gogh_4_Disks_Oranges_A_Approved.zip`, supplied in chat.
+
+Run `node web/scripts/export-van-gogh-tiles.mjs --only=4p` to reproduce this tile, its registration, manifest and preview without rewriting any other tile artwork. The set now has **24 painted faces and 10 Classic fallbacks**. All 23 previously approved faces remain unchanged.
