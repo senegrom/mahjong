@@ -1,0 +1,38 @@
+{
+  "tile": "4p",
+  "name": "Pin4",
+  "status": "approved",
+  "direction": "The Soft Staircase — B",
+  "selectedOption": "B (middle), staircase",
+  "source": "docs/design/dali/studies/four-disks-b-approved.svg",
+  "runtime": "web/public/tiles/dali/approved/Pin4.svg",
+  "originalFilename": "surreal_jade_medallions_amid_impossible_stairways.png",
+  "originalSha256": "09488a560c3d2299784740f85737f9430279a165f9bdf8c005835d2aa99e67d8",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "originalStoredInRepository": false,
+  "originalLocation": "Approved PNG conversation attachment; repository retains the full-dimension AVIF and self-contained SVG, not the original PNG bytes.",
+  "rasterDimensions": [
+    1086,
+    1448
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterSource": "docs/design/dali/studies/four-disks-b-hires.avif",
+  "rasterSha256": "76e9743f0478a55bf14fba62c543ec013580eaddaeac6b23b4ecd130baf70a20",
+  "encoding": {
+    "encoder": "Pillow 12.3.0 AVIF",
+    "quality": 50,
+    "speed": 0,
+    "lossless": false
+  },
+  "processing": "Approved middle staircase portrait encoded at its full 1086 x 1448 pixel dimensions; AVIF quality 50, speed 0; no resizing, crop, redraw, colour edit, added border or tile texture. The 300 x 400 SVG viewBox controls layout only, not embedded raster resolution.",
+  "svgSha256": "8a69e8bc8b91e96808b56c801099d1dc857778e2b51fd2e66d3e00b604b11ba8"
+}
