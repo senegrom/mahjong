@@ -44,7 +44,7 @@ class Watched:
     """The encoder's thread, slowed, counting the encodings handed to it
     that it has not yet finished: a test of what the caller does in the
     meantime that does not hang on how the threads happen to be scheduled.
-    `while_pending` counts the calls to `mark` made while one was."""
+    `marks` says, for each call to `mark`, whether one was."""
 
     def __init__(self, pause: float = 0.02) -> None:
         self.thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="watched")
@@ -71,6 +71,23 @@ class Watched:
 
     def mark(self) -> None:
         self.marks.append(self.pending > 0)
+
+
+class Held:
+    """The encoder's thread, holding every encoding handed to it until
+    `release` is set: a worker that is certainly still busy when the caller
+    comes to wait for it, however the threads are scheduled."""
+
+    def __init__(self) -> None:
+        self.thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="held")
+        self.release = threading.Event()
+
+    def submit(self, work, *args):
+        def held():
+            self.release.wait()
+            return work(*args)
+
+        return self.thread.submit(held)
 
 
 class Guarded:
@@ -212,9 +229,14 @@ class ViewsTests(unittest.TestCase):
         encoding, which is what it waited for, and the reach's second
         question only for its own time, so that play's record still says
         what the second questions cost and what was left of the others'
-        encoding."""
-        pause = 1.0
-        worker = Watched(pause)
+        encoding.
+
+        The worker holds the others' views until the learner waits for
+        them, and the clock the learner keeps its account by moves only
+        while it waits, by one second: the account is read exactly, however
+        the threads are scheduled on a busy machine."""
+        worker = Held()
+        self.addCleanup(worker.release.set)
         games = 2
         arena = riichi_py.Arena(games=games, seed=909)
         views = Views(arena, games)
@@ -231,16 +253,30 @@ class ViewsTests(unittest.TestCase):
             logits[:, zoo.MORTAL_RIICHI] = 1.0
             return logits.masked_fill(~mask, float("-inf"))
 
+        now = [0.0]
+        wait = views.wait
+
+        def waiting():
+            # The other's view is made only now, while the learner waits.
+            worker.release.set()
+            wait()
+            now[0] += 1.0
+
+        views.wait = waiting
         timing: dict = {}
-        with patch.object(observe, "encoder_thread", return_value=worker):
+        with patch.object(observe, "encoder_thread", return_value=worker), \
+                patch.object(mortal_learner, "time", SimpleNamespace(perf_counter=lambda: now[0])):
             views.prepare(live[:1], players[:1])
             views.prepare(live[1:], players[1:], aside=True)
             choice, records = mortal_learner.decide_in_mortal_space(
                 score, views, live[:1], players[:1], legal, greedy=True, device="cpu", timing=timing)
         self.assertEqual(choice.tolist(), [zoo.RIICHI_DISCARD + 4])
         self.assertEqual(records.actions.tolist(), [zoo.MORTAL_RIICHI, 4])
-        self.assertGreater(timing["encode"], 0.9 * pause)
-        self.assertLess(timing["riichi"], 0.5 * pause)
+        # It waited once, to tell the reach, and that second is in its
+        # encoding and not in the tile's question.
+        self.assertEqual(now[0], 1.0)
+        self.assertEqual(timing["encode"], 1.0)
+        self.assertEqual(timing["riichi"], 0.0)
 
     def test_a_workers_failure_is_raised_where_it_is_waited_for(self):
         games = 2
