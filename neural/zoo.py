@@ -389,8 +389,9 @@ class MortalPlayer:
     ) -> tuple[np.ndarray, np.ndarray]:
         """Mortal's Q values for those players, in its own action space,
         and its own mask of what it believes it may do. From the step's
-        shared encoding unless a fresh one is asked for; `ahead`'s rows
-        follow, each as it would stand having declared riichi."""
+        encoding of them unless a fresh one is asked for (see
+        `Views.sparse_and_masks`); `ahead`'s rows follow, each as it would
+        stand having declared riichi."""
         planes, masks = asked_planes(views, who, fresh, ahead, self.device)
         mask = torch.from_numpy(allowed).to(self.device)
         with torch.no_grad(), policy_inference.autocast(self.device, MORTAL_ACTIONS):
