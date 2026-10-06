@@ -1,5 +1,6 @@
 <script>
   import Tile from './Tile.svelte';
+  import ReviewPreference from './ReviewPreference.svelte';
   import { tileWords } from './tiles.js';
   import { analyzePolicy } from './policy.js';
   import { reviewWithStrong } from './review-policy.js';
@@ -25,7 +26,6 @@
   // A whole hand played the way the adviser would have is worth saying.
   let clean = $derived(activeNotes.length > 0 && disputed.length === 0);
   let listed = $derived(shown === 'all' || clean ? activeNotes : disputed);
-  const percent = weight => weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
 
   $effect(() => {
     const source = notes, owner = engine;
@@ -67,7 +67,7 @@
         <option value="strong" disabled={!trainedAvailable || !engine}>Trained AI</option>
       </select>
     </label>
-    {#if adviser === 'strong'}<p class="policy-help">Percentages show the trained network's preference among the legal moves at the time.</p>{/if}
+    {#if adviser === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>{/if}
     {#if activeNotes.length && !reviewing && !failure}
       <p class="summary">
         {activeNotes.length - disputed.length} of {activeNotes.length}
@@ -122,9 +122,7 @@
           </div>
 
           {#if adviser === 'strong'}
-            <p class="policy-preference">Trained preference: <strong>{percent(note.preferred_weight)}</strong>
-              {#if !note.agreed && note.played_weight !== null}<span> · Your move: {percent(note.played_weight)}</span>{/if}
-            </p>
+            <ReviewPreference {note} />
           {:else if !note.agreed}
             <p class="why">{note.reason}</p>
             {#if note.shanten_played != null && note.shanten_advised != null}
@@ -210,9 +208,6 @@
   option { background: #17241f; color: var(--ivory); }
   .retry { cursor: pointer; }
   .policy-help { font-size: .8rem; opacity: .75; margin: 8px 0 0; }
-  .policy-preference { margin: 0; font-size: .85rem; font-variant-numeric: tabular-nums; }
-  .policy-preference strong { color: var(--gold); }
-  .policy-preference > span { opacity: .75; }
   .call-context { display: flex; align-items: center; gap: 6px; margin: 0; font-size: .8rem; }
 
   .summary,

@@ -36,6 +36,14 @@ try {
   server = await createServer({ root, configFile: false, plugins: [svelte()], logLevel: 'warn', server: { host: '127.0.0.1', port: 0 } });
   await server.listen();
   browser = await launchChrome();
+  await check('unavailable model keeps built-in controls enabled without offering Trained', 'physical', async page => {
+    await page.click('[data-unavailable]');
+    assert.equal(await page.$eval(physical, el => el.value), 'club');
+    assert.deepEqual(await page.$$eval(`${physical} option:not(:disabled)`, options => options.map(option => option.value)), ['beginner', 'club']);
+    await page.select(physical, 'beginner');
+    assert.equal(await page.$eval('.physical-toolbar .primary', button => button.disabled), false);
+    assert.equal(await page.$(`${physical} option[value="full"]`), null);
+  });
   await check('late availability selects the trained default only while Physical adviser is untouched', 'physical', async page => {
     assert.equal(await page.$eval(physical, el => el.value), 'club');
     await available(page);
