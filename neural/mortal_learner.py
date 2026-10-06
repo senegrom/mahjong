@@ -254,10 +254,12 @@ def decide_in_mortal_space(
             phi_after = None if phi_ahead is None else phi_ahead[chosen]
         else:
             # The reach declared ahead of the table; then the tile, from the
-            # state in which it is declared.
+            # state in which it is declared. Told through the views, which
+            # first wait for any encoding a worker is making from the
+            # follower (see `Views.prepare`).
             for i in second:
                 game, player = who[i]
-                follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+                views.tell(game, player, json.dumps({"type": "reach", "actor": player}))
             indptr, indices, values, masks = follower.encode([who[i] for i in second])
             after = Planes.from_follower(indptr, indices, values)
             allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)

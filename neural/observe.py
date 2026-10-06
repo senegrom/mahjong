@@ -22,6 +22,9 @@ where it used to.
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
+import functools
 import os
 from pathlib import Path
 
@@ -401,6 +404,34 @@ class Observer:
         self.follower.feed(self.arena.mjai_all())
 
 
+@functools.cache
+def encoder_thread() -> ThreadPoolExecutor:
+    """The thread a step's views are encoded on beside the caller's (see
+    `Views.prepare`), made when first wanted. One is enough: it hands the
+    follower one batch at a time, and the follower spreads each over every
+    processor itself."""
+    return ThreadPoolExecutor(max_workers=1, thread_name_prefix="encoder")
+
+
+@dataclass
+class Encoded:
+    """One of a step's encodings (see `Views.prepare`): the players it
+    covers, in its order, and where each sits; whether each is as it would
+    stand having declared riichi; and the planes with Mortal's own masks,
+    or a worker's promise of them."""
+
+    who: list[tuple[int, int]]
+    where: dict[tuple[int, int], int]
+    after_reach: bool
+    made: tuple[Planes, np.ndarray] | Future
+
+    def result(self) -> tuple[Planes, np.ndarray]:
+        """The planes and the masks, waited for while a worker makes them."""
+        if isinstance(self.made, Future):
+            self.made = self.made.result()
+        return self.made
+
+
 class Views:
     """What each kind of network sees, from one arena.
 
@@ -419,30 +450,62 @@ class Views:
         kinds = set(kinds or {"mortal"})
         self.observer = Observer(arena, games) if "mortal" in kinds else None
         self._engine: np.ndarray | None = None
-        # A step's encoding of every deciding player at once: where each
-        # (game, player) sits, the planes, and Mortal's own masks.
-        self._step: tuple[dict[tuple[int, int], int], Planes, np.ndarray] | None = None
+        # The step's encodings of deciding players, each one call of the
+        # encoder's, made here or by a worker (see `prepare`).
+        self._step: list[Encoded] = []
 
     def advance(self) -> None:
+        # Fed only once nothing is being encoded from it (see `prepare`).
+        self.wait()
         if self.observer is not None:
             self.observer.advance()
         self._engine = None
-        self._step = None
+        self._step = []
 
-    def prepare(self, games: np.ndarray, players: np.ndarray) -> None:
+    def prepare(
+        self,
+        games: np.ndarray,
+        players: np.ndarray,
+        after_reach: bool = False,
+        aside: bool = False,
+    ) -> None:
         """Encodes the view of every deciding player named, in one call, so
-        that the step's later asks for subsets are served from it. One
-        call over a thousand rows spreads over the processors far better
-        than a few calls over a few dozen each, as when the learner and a
-        seated Mortal ask separately."""
+        that the step's later asks for them are served from it. One call
+        over a thousand rows spreads over the processors far better than a
+        few calls over a few dozen each. Each call adds an encoding to the
+        step's: an ask for exactly the players of one, in its order, is
+        handed that encoding's own arrays, and an ask for others it covers
+        has them gathered from it, so a caller that encodes each player's
+        rows apart gathers nothing. With `after_reach`, each as it would
+        stand having declared riichi (see `sparse_and_masks`).
+
+        With `aside`, a worker makes it while this thread goes on: the
+        encoder lets go of the interpreter as it works, so self-play's
+        learner decides on the card while the seated others' views are made.
+        Whatever is served from it waits for it, and so does whatever tells
+        the follower anything, feeds it or encodes from it on this thread
+        (`tell`, `advance`, `sparse_and_masks` afresh): the follower is
+        borrowed while an encoding is made, so a change to it then is
+        refused, and the encoder's workers finish the batch they began
+        before they take up another, so a second batch would only queue."""
         if self.observer is None or len(games) == 0:
-            self._step = None
             return
         who = list(zip(np.asarray(games).tolist(), np.asarray(players).tolist()))
-        self._step = (
-            {pair: index for index, pair in enumerate(who)},
-            *self._encode(who),
-        )
+        made = (encoder_thread().submit(self._encode, who, after_reach) if aside
+                else self._encode(who, after_reach))
+        self._step.append(Encoded(who, {pair: index for index, pair in enumerate(who)}, after_reach, made))
+
+    def wait(self) -> None:
+        """Returns once none of the step's encodings is still being made,
+        and raises whatever went wrong in one."""
+        for encoded in self._step:
+            encoded.result()
+
+    def tell(self, game: int, player: int, line: str) -> None:
+        """Tells `player` in `game` an event ahead of the table (see
+        `Follower.tell`), once nothing is being encoded from the follower."""
+        self.wait()
+        self.observer.follower.tell(game, player, line)
 
     def _encode(
         self, who: list[tuple[int, int]], after_reach: bool = False
@@ -461,9 +524,11 @@ class Views:
         self, rows: np.ndarray, players: np.ndarray, fresh: bool = False, after_reach: bool = False
     ) -> tuple[Planes, np.ndarray]:
         """Mortal's view of `players[i]` in game `rows[i]`, sparse, with
-        Mortal's own action masks. From the step's prepared encoding when
-        it covers them and `fresh` is not asked for; a player told an event
-        ahead of the table wants a fresh one.
+        Mortal's own action masks. From one of the step's prepared
+        encodings when it covers them and `fresh` is not asked for, as that
+        encoding's own arrays when they are exactly its players in its
+        order (see `prepare`); a player told an event ahead of the table
+        wants a fresh one.
 
         With `after_reach`, each as it would stand having declared riichi:
         the follower previews the declaration on a copy of the player's
@@ -474,11 +539,17 @@ class Views:
         if self.observer is None:
             raise RuntimeError("this table was not set up to serve Mortal's planes")
         who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
-        if not fresh and not after_reach and self._step is not None:
-            where, planes, masks = self._step
-            if all(pair in where for pair in who):
-                picked = np.array([where[pair] for pair in who], dtype=np.int64)
-                return planes.rows(picked), masks[picked]
+        if not fresh:
+            for encoded in self._step:
+                if encoded.after_reach != after_reach:
+                    continue
+                if who == encoded.who:
+                    return encoded.result()
+                if all(pair in encoded.where for pair in who):
+                    planes, masks = encoded.result()
+                    picked = np.array([encoded.where[pair] for pair in who], dtype=np.int64)
+                    return planes.rows(picked), masks[picked]
+        self.wait()
         return self._encode(who, after_reach)
 
     def engine(self) -> np.ndarray:

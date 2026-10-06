@@ -225,10 +225,11 @@ def choose_in_mortal_space(
                 ranked_tiles = np.where(tiles[answered], previewed[at, :riichi_py.POSITIONS], -np.inf)
                 tile[answered] = ranked_tiles.argmax(axis=1)
         else:
-            follower = views.observer.follower
+            # Told through the views, which wait first for any encoding a
+            # worker is making from the follower (see `Views.prepare`).
             for i in second:
                 game, player = who[i]
-                follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+                views.tell(game, player, json.dumps({"type": "reach", "actor": player}))
             # Likewise, with `skip_forced`, a reach that only one tile keeps ready.
             open_tiles = (np.flatnonzero(tiles.sum(axis=1) > 1) if skip_forced
                           else np.arange(len(second)))

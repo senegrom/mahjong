@@ -404,11 +404,56 @@ def play(
         index = np.nonzero(live & ~theirs)[0]
         timing["other"] += clock() - began
         began = clock()
-        # Every deciding player's view in one call, for whoever asks below.
-        everyone = np.nonzero(live)[0]
-        views.prepare(everyone, deciding[everyone])
+        if decides:
+            # Each player's views in encodings of their own, so that each
+            # is served its own arrays and nothing is gathered: the
+            # learner's here and now, with the views it asks a reach's tile
+            # from when it asks ahead, and the seated others' by a worker
+            # while the learner decides, since they are asked only after it
+            # (see `Views.prepare`); here too on a step the learner has no
+            # decision in. One that reads the engine's planes needs none of
+            # the follower's.
+            views.prepare(index, deciding[index])
+            if preview_reach:
+                ready = index[mask[index, zoo.RIICHI_DISCARD:zoo.TSUMO].any(axis=1)]
+                views.prepare(ready, deciding[ready], after_reach=True)
+            for which in np.unique(holder[theirs]):
+                other = opponents[int(which)]
+                if other.kind != "mortal":
+                    continue
+                rows = np.nonzero(theirs & (holder == which))[0]
+                views.prepare(rows, deciding[rows], aside=bool(len(index)))
+                if getattr(other, "preview_reach", False):
+                    ready = rows[mask[rows, zoo.RIICHI_DISCARD:zoo.TSUMO].any(axis=1)]
+                    views.prepare(ready, deciding[ready], after_reach=True, aside=bool(len(index)))
+        else:
+            # Every deciding player's view in one call, for whoever asks below.
+            everyone = np.nonzero(live)[0]
+            views.prepare(everyone, deciding[everyone])
         timing["encode"] += clock() - began
         began = clock()
+        if decides and len(index):
+            # A learner in an action space of its own (see
+            # `mortal_learner`): it answers the table in ours and records
+            # its decisions itself, possibly more than one per row, and
+            # keeps its own account of the time. It decides first, while
+            # the others' views are made: their moves do not depend on its
+            # and they draw nothing at random, so the order changes nothing.
+            # The precision of the rollout is the trainer's choice, made
+            # here and nowhere inside: the probabilities recorded are the
+            # ones the learning forward will reproduce.
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and str(device).startswith("cuda")):
+                picked, records = net.decide(
+                    views, index, deciding[index], mask[index], greedy,
+                    explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
+                    preview_reach=preview_reach,
+                )
+            began = clock()
+            # Whatever of the others' encoding the learner's deciding did
+            # not hide.
+            views.wait()
+            timing["encode"] += clock() - began
+            began = clock()
         if theirs.any():
             for which in np.unique(holder[theirs]):
                 rows = np.nonzero(theirs & (holder == which))[0]
@@ -431,19 +476,6 @@ def play(
             continue
         choice = their_choice.copy()
         if decides:
-            # A learner in an action space of its own (see
-            # `mortal_learner`): it answers the table in ours and records
-            # its decisions itself, possibly more than one per row, and
-            # keeps its own account of the time.
-            # The precision of the rollout is the trainer's choice, made
-            # here and nowhere inside: the probabilities recorded are the
-            # ones the learning forward will reproduce.
-            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and str(device).startswith("cuda")):
-                picked, records = net.decide(
-                    views, index, deciding[index], mask[index], greedy,
-                    explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
-                    preview_reach=preview_reach,
-                )
             choice[index] = picked
             observations.append(records.planes)
             legal_masks.append(records.masks)
