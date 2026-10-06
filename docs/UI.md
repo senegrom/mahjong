@@ -89,6 +89,16 @@ Opening final standings does not start another hand, so it does not clear the
 final hand's event history or an already open review. Review final hand and
 Save final hand remain available below the standings, including after reload.
 
+The whole game can be saved as one mjai log as well,
+`riichi-game-<date>-<time>.mjai.jsonl`: Save game so far on the score screen
+between hands, Save whole game on the final standings, where the log closes
+with end_game, and Export game in the settings during play. It opens at East 1
+and holds every finished hand, numbered as the hand's own log numbers its
+players. The hand being played is never in it, since its deal shows every
+player's tiles; it joins the log when it ends. Nothing is added to the saved
+match for this: a restore replays every command from the first deal, so a
+reloaded match exports from East 1 again whatever format it was saved in.
+
 Matches are saved in format 6. An older save is replayed from its recorded
 legal commands and checked against all authoritative state; only what was added
 or repaired since (derived waits, result indicators, claimed tiles, player

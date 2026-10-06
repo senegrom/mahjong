@@ -70,7 +70,9 @@ move asks for confirmation, pauses autoplay, and applies only that original
 decision. Cancelling leaves the position unchanged. Leaving Watch cancels its
 outstanding work. Watched games start fresh and do not replace regular saves.
 Hints and markings apply here too; blue marks the recommendation and combines
-with dora, readiness, and safety markings.
+with dora, readiness, and safety markings. Once a hand has ended, the watched
+game can be saved as one mjai log from East 1, as in Play; the hand being
+played is left out until it ends.
 
 ## Physical table editor
 
