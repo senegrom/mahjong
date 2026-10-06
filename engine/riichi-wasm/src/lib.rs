@@ -2484,6 +2484,8 @@ mod game_log_tests {
     /// Reads a log the way Mortal does, with one player's state for each
     /// of the four, and holds every move to what the mover's own state says
     /// they could do, which is the check Mortal's `validate_logs` makes.
+    /// That includes its rough check of what a win paid, which needs the
+    /// ura indicators under Mortal's name for them.
     /// Every line must parse and every state must follow every event.
     /// Answers the kinds of event read, a self-draw win as `tsumo-hora`.
     fn read_as_mortal(log: &str) -> Vec<String> {
@@ -2499,7 +2501,8 @@ mod game_log_tests {
             let at = index + 1;
             let event: Read = serde_json::from_str(line)
                 .unwrap_or_else(|error| panic!("line {at} does not read: {error}\n{line}"));
-            let mut kind = serde_json::from_str::<Value>(line).unwrap()["type"]
+            let written: Value = serde_json::from_str(line).unwrap();
+            let mut kind = written["type"]
                 .as_str()
                 .expect("every event says what it is")
                 .to_owned();
@@ -2566,14 +2569,43 @@ mod game_log_tests {
                     );
                     declared = Some(*actor);
                 }
-                Read::Hora { actor, target, .. } => {
+                Read::Hora {
+                    actor,
+                    target,
+                    deltas,
+                    ura_markers,
+                } => {
                     let can = cans[*actor as usize];
-                    if actor == target {
+                    let ron = actor != target;
+                    if ron {
+                        assert!(can.can_ron_agari, "line {at}: {line}");
+                    } else {
                         assert!(can.can_tsumo_agari, "line {at}: {line}");
                         kind = "tsumo-hora".to_owned();
-                    } else {
-                        assert!(can.can_ron_agari, "line {at}: {line}");
                     }
+                    let state = &states[*actor as usize];
+                    let ura = ura_markers
+                        .as_ref()
+                        .expect("Mortal reads the ura indicators");
+                    let deltas = deltas.expect("a win says what it moved");
+                    let points = state
+                        .agari_points(ron, ura)
+                        .unwrap_or_else(|error| panic!("line {at}: {error:?}\n{line}"));
+                    let least = if ron {
+                        points.ron
+                    } else if state.is_oya() {
+                        points.tsumo_oya
+                    } else {
+                        points.tsumo_ko
+                    };
+                    // EMA has no counted yakuman: thirteen han or more that
+                    // are not a yakuman are paid as sanbaiman, which Mortal
+                    // would call a yakuman. Its check is waived for those.
+                    let counted = written["fan"].as_u64().is_some_and(|han| han >= 13);
+                    assert!(
+                        deltas[*actor as usize] >= least || counted,
+                        "line {at}: Mortal makes the win worth {least}\n{line}"
+                    );
                 }
                 _ => {}
             }
@@ -2595,6 +2627,69 @@ mod game_log_tests {
             kinds.push(kind);
         }
         kinds
+    }
+
+    /// Where a deal stands: the round wind, the hand of the round, the
+    /// counters, the riichi bets on the table and the dealer.
+    fn standing(deal: &Value) -> (String, u64, u64, u64, u64) {
+        let number = |key: &str| deal[key].as_u64().expect("a count");
+        (
+            deal["bakaze"].as_str().expect("a wind").to_owned(),
+            number("kyoku"),
+            number("honba"),
+            number("kyotaku"),
+            number("oya"),
+        )
+    }
+
+    /// The deal that must follow a hand, worked out from the hand's own
+    /// events by EMA 2025 sections 3.4.4, 3.4.5 and 3.5, or nothing when the
+    /// game ends with it. The dealer keeps the deal by winning or by waiting
+    /// at a draw, and a counter goes on after a dealer's win and after every
+    /// draw; any other win clears them. A win takes the bets on the table, a
+    /// draw leaves them there with the hand's own. The deal passing on from
+    /// South 4 ends the game.
+    fn deal_after(hand: &[Value]) -> Option<(String, u64, u64, u64, u64)> {
+        let (round, kyoku, honba, kyotaku, oya) = standing(&hand[0]);
+        let winners: Vec<u64> = hand
+            .iter()
+            .filter(|event| event["type"] == "hora")
+            .map(|event| event["actor"].as_u64().expect("a winner"))
+            .collect();
+        let bets = hand
+            .iter()
+            .filter(|event| event["type"] == "reach_accepted")
+            .count() as u64;
+        let keeps = if winners.is_empty() {
+            let draw = hand
+                .iter()
+                .find(|event| event["type"] == "ryukyoku")
+                .expect("a hand nobody won is drawn");
+            draw["tenpais"][oya as usize]
+                .as_bool()
+                .expect("who was waiting")
+        } else {
+            winners.contains(&oya)
+        };
+        let honba = if winners.is_empty() || keeps {
+            honba + 1
+        } else {
+            0
+        };
+        let kyotaku = if winners.is_empty() {
+            kyotaku + bets
+        } else {
+            0
+        };
+        if keeps {
+            return Some((round, kyoku, honba, kyotaku, oya));
+        }
+        let (round, kyoku) = match (round.as_str(), kyoku) {
+            ("E", 4) => ("S".to_owned(), 1),
+            ("S", 4) => return None,
+            _ => (round, kyoku + 1),
+        };
+        Some((round, kyoku, honba, kyotaku, (oya + 1) % 4))
     }
 
     /// The hands of a log, each as its own events.
@@ -2699,6 +2794,9 @@ mod game_log_tests {
 
             // Each hand opens on the points the one before closed on, so
             // none is missing and they are in the order they were played.
+            // Its wind, number, counters, bets and dealer are the ones the
+            // hand before leaves, so repeats and counters are right too, and
+            // the game ends with the first hand after which it must.
             let opened = hands_of(&log);
             assert_eq!(opened.len(), hands.len());
             for (before, after) in opened.iter().zip(&opened[1..]) {
@@ -2709,14 +2807,40 @@ mod game_log_tests {
                     .expect("every hand settles");
                 assert_eq!(after[0]["scores"], closed["scores"], "seed {seed}");
                 assert_eq!(before.last().unwrap()["type"], "end_kyoku");
+                assert_eq!(
+                    deal_after(before),
+                    Some(standing(&after[0])),
+                    "seed {seed}: {}",
+                    after[0]
+                );
+            }
+            let last = opened.last().expect("a game has hands");
+            assert_eq!(last.last().unwrap()["type"], "end_kyoku");
+            assert_eq!(deal_after(last), None, "seed {seed}: the game ends here");
+            for hand in &opened {
+                let (_, kyoku, _, _, oya) = standing(&hand[0]);
+                assert_eq!(kyoku, oya + 1, "seed {seed}: player 0 marks the round");
             }
 
             // Shown only if the reading fails, to say which game it was.
             println!("reading seed {seed}");
-            seen.extend(read_as_mortal(&log));
+            let kinds = read_as_mortal(&log);
+            let once = |kind: &str| kinds.iter().filter(|read| *read == kind).count();
+            assert_eq!((once("start_game"), once("end_game")), (1, 1));
+            assert_eq!(
+                (
+                    kinds.first().map(String::as_str),
+                    kinds.last().map(String::as_str)
+                ),
+                (Some("start_game"), Some("end_game"))
+            );
+            seen.extend(kinds);
             // The log as it stood partway, without the game's close.
             if let Some(midway) = midway {
-                read_as_mortal(&midway);
+                let kinds = read_as_mortal(&midway);
+                assert_eq!(kinds.iter().filter(|kind| *kind == "start_game").count(), 1);
+                assert!(!kinds.iter().any(|kind| kind == "end_game"));
+                assert_eq!(kinds.last().map(String::as_str), Some("end_kyoku"));
             }
             // Every kind of table has been played by the third game.
             if games >= tables.len() && wanted.iter().all(|kind| seen.contains(*kind)) {

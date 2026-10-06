@@ -335,18 +335,24 @@ impl Event {
                 points,
                 deltas,
                 scores,
-            } => format!(
-                "{{\"type\":\"hora\",\"actor\":{},\"target\":{},\"pai\":\"{}\",\"uradora_markers\":{},\"fu\":{},\"fan\":{},\"hora_points\":{},\"deltas\":{},\"scores\":{}}}",
-                who(*actor),
-                who(*target),
-                name(*tile),
-                tiles_json(ura),
-                fu,
-                han,
-                points,
-                four_json(*deltas, seats),
-                four_json(*scores, seats),
-            ),
+            } => {
+                // The original protocol calls the ura indicators
+                // `uradora_markers`. Mortal and the tools built on it read
+                // `ura_markers` instead, and its log validator turns away a
+                // win without them, so both names are written.
+                let ura = tiles_json(ura);
+                format!(
+                    "{{\"type\":\"hora\",\"actor\":{},\"target\":{},\"pai\":\"{}\",\"uradora_markers\":{ura},\"ura_markers\":{ura},\"fu\":{},\"fan\":{},\"hora_points\":{},\"deltas\":{},\"scores\":{}}}",
+                    who(*actor),
+                    who(*target),
+                    name(*tile),
+                    fu,
+                    han,
+                    points,
+                    four_json(*deltas, seats),
+                    four_json(*scores, seats),
+                )
+            }
             Event::Ryukyoku {
                 reason,
                 tenpai,
@@ -359,7 +365,11 @@ impl Event {
                         waiting.push(',');
                     }
                     let seat = seat_of(seats, player);
-                    waiting.push_str(if tenpai[seat.index()] { "true" } else { "false" });
+                    waiting.push_str(if tenpai[seat.index()] {
+                        "true"
+                    } else {
+                        "false"
+                    });
                 }
                 waiting.push(']');
                 format!(
@@ -463,6 +473,35 @@ mod tests {
         assert_eq!(
             event.to_json(seats),
             "{\"type\":\"tsumo\",\"actor\":3,\"pai\":\"3p\"}"
+        );
+    }
+
+    /// A win names its ura indicators both ways: `uradora_markers` for the
+    /// original protocol's readers, `ura_markers` for Mortal's.
+    #[test]
+    fn a_win_names_its_ura_indicators_both_ways() {
+        let win = |ura: Vec<Tile>| Event::Hora {
+            actor: Wind::West,
+            target: Wind::East,
+            tile: "3p".parse().unwrap(),
+            ura,
+            fu: 40,
+            han: 3,
+            points: 5200,
+            deltas: [-5200, 0, 5200, 0],
+            scores: [24800, 30000, 35200, 30000],
+        };
+        let line = win(vec!["1z".parse().unwrap(), "9m".parse().unwrap()]).to_json([0, 1, 2, 3]);
+        assert!(
+            line.contains("\"uradora_markers\":[\"E\",\"9m\"]"),
+            "{line}"
+        );
+        assert!(line.contains("\"ura_markers\":[\"E\",\"9m\"]"), "{line}");
+        // A win without riichi shows no ura, and still says so.
+        let line = win(Vec::new()).to_json([0, 1, 2, 3]);
+        assert!(
+            line.contains("\"uradora_markers\":[],\"ura_markers\":[]"),
+            "{line}"
         );
     }
 
