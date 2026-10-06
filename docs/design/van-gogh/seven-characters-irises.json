@@ -1,0 +1,30 @@
+{
+  "tile": "7m",
+  "name": "Man7",
+  "candidate": "Irises C",
+  "title": "Irises at Dusk",
+  "source": "docs/design/van-gogh/studies/20-seven-characters-irises-c-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Man7.svg",
+  "originalFilename": "van_gogh_inspired_irises_and_golden_characters.png",
+  "originalSha256": "9387a369fe64f455a2f6c0c4a86d5e1aea83b2026e117077aa5fd42da03fe403",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "111ae0918dc510db91441a50b46f6130b1199a2ab974f89d9059f469b90c4b60",
+  "svgSha256": "1b688f9e70ae70b12af8cf3ebc1acaeb38b01c90dd0ad2e7a46ce4888642650b",
+  "processing": "Complete approved 1086 x 1448 portrait resized proportionally to 300 x 400 using Pillow Lanczos, then encoded as WebP quality 80, method 6. Standard 26-unit rounded SVG clip and 1% bleed. No repainting, recolouring, selective cropping or extra lettering. This is an optimized game export, not the lossless full-resolution original.",
+  "approval": "Carl selected the last (third) seven-characters option with blue iris flowers and golden 萬 and explicitly requested GitHub deployment. The olive-grove and wheat alternatives are not selected.",
+  "originalPreservation": "Untouched full-resolution original PNG included in Van_Gogh_7_Characters_Irises_Approved.zip supplied in chat."
+}
