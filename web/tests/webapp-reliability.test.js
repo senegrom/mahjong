@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
+import { parse } from 'svelte/compiler';
 import { watchModelAvailability } from '../src/lib/model-availability.js';
 import { loadModule } from './fixtures/load-module.js';
 
@@ -176,6 +177,7 @@ test('newer availability results win and unmount removes listeners and ignores l
 });
 
 const physicalSource = read('../src/lib/PhysicalPlay.svelte');
+const physicalScript = parse(physicalSource, { modern: true }).instance.content;
 function editor() {
   // Execute the real component functions, with runes/lifecycle and the rules
   // engine replaced only at the boundary. This is not a browser-render test.
@@ -186,7 +188,7 @@ function editor() {
     structuredClone, emptyPosition, $state: value => value, $effect() {}, $props: () => ({}),
     onMount() {}, onDestroy() {}, PhysicalAnalysis: class {}, supportsTrainedAgent: () => false,
   });
-  const script = physicalSource.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/^\s*import .*;$/gm, '');
+  const script = physicalSource.slice(physicalScript.start, physicalScript.end).replace(/^\s*import .*;$/gm, '');
   vm.runInContext(script + `\nloaded = true;
     globalThis.api = { edit, editNumber, endNumberEdit, undo,
       state: () => snapshot(), depth: () => history.length,
