@@ -1,0 +1,57 @@
+name: Integrate verified Dali staircase
+
+on:
+  push:
+    branches: [art/dali-four-disks-stairs-20261006]
+    paths: [.github/workflows/prepare-dali-four-stairs.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/art/dali-four-disks-stairs-20261006'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: art/dali-four-disks-stairs-20261006
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Merge concurrent main and verify exact existing-art preservation
+        env:
+          BASE: c634a7d8ea01c1c0fdb211212693266af8326f78
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-commit --no-ff "$BASE"
+          python3 - <<'PY'
+          import os, subprocess, pathlib, json
+          base = os.environ['BASE']
+          names = subprocess.check_output(['git','ls-tree','-rz','--name-only',base,'docs/design','web/public/tiles']).decode().split('\0')
+          art = [p for p in names if pathlib.Path(p).suffix.lower() in {'.png','.svg','.webp','.avif','.jpg','.jpeg'}]
+          for p in art:
+              assert pathlib.Path(p).read_bytes() == subprocess.check_output(['git','show',f'{base}:{p}']), p
+          path = 'web/public/tiles/dali/manifest.json'
+          old = json.loads(subprocess.check_output(['git','show',f'{base}:{path}']))
+          new = json.loads(pathlib.Path(path).read_text())
+          assert [e for e in new['tiles'] if e['tile'] != '4p'] == old['tiles']
+          assert new['placeholders'] == [e for e in old['placeholders'] if e['tile'] != '4p']
+          print(f'All {len(art)} existing artwork files and all earlier Dali entries preserved after concurrent merge.')
+          PY
+          node --test web/tests/dali-*.test.js
+          node --check web/tests/tile-faces.test.js
+          rm .github/workflows/prepare-dali-four-stairs.yml
+          git add -A
+          python3 - <<'PY'
+          import subprocess, os
+          changed = subprocess.check_output(['git','diff','--cached','--name-only',os.environ['BASE']]).decode().splitlines()
+          expected = {'docs/design/dali/README.md','docs/design/dali/four-disks.json','docs/design/dali/studies/four-disks-b-approved.svg','docs/design/dali/studies/four-disks-b-hires.avif','web/public/tiles/dali/approved/Pin4.svg','web/public/tiles/dali/manifest.json','web/public/tiles/dali/preview.html','web/scripts/export-dali-tiles.mjs','web/src/lib/dali-faces.js','web/tests/dali-bamboo.test.js','web/tests/dali-east-wind.test.js','web/tests/dali-north-wind.test.js','web/tests/dali-six-bamboo.test.js','web/tests/dali-four-disks.test.js','web/tests/tile-faces.test.js'}
+          assert set(changed) == expected, changed
+          PY
+          git diff --cached --check
+          git commit -m 'Integrate latest main with verified Dali staircase and exact artwork preservation'
+          git push origin HEAD:refs/heads/art/dali-four-disks-stairs-20261006
