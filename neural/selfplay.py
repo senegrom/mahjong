@@ -159,13 +159,23 @@ class Batch:
     #: one a decision in the order above, when every step's records said
     #: (see `mortal_learner.Records.values`); None otherwise.
     values: torch.Tensor | None = None
+    #: Mortal's vector of each decision as the learner worked it out when
+    #: deciding, in the same order, when it was asked to keep them (see
+    #: `combined.Combined.keep_phi`); None otherwise.
+    phi: torch.Tensor | None = None
 
 
-def gather(blocks: list[np.ndarray]) -> torch.Tensor:
+def gather(blocks: list[np.ndarray] | list[torch.Tensor]) -> torch.Tensor:
     """Stacks a round's blocks into one tensor, freeing each block as it
-    is copied, so the peak is the round itself and one block over."""
+    is copied, so the peak is the round itself and one block over. The
+    blocks are arrays, or tensors on the host where numpy has no kind for
+    them, as for Mortal's vectors in bfloat16."""
     total = sum(len(block) for block in blocks)
-    out = np.empty((total, *blocks[0].shape[1:]), dtype=blocks[0].dtype)
+    first = blocks[0]
+    if isinstance(first, torch.Tensor):
+        out = torch.empty((total, *first.shape[1:]), dtype=first.dtype)
+    else:
+        out = np.empty((total, *first.shape[1:]), dtype=first.dtype)
     at = 0
     for index in range(len(blocks)):
         block = blocks[index]
@@ -173,7 +183,7 @@ def gather(blocks: list[np.ndarray]) -> torch.Tensor:
         at += len(block)
         blocks[index] = None
     blocks.clear()
-    return torch.from_numpy(out)
+    return out if isinstance(out, torch.Tensor) else torch.from_numpy(out)
 
 
 @torch.no_grad()
@@ -297,9 +307,11 @@ def play(
     held: list[np.ndarray] = []
     oracle: list[np.ndarray] = []
     wandered: list[np.ndarray] = []
-    # The learner's values of its decisions, a block a step, while every
-    # step's records carry them; None from the first that does not.
+    # The learner's values of its decisions, and Mortal's vectors of them,
+    # a block a step, while every step's records carry them; None from the
+    # first that does not.
     valued: list[np.ndarray] | None = []
+    vectors: list[torch.Tensor] | None = []
     actions: list[int] = []
     log_probs: list[float] = []
     rewards: list[float] = []
@@ -454,6 +466,11 @@ def play(
                 valued = None
             elif valued is not None:
                 valued.append(record_values)
+            record_phi = getattr(records, "phi", None)
+            if record_phi is None:
+                vectors = None
+            elif vectors is not None:
+                vectors.append(record_phi)
             began = clock()
         else:
             if recording:
@@ -482,8 +499,9 @@ def play(
             record_slots = np.arange(len(index))
             choice[index] = record_actions
             wandered.append(was_forced.cpu().numpy())
-            # This path keeps no values; nothing that plays here reads them.
-            valued = None
+            # This path keeps no values or vectors; nothing that plays here
+            # reads them.
+            valued = vectors = None
 
             # Copies, not views: a view would keep the whole step's buffer
             # alive until the round is gathered at the end.
@@ -604,6 +622,7 @@ def play(
         oracle=gather(oracle) if oracle else torch.zeros(0),
         explored=gather(wandered) if wandered else None,
         values=gather(valued) if valued else None,
+        phi=gather(vectors) if vectors else None,
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,

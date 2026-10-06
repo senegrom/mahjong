@@ -66,15 +66,29 @@ class Records:
     #: over the round (`--baseline-from-play`). None when the score gave
     #: the logits alone.
     values: np.ndarray | None = None
+    #: Mortal's vector of each decision as the deciding forward worked it
+    #: out, on the host in the precision it came in, for a generation that
+    #: learns from it instead of running Mortal again (`train_combined
+    #: --reuse-phi`). None unless the score gave it.
+    phi: torch.Tensor | None = None
 
 
-def scored(answer) -> tuple[torch.Tensor, torch.Tensor | None]:
-    """A score's logits, and the value of each row when it gave one: a
-    score answers the logits alone, or the logits and the values."""
+def scored(answer) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+    """A score's logits, and the value and Mortal's vector of each row when
+    it gave them: a score answers the logits alone, the logits and the
+    values, or those and the vectors."""
     if isinstance(answer, torch.Tensor):
-        return answer, None
-    logits, value = answer
-    return logits, value
+        return answer, None, None
+    logits, value, *kept = answer
+    return logits, value, kept[0] if kept else None
+
+
+def joined(parts: list, cat):
+    """A step's parts of one field stacked in record order by `cat`, or
+    None when any part is missing."""
+    if any(part is None for part in parts):
+        return None
+    return parts[0] if len(parts) == 1 else cat(parts)
 
 
 def decide_in_mortal_space(
@@ -93,8 +107,9 @@ def decide_in_mortal_space(
     the policy decided to get there, in Mortal's action space.
 
     `score(planes, mask)` gives the logits over those forty-six moves, or
-    the logits and the value of each row, which are then recorded too (see
-    `Records.values`). A riichi names no tile there, so when one is chosen
+    the logits and the value of each row, or those and Mortal's vector of
+    each row, which are then recorded too (see `Records.values` and
+    `Records.phi`). A riichi names no tile there, so when one is chosen
     the reach is told to the follower and the same question asked again
     from the state in which it stands; both answers are recorded, because
     the policy made both.
@@ -129,7 +144,7 @@ def decide_in_mortal_space(
     began = clock()
     mask = torch.from_numpy(allowed).to(device)
     # Precision is owned by the caller, matching the later PPO forward.
-    logits, value = scored(score(planes.dense(device), mask))
+    logits, value, phi = scored(score(planes.dense(device), mask))
     logits = logits.float()
     distribution = torch.distributions.Categorical(logits=logits)
     if greedy:
@@ -157,6 +172,8 @@ def decide_in_mortal_space(
         was_forced = was_forced.cpu().numpy()
     if value is not None:
         value = value.float().cpu().numpy()
+    if phi is not None:
+        phi = phi.cpu()
     timing["network"] = timing.get("network", 0.0) + clock() - began
 
     choice = zoo.first_meaning(picked, legal)
@@ -168,6 +185,7 @@ def decide_in_mortal_space(
     record_slots = [np.arange(len(who))]
     record_forced = [was_forced]
     record_values = [value]
+    record_phi = [phi]
     second = np.nonzero(decidable & (picked == zoo.MORTAL_RIICHI))[0].tolist()
     if not decidable.all():
         keep = decidable
@@ -178,6 +196,7 @@ def decide_in_mortal_space(
         record_slots = [np.nonzero(keep)[0]]
         record_forced = [was_forced[keep]]
         record_values = [None if value is None else value[keep]]
+        record_phi = [None if phi is None else phi[torch.from_numpy(keep)]]
 
     if second:
         began = clock()
@@ -191,7 +210,7 @@ def decide_in_mortal_space(
         allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
         allowed_after[:, :34] = legal[second, zoo.RIICHI_DISCARD:zoo.TSUMO]
         mask_after = torch.from_numpy(allowed_after).to(device)
-        logits_after, value_after = scored(score(after.dense(device), mask_after))
+        logits_after, value_after, phi_after = scored(score(after.dense(device), mask_after))
         logits_after = logits_after.float()
         distribution_after = torch.distributions.Categorical(logits=logits_after)
         tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()
@@ -207,15 +226,17 @@ def decide_in_mortal_space(
         # The tile a declaration throws is never a forced move; see
         # `Records.forced`.
         record_forced.append(np.zeros(len(second), dtype=bool))
-        # The value of the state the tile is chosen in, the reach declared:
-        # the position the second record is.
+        # The value and the vector of the state the tile is chosen in, the
+        # reach declared: the position the second record is.
         record_values.append(None if value_after is None else value_after.float().cpu().numpy())
+        record_phi.append(None if phi_after is None else phi_after.cpu())
         timing["riichi"] = timing.get("riichi", 0.0) + clock() - began
 
-    # Values only when every part of the step has them, in record order.
-    values = None
-    if all(part is not None for part in record_values):
-        values = np.concatenate(record_values).astype(np.float32)
+    # Values and vectors only when every part of the step has them.
+    values = joined(record_values, np.concatenate)
+    if values is not None:
+        values = values.astype(np.float32)
+    phi = joined(record_phi, torch.cat)
     if len(record_planes) == 1:
         records = Records(
             planes=record_planes[0],
@@ -225,6 +246,7 @@ def decide_in_mortal_space(
             slots=record_slots[0].astype(np.int64),
             forced=record_forced[0].astype(bool),
             values=values,
+            phi=phi,
         )
     else:
         records = Records(
@@ -235,6 +257,7 @@ def decide_in_mortal_space(
             slots=np.concatenate(record_slots).astype(np.int64),
             forced=np.concatenate(record_forced).astype(bool),
             values=values,
+            phi=phi,
         )
     return choice, records
 

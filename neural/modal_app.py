@@ -622,6 +622,7 @@ def train_combined(
     skip_forced: bool = False,
     baseline_from_play: bool = False,
     check_baseline: bool = False,
+    reuse_phi: bool = False,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -629,6 +630,10 @@ def train_combined(
     in the run when it is there, and otherwise joins the two checkpoints
     named, which may be any run's. `until`, `skip_forced`,
     `baseline_from_play` and `check_baseline` are as for `train_mortal`.
+
+    `reuse_phi` has a generation that holds Mortal still learn from
+    Mortal's vectors as play worked them out, the trainer's `--reuse-phi`;
+    passed on only when true.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
@@ -661,6 +666,8 @@ def train_combined(
             command.append("--baseline-from-play")
         if check_baseline:
             command.append("--check-baseline")
+        if reuse_phi:
+            command.append("--reuse-phi")
         if fixed:
             command += ["--fixed", *fixed]
         if source.exists():

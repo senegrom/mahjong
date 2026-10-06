@@ -208,10 +208,13 @@ class RoundTests(unittest.TestCase):
         # Values that differ row from row, so one out of its place shows.
         self.assertGreater(float(guess.std()), 0.05)
         torch.testing.assert_close(batch.values, guess, rtol=1e-5, atol=1e-5)
-        # The joined player's own self-play keeps them too.
+        # The joined player's own self-play keeps them too, and Mortal's
+        # vectors only when asked (see test_reuse_phi).
         own = selfplay.play(net, games=1, seed=42, device="cpu")
         self.assertEqual(own.values.shape, (own.decisions,))
         torch.testing.assert_close(own.values, passed(net, own, "cpu"), rtol=1e-5, atol=1e-5)
+        self.assertIsNone(batch.phi)
+        self.assertIsNone(own.phi)
 
     @unittest.skipUnless(CUDA, "mixed precision is the card's")
     def test_on_the_card_the_copy_values_as_the_learners_pass(self):

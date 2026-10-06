@@ -15,6 +15,7 @@ three.
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -179,6 +180,25 @@ def baseline(
             observations.indptr, observations.indices, observations.values, trusted=True
         )
     return guesses
+
+
+def kept_on_card(
+    tensor: torch.Tensor, device: str | torch.device, spare: int | None = None
+) -> torch.Tensor | None:
+    """`tensor` on `device` when that is the processor, or a card with
+    room for it and `spare` bytes to spare afterwards for the learning
+    step, as for a round's planes (see `observe.resident`, whose sixteen
+    gigabytes and `RESIDENT_SPARE_GB` this shares); None when the card has
+    no such room."""
+    device = torch.device(device)
+    if device.type != "cuda":
+        return tensor.to(device)
+    if spare is None:
+        spare = int(float(os.environ.get("RESIDENT_SPARE_GB", "16")) * (1 << 30))
+    free, _total = torch.cuda.mem_get_info(device)
+    if free - tensor.numel() * tensor.element_size() < spare:
+        return None
+    return tensor.to(device)
 
 
 def baseline_of(

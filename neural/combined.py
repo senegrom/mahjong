@@ -172,6 +172,11 @@ class Combined(nn.Module):
     #: Whether, seated as another player, it leaves rows with a single move
     #: open unasked; see `zoo.choose_in_mortal_space`.
     skip_forced = False
+    #: Whether deciding keeps Mortal's vector of every decision in its
+    #: records, for a generation that learns from it rather than running
+    #: Mortal again (`train_combined --reuse-phi`). A trainer turns it on
+    #: for the rounds that will read it.
+    keep_phi = False
 
     #: What a generation may hold still: either network beneath the head,
     #: the head itself, or any combination of them written with a plus.
@@ -269,13 +274,20 @@ class Combined(nn.Module):
         return self
 
     def backbones(
-        self, planes: torch.Tensor, legal: torch.Tensor, hands: bool = True
+        self,
+        planes: torch.Tensor,
+        legal: torch.Tensor,
+        hands: bool = True,
+        phi: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, ...]:
         """Both players' last two layers, from the planes: Mortal's vector
         and its move values, our features and our logits over the same
         moves, with our value and our reading of the opponents' hands.
         `hands=False` leaves the reading out, None in its place, for a
-        caller that wants only the moves and the value."""
+        caller that wants only the moves and the value. `phi`, Mortal's
+        vector of each row when it is already known, is taken as it is
+        instead of being worked out from the planes again; only its move
+        values are."""
         ours = self.ours
         features = ours.tail(ours.tower(ours.stem(planes)))
         pooled = features.mean(dim=2)
@@ -286,14 +298,24 @@ class Combined(nn.Module):
         a1 = torch.cat([tiles, ours.policy_pooled(pooled)], dim=1)
         value = ours.value(pooled.detach()).squeeze(1)
         guessed = ours.hands_from(planes, features) if hands else None
-        phi = self.mortal.features(planes)
+        if phi is None:
+            phi = self.mortal.features(planes)
         q = self.mortal.dqn(phi, legal)
         return phi, q, features, a1, value, guessed
 
     def everything(
-        self, planes: torch.Tensor, legal: torch.Tensor
+        self, planes: torch.Tensor, legal: torch.Tensor, phi: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal)
+        """The logits, the value and the reading of the hands. `phi`, when
+        given, is Mortal's vector of each row, already known: in a
+        generation that holds Mortal still it is the same function of the
+        same planes all generation, so the learning step can take it from
+        play instead of running Mortal on every minibatch (see
+        `train_combined --reuse-phi`)."""
+        if phi is None:
+            phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal)
+        else:
+            phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal, phi=phi)
         phi = phi.float()
         logits = self.fuse(phi, q.float(), features.float(), a1.float(), legal)
         return (
@@ -364,11 +386,16 @@ class Combined(nn.Module):
     ):
         """One of our engine's actions per row, and what the policy decided
         to get there, with the value its head gave each decision: the
-        fusion's judgement, the one the baseline pass reads. Its moves are
-        Mortal's, so a riichi is answered in two steps and both are
-        recorded."""
+        fusion's judgement, the one the baseline pass reads; and, with
+        `keep_phi`, Mortal's vector of each. Its moves are Mortal's, so a
+        riichi is answered in two steps and both are recorded."""
+
+        def score(planes: torch.Tensor, mask: torch.Tensor):
+            answer = self.decision(planes, mask)
+            return answer if self.keep_phi else answer[:2]
+
         return mortal_learner.decide_in_mortal_space(
-            lambda planes, mask: self.decision(planes, mask)[:2],
+            score,
             views,
             rows,
             players,

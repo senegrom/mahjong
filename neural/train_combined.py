@@ -128,6 +128,15 @@ def parse_args() -> argparse.Namespace:
         "it (baseline_difference, its largest, and baseline_difference_mean): for the "
         "generation that checks --baseline-from-play before a run relies on it",
     )
+    parser.add_argument(
+        "--reuse-phi", action="store_true",
+        help="in a generation that holds Mortal still (mortal, mortal+head), learn from Mortal's "
+        "vector of each decision as play worked it out, kept on the card, instead of running "
+        "Mortal again on every minibatch. Nothing moves Mortal in such a generation, so it is "
+        "the same function of the same planes; only the batches differ, which in bfloat16 can "
+        "move it in its last bits. Off by default; a card without room for it, about two "
+        "kilobytes a decision, works it out as before",
+    )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260908)
@@ -287,17 +296,23 @@ def main() -> None:
     end = start + args.rounds if args.rounds else args.generations
     for generation in range(start, end):
         began = time.time()
-        batch = rollout = held = None
+        batch = rollout = held = played_phi = None
         # Deciding is the joined player as it stands; what stays fixed in
         # the update that follows is drawn now and said in the record.
         fixed = str(drawer.choice(args.fixed))
         net.set_mode(fixed)
         net.eval()
+        player = net if actor is None else actor
         if actor is not None:
             # Copied with the same rounding autocast makes.
             actor.load_state_dict(net.state_dict())
+        # A generation that holds Mortal still has nothing to move it, its
+        # weights or its statistics, so its vector of every decision is
+        # the same all generation: kept from play when asked to reuse it.
+        reusing = args.reuse_phi and "mortal" in fixed.split("+")
+        player.keep_phi = reusing
         batch = selfplay.play(
-            net if actor is None else actor,
+            player,
             games=args.games,
             seed=round_seed(args.seed, generation, args.games),
             device=device,
@@ -315,6 +330,11 @@ def main() -> None:
         # label the reading of the hands is trained against, which self-play
         # knows for free and which is far denser than the game's result.
         held = batch.held.to(device)
+        if reusing and getattr(batch, "phi", None) is not None:
+            # On the card beside the step, or not at all: gathered from the
+            # host every minibatch it would hold the step up.
+            played_phi = ppo_loop.kept_on_card(batch.phi, device)
+            batch.phi = None
         loaded = time.time() - began - played
 
         # The baseline: our value head as it stands before the round, from
@@ -354,7 +374,12 @@ def main() -> None:
                 for picks, planes in minibatches:
                     optimiser.zero_grad(set_to_none=True)
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                        logits, value, guessed = learn(planes, rollout.legal[picks])
+                        if played_phi is None:
+                            logits, value, guessed = learn(planes, rollout.legal[picks])
+                        else:
+                            logits, value, guessed = learn(
+                                planes, rollout.legal[picks], played_phi[picks]
+                            )
                     logits = logits.float()
                     value = value.float()
                     hands_loss, covered = ppo_loop.hands_loss_of(guessed.float(), held[picks])
@@ -478,6 +503,9 @@ def main() -> None:
             # were asked for.
             baseline_seconds=round(valued, 1),
             **baseline_said,
+            # Whether this generation learned from Mortal's vectors as
+            # play worked them out, when the run reuses them.
+            **({"reused_phi": played_phi is not None} if args.reuse_phi else {}),
             entropy_coef=round(entropy_coef(), 6),
             # Peaks, so the container's reservation can be sized from data:
             # memory is billed by what is reserved, not what is used.
