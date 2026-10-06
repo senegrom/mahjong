@@ -243,7 +243,7 @@ try{
  });
  await check('on a phone the final result, which covers the standings, saves the whole game itself',async()=>{
   const whole=exported(final.after);
-  for(const [width,height,label] of [[390,844,'Save whole game'],[320,568,'Save game']]){
+  for(const [width,height,label] of [[390,844,'Save game'],[320,568,'Save game']]){
    const p=await open(final.after,{width,height,files:true});await p.waitForSelector('.standings');
    assert.equal(await p.$eval('.screen [data-save-game]',el=>el.innerText.trim()),label);
    const file=await saveFrom(p,'.screen [data-save-game]');
