@@ -406,13 +406,15 @@ def play(
         began = clock()
         if decides:
             # Each player's views in encodings of their own, so that each
-            # is served its own arrays and nothing is gathered: the
-            # learner's here and now, with the views it asks a reach's tile
-            # from when it asks ahead, and the seated others' by a worker
-            # while the learner decides, since they are asked only after it
-            # (see `Views.prepare`); here too on a step the learner has no
-            # decision in. One that reads the engine's planes needs none of
-            # the follower's.
+            # is served its own arrays rather than rows gathered from
+            # everyone's (a seated other that leaves its rows with one move
+            # unasked, `--skip-forced`, has the rest gathered from its own):
+            # the learner's here and now, with the views it asks a reach's
+            # tile from when it asks ahead, and the seated others' by a
+            # worker while the learner decides, since they are asked only
+            # after it (see `Views.prepare`); here too on a step the learner
+            # has no decision in. One that reads the engine's planes needs
+            # none of the follower's.
             views.prepare(index, deciding[index])
             if preview_reach:
                 ready = index[mask[index, zoo.RIICHI_DISCARD:zoo.TSUMO].any(axis=1)]
