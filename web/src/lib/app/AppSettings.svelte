@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { cycleDialogFocus } from '../dialog-focus.js';
   import { TILE_FACE_OPTIONS } from '../tile-faces.js';
+  import { finishedHands } from '../game-log.js';
   import OfflineStatus from './OfflineStatus.svelte';
   import type { SettingsProps, GameMode, TileFace } from './types';
 
@@ -12,12 +13,12 @@
     shortcuts = $bindable(true), tileFace, pendingTileFace = null,
     difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
-    onconfirmationchange, onshortcutschange,
+    onconfirmationchange, onshortcutschange, loggedHands = 0, onsavegame,
   }: SettingsProps = $props();
   const MODES: [GameMode, string][] = [['play', 'Play'], ['watch', 'Agent watch'], ['physical', 'Physical agent play'], ['guided', 'Guided physical game']];
   const COMPACT = '(max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape)';
   let compact = $state(false);
-  let guideOpen = $state(false), optionsOpen = $state(false), offlineOpen = $state(false);
+  let guideOpen = $state(false), optionsOpen = $state(false), offlineOpen = $state(false), exportOpen = $state(false);
   let settingsDialog = $state<HTMLDialogElement | null>(null);
   let settingsTrigger = $state<HTMLButtonElement | null>(null);
   let preferencesElement = $state<HTMLDivElement | null>(null);
@@ -112,6 +113,15 @@
     <p>With confirmation on, tap a tile to select it, then tap it again or press Discard. Your match and preferences are saved on this device.</p>
   </div>
 </details>
+{#if mode === 'play' && onsavegame}
+  <details class="game-export" bind:open={exportOpen}>
+    <summary>Export game</summary>
+    <div class="option-fields">
+      <p>Saves every finished hand of this match, from East 1 on, as one mjai log that replayers and other riichi programs read. The hand being played is left out until it ends, so the file never shows tiles that are still hidden.</p>
+      <button class="app-control" data-save-game onclick={onsavegame} disabled={!loggedHands || Boolean(saveConflict)}>{loggedHands ? `Save ${finishedHands(loggedHands)}` : 'No hand has finished yet'}</button>
+    </div>
+  </details>
+{/if}
 <details class="guide" bind:open={guideOpen}>
   <summary>Tile markings and rules</summary>
   <div class="guide-body">
@@ -225,7 +235,7 @@
   .restart { font-size: .85rem; }
   .preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-width: 0; }
   .preferences :global(details[open]) { flex-basis: 100%; order: 1; }
-  .options, .guide { font-size: .85rem; min-width: 0; }
+  .options, .guide, .game-export { font-size: .85rem; min-width: 0; }
   summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .option-fields { display: flex; gap: 4px 20px; flex-wrap: wrap; background: #0003; padding: 10px; border-radius: 8px; }
   .option-fields label { min-height: 44px; display: flex; gap: 8px; align-items: center; }
@@ -251,7 +261,7 @@
     .preferences { gap: 0 16px; }
     .opponents { gap: 5px; }
     .opponents > span { display: none; }
-    .options, .guide { font-size: .8rem; }
+    .options, .guide, .game-export { font-size: .8rem; }
   }
   @media (max-width: 359px) {
     .preferences { column-gap: 8px; }

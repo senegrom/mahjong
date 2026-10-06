@@ -12,6 +12,7 @@
   import Melds from './Melds.svelte';
   import ScoreScreen from './ScoreScreen.svelte';
   import Standings from './Standings.svelte';
+  import { finishedHands, gameFileName, playerNames, saveLogFile } from './game-log.js';
 
   let { trainedAvailable, opponents, hints = true } = $props();
   let lineup = $state(['club', 'club', 'club', 'club']);
@@ -28,6 +29,9 @@
   let speed = $state(1400);
   let standings = $state(null);
   let log = $state([]);
+  // How many hands the game's log holds: the finished ones only.
+  let loggedHands = $state(0);
+  let fileNote = $state('');
   let configured = false;
   const positions = ['Followed agent', 'Right', 'Opposite', 'Left'];
   let recommendedTile = $derived(!busy && ['discard', 'riichi'].includes(analysis?.choice.kind) ? analysis.choice.tile : null);
@@ -60,9 +64,22 @@
     waiting = owner.waitingOnHandEnd;
     log = owner.match.events;
     standings = owner.match.over ? owner.match.engine.standings() : null;
+    loggedHands = owner.match.engine.game_log_hands();
+  }
+  // The whole game from East 1, as Play saves it. The engine leaves out a
+  // hand still being played, whose deal would show every seat's tiles.
+  function saveGame() {
+    const owner = watch;
+    if (!owner || owner.closed || !view) return;
+    try {
+      const labels = owner.lineup.map((agent, index) => `${positions[index]} (${AGENTS[agent]})`);
+      saveLogFile(gameFileName(), owner.match.engine.game_log(playerNames(view, labels)));
+      fileNote = '';
+    } catch { fileNote = 'The game could not be saved to a file. The watched game is unchanged.'; }
   }
   function start() {
     configured = true;
+    fileNote = '';
     watch?.dispose();
     watch = new WatchSession(Game, Date.now() % 2 ** 31, lineup, {
       ai: (planes, mask, signal) => chooseAction(planes, mask, signal),
@@ -106,8 +123,11 @@
     <label><input type="checkbox" bind:checked={showWeights} /> Show choice weights</label>
     <label>Pace<select value={speed} onchange={event => { speed = Number(event.currentTarget.value); if (watch) { watch.delay = speed; watch.schedule(); } }} aria-label="Watch pace"><option value={700}>Fast</option><option value={1400}>Normal</option><option value={3000}>Slow</option></select></label>
     {#if view}<button onclick={() => watch.step()} disabled={busy || Boolean(standings)}>{view.phase === 'over' ? 'Next hand' : 'Play this choice'}</button>{/if}
+    {#if view}<button data-save-game onclick={saveGame} disabled={!loggedHands}
+      title="Every finished hand of this game from East 1 as one mjai log. The hand being played is left out until it ends.">{standings ? 'Save whole game' : loggedHands ? `Save game so far (${finishedHands(loggedHands)})` : 'No hand has finished yet'}</button>{/if}
   </div>
   {#if failure}<div role="alert">{failure} <button disabled={busy} onclick={() => watch.prepare()}>Retry agent</button></div>{/if}
+  {#if fileNote}<p role="status">{fileNote}</p>{/if}
   {#if view}
     <div class="watch-round"><strong>{view.round} {view.kyoku}</strong><span>{view.wall} tiles left · {view.counters} honba · {view.riichi_sticks} riichi sticks</span><span class="tiles" role="group" aria-label="dora indicators" title="Dora indicators">{#each view.dora_indicators as tile, index (index)}<Tile {tile} size="tiny" />{/each}</span></div>
     <div class="watch-table">
@@ -143,10 +163,10 @@
     {:else if waiting}<p role="status">The hand is over. Auto play is waiting; deal the next hand when you have read it.</p>
     {:else if analysis && !showWeights}<p role="status">{auto ? 'Auto play is running.' : 'Paused before the followed agent’s next choice.'}</p>{/if}
     {#if showWeights}<AgentWeights {analysis} onchoose={chooseAlternative} disabled={busy || Boolean(standings)} dora={shownDora} />{/if}
-    {#if standings}<Standings {standings} onagain={start} />{/if}
+    {#if standings}<Standings {standings} onagain={start} onsave={saveGame} />{/if}
     {#if view.phase === 'over' && view.outcome}
       <ScoreScreen outcome={view.outcome} seats={view.seats} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
-        onnext={() => watch.step()} reviewed={true} />
+        onnext={() => watch.step()} ongame={saveGame} reviewed={true} />
     {/if}
     <details><summary>Hand history · {log.length} events</summary>{#each log as line, index (index)}<p class="log-line">{line}</p>{/each}</details>
   {/if}

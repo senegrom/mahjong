@@ -49,6 +49,8 @@ export interface SettingsProps extends OfflineStatusProps {
   startFresh: () => boolean; configureTable: () => void;
   onfacechange: (face: TileFace) => void | Promise<void>;
   onconfirmationchange: () => void; onshortcutschange: () => void;
+  /** Hands the game's log holds, the finished ones only, and what saves it. */
+  loggedHands?: number; onsavegame?: () => void;
 }
 export interface OpponentDialogProps {
   customDialog?: HTMLDialogElement | null; draftOpponents: Opponent[];

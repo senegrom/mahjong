@@ -74,6 +74,26 @@ try {
     assert.equal(await page.$('[data-download-ai]'), null);
     assert.deepEqual((await state(page)).callbacks, ['download']);
   });
+  await check('the export section offers finished hands only, says so and saves through the parent', desktop, async page => {
+    await page.click('.game-export > summary');
+    const button = () => page.$eval('.game-export [data-save-game]', el => ({ disabled: el.disabled, text: el.textContent.trim() }));
+    assert.match(await page.$eval('.game-export', el => el.textContent), /from East 1 on.*hand being played is left out until it ends/s);
+    assert.deepEqual(await button(), { disabled: true, text: 'No hand has finished yet' });
+    await page.click('[data-fixture-finish-hand]');
+    await page.waitForFunction(() => !document.querySelector('.game-export [data-save-game]').disabled);
+    assert.deepEqual(await button(), { disabled: false, text: 'Save 1 finished hand' });
+    await page.click('[data-fixture-finish-hand]');
+    await page.waitForFunction(() => document.querySelector('.game-export [data-save-game]').textContent.includes('2 finished hands'));
+    await page.click('.game-export [data-save-game]');
+    assert.deepEqual((await state(page)).callbacks, ['save-game:2']);
+    // On a phone the same section sits in the settings dialog, still open.
+    await page.setViewport(phone);
+    await page.waitForFunction(() => document.querySelector('.game-export')?.closest('.settings-dialog'));
+    await openSettings(page);
+    assert.equal(await page.$eval('.settings-dialog .game-export', el => el.open), true);
+    await page.click('.settings-dialog .game-export [data-save-game]');
+    assert.deepEqual((await state(page)).callbacks, ['save-game:2', 'save-game:2']);
+  });
   await check('native compact modal traps focus, blocks the hand and restores its opener', phone, async page => {
     await openSettings(page);
     assert.equal(await page.evaluate(() => document.activeElement.hasAttribute('data-close-settings')), true);

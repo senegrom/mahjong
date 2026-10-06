@@ -10,6 +10,7 @@
     onreview,
     reviewed = false,
     onlog,
+    ongame,
     finalHand = false,
     dora = [],
     bets = 0,
@@ -164,6 +165,8 @@
     {:else}<button disabled={busy} class="primary" onclick={onnext}>Next hand</button>{/if}
     {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{finalHand ? 'Review final hand' : 'View table / my hand'}</button>{/if}
     {#if onlog}<button class="quiet" onclick={onlog} title="The hand as an mjai event log, which replayers and other riichi programs read">{finalHand ? 'Save final hand' : 'Save this hand'}</button>{/if}
+    <!-- At the end the standings offer the whole game, close and all. -->
+    {#if ongame && !finalHand}<button class="quiet" data-save-game onclick={ongame} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game so far</button>{/if}
   </div>
 </section>
 
