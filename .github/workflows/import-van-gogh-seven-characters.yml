@@ -1,0 +1,42 @@
+name: Import approved Van Gogh seven characters
+on:
+  push:
+    branches: [art/van-gogh-seven-irises-c-9387a36]
+    paths:
+      - '.art-import-irises/**'
+      - '.github/workflows/import-van-gogh-seven-characters.yml'
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: art/van-gogh-seven-irises-c-9387a36
+          persist-credentials: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Assemble exact selected irises and verify artwork preservation
+        run: python3 .art-import-irises/import.py
+      - name: Install locked web test dependencies
+        working-directory: web
+        run: npm ci
+      - name: Test all tile faces and cross-set export regressions
+        working-directory: web
+        run: node --test tests/tile-faces.test.js tests/van-gogh-*.test.js tests/dali-*.test.js
+      - name: Lint changed JavaScript
+        working-directory: web
+        run: npx --no-install eslint scripts/export-van-gogh-tiles.mjs src/lib/van-gogh-faces.js tests/tile-faces.test.js tests/van-gogh-seven-characters.test.js --max-warnings 0
+      - name: Commit verified integration without temporary importer
+        run: |
+          git rm -r .art-import-irises .github/workflows/import-van-gogh-seven-characters.yml
+          git add docs/design/van-gogh web/public/tiles/van-gogh web/scripts/export-van-gogh-tiles.mjs web/src/lib/van-gogh-faces.js web/tests/tile-faces.test.js web/tests/van-gogh-seven-characters.test.js
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Deploy approved Irises at Dusk C as Van Gogh 7 characters'
+          git push origin HEAD:refs/heads/art/van-gogh-seven-irises-c-9387a36
