@@ -1,5 +1,7 @@
 # Van Gogh
 
+**Current 9 disks:** Nine Stars I has been restored from the exact original PNG/SVG. The Potter’s Table C is preserved in the design archive. The eight-star adaptation is not deployed; 8 disks is unchanged. Earlier sections below describe the design history.
+
 **Current set:** 23 painted faces and 11 Classic fallbacks; all nine bamboo identities are covered. Lemon Terrace is active for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table for 9 disks. The history below retains earlier milestone counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
@@ -156,3 +158,9 @@ Carl approved the latest red 六萬 calligraphy with lemons, cypresses, a lake a
 The complete 1295 × 1214 source is fitted to the shared 300 × 400 face using Lanczos and quality-80 WebP, embedded in a self-contained SVG with the usual rounded clip and 1% bleed. Fitting changes the aspect ratio; it is not a proportional resize. There is no selective cropping, repainting or colour edit. The unchanged full-resolution original is preserved in `Van_Gogh_6_Characters_Lemon_Terrace_Approved.zip` supplied in chat. See `docs/design/van-gogh/six-characters-lemon-terrace.json` for original, raster and SVG hashes.
 
 The set now has **23 painted faces and 11 Classic fallbacks**. `node web/scripts/export-van-gogh-tiles.mjs --only=6m` copies the approved source to the game exactly without rewriting other faces. Regression tests cover hashes, registration, preloading, hidden tiles, the fourteen-tile preview hand and repeated selective export.
+
+## Nine Stars — original 9 disks restored
+
+The original nine luminous disks in a 3×3 arrangement are active again for `9p` / `Pin9`. Both the 380×471 PNG and its existing game SVG are byte-for-byte identical to the archived originals. The Potter’s Table C source, original provenance and archived runtime SVG are all retained. No other tile or tile coverage changes.
+
+`docs/design/van-gogh/nine-stars-restored.json` records this decision and the hashes. Run `node web/scripts/export-van-gogh-tiles.mjs --only=9p` to reproduce the restored face without rewriting other artwork.
