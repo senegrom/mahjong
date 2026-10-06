@@ -172,7 +172,7 @@
         <TileEntry label="Your starting hand" tiles={mine.hand} limit={13} expanded onchange={tiles => edit(s => { s.position.players[s.position.seat].hand = tiles; })} />
         <button class="primary" disabled={mine.hand.length !== 13} onclick={() => act({ type: 'hand' })}>Next · dora indicator</button>
       {:else if state.stage === 'dora' || state.stage === 'indicator'}
-        <p class="eyebrow">{state.stage === 'dora' ? '3 · Dora' : 'Kan · new indicator'}</p><h3>{state.stage === 'dora' ? 'Which dora indicator is showing?' : 'Which new dora indicator was revealed?'}</h3>
+        <p class="eyebrow">{state.stage === 'dora' ? '3 · Dora indicator' : 'Kan · new indicator'}</p><h3>{state.stage === 'dora' ? 'Which dora indicator is showing?' : 'Which new dora indicator was revealed?'}</h3>
         <p>Enter the face-up indicator tile itself.</p>
         <TileEntry label={state.stage === 'dora' ? 'First dora indicator' : 'New kan indicator'} expanded onadd={tile => act({ type: 'indicator', tile })} />
       {:else if state.stage === 'turn'}

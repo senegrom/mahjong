@@ -109,7 +109,7 @@
   </div>
   {#if failure}<div role="alert">{failure} <button disabled={busy} onclick={() => watch.prepare()}>Retry agent</button></div>{/if}
   {#if view}
-    <div class="watch-round"><strong>{view.round} {view.kyoku}</strong><span>{view.wall} tiles left · {view.counters} honba · {view.riichi_sticks} riichi sticks</span><span class="tiles">{#each view.dora_indicators as tile, index (index)}<Tile {tile} size="tiny" />{/each}</span></div>
+    <div class="watch-round"><strong>{view.round} {view.kyoku}</strong><span>{view.wall} tiles left · {view.counters} honba · {view.riichi_sticks} riichi sticks</span><span class="tiles" role="group" aria-label="dora indicators" title="Dora indicators">{#each view.dora_indicators as tile, index (index)}<Tile {tile} size="tiny" />{/each}</span></div>
     <div class="watch-table">
       {#each view.seats as seat, index (index)}
         <section class:followed={index === 0} class:turn={seat.turn}>
