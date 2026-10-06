@@ -166,7 +166,7 @@
     {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{finalHand ? 'Review final hand' : 'View table / my hand'}</button>{/if}
     {#if onlog}<button class="quiet" onclick={onlog} title="The hand as an mjai event log, which replayers and other riichi programs read">{finalHand ? 'Save final hand' : 'Save this hand'}</button>{/if}
     <!-- At the end the standings offer the whole game, close and all. -->
-    {#if ongame && !finalHand}<button class="quiet" data-save-game onclick={ongame} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game so far</button>{/if}
+    {#if ongame && !finalHand}<button class="quiet" data-save-game onclick={ongame} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
   </div>
 </section>
 
@@ -287,6 +287,12 @@
     }
     .buttons .primary { flex: 1 1 145px; }
     @keyframes result-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+  }
+  /* The two saves share a row on the narrowest phones, where the full labels
+     would take a fourth row of buttons over the result. */
+  @media (max-width: 359px) {
+    .buttons button { padding-inline: 12px; }
+    .so-far { display: none; }
   }
 
   @media (prefers-reduced-motion: reduce) { .screen { animation: none; } }

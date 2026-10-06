@@ -11,6 +11,7 @@ import { WatchSession } from '../src/lib/watch-session.js';
 import { SETTINGS_KEY } from '../src/lib/session.js';
 import { unseenTileCounts } from '../src/lib/ui.js';
 import { tileWords } from '../src/lib/tiles.js';
+import { playerNames } from '../src/lib/game-log.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -25,6 +26,16 @@ async function open(seed, width = 1100) {
   page.on('pageerror', error => page.problems.push(error.message));
   await page.setViewport({ width, height: 900, deviceScaleFactor: 1, hasTouch: width < 600 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  // A saved file is kept in the page, name and text, rather than downloaded.
+  await page.evaluateOnNewDocument(() => {
+    const blobs = new Map(), create = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = object => { const url = create(object); blobs.set(url, object); return url; };
+    window.savedFiles = [];
+    HTMLAnchorElement.prototype.click = function () {
+      const file = { name: this.download, text: null }; window.savedFiles.push(file);
+      void blobs.get(this.href)?.text().then(text => { file.text = text; });
+    };
+  });
   await page.evaluateOnNewDocument(key => localStorage.setItem(key, JSON.stringify({ version: 1, difficulty: 'club', hints: true })), SETTINGS_KEY);
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=watch`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.watch-setup .primary:not(:disabled)');
@@ -143,6 +154,60 @@ try {
       assert.equal(await page.$('.followed [data-readiness]'), null);
       assert.equal(await page.$('.followed .hand .dora'), null);
       assert.equal(await page.$eval('.weight-row.best', el => getComputedStyle(el).borderColor), 'rgb(78, 163, 255)');
+      assert.deepEqual(page.problems, []);
+    } finally { watch.dispose(); }
+  });
+
+  await check('watch saves its game from East 1 once a hand is over, and never the hand being played', async () => {
+    const watch = new WatchSession(Game, 23, ['club', 'club', 'club', 'club'], { evaluate: builtin });
+    try {
+      await watch.prepare();
+      const page = await open(23);
+      const button = () => page.$eval('.watch-controls [data-save-game]', el => ({ disabled: el.disabled, text: el.textContent.trim() }));
+      // The page has caught up with this copy once it shows the same wall
+      // and the same discards, and is waiting on the next choice or showing
+      // the hand's result. A pass can add no line to the history.
+      const caughtUp = () => {
+        const view = watch.match.view;
+        return page.waitForFunction(({ wall, discards, over }) =>
+          document.querySelector('.watch-round span')?.textContent.startsWith(`${wall} tiles left`)
+            && document.querySelectorAll('.watch-table .pool .tile').length === discards
+            && Boolean(document.querySelector(over ? '.agent-watch .screen' : '.weight-row.best .choice-action:not(:disabled)')),
+        {}, { wall: view.wall, discards: view.seats.reduce((sum, seat) => sum + seat.discards.length, 0), over: view.phase === 'over' });
+      };
+      // The page and this copy play the same hand move for move.
+      for (let turn = 0; watch.match.view.phase !== 'over'; turn++) {
+        assert.ok(turn < 150, 'the first hand ends');
+        assert.deepEqual(await button(), { disabled: true, text: 'No hand has finished yet' });
+        await page.click('.watch-controls > button');
+        await watch.step();
+        await caughtUp();
+      }
+      await page.waitForSelector('.agent-watch .screen [data-save-game]');
+      assert.deepEqual(await button(), { disabled: false, text: 'Save game so far (1 finished hand)' });
+      const labels = ['Followed agent', 'Right', 'Opposite', 'Left'].map(position => `${position} (Club)`);
+      const expected = watch.match.engine.game_log(playerNames(watch.match.view, labels)) + '\n';
+      for (const selector of ['.watch-controls [data-save-game]', '.agent-watch .screen [data-save-game]']) {
+        const count = await page.evaluate(() => window.savedFiles.length);
+        await page.click(selector);
+        await page.waitForFunction(n => window.savedFiles.length > n && window.savedFiles.at(-1).text !== null, {}, count);
+        const file = await page.evaluate(() => window.savedFiles.at(-1));
+        assert.match(file.name, /^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/);
+        assert.equal(file.text, expected, selector);
+      }
+      const events = expected.trimEnd().split('\n').map(line => JSON.parse(line));
+      assert.deepEqual(events.map(event => event.type).filter(type => ['start_game', 'start_kyoku', 'end_kyoku', 'end_game'].includes(type)),
+        ['start_game', 'start_kyoku', 'end_kyoku']);
+      assert.equal(events[0].names[watch.match.view.seats[0].player], 'Followed agent (Club)');
+      const deal = events[1];
+      assert.deepEqual([deal.bakaze, deal.kyoku, deal.honba, deal.oya], ['E', 1, 0, 0]);
+      // Dealing on puts the next hand on the table and keeps it out.
+      await page.click('.watch-controls > button');
+      await watch.step();
+      await caughtUp();
+      assert.deepEqual(await button(), { disabled: false, text: 'Save game so far (1 finished hand)' });
+      assert.equal(watch.match.engine.game_log(playerNames(watch.match.view, labels)) + '\n', expected);
+      await page.screenshot({ path: resolve(output, 'agent-watch-export.png'), fullPage: true });
       assert.deepEqual(page.problems, []);
     } finally { watch.dispose(); }
   });
