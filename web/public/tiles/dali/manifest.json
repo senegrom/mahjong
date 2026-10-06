@@ -47,6 +47,23 @@
       }
     },
     {
+      "name": "Pin4",
+      "tile": "4p",
+      "label": "4 disks",
+      "direction": "The Soft Staircase — B",
+      "status": "approved",
+      "svg": "approved/Pin4.svg",
+      "source": "docs/design/dali/studies/four-disks-b-approved.svg",
+      "sourceSha256": "8a69e8bc8b91e96808b56c801099d1dc857778e2b51fd2e66d3e00b604b11ba8",
+      "svgSha256": "8a69e8bc8b91e96808b56c801099d1dc857778e2b51fd2e66d3e00b604b11ba8",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
       "name": "Pin5",
       "tile": "5p",
       "label": "5 disks",
@@ -382,10 +399,6 @@
     },
     {
       "tile": "2p",
-      "svg": "placeholders/placeholder.svg"
-    },
-    {
-      "tile": "4p",
       "svg": "placeholders/placeholder.svg"
     },
     {

@@ -17,7 +17,7 @@ const markup = svg.toString();
 const metadata = JSON.parse(markup.match(/<metadata>([\s\S]*?)<\/metadata>/)[1]);
 const originalHash = '09488a560c3d2299784740f85737f9430279a165f9bdf8c005835d2aa99e67d8';
 const rasterHash = '76e9743f0478a55bf14fba62c543ec013580eaddaeac6b23b4ecd130baf70a20';
-const svgHash = '__SVG_SHA__';
+const svgHash = '8a69e8bc8b91e96808b56c801099d1dc857778e2b51fd2e66d3e00b604b11ba8';
 
 test('four disks uses selected middle staircase B, not the portals or shadows', () => {
   assert.equal(selected.name, 'Pin4');
