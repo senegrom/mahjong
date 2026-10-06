@@ -268,10 +268,14 @@ class Combined(nn.Module):
                 module.eval()
         return self
 
-    def backbones(self, planes: torch.Tensor, legal: torch.Tensor) -> tuple[torch.Tensor, ...]:
+    def backbones(
+        self, planes: torch.Tensor, legal: torch.Tensor, hands: bool = True
+    ) -> tuple[torch.Tensor, ...]:
         """Both players' last two layers, from the planes: Mortal's vector
         and its move values, our features and our logits over the same
-        moves, with our value and our reading of the opponents' hands."""
+        moves, with our value and our reading of the opponents' hands.
+        `hands=False` leaves the reading out, None in its place, for a
+        caller that wants only the moves and the value."""
         ours = self.ours
         features = ours.tail(ours.tower(ours.stem(planes)))
         pooled = features.mean(dim=2)
@@ -281,7 +285,7 @@ class Combined(nn.Module):
         # head above weighs it and masks once at the end.
         a1 = torch.cat([tiles, ours.policy_pooled(pooled)], dim=1)
         value = ours.value(pooled.detach()).squeeze(1)
-        guessed = ours.hands_from(planes, features)
+        guessed = ours.hands_from(planes, features) if hands else None
         phi = self.mortal.features(planes)
         q = self.mortal.dqn(phi, legal)
         return phi, q, features, a1, value, guessed
@@ -302,6 +306,29 @@ class Combined(nn.Module):
         logits, value, _guessed = self.everything(planes, legal)
         return logits, value
 
+    def decision(
+        self, planes: torch.Tensor, legal: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """What deciding asks of `everything`: the logits and the value,
+        and Mortal's vector beneath both, without the reading of the
+        opponents' hands, which only the learning step reads. That reading
+        is a tower of its own over the planes and the head above it, a few
+        per cent of the forward. The logits and the value come from the
+        same kernels on the same inputs either way, so they are bit for bit
+        `everything`'s.
+
+        A forward a trainer has compiled (`backbones_forward`) is asked for
+        all of it, as it always was: a graph without the hands would be
+        another graph, and the compiler's answers from it can differ in
+        their last bits."""
+        if self.backbones_forward == self.backbones:
+            phi, q, features, a1, value, _guessed = self.backbones(planes, legal, hands=False)
+        else:
+            phi, q, features, a1, value, _guessed = self.backbones_forward(planes, legal)
+        wide = phi.float()
+        logits = self.fuse(wide, q.float(), features.float(), a1.float(), legal)
+        return logits, self.fuse.judge(wide, value.float()), phi
+
     @torch.no_grad()
     def choose(
         self, views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray
@@ -321,7 +348,7 @@ class Combined(nn.Module):
         device = str(next(self.parameters()).device)
         mask = torch.from_numpy(allowed).to(device)
         with policy_inference.autocast(device, self.actions):
-            logits, _value = self.forward(sparse.dense(device), mask)
+            logits, _value, _phi = self.decision(sparse.dense(device), mask)
         return logits.float().cpu().numpy(), masks
 
     @torch.no_grad()
@@ -339,7 +366,7 @@ class Combined(nn.Module):
         to get there. Its moves are Mortal's, so a riichi is answered in two
         steps and both are recorded."""
         return mortal_learner.decide_in_mortal_space(
-            lambda planes, mask: self.forward(planes, mask)[0],
+            lambda planes, mask: self.decision(planes, mask)[0],
             views,
             rows,
             players,
