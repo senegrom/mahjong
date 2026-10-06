@@ -35,6 +35,26 @@ from .training_state import (
 )
 
 
+#: How many graphs one compiled forward may be given before the compiler
+#: stops compiling it and runs the rest eagerly, unannounced. The learning
+#: step's forward is compiled anew for every pattern of what requires a
+#: gradient, which `Combined.set_mode` sets six ways; with gradients and
+#: without, for the baseline pass; and with Mortal's vectors given and not
+#: (`--reuse-phi`): fourteen at most, against the compiler's eight.
+#: Thirty-two leaves room for a variant nobody foresaw, which would
+#: otherwise run eagerly, unannounced.
+RECOMPILE_LIMIT = 32
+
+
+def allow_recompiles(limit: int = RECOMPILE_LIMIT) -> None:
+    """Lets every compiled forward be compiled for `limit` variants (see
+    `RECOMPILE_LIMIT`). `recompile_limit` is the setting's name in the
+    cloud's torch 2.8 and in this desktop's; older releases called it
+    `cache_size_limit`, which 2.8 keeps as another name for it."""
+    config = torch._dynamo.config
+    config.recompile_limit = max(config.recompile_limit, limit)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ours", type=Path, default=None, help="our checkpoint to start from")
@@ -142,9 +162,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260908)
     parser.add_argument("--out", type=Path, default=Path("E:/tmp-claude/mahjong/joined-run"))
     parser.add_argument("--amp", action="store_true")
-    parser.add_argument("--compile", action="store_true")
+    parser.add_argument(
+        "--compile", action="store_true",
+        help="compile the joined player's forward for deciding and for learning, and the "
+        "seated others': over an hour of compiling in a fresh container",
+    )
+    parser.add_argument(
+        "--compile-learning", action="store_true",
+        help="compile the learning step's forward and nothing else: play and the seated others "
+        "stay eager, with their weights cast to bfloat16 once and the step's planes made "
+        "dense in bfloat16, as without compiling. Fuses the step's elementwise kernels; the "
+        "numbers move by where bfloat16 rounds. Off by default; not with --compile",
+    )
     add_training_controls(parser)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.compile and args.compile_learning:
+        parser.error("--compile already compiles the learning step; give one or the other")
+    return args
 
 
 def main() -> None:
@@ -155,12 +189,15 @@ def main() -> None:
     # In mixed precision the learning reads its planes only under autocast,
     # whose convolutions would cast float32 planes to bfloat16 first, so they
     # are made dense in bfloat16 straight away: half the bytes, and the same
-    # bits handed to the convolutions (see `Planes.dense`). Only for eager
-    # learning, as the learner's bfloat16 copy below: compiled, it gave the
+    # bits handed to the convolutions (see `Planes.dense`). Not with
+    # --compile, whose graphs were built for float32 planes: it gave the
     # same bits on this desktop's torch, but the compiler builds another
     # graph for inputs of another kind, which changed a compiled player's
     # answers when its weights were cast once (see `ppo_loop.load_others`),
-    # and under the cloud's torch 2.8 it is untried.
+    # and under the cloud's torch 2.8 it is untried. --compile-learning has
+    # no float32 graphs to keep and is compiled for bfloat16 planes from the
+    # start, which spares the prefetcher half its copying as the compiled
+    # step shortens.
     planes_dtype = torch.bfloat16 if amp_enabled and not args.compile else torch.float32
 
     start = 0
@@ -229,7 +266,8 @@ def main() -> None:
     # learner itself, autocast cast those weights afresh at every step, five
     # hundred small kernels each time, to the same numbers, so the moves and
     # the probabilities recorded are bit for bit what they were. For eager
-    # play in mixed precision only: compiled, the player is the learner.
+    # play in mixed precision only: with --compile the player is the
+    # learner; --compile-learning leaves play eager, and the copy with it.
     actor = None
     if amp_enabled and not args.compile:
         actor = policy_inference.precast(copy.deepcopy(net)).requires_grad_(False)
@@ -239,6 +277,11 @@ def main() -> None:
         # forward compiles per mode, three graphs in all.
         net.backbones_forward = torch.compile(net.backbones, dynamic=True)
         learn = torch.compile(net.everything)
+    elif args.compile_learning:
+        # The learning step alone, at the one shape it is always handed:
+        # whole minibatches, and the pass's chunks padded to theirs.
+        allow_recompiles()
+        learn = torch.compile(net.everything, dynamic=False)
     else:
         learn = net.everything
 

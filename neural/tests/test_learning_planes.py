@@ -153,11 +153,14 @@ class TrainerPlanesTests(unittest.TestCase):
         """The joined player's trainer makes its planes dense in bfloat16
         with --amp, and in float32, as it always did, without it or with
         --compile, whose graphs were not shown to give the same bits under
-        the cloud's torch. The compiler itself is not run here."""
+        the cloud's torch. --compile-learning, new, is compiled for them in
+        bfloat16, and plays with the learner's copy cast once as eager
+        learning does. The compiler itself is not run here."""
         torch.set_num_threads(1)
         real_baseline, real_minibatches = ppo_loop.baseline, ppo_loop.minibatches
 
-        def round_of_eight(_learner, **_kwargs):
+        def round_of_eight(learner, **_kwargs):
+            handed.append(("player", learner.fuse.tiles[0].weight.dtype))
             n = 8
             planes = Planes(np.arange(n + 1, dtype=np.int64), np.zeros(n, dtype=np.uint16),
                             np.ones(n, dtype=np.float16))
@@ -168,7 +171,7 @@ class TrainerPlanesTests(unittest.TestCase):
                 games=1, hands=1, timing={})
 
         for flags, wanted in ((["--amp"], torch.bfloat16), (["--amp", "--compile"], torch.float32),
-                              ([], torch.float32)):
+                              (["--amp", "--compile-learning"], torch.bfloat16), ([], torch.float32)):
             with self.subTest(flags=flags), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder)
                 origin = root / "source.pt"
@@ -199,7 +202,7 @@ class TrainerPlanesTests(unittest.TestCase):
                         patch.object(ppo_loop, "minibatches", side_effect=minibatches), \
                         contextlib.redirect_stdout(io.StringIO()):
                     train_combined.main()
-                self.assertEqual({name for name, _dtype in handed}, {"baseline", "minibatches"})
+                self.assertEqual({name for name, _dtype in handed}, {"player", "baseline", "minibatches"})
                 self.assertEqual({dtype for _name, dtype in handed}, {wanted})
 
 

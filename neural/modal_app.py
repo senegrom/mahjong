@@ -215,6 +215,25 @@ class StoppedBeforeTimeout(RuntimeError):
 
 LOCAL_CACHE = Path("/tmp/inductor-cache")
 SHARED_CACHE = VOLUME / "inductor-cache"
+#: The files of the local cache the volume holds too, by their paths within
+#: it, with the size and modification time each had when it was seeded from
+#: the volume or saved to it: what a save need not copy again.
+_ON_VOLUME: dict[str, tuple[int, int]] = {}
+
+
+def _cache_files() -> dict[str, tuple[int, int]]:
+    """Every file of the local cache, by its path within it, with its size
+    and modification time."""
+    found = {}
+    for folder, _folders, names in os.walk(LOCAL_CACHE):
+        for name in names:
+            path = Path(folder) / name
+            try:
+                stat = path.stat()
+            except OSError:
+                continue  # gone while we looked, as a lock file goes
+            found[path.relative_to(LOCAL_CACHE).as_posix()] = (stat.st_size, stat.st_mtime_ns)
+    return found
 
 
 def _seed_cache() -> Path:
@@ -227,19 +246,39 @@ def _seed_cache() -> Path:
                 print("compiler cache seeded from the volume", flush=True)
             except OSError as error:
                 print(f"compiler cache not seeded: {error}", flush=True)
+        # What came from the volume need not go back to it.
+        _ON_VOLUME.update(_cache_files())
     return LOCAL_CACHE
 
 
 def _save_cache() -> None:
-    """What the compiler built here, back to the volume for the next
-    container. Called when a trainer's block ends, not during it."""
+    """What the compiler has built here since the cache was seeded or last
+    saved, back to the volume for the next container. Called after every
+    generation published, as well as when a trainer's block ends: a
+    container stopped by the timeout or preempted never reaches its end,
+    and when only what the first generation built was saved, the next
+    container compiled every graph a later one first needed all over
+    again. Only files new or changed are copied, and with none nothing is
+    copied or committed, so a generation that compiled nothing costs a
+    walk of the local directory."""
     if not LOCAL_CACHE.exists():
         return
     try:
-        SHARED_CACHE.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(LOCAL_CACHE, SHARED_CACHE, dirs_exist_ok=True)
+        new = {name: kind for name, kind in _cache_files().items() if _ON_VOLUME.get(name) != kind}
+        copied = {}
+        for name, kind in new.items():
+            target = SHARED_CACHE / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(LOCAL_CACHE / name, target)
+            except FileNotFoundError:
+                continue  # gone since the walk
+            copied[name] = kind
+        if not copied:
+            return
         volume.commit()
-        print("compiler cache saved to the volume", flush=True)
+        _ON_VOLUME.update(copied)
+        print(f"compiler cache saved to the volume: {len(copied)} new files", flush=True)
     except OSError as error:
         print(f"compiler cache not saved: {error}", flush=True)
 
@@ -257,6 +296,10 @@ def _environment(cpus: int | None = None) -> dict[str, str]:
     # compiler writing to the network volume while training: a recompile
     # that wrote there stalled a generation by about five minutes.
     environment["TORCHINDUCTOR_CACHE_DIR"] = str(_seed_cache())
+    # The compiler's workers, one a processor of the container's share: by
+    # itself it starts one for every processor the container shows, up to
+    # thirty-two, the same miscount the encoder's threads are spared above.
+    environment["TORCHINDUCTOR_COMPILE_THREADS"] = environment["RAYON_NUM_THREADS"]
     # Say what the container actually has, since the count above is a
     # request: the cgroup's quota is the truth.
     try:
@@ -284,7 +327,8 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
     """Runs a trainer over the workspace `where` and publishes it to the
     run as it goes: each generation as its record arrives, so a preempted
     container costs a single round, and the last once the trainer exits
-    cleanly. Answers how it ended.
+    cleanly; whatever the compiler built goes to the volume with each (see
+    `_save_cache`). Answers how it ended.
 
     A call that cannot finish the run raises rather than answers, so that
     Modal's retries resume it from the checkpoint published last. A call
@@ -298,7 +342,6 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
     in the middle of it, and `StoppedBeforeTimeout` is raised."""
     environment = _environment(TRAINER_CPUS)
     print(" ".join(command), flush=True)
-    saved_cache = False
     began = time.time()
     started_at = _generation_of(where / "latest.pt")
     target = _target(command, started_at)
@@ -327,9 +370,8 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
                     except Exception:
                         continue
                     seen = _publish(where, seen, run, started_at)
-                    if not saved_cache:
-                        _save_cache()
-                        saved_cache = True
+                    # Whatever the generation compiled, kept at once.
+                    _save_cache()
                     now = time.time()
                     lasted, last = now - last, now
                     # The next generation is judged by the last, which
@@ -623,6 +665,7 @@ def train_combined(
     baseline_from_play: bool = False,
     check_baseline: bool = False,
     reuse_phi: bool = False,
+    compile_learning: bool = False,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -634,6 +677,11 @@ def train_combined(
     `reuse_phi` has a generation that holds Mortal still learn from
     Mortal's vectors as play worked them out, the trainer's `--reuse-phi`;
     passed on only when true.
+
+    `compile_learning` compiles the learning step alone, the trainer's
+    `--compile-learning`: play and the seated others stay eager. It is
+    taken instead of `compile` whatever that says, since `compile`, on by
+    default, would compile them all.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
@@ -657,8 +705,11 @@ def train_combined(
         ]
         # Six networks compile here, the joined player twice over and its four
         # seated others once, which took a fresh container over an hour before
-        # its first generation; eager is the choice when that is not worth it.
-        if compile:
+        # its first generation; eager is the choice when that is not worth it,
+        # and compiling the learning step alone the one between.
+        if compile_learning:
+            command.append("--compile-learning")
+        elif compile:
             command.append("--compile")
         if skip_forced:
             command.append("--skip-forced")

@@ -166,8 +166,9 @@ class CloudIsolationTests(unittest.TestCase):
     def test_a_trainer_stops_between_generations_before_the_timeout_and_fails_the_call(self):
         # Ten thousand seconds a generation: after the eighth, at 80,000 s,
         # the ninth would end past 86,400, so the trainer is stopped seconds
-        # into it, with generation 12 published, the cache saved after the
-        # trainer is gone, and the call failed so Modal retries it from there.
+        # into it, with generation 12 published, the cache saved after every
+        # generation and after the trainer is gone, and the call failed so
+        # Modal retries it from there.
         app=controller()
         for trainer in ('train','train_mortal','train_combined'):
             with self.subTest(trainer=trainer):
@@ -175,7 +176,7 @@ class CloudIsolationTests(unittest.TestCase):
                 self.assertIsInstance(answer,app.StoppedBeforeTimeout)
                 self.assertEqual(published,12)
                 self.assertEqual(finished,list(range(4,12)))
-                self.assertEqual(events,['cache','terminate','wait','cache'])
+                self.assertEqual(events,['cache']*8+['terminate','wait','cache'])
 
     def test_the_timeout_counts_from_the_call_not_from_the_trainer(self):
         # Copying the run in took 50,000 s of the same day, so only three
@@ -191,7 +192,7 @@ class CloudIsolationTests(unittest.TestCase):
         # A hundred seconds a generation: twenty of them take a fraction of the day.
         answer,published,events,finished=self.stop_before_timeout(app,'train_combined',generation=100.0)
         self.assertIn('exit=0 generation=24 from 4',answer)
-        self.assertEqual(events,['cache','wait','cache'])
+        self.assertEqual(events,['cache']*20+['wait','cache'])
         # The last generation ends 85,000 s in, where another would not fit,
         # but none is due: the trainer finishes on its own and the call answers.
         answer,published,events,finished=self.stop_before_timeout(
