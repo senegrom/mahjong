@@ -1,0 +1,31 @@
+{
+  "tile": "9p",
+  "name": "Pin9",
+  "candidate": "I",
+  "title": "Nine Stars",
+  "source": "docs/design/van-gogh/superseded/nine-stars-Pin9.png",
+  "runtimePng": "web/public/tiles/van-gogh/approved/Pin9.png",
+  "runtimeSvg": "web/public/tiles/van-gogh/approved/Pin9.svg",
+  "pngSha256": "61eb9c2563a8039eb755315b1f5ef670a472fcff2e1facaef4b0e05e1af0267d",
+  "svgSha256": "34f0fd31056df47c064383ca79b67d17aa9bd5a62a7aae1d3f9188701e98a89a",
+  "sourceDimensions": [
+    380,
+    471
+  ],
+  "originalStudy": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+  "originalStudyCrop": {
+    "x": 838,
+    "y": 100,
+    "width": 380,
+    "height": 471
+  },
+  "approval": "After viewing the original Nine Stars and rejecting its eight-star adaptation, Carl requested deployment of the nine. Restore the original 9 disks only; do not deploy the eight-star adaptation.",
+  "processing": "Exact archived PNG bytes; the existing SVG exporter reproduces the original SVG byte-for-byte. No new painting, resizing, recolouring or recompression.",
+  "supersedes": {
+    "candidate": "Disks C",
+    "title": "The Potter’s Table",
+    "archivedSvg": "docs/design/van-gogh/superseded/potters-table-Pin9.svg",
+    "svgSha256": "7bfed3b794e8a09dc61f2020662d9c70572d883f05194267df07f535778591b1",
+    "source": "docs/design/van-gogh/studies/17-nine-disks-potters-table-c-approved.svg"
+  }
+}
