@@ -130,8 +130,10 @@ def decide_in_mortal_space(
     for a few more rows in the first.
 
     `timing`, when given, is added to in seconds: `encode` for gathering
-    the rows' planes, those previewed included, `translate`, `network` for
-    the first answer and `riichi` for the whole of the second.
+    the rows' planes, those previewed included, and for telling a reach,
+    which first waits for any encoding a worker is still making from the
+    follower (see `Views.prepare`); `translate`; `network` for the first
+    answer; and `riichi` for the rest of the second.
     """
     clock = time.perf_counter
     timing = timing if timing is not None else {}
@@ -237,6 +239,17 @@ def decide_in_mortal_space(
         record_phi = [None if phi is None else phi[torch.from_numpy(keep)]]
 
     if second:
+        if not preview_reach:
+            # The reach declared ahead of the table, told through the views,
+            # which first wait for any encoding a worker is still making
+            # from the follower (see `Views.prepare`): a wait for the seated
+            # others' views, counted with the encoding and not as this
+            # question's time, which it is not.
+            began = clock()
+            for i in second:
+                game, player = who[i]
+                views.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+            timing["encode"] = timing.get("encode", 0.0) + clock() - began
         began = clock()
         if preview_reach:
             # Asked already, each from the state telling the reach would
@@ -253,13 +266,7 @@ def decide_in_mortal_space(
             value_after = None if value_ahead is None else value_ahead[chosen]
             phi_after = None if phi_ahead is None else phi_ahead[chosen]
         else:
-            # The reach declared ahead of the table; then the tile, from the
-            # state in which it is declared. Told through the views, which
-            # first wait for any encoding a worker is making from the
-            # follower (see `Views.prepare`).
-            for i in second:
-                game, player = who[i]
-                views.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+            # Then the tile, from the state in which the reach is declared.
             indptr, indices, values, masks = follower.encode([who[i] for i in second])
             after = Planes.from_follower(indptr, indices, values)
             allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)

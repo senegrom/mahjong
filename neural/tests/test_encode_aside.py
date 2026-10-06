@@ -22,7 +22,7 @@ import numpy as np
 import riichi_py
 import torch
 
-from neural import observe, ppo_loop, selfplay, zoo
+from neural import mortal_learner, observe, ppo_loop, selfplay, zoo
 from neural.observe import Views
 from neural.tests.test_baseline_from_play import varied
 from neural.tests.test_bfloat16_players import checkpoints, fusion
@@ -205,6 +205,42 @@ class ViewsTests(unittest.TestCase):
                        json.dumps({"type": "reach", "actor": int(players[0])}))
         self.assertGreater(worker.handed, 40)
         self.assertEqual(follower.clashes, [])
+
+    def test_a_reach_told_while_the_worker_encodes_counts_the_wait_as_encoding(self):
+        """A learner that tells a reach while the worker is still making
+        the others' views waits for it first. Its account has that wait as
+        encoding, which is what it waited for, and the reach's second
+        question only for its own time, so that play's record still says
+        what the second questions cost and what was left of the others'
+        encoding."""
+        pause = 1.0
+        worker = Watched(pause)
+        games = 2
+        arena = riichi_py.Arena(games=games, seed=909)
+        views = Views(arena, games)
+        views.advance()
+        live, players = deciding(arena, games)
+        self.assertEqual(len(live), 2)
+        # The first player may throw a five of characters or reach with it,
+        # and the policy reaches.
+        legal = np.zeros((1, riichi_py.ACTIONS), dtype=bool)
+        legal[0, [4, zoo.RIICHI_DISCARD + 4]] = True
+
+        def score(planes, mask):
+            logits = torch.zeros(len(mask), zoo.MORTAL_ACTIONS)
+            logits[:, zoo.MORTAL_RIICHI] = 1.0
+            return logits.masked_fill(~mask, float("-inf"))
+
+        timing: dict = {}
+        with patch.object(observe, "encoder_thread", return_value=worker):
+            views.prepare(live[:1], players[:1])
+            views.prepare(live[1:], players[1:], aside=True)
+            choice, records = mortal_learner.decide_in_mortal_space(
+                score, views, live[:1], players[:1], legal, greedy=True, device="cpu", timing=timing)
+        self.assertEqual(choice.tolist(), [zoo.RIICHI_DISCARD + 4])
+        self.assertEqual(records.actions.tolist(), [zoo.MORTAL_RIICHI, 4])
+        self.assertGreater(timing["encode"], 0.9 * pause)
+        self.assertLess(timing["riichi"], 0.5 * pause)
 
     def test_a_workers_failure_is_raised_where_it_is_waited_for(self):
         games = 2
