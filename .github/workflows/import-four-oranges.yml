@@ -1,0 +1,64 @@
+name: Import approved Four Oranges A
+on:
+  push:
+    branches: [art/van-gogh-four-oranges-a]
+    paths: [.oranges-transfer/ready.json]
+permissions:
+  contents: write
+concurrency:
+  group: import-van-gogh-four-oranges
+  cancel-in-progress: false
+jobs:
+  import:
+    if: github.repository == 'senegrom/mahjong' && github.ref == 'refs/heads/art/van-gogh-four-oranges-a'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: art/van-gogh-four-oranges-a
+          persist-credentials: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Assemble approved artwork and verify preservation
+        run: python3 .oranges-transfer/install.py
+      - name: Install locked web test dependencies
+        working-directory: web
+        run: npm ci
+      - name: Test tile faces and artist regressions
+        working-directory: web
+        run: node --test tests/tile-faces.test.js tests/van-gogh-*.test.js tests/dali-bamboo.test.js
+      - name: Lint changed JavaScript
+        working-directory: web
+        run: npx eslint scripts/export-van-gogh-tiles.mjs tests/tile-faces.test.js tests/van-gogh-four-oranges.test.js --max-warnings 0
+      - name: Commit only verified tile integration
+        run: |
+          git rm -r .oranges-transfer
+          git add docs/design/van-gogh web/public/tiles/van-gogh web/src/lib/van-gogh-faces.js web/scripts/export-van-gogh-tiles.mjs web/tests/tile-faces.test.js web/tests/van-gogh-four-oranges.test.js
+          python3 - <<'PY'
+          import subprocess
+          allowed = {
+            'docs/design/van-gogh/README.md',
+            'docs/design/van-gogh/four-disks-oranges.json',
+            'docs/design/van-gogh/studies/20-four-disks-oranges-a-approved.svg',
+            'web/public/tiles/van-gogh/README.md',
+            'web/public/tiles/van-gogh/approved/Pin4.svg',
+            'web/public/tiles/van-gogh/manifest.json',
+            'web/public/tiles/van-gogh/preview.html',
+            'web/scripts/export-van-gogh-tiles.mjs',
+            'web/src/lib/van-gogh-faces.js',
+            'web/tests/tile-faces.test.js',
+            'web/tests/van-gogh-four-oranges.test.js',
+          }
+          changed = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
+          unexpected = [p for p in changed if p not in allowed and not p.startswith('.oranges-transfer/')]
+          assert not unexpected, unexpected
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Add approved Four Oranges A for Van Gogh 4 disks'
+          git push origin HEAD:refs/heads/art/van-gogh-four-oranges-a
