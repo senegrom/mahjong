@@ -29,9 +29,10 @@ from neural import (
 from neural.model import PolicyValueNet
 from neural.observe import Views
 from neural.tests import test_mixed_tables
-from neural.tests.test_baseline_from_play import TO_MORTAL, fake_round, varied
+from neural.tests.test_baseline_from_play import TO_MORTAL, Taught, fake_round, varied
 from neural.tests.test_bfloat16_players import checkpoints, fusion
 from neural.tests.test_forced_rows import Telling, random_rows, row_values
+from neural.tests.test_reuse_phi import chunks
 from neural.tests.test_step_planes import deciding
 
 CUDA = torch.cuda.is_available()
@@ -179,6 +180,30 @@ class RoundTests(unittest.TestCase):
                 # Two questions wherever a reach was chosen, against one.
                 self.assertGreater(sum(len(asked) == 2 for asked in learners_[False].asked), 10)
                 self.assertTrue(all(len(asked) == 1 for asked in learners_[True].asked))
+
+    def test_the_tiles_asked_ahead_keep_their_values_and_vectors(self):
+        """Asked to keep Mortal's vectors (`--reuse-phi`), a round that asks
+        ahead records for each reach's tile the value and the vector of the
+        state the reach is declared in, as one that tells does: the two
+        rounds keep the same, to the float's last bits, and each vector is
+        Mortal's own of the planes recorded beside it."""
+        torch.manual_seed(11)
+        net = varied(fusion()).eval()
+        rounds = {}
+        for preview in (False, True):
+            player = Taught(net)
+            player.keep_phi = True
+            rounds[preview] = selfplay.play(player, games=2, seed=53, device="cpu", preview_reach=preview)
+        old, new = rounds[False], rounds[True]
+        self.assertGreater(int((new.actions == zoo.MORTAL_RIICHI).sum()), 5)
+        self.assertTrue(torch.equal(new.actions, old.actions))
+        same_planes(self, new.observations, old.observations)
+        torch.testing.assert_close(new.values, old.values, rtol=1e-5, atol=1e-5)
+        torch.testing.assert_close(new.phi, old.phi, rtol=1e-5, atol=1e-5)
+        with torch.no_grad():
+            for start, planes in chunks(new.observations, "cpu"):
+                torch.testing.assert_close(new.phi[start:start + len(planes)], net.mortal.features(planes),
+                                           rtol=1e-5, atol=1e-5)
 
     def lockstep(self, device: str, net, steps: int = 500):
         """Two tables dealt alike, each step decided greedily by telling at
