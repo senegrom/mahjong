@@ -155,6 +155,10 @@ class Batch:
     #: to the network, translating its moves, and asking for a riichi's
     #: tile. For finding what to make faster.
     timing: dict[str, float] = field(default_factory=dict)
+    #: What the learner's value head made of each decision as it decided,
+    #: one a decision in the order above, when every step's records said
+    #: (see `mortal_learner.Records.values`); None otherwise.
+    values: torch.Tensor | None = None
 
 
 def gather(blocks: list[np.ndarray]) -> torch.Tensor:
@@ -293,6 +297,9 @@ def play(
     held: list[np.ndarray] = []
     oracle: list[np.ndarray] = []
     wandered: list[np.ndarray] = []
+    # The learner's values of its decisions, a block a step, while every
+    # step's records carry them; None from the first that does not.
+    valued: list[np.ndarray] | None = []
     actions: list[int] = []
     log_probs: list[float] = []
     rewards: list[float] = []
@@ -442,6 +449,11 @@ def play(
             if record_forced is None:
                 record_forced = np.zeros(len(record_slots), dtype=bool)
             wandered.append(record_forced)
+            record_values = getattr(records, "values", None)
+            if record_values is None:
+                valued = None
+            elif valued is not None:
+                valued.append(record_values)
             began = clock()
         else:
             if recording:
@@ -470,6 +482,8 @@ def play(
             record_slots = np.arange(len(index))
             choice[index] = record_actions
             wandered.append(was_forced.cpu().numpy())
+            # This path keeps no values; nothing that plays here reads them.
+            valued = None
 
             # Copies, not views: a view would keep the whole step's buffer
             # alive until the round is gathered at the end.
@@ -589,6 +603,7 @@ def play(
         held=gather(held) if held else torch.zeros(0),
         oracle=gather(oracle) if oracle else torch.zeros(0),
         explored=gather(wandered) if wandered else None,
+        values=gather(valued) if valued else None,
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,

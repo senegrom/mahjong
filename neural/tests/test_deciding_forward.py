@@ -154,10 +154,13 @@ class DecidingForwardTests(unittest.TestCase):
     def test_whole_rounds_are_played_as_before(self):
         """Self-play by the joined player, deciding with the shorter
         forward and with the whole one: the same moves, the same recorded
-        probabilities to the bit, the same games."""
-        for device, cast in self.kinds():
+        probabilities to the bit, the same games. Played as the trainer
+        plays, on the card by a copy with its weights cast once, or on the
+        processor where there is no card; every kind is compared batch by
+        batch above."""
+        for device, cast in [("cuda", True)] if CUDA else [("cpu", False)]:
             torch.manual_seed(23)
-            net = fusion(32, 3).to(device)
+            net = fusion().to(device)
             if cast:
                 policy_inference.precast(net)
             rounds = []

@@ -69,6 +69,18 @@ def parse_args() -> argparse.Namespace:
         "are scored in a smaller batch, which on the card can change their values in the "
         "last bit, and so turn a near tie",
     )
+    parser.add_argument(
+        "--baseline-from-play", action="store_true",
+        help="measure the advantages against the value head's value of each decision as the "
+        "learner played, instead of a pass over the round before it is learned. The same head, "
+        "weights and planes; only the batches they went through differ, and compiled the "
+        "graph that decides is not the one that learns. Off by default",
+    )
+    parser.add_argument(
+        "--check-baseline", action="store_true",
+        help="run the pass over the round as well and record how far play's values are from "
+        "it (baseline_difference, its largest, and baseline_difference_mean)",
+    )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260907)
@@ -200,7 +212,8 @@ def main() -> None:
         rollout = ppo_loop.on_device(batch, device)
         loaded = time.time() - began - played
 
-        # The baseline: the value head as it stands before the round.
+        # The baseline: the value head as it stands before the round, from
+        # a pass over it or, asked to, from play (see `ppo_loop.baseline_of`).
         net.eval()
         rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
 
@@ -209,13 +222,10 @@ def main() -> None:
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                 return (learn(planes, mask)[1],)
 
-        valued = time.time()
-        (guess,) = ppo_loop.baseline(rollout, rows, values_of)
-        if device == "cuda":
-            # Waited for, so that the time is the card's and not only the
-            # launching of its work.
-            torch.cuda.synchronize()
-        valued = time.time() - valued
+        guess, valued, baseline_said = ppo_loop.baseline_of(
+            rollout, batch, rows, values_of, from_play=args.baseline_from_play,
+            check=args.check_baseline,
+        )
         value_error = float(((rollout.returns - guess) ** 2).mean())
         advantages, spread = ppo_loop.standardised(rollout.returns, guess)
 
@@ -263,8 +273,11 @@ def main() -> None:
             generation, steps, drift, rows, rollout, batch,
             {"began": began, "played": played, "loaded": loaded}, totals, spread,
             value_error=round(value_error, 4),
-            # The pass that values the round before it is learned.
+            # The pass that values the round before it is learned, or the
+            # values play recorded, and how far apart the two are when both
+            # were asked for.
             baseline_seconds=round(valued, 1),
+            **baseline_said,
             # How the learner placed against each player it met, one row a
             # player, never summed: gaining on its own past while losing
             # to published Mortal is specialisation, and an average hides it.

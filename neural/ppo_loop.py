@@ -181,6 +181,50 @@ def baseline(
     return guesses
 
 
+def baseline_of(
+    rollout: Round,
+    batch,
+    rows: int,
+    value,
+    from_play: bool = False,
+    check: bool = False,
+    dtype: torch.dtype = torch.float32,
+) -> tuple[torch.Tensor, float, dict]:
+    """The baseline of a round for a learner with one value head, what it
+    made of every decision before any of them was learned, with the
+    seconds it took and what the round's record should say about it.
+
+    By default it is the pass over the round (`baseline`, with `rows`,
+    `value` and `dtype` as there). `from_play` takes instead the values
+    the learner recorded as it played (`batch.values`): the same head on
+    the same weights, in the same mode and precision, over the same planes,
+    with only the batches the rows went through different, which in
+    bfloat16 can move a value in its last bits. A round without them gets
+    the pass. Without the pass nothing checks the round's planes whole
+    once, so each minibatch checks its own in full instead (see `Planes`).
+    `check` makes the pass as well and records how far play's values are
+    from it, the largest gap and the mean."""
+    played = getattr(batch, "values", None)
+    from_play = from_play and played is not None
+    check = check and played is not None
+    began = time.time()
+    passed = None
+    if not from_play or check:
+        (passed,) = baseline(rollout, rows, value, dtype=dtype)
+    guess = played.to(rollout.device) if from_play else passed
+    if torch.device(rollout.device).type == "cuda":
+        # Waited for, so that the time is the card's and not only the
+        # launching of its work.
+        torch.cuda.synchronize()
+    seconds = time.time() - began
+    said = {"baseline_from_play": True} if from_play else {}
+    if check:
+        gap = (played.to(rollout.device) - passed).abs()
+        said["baseline_difference"] = round(float(gap.max()), 6)
+        said["baseline_difference_mean"] = round(float(gap.mean()), 6)
+    return guess, seconds, said
+
+
 def standardised(returns: torch.Tensor, baseline: torch.Tensor) -> tuple[torch.Tensor, float]:
     """Each decision's advantage over the baseline, standardised over the
     round, and how widely they spread before."""

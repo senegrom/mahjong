@@ -363,10 +363,12 @@ class Combined(nn.Module):
         wanderer=None,
     ):
         """One of our engine's actions per row, and what the policy decided
-        to get there. Its moves are Mortal's, so a riichi is answered in two
-        steps and both are recorded."""
+        to get there, with the value its head gave each decision: the
+        fusion's judgement, the one the baseline pass reads. Its moves are
+        Mortal's, so a riichi is answered in two steps and both are
+        recorded."""
         return mortal_learner.decide_in_mortal_space(
-            lambda planes, mask: self.decision(planes, mask)[0],
+            lambda planes, mask: self.decision(planes, mask)[:2],
             views,
             rows,
             players,

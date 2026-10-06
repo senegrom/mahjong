@@ -507,6 +507,8 @@ def train_mortal(
     baseline_batch: int | None = None,
     until: int = 0,
     skip_forced: bool = False,
+    baseline_from_play: bool = False,
+    check_baseline: bool = False,
 ) -> str:
     """Fine-tunes a published Mortal on our rules by self-play, in a run
     directory of its own: see `neural/train_mortal.py`. Resumes from the
@@ -525,6 +527,12 @@ def train_mortal(
 
     `skip_forced` has the seated others leave the rows with one move open
     unasked, the trainer's `--skip-forced`; off, they play as they did.
+
+    `baseline_from_play` takes the baseline from the values the learner
+    recorded as it played rather than a pass over the round, and
+    `check_baseline` makes the pass as well and records how far the two
+    are apart: the trainer's `--baseline-from-play` and `--check-baseline`.
+    Each is passed on only when true.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
@@ -545,6 +553,10 @@ def train_mortal(
             command += ["--temperature", str(temperature)]
         if skip_forced:
             command.append("--skip-forced")
+        if baseline_from_play:
+            command.append("--baseline-from-play")
+        if check_baseline:
+            command.append("--check-baseline")
         if source.exists():
             _carry(run, source, where)
             command += ["--resume", str(where / "latest.pt")]
@@ -608,13 +620,15 @@ def train_combined(
     entropy_max: float = 0.05,
     until: int = 0,
     skip_forced: bool = False,
+    baseline_from_play: bool = False,
+    check_baseline: bool = False,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
     `neural/train_combined.py`. Resumes from the checkpoint of that name
     in the run when it is there, and otherwise joins the two checkpoints
-    named, which may be any run's. `until` and `skip_forced` are as for
-    `train_mortal`.
+    named, which may be any run's. `until`, `skip_forced`,
+    `baseline_from_play` and `check_baseline` are as for `train_mortal`.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
@@ -643,6 +657,10 @@ def train_combined(
             command.append("--compile")
         if skip_forced:
             command.append("--skip-forced")
+        if baseline_from_play:
+            command.append("--baseline-from-play")
+        if check_baseline:
+            command.append("--check-baseline")
         if fixed:
             command += ["--fixed", *fixed]
         if source.exists():
