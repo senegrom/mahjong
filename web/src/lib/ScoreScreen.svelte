@@ -165,8 +165,10 @@
     {:else}<button disabled={busy} class="primary" onclick={onnext}>Next hand</button>{/if}
     {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{finalHand ? 'Review final hand' : 'View table / my hand'}</button>{/if}
     {#if onlog}<button class="quiet" onclick={onlog} title="The hand as an mjai event log, which replayers and other riichi programs read">{finalHand ? 'Save final hand' : 'Save this hand'}</button>{/if}
-    <!-- At the end the standings offer the whole game, close and all. -->
-    {#if ongame && !finalHand}<button class="quiet" data-save-game onclick={ongame} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
+    <!-- At the end the standings offer the whole game, close and all. On a
+         phone this sheet covers them, so it offers the whole game there too. -->
+    {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={ongame} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
+    {:else if ongame}<button class="quiet" data-save-game onclick={ongame} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
   </div>
 </section>
 
@@ -236,8 +238,11 @@
   .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
   .buttons button { min-width: 0; max-width: 100%; min-height: 44px; padding: 8px 18px; border: 1px solid var(--button-accent); border-radius: 999px; background: var(--button-accent); color: var(--button-text); font-weight: 650; cursor: pointer; }
   .buttons button.quiet { border-color: rgba(255,255,255,.25); background: transparent; color: inherit; font-weight: 500; }
+  /* Beside the standings, which offer the same file, it is not repeated. */
+  .buttons .whole-game { display: none; }
 
   @media (max-width: 760px) {
+    .buttons .whole-game { display: block; }
     .screen {
       position: fixed;
       left: 0;
@@ -292,7 +297,7 @@
      would take a fourth row of buttons over the result. */
   @media (max-width: 359px) {
     .buttons button { padding-inline: 12px; }
-    .so-far { display: none; }
+    .so-far, .whole { display: none; }
   }
 
   @media (prefers-reduced-motion: reduce) { .screen { animation: none; } }

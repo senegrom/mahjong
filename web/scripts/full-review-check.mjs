@@ -232,13 +232,25 @@ try{
   // At the standings: the whole game, close and all.
   const whole=exported(final.after),view=JSON.parse(final.after.state)[0];
   p=await open(final.after,{files:true});await p.waitForSelector('.standings');
-  assert.equal(await p.$('.screen [data-save-game]'),null,'the standings offer the whole game');
+  // Beside the standings the final result does not offer the file again.
+  assert.equal(await p.$eval('.screen [data-save-game]',el=>el.getClientRects().length),0,'the standings offer the whole game');
   file=await saveFrom(p,'.standings [data-save-game]');
   assert.match(file.name,fileName);assert.equal(file.text,whole.text+'\n');
   events=lines(file.text);opensAtEastOne(events);
   assert.equal(events.filter(event=>event.type==='start_kyoku').length,view.hands_played);
   assert.equal(events.at(-1).type,'end_game');
   await shot(p,'export-standings');noErrors(p);
+ });
+ await check('on a phone the final result, which covers the standings, saves the whole game itself',async()=>{
+  const whole=exported(final.after);
+  for(const [width,height,label] of [[390,844,'Save whole game'],[320,568,'Save game']]){
+   const p=await open(final.after,{width,height,files:true});await p.waitForSelector('.standings');
+   assert.equal(await p.$eval('.screen [data-save-game]',el=>el.innerText.trim()),label);
+   const file=await saveFrom(p,'.screen [data-save-game]');
+   assert.match(file.name,/^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/);
+   assert.equal(file.text,whole.text+'\n');assert.equal(lines(file.text).at(-1).type,'end_game');
+   await shot(p,`export-final-${width}x${height}`);noErrors(p);
+  }
  });
  for(const [width,height] of [[320,568],[390,844],[844,390]])await check(`ura and final-hand results fit ${width}x${height}`,async()=>{
   for(const [label,snapshot] of [['ura',wins[1]],['final',final.after]]){
@@ -247,7 +259,7 @@ try{
    assert.ok(overflow.document<=overflow.viewport+1,JSON.stringify(overflow));
    assert.ok(await p.$$eval('.screen,.standings,.bonus-indicators',els=>els.every(el=>el.scrollWidth<=el.clientWidth+1)));
    // Saving the game as well as the hand takes no extra row over the result.
-   const rows=await p.$$eval('.screen .buttons button',els=>new Set(els.map(el=>Math.round(el.getBoundingClientRect().top))).size);
+   const rows=await p.$$eval('.screen .buttons button',els=>new Set(els.filter(el=>el.getClientRects().length).map(el=>Math.round(el.getBoundingClientRect().top))).size);
    assert.ok(rows<=3,`${rows} rows of buttons`);
    await shot(p,`${label}-${width}x${height}`);noErrors(p);
   }
