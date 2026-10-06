@@ -156,6 +156,8 @@ class TrainerPlanesTests(unittest.TestCase):
         the cloud's torch. --compile-learning, new, is compiled for them in
         bfloat16, and plays with the learner's copy cast once as eager
         learning does. The compiler itself is not run here."""
+        from neural.tests.test_compiled_learning import compiler_settings_kept
+
         torch.set_num_threads(1)
         real_baseline, real_minibatches = ppo_loop.baseline, ppo_loop.minibatches
 
@@ -193,7 +195,7 @@ class TrainerPlanesTests(unittest.TestCase):
                 argv = ["trainer", "--resume", str(origin), "--out", str(root / "run"), "--rounds", "1",
                         "--batch", "4", "--epochs", "1", "--games", "1", "--measure-games", "1",
                         "--fixed", "none", *flags]
-                with patch.object(sys, "argv", argv), \
+                with patch.object(sys, "argv", argv), compiler_settings_kept(), \
                         patch.object(torch, "compile", lambda function, **_kwargs: function), \
                         patch.object(train_combined.selfplay, "play", side_effect=round_of_eight), \
                         patch.object(train_combined.selfplay, "measure",

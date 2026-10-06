@@ -54,6 +54,15 @@ def forget_whether_triton_runs():
     getattr(getattr(_triton, "has_triton", None), "cache_clear", lambda: None)()
 
 
+def compiler_settings_kept():
+    """A context that sets the compiler's settings the trainer changes (see
+    `train_combined.compile_per_mode`) back as they were, so that one
+    test's run of the trainer does not change the next test's compiler."""
+    config = torch._dynamo.config
+    names = ("recompile_limit", "skip_tensor_guards_with_matching_dict_tags")
+    return config.patch(**{name: getattr(config, name) for name in names if hasattr(config, name)})
+
+
 def train(argv_tail, play, compile_with=None):
     """`train_combined.main` for some generations on the processor from a
     small joined player, every round `play(player)`'s, with
@@ -69,6 +78,7 @@ def train(argv_tail, play, compile_with=None):
                 "--epochs", "1", "--games", "1", "--measure-games", "1", "--measure-every", "1000",
                 *argv_tail]
         with contextlib.ExitStack() as stack:
+            stack.enter_context(compiler_settings_kept())
             stack.enter_context(patch.object(sys, "argv", argv))
             stack.enter_context(patch.object(torch.cuda, "is_available", return_value=False))
             stack.enter_context(patch.object(train_combined.selfplay, "play",
@@ -174,9 +184,13 @@ class CacheTests(unittest.TestCase):
 
 
 class RecompileTests(unittest.TestCase):
-    """The trainer's own compile, with a backend that only counts the graphs
-    it is handed: the compiler's guards decide when a graph is made anew,
-    whatever compiles it, and this is quick."""
+    """The trainer's own compile, with a backend that counts the graphs it
+    is handed and runs them through AOTAutograd, as inductor does, without
+    generating kernels: the compiler's guards decide when a graph is made
+    anew, and AOTAutograd's tracing of the backward is what a graph traced
+    in one mode carries into another. Run by CI on the cloud's torch 2.8,
+    which reused a mode's graph in modes that hold more still until the
+    trainer had it check the parameters themselves."""
 
     def setUp(self):
         torch._dynamo.reset()
@@ -186,26 +200,40 @@ class RecompileTests(unittest.TestCase):
         forget_whether_triton_runs()
 
     def run_modes(self, flags, play):
+        from functorch.compile import make_boxed_func
+        from torch._dynamo.backends.common import aot_autograd
+
         graphs, by_generation = [], []
         real_compile = torch.compile
+        traced = aot_autograd(fw_compiler=lambda gm, _inputs: make_boxed_func(gm.forward),
+                              bw_compiler=lambda gm, _inputs: make_boxed_func(gm.forward))
 
-        def counting(gm, _inputs):
+        def counting(gm, inputs):
             graphs.append(torch.is_grad_enabled())
-            return gm.forward
+            return traced(gm, inputs)
 
         def compile_with(function, **options):
             return real_compile(function, backend=counting, **options)
 
+        config = torch._dynamo.config
+        set_by_the_trainer = []
+
         def playing(player):
+            set_by_the_trainer.append((config.recompile_limit,
+                                       getattr(config, "skip_tensor_guards_with_matching_dict_tags", False)))
             by_generation.append((player.mode, len(graphs)))
             return play(player)
 
-        failing = {"fail_on_recompile_limit_hit": True} if hasattr(
-            torch._dynamo.config, "fail_on_recompile_limit_hit") else {}
-        with torch._dynamo.config.patch(recompile_limit=8, **failing):
+        # The compiler as it is before the trainer sets it, and is set back
+        # to after: the cloud's torch 2.8 skips the parameters' own checks.
+        settings = {"recompile_limit": 8}
+        if hasattr(config, "fail_on_recompile_limit_hit"):
+            settings["fail_on_recompile_limit_hit"] = True
+        if hasattr(config, "skip_tensor_guards_with_matching_dict_tags"):
+            settings["skip_tensor_guards_with_matching_dict_tags"] = True
+        with config.patch(**settings):
             records = train(["--rounds", "30", "--seed", "11", "--compile-learning",
                              "--fixed", *combined.Combined.MODES, *flags], playing, compile_with)
-            self.assertGreaterEqual(torch._dynamo.config.recompile_limit, 16)
         self.assertEqual([record["fixed"] for record in records], [mode for mode, _ in by_generation])
         counts = [count for _mode, count in by_generation] + [len(graphs)]
         made = {}
@@ -217,21 +245,31 @@ class RecompileTests(unittest.TestCase):
             else:
                 made[mode] = after - before
         self.assertEqual(set(made), set(combined.Combined.MODES))
-        return made, graphs
+        return made, graphs, set_by_the_trainer[0]
+
+    def assert_set_for_every_mode(self, settings):
+        """The compiler as the trainer left it: room for every variant, and
+        the parameters checked themselves, so a mode never runs another's
+        graph."""
+        limit, skipping = settings
+        self.assertGreaterEqual(limit, 16)
+        self.assertFalse(skipping)
 
     def test_each_mode_compiles_once_with_gradients_and_once_without(self):
-        made, graphs = self.run_modes([], lambda player: fake_round())
+        made, graphs, settings = self.run_modes([], lambda player: fake_round())
         self.assertEqual(made, {mode: 2 for mode in combined.Combined.MODES})
         self.assertEqual(sorted(graphs), [False] * 6 + [True] * 6)
+        self.assert_set_for_every_mode(settings)
 
     def test_from_plays_values_and_vectors_each_mode_compiles_once(self):
         """With the baseline from play no pass is compiled; the modes that
         reuse Mortal's vectors compile their step with them."""
-        made, graphs = self.run_modes(
+        made, graphs, settings = self.run_modes(
             ["--baseline-from-play", "--reuse-phi"],
             lambda player: fake_round(phi=player.keep_phi, values=True))
         self.assertEqual(made, {mode: 1 for mode in combined.Combined.MODES})
         self.assertEqual(graphs, [True] * 6)
+        self.assert_set_for_every_mode(settings)
 
 
 @unittest.skipUnless(CUDA and TRITON, "the compiler's kernels are the card's")

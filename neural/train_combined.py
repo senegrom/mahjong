@@ -38,21 +38,34 @@ from .training_state import (
 #: How many graphs one compiled forward may be given before the compiler
 #: stops compiling it and runs the rest eagerly, unannounced. The learning
 #: step's forward is compiled anew for every pattern of what requires a
-#: gradient, which `Combined.set_mode` sets six ways; with gradients and
-#: without, for the baseline pass; and with Mortal's vectors given and not
-#: (`--reuse-phi`): fourteen at most, against the compiler's eight.
-#: Thirty-two leaves room for a variant nobody foresaw, which would
-#: otherwise run eagerly, unannounced.
+#: gradient, which `Combined.set_mode` sets six ways (see
+#: `compile_per_mode`); with gradients and without, for the baseline pass;
+#: and with Mortal's vectors given and not (`--reuse-phi`): fourteen at
+#: most, against the compiler's eight. Thirty-two leaves room for a
+#: variant nobody foresaw.
 RECOMPILE_LIMIT = 32
 
 
-def allow_recompiles(limit: int = RECOMPILE_LIMIT) -> None:
-    """Lets every compiled forward be compiled for `limit` variants (see
-    `RECOMPILE_LIMIT`). `recompile_limit` is the setting's name in the
-    cloud's torch 2.8 and in this desktop's; older releases called it
-    `cache_size_limit`, which 2.8 keeps as another name for it."""
+def compile_per_mode(limit: int = RECOMPILE_LIMIT) -> None:
+    """Has the compiler make the learning step's graph anew for each mode,
+    and lets it make `limit` of them (see `RECOMPILE_LIMIT`).
+
+    The cloud's torch 2.8 takes a parameter for unchanged while its
+    module's dictionary of parameters is, and `set_mode` turns
+    requires_grad on and off without touching that dictionary, so the
+    compiler did not see the change. Gradients stayed right: a mode that
+    trains a part the graph had held still was compiled anew. But a mode
+    that holds a part still reused the graph of one that trained it, ran
+    that part's backward pass and threw the gradients away, which is the
+    very work holding it still is to save. Checking the parameters
+    themselves makes a graph per mode, as this desktop's torch 2.13 does
+    by itself. `recompile_limit` is the setting's name in both; older
+    releases called it `cache_size_limit`, which 2.8 keeps as another name
+    for it."""
     config = torch._dynamo.config
     config.recompile_limit = max(config.recompile_limit, limit)
+    if hasattr(config, "skip_tensor_guards_with_matching_dict_tags"):
+        config.skip_tensor_guards_with_matching_dict_tags = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -279,8 +292,9 @@ def main() -> None:
         learn = torch.compile(net.everything)
     elif args.compile_learning:
         # The learning step alone, at the one shape it is always handed:
-        # whole minibatches, and the pass's chunks padded to theirs.
-        allow_recompiles()
+        # whole minibatches, and the pass's chunks padded to theirs; a
+        # graph for each mode.
+        compile_per_mode()
         learn = torch.compile(net.everything, dynamic=False)
     else:
         learn = net.everything
