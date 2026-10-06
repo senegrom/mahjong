@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createServer } from 'vite';
+import { createServer, normalizePath } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { browserChecks, launchChrome } from './browser-harness.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
@@ -17,7 +17,9 @@ let server, browser;
 try {
   await mkdir(resolve(root, 'test-results'), { recursive: true });
   // Test-only Vite replacement: no application injection hooks or policy edits.
-  const policy = resolve(root, 'src/lib/policy.js');
+  // Vite hands plugins ids with forward slashes; on Windows resolve() gives
+  // backslashes, so the module would never be swapped for the fixture.
+  const policy = normalizePath(resolve(root, 'src/lib/policy.js'));
   server = await createServer({ root, configFile: false, logLevel: 'warn',
     plugins: [{ name: 'controlled-riichi-inference', enforce: 'pre', load(id) {
       if (id === policy) return readFileSync(resolve(root, 'tests/fixtures/riichi-policy.js'), 'utf8');
