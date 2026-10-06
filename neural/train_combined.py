@@ -46,26 +46,61 @@ from .training_state import (
 RECOMPILE_LIMIT = 32
 
 
-def compile_per_mode(limit: int = RECOMPILE_LIMIT) -> None:
-    """Has the compiler make the learning step's graph anew for each mode,
-    and lets it make `limit` of them (see `RECOMPILE_LIMIT`).
+def guard_parameters() -> None:
+    """Has the compiler check every parameter a compiled forward reads each
+    time it is called, whether it requires a gradient included, so that
+    each mode `Combined.set_mode` makes runs a graph traced in that mode.
 
     The cloud's torch 2.8 takes a parameter for unchanged while its
-    module's dictionary of parameters is, and `set_mode` turns
-    requires_grad on and off without touching that dictionary, so the
-    compiler did not see the change. Gradients stayed right: a mode that
-    trains a part the graph had held still was compiled anew. But a mode
-    that holds a part still reused the graph of one that trained it, ran
-    that part's backward pass and threw the gradients away, which is the
-    very work holding it still is to save. Checking the parameters
-    themselves makes a graph per mode, as this desktop's torch 2.13 does
-    by itself. `recompile_limit` is the setting's name in both; older
-    releases called it `cache_size_limit`, which 2.8 keeps as another name
-    for it."""
+    module's dictionary of parameters is (its setting
+    `skip_tensor_guards_with_matching_dict_tags`, on by default), and
+    `set_mode` turns requires_grad on and off without touching that
+    dictionary, so a graph traced in one mode was run in others, both
+    ways. Where the mode held a part still that the graph trained, that
+    part's backward ran and its gradients were thrown away, the very work
+    holding it still is to save. Where the mode trained a part the graph
+    had held still, that part was given no gradient at all and learned
+    nothing that generation, without a word: under 2.8, eight of the
+    thirty orders of two modes did this, a generation that held Mortal
+    still followed by one that held nothing still leaving Mortal untrained
+    in the second, for one. This desktop's torch 2.13 makes a graph a mode
+    by itself."""
     config = torch._dynamo.config
-    config.recompile_limit = max(config.recompile_limit, limit)
     if hasattr(config, "skip_tensor_guards_with_matching_dict_tags"):
         config.skip_tensor_guards_with_matching_dict_tags = False
+
+
+def compile_per_mode(limit: int = RECOMPILE_LIMIT) -> None:
+    """Has the compiler make the learning step's graph anew for each mode
+    (see `guard_parameters`), and lets it make `limit` of them (see
+    `RECOMPILE_LIMIT`). `recompile_limit` is the setting's name in the
+    cloud's torch 2.8 and in this desktop's 2.13; older releases called it
+    `cache_size_limit`, which 2.8 keeps as another name for it."""
+    config = torch._dynamo.config
+    config.recompile_limit = max(config.recompile_limit, limit)
+    guard_parameters()
+
+
+def learning_forward(net: combined.Combined, args: argparse.Namespace):
+    """The forward the learning step and the baseline pass call, compiled
+    as the switches ask, every mode with graphs of its own (see
+    `guard_parameters`).
+
+    --compile compiles the joined player's forward for deciding as well,
+    with the batch's size left symbolic, and keeps the compiler's own limit
+    on graphs: past it, a variant runs eagerly, as it always did. Checking
+    the parameters changes nothing else of it; this desktop's torch traced
+    every mode anew already. --compile-learning compiles the learning step
+    alone, at the one shape it is always handed: whole minibatches, and
+    the pass's chunks padded to theirs."""
+    if args.compile:
+        guard_parameters()
+        net.backbones_forward = torch.compile(net.backbones, dynamic=True)
+        return torch.compile(net.everything)
+    if args.compile_learning:
+        compile_per_mode()
+        return torch.compile(net.everything, dynamic=False)
+    return net.everything
 
 
 def parse_args() -> argparse.Namespace:
@@ -285,19 +320,7 @@ def main() -> None:
     if amp_enabled and not args.compile:
         actor = policy_inference.precast(copy.deepcopy(net)).requires_grad_(False)
 
-    if args.compile:
-        # Deciding, with the batch's size left symbolic; the learning
-        # forward compiles per mode, three graphs in all.
-        net.backbones_forward = torch.compile(net.backbones, dynamic=True)
-        learn = torch.compile(net.everything)
-    elif args.compile_learning:
-        # The learning step alone, at the one shape it is always handed:
-        # whole minibatches, and the pass's chunks padded to theirs; a
-        # graph for each mode.
-        compile_per_mode()
-        learn = torch.compile(net.everything, dynamic=False)
-    else:
-        learn = net.everything
+    learn = learning_forward(net, args)
 
     # Who else sits at the tables, as a roster with roles and shares: see
     # `neural.population`. The checkpoints are the ones `--opponents`

@@ -7,6 +7,7 @@ generations follow, within a recompile limit raised to hold them all; and
 the cloud keeps whatever a generation compiled."""
 
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -134,6 +135,26 @@ class SwitchTests(unittest.TestCase):
         self.assertEqual(compiled, [("everything", {"dynamic": False})])
         self.assertEqual(seen, [True])
 
+    @unittest.skipUnless(hasattr(torch._dynamo.config, "skip_tensor_guards_with_matching_dict_tags"),
+                         "a compiler without the shortcut checks the parameters anyway")
+    def test_either_switch_has_the_parameters_checked(self):
+        """Compiled either way, the trainer plays with the compiler set to
+        check every parameter itself (see `train_combined.guard_parameters`
+        and `ModeOrderTests`), from the compiler as it comes."""
+        config = torch._dynamo.config
+        for switch in ("--compile", "--compile-learning"):
+            seen = []
+
+            def play(player):
+                seen.append(config.skip_tensor_guards_with_matching_dict_tags)
+                return fake_round()
+
+            with self.subTest(switch=switch), \
+                    config.patch(skip_tensor_guards_with_matching_dict_tags=True):
+                train(["--rounds", "1", "--fixed", "none", switch], play,
+                      lambda function, **_options: function)
+                self.assertEqual(seen, [False])
+
 
 class CacheTests(unittest.TestCase):
     def test_a_save_copies_only_what_the_volume_lacks(self):
@@ -189,8 +210,9 @@ class RecompileTests(unittest.TestCase):
     generating kernels: the compiler's guards decide when a graph is made
     anew, and AOTAutograd's tracing of the backward is what a graph traced
     in one mode carries into another. Run by CI on the cloud's torch 2.8,
-    which reused a mode's graph in modes that hold more still until the
-    trainer had it check the parameters themselves."""
+    which ran one mode's graph in other modes, ones that train more of it
+    included, until the trainer had it check the parameters themselves
+    (see `ModeOrderTests`)."""
 
     def setUp(self):
         torch._dynamo.reset()
@@ -270,6 +292,97 @@ class RecompileTests(unittest.TestCase):
         self.assertEqual(made, {mode: 1 for mode in combined.Combined.MODES})
         self.assertEqual(graphs, [True] * 6)
         self.assert_set_for_every_mode(settings)
+
+
+class ModeOrderTests(unittest.TestCase):
+    """Whichever mode the compiled step last ran in, a step in the next
+    mode has the gradients an eager step has: one for every part the mode
+    trains, none for a part it holds still. Under the cloud's torch 2.8,
+    with the compiler's settings as they come, a graph traced while a part
+    was held still was run in a later mode that trains that part, which
+    then learned nothing: each of the first four orders below did it,
+    compiled as --compile compiles and as --compile-learning does, until
+    the trainer had the compiler check the parameters themselves (see
+    `train_combined.guard_parameters`). Run by CI on 2.8; this desktop's
+    torch 2.13 traces every mode anew by itself. The graphs run through
+    AOTAutograd, as inductor's do, without generating kernels."""
+
+    #: The mode a step ran in, then the next: four that hold a part still
+    #: and then train it, and one that trains everything and then holds
+    #: Mortal still.
+    ORDERS = (
+        ("mortal", "none"),
+        ("ours", "mortal"),
+        ("mortal+head", "head"),
+        ("ours+head", "mortal+head"),
+        ("none", "mortal"),
+    )
+
+    def setUp(self):
+        torch._dynamo.reset()
+
+    def tearDown(self):
+        torch._dynamo.reset()
+        forget_whether_triton_runs()
+
+    def test_every_part_a_mode_trains_gets_its_gradient(self):
+        from functorch.compile import make_boxed_func
+        from torch._dynamo.backends.common import aot_autograd
+
+        traced = aot_autograd(fw_compiler=lambda gm, _inputs: make_boxed_func(gm.forward),
+                              bw_compiler=lambda gm, _inputs: make_boxed_func(gm.forward))
+        real_compile = torch.compile
+
+        def compile_with(function, **options):
+            return real_compile(function, backend=traced, **options)
+
+        torch.set_num_threads(1)
+        planes = encoded_like(8, seed=5).dense("cpu")
+        legal = torch.rand(8, 46, generator=torch.Generator().manual_seed(6)) < 0.5
+        legal[:, 0] = True
+
+        def gradients(net, forward):
+            net.zero_grad(set_to_none=True)
+            logits, value, guessed = forward(planes, legal)
+            (torch.log_softmax(logits, dim=1).masked_fill(~legal, 0.0).sum() + value.sum()
+             + guessed.sum()).backward()
+            return {name: p.grad for name, p in net.named_parameters() if p.grad is not None}
+
+        config = torch._dynamo.config
+        settings = {}
+        if hasattr(config, "skip_tensor_guards_with_matching_dict_tags"):
+            settings["skip_tensor_guards_with_matching_dict_tags"] = True
+        for switch in ("compile", "compile_learning"):
+            for first, then in self.ORDERS:
+                with self.subTest(switch=switch, first=first, then=then), \
+                        compiler_settings_kept(), config.patch(**settings), \
+                        patch.object(torch, "compile", compile_with):
+                    torch._dynamo.reset()
+                    torch.manual_seed(3)
+                    net = fusion(8, 1)
+                    net.train()
+                    # The same weights, wholly eager, the deciding forward too.
+                    reference = copy.deepcopy(net)
+                    learn = train_combined.learning_forward(
+                        net, SimpleNamespace(compile=switch == "compile",
+                                             compile_learning=switch == "compile_learning"))
+                    net.set_mode(first)
+                    gradients(net, learn)
+                    net.set_mode(then)
+                    reference.set_mode(then)
+                    got = gradients(net, learn)
+                    want = gradients(reference, reference.everything)
+                    self.assertEqual(sorted(got), sorted(want))
+                    # Each network beneath has gradients to compare exactly
+                    # when the mode trains it.
+                    names = {id(p): name for name, p in reference.named_parameters()}
+                    for part, parameters in (("mortal", reference.mortal_trained()),
+                                             ("ours", reference.ours_trained())):
+                        given = {names[id(p)] for p in parameters} & set(want)
+                        self.assertEqual(bool(given), part not in then.split("+"), part)
+                    for name in want:
+                        torch.testing.assert_close(got[name], want[name], rtol=1e-5, atol=1e-6,
+                                                   msg=name)
 
 
 @unittest.skipUnless(CUDA and TRITON, "the compiler's kernels are the card's")
