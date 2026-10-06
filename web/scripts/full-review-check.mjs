@@ -197,7 +197,7 @@ try{
   await shot(p,'final-standings-with-review');noErrors(p);
  });
  await check('the game exports from East 1 from the settings, the score screen and the standings, never with the hand in play',async()=>{
-  const name=/^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/;
+  const fileName=/^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/;
   const opensAtEastOne=events=>{
    assert.equal(events[0].type,'start_game');assert.equal(events[0].names.filter(name=>name==='You').length,1);
    const deal=events.find(event=>event.type==='start_kyoku');
@@ -211,7 +211,7 @@ try{
   assert.match(await p.$eval('.game-export',el=>el.textContent),/hand being played is left out until it ends/);
   assert.equal(await p.$eval('.game-export [data-save-game]',el=>el.textContent.trim()),'Save 2 finished hands');
   let file=await saveFrom(p,'.game-export [data-save-game]');
-  assert.match(file.name,name);assert.equal(file.text,mid.text+'\n');
+  assert.match(file.name,fileName);assert.equal(file.text,mid.text+'\n');
   assert.ok(!file.text.includes(mid.deal),'the deal of the hand in play is not in the file');
   let events=lines(file.text);opensAtEastOne(events);
   assert.equal(events.filter(event=>event.type==='start_kyoku').length,2);
@@ -224,7 +224,7 @@ try{
   p=await open(final.before,{files:true});
   assert.equal(await p.$eval('.screen [data-save-game]',el=>el.innerText.trim()),'Save game so far');
   file=await saveFrom(p,'.screen [data-save-game]');
-  assert.match(file.name,name);assert.equal(file.text,last.text+'\n');
+  assert.match(file.name,fileName);assert.equal(file.text,last.text+'\n');
   events=lines(file.text);opensAtEastOne(events);
   assert.ok(file.text.includes(last.deal),'the finished hand is in the file');
   assert.equal(events.filter(event=>event.type==='start_kyoku').length,last.hands);
@@ -234,7 +234,7 @@ try{
   p=await open(final.after,{files:true});await p.waitForSelector('.standings');
   assert.equal(await p.$('.screen [data-save-game]'),null,'the standings offer the whole game');
   file=await saveFrom(p,'.standings [data-save-game]');
-  assert.match(file.name,name);assert.equal(file.text,whole.text+'\n');
+  assert.match(file.name,fileName);assert.equal(file.text,whole.text+'\n');
   events=lines(file.text);opensAtEastOne(events);
   assert.equal(events.filter(event=>event.type==='start_kyoku').length,view.hands_played);
   assert.equal(events.at(-1).type,'end_game');

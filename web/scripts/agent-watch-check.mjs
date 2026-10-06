@@ -187,14 +187,16 @@ try {
       assert.deepEqual(await button(), { disabled: false, text: 'Save game so far (1 finished hand)' });
       const labels = ['Followed agent', 'Right', 'Opposite', 'Left'].map(position => `${position} (Club)`);
       const expected = watch.match.engine.game_log(playerNames(watch.match.view, labels)) + '\n';
-      for (const selector of ['.watch-controls [data-save-game]', '.agent-watch .screen [data-save-game]']) {
+      const saveFrom = async selector => {
         const count = await page.evaluate(() => window.savedFiles.length);
         await page.click(selector);
         await page.waitForFunction(n => window.savedFiles.length > n && window.savedFiles.at(-1).text !== null, {}, count);
         const file = await page.evaluate(() => window.savedFiles.at(-1));
         assert.match(file.name, /^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/);
-        assert.equal(file.text, expected, selector);
-      }
+        return file.text;
+      };
+      assert.equal(await saveFrom('.watch-controls [data-save-game]'), expected);
+      assert.equal(await saveFrom('.agent-watch .screen [data-save-game]'), expected);
       const events = expected.trimEnd().split('\n').map(line => JSON.parse(line));
       assert.deepEqual(events.map(event => event.type).filter(type => ['start_game', 'start_kyoku', 'end_kyoku', 'end_game'].includes(type)),
         ['start_game', 'start_kyoku', 'end_kyoku']);
@@ -206,7 +208,7 @@ try {
       await watch.step();
       await caughtUp();
       assert.deepEqual(await button(), { disabled: false, text: 'Save game so far (1 finished hand)' });
-      assert.equal(watch.match.engine.game_log(playerNames(watch.match.view, labels)) + '\n', expected);
+      assert.equal(await saveFrom('.watch-controls [data-save-game]'), expected);
       await page.screenshot({ path: resolve(output, 'agent-watch-export.png'), fullPage: true });
       assert.deepEqual(page.problems, []);
     } finally { watch.dispose(); }
