@@ -352,8 +352,25 @@ class PlayAhead:
 
     def _play(self, generation: int):
         began = time.time()
-        with torch.cuda.stream(self.stream) if self.stream is not None else contextlib.nullcontext():
-            batch = self.play(self.actor, generation, own_draws=True, abandon=self.abandon)
+        # Autocast keeps one cache of weights cast to bfloat16 for the whole
+        # process, under one lock, and a thread that leaves the outermost of
+        # its autocast regions empties it; self-play leaves one at every
+        # step. Beside the learning, that threw away the casts the learner's
+        # forward had made, to be made again in the middle of it; and beside
+        # the compiler tracing the learning step, whose casts are the
+        # tracer's own tensors, held in that cache, it deadlocked the
+        # trainer, the round stopped in the emptying and the trace in a cast.
+        # The round casts nothing into that cache, none of its weights
+        # needing a gradient, so it counts one region more than it enters
+        # while it plays, and none of its own is ever the outermost. The
+        # count is the thread's own, and only an autocast region's leaving
+        # empties the cache, not the count's going back down at the end.
+        torch.autocast_increment_nesting()
+        try:
+            with torch.cuda.stream(self.stream) if self.stream is not None else contextlib.nullcontext():
+                batch = self.play(self.actor, generation, own_draws=True, abandon=self.abandon)
+        finally:
+            torch.autocast_decrement_nesting()
         return batch, time.time() - began
 
     def take(self, generation: int):

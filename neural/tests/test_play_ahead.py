@@ -85,6 +85,21 @@ def same(one: dict, two: dict) -> bool:
     return one.keys() == two.keys() and all(torch.equal(one[name], two[name]) for name in one)
 
 
+def casts(output: torch.Tensor) -> set[int]:
+    """The cast nodes `output`'s graph reaches: a weight that autocast cast
+    once in a region reaches the same one from every use of it there."""
+    found, stack, seen = set(), [output.grad_fn], set()
+    while stack:
+        node = stack.pop()
+        if node is None or id(node) in seen:
+            continue
+        seen.add(id(node))
+        if "ToCopy" in type(node).__name__:
+            found.add(id(node))
+        stack.extend(following for following, _index in node.next_functions)
+    return found
+
+
 class Trainer:
     """`train_combined.main` on the processor over stand-in rounds, in a
     folder of its own: the generations' records, and the joined player's
@@ -323,6 +338,50 @@ class PlayAheadTests(unittest.TestCase):
         ahead.close()
         self.assertLess(time.time() - began, 5.0)
         self.assertEqual(stopped, [True])
+
+    def test_a_round_leaves_the_casts_the_learning_made_alone(self):
+        """Autocast keeps one cache of cast weights for the process, which a
+        thread empties when it leaves the outermost of its autocast regions,
+        as self-play does at every step. A round played ahead leaves the
+        learning's casts there: beside the learning they were made again in
+        the middle of its forward, and beside the compiler tracing it the
+        trainer deadlocked. Its own regions are never the outermost; where
+        this torch keeps casts on the processor, the learner's survive it."""
+        weight = torch.randn(8, 8, requires_grad=True)
+        x = torch.randn(4, 8)
+        depths = []
+
+        def play(_player, _generation, **_options):
+            # As self-play does at every step, here with nothing to cast.
+            with torch.autocast("cpu", enabled=False):
+                depths.append(torch.autocast_increment_nesting())
+                torch.autocast_decrement_nesting()
+            return "round"
+
+        ahead = ppo_loop.PlayAhead(self.learner, self.actor, "cpu", play)
+        self.addCleanup(ahead.close)
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            first = torch.nn.functional.linear(x, weight)
+            kept = casts(torch.nn.functional.linear(x, weight)) == casts(first)
+            ahead.start(0)
+            ahead.take(0)
+            second = torch.nn.functional.linear(x, weight)
+        # Inside the round's region, counted above it: one for the region,
+        # one for the count the worker holds, one for the probe.
+        self.assertEqual(depths, [3])
+        if kept:
+            self.assertEqual(casts(second), casts(first))
+        # And the worker's count goes back down with each round.
+
+        def depth(*_args, **_options):
+            level = torch.autocast_increment_nesting()
+            torch.autocast_decrement_nesting()
+            return level - 1
+
+        ahead.play = depth
+        for generation in (1, 2):
+            ahead.start(generation)
+            self.assertEqual(ahead.take(generation)[0], 1)
 
     @unittest.skipUnless(CUDA, "streams are the card's")
     def test_on_the_card_a_round_is_played_on_a_stream_of_its_own(self):
