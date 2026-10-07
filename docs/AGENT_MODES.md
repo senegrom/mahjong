@@ -14,6 +14,19 @@ after reconnect or download without reloading. Older adapters lacking those
 methods show an explanation and keep Trained disabled rather than inventing
 an observation. A saved choice is not silently replaced with Club.
 
+Trained is the default wherever nothing has been chosen: the opponents of a
+first match, every Agent watch seat, the hand-review adviser and a new guided
+game's adviser. Physical agent play switches to Trained as soon as the network
+is available, unless another agent was already picked. Saved preferences are
+kept as they are, Club included: the settings record is written in full on a
+first visit, so a Club saved by an earlier version cannot be told from a Club
+that was chosen, and only a setting the record does not hold takes the new
+default. Where the network cannot be had (offline before its first download,
+too little memory, a failed download), every mode keeps a way on with Club:
+the recovery choices in Play, **Review with Club**, **Use Club as adviser** in
+a guided game and **Watch with Club instead**. The hand review shows Club's
+review, and says why, while the network cannot be reached at all.
+
 Trained weights are normalized preferences over legal network actions, not
 win probabilities. Built-in agents mark the selected move instead of displaying
 invented percentages. Additional legal kans that the network cannot name stay
@@ -61,7 +74,10 @@ not on a physical iPhone or in Safari.
 ## Watch
 
 Choose the followed agent and each other seat independently, then **Start
-watching**. Assignments follow players when seat winds rotate. Pause to inspect
+watching**. Every seat starts as Trained once the network is available, and as
+Club until then; the Play table is not copied. **Watch with Club instead**,
+offered when an agent fails, deals the same table again with Club in every
+Trained seat. Assignments follow players when seat winds rotate. Pause to inspect
 weights or use Auto play at the chosen pace. The pause-at-hand-end option waits
 for the watcher to deal the next hand; disabling it permits automatic continuation.
 
@@ -70,7 +86,9 @@ move asks for confirmation, pauses autoplay, and applies only that original
 decision. Cancelling leaves the position unchanged. Leaving Watch cancels its
 outstanding work. Watched games start fresh and do not replace regular saves.
 Hints and markings apply here too; blue marks the recommendation and combines
-with dora, readiness, and safety markings.
+with dora, readiness, and safety markings. Once a hand has ended, the watched
+game can be saved as one mjai log from East 1, as in Play; the hand being
+played is left out until it ends.
 
 ## Physical table editor
 
@@ -122,7 +140,10 @@ Start from points and seat, enter exactly 13 starting tiles, then the real dora
 indicator. East also supplies its extra dealer tile at the first draw prompt.
 The guide asks for opponents' discards and your actual draws in turn order,
 then offers advice and records the choice selected. Choose the adviser in the
-mode's selector; availability follows the capability rules above.
+mode's selector; availability follows the capability rules above. A new guided
+game starts with Trained, and **New guided game** keeps the adviser in use.
+When Trained advice cannot load, **Use Club as adviser** sits beside **Retry
+advice**.
 
 **Record suggested move** plays the suggestion. Another legal choice asks for
 confirmation. After a discard or pass, report other calls or choose **No other

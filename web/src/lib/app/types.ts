@@ -37,6 +37,8 @@ export interface OfflineState {
   phase: 'checking' | 'ready' | 'ai' | 'incomplete' | 'unavailable';
   progress: number; warning?: string; coreWarning?: string;
   coreLoading?: boolean; persistent?: boolean; updateReady?: boolean;
+  /** A first visit's service worker is still saving the game to activate. */
+  installing?: boolean;
 }
 export interface OfflineStatusProps { offline: OfflineState; downloadAi: () => void; open?: boolean }
 export interface SettingsProps extends OfflineStatusProps {
@@ -49,6 +51,8 @@ export interface SettingsProps extends OfflineStatusProps {
   startFresh: () => boolean; configureTable: () => void;
   onfacechange: (face: TileFace) => void | Promise<void>;
   onconfirmationchange: () => void; onshortcutschange: () => void;
+  /** Hands the game's log holds, the finished ones only, and what saves it. */
+  loggedHands?: number; onsavegame?: () => void;
 }
 export interface OpponentDialogProps {
   customDialog?: HTMLDialogElement | null; draftOpponents: Opponent[];

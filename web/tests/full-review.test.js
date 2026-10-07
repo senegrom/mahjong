@@ -102,6 +102,8 @@ test('ura indicators are absent during play and agree with scoring and exported 
         const riichi=m.view.seats.find(s=>s.seat===win.seat).riichi;
         assert.deepEqual(win.dora_indicators,m.view.dora_indicators);
         assert.deepEqual(win.ura_indicators.map(mjaiTile),event.uradora_markers);
+        // Mortal's readers know them by this name.
+        assert.deepEqual(event.ura_markers,event.uradora_markers);
         if(riichi) {assert.equal(win.ura_indicators.length,win.dora_indicators.length);revealed++;if(win.ura_indicators.length>1)multiple++;}
         else {assert.deepEqual(win.ura_indicators,[]);hidden++;}
         const tiles=[...win.hand,win.winning_tile,...win.melds.flatMap(m=>m.tiles)];

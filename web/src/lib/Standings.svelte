@@ -4,8 +4,9 @@
    * Where everybody finished. A game is played for placement rather than
    * points, so the places lead and the arithmetic follows: what was on the
    * table, the bonus the place earned or cost, and what the game came to.
+   * `onsave`, where given, saves the whole game as one mjai log.
    */
-  let { standings = [], onagain } = $props();
+  let { standings = [], onagain, onsave } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
@@ -59,7 +60,10 @@
     </tbody>
   </table>
 
-  <button class="primary" onclick={onagain}>Play again</button>
+  <div class="buttons">
+    <button class="primary" onclick={onagain}>Play again</button>
+    {#if onsave}<button class="quiet" data-save-game onclick={onsave} title="Every hand of this game from East 1 as one mjai event log, which replayers and other riichi programs read">Save whole game</button>{/if}
+  </div>
 </section>
 
 <style>
@@ -136,8 +140,16 @@
     .number { min-width: 0; overflow: hidden; text-overflow: clip; white-space: nowrap; }
   }
 
+  .buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 100%;
+  }
+
   button {
     min-height: 44px;
+    max-width: 100%;
     padding: 8px 18px;
     border-radius: 999px;
     border: 1px solid var(--button-accent);
@@ -145,5 +157,12 @@
     color: var(--button-text);
     font-weight: 600;
     cursor: pointer;
+  }
+
+  button.quiet {
+    border-color: rgba(255, 255, 255, 0.25);
+    background: transparent;
+    color: inherit;
+    font-weight: 500;
   }
 </style>

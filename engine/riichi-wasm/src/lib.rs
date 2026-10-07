@@ -568,6 +568,11 @@ pub struct Game {
     /// Every event of the whole game, in the order Mortal was told them.
     /// Kept so a review can rebuild any position the player decided from.
     mortal_events: Vec<String>,
+    /// Every hand this game has finished, oldest first, each as the mjai
+    /// lines `log` wrote for it under the seating it was dealt with. Kept so
+    /// the whole game can be saved as one log. A saved match is replayed
+    /// from its first deal, so a restored game has every hand here again.
+    finished_hands: Vec<String>,
     /// Whether a reach has been declared and the tile it discards is still
     /// to be named. The declaration is not played until the tile is known,
     /// our engine taking the two as one move.
@@ -626,6 +631,7 @@ impl Game {
             mortal_started: false,
             mortal_logged: 0,
             mortal_events: Vec::new(),
+            finished_hands: Vec::new(),
             mortal_awaiting_riichi: None,
             decisions: Vec::new(),
             external,
@@ -1087,9 +1093,17 @@ impl Game {
     /// Plays the opponents and the draws until the player has something to
     /// decide, or the hand ends. Returns the lines describing what happened.
     pub fn advance(&mut self) -> Result<JsValue, JsValue> {
+        self.play_on()?;
         // The log is drained rather than cleared: moves the page answered
         // for the opponents were noted before this call and would otherwise
         // be thrown away unread.
+        let lines = std::mem::take(&mut self.log);
+        serde_wasm_bindgen::to_value(&lines).map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    /// The playing `advance` does, without the lines it hands back. Those
+    /// can only be built for a page, and a test drives this loop natively.
+    fn play_on(&mut self) -> Result<(), JsValue> {
         let mut guard = 0;
         loop {
             guard += 1;
@@ -1147,8 +1161,7 @@ impl Game {
                 }
             }
         }
-        let lines = std::mem::take(&mut self.log);
-        serde_wasm_bindgen::to_value(&lines).map_err(|error| JsValue::from_str(&error.to_string()))
+        Ok(())
     }
 
     /// Takes the player's choice, named as `choices` returned it.
@@ -1383,6 +1396,63 @@ impl Game {
             .join("\n")
     }
 
+    /// The whole game as one mjai log, one JSON object per line: the
+    /// game's opening, every hand finished so far from the first deal of
+    /// East 1 on, in the order they were played, and the game's close once
+    /// it is over. Players are numbered as `log` numbers them, and `names`
+    /// names them by number; a name left out is written as `player 0` and
+    /// so on.
+    ///
+    /// A hand still being played is left out. An mjai hand opens with all
+    /// four dealt hands, so the file would show the player the tiles the
+    /// opponents are still hiding. Once a hand is over it is in the log,
+    /// before the next one is dealt as well as after.
+    pub fn game_log(&self, names: Vec<String>) -> String {
+        use riichi_core::mjai::Event;
+        // Each player keeps their number all game, so the opening and the
+        // close are written in number order rather than under a seating.
+        const BY_NUMBER: [usize; 4] = [0, 1, 2, 3];
+        let names = std::array::from_fn(|player| {
+            // The writer turns a double quote into a single one and escapes
+            // nothing else, so a backslash or a control character in a name
+            // would break the line.
+            let name: String = names
+                .get(player)
+                .map(|name| {
+                    name.chars()
+                        .filter(|letter| !letter.is_control() && *letter != '\\')
+                        .collect()
+                })
+                .unwrap_or_default();
+            if name.trim().is_empty() {
+                format!("player {player}")
+            } else {
+                name
+            }
+        });
+        let mut lines = vec![Event::StartGame { names }.to_json(BY_NUMBER)];
+        lines.extend(self.finished_hands.iter().cloned());
+        if self.hand_over_unrecorded() {
+            lines.push(self.log());
+        }
+        if self.table.finished {
+            lines.push(Event::EndGame.to_json(BY_NUMBER));
+        }
+        lines.join("\n")
+    }
+
+    /// How many hands `game_log` holds now.
+    pub fn game_log_hands(&self) -> usize {
+        self.finished_hands.len() + usize::from(self.hand_over_unrecorded())
+    }
+
+    /// Whether the hand on the table is over and not yet among the finished
+    /// hands, which it joins when the next hand is dealt. The last hand of
+    /// the game joins them as the game ends, and stays on the table.
+    fn hand_over_unrecorded(&self) -> bool {
+        !self.table.finished && matches!(self.hand.phase, Phase::Over)
+    }
+
     /// Whether the hand has finished.
     pub fn hand_is_over(&self) -> bool {
         matches!(self.hand.phase, Phase::Over)
@@ -1405,6 +1475,8 @@ impl Game {
         // seating they were played under.
         self.tell_mortal();
         self.mortal_awaiting_riichi = None;
+        // Written down before the seats move too, for the same reason.
+        self.finished_hands.push(self.log());
         self.table.finish(&self.hand);
         // A finished match retains its last hand and that hand's identities.
         // Only rotate the displayed seats when a new hand actually exists.
@@ -2333,5 +2405,468 @@ mod ui_review_tests {
         assert!(game.table.finished);
         assert_eq!(game.controllers, controllers);
         assert_eq!(game.hand_seating[game.seat.index()], human);
+    }
+}
+
+/// The whole game's log, read back the way Mortal reads a log.
+#[cfg(test)]
+mod game_log_tests {
+    use super::*;
+    use riichi::chi_type::ChiType;
+    use riichi::mjai::Event as Read;
+    use riichi::state::{ActionCandidate, PlayerState};
+    use serde_json::Value;
+    use std::collections::BTreeSet;
+
+    /// The opening a game's log has when the page names nobody.
+    const OPENING: &str =
+        r#"{"type":"start_game","names":["player 0","player 1","player 2","player 3"]}"#;
+    const CLOSE: &str = r#"{"type":"end_game"}"#;
+
+    /// Plays a whole game the way the page plays it: `play_on` moves the
+    /// opponents and the draws, the player answers through `choose`, and
+    /// `next_hand` deals on. `stop` sees the game at every point the page
+    /// waits at, which is the player's every decision, every hand's end and
+    /// the end of the game.
+    fn play_whole_game(game: &mut Game, mut stop: impl FnMut(&Game)) {
+        for _ in 0..10_000 {
+            game.play_on().expect("the table plays on");
+            stop(game);
+            if game.table.finished {
+                return;
+            }
+            if game.hand_is_over() {
+                game.next_hand().expect("the next hand is dealt");
+                continue;
+            }
+            let choice = players_choice(game);
+            game.choose(&choice.kind, choice.tile)
+                .expect("the player chose a legal move");
+        }
+        panic!("the game did not finish");
+    }
+
+    /// What the player does: wins whenever it can and declares every quad
+    /// it is offered, concealed, added or claimed, and otherwise does what
+    /// its own built-in bot would. The bots seldom claim a quad and never
+    /// add to a triplet, so this is what puts every kind of quad in a log.
+    fn players_choice(game: &mut Game) -> ActionView {
+        let (seat, player) = (game.seat, game.player);
+        match game.hand.phase {
+            Phase::Act => {
+                let actions = game.hand.legal_actions();
+                let quad = actions.iter().copied().find(|action| {
+                    matches!(action, Action::ConcealedKan(_) | Action::ExtendedKan(_))
+                });
+                match quad {
+                    Some(quad) if !actions.contains(&Action::Tsumo) => describe_action(quad),
+                    _ => describe_action(game.bots[player].act(&game.hand)),
+                }
+            }
+            Phase::CallWindow => {
+                let offered = game
+                    .hand
+                    .legal_calls()
+                    .into_iter()
+                    .find(|(other, _)| *other == seat)
+                    .map(|(_, calls)| calls)
+                    .expect("the player is only asked about a call offered to them");
+                if offered.contains(&Call::Kan) && !offered.contains(&Call::Ron) {
+                    describe_call(Call::Kan)
+                } else {
+                    describe_call(game.bots[player].call(&game.hand, seat, &offered))
+                }
+            }
+            phase => panic!("the player is never asked anything in {phase:?}"),
+        }
+    }
+
+    /// Reads a log the way Mortal does, with one player's state for each
+    /// of the four, and holds every move to what the mover's own state says
+    /// they could do, which is the check Mortal's `validate_logs` makes.
+    /// That includes its rough check of what a win paid, which needs the
+    /// ura indicators under Mortal's name for them.
+    /// Every line must parse and every state must follow every event.
+    /// Answers the kinds of event read, a self-draw win as `tsumo-hora`.
+    fn read_as_mortal(log: &str) -> Vec<String> {
+        let mut states: [PlayerState; 4] =
+            std::array::from_fn(|player| PlayerState::new(player as u8));
+        let mut cans = [ActionCandidate::default(); 4];
+        let mut kinds = Vec::new();
+        // Draws made this hand, which is how Mortal counts down the wall,
+        // and who has declared riichi without throwing its tile yet.
+        let mut drawn = 0;
+        let mut declared = None;
+        for (index, line) in log.lines().enumerate() {
+            let at = index + 1;
+            let event: Read = serde_json::from_str(line)
+                .unwrap_or_else(|error| panic!("line {at} does not read: {error}\n{line}"));
+            let written: Value = serde_json::from_str(line).unwrap();
+            let mut kind = written["type"]
+                .as_str()
+                .expect("every event says what it is")
+                .to_owned();
+            match &event {
+                Read::StartKyoku { .. } => drawn = 0,
+                Read::Tsumo { .. } => drawn += 1,
+                Read::Dahai { actor, pai, .. } => {
+                    let state = &states[*actor as usize];
+                    assert!(cans[*actor as usize].can_discard, "line {at}: {line}");
+                    assert!(
+                        state.discard_candidates_aka()[pai.as_usize()],
+                        "line {at}: {line}\n{}",
+                        state.brief_info()
+                    );
+                }
+                Read::Chi {
+                    actor,
+                    target,
+                    pai,
+                    consumed,
+                } => {
+                    assert_eq!((target + 1) % 4, *actor, "line {at}: {line}");
+                    let can = cans[*actor as usize];
+                    let allowed = match ChiType::new(*consumed, *pai) {
+                        ChiType::Low => can.can_chi_low,
+                        ChiType::Mid => can.can_chi_mid,
+                        ChiType::High => can.can_chi_high,
+                    };
+                    assert!(allowed, "line {at}: {line}");
+                }
+                Read::Pon { actor, .. } => {
+                    assert!(cans[*actor as usize].can_pon, "line {at}: {line}");
+                }
+                Read::Daiminkan { actor, .. } => {
+                    assert!(cans[*actor as usize].can_daiminkan, "line {at}: {line}");
+                }
+                Read::Ankan { actor, consumed } => {
+                    assert!(cans[*actor as usize].can_ankan, "line {at}: {line}");
+                    assert!(
+                        states[*actor as usize]
+                            .ankan_candidates()
+                            .contains(&consumed[0].deaka()),
+                        "line {at}: {line}"
+                    );
+                }
+                Read::Kakan { actor, pai, .. } => {
+                    assert!(cans[*actor as usize].can_kakan, "line {at}: {line}");
+                    assert!(
+                        states[*actor as usize]
+                            .kakan_candidates()
+                            .contains(&pai.deaka()),
+                        "line {at}: {line}"
+                    );
+                }
+                Read::Reach { actor } => {
+                    // Our rules allow riichi while a tile is left in the
+                    // wall (EMA 2025 section 3.3.10), Mortal's only while
+                    // four are. That late riichi alone may pass Mortal's
+                    // check, and its hand must wait once the tile is thrown.
+                    let left = 70 - drawn;
+                    assert!(
+                        cans[*actor as usize].can_riichi || (1..4).contains(&left),
+                        "line {at}: {line}"
+                    );
+                    declared = Some(*actor);
+                }
+                Read::Hora {
+                    actor,
+                    target,
+                    deltas,
+                    ura_markers,
+                } => {
+                    let can = cans[*actor as usize];
+                    let ron = actor != target;
+                    if ron {
+                        assert!(can.can_ron_agari, "line {at}: {line}");
+                    } else {
+                        assert!(can.can_tsumo_agari, "line {at}: {line}");
+                        kind = "tsumo-hora".to_owned();
+                    }
+                    let state = &states[*actor as usize];
+                    let ura = ura_markers
+                        .as_ref()
+                        .expect("Mortal reads the ura indicators");
+                    let deltas = deltas.expect("a win says what it moved");
+                    let points = state
+                        .agari_points(ron, ura)
+                        .unwrap_or_else(|error| panic!("line {at}: {error:?}\n{line}"));
+                    let least = if ron {
+                        points.ron
+                    } else if state.is_oya() {
+                        points.tsumo_oya
+                    } else {
+                        points.tsumo_ko
+                    };
+                    // EMA has no counted yakuman: thirteen han or more that
+                    // are not a yakuman are paid as sanbaiman, which Mortal
+                    // would call a yakuman. Its check is waived for those.
+                    let counted = written["fan"].as_u64().is_some_and(|han| han >= 13);
+                    assert!(
+                        deltas[*actor as usize] >= least || counted,
+                        "line {at}: Mortal makes the win worth {least}\n{line}"
+                    );
+                }
+                _ => {}
+            }
+            for (state, can) in states.iter_mut().zip(&mut cans) {
+                let player = state.player_id();
+                *can = state
+                    .update_with_keep_cans(&event, true)
+                    .unwrap_or_else(|error| {
+                        panic!("line {at}: player {player} cannot follow it: {error:?}\n{line}")
+                    });
+            }
+            if let Read::Dahai { actor, .. } = &event {
+                if declared == Some(*actor) {
+                    declared = None;
+                    let waiting = states[*actor as usize].shanten();
+                    assert_eq!(waiting, 0, "line {at}: a riichi's tile leaves it waiting");
+                }
+            }
+            kinds.push(kind);
+        }
+        kinds
+    }
+
+    /// Where a deal stands: the round wind, the hand of the round, the
+    /// counters, the riichi bets on the table and the dealer.
+    fn standing(deal: &Value) -> (String, u64, u64, u64, u64) {
+        let number = |key: &str| deal[key].as_u64().expect("a count");
+        (
+            deal["bakaze"].as_str().expect("a wind").to_owned(),
+            number("kyoku"),
+            number("honba"),
+            number("kyotaku"),
+            number("oya"),
+        )
+    }
+
+    /// The deal that must follow a hand, worked out from the hand's own
+    /// events by EMA 2025 sections 3.4.4, 3.4.5 and 3.5, or nothing when the
+    /// game ends with it. The dealer keeps the deal by winning or by waiting
+    /// at a draw, and a counter goes on after a dealer's win and after every
+    /// draw; any other win clears them. A win takes the bets on the table, a
+    /// draw leaves them there with the hand's own. The deal passing on from
+    /// South 4 ends the game.
+    fn deal_after(hand: &[Value]) -> Option<(String, u64, u64, u64, u64)> {
+        let (round, kyoku, honba, kyotaku, oya) = standing(&hand[0]);
+        let winners: Vec<u64> = hand
+            .iter()
+            .filter(|event| event["type"] == "hora")
+            .map(|event| event["actor"].as_u64().expect("a winner"))
+            .collect();
+        let bets = hand
+            .iter()
+            .filter(|event| event["type"] == "reach_accepted")
+            .count() as u64;
+        let keeps = if winners.is_empty() {
+            let draw = hand
+                .iter()
+                .find(|event| event["type"] == "ryukyoku")
+                .expect("a hand nobody won is drawn");
+            draw["tenpais"][oya as usize]
+                .as_bool()
+                .expect("who was waiting")
+        } else {
+            winners.contains(&oya)
+        };
+        let honba = if winners.is_empty() || keeps {
+            honba + 1
+        } else {
+            0
+        };
+        let kyotaku = if winners.is_empty() {
+            kyotaku + bets
+        } else {
+            0
+        };
+        if keeps {
+            return Some((round, kyoku, honba, kyotaku, oya));
+        }
+        let (round, kyoku) = match (round.as_str(), kyoku) {
+            ("E", 4) => ("S".to_owned(), 1),
+            ("S", 4) => return None,
+            _ => (round, kyoku + 1),
+        };
+        Some((round, kyoku, honba, kyotaku, (oya + 1) % 4))
+    }
+
+    /// The hands of a log, each as its own events.
+    fn hands_of(log: &str) -> Vec<Vec<Value>> {
+        let mut hands: Vec<Vec<Value>> = Vec::new();
+        for line in log.lines() {
+            let event: Value = serde_json::from_str(line).expect("one JSON object a line");
+            match event["type"].as_str() {
+                Some("start_kyoku") => hands.push(vec![event]),
+                Some("start_game" | "end_game") => {}
+                _ => hands
+                    .last_mut()
+                    .expect("every event belongs to a hand")
+                    .push(event),
+            }
+        }
+        hands
+    }
+
+    /// Whole games at three kinds of table, the player's seat played
+    /// through the page's calls. At every stop the game's log must be the
+    /// hands finished so far, from East 1, exactly as the per-hand log wrote
+    /// each at its score screen, and never the hand being played. At the
+    /// end Mortal's reader must follow the whole log, opening to close, and
+    /// the games must between them have claimed, declared riichi, made
+    /// every kind of quad, won both ways and drawn.
+    #[test]
+    fn the_game_log_is_every_finished_hand_from_east_one_and_mortal_reads_it() {
+        let tables: [fn(f64) -> Game; 3] = [
+            |seed| Game::new(seed, Some("club".into())),
+            |seed| Game::new(seed, Some("beginner".into())),
+            |seed| Game::with_opponents(seed, "beginner", "club", "beginner").expect("a table"),
+        ];
+        let wanted = [
+            "chi",
+            "pon",
+            "ankan",
+            "kakan",
+            "daiminkan",
+            "dora",
+            "reach",
+            "reach_accepted",
+            "hora",
+            "tsumo-hora",
+            "ryukyoku",
+        ];
+        let mut seen = BTreeSet::new();
+        let mut games = 0;
+        for seed in 1..=30u32 {
+            let mut game = tables[seed as usize % tables.len()](f64::from(seed));
+            let mut hands: Vec<String> = Vec::new();
+            let mut midway = None;
+            play_whole_game(&mut game, |game| {
+                let log = game.game_log(Vec::new());
+                if game.hand_is_over() && !game.table.finished {
+                    hands.push(game.log());
+                } else if !game.table.finished {
+                    let deal = game.log().lines().next().unwrap().to_owned();
+                    assert!(
+                        !log.contains(&deal),
+                        "seed {seed}: the hand in play is in the log"
+                    );
+                }
+                let mut expected = vec![OPENING.to_owned()];
+                expected.extend(hands.iter().cloned());
+                if game.table.finished {
+                    expected.push(CLOSE.to_owned());
+                }
+                assert_eq!(log, expected.join("\n"), "seed {seed}");
+                assert_eq!(game.game_log_hands(), hands.len(), "seed {seed}");
+                if hands.len() == 3 && midway.is_none() {
+                    midway = Some(log);
+                }
+            });
+            games += 1;
+
+            let log = game.game_log(Vec::new());
+            assert_eq!(hands.len(), game.table.hands_played, "seed {seed}");
+            assert!(hands.len() >= 8, "seed {seed}: a game is two rounds");
+            let deal: Value = serde_json::from_str(hands[0].lines().next().unwrap()).unwrap();
+            assert_eq!(deal["type"], "start_kyoku");
+            assert_eq!(
+                (
+                    &deal["bakaze"],
+                    &deal["kyoku"],
+                    &deal["honba"],
+                    &deal["kyotaku"]
+                ),
+                (
+                    &Value::from("E"),
+                    &Value::from(1),
+                    &Value::from(0),
+                    &Value::from(0)
+                ),
+                "seed {seed}: the log opens at East 1"
+            );
+            assert_eq!(deal["oya"], 0, "player 0 dealt first");
+            assert_eq!(
+                deal["scores"],
+                serde_json::json!([30000, 30000, 30000, 30000])
+            );
+
+            // Each hand opens on the points the one before closed on, so
+            // none is missing and they are in the order they were played.
+            // Its wind, number, counters, bets and dealer are the ones the
+            // hand before leaves, so repeats and counters are right too, and
+            // the game ends with the first hand after which it must.
+            let opened = hands_of(&log);
+            assert_eq!(opened.len(), hands.len());
+            for (before, after) in opened.iter().zip(&opened[1..]) {
+                let closed = before
+                    .iter()
+                    .rev()
+                    .find(|event| matches!(event["type"].as_str(), Some("hora" | "ryukyoku")))
+                    .expect("every hand settles");
+                assert_eq!(after[0]["scores"], closed["scores"], "seed {seed}");
+                assert_eq!(before.last().unwrap()["type"], "end_kyoku");
+                assert_eq!(
+                    deal_after(before),
+                    Some(standing(&after[0])),
+                    "seed {seed}: {}",
+                    after[0]
+                );
+            }
+            let last = opened.last().expect("a game has hands");
+            assert_eq!(last.last().unwrap()["type"], "end_kyoku");
+            assert_eq!(deal_after(last), None, "seed {seed}: the game ends here");
+            for hand in &opened {
+                let (_, kyoku, _, _, oya) = standing(&hand[0]);
+                assert_eq!(kyoku, oya + 1, "seed {seed}: player 0 marks the round");
+            }
+
+            // Shown only if the reading fails, to say which game it was.
+            println!("reading seed {seed}");
+            let kinds = read_as_mortal(&log);
+            let once = |kind: &str| kinds.iter().filter(|read| *read == kind).count();
+            assert_eq!((once("start_game"), once("end_game")), (1, 1));
+            assert_eq!(
+                (
+                    kinds.first().map(String::as_str),
+                    kinds.last().map(String::as_str)
+                ),
+                (Some("start_game"), Some("end_game"))
+            );
+            seen.extend(kinds);
+            // The log as it stood partway, without the game's close.
+            if let Some(midway) = midway {
+                let kinds = read_as_mortal(&midway);
+                assert_eq!(kinds.iter().filter(|kind| *kind == "start_game").count(), 1);
+                assert!(!kinds.iter().any(|kind| kind == "end_game"));
+                assert_eq!(kinds.last().map(String::as_str), Some("end_kyoku"));
+            }
+            // Every kind of table has been played by the third game.
+            if games >= tables.len() && wanted.iter().all(|kind| seen.contains(*kind)) {
+                println!("{games} games read, covering {seen:?}");
+                return;
+            }
+        }
+        panic!("thirty games never covered every kind of event: {seen:?}");
+    }
+
+    /// Names go in by number and come out on one line whatever they hold;
+    /// a name not given is the player's number.
+    #[test]
+    fn players_are_named_by_number_and_a_name_cannot_break_the_line() {
+        let game = Game::new(5.0, Some("club".into()));
+        let log = game.game_log(vec![
+            "You".into(),
+            String::new(),
+            "Club \"left\"\n\\".into(),
+        ]);
+        assert_eq!(log.lines().count(), 1, "no hand has finished: {log}");
+        let opening: Value = serde_json::from_str(&log).expect("one JSON object");
+        assert_eq!(
+            opening["names"],
+            serde_json::json!(["You", "player 1", "Club 'left'", "player 3"])
+        );
+        assert_eq!(game.game_log_hands(), 0);
     }
 }

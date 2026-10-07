@@ -12,10 +12,13 @@ const AGENTS = ['beginner', 'club', 'full'];
 const RETIRED_AGENTS = Object.freeze({ quick: 'full', strong: 'full' });
 const sameChoice = (a, b) => a.kind === b.kind && (a.tile ?? null) === (b.tile ?? null);
 
-export function emptyGuided() {
+/** A new guided game. Its adviser is the trained network unless one is
+ * named: a game started from another keeps the adviser that one had. */
+export function emptyGuided(agent = 'full') {
   const position = emptyPosition();
   position.wall = 70; position.phase = 'draw';
-  return { state: { position, stage: 'setup', nextSeat: 0, needsDraw: true, agent: 'club', result: '' }, past: [], log: [] };
+  if (!AGENTS.includes(agent)) agent = 'full';
+  return { state: { position, stage: 'setup', nextSeat: 0, needsDraw: true, agent, result: '' }, past: [], log: [] };
 }
 
 /** Physical sets in display order. A chii comes from the left, so its

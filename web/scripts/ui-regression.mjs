@@ -59,6 +59,8 @@ function chooseOpen(match) {
     ?? c.find(c=>c.kind==='pass') ?? c.find(c=>c.kind==='discard') ?? c[0];
 }
 const lateSave=findFixture(m=>m.view.wall<=15,chooseOpen);
+// Discards of every kind: from the draw, from the hand, and claimed.
+const markedSave=findFixture(m=>{const all=m.view.seats.flatMap(s=>s.discards);return all.some(d=>d.claimed)&&all.some(d=>d.drawn&&!d.claimed)&&all.some(d=>!d.drawn&&!d.claimed);},chooseOpen);
 const meldSave=findFixture(m=>m.view.seats.reduce((n,s)=>n+s.melds.length,0)>=3,chooseOpen);
 const manyCallsSave=findFixture(m=>m.choices.filter(c=>c.kind!=='discard').length>=4,chooseOpen);
 function completeSave(seed) {
@@ -198,6 +200,26 @@ try {
     await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).commands.length===1,{},SAVE_KEY);
     assert.ok(await page.$('.own-discards [aria-label="green dragon, dora"]'));
     noErrors(page);
+  });
+  for(const dark of [false,true]) await check(`every discard row shows the engine's draw and claim marks (${dark?'dark':'light'})`,async()=>{
+    const page=await open(markedSave,{dark}); const view=JSON.parse(markedSave.state)[0];
+    const rows=selectors=>page.evaluate(selectors=>selectors.map(selector=>[...document.querySelector(selector).querySelectorAll('.tile')].map(tile=>({
+      claimed:tile.classList.contains('claimed'),drawn:tile.classList.contains('from-draw'),label:tile.getAttribute('aria-label'),
+      opacity:getComputedStyle(tile).opacity,filter:getComputedStyle(tile.querySelector('.face')).filter}))),selectors);
+    const expect=(shown,where)=>shown.forEach((row,seat)=>{
+      assert.equal(row.length,view.seats[seat].discards.length,`${where} ${seat}`);
+      row.forEach((tile,index)=>{
+        const discard=view.seats[seat].discards[index];
+        assert.deepEqual([tile.claimed,tile.drawn],[discard.claimed,discard.drawn],`${where} ${seat}: ${tile.label}`);
+        assert.equal(tile.label.includes(', claimed'),discard.claimed); assert.equal(tile.label.includes('discarded from the draw'),discard.drawn);
+        assert.equal(tile.opacity,discard.claimed?'0.6':'1',tile.label); assert.equal(tile.filter,discard.drawn?'brightness(0.86)':'none',tile.label);
+      });
+    });
+    // The seats in the view's order: you, then right, opposite and left.
+    expect(await rows(['.own-discards .pool','.place.right .pool','.place.across .pool','.place.left .pool']),'table');
+    await page.click('.inspect');
+    expect(await rows([1,2,3,4].map(n=>`.inspection-grid section:nth-child(${n}) .pool`)),'inspection');
+    await shot(page,`discard-marks-${dark?'dark':'light'}`); noErrors(page);
   });
   await check('safe count and accessible tile text retain the riichi qualification',async()=>{
     const page=await open(safeSave); const view=JSON.parse(safeSave.state)[0];

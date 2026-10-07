@@ -15,7 +15,7 @@
       {(offline.phase === 'incomplete' && offline.warning) || (offline.aiReady
         ? 'The network and its runtime are saved too.'
         : offline.phase === 'ai' ? `Saving the trained network and runtime… ${offline.progress}%`
-        : 'Only the trained network and its runtime need this extra download. Selecting a Trained opponent also starts it automatically.')}</p>
+        : 'Only the trained network and its runtime need this extra download. Trained opponents and advisers, the default, start it automatically; Beginner and Club never need it.')}</p>
     {#if offline.hasModel && !offline.aiReady}
       <button class="app-control" data-download-ai onclick={downloadAi} disabled={!offline.coreReady || offline.phase === 'ai'}>{offline.phase === 'incomplete' ? 'Retry trained AI download' : 'Download trained AI for offline play'}</button>
     {/if}

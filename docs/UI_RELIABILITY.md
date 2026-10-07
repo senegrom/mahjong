@@ -25,7 +25,10 @@ not cloud sync or an offline-installation feature. Clearing website data removes
 the saved match. A future change to engine rules may require a save migration.
 
 Preferences (opponent strength, hints, discard confirmation and shortcuts) are
-stored separately. Cancelling an opponent change leaves both the displayed
+stored separately. A first visit starts with Trained opponents and the Trained
+AI review adviser. Saved preferences are read as they stand, so a player whose
+record holds Club keeps Club; only a preference the record lacks takes the
+default. Cancelling an opponent change leaves both the displayed
 selection and active game unchanged. New game requests confirmation whenever
 an unfinished match has progress, including between hands.
 

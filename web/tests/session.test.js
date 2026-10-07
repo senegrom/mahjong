@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MatchSession, readSettings, writeSettings, SETTINGS_KEY } from '../src/lib/session.js';
-import { sameOpponents } from '../src/lib/opponents.js';
-import { heldSafeCount, callTiles, callLabel, unseenTileCounts } from '../src/lib/ui.js';
+import { MatchSession, readSettings, writeSettings, SETTINGS_KEY, DEFAULT_REVIEW_ADVISER } from '../src/lib/session.js';
+import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents } from '../src/lib/opponents.js';
+import { heldSafeCount, callTiles, callLabel, unseenTileCounts, waitingNote } from '../src/lib/ui.js';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 class FakeGame {
@@ -97,19 +97,76 @@ test('restoration rejects invalid versions, illegal commands and changed state',
 });
 
 test('preferences tolerate inaccessible or malformed storage', () => {
-  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'club',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'club'});
+  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'neural',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'strong'});
   assert.equal(readSettings({getItem(){return '{broken';}}).hints, true);
-  const value = {version:1,difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false};
-  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'neural',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic',reviewAdviser:'club'});
+  const value = {version:1,difficulty:'club',hints:false,confirmDiscards:false,shortcuts:false};
+  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'club',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic',reviewAdviser:'strong'});
 });
 
 test('the review adviser is remembered, and a retired network preference is ignored', () => {
   for (const reviewAdviser of ['club', 'strong', 'quick', null, '../other']) {
     // Older builds also stored which of two networks played; one ships now.
     const settings = readSettings({ getItem: () => JSON.stringify({ version: 1, trainedModel: 'strong', reviewAdviser }) });
-    assert.equal(settings.reviewAdviser, reviewAdviser === 'strong' ? 'strong' : 'club');
+    assert.equal(settings.reviewAdviser, reviewAdviser === 'club' ? 'club' : 'strong');
     assert.equal(Object.hasOwn(settings, 'trainedModel'), false);
   }
+});
+
+// How App reads its opening table from the preferences.
+const table = settings => normalizeOpponents(settings.opponents ?? settings.difficulty);
+
+test('a first visit meets Trained opponents and is reviewed by Trained AI', () => {
+  for (const storage of [null, { getItem: () => null }]) {
+    const settings = readSettings(storage);
+    assert.equal(settings.difficulty, DEFAULT_OPPONENT);
+    assert.deepEqual(table(settings), ['neural', 'neural', 'neural']);
+    assert.equal(settings.reviewAdviser, DEFAULT_REVIEW_ADVISER);
+    assert.equal(DEFAULT_REVIEW_ADVISER, 'strong');
+  }
+  // A record this build cannot read is no choice at all.
+  assert.deepEqual(table(readSettings({ getItem: () => JSON.stringify({ version: 2, difficulty: 'club' }) })), ['neural', 'neural', 'neural']);
+});
+
+test('saved choices stand, Club included, and only what a record lacks takes the new default', () => {
+  const read = value => readSettings({ getItem: () => JSON.stringify(value) });
+  // What the previous build wrote on a first visit: the old defaults, which
+  // cannot be told from a player who chose Club. Both keep Club.
+  const previous = read({ version: 1, difficulty: 'club', opponents: ['club', 'club', 'club'], hints: true,
+    confirmDiscards: false, shortcuts: true, tileFace: 'classic', reviewAdviser: 'club' });
+  assert.deepEqual(table(previous), ['club', 'club', 'club']);
+  assert.equal(previous.difficulty, 'club');
+  assert.equal(previous.reviewAdviser, 'club');
+  // A table chosen seat by seat stays exactly as it was.
+  assert.deepEqual(table(read({ version: 1, difficulty: 'custom', opponents: ['beginner', 'club', 'neural'] })), ['beginner', 'club', 'neural']);
+  // From before seat-by-seat tables and before the review adviser existed:
+  // the single strength stands, the adviser was never chosen.
+  const older = read({ version: 1, difficulty: 'beginner' });
+  assert.deepEqual(table(older), ['beginner', 'beginner', 'beginner']);
+  assert.equal(older.reviewAdviser, 'strong');
+  // A Club chosen in this build is written and read back as Club.
+  const writes = new Map();
+  writeSettings({ setItem: (key, value) => writes.set(key, value) },
+    { difficulty: 'club', opponents: ['club', 'club', 'club'], hints: true, reviewAdviser: 'club' });
+  const reread = readSettings({ getItem: key => writes.get(key) ?? null });
+  assert.deepEqual(table(reread), ['club', 'club', 'club']);
+  assert.equal(reread.reviewAdviser, 'club');
+});
+
+test('the table shows the network download while a Trained opponent waits for it', () => {
+  // The worker's own note wins; before the worker starts, the page's offline
+  // download is the wait, and nothing is said when nothing is downloading.
+  assert.equal(waitingNote('loading the network', { phase: 'ai', progress: 40 }), 'loading the network');
+  assert.equal(waitingNote('', { phase: 'ai', progress: 40 }), 'downloading the trained network 40%');
+  assert.equal(waitingNote('', { phase: 'ai' }), 'downloading the trained network 0%');
+  for (const phase of ['checking', 'ready', 'incomplete', 'unavailable']) assert.equal(waitingNote('', { phase, progress: 40 }), '');
+  assert.equal(waitingNote('', null), '');
+  // A first visit's download waits for the service worker to save the game
+  // and its tile graphics, which reports no progress: that wait is named too.
+  const installing = waitingNote('', { phase: 'checking', progress: 0, installing: true });
+  assert.equal(installing, 'saving the game and tile graphics, then downloading the trained network');
+  assert.equal(waitingNote('starting the network', { phase: 'checking', installing: true }), 'starting the network');
+  assert.equal(waitingNote('', { phase: 'ai', progress: 5, installing: true }), 'downloading the trained network 5%');
+  assert.equal(waitingNote('', { phase: 'checking', installing: false }), '');
 });
 
 test('preferences are written when they change, not each time the effect reruns', () => {

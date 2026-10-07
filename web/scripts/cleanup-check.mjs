@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { emptyPosition, parseTiles, recordChoice } from '../src/lib/physical-position.js';
-import { emptyGuided, GUIDED_FORMAT } from '../src/lib/guided-game.js';
+import { emptyGuided, editGuided, guidedEvent, GUIDED_FORMAT } from '../src/lib/guided-game.js';
 import { SETTINGS_KEY, SAVE_KEY } from '../src/lib/session.js';
 import { tileWords } from '../src/lib/tiles.js';
 
@@ -56,11 +56,30 @@ function calledGame(offered) {
   p.players[0].hand = [...['1m', '2m', '3m'].filter(tile => tile !== offered), ...parseTiles('456p789s11223z')];
   p.players[3].discards = [{ tile: offered, order: 0, drawn: false, riichi: false, claimed: false }];
   const choice = { kind: 'chii', tile: '1m' };
-  const game = emptyGuided();
+  // Club advises the decision this leaves, so no check here waits on the network.
+  const game = emptyGuided('club');
   Object.assign(game.state, { position: recordChoice(p, choice, [choice]), stage: 'decision', nextSeat: 0, needsDraw: false });
   game.past = [{ state: { ...structuredClone(game.state), position: p }, logLength: 0 }];
   game.log = ['Recorded chii'];
   return game;
+}
+/** A guide told through its own events, so its rows hold every mark a
+ * discard can carry: East throws from the draw, then throws the dora five
+ * from the draw and South claims it; West declares riichi from the hand and
+ * must then throw each draw; our own tile comes straight from the draw.
+ * Recording a pass needs no engine. */
+function markedGuide() {
+  const act = (game, event) => guidedEvent(game, event);
+  const choose = (game, choice) => act(game, { type: 'choice', choice, choices: [choice] });
+  const turn = (game, tile, flags = {}) => act(choose(act(game, { type: 'discard', tile, ...flags }), { kind: 'pass' }), { type: 'continue' });
+  let game = editGuided(emptyGuided(), state => { state.position.seat = 3; });
+  game = act(game, { type: 'setup' });
+  game = editGuided(game, state => { state.position.players[3].hand = parseTiles('123m456p789s1123z'); });
+  game = act(act(game, { type: 'hand' }), { type: 'indicator', tile: '4s' });
+  game = turn(turn(turn(game, '9m', { drawn: true }), '8m'), '2p', { riichi: true });
+  game = act(choose(act(game, { type: 'draw', tile: '4z' }), { kind: 'discard', tile: '4z' }), { type: 'continue' });
+  game = act(choose(act(game, { type: 'discard', tile: '5s', drawn: true }), { kind: 'pass' }), { type: 'call', seat: 1, kind: 'pon' });
+  return turn(turn(act(game, { type: 'continue' }), '6p'), '1s');
 }
 try {
   await mkdir(resolve(root, 'test-results'), { recursive: true });
@@ -195,6 +214,44 @@ try {
       assert.equal(await savedMatch(page), saved);
       assert.deepEqual(problems, []);
     } finally { denyUnusedArt = false; }
+  });
+  await check('the guided game\'s remembered table marks discards thrown from the draw and claimed ones', async context => {
+    const game = markedGuide();
+    const { page, problems } = await pageAt(context, 'guided', game);
+    await page.waitForSelector('.guided-controls:not(:disabled) .guided-seats');
+    const rows = await page.$$eval('.guided-seats section .pool', pools => pools.map(pool => [...pool.querySelectorAll('.tile')].map(tile => ({
+      label: tile.getAttribute('aria-label'), rotated: tile.classList.contains('rotated'),
+      marks: [tile.classList.contains('from-draw'), tile.classList.contains('claimed')],
+      looks: [getComputedStyle(tile.querySelector('.face')).filter, getComputedStyle(tile).opacity],
+    }))));
+    // The tokens as the browser computes them (the build rewrites 0.6 as .6).
+    const tokens = await page.evaluate(() => {
+      const probe = document.body.appendChild(document.createElement('div'));
+      Object.assign(probe.style, { filter: 'var(--from-draw-shade)', opacity: 'var(--claimed-opacity)' });
+      const { filter, opacity } = getComputedStyle(probe);
+      probe.remove();
+      return [filter, opacity];
+    });
+    assert.notDeepEqual(tokens, ['none', '1'], 'the theme defines both marks');
+    const recorded = game.state.position.players.map(player => player.discards);
+    assert.deepEqual(rows.map(row => row.map(tile => tile.marks)), recorded.map(row => row.map(discard => [discard.drawn, discard.claimed])));
+    // The look the tokens give: the darker face, and the see-through tile.
+    assert.deepEqual(rows.flat().map(tile => tile.looks), rows.flat().map(({ marks: [drawn, claimed] }) =>
+      [drawn ? tokens[0] : 'none', claimed ? tokens[1] : '1']));
+    for (const [seat, row] of rows.entries()) for (const [slot, tile] of row.entries()) {
+      const discard = recorded[seat][slot];
+      assert.equal(tile.label.includes(', claimed'), discard.claimed, tile.label);
+      assert.equal(tile.label.includes('discarded from the draw'), discard.drawn, tile.label);
+      assert.equal(tile.rotated, discard.riichi, tile.label);
+    }
+    // Every kind is there: from the hand, from the draw, claimed, both, riichi.
+    assert.deepEqual(rows.map(row => row.map(tile => tile.label)), [
+      ['9 characters, discarded from the draw', '5 bamboo, claimed, discarded from the draw, dora'],
+      ['8 characters', '6 circles'],
+      ['2 circles, riichi declaration', '1 bamboo, discarded from the draw'],
+      ['north wind, discarded from the draw'],
+    ]);
+    assert.deepEqual(problems, []);
   });
   for (const offered of ['1m', '2m', '3m']) {
     await check(`guided chii rotates ${offered} after reload and Undo removes the set`, async context => {

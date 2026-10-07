@@ -18,7 +18,7 @@ let filled = false;
 const updatesSaved = new WeakSet();
 let state = { supported: null, coreReady: false, aiReady: false, hasModel: false,
   phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false,
-  persistent: false, updateReady: false };
+  installing: false, persistent: false, updateReady: false };
 const listeners = new Set();
 function update(values) {
   state = { ...state, ...values };
@@ -172,7 +172,13 @@ export function startOffline() {
       let registration = await navigator.serviceWorker.getRegistration(base.href);
       if (registration?.scope !== base.href || registration?.active?.scriptURL !== script) registration = null;
       if (!registration) registration = await navigator.serviceWorker.register(script, { scope: base.href, updateViaCache: 'none' });
-      await activated(registration);
+      // A first visit's worker saves the whole game and every tile graphic
+      // before it activates, and a Trained player's network waits for that.
+      // The install reports no progress, so say that it is running.
+      const installing = !registration.active;
+      if (installing) update({ installing: true });
+      try { await activated(registration); }
+      finally { if (installing) update({ installing: false }); }
       worker = registration.active;
       // clients.claim() takes control on the first visit, before tile/ORT loads.
       if (navigator.serviceWorker.controller?.scriptURL !== script) {

@@ -32,15 +32,26 @@ function fakeWorker({ calls, network, stored, info, faults, label = '' }) {
 // Exercise the real coordinator against the service-worker message contract.
 // No browser globals or state are shared between tests.
 function coordinator({ coreReady = false, aiReady = false, aiRequested = false, failCore = false, failAi = false,
-  registered = true, held = true, storageFailure = false, online = true, waiting = null } = {}) {
+  registered = true, held = true, storageFailure = false, online = true, waiting = null, installs = false } = {}) {
   const calls = [], saves = [], stored = new Set(held || aiReady ? [NETWORK.url] : []);
   const info = { coreReady, runtime: aiReady, aiRequested, hasModel: true, version: 'test' };
   const faults = { core: failCore, ai: failAi, storage: storageFailure, registration: false, network: null };
   let latest, registrations = 0;
   const active = fakeWorker({ calls, network: NETWORK, stored, info, faults });
-  const registration = { scope: 'https://test.invalid/mahjong/', active, addEventListener() {}, async update() {},
+  // With installs, the first registration's worker is still installing: it
+  // activates (or fails) only when the test finishes the install.
+  const changes = new Set();
+  const installing = installs ? { state: 'installing', addEventListener: (_, listener) => changes.add(listener),
+    removeEventListener: (_, listener) => changes.delete(listener) } : null;
+  const registration = { scope: 'https://test.invalid/mahjong/', active: installs ? null : active, installing,
+    addEventListener() {}, async update() {},
     waiting: waiting && fakeWorker({ calls, network: NEXT, stored, faults: {},
       info: { coreReady: true, runtime: false, hasModel: true, version: 'next', ...waiting }, label: 'next:' }) };
+  function finishInstall(state = 'activated') {
+    installing.state = state;
+    if (state === 'activated') { registration.active = active; registration.installing = null; }
+    for (const listener of [...changes]) listener();
+  }
   const navigator = { onLine: online, storage: {}, serviceWorker: {
     controller: active,
     async getRegistration() { return registered ? registration : undefined; },
@@ -67,7 +78,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
     } }, ['startOffline', 'refreshOffline', 'prepareOfflineAi', 'watchOffline'], { 'import.meta.env.DEV': 'false' });
   api.watchOffline(value => latest = value);
   return { api, calls, info, faults, stored, saves, navigator, state: () => latest,
-    registrations: () => registrations };
+    registrations: () => registrations, finishInstall };
 }
 const settle = async () => { for (let i = 0; i < 20; i++) await setImmediate(); };
 
@@ -115,6 +126,29 @@ test('an interrupted first registration retries on reconnect without an AI downl
   assert.equal(c.registrations(), 2);
   assert.equal(c.state().coreReady, true);
   assert.equal(c.calls.includes('MAHJONG_PREPARE_AI'), false);
+});
+
+test('a first visit says the game is installing until its worker activates or fails', async () => {
+  // A Trained default's network waits for this install, which reports no
+  // progress of its own; the table can only say that it is running.
+  for (const ending of ['activated', 'redundant']) {
+    const c = coordinator({ registered: false, coreReady: true, installs: true });
+    const started = c.api.startOffline();
+    await settle();
+    assert.equal(c.state().installing, true, ending);
+    assert.equal(c.state().phase, 'checking');
+    c.finishInstall(ending);
+    const result = await started;
+    assert.equal(c.state().installing, false, ending);
+    assert.equal(c.state().phase, ending === 'activated' ? 'ready' : 'unavailable');
+    assert.equal(Boolean(result), ending === 'activated');
+  }
+  // A returning visit's worker is already active: nothing is installing.
+  const returning = coordinator({ coreReady: true });
+  const seen = [];
+  returning.api.watchOffline(value => seen.push(value.installing));
+  await returning.api.startOffline();
+  assert.ok(seen.length > 1 && seen.every(value => value === false));
 });
 
 test('optional AI download and retry touch only the AI group, not already complete base files', async () => {

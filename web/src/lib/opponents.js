@@ -4,6 +4,9 @@
 export const OPPONENT_LABELS = Object.freeze({ beginner: 'Beginner', club: 'Club', neural: 'Trained' });
 export const OPPONENT_TYPES = Object.freeze(/** @type {(keyof typeof OPPONENT_LABELS)[]} */ (Object.keys(OPPONENT_LABELS)));
 export const OPPONENT_POSITIONS = Object.freeze(['Right', 'Opposite', 'Left']);
+/** Who a player meets when nothing has been chosen: the trained network at
+ * every seat. Its download starts with the first match that needs it. */
+export const DEFAULT_OPPONENT = 'neural';
 
 export function normalizeOpponents(value) {
   if (OPPONENT_TYPES.includes(value)) return [value, value, value];

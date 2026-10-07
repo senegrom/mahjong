@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept. Carl approved the corrected all-green B still life with six bamboo stalks to replace Green Rhythm J for 6s; its complete composition and colours are preserved. Carl selected the first nine-bamboo option, Moonlit Bamboo Wind Chime, and explicitly approved deployment; the nine hanging tubes and complete painted composition are preserved. Carl approved B, Three Cafe Lanterns, for 3 disks and explicitly requested deployment. The complete selected middle-panel crop is preserved without repainting or recolouring in a documented quality-90 WebP game export. Carl selected C — The Potter’s Table to replace Nine Stars I for 9p and explicitly requested deployment. The nine patterned plates retain the selected painting; the old face is archived. Carl selected the first option, The Red Vineyard, for 5 characters (5m / 五萬) and explicitly approved GitHub deployment. The complete approved composition and colours are preserved; the wheat and iris alternatives are not used. Carl approved the latest red 六萬 calligraphy with lemons, cypresses, lake and village as 6 characters (6m). The complete approved canvas and colours are retained; the sunflower study is not selected.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept. Carl approved the corrected all-green B still life with six bamboo stalks to replace Green Rhythm J for 6s; its complete composition and colours are preserved. Carl selected the first nine-bamboo option, Moonlit Bamboo Wind Chime, and explicitly approved deployment; the nine hanging tubes and complete painted composition are preserved. Carl approved B, Three Cafe Lanterns, for 3 disks and explicitly requested deployment. The complete selected middle-panel crop is preserved without repainting or recolouring in a documented quality-90 WebP game export. Carl selected C — The Potter’s Table to replace Nine Stars I for 9p and explicitly requested deployment. The nine patterned plates were deployed and the old face archived. The intervening Nine Stars restoration was a misunderstanding. Carl explicitly clarified that The Potter’s Table C must replace Nine Stars as 9 disks. The approved Potter SVG is restored byte-for-byte; Nine Stars remains archived. The eight-star adaptation is not deployed and 8 disks is unchanged. Carl selected the first option, The Red Vineyard, for 5 characters (5m / 五萬) and explicitly approved GitHub deployment. The complete approved composition and colours are preserved; the wheat and iris alternatives are not used. Carl approved the latest red 六萬 calligraphy with lemons, cypresses, lake and village as 6 characters (6m). The complete approved canvas and colours are retained; the sunflower study is not selected. Carl selected the last seven-characters option with blue iris flowers and golden 萬, Irises at Dusk C, and explicitly requested GitHub deployment as 7m / 七萬. The complete composition and proportions are preserved without repainting; the olive and wheat alternatives are not used. Carl selected A, Four Oranges, the left panel with four whole oranges on blue cloth, for 4 disks (4p / Pin4) and explicitly requested GitHub deployment. The complete approved crop is retained without repainting or recolouring; the bowl and orange-slice alternatives are not used.",
   "fallback": "classic",
   "sources": [
     {
@@ -100,6 +100,11 @@
       "sha256": "7bfed3b794e8a09dc61f2020662d9c70572d883f05194267df07f535778591b1"
     },
     {
+      "id": "nineStarsOriginal",
+      "source": "docs/design/van-gogh/superseded/nine-stars-Pin9.png",
+      "sha256": "61eb9c2563a8039eb755315b1f5ef670a472fcff2e1facaef4b0e05e1af0267d"
+    },
+    {
       "id": "fiveVineyard",
       "source": "docs/design/van-gogh/studies/18-five-characters-vineyard-a-approved.svg",
       "sha256": "167d067218dcb1a9ae71ba43e0f4d4552ef39057c84c6f0d7f52ec566a3a9280"
@@ -108,6 +113,16 @@
       "id": "sixLemonTerrace",
       "source": "docs/design/van-gogh/studies/19-six-characters-lemon-terrace-approved.svg",
       "sha256": "dcd95ef26e4a2dec009d4d5c12aa8b87cd00a57be03f395349707b5fb3808418"
+    },
+    {
+      "id": "sevenCharactersIrises",
+      "source": "docs/design/van-gogh/studies/20-seven-characters-irises-c-approved.svg",
+      "sha256": "1b688f9e70ae70b12af8cf3ebc1acaeb38b01c90dd0ad2e7a46ce4888642650b"
+    },
+    {
+      "id": "fourOranges",
+      "source": "docs/design/van-gogh/studies/20-four-disks-oranges-a-approved.svg",
+      "sha256": "52d7428647df0da97da13594c0913a4849e723ed9ff5d921b5fe2b3b6944a4d1"
     }
   ],
   "tiles": [
@@ -508,6 +523,42 @@
       "svgSha256": "dcd95ef26e4a2dec009d4d5c12aa8b87cd00a57be03f395349707b5fb3808418",
       "rasterMimeType": "image/webp",
       "rasterSha256": "1fb6ccae9c621b881d676d89d79e452ce6b79e44f365dfc89df404de2ea80cf0"
+    },
+    {
+      "candidate": "Irises C",
+      "tile": "7m",
+      "name": "Man7",
+      "label": "Seven characters",
+      "source": "docs/design/van-gogh/studies/20-seven-characters-irises-c-approved.svg",
+      "status": "approved",
+      "svg": "approved/Man7.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      },
+      "svgSha256": "1b688f9e70ae70b12af8cf3ebc1acaeb38b01c90dd0ad2e7a46ce4888642650b",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "111ae0918dc510db91441a50b46f6130b1199a2ab974f89d9059f469b90c4b60"
+    },
+    {
+      "candidate": "Oranges A",
+      "tile": "4p",
+      "name": "Pin4",
+      "label": "Four disks",
+      "source": "docs/design/van-gogh/studies/20-four-disks-oranges-a-approved.svg",
+      "status": "approved",
+      "svg": "approved/Pin4.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      },
+      "svgSha256": "52d7428647df0da97da13594c0913a4849e723ed9ff5d921b5fe2b3b6944a4d1",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "e2dcad697285d2baa13e0b4f227b1e2f7016279f15252cd4aa5f53fe6922a9ba"
     }
   ],
   "rejected": [
@@ -554,10 +605,8 @@
   ],
   "remaining": [
     "1m",
-    "7m",
     "8m",
     "9m",
-    "4p",
     "6p",
     "7p",
     "8p",

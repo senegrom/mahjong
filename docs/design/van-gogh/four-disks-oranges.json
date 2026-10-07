@@ -1,0 +1,22 @@
+{
+  "tile": "4p",
+  "name": "Pin4",
+  "candidate": "Oranges A",
+  "title": "Four Oranges",
+  "approval": "Carl selected A (the left panel, four whole oranges on blue cloth) and explicitly requested GitHub deployment. B (bowl) and C (slices) are not used.",
+  "source": "docs/design/van-gogh/studies/20-four-disks-oranges-a-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Pin4.svg",
+  "originalBoard": "van_gogh_style_four_orange_tiles.png",
+  "originalBoardDimensions": {"width": 1448, "height": 1086},
+  "originalBoardSha256": "70b6502946fd751f9e96467dad7da602734c850a63801864f03304ec220823ae",
+  "originalCrop": {"x": 25, "y": 138, "width": 442, "height": 796},
+  "fullResolutionCropSha256": "f6a436efce67eb717296820ce086a2ac5a6ee1fbf7f6580c9d84bc509f623cc5",
+  "fullResolutionCropPixelsSha256": "1228ec91f58fec1d14ee07eee55fdf2c5f80af22adedfba0e12149ec360c8e12",
+  "processing": "Crop only approved left-panel face, excluding label/gutters. Resize complete crop to the shared 300 x 400 canvas with LANCZOS, WebP quality 90 method 6. No repainting or recolouring. Shared SVG corner radius 26 and 1% bleed. This is a game-sized export, not a full-resolution original.",
+  "rasterDimensions": {"width": 300, "height": 400},
+  "rasterBytes": 66718,
+  "rasterMimeType": "image/webp",
+  "rasterSha256": "e2dcad697285d2baa13e0b4f227b1e2f7016279f15252cd4aa5f53fe6922a9ba",
+  "sourceSha256": "52d7428647df0da97da13594c0913a4849e723ed9ff5d921b5fe2b3b6944a4d1",
+  "originalArchive": "Van_Gogh_4_Disks_Oranges_A_Approved.zip"
+}

@@ -23,16 +23,25 @@
    * A newly drawn tile is identified by spacing, never by its own ring. One
    * mark is a solid ring; more than one is drawn as stripes of each colour
    * in turn, so no mark hides another.
+   *
+   * A discard row marks two things about a tile, each in its own way so a
+   * tile can carry both. One thrown straight from the draw (tsumogiri) has
+   * its face shaded a little darker, as Tenhou and Mahjong Soul show it; one
+   * thrown from the hand keeps its face. One that another player claimed for
+   * a call is see-through, so the table shows through it and it reads green.
    */
   let {
     tile = null,
     facedown = false,
     rotated = false,
-    dimmed = false,
+    /** A discard another player took into a called set. */
+    claimed: markedClaimed = false,
     selected = false,
     safe = false,
     dora: markedDora = false,
     drawn = false,
+    /** A discard that was the tile just drawn, rather than one from the hand. */
+    fromDraw: markedFromDraw = false,
     discardShanten = null,
     size = 'normal',
     /** Part of the shape a yaku is being explained by. Dimming the rest
@@ -50,6 +59,10 @@
 
   // A hidden face must not disclose dora through its ring, name or effects.
   let dora = $derived(Boolean(markedDora && tile && !facedown));
+  // Nor is a hidden face marked as thrown from the draw or claimed: its name
+  // says only that it is face down, and the picture says the same.
+  let fromDraw = $derived(Boolean(markedFromDraw && tile && !facedown));
+  let claimed = $derived(Boolean(markedClaimed && tile && !facedown));
   // Readiness describes a legal action on a visible, interactive hand tile.
   // Never let a stale preview mark a disabled tile, a meld or a hidden face.
   let readiness = $derived(tile && !facedown && onclick && !disabled
@@ -78,7 +91,7 @@
 
   let imageUrl = $derived(tileImage(tile, tileFace, facedown));
   let words = $derived(
-    facedown ? 'face-down tile' : [tileWords(tile), dora && 'dora',
+    facedown ? 'face-down tile' : [tileWords(tile), claimed && 'claimed', fromDraw && 'discarded from the draw', dora && 'dora',
       drawn && 'just drawn', selected && 'selected',
       readiness === 'ready' && 'discard leaves a ready hand (tenpai)',
       readiness === 'one-away' && 'discard leaves one tile from ready (one shanten)',
@@ -100,7 +113,8 @@
     class:van-gogh={tileFace === 'van-gogh' && !facedown && VAN_GOGH_APPROVED.includes(tile)}
     class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
-    class:dimmed
+    class:claimed
+    class:from-draw={fromDraw}
     class:muted
     class:selected
     class:safe
@@ -139,7 +153,8 @@
     class:van-gogh={tileFace === 'van-gogh' && !facedown && VAN_GOGH_APPROVED.includes(tile)}
     class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
-    class:dimmed
+    class:claimed
+    class:from-draw={fromDraw}
     class:muted
     class:ringed={marks.length > 0}
     class:in-shape={inShape}
@@ -279,8 +294,18 @@
     width: var(--face-width);
   }
 
-  .dimmed .face {
-    filter: grayscale(0.55) brightness(0.82);
+  /* A discard thrown straight from the draw: the face is shaded darker but
+     stays solid and keeps its colours, so it never reads as a claimed one. */
+  .from-draw .face {
+    filter: var(--from-draw-shade, brightness(0.86));
+  }
+
+  /* A claimed discard: the whole tile is see-through, so whatever it lies
+     on shows through it, and on the table it takes the felt's green. The
+     tile fades as one, ring included, so a dora ring stays a ring rather
+     than showing through the face, and a shade from the draw stays too. */
+  .claimed {
+    opacity: var(--claimed-opacity, 0.6);
   }
 
   /* Whatever a tile does, it does as a whole. The lift on hover, on focus

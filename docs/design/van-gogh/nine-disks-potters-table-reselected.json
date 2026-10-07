@@ -1,0 +1,18 @@
+{
+  "tile": "9p",
+  "candidate": "Disks C",
+  "title": "The Potter’s Table",
+  "source": "docs/design/van-gogh/studies/17-nine-disks-potters-table-c-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Pin9.svg",
+  "svgSha256": "7bfed3b794e8a09dc61f2020662d9c70572d883f05194267df07f535778591b1",
+  "rasterSha256": "847c979c08614d41bbcaab6c802e100050b4d684de46c6474eff7aa348d2d670",
+  "approval": "Carl clarified: no, i want the potters table. replace 9 stars with potters table; then explicitly requested GitHub deployment.",
+  "corrects": "PR #95 restored Nine Stars after misunderstanding the requested nine. This record supersedes that active selection, not the preserved history.",
+  "originalProvenance": "docs/design/van-gogh/nine-disks-potters-table-c.json",
+  "processing": "Copy the existing approved Potter’s Table C SVG exactly. No generation, crop, recolouring, resizing or recompression in this restoration.",
+  "nineStarsArchives": [
+    "docs/design/van-gogh/superseded/nine-stars-Pin9.png",
+    "docs/design/van-gogh/superseded/nine-stars-Pin9.svg"
+  ],
+  "eightDisksChanged": false
+}

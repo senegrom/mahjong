@@ -4,8 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const scripts = [
-  'component-check.mjs', 'agent-defaults-check.mjs', 'cleanup-check.mjs', 'webapp-reliability-check.mjs', 'guided-game-check.mjs',
-  'adviser-review-check.mjs', 'agent-watch-check.mjs', 'ui-regression.mjs',
+  'component-check.mjs', 'agent-defaults-check.mjs', 'cleanup-check.mjs', 'webapp-reliability-check.mjs', 'trained-default-check.mjs', 'guided-game-check.mjs',
+  'adviser-riichi-check.mjs', 'adviser-review-check.mjs', 'agent-watch-check.mjs', 'ui-regression.mjs',
   'tile-effects-check.mjs', 'full-review-check.mjs', 'discard-readiness-check.mjs',
   'mixed-opponents-check.mjs', 'ui-polish-check.mjs', 'trained-model-check.mjs',
   'toolchain-check.mjs', 'offline-check.mjs',

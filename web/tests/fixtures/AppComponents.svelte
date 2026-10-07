@@ -16,6 +16,7 @@
   let handElement = $state<HTMLDivElement | null>(null);
   let selected = $state<number | null>(0);
   let callbacks = $state<string[]>([]);
+  let loggedHands = $state(0);
   let offline = $state<OfflineState>({ coreReady: true, aiReady: false, hasModel: true, phase: 'incomplete', progress: 0, warning: 'Interrupted fixture download' });
   const seats: SeatName[] = ['east', 'south', 'west', 'north'];
   const view: GameView = {
@@ -38,7 +39,9 @@
     downloadAi={() => { callbacks.push('download'); offline = { ...offline, phase: 'ready', aiReady: true }; }}
     onfacechange={face => { tileFace = face; callbacks.push(`face:${face}`); }}
     onconfirmationchange={() => { selected = null; callbacks.push('confirmation'); }}
-    onshortcutschange={() => callbacks.push('shortcuts')} />
+    onshortcutschange={() => callbacks.push('shortcuts')}
+    {loggedHands} onsavegame={() => callbacks.push(`save-game:${loggedHands}`)} />
+  <button type="button" data-fixture-finish-hand onclick={() => loggedHands += 1}>Finish a hand</button>
   <OpponentDialog bind:customDialog bind:draftOpponents {opponents} trainedAvailable={false} ready={true} saveConflict=""
     startCustomTable={() => { opponents = [...draftOpponents]; callbacks.push('custom'); customDialog?.close(); }} />
   <PlayerHand {view} {engine} closed={false} {hints} busy={false} blocked={false} discardChoices={choices}

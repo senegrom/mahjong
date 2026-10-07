@@ -33,10 +33,21 @@ async function button(page, text) {
   }, text);
 }
 const check = (name, run) => cases.check(name, async () => run(await cases.openContext(browser)));
-async function open(context, width = 1100) {
+async function open(context, width = 1100, { probe } = {}) {
   const page = await context.newPage(); page.problems = [];
   page.on('pageerror', error => page.problems.push(error.message));
   await page.setViewport({ width, height: 900, deviceScaleFactor: 1, hasTouch: width < 600 });
+  if (probe !== undefined) await page.evaluateOnNewDocument(({ url, available }) => {
+    const realFetch = window.fetch;
+    window.fetch = (input, options) => {
+      const target = input instanceof Request ? input.url : String(input);
+      const method = options?.method ?? (input instanceof Request ? input.method : 'GET');
+      if (target === url && method.toUpperCase() === 'HEAD') {
+        return Promise.resolve(new Response(null, { status: available ? 200 : 404 }));
+      }
+      return realFetch(input, options);
+    };
+  }, { url: `${MANIFEST.origin}/${MANIFEST.object}`, available: probe });
   await page.evaluateOnNewDocument(({ settings, physical, match }) => {
     if (!localStorage.getItem(settings)) localStorage.setItem(settings, JSON.stringify({ version: 1, difficulty: 'club', hints: true }));
     if (!localStorage.getItem(physical)) localStorage.setItem(physical, 'existing position editor draft');
@@ -45,6 +56,14 @@ async function open(context, width = 1100) {
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=guided`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.guided-controls:not(:disabled)');
   return page;
+}
+const adviser = '[aria-label="Guided game adviser"]';
+/** A new guided game is advised by the trained network. Checks of the guide
+ * itself choose Club, so they never wait on the network's download. */
+async function club(page) {
+  assert.equal(await page.$eval(adviser, el => el.value), 'full', 'a new guided game starts on the trained adviser');
+  await page.select(adviser, 'club');
+  await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.game.state.agent === 'club', {}, GUIDED_KEY);
 }
 async function setup(page, seat = '3') {
   await page.select('[aria-label="Your seat"]', seat);
@@ -83,6 +102,7 @@ try {
   browser = await launchChrome();
   await check('North walkthrough, automatic suggestions, cancellation, saved undo, opponent call and next hand', async context => {
     const page = await open(context);
+    await club(page);
     await setup(page);
     for (const [seat, t] of ['9m', '8m', '7m'].entries()) {
       assert.equal((await saved(page)).state.nextSeat, seat);
@@ -156,9 +176,11 @@ try {
     const stopObserving = await observeNetworkRequests(context, request => {
       if (request.url === network && request.method === 'GET') modelRequests.push(request.url);
     });
+    // Club first, then a saved trained preference: see club().
+    await club(page);
     await setup(page, '0');
     await tile(page, '4z'); await choice(page);
-    const selector = '[aria-label="Guided game adviser"]';
+    const selector = adviser;
     // A typed-in position is replayed into the events the network's encoder
     // needs, so the trained adviser is offered here as it is in a live game.
     assert.deepEqual(await page.$$eval(`${selector} option:not(:disabled)`, options => options.map(o => o.value)), ['beginner', 'club', 'full']);
@@ -208,16 +230,17 @@ try {
     assert.deepEqual(page.problems, []);
   });
   await check('physical editor starts on Trained when the network is there and Club preserves the table', async context => {
-    const page = await open(context, 360), position = emptyPosition();
+    const page = await open(context, 360, { probe: true }), position = emptyPosition();
     position.players[0].hand = parseTiles('123m456p789s11234z');
     position.drawn = '4z'; position.indicators = ['5z'];
     await page.evaluate(({ key, position }) => localStorage.setItem(key, JSON.stringify({ version: 1, position })), { key: PHYSICAL_KEY, position });
     await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=physical`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('.physical-editor:not(:disabled)');
     const selector = '[aria-label="Physical play agent"]';
-    // The trained adviser is the default wherever its network can be fetched,
-    // and every adviser is offered; Club is chosen here to keep the check
-    // off the network's clock.
+    // Draft readiness and model availability are independent. Control HEAD
+    // here and wait for the actual default; the separate guided case above
+    // still downloads and runs the real model.
+    await page.waitForFunction(selector => document.querySelector(selector)?.value === 'full', {}, selector);
     assert.equal(await page.$eval(selector, el => el.value), 'full');
     assert.deepEqual(await page.$$eval(`${selector} option:not(:disabled)`, options => options.map(o => o.value)), ['beginner', 'club', 'full']);
     assert.equal(await page.$('.adviser-availability'), null, 'nothing is unavailable to explain');
@@ -232,7 +255,7 @@ try {
     assert.deepEqual(page.problems, []);
   });
   await check('two windows stop conflicting edits and reload the newer guided prompt', async context => {
-    const a = await open(context); await setup(a);
+    const a = await open(context); await club(a); await setup(a);
     const b = await open(context); await stage(b, 'turn');
     // Chrome may suspend animation-frame work in the background tab. Clicks
     // and waitForFunction must run in the tab a real user has activated.

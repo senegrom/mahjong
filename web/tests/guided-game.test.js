@@ -99,6 +99,29 @@ test('opponent pon skips seats and their next discard does not consume another w
   assert.equal(next(pass(g)).state.nextSeat, 3);
 });
 
+test('the remembered discards say which came from the draw and which were claimed, as the table showed it', () => {
+  // The discard rows mark both, so the guide must record them faithfully: an
+  // opponent's tile is from the draw when ticked or once they are in riichi,
+  // never straight after a call, and a called tile is claimed.
+  let g = next(pass(discard(start(), '9m', { drawn: true })));
+  g = next(pass(discard(g, '8m')));
+  g = next(pass(discard(g, '2p', { riichi: true })));
+  g = next(choose(act(g, { type: 'draw', tile: '4z' }), 'discard', '4z'));
+  g = next(pass(discard(g, '7m')));
+  g = next(act(pass(discard(g, '5s', { drawn: true })), { type: 'call', seat: 0, kind: 'pon' }));
+  g = next(pass(discard(g, '6p', { drawn: true })));
+  g = next(pass(discard(g, '9s')));
+  g = next(pass(discard(g, '1s')));
+  const rows = g.state.position.players.map(player => player.discards.map(({ tile, drawn, claimed, riichi }) =>
+    [tile, drawn && 'from the draw', claimed && 'claimed', riichi && 'riichi'].filter(Boolean).join(' ')));
+  assert.deepEqual(rows, [
+    ['9m from the draw', '7m', '6p'],
+    ['8m', '5s from the draw claimed', '9s'],
+    ['2p riichi', '1s from the draw'],
+    ['4z from the draw'],
+  ]);
+});
+
 test('opponent chii enforces the left-hand source, sequence and available copies', () => {
   const g = pass(discard(start(), '3m'));
   assert.throws(() => act(g, { type: 'call', seat: 2, kind: 'chii', tile: '1m' }), /from the left/);
@@ -317,6 +340,18 @@ test('saved guide is separate from the position editor and conflicting tabs pres
   assert.deepEqual(undoGuided(parseGuided(values.get(GUIDED_KEY))), undoGuided(g));
   assert.equal(values.get(PHYSICAL_KEY), 'physical editor untouched');
   a.close(); b.close();
+});
+
+test('a new guided game is advised by the trained network unless it keeps an adviser', () => {
+  assert.equal(emptyGuided().state.agent, 'full');
+  // What the store starts from when nothing is saved.
+  assert.equal(GUIDED_FORMAT.empty().state.agent, 'full');
+  for (const agent of ['beginner', 'club', 'full']) assert.equal(emptyGuided(agent).state.agent, agent);
+  for (const agent of ['strong', 'nonsense', null]) assert.equal(emptyGuided(agent).state.agent, 'full');
+  assert.deepEqual(parseGuided(GUIDED_FORMAT.encode(emptyGuided())), emptyGuided());
+  // A saved guide keeps its adviser, whichever it is.
+  const club = editGuided(emptyGuided(), state => { state.agent = 'club'; });
+  assert.equal(parseGuided(GUIDED_FORMAT.encode(club)).state.agent, 'club');
 });
 
 test('a guide saved with one of the retired trained networks reopens on the trained adviser', () => {

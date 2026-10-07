@@ -32,7 +32,10 @@ const cases = [
   ['blank', {tile:'5z'}], ['dora', {tile:'5z',dora:true}],
   ['small', {tile:'5z',dora:true,size:'small'}], ['tiny', {tile:'5z',dora:true,size:'tiny'}],
   ['rotated', {tile:'5z',dora:true,rotated:true}], ['hidden', {tile:'5z',dora:true,facedown:true}],
-  ['other', {tile:'7z',dora:true}], ['muted', {tile:'5z',dora:true,disabled:true,onclick:()=>{}}]
+  ['other', {tile:'7z',dora:true}], ['muted', {tile:'5z',dora:true,disabled:true,onclick:()=>{}}],
+  ['kept', {tile:'5z',size:'small'}], ['thrown', {tile:'5z',size:'small',fromDraw:true}],
+  ['taken', {tile:'5z',size:'small',claimed:true}], ['both', {tile:'5z',size:'small',claimed:true,fromDraw:true}],
+  ['taken-dora', {tile:'5z',size:'small',claimed:true,fromDraw:true,dora:true,rotated:true}]
 ];
 </script>
 <h1>White dragon · dora foil</h1>
@@ -101,6 +104,41 @@ const cases = [
         const boxes=await page.$eval(`#${id} .tile`,el=>[el,...el.querySelectorAll('.face,.haku-dragon-reveal,.foil')].map(e=>{const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height];}));
         for(const box of boxes.slice(1))for(let n=0;n<4;n++)assert.ok(Math.abs(box[n]-boxes[0][n])<0.1,`${id} geometry changed`);
       }
+    });
+    await check('a discard from the draw is darker in its own colours; a claimed one lets the felt through; both combine',async()=>{
+      const marks=await page.evaluate(()=>['kept','thrown','taken','both'].map(id=>{
+        const tile=document.querySelector(`#${id} .tile`);
+        return [getComputedStyle(tile).opacity,getComputedStyle(tile.querySelector('.face')).filter];
+      }));
+      assert.deepEqual(marks,[['1','none'],['1','brightness(0.86)'],['0.6','none'],['0.6','brightness(0.86)']]);
+      // Read the actual pixels: the middle of each blank face, the felt
+      // beside the tile and, on the dora tile, the ring just outside its edge.
+      await freeze(0);
+      const pixels={};
+      for(const id of ['kept','thrown','taken','both','taken-dora']) {
+        const box=await (await page.$(`#${id} .tile`)).boundingBox(), margin=6;
+        const clip={x:box.x-margin,y:box.y-margin,width:box.width+2*margin,height:box.height+2*margin};
+        const data=await page.screenshot({clip,encoding:'base64'});
+        pixels[id]=await page.evaluate(async(data,width,margin)=>{
+          const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+          const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+          const context=canvas.getContext('2d');context.drawImage(image,0,0);
+          const scale=image.width/width, at=(x,y)=>[...context.getImageData(Math.round(x*scale),Math.round(y*scale),1,1).data.slice(0,3)];
+          // In CSS pixels: the middle of the face, a corner of felt, and one pixel above the tile's top edge.
+          return {face:at(width/2,image.height/scale/2),felt:at(1,1),ring:at(width/2,margin-1)};
+        },data,clip.width,margin);
+      }
+      const near=(actual,expected,label)=>actual.forEach((value,channel)=>assert.ok(Math.abs(value-expected[channel])<=6,`${label}: ${actual} against ${expected.map(Math.round)}`));
+      const mix=(top,under,alpha)=>top.map((value,channel)=>alpha*value+(1-alpha)*under[channel]);
+      const {kept,thrown,taken,both}=pixels, felt=kept.felt, green=([r,g])=>g-r;
+      near(thrown.face,kept.face.map(value=>value*0.86),'thrown from the draw: the same colours, darker');
+      near(taken.face,mix(kept.face,felt,0.6),'claimed: the felt shows through');
+      near(both.face,mix(thrown.face,felt,0.6),'claimed and from the draw: both marks');
+      assert.ok(green(kept.face)<=0&&green(thrown.face)<=0&&green(taken.face)>=8,`only the claimed tile reads green: ${[kept,thrown,taken].map(p=>p.face)}`);
+      // Fading the tile as one keeps a dora ring around the face, not through it.
+      near(pixels['taken-dora'].face,both.face,'the ring does not tint a claimed face');
+      const [r,g,b]=pixels['taken-dora'].ring;
+      assert.ok(r>g+40&&r>b+40,`the dora ring still shows red: ${pixels['taken-dora'].ring}`);
     });
     await check('reused tiles restart both effects together and hint toggles remove them',async()=>{
       await page.click('#identity');await page.waitForSelector('#dynamic .haku-dragon-reveal');

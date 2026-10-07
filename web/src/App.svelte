@@ -18,10 +18,11 @@
   import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { acceptsHandKey, moveHandFocus } from './lib/ui.js';
+  import { acceptsHandKey, moveHandFocus, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
+  import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
-  import { normalizeOpponents, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
+  import { DEFAULT_OPPONENT, normalizeOpponents, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
   const touch = matchMedia('(pointer: coarse)').matches;
@@ -31,7 +32,8 @@
   let mode = $state(['watch', 'physical', 'guided'].includes(requestedMode) ? requestedMode : 'play');
   let difficulty = $state(['beginner', 'club', 'neural'].includes(requested) ? requested : preferences.difficulty);
   let opponents = $state(normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty));
-  let draftOpponents = $state(['club', 'club', 'club']);
+  // Replaced by the current table each time the dialog opens.
+  let draftOpponents = $state(normalizeOpponents(DEFAULT_OPPONENT));
   let customDialog = $state(null);
   let pendingOpponent = $state(null);
   let hints = $state(preferences.hints);
@@ -47,7 +49,7 @@
   let startupNote = $state('Loading the game and selected tile graphics…');
   // One trained network ships with the game, so its download is the only
   // optional one: readiness and availability are read straight from offline.
-  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, persistent: false, updateReady: false });
+  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, installing: false, persistent: false, updateReady: false });
   let failure = $state('');
   let storageWarning = $state('');
   let saveConflict = $state('');
@@ -62,6 +64,8 @@
   let recovery = $state(false);
   let trainedAvailable = $state(false);
   let standings = $state(null);
+  // How many hands the game's log holds: the finished ones only.
+  let loggedHands = $state(0);
   let notes = $state(null);
   let picked = $state(null);
   let selected = $state(null);
@@ -124,6 +128,7 @@
     if (!sameOpponents(opponents, owner.opponents)) opponents = [...owner.opponents];
     pendingOpponent = owner.pendingOpponent;
     standings = owner.over ? owner.engine.standings() : null;
+    loggedHands = owner.engine.game_log_hands();
     if (!thinking) loadNote = '';
   }
 
@@ -136,6 +141,7 @@
     thinking = false;
     recovery = false;
     pendingOpponent = null;
+    loggedHands = 0;
     customDialog?.close();
     selected = null;
     picked = null;
@@ -371,16 +377,18 @@
   function saveLog() {
     if (!session) return;
     try {
-      const text = session.engine.log();
-      const url = URL.createObjectURL(new Blob([text + '\n'], { type: 'application/jsonl' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `riichi-${view.round}-${view.kyoku}-${Date.now()}.mjai.jsonl`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      saveLogFile(`riichi-${view.round}-${view.kyoku}-${Date.now()}.mjai.jsonl`, session.engine.log());
     } catch { notice = 'The hand could not be saved to a file. Your current match is unchanged.'; }
+  }
+
+  // The whole game from East 1. The engine leaves out a hand still being
+  // played, whose deal would show the opponents' tiles.
+  function saveGame() {
+    if (!session || session.closed || !view) return;
+    try {
+      const names = playerNames(view, matchLabels(session.initialOpponents, session.opponents));
+      saveLogFile(gameFileName(), session.engine.game_log(names));
+    } catch { notice = 'The game could not be saved to a file. Your current match is unchanged.'; }
   }
 
   function showReview() {
@@ -395,7 +403,7 @@
 <main>
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts {tileFace} {pendingTileFace} onfacechange={changeTileFace}
     {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
-    {changeOpponents} {startFresh} {configureTable} {downloadAi}
+    {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={saveGame}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
   {#if faceWarning}<p class="notice" data-face-error role="alert">{faceWarning}</p>{/if}
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
@@ -432,9 +440,9 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {trainedAvailable} {opponents} {hints} />
+    <AgentWatch {trainedAvailable} {hints} {offline} />
   {:else if ready && mode === 'guided'}
-    <GuidedPlay {trainedAvailable} {storage} {hints} />
+    <GuidedPlay {trainedAvailable} {storage} {hints} {offline} />
   {:else if ready && mode === 'physical'}
     <PhysicalPlay {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
@@ -447,16 +455,16 @@
 
       <section class="controls" aria-label="your choices" bind:this={callElement}>
         {#if standings}
-          <Standings {standings} onagain={() => start()} />
+          <Standings {standings} onagain={() => start()} onsave={saveGame} />
         {/if}
         {#if view.phase === 'over' && view.outcome}
           <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
             bets={view.riichi_sticks ?? 0} onnext={nextHand}
-            onreview={showReview} reviewed={notes !== null} onlog={saveLog} finalHand={Boolean(standings)} />
-          {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} bind:adviser={reviewAdviser} />{/if}
+            onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} finalHand={Boolean(standings)} />
+          {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} />{/if}
         {:else}
           <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
-            {loadNote} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
+            loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
             {selectedTile} {callChoices} {choose} {discard} oncancel={() => selected = null} />
         {/if}
       </section>

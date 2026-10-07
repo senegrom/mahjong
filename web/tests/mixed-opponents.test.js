@@ -46,7 +46,9 @@ test('legacy and custom settings are read without retaining invalid assignments'
   const read = value => readSettings({ getItem: () => JSON.stringify({ version:1, ...value }) });
   assert.equal(read({ difficulty:'neural' }).difficulty, 'neural');
   assert.deepEqual(read({ difficulty:'custom', opponents:['neural','club','beginner'] }).opponents, ['neural','club','beginner']);
-  assert.equal(read({ difficulty:'custom', opponents:['neural','bad','club'] }).difficulty, 'club');
+  // An unreadable table is no choice: the default, Trained, stands in for it.
+  assert.equal(read({ difficulty:'custom', opponents:['neural','bad','club'] }).difficulty, 'neural');
+  assert.equal(read({ difficulty:'club', opponents:['neural','bad','club'] }).difficulty, 'club');
 });
 
 test('all 27 tables route only Trained decisions and round-trip pending calls and hands', () => {

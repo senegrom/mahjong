@@ -7,13 +7,16 @@
   import AgentWeights from './AgentWeights.svelte';
   import Tile from './Tile.svelte';
   import HandTile from './HandTile.svelte';
-  import { analyzeDiscards, heldSafeCount, unseenTileCounts } from './ui.js';
+  import { analyzeDiscards, heldSafeCount, unseenTileCounts, waitingNote } from './ui.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
   import ScoreScreen from './ScoreScreen.svelte';
   import Standings from './Standings.svelte';
+  import { finishedHands, gameFileName, playerNames, saveLogFile } from './game-log.js';
 
-  let { trainedAvailable, opponents, hints = true } = $props();
+  let { trainedAvailable, hints = true, offline = null } = $props();
+  // Trained at every seat by default, the followed one and the three it plays
+  // against. Club stands in only while the network cannot be had.
   let lineup = $state(['club', 'club', 'club', 'club']);
   let watch = $state.raw(null);
   let view = $state(null);
@@ -28,6 +31,9 @@
   let speed = $state(1400);
   let standings = $state(null);
   let log = $state([]);
+  // How many hands the game's log holds: the finished ones only.
+  let loggedHands = $state(0);
+  let fileNote = $state('');
   let configured = false;
   const positions = ['Followed agent', 'Right', 'Opposite', 'Left'];
   let recommendedTile = $derived(!busy && ['discard', 'riichi'].includes(analysis?.choice.kind) ? analysis.choice.tile : null);
@@ -41,13 +47,14 @@
   let displayWaits = $derived(recommendedHint?.waits ?? view?.waits ?? []);
   let displayLeft = $derived(recommendedHint?.waits_left ?? view?.waits_left ?? []);
   let hintShanten = $derived(recommendedHint?.shanten ?? view?.shanten);
+  // A Trained seat may be waiting for the network's first download.
+  let download = $derived(watch?.lineup.some(isTrained) ? waitingNote('', offline) : '');
   $effect(() => {
     if (!configured) {
       // Availability may arrive after selected-set startup. Keep an untouched
       // draft provisional, but freeze it on explicit edits or Start watching.
       if (trainedAvailable) configured = true;
-      const available = trainedAvailable ? 'full' : 'club';
-      lineup = [available, ...opponents.map(value => value === 'neural' ? available : value)];
+      lineup = Array(4).fill(trainedAvailable ? 'full' : 'club');
     }
   });
   function update(owner) {
@@ -60,9 +67,22 @@
     waiting = owner.waitingOnHandEnd;
     log = owner.match.events;
     standings = owner.match.over ? owner.match.engine.standings() : null;
+    loggedHands = owner.match.engine.game_log_hands();
+  }
+  // The whole game from East 1, as Play saves it. The engine leaves out a
+  // hand still being played, whose deal would show every seat's tiles.
+  function saveGame() {
+    const owner = watch;
+    if (!owner || owner.closed || !view) return;
+    try {
+      const labels = owner.lineup.map((agent, index) => `${positions[index]} (${AGENTS[agent]})`);
+      saveLogFile(gameFileName(), owner.match.engine.game_log(playerNames(view, labels)));
+      fileNote = '';
+    } catch { fileNote = 'The game could not be saved to a file. The watched game is unchanged.'; }
   }
   function start() {
     configured = true;
+    fileNote = '';
     watch?.dispose();
     watch = new WatchSession(Game, Date.now() % 2 ** 31, lineup, {
       ai: (planes, mask, signal) => chooseAction(planes, mask, signal),
@@ -71,6 +91,14 @@
     watch.autoplay = auto;
     watch.pauseAtHandEnd = holdAtHandEnd;
     void watch.prepare();
+  }
+  // When the network cannot be loaded (offline before its download, too
+  // little memory, a failed download), watch the same table with Club in
+  // every Trained seat. A watched game cannot change agents midway, so this
+  // deals a new one.
+  function watchWithClub() {
+    lineup = (watch?.lineup ?? lineup).map(agent => isTrained(agent) ? 'club' : agent);
+    start();
   }
   function chooseAlternative(choice) {
     const owner = watch, expected = analysis;
@@ -93,7 +121,7 @@
       {#each positions as position, index (index)}
         <label>{position}<select bind:value={lineup[index]} onchange={() => configured = true} aria-label={position}>
           {#each Object.entries(AGENTS) as [key, label] (key)}
-            {#if !isTrained(key) || trainedAvailable}<option value={key}>{label}</option>{/if}
+            {#if !isTrained(key) || trainedAvailable || lineup[index] === key}<option value={key} disabled={isTrained(key) && !trainedAvailable}>{label}</option>{/if}
           {/each}
         </select></label>
       {/each}
@@ -106,10 +134,14 @@
     <label><input type="checkbox" bind:checked={showWeights} /> Show choice weights</label>
     <label>Pace<select value={speed} onchange={event => { speed = Number(event.currentTarget.value); if (watch) { watch.delay = speed; watch.schedule(); } }} aria-label="Watch pace"><option value={700}>Fast</option><option value={1400}>Normal</option><option value={3000}>Slow</option></select></label>
     {#if view}<button onclick={() => watch.step()} disabled={busy || Boolean(standings)}>{view.phase === 'over' ? 'Next hand' : 'Play this choice'}</button>{/if}
+    {#if view}<button data-save-game onclick={saveGame} disabled={!loggedHands}
+      title="Every finished hand of this game from East 1 as one mjai log. The hand being played is left out until it ends.">{standings ? 'Save whole game' : loggedHands ? `Save game so far (${finishedHands(loggedHands)})` : 'No hand has finished yet'}</button>{/if}
   </div>
-  {#if failure}<div role="alert">{failure} <button disabled={busy} onclick={() => watch.prepare()}>Retry agent</button></div>{/if}
+  {#if failure}<div role="alert">{failure} <button disabled={busy} onclick={() => watch.prepare()}>Retry agent</button>
+    {#if watch?.lineup.some(isTrained)}<button data-watch-club disabled={busy} onclick={watchWithClub}>Watch with Club instead</button>{/if}</div>{/if}
+  {#if fileNote}<p role="status">{fileNote}</p>{/if}
   {#if view}
-    <div class="watch-round"><strong>{view.round} {view.kyoku}</strong><span>{view.wall} tiles left · {view.counters} honba · {view.riichi_sticks} riichi sticks</span><span class="tiles">{#each view.dora_indicators as tile, index (index)}<Tile {tile} size="tiny" />{/each}</span></div>
+    <div class="watch-round"><strong>{view.round} {view.kyoku}</strong><span>{view.wall} tiles left · {view.counters} honba · {view.riichi_sticks} riichi sticks</span><span class="tiles" role="group" aria-label="dora indicators" title="Dora indicators">{#each view.dora_indicators as tile, index (index)}<Tile {tile} size="tiny" />{/each}</span></div>
     <div class="watch-table">
       {#each view.seats as seat, index (index)}
         <section class:followed={index === 0} class:turn={seat.turn}>
@@ -139,14 +171,14 @@
         </section>
       {/each}
     </div>
-    {#if busy}<p role="status">The agents are thinking…</p>
+    {#if busy}<p role="status">The agents are thinking…{download ? ` ${download}` : ''}</p>
     {:else if waiting}<p role="status">The hand is over. Auto play is waiting; deal the next hand when you have read it.</p>
     {:else if analysis && !showWeights}<p role="status">{auto ? 'Auto play is running.' : 'Paused before the followed agent’s next choice.'}</p>{/if}
     {#if showWeights}<AgentWeights {analysis} onchoose={chooseAlternative} disabled={busy || Boolean(standings)} dora={shownDora} />{/if}
-    {#if standings}<Standings {standings} onagain={start} />{/if}
+    {#if standings}<Standings {standings} onagain={start} onsave={saveGame} />{/if}
     {#if view.phase === 'over' && view.outcome}
       <ScoreScreen outcome={view.outcome} seats={view.seats} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
-        onnext={() => watch.step()} reviewed={true} />
+        onnext={() => watch.step()} ongame={saveGame} reviewed={true} />
     {/if}
     <details><summary>Hand history · {log.length} events</summary>{#each log as line, index (index)}<p class="log-line">{line}</p>{/each}</details>
   {/if}

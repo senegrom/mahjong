@@ -11,6 +11,7 @@ import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
+import { matchLabels, playerNames } from '../src/lib/game-log.js';
 await init({module_or_path:readFileSync(new URL('../src/wasm/riichi_bg.wasm',import.meta.url))});
 const web=fileURLToPath(new URL('../',import.meta.url)), dist=resolve(web,'dist'), output=resolve(web,'test-results');
 await mkdir(output,{recursive:true});
@@ -39,19 +40,53 @@ const final=(()=>{
  try{for(let n=0;n<40&&!m.over;n++){finishHand(m,false);before=m.snapshot();events=[...m.events];log=m.engine.log();review=m.engine.review();m.apply({type:'next'});m.advance(false);}assert.ok(m.over);return {before,after:m.snapshot(),events,log,review};}
  finally{m.dispose();}
 })();
+// The same game three moves into its third hand.
+const midway=(()=>{
+ const m=make(14,'beginner');
+ try{
+  for(let n=0;n<2;n++){finishHand(m,false);m.apply({type:'next'});m.advance(false);}
+  for(let n=0;n<3;n++){const c=m.choices,q=c.find(c=>c.kind==='pass')??c.find(c=>c.kind==='discard');step(m,q.kind,q.tile);}
+  assert.notEqual(m.view.phase,'over');return m.snapshot();
+ }finally{m.dispose();}
+})();
+// What the page exports from a save: the same engine, replaying the same
+// commands, asked with the names the page gives the players.
+function exported(snapshot){
+ const m=MatchSession.restore(Game,JSON.stringify(snapshot));
+ try{return {text:m.engine.game_log(playerNames(m.view,matchLabels(m.initialOpponents,m.opponents))),deal:m.engine.log().split('\n')[0],hands:m.engine.game_log_hands()};}
+ finally{m.dispose();}
+}
 const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_KEY);
-async function open(snapshot,{width=1100,height=900,confirm=false,hints=true}={}){
+async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,files=false}={}){
  const page=await (await openContext(browser)).newPage();page.reviewErrors=[];
  page.on('pageerror',error=>page.reviewErrors.push(error.message));await page.setViewport({width,height});
+ // A saved file is kept in the page, name and text, rather than downloaded.
+ if(files)await page.evaluateOnNewDocument(()=>{
+  const blobs=new Map(),create=URL.createObjectURL.bind(URL);
+  URL.createObjectURL=object=>{const url=create(object);blobs.set(url,object);return url;};
+  window.savedFiles=[];
+  HTMLAnchorElement.prototype.click=function(){
+   const file={name:this.download,text:null};window.savedFiles.push(file);
+   void blobs.get(this.href)?.text().then(text=>{file.text=text;});
+  };
+ });
  await page.evaluateOnNewDocument((key,settings,snapshot,confirm,hints)=>{
   if(!localStorage.getItem(key))localStorage.setItem(key,JSON.stringify(snapshot));
-  localStorage.setItem(settings,JSON.stringify({version:1,difficulty:snapshot.difficulty,hints,confirmDiscards:confirm,shortcuts:true}));
+  // Club reviews: these checks open a review without waiting on the network.
+  localStorage.setItem(settings,JSON.stringify({version:1,difficulty:snapshot.difficulty,hints,confirmDiscards:confirm,shortcuts:true,reviewAdviser:'club'}));
  },SAVE_KEY,SETTINGS_KEY,snapshot,confirm,hints);
  await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`,{waitUntil:'networkidle0'});
  await page.waitForSelector('.hand');return page;
 }
 const noErrors=page=>assert.deepEqual(page.reviewErrors,[]);
 const shot=(page,name)=>page.screenshot({path:resolve(output,name+'.png'),fullPage:true});
+async function saveFrom(page,selector){
+ const before=await page.evaluate(()=>window.savedFiles.length);
+ await page.click(selector);
+ await page.waitForFunction(n=>window.savedFiles.length>n&&window.savedFiles.at(-1).text!==null,{},before);
+ return page.evaluate(()=>window.savedFiles.at(-1));
+}
+const lines=text=>text.trimEnd().split('\n').map(line=>JSON.parse(line));
 try{
  await new Promise(done=>server.listen(0,'127.0.0.1',done));
  browser=await launchChrome();
@@ -162,12 +197,71 @@ try{
   await review.click();await p.waitForSelector('.review');assert.equal(await p.$$eval('.log p',els=>els.length),final.events.length);
   await shot(p,'final-standings-with-review');noErrors(p);
  });
+ await check('the game exports from East 1 from the settings, the score screen and the standings, never with the hand in play',async()=>{
+  const fileName=/^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/;
+  const opensAtEastOne=events=>{
+   assert.equal(events[0].type,'start_game');assert.equal(events[0].names.filter(name=>name==='You').length,1);
+   const deal=events.find(event=>event.type==='start_kyoku');
+   assert.deepEqual([deal.bakaze,deal.kyoku,deal.honba,deal.oya],['E',1,0,0]);
+  };
+  // Three moves into the third hand: the two finished hands, from the
+  // settings, and nothing of the hand on the table.
+  const mid=exported(midway);assert.equal(mid.hands,2);
+  let p=await open(midway,{files:true});
+  await p.click('.game-export > summary');
+  assert.match(await p.$eval('.game-export',el=>el.textContent),/hand being played is left out until it ends/);
+  assert.equal(await p.$eval('.game-export [data-save-game]',el=>el.textContent.trim()),'Save 2 finished hands');
+  let file=await saveFrom(p,'.game-export [data-save-game]');
+  assert.match(file.name,fileName);assert.equal(file.text,mid.text+'\n');
+  assert.ok(!file.text.includes(mid.deal),'the deal of the hand in play is not in the file');
+  let events=lines(file.text);opensAtEastOne(events);
+  assert.equal(events.filter(event=>event.type==='start_kyoku').length,2);
+  assert.equal(events.at(-1).type,'end_kyoku');
+  assert.equal(events.filter(event=>event.type==='start_game').length,1);
+  await shot(p,'export-settings');noErrors(p);
+  // At the score screen of the last hand: every hand, that one included,
+  // and no close, since the game is not over until the hand is put away.
+  const last=exported(final.before);
+  p=await open(final.before,{files:true});
+  assert.equal(await p.$eval('.screen [data-save-game]',el=>el.innerText.trim()),'Save game so far');
+  file=await saveFrom(p,'.screen [data-save-game]');
+  assert.match(file.name,fileName);assert.equal(file.text,last.text+'\n');
+  events=lines(file.text);opensAtEastOne(events);
+  assert.ok(file.text.includes(last.deal),'the finished hand is in the file');
+  assert.equal(events.filter(event=>event.type==='start_kyoku').length,last.hands);
+  assert.notEqual(events.at(-1).type,'end_game');noErrors(p);
+  // At the standings: the whole game, close and all.
+  const whole=exported(final.after),view=JSON.parse(final.after.state)[0];
+  p=await open(final.after,{files:true});await p.waitForSelector('.standings');
+  // Beside the standings the final result does not offer the file again.
+  assert.equal(await p.$eval('.screen [data-save-game]',el=>el.getClientRects().length),0,'the standings offer the whole game');
+  file=await saveFrom(p,'.standings [data-save-game]');
+  assert.match(file.name,fileName);assert.equal(file.text,whole.text+'\n');
+  events=lines(file.text);opensAtEastOne(events);
+  assert.equal(events.filter(event=>event.type==='start_kyoku').length,view.hands_played);
+  assert.equal(events.at(-1).type,'end_game');
+  await shot(p,'export-standings');noErrors(p);
+ });
+ await check('on a phone the final result, which covers the standings, saves the whole game itself',async()=>{
+  const whole=exported(final.after);
+  for(const [width,height,label] of [[390,844,'Save game'],[320,568,'Save game']]){
+   const p=await open(final.after,{width,height,files:true});await p.waitForSelector('.standings');
+   assert.equal(await p.$eval('.screen [data-save-game]',el=>el.innerText.trim()),label);
+   const file=await saveFrom(p,'.screen [data-save-game]');
+   assert.match(file.name,/^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/);
+   assert.equal(file.text,whole.text+'\n');assert.equal(lines(file.text).at(-1).type,'end_game');
+   await shot(p,`export-final-${width}x${height}`);noErrors(p);
+  }
+ });
  for(const [width,height] of [[320,568],[390,844],[844,390]])await check(`ura and final-hand results fit ${width}x${height}`,async()=>{
   for(const [label,snapshot] of [['ura',wins[1]],['final',final.after]]){
    const p=await open(snapshot,{width,height});
    const overflow=await p.evaluate(()=>({viewport:innerWidth,document:document.documentElement.scrollWidth,wide:[...document.querySelectorAll('*')].map(el=>{const r=el.getBoundingClientRect();return{tag:el.tagName,cls:el.className?.toString?.()??'',left:r.left,right:r.right,width:r.width,scroll:el.scrollWidth,client:el.clientWidth};}).filter(x=>x.right>innerWidth+1||x.left<-1||x.scroll>x.client+1).sort((a,b)=>Math.max(b.right-innerWidth,b.scroll-b.client)-Math.max(a.right-innerWidth,a.scroll-a.client)).slice(0,12)}));
    assert.ok(overflow.document<=overflow.viewport+1,JSON.stringify(overflow));
    assert.ok(await p.$$eval('.screen,.standings,.bonus-indicators',els=>els.every(el=>el.scrollWidth<=el.clientWidth+1)));
+   // Saving the game as well as the hand takes no extra row over the result.
+   const rows=await p.$$eval('.screen .buttons button',els=>new Set(els.filter(el=>el.getClientRects().length).map(el=>Math.round(el.getBoundingClientRect().top))).size);
+   assert.ok(rows<=3,`${rows} rows of buttons`);
    await shot(p,`${label}-${width}x${height}`);noErrors(p);
   }
  });

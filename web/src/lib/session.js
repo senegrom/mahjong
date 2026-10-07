@@ -2,7 +2,7 @@
  * a replaceable global Game. Saves replay legal commands on the real engine;
  * they never deserialize arbitrary internal Rust state or rerun neural choices.
  */
-import { normalizeOpponents, opponentPreset, OPPONENT_TYPES, OPPONENT_POSITIONS } from './opponents.js';
+import { normalizeOpponents, opponentPreset, DEFAULT_OPPONENT, OPPONENT_TYPES, OPPONENT_POSITIONS } from './opponents.js';
 import { normalizeTileFace } from './tile-faces.js';
 
 export const SAVE_KEY = 'riichi.match.v2';
@@ -17,8 +17,17 @@ function require(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+/** The review adviser a player starts with: the trained network. */
+export const DEFAULT_REVIEW_ADVISER = 'strong';
+
+/** Trained is the default opponent and review adviser, but only where nothing
+ * is saved. A saved value is kept as it stands, Club included: the page writes
+ * the whole record on its first visit, so a stored Club cannot be told from a
+ * Club that was only the old default, and turning a deliberate Club into
+ * Trained would cost that player a 116 MB download and a stronger table they
+ * had chosen against. A setting the record does not hold takes today's default. */
 export function readSettings(storage, touch = false) {
-  const defaults = { difficulty: 'club', hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: 'club' };
+  const defaults = { difficulty: DEFAULT_OPPONENT, hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: DEFAULT_REVIEW_ADVISER };
   try {
     const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
     if (value?.version !== VERSION) return defaults;

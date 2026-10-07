@@ -26,11 +26,11 @@
       <div class="wall"><strong>{view.wall}</strong><span>tiles left</span></div>
     </div>
     <div class="table-indicators">
-      <div class="indicator-line"><span>Dora</span><div class="indicators" role="group" aria-label="dora indicators">
+      <div class="indicator-line"><span>Dora indicators</span><div class="indicators" role="group" aria-label="dora indicators">
         {#each view.dora_indicators as indicator, slot (slot)}<Tile tile={indicator} size="small" />{/each}
       </div></div>
       {#if uraIndicators.length}
-        <div class="indicator-line"><span>Ura-dora</span><div class="ura-indicators" role="group" aria-label="ura-dora indicators">
+        <div class="indicator-line"><span>Ura-dora indicators</span><div class="ura-indicators" role="group" aria-label="ura-dora indicators">
           {#each uraIndicators as indicator, slot (slot)}<Tile tile={indicator} size="small" />{/each}
         </div></div>
       {/if}

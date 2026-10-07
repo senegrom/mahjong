@@ -6,6 +6,7 @@
   import { PhysicalStore } from './physical-store.js';
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, setTiles } from './guided-game.js';
   import { tileWords } from './tiles.js';
+  import { waitingNote } from './ui.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import HandTile from './HandTile.svelte';
@@ -14,7 +15,7 @@
   import AgentWeights from './AgentWeights.svelte';
   import GuidedResult from './GuidedResult.svelte';
 
-  let { trainedAvailable, storage, hints = true } = $props();
+  let { trainedAvailable, storage, hints = true, offline = null } = $props();
   const trainedSupported = supportsTrainedAgent(PhysicalAnalysis.prototype);
   let game = $state(emptyGuided());
   let state = $derived(game.state);
@@ -38,6 +39,8 @@
     ? position.after_quad ? 'What is your replacement tile?' : 'What did you draw?'
     : `${WINDS[state.nextSeat]} discard?`);
   let candidates = $derived(WINDS.map((name, seat) => ({ name, seat })).filter(s => s.seat !== position.turn && s.seat !== position.seat && s.seat !== state.claim?.seat));
+  // Trained advice may be waiting for the network's first download.
+  let download = $derived(isTrained(state.agent) ? waitingNote('', offline) : '');
 
   async function load() {
     request?.abort(); analysis = null; busy = false; loaded = false;
@@ -111,7 +114,7 @@
     if (!loaded || conflict || !window.confirm('Start a new guided game? This replaces its saved progress.')) return;
     if (unreadable) {
       if (await loadedStore.save(emptyGuided(), { clearUnreadable: true })) await load();
-    } else { game = emptyGuided(); failure = ''; }
+    } else { game = emptyGuided(state.agent); failure = ''; }
   }
   function finish() {
     const result = resultKind === 'Exhaustive draw' || resultKind === 'Other hand end' ? resultKind : `${WINDS[resultSeat]}: ${resultKind}`;
@@ -172,7 +175,7 @@
         <TileEntry label="Your starting hand" tiles={mine.hand} limit={13} expanded onchange={tiles => edit(s => { s.position.players[s.position.seat].hand = tiles; })} />
         <button class="primary" disabled={mine.hand.length !== 13} onclick={() => act({ type: 'hand' })}>Next · dora indicator</button>
       {:else if state.stage === 'dora' || state.stage === 'indicator'}
-        <p class="eyebrow">{state.stage === 'dora' ? '3 · Dora' : 'Kan · new indicator'}</p><h3>{state.stage === 'dora' ? 'Which dora indicator is showing?' : 'Which new dora indicator was revealed?'}</h3>
+        <p class="eyebrow">{state.stage === 'dora' ? '3 · Dora indicator' : 'Kan · new indicator'}</p><h3>{state.stage === 'dora' ? 'Which dora indicator is showing?' : 'Which new dora indicator was revealed?'}</h3>
         <p>Enter the face-up indicator tile itself.</p>
         <TileEntry label={state.stage === 'dora' ? 'First dora indicator' : 'New kan indicator'} expanded onadd={tile => act({ type: 'indicator', tile })} />
       {:else if state.stage === 'turn'}
@@ -188,10 +191,11 @@
         </details>{/if}
       {:else if state.stage === 'decision'}
         <p class="eyebrow">Agent advice</p><h3>{position.phase === 'call' ? `${WINDS[position.turn]} ${position.pending_kind === 'discard' ? 'discarded' : 'declared a kan of'} ${tileWords(position.pending)}` : 'What should you play?'}</h3>
-        {#if busy}<p role="status">Your adviser is thinking…</p>{/if}
+        {#if busy}<p role="status">Your adviser is thinking…{download ? ` ${download}` : ''}</p>{/if}
         {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} disabled={busy || blocked} />
           <button class="primary record-best" onclick={() => choose(analysis.choice, false)}>Record suggested move</button>
-        {:else if !busy}<button onclick={() => analyze()}>Retry advice</button>{/if}
+        {:else if !busy}<button onclick={() => analyze()}>Retry advice</button>
+          {#if failure && isTrained(state.agent)}<button data-guided-club onclick={() => edit(s => { s.agent = 'club'; })}>Use Club as adviser</button>{/if}{/if}
         <p>Record the move you play at the table. The hand, calls and discards update together.</p>
       {:else if state.stage === 'responses' || state.stage === 'claim-response'}
         <p class="eyebrow">Other players’ responses</p><h3>{state.claim ? `${WINDS[state.claim.seat]} called ${state.claim.kind}. Did anyone call ron?` : `Did anyone call ${tileWords(position.pending)}?`}</h3>
