@@ -73,7 +73,8 @@ class Steered:
     round has many reaches, each tile drawn from the network's own
     probabilities, from the batch the switch puts it in. `forward(planes,
     mask)` answers the logits and the value; `asked` counts the rows of
-    each question, a list a step."""
+    each question, a list a step. A generator to draw from, which a round
+    drawing apart hands its learner, goes on to the deciding."""
 
     kind = "mortal"
 
@@ -88,7 +89,7 @@ class Steered:
 
     @torch.no_grad()
     def decide(self, views, rows, players, legal, greedy=False, explore_share=0.0, wanderer=None,
-               preview_reach=False):
+               preview_reach=False, **draws):
         taught = np.frombuffer(views.arena.teacher(), dtype=np.uint8)[rows].astype(np.int64)
         asked: list[int] = []
         self.asked.append(asked)
@@ -111,7 +112,7 @@ class Steered:
 
         return mortal_learner.decide_in_mortal_space(
             score, views, rows, players, legal, greedy, self.device, self.timing,
-            explore_share=explore_share, wanderer=wanderer, preview_reach=preview_reach)
+            explore_share=explore_share, wanderer=wanderer, preview_reach=preview_reach, **draws)
 
 
 def reaching(choice: np.ndarray) -> np.ndarray:

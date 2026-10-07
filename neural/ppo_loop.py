@@ -383,10 +383,12 @@ class PlayAhead:
         """Abandons a round still being played, at its next step, and lets
         the worker go once it has stopped. What stopped the round is not
         asked: a trainer comes here with a round still being played only on
-        its way out with an error of its own, which is the one to see."""
-        if self.round is not None:
-            self.abandon.set()
-            self.round = None
+        its way out with an error of its own, which is the one to see. The
+        round is abandoned whether or not it is still held here, since
+        `take` lets go of it before waiting, and a wait that was itself
+        interrupted would otherwise leave it to play to the end."""
+        self.abandon.set()
+        self.round = None
         self.worker.shutdown(wait=True)
 
 

@@ -26,10 +26,12 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from neural import combined, mortal_model, policy_inference, ppo_loop, selfplay, train_combined
+from neural import combined, mortal_model, policy_inference, ppo_loop, selfplay, train_combined, zoo
 from neural.observe import Planes
 from neural.tests import test_mixed_tables
+from neural.tests.test_baseline_from_play import varied
 from neural.tests.test_bfloat16_players import fusion
+from neural.tests.test_preview_reach import Steered
 from neural.training_state import round_seed
 
 CUDA = torch.cuda.is_available()
@@ -172,6 +174,29 @@ class SamplingTests(unittest.TestCase):
         for name in ("actions", "log_probs", "returns", "explored", "values"):
             self.assertTrue(torch.equal(getattr(one, name), getattr(two, name)), name)
 
+    def test_a_round_reaching_often_draws_its_tiles_apart_too(self):
+        """Steered to reach often (see `test_preview_reach.Steered`), the
+        reaches' tiles come from the round's generator as well, by telling
+        and by asking ahead: the same round whatever torch's generator
+        holds, and torch's left alone."""
+        torch.set_num_threads(2)
+        torch.manual_seed(31)
+        joined = varied(fusion(16, 2)).eval()
+        for preview in (False, True):
+            rounds = []
+            for seed in (100, 200):
+                torch.manual_seed(seed)
+                before = torch.get_rng_state().clone()
+                learner = Steered(lambda planes, mask: joined.decision(planes, mask)[:2])
+                rounds.append(selfplay.play(learner, games=4, seed=41, device="cpu", explore_share=0.05,
+                                            preview_reach=preview, own_draws=True))
+                self.assertTrue(torch.equal(before, torch.get_rng_state()))
+            one, two = rounds
+            with self.subTest(preview_reach=preview):
+                self.assertGreater(int((one.actions == zoo.MORTAL_RIICHI).sum()), 20)
+                for name in ("actions", "log_probs", "returns", "explored", "values"):
+                    self.assertTrue(torch.equal(getattr(one, name), getattr(two, name)), name)
+
     def test_an_abandoned_round_stops_at_its_next_step(self):
         torch.manual_seed(1)
         abandon = threading.Event()
@@ -275,6 +300,29 @@ class PlayAheadTests(unittest.TestCase):
         self.assertLess(time.time() - began, 5.0)
         self.assertEqual(stopped, [True])
         self.assertFalse(any(thread.name.startswith("play-ahead") for thread in threading.enumerate()))
+
+    def test_closing_gives_up_a_round_no_longer_held(self):
+        """`take` lets go of the round before it waits for it; a wait
+        interrupted there leaves the round playing, and closing gives it up
+        all the same."""
+        stopped = []
+
+        def play(_player, _generation, abandon, **_options):
+            for _step in range(1000):
+                if abandon.is_set():
+                    stopped.append(True)
+                    raise selfplay.Abandoned("as asked")
+                time.sleep(0.01)
+            return "finished"
+
+        ahead = ppo_loop.PlayAhead(self.learner, self.actor, "cpu", play)
+        ahead.start(1)
+        # As `take` leaves it the moment before it waits.
+        ahead.round = None
+        began = time.time()
+        ahead.close()
+        self.assertLess(time.time() - began, 5.0)
+        self.assertEqual(stopped, [True])
 
     @unittest.skipUnless(CUDA, "streams are the card's")
     def test_on_the_card_a_round_is_played_on_a_stream_of_its_own(self):
