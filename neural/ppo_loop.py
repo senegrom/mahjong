@@ -237,9 +237,8 @@ def baseline_of(
     the learner recorded as it played (`batch.values`): the same head on
     the same weights, in the same mode and precision, over the same planes,
     with only the batches the rows went through different, which in
-    bfloat16 can move a value in its last bits; or, for a round played
-    ahead (`PlayAhead`), the same head on the weights of the generation
-    before, which played it. A round without them gets the pass. Without the pass nothing checks the round's planes whole
+    bfloat16 can move a value in its last bits. A round without them gets
+    the pass. Without the pass nothing checks the round's planes whole
     once, so each minibatch checks its own in full instead (see `Planes`).
     `check` makes the pass as well and records how far play's values are
     from it, the largest gap and the mean."""

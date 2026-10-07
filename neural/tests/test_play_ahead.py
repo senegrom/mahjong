@@ -5,10 +5,11 @@ precedes, by the learner as it stands. The round is exactly the one those
 weights play, drawn from a generator of its own whatever the learning does
 meanwhile. What stops a round is raised where it is taken, a round still
 being played when the learning fails is given up, nothing is played past
-the last generation, play's values are the baseline whichever weights
-played, Mortal's vectors are learned from only where they are the
-learner's Mortal's and kept only where they will be, and a run resumes
-from what either way of playing wrote."""
+the last generation, play's values are the baseline only where they are
+the learner's own, Mortal's vectors are learned from only where they are
+the learner's Mortal's and kept only where they will be read, the round
+leaves the learning's autocast casts alone, and a run resumes from what
+either way of playing wrote."""
 
 import contextlib
 import copy
@@ -484,10 +485,10 @@ class TrainerTests(unittest.TestCase):
         self.assertEqual([record["generation"] for record in trainer.records], [0])
         self.assertFalse(any(thread.name.startswith("play-ahead") for thread in threading.enumerate()))
 
-    def test_plays_values_are_the_baseline_whichever_weights_played_the_round(self):
-        """The first round's values are the learner's own as it stands;
-        the second's, played ahead, those of the weights from before.
-        Either is the baseline, with no pass, as without the switch."""
+    def test_plays_values_are_the_baseline_only_where_the_learner_played_the_round(self):
+        """The first round's values are the learner's own as it stands, and
+        are the baseline; a round played ahead was valued by the weights
+        from before, and gets the pass."""
         values = torch.linspace(-0.5, 0.5, 8)
         returns = torch.linspace(-1, 1, 8)
         passes = []
@@ -502,17 +503,23 @@ class TrainerTests(unittest.TestCase):
         records = Trainer(self).run(["--play-ahead", "--baseline-from-play"], rounds=3,
                                     play=Rounds(values=values), patches=[counted])
         self.assertEqual([record["played_ahead"] for record in records], [False, True, True])
-        self.assertEqual(passes, [])
-        for record in records:
-            self.assertIs(record["baseline_from_play"], True)
-            self.assertAlmostEqual(record["value_error"], round(float(((returns - values) ** 2).mean()), 4))
-        # Checked, the pass is made for each as well, and how far play's
-        # values were from it is said.
+        # The first, the learner's own: its values, and no pass.
+        self.assertIs(records[0]["baseline_from_play"], True)
+        self.assertAlmostEqual(records[0]["value_error"], round(float(((returns - values) ** 2).mean()), 4))
+        # The others, played by the weights from before: the pass.
+        self.assertEqual(len(passes), 2)
+        for record, passed in zip(records[1:], passes):
+            self.assertNotIn("baseline_from_play", record)
+            self.assertAlmostEqual(record["value_error"], round(float(((returns - passed) ** 2).mean()), 4))
+        # Checked, the pass is made for each, and how far play's values were
+        # from it is said, a generation's drift of the head for a round
+        # played ahead.
+        passes.clear()
         records = Trainer(self).run(["--play-ahead", "--baseline-from-play", "--check-baseline"], rounds=2,
                                     play=Rounds(values=values), patches=[counted])
         self.assertEqual(len(passes), 2)
+        self.assertEqual(["baseline_from_play" in record for record in records], [True, False])
         for record, passed in zip(records, passes):
-            self.assertIs(record["baseline_from_play"], True)
             self.assertAlmostEqual(record["baseline_difference"], round(float((values - passed).abs().max()), 6))
         # Without the switch, the pass, for a round played ahead too.
         passes.clear()

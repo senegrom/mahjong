@@ -220,8 +220,8 @@ def parse_args() -> argparse.Namespace:
         "bound by the card, then overlap. Each round is played by the weights of a generation "
         "before the ones that learn it, a process's first excepted; PPO's ratio divides by the "
         "probabilities the round recorded, so its weighting stays exact, but its clip covers "
-        "two generations' drift. --baseline-from-play then measures the advantages against the "
-        "values of the weights that played the round, a generation older than a pass's, and "
+        "two generations' drift. --baseline-from-play then takes play's values only from a "
+        "round the learner played itself, a process's first, and makes the pass for the rest; "
         "--reuse-phi learns from Mortal's vectors only where nothing moved Mortal between the "
         "round and its learning. Off by default; not with --compile",
     )
@@ -502,13 +502,17 @@ def main() -> None:
 
             guess, valued, baseline_said = ppo_loop.baseline_of(
                 rollout, batch, rows, values_of,
-                # A round played ahead was valued as it was played by the
-                # head of the generation before, not by the head as it stands
-                # (see --play-ahead): a baseline need only not depend on the
-                # move made, which that one does not, and it never saw the
-                # round either. Checked, the record says how far it is from
-                # the pass.
-                from_play=args.baseline_from_play,
+                # Play's values are the head's as it stands only in a round
+                # the learner played itself. One played ahead was valued by
+                # the head of the generation before, and a generation's
+                # learning moves that head far beyond the bfloat16 noise the
+                # switch was accepted for: on this desktop, at fusion-long's
+                # rates, such values stood 0.18 to 0.28 from the pass on
+                # average, where the learner's own stood 0.0006. Still a
+                # baseline, since it does not depend on the move made, but a
+                # worse one, so such a round gets the pass; checked, the
+                # record says how far the head moved.
+                from_play=args.baseline_from_play and not lagged,
                 check=args.check_baseline, dtype=planes_dtype,
             )
             value_error = float(((rollout.returns - guess) ** 2).mean())
