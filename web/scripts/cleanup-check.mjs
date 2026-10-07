@@ -56,7 +56,8 @@ function calledGame(offered) {
   p.players[0].hand = [...['1m', '2m', '3m'].filter(tile => tile !== offered), ...parseTiles('456p789s11223z')];
   p.players[3].discards = [{ tile: offered, order: 0, drawn: false, riichi: false, claimed: false }];
   const choice = { kind: 'chii', tile: '1m' };
-  const game = emptyGuided();
+  // Club advises the decision this leaves, so no check here waits on the network.
+  const game = emptyGuided('club');
   Object.assign(game.state, { position: recordChoice(p, choice, [choice]), stage: 'decision', nextSeat: 0, needsDraw: false });
   game.past = [{ state: { ...structuredClone(game.state), position: p }, logLength: 0 }];
   game.log = ['Recorded chii'];

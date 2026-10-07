@@ -119,7 +119,7 @@
       {#each positions as position, index (index)}
         <label>{position}<select bind:value={lineup[index]} onchange={() => configured = true} aria-label={position}>
           {#each Object.entries(AGENTS) as [key, label] (key)}
-            {#if !isTrained(key) || trainedAvailable}<option value={key}>{label}</option>{/if}
+            {#if !isTrained(key) || trainedAvailable || lineup[index] === key}<option value={key} disabled={isTrained(key) && !trainedAvailable}>{label}</option>{/if}
           {/each}
         </select></label>
       {/each}

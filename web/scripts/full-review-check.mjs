@@ -72,7 +72,8 @@ async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,fil
  });
  await page.evaluateOnNewDocument((key,settings,snapshot,confirm,hints)=>{
   if(!localStorage.getItem(key))localStorage.setItem(key,JSON.stringify(snapshot));
-  localStorage.setItem(settings,JSON.stringify({version:1,difficulty:snapshot.difficulty,hints,confirmDiscards:confirm,shortcuts:true}));
+  // Club reviews: these checks open a review without waiting on the network.
+  localStorage.setItem(settings,JSON.stringify({version:1,difficulty:snapshot.difficulty,hints,confirmDiscards:confirm,shortcuts:true,reviewAdviser:'club'}));
  },SAVE_KEY,SETTINGS_KEY,snapshot,confirm,hints);
  await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`,{waitUntil:'networkidle0'});
  await page.waitForSelector('.hand');return page;

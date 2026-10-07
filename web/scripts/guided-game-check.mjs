@@ -57,6 +57,14 @@ async function open(context, width = 1100, { probe } = {}) {
   await page.waitForSelector('.guided-controls:not(:disabled)');
   return page;
 }
+const adviser = '[aria-label="Guided game adviser"]';
+/** A new guided game is advised by the trained network. Checks of the guide
+ * itself choose Club, so they never wait on the network's download. */
+async function club(page) {
+  assert.equal(await page.$eval(adviser, el => el.value), 'full', 'a new guided game starts on the trained adviser');
+  await page.select(adviser, 'club');
+  await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.game.state.agent === 'club', {}, GUIDED_KEY);
+}
 async function setup(page, seat = '3') {
   await page.select('[aria-label="Your seat"]', seat);
   await page.click('.guide-prompt > .primary'); await stage(page, 'hand');
@@ -94,6 +102,7 @@ try {
   browser = await launchChrome();
   await check('North walkthrough, automatic suggestions, cancellation, saved undo, opponent call and next hand', async context => {
     const page = await open(context);
+    await club(page);
     await setup(page);
     for (const [seat, t] of ['9m', '8m', '7m'].entries()) {
       assert.equal((await saved(page)).state.nextSeat, seat);
@@ -167,9 +176,11 @@ try {
     const stopObserving = await observeNetworkRequests(context, request => {
       if (request.url === network && request.method === 'GET') modelRequests.push(request.url);
     });
+    // Club first, then a saved trained preference: see club().
+    await club(page);
     await setup(page, '0');
     await tile(page, '4z'); await choice(page);
-    const selector = '[aria-label="Guided game adviser"]';
+    const selector = adviser;
     // A typed-in position is replayed into the events the network's encoder
     // needs, so the trained adviser is offered here as it is in a live game.
     assert.deepEqual(await page.$$eval(`${selector} option:not(:disabled)`, options => options.map(o => o.value)), ['beginner', 'club', 'full']);
@@ -244,7 +255,7 @@ try {
     assert.deepEqual(page.problems, []);
   });
   await check('two windows stop conflicting edits and reload the newer guided prompt', async context => {
-    const a = await open(context); await setup(a);
+    const a = await open(context); await club(a); await setup(a);
     const b = await open(context); await stage(b, 'turn');
     // Chrome may suspend animation-frame work in the background tab. Clicks
     // and waitForFunction must run in the tab a real user has activated.
