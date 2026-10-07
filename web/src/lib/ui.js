@@ -3,10 +3,14 @@ import { sequenceWords, tileWords } from './tiles.js';
 /** What the table says while a Trained opponent waits for the network. The
  * opponent's worker reports its own loading; before that worker starts, the
  * page is usually still saving the network for offline play (on a first
- * visit, the whole 116 MB), and that download's progress is the wait. */
+ * visit, the whole 116 MB), and that download's progress is the wait. On a
+ * first visit that download cannot begin until the service worker has saved
+ * the game and every tile graphic, about 100 MB more, which reports no
+ * progress: the note says what is happening rather than nothing for minutes. */
 export function waitingNote(note, offline) {
   if (note) return note;
-  return offline?.phase === 'ai' ? `downloading the trained network ${offline.progress ?? 0}%` : '';
+  if (offline?.phase === 'ai') return `downloading the trained network ${offline.progress ?? 0}%`;
+  return offline?.installing ? 'saving the game and tile graphics, then downloading the trained network' : '';
 }
 
 export function heldSafeCount(view) {

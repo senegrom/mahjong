@@ -26,14 +26,24 @@ const ai = new Set(manifest.entries.filter(entry => entry.group === 'ai').map(en
 const runtime = new Set([...ai].filter(url => url.endsWith('.wasm')));
 
 // The trained AI's own files can be counted, and its runtime held back, so
-// its download can be watched while it is still under way.
-const requested = new Map(), waiting = new Set();
-let holding = false;
+// its download can be watched while it is still under way. The tile faces a
+// first visit does not show can be held too: the service worker's install
+// saves them all before it activates, so this keeps it installing.
+const requested = new Map(), waiting = new Set(), installing = new Set();
+let holding = false, holdingFaces = false;
+const unusedFace = name => ['tiles/dali/', 'tiles/matisse/', 'tiles/van-gogh/'].some(folder => name.startsWith(folder));
 const server = createServer(createFixtureHandler({ root: dist, publicRoot: dist, intercept: async name => {
   requested.set(name, (requested.get(name) ?? 0) + 1);
+  if (holdingFaces && unusedFace(name)) await new Promise(done => installing.add(done));
   if (holding && runtime.has(name)) await new Promise(done => waiting.add(done));
 } }));
+function releaseFaces() {
+  holdingFaces = false;
+  for (const done of installing) done();
+  installing.clear();
+}
 function release() {
+  releaseFaces();
   holding = false;
   for (const done of waiting) done();
   waiting.clear();
@@ -115,7 +125,7 @@ try {
   browser = await launchChrome({ args: [`--host-resolver-rules=MAP ${new URL(networkUrl).hostname} ~NOTFOUND`] });
 
   await check('a first visit plays Trained opponents, shows their download on the table and continues with Club when it fails', async () => {
-    holding = true;
+    holding = true; holdingFaces = true;
     const page = await open();
     await page.waitForSelector('.board');
     assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'neural');
@@ -123,10 +133,19 @@ try {
     assert.deepEqual((await match(page)).opponents, ['neural', 'neural', 'neural']);
     assert.deepEqual(await settings(page), { version: 1, difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
       hints: true, confirmDiscards: false, shortcuts: true, tileFace: 'classic', reviewAdviser: 'strong' });
-    // East discards first; then, or at once, a Trained opponent waits for the network.
-    await page.waitForFunction(() => /downloading the trained network \d+%/.test(document.querySelector('#hand-help')?.textContent ?? '')
-      || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 });
-    if (!/downloading/.test(await prompt(page))) await page.click('.hand button[data-hand-index]:not(:disabled)');
+    // East discards first; then, or at once, a Trained opponent waits. On a
+    // first visit the network's download waits for the service worker to
+    // save the game and every tile graphic, about 100 MB with no progress of
+    // its own, and the table says so rather than only "thinking".
+    const install = 'saving the game and tile graphics, then downloading the trained network';
+    await page.waitForFunction(text => document.querySelector('#hand-help')?.textContent.includes(text)
+      || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 }, install);
+    if (!(await prompt(page)).includes(install)) await page.click('.hand button[data-hand-index]:not(:disabled)');
+    await page.waitForFunction(text => document.querySelector('#hand-help')?.textContent.includes(text), { timeout: 60000 }, install);
+    assert.ok(installing.size > 0, 'the service worker is still saving the unused faces');
+    assert.match(await page.$eval('[data-offline-status]', el => el.textContent), /Offline: not ready/);
+    await page.screenshot({ path: resolve(output, 'trained-default-install.png'), fullPage: true });
+    releaseFaces();
     await downloading(page, '#hand-help');
     assert.match(await page.$eval('[data-offline-status]', el => el.textContent), /Saving AI… \d+%/);
     await page.screenshot({ path: resolve(output, 'trained-default-download.png'), fullPage: true });

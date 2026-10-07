@@ -49,7 +49,7 @@
   let startupNote = $state('Loading the game and selected tile graphics…');
   // One trained network ships with the game, so its download is the only
   // optional one: readiness and availability are read straight from offline.
-  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, persistent: false, updateReady: false });
+  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, installing: false, persistent: false, updateReady: false });
   let failure = $state('');
   let storageWarning = $state('');
   let saveConflict = $state('');

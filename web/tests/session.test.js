@@ -160,6 +160,13 @@ test('the table shows the network download while a Trained opponent waits for it
   assert.equal(waitingNote('', { phase: 'ai' }), 'downloading the trained network 0%');
   for (const phase of ['checking', 'ready', 'incomplete', 'unavailable']) assert.equal(waitingNote('', { phase, progress: 40 }), '');
   assert.equal(waitingNote('', null), '');
+  // A first visit's download waits for the service worker to save the game
+  // and its tile graphics, which reports no progress: that wait is named too.
+  const installing = waitingNote('', { phase: 'checking', progress: 0, installing: true });
+  assert.equal(installing, 'saving the game and tile graphics, then downloading the trained network');
+  assert.equal(waitingNote('starting the network', { phase: 'checking', installing: true }), 'starting the network');
+  assert.equal(waitingNote('', { phase: 'ai', progress: 5, installing: true }), 'downloading the trained network 5%');
+  assert.equal(waitingNote('', { phase: 'checking', installing: false }), '');
 });
 
 test('preferences are written when they change, not each time the effect reruns', () => {

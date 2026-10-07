@@ -37,6 +37,8 @@ export interface OfflineState {
   phase: 'checking' | 'ready' | 'ai' | 'incomplete' | 'unavailable';
   progress: number; warning?: string; coreWarning?: string;
   coreLoading?: boolean; persistent?: boolean; updateReady?: boolean;
+  /** A first visit's service worker is still saving the game to activate. */
+  installing?: boolean;
 }
 export interface OfflineStatusProps { offline: OfflineState; downloadAi: () => void; open?: boolean }
 export interface SettingsProps extends OfflineStatusProps {
