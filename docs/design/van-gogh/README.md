@@ -1,8 +1,8 @@
 # Van Gogh
 
-**Current 9 disks:** Nine Stars I has been restored from the exact original PNG/SVG. The Potter’s Table C is preserved in the design archive. The eight-star adaptation is not deployed; 8 disks is unchanged. Earlier sections below describe the design history.
+**Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is copied byte-for-byte, and Nine Stars remains preserved in the design archive. 8 disks and all other tiles are unchanged. Earlier sections below describe the design history.
 
-**Current set:** 25 painted faces and 9 Classic fallbacks; all nine bamboo identities are covered. Four Oranges A is active for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and the restored Nine Stars I for 9 disks. The history below retains earlier milestone counts.
+**Current set:** 25 painted faces and 9 Classic fallbacks; all nine bamboo identities are covered. Four Oranges A is active for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table C for 9 disks. The history below retains earlier milestone counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
