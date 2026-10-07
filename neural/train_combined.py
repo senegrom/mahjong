@@ -220,9 +220,10 @@ def parse_args() -> argparse.Namespace:
         "bound by the card, then overlap. Each round is played by the weights of a generation "
         "before the ones that learn it, a process's first excepted; PPO's ratio divides by the "
         "probabilities the round recorded, so its weighting stays exact, but its clip covers "
-        "two generations' drift. --baseline-from-play then takes play's values only from a "
-        "round the learner played itself, and --reuse-phi Mortal's vectors only where nothing "
-        "moved Mortal between the round and its learning. Off by default; not with --compile",
+        "two generations' drift. --baseline-from-play then measures the advantages against the "
+        "values of the weights that played the round, a generation older than a pass's, and "
+        "--reuse-phi learns from Mortal's vectors only where nothing moved Mortal between the "
+        "round and its learning. Off by default; not with --compile",
     )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
@@ -460,11 +461,17 @@ def main() -> None:
                     # The next round, played while this one is learned, by the
                     # weights the learner has now; never one past the last
                     # generation, which nothing would learn. Mortal's vectors
-                    # are kept from it only when this generation holds Mortal
-                    # still: the next can learn from them only if nothing
-                    # moved Mortal between the copy and its own learning, and
-                    # this generation's learning is all that comes between.
-                    ahead.start(generation + 1, keep_phi=reusing)
+                    # are kept from it only when this generation and the next
+                    # both hold Mortal still: the next can learn from them
+                    # only if nothing moved Mortal between the copy and its
+                    # own learning, this generation's learning being all that
+                    # comes between, and only if its own learning moves
+                    # Mortal no more. The next generation's mode is the one a
+                    # copy of the drawer draws now, nothing else drawing
+                    # from it.
+                    following = str(copy.deepcopy(drawer).choice(args.fixed))
+                    ahead.start(generation + 1,
+                                keep_phi=reusing and "mortal" in following.split("+"))
             require_trainable_round(batch.decisions, args.batch, args.epochs)
             loading = time.time()
             # Beside a round being played the planes stay on the host: the
@@ -495,13 +502,13 @@ def main() -> None:
 
             guess, valued, baseline_said = ppo_loop.baseline_of(
                 rollout, batch, rows, values_of,
-                # Play's values are the head's as it stands only in a round
-                # the learner played itself. One played ahead was valued by
-                # the head of the generation before, still a baseline that
-                # never saw the round, but a generation older than the one
-                # the switch promises, so it gets the pass; checked, the
-                # record says how far apart the two were.
-                from_play=args.baseline_from_play and not lagged,
+                # A round played ahead was valued as it was played by the
+                # head of the generation before, not by the head as it stands
+                # (see --play-ahead): a baseline need only not depend on the
+                # move made, which that one does not, and it never saw the
+                # round either. Checked, the record says how far it is from
+                # the pass.
+                from_play=args.baseline_from_play,
                 check=args.check_baseline, dtype=planes_dtype,
             )
             value_error = float(((rollout.returns - guess) ** 2).mean())

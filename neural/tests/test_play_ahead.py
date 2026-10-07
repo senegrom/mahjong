@@ -5,9 +5,10 @@ precedes, by the learner as it stands. The round is exactly the one those
 weights play, drawn from a generator of its own whatever the learning does
 meanwhile. What stops a round is raised where it is taken, a round still
 being played when the learning fails is given up, nothing is played past
-the last generation, play's values and Mortal's vectors are learned from
-only where they are the learner's, and a run resumes from what either way
-of playing wrote."""
+the last generation, play's values are the baseline whichever weights
+played, Mortal's vectors are learned from only where they are the
+learner's Mortal's and kept only where they will be, and a run resumes
+from what either way of playing wrote."""
 
 import contextlib
 import copy
@@ -376,7 +377,10 @@ class TrainerTests(unittest.TestCase):
         self.assertEqual([record["generation"] for record in trainer.records], [0])
         self.assertFalse(any(thread.name.startswith("play-ahead") for thread in threading.enumerate()))
 
-    def test_plays_values_are_the_baseline_only_where_the_learner_played_the_round(self):
+    def test_plays_values_are_the_baseline_whichever_weights_played_the_round(self):
+        """The first round's values are the learner's own as it stands;
+        the second's, played ahead, those of the weights from before.
+        Either is the baseline, with no pass, as without the switch."""
         values = torch.linspace(-0.5, 0.5, 8)
         returns = torch.linspace(-1, 1, 8)
         passes = []
@@ -388,31 +392,40 @@ class TrainerTests(unittest.TestCase):
             return guesses
 
         counted = patch.object(ppo_loop, "baseline", side_effect=baseline)
-        records = Trainer(self).run(["--play-ahead", "--baseline-from-play"], rounds=2,
+        records = Trainer(self).run(["--play-ahead", "--baseline-from-play"], rounds=3,
                                     play=Rounds(values=values), patches=[counted])
-        # The first round, the learner's own: its values, and no pass.
-        self.assertIs(records[0]["baseline_from_play"], True)
-        self.assertAlmostEqual(records[0]["value_error"], round(float(((returns - values) ** 2).mean()), 4))
-        # The second, played by the weights from before: the pass.
-        self.assertNotIn("baseline_from_play", records[1])
-        self.assertEqual(len(passes), 1)
-        self.assertAlmostEqual(records[1]["value_error"], round(float(((returns - passes[0]) ** 2).mean()), 4))
-        # Checked, both are made for either, and how far apart they were said.
-        passes.clear()
+        self.assertEqual([record["played_ahead"] for record in records], [False, True, True])
+        self.assertEqual(passes, [])
+        for record in records:
+            self.assertIs(record["baseline_from_play"], True)
+            self.assertAlmostEqual(record["value_error"], round(float(((returns - values) ** 2).mean()), 4))
+        # Checked, the pass is made for each as well, and how far play's
+        # values were from it is said.
         records = Trainer(self).run(["--play-ahead", "--baseline-from-play", "--check-baseline"], rounds=2,
                                     play=Rounds(values=values), patches=[counted])
         self.assertEqual(len(passes), 2)
-        self.assertEqual(["baseline_from_play" in record for record in records], [True, False])
         for record, passed in zip(records, passes):
+            self.assertIs(record["baseline_from_play"], True)
             self.assertAlmostEqual(record["baseline_difference"], round(float((values - passed).abs().max()), 6))
+        # Without the switch, the pass, for a round played ahead too.
+        passes.clear()
+        records = Trainer(self).run(["--play-ahead"], rounds=2, play=Rounds(values=values), patches=[counted])
+        self.assertEqual(len(passes), 2)
+        for record, passed in zip(records, passes):
+            self.assertNotIn("baseline_from_play", record)
+            self.assertAlmostEqual(record["value_error"], round(float(((returns - passed) ** 2).mean()), 4))
 
     def test_mortals_vectors_are_learned_from_only_where_nothing_moved_mortal_since_the_round_began(self):
-        """Modes none, mortal, mortal, ours. The second round was begun
-        before the first generation's learning, which moved Mortal, so its
-        vectors are not kept; the third and fourth were begun in
-        generations that held Mortal still, so theirs are, and the third's
-        are learned from, its own generation holding Mortal still too; the
-        fourth's generation trains Mortal, so its vectors go unread."""
+        """Modes none, mortal, mortal, ours, mortal, mortal+head. The first
+        round is the learner's own in a generation that moves Mortal, so
+        its vectors are not kept. The second was begun before the first
+        generation's learning, which moved Mortal; the fifth before the
+        fourth's, likewise: neither keeps its vectors, though each is
+        learned in a generation that holds Mortal still. The third and the
+        sixth were begun in generations that held Mortal still and are
+        learned in such generations, so theirs are kept and learned from.
+        The fourth was begun in such a generation too, but its own trains
+        Mortal, so it would never read them, and they are not kept."""
         class Scripted:
             def __init__(self, modes):
                 self.modes = list(modes)
@@ -437,22 +450,26 @@ class TrainerTests(unittest.TestCase):
 
         resident = []
         rounds = Rounds()
+        modes = ["none", "mortal", "mortal", "ours", "mortal", "mortal+head"]
         records = Trainer(self).run(
-            ["--play-ahead", "--reuse-phi", "--fixed", "none", "mortal", "ours"], rounds=4, play=rounds,
+            ["--play-ahead", "--reuse-phi", "--fixed", "none", "mortal", "ours", "mortal+head"], rounds=6,
+            play=rounds,
             patches=[
-                patch.object(train_combined, "restore_random_state",
-                             return_value=Scripted(["none", "mortal", "mortal", "ours"])),
+                patch.object(train_combined, "restore_random_state", return_value=Scripted(modes)),
                 patch.object(combined.Combined, "everything", watched),
                 patch.object(ppo_loop, "kept_on_card", side_effect=kept_on_card),
                 patch.object(ppo_loop, "resident", side_effect=lambda *args: resident.append(args)),
             ])
-        self.assertEqual([record["fixed"] for record in records], ["none", "mortal", "mortal", "ours"])
-        self.assertEqual([call.keep_phi for call in rounds.calls], [False, False, True, True])
-        self.assertEqual(given, [False, False, False, False, True, True, False, False])
-        self.assertEqual([record["reused_phi"] for record in records], [False, False, True, False])
+        # Each generation's mode is the one drawn for it: looking at the next
+        # took nothing from the drawer.
+        self.assertEqual([record["fixed"] for record in records], modes)
+        self.assertEqual([call.keep_phi for call in rounds.calls], [False, False, True, False, False, True])
+        # Two minibatches a generation.
+        self.assertEqual(given, [False, False, False, False, True, True, False, False, False, False, True, True])
+        self.assertEqual([record["reused_phi"] for record in records], [False, False, True, False, False, True])
         # On the card only with the round's room to spare too; the planes
         # are never put there beside a round being played.
-        self.assertEqual(spares, [ppo_loop.step_spare() + (ppo_loop.AHEAD_SPARE_GB << 30)])
+        self.assertEqual(spares, [ppo_loop.step_spare() + (ppo_loop.AHEAD_SPARE_GB << 30)] * 2)
         self.assertEqual(resident, [])
 
     def test_a_run_resumes_from_what_either_way_of_playing_wrote(self):
