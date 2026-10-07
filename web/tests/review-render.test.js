@@ -65,7 +65,8 @@ const differing = [{
 
 test('Trained AI is the default adviser, and Club reviews in its place while the network cannot be had', () => {
   // No adviser chosen, no network: Trained stays selected, Club's review is shown, and the page says why.
-  const html = review(differing);
+  // The engine is only handed on, never run, in a server render.
+  const html = render(Review, { props: { notes: differing, engine: {} } }).body;
   assert.match(html, /<option value="strong"[^>]*selected/);
   assert.match(html, /data-review-fallback/);
   assert.match(html, /not available right now, so Club reviews this hand/);
@@ -73,10 +74,15 @@ test('Trained AI is the default adviser, and Club reviews in its place while the
   assert.match(html, /<table/);
   assert.match(html, /matched Club/);
   assert.doesNotMatch(html, /Trained AI is reviewing|policy-preference/);
-  // No hand to ask about either: the same, never an error.
-  const noEngine = render(Review, { props: { notes: differing, trainedAvailable: true } }).body;
-  assert.match(noEngine, /data-review-fallback/);
-  assert.doesNotMatch(noEngine, /role="alert"/);
+  // No hand left to ask about (another window took the match over): Club
+  // reviews it, never an error, and the note does not blame the network.
+  for (const trainedAvailable of [true, false]) {
+    const noEngine = render(Review, { props: { notes: differing, trainedAvailable } }).body;
+    assert.match(noEngine, /data-review-fallback/);
+    assert.match(noEngine, /can no longer be put to Trained AI, so Club reviews it/);
+    assert.doesNotMatch(noEngine, /not available right now/);
+    assert.doesNotMatch(noEngine, /role="alert"/);
+  }
 });
 
 test('a chosen Club review says nothing about the network', () => {

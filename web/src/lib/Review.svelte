@@ -76,7 +76,9 @@
       </select>
     </label>
     {#if reviewer === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>
-    {:else if adviser === 'strong' && notes.length}<p class="policy-help" data-review-fallback role="status">The trained network is not available right now, so Club reviews this hand. Trained AI takes over again once the network can be reached.</p>{/if}
+    {:else if adviser === 'strong' && notes.length}<p class="policy-help" data-review-fallback role="status">{engine
+      ? 'The trained network is not available right now, so Club reviews this hand. Trained AI takes over again once the network can be reached.'
+      : 'This hand can no longer be put to Trained AI, so Club reviews it.'}</p>{/if}
     {#if activeNotes.length && !reviewing && !failure}
       <p class="summary">
         {activeNotes.length - disputed.length} of {activeNotes.length}
