@@ -274,9 +274,12 @@ def standardised(returns: torch.Tensor, baseline: torch.Tensor) -> tuple[torch.T
 
 #: What a round played beside the learning (`PlayAhead`) may hold on the
 #: card at once, in gigabytes: the planes and activations of a step's
-#: questions, about two or three at four thousand tables. Mortal's vectors
-#: are kept on the card beside such a round only with this to spare as
-#: well as the learning step's own.
+#: questions, which grow with the tables. A round of 128 tables at the
+#: deployed shapes peaked 32 MB above its weights on this desktop's card,
+#: so about one gigabyte at four thousand; four leaves room for the
+#: allocator's keeping its blocks a stream at a time. Mortal's vectors are
+#: kept on the card beside such a round only with this to spare as well as
+#: the learning step's own.
 AHEAD_SPARE_GB = 4
 
 

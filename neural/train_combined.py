@@ -509,9 +509,9 @@ def main() -> None:
                 # switch was accepted for: on this desktop, at fusion-long's
                 # rates, such values stood 0.18 to 0.28 from the pass on
                 # average, where the learner's own stood 0.0006. Still a
-                # baseline, since it does not depend on the move made, but a
-                # worse one, so such a round gets the pass; checked, the
-                # record says how far the head moved.
+                # baseline, since it does not depend on the move made, but
+                # not the one the switch promised, so such a round gets the
+                # pass; checked, the record says how far the head moved.
                 from_play=args.baseline_from_play and not lagged,
                 check=args.check_baseline, dtype=planes_dtype,
             )
