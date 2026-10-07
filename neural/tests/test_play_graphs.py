@@ -180,6 +180,21 @@ class GraphTests(unittest.TestCase):
                 self.assertEqual(len(graphed.graphs), 3)
                 self.assertEqual(graphed.replays, 5)
 
+    def test_an_answer_is_kept_through_the_next_question(self):
+        """The graph writes its answer where it wrote the last one, so what
+        is handed back is a copy: the first answer stands after the second
+        question, of the same size and of another."""
+        torch.manual_seed(89)
+        net = policy_inference.precast(mortal_model.build(16, 2).cuda().eval())
+        graphed = play_graphs.Graphed(net, net)
+        planes, mask = questions(40, 19)
+        with torch.no_grad(), policy_inference.autocast("cuda"):
+            first = graphed(planes[:10], mask[:10])
+            graphed(planes[10:20], mask[10:20])
+            graphed(planes[20:40], mask[20:40])
+            want = padded(net, planes[:10], mask[:10], 16)[0]
+        self.assertTrue(torch.equal(bits(first), bits(want)))
+
     def test_only_questions_asked_in_bfloat16_are_answered_from_graphs(self):
         """A graph keeps the workspaces its convolutions were recorded
         with: in float32 under torch 2.8 on this card, gigabytes of them.
