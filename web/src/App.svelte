@@ -18,11 +18,11 @@
   import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { acceptsHandKey, moveHandFocus } from './lib/ui.js';
+  import { acceptsHandKey, moveHandFocus, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
-  import { normalizeOpponents, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
+  import { DEFAULT_OPPONENT, normalizeOpponents, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
   const touch = matchMedia('(pointer: coarse)').matches;
@@ -32,7 +32,8 @@
   let mode = $state(['watch', 'physical', 'guided'].includes(requestedMode) ? requestedMode : 'play');
   let difficulty = $state(['beginner', 'club', 'neural'].includes(requested) ? requested : preferences.difficulty);
   let opponents = $state(normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty));
-  let draftOpponents = $state(['club', 'club', 'club']);
+  // Replaced by the current table each time the dialog opens.
+  let draftOpponents = $state(normalizeOpponents(DEFAULT_OPPONENT));
   let customDialog = $state(null);
   let pendingOpponent = $state(null);
   let hints = $state(preferences.hints);
@@ -439,7 +440,7 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {trainedAvailable} {opponents} {hints} />
+    <AgentWatch {trainedAvailable} {hints} />
   {:else if ready && mode === 'guided'}
     <GuidedPlay {trainedAvailable} {storage} {hints} />
   {:else if ready && mode === 'physical'}
@@ -463,7 +464,7 @@
           {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} bind:adviser={reviewAdviser} />{/if}
         {:else}
           <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
-            {loadNote} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
+            loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
             {selectedTile} {callChoices} {choose} {discard} oncancel={() => selected = null} />
         {/if}
       </section>

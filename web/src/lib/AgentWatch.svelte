@@ -14,7 +14,9 @@
   import Standings from './Standings.svelte';
   import { finishedHands, gameFileName, playerNames, saveLogFile } from './game-log.js';
 
-  let { trainedAvailable, opponents, hints = true } = $props();
+  let { trainedAvailable, hints = true } = $props();
+  // Trained at every seat by default, the followed one and the three it plays
+  // against. Club stands in only while the network cannot be had.
   let lineup = $state(['club', 'club', 'club', 'club']);
   let watch = $state.raw(null);
   let view = $state(null);
@@ -50,8 +52,7 @@
       // Availability may arrive after selected-set startup. Keep an untouched
       // draft provisional, but freeze it on explicit edits or Start watching.
       if (trainedAvailable) configured = true;
-      const available = trainedAvailable ? 'full' : 'club';
-      lineup = [available, ...opponents.map(value => value === 'neural' ? available : value)];
+      lineup = Array(4).fill(trainedAvailable ? 'full' : 'club');
     }
   });
   function update(owner) {
@@ -88,6 +89,14 @@
     watch.autoplay = auto;
     watch.pauseAtHandEnd = holdAtHandEnd;
     void watch.prepare();
+  }
+  // When the network cannot be loaded (offline before its download, too
+  // little memory, a failed download), watch the same table with Club in
+  // every Trained seat. A watched game cannot change agents midway, so this
+  // deals a new one.
+  function watchWithClub() {
+    lineup = (watch?.lineup ?? lineup).map(agent => isTrained(agent) ? 'club' : agent);
+    start();
   }
   function chooseAlternative(choice) {
     const owner = watch, expected = analysis;
@@ -126,7 +135,8 @@
     {#if view}<button data-save-game onclick={saveGame} disabled={!loggedHands}
       title="Every finished hand of this game from East 1 as one mjai log. The hand being played is left out until it ends.">{standings ? 'Save whole game' : loggedHands ? `Save game so far (${finishedHands(loggedHands)})` : 'No hand has finished yet'}</button>{/if}
   </div>
-  {#if failure}<div role="alert">{failure} <button disabled={busy} onclick={() => watch.prepare()}>Retry agent</button></div>{/if}
+  {#if failure}<div role="alert">{failure} <button disabled={busy} onclick={() => watch.prepare()}>Retry agent</button>
+    {#if watch?.lineup.some(isTrained)}<button data-watch-club disabled={busy} onclick={watchWithClub}>Watch with Club instead</button>{/if}</div>{/if}
   {#if fileNote}<p role="status">{fileNote}</p>{/if}
   {#if view}
     <div class="watch-round"><strong>{view.round} {view.kyoku}</strong><span>{view.wall} tiles left · {view.counters} honba · {view.riichi_sticks} riichi sticks</span><span class="tiles" role="group" aria-label="dora indicators" title="Dora indicators">{#each view.dora_indicators as tile, index (index)}<Tile {tile} size="tiny" />{/each}</span></div>

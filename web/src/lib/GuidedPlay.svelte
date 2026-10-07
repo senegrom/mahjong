@@ -111,7 +111,7 @@
     if (!loaded || conflict || !window.confirm('Start a new guided game? This replaces its saved progress.')) return;
     if (unreadable) {
       if (await loadedStore.save(emptyGuided(), { clearUnreadable: true })) await load();
-    } else { game = emptyGuided(); failure = ''; }
+    } else { game = emptyGuided(state.agent); failure = ''; }
   }
   function finish() {
     const result = resultKind === 'Exhaustive draw' || resultKind === 'Other hand end' ? resultKind : `${WINDS[resultSeat]}: ${resultKind}`;
@@ -191,7 +191,8 @@
         {#if busy}<p role="status">Your adviser is thinking…</p>{/if}
         {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} disabled={busy || blocked} />
           <button class="primary record-best" onclick={() => choose(analysis.choice, false)}>Record suggested move</button>
-        {:else if !busy}<button onclick={() => analyze()}>Retry advice</button>{/if}
+        {:else if !busy}<button onclick={() => analyze()}>Retry advice</button>
+          {#if failure && isTrained(state.agent)}<button data-guided-club onclick={() => edit(s => { s.agent = 'club'; })}>Use Club as adviser</button>{/if}{/if}
         <p>Record the move you play at the table. The hand, calls and discards update together.</p>
       {:else if state.stage === 'responses' || state.stage === 'claim-response'}
         <p class="eyebrow">Other players’ responses</p><h3>{state.claim ? `${WINDS[state.claim.seat]} called ${state.claim.kind}. Did anyone call ron?` : `Did anyone call ${tileWords(position.pending)}?`}</h3>

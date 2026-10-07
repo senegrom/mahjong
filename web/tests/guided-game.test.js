@@ -342,6 +342,18 @@ test('saved guide is separate from the position editor and conflicting tabs pres
   a.close(); b.close();
 });
 
+test('a new guided game is advised by the trained network unless it keeps an adviser', () => {
+  assert.equal(emptyGuided().state.agent, 'full');
+  // What the store starts from when nothing is saved.
+  assert.equal(GUIDED_FORMAT.empty().state.agent, 'full');
+  for (const agent of ['beginner', 'club', 'full']) assert.equal(emptyGuided(agent).state.agent, agent);
+  for (const agent of ['strong', 'nonsense', null]) assert.equal(emptyGuided(agent).state.agent, 'full');
+  assert.deepEqual(parseGuided(GUIDED_FORMAT.encode(emptyGuided())), emptyGuided());
+  // A saved guide keeps its adviser, whichever it is.
+  const club = editGuided(emptyGuided(), state => { state.agent = 'club'; });
+  assert.equal(parseGuided(GUIDED_FORMAT.encode(club)).state.agent, 'club');
+});
+
 test('a guide saved with one of the retired trained networks reopens on the trained adviser', () => {
   const base = emptyGuided();
   const saved = agent => GUIDED_FORMAT.encode({ state: { ...base.state, agent },

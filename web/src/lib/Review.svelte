@@ -11,14 +11,20 @@
    * traded: how far the hand was left from complete, how many tiles would
    * have improved it, and whether the tile could have dealt in.
    */
-  let { notes = [], hints = true, engine = null, trainedAvailable = false, adviser = $bindable('club') } = $props();
+  // Trained AI is the default adviser, as readSettings has it.
+  let { notes = [], hints = true, engine = null, trainedAvailable = false, adviser = $bindable('strong') } = $props();
   let trainedNotes = $state.raw(null);
   let reviewing = $state(false);
   let completed = $state(0);
   let failure = $state('');
   let retry = $state(0);
   let cached = null;
-  let activeNotes = $derived(adviser === 'strong' ? trainedNotes ?? [] : notes);
+  // Trained AI needs the network. While it cannot be had (offline before it
+  // was downloaded, or no hand left to ask about), Club reviews in its place
+  // and says so; the chosen adviser is kept, and takes over once it can.
+  let trainedPossible = $derived(trainedAvailable && Boolean(engine));
+  let reviewer = $derived(adviser === 'strong' && trainedPossible ? 'strong' : 'club');
+  let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : notes);
 
   let disputed = $derived(activeNotes.filter((note) => !note.agreed));
   let shown = $state('disputed');
@@ -32,8 +38,7 @@
     void retry;
     reviewing = false;
     failure = '';
-    if (adviser !== 'strong' || !source.length || !trainedAvailable) return;
-    if (!owner) { failure = 'The hand is no longer available for review.'; return; }
+    if (reviewer !== 'strong' || !source.length) return;
     if (cached?.source === source && cached.engine === owner) { trainedNotes = cached.rows; return; }
     const abort = new AbortController();
     trainedNotes = null;
@@ -64,26 +69,26 @@
     <label class="adviser">Review adviser
       <select bind:value={adviser} aria-label="Review adviser">
         <option value="club">Club</option>
-        <option value="strong" disabled={!trainedAvailable || !engine}>Trained AI</option>
+        <option value="strong" disabled={!trainedPossible}>Trained AI</option>
       </select>
     </label>
-    {#if adviser === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>{/if}
+    {#if reviewer === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>
+    {:else if adviser === 'strong' && notes.length}<p class="policy-help" data-review-fallback role="status">The trained network is not available right now, so Club reviews this hand. Trained AI takes over again once the network can be reached.</p>{/if}
     {#if activeNotes.length && !reviewing && !failure}
       <p class="summary">
         {activeNotes.length - disputed.length} of {activeNotes.length}
-        {activeNotes.length === 1 ? 'decision' : 'decisions'} matched {adviser === 'strong' ? 'Trained AI' : 'Club'}.
+        {activeNotes.length === 1 ? 'decision' : 'decisions'} matched {reviewer === 'strong' ? 'Trained AI' : 'Club'}.
       </p>
     {/if}
   </header>
 
   {#if !notes.length}
     <p class="empty">You made no decisions this hand.</p>
-  {:else if adviser === 'strong' && !trainedAvailable}
-    <p class="empty">The trained network is unavailable in this build. Choose Club to review this hand.</p>
   {:else if reviewing}
     <p role="status">Trained AI is reviewing your decisions… {completed} of {notes.length}</p>
   {:else if failure}
-    <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Trained review</button></p>
+    <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Trained review</button>
+      <button class="retry" data-review-club onclick={() => adviser = 'club'}>Review with Club</button></p>
   {:else}
     {#if clean}<p class="clean">Every move was the one the adviser would have made.</p>{/if}
     {#if !clean}
@@ -97,7 +102,7 @@
     </div>
     {/if}
 
-    {#if !clean || adviser === 'strong'}
+    {#if !clean || reviewer === 'strong'}
     <ol>
       {#each listed as note, index (index)}
         <li class:agreed={note.agreed}>
@@ -121,7 +126,7 @@
             {/if}
           </div>
 
-          {#if adviser === 'strong'}
+          {#if reviewer === 'strong'}
             <ReviewPreference {note} />
           {:else if !note.agreed}
             <p class="why">{note.reason}</p>

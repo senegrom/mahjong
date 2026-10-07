@@ -56,6 +56,36 @@ test('turn action reviews retain their readiness and improvement comparisons', (
   assert.match(html, /Tiles that improve it/);
 });
 
+const differing = [{
+  turn: 4, played: 'discards the 3 characters', played_kind: 'discard', played_tile: '3m',
+  advised: 'discards the 9 circles', advised_tile: '9p', agreed: false,
+  shanten_played: 1, shanten_advised: 0, acceptance_played: 8, acceptance_advised: 4,
+  danger_played: 'quiet', danger_advised: 'quiet', reason: 'keeps a ready hand',
+}];
+
+test('Trained AI is the default adviser, and Club reviews in its place while the network cannot be had', () => {
+  // No adviser chosen, no network: Trained stays selected, Club's review is shown, and the page says why.
+  const html = review(differing);
+  assert.match(html, /<option value="strong"[^>]*selected/);
+  assert.match(html, /data-review-fallback/);
+  assert.match(html, /not available right now, so Club reviews this hand/);
+  assert.match(html, /keeps a ready hand/);
+  assert.match(html, /<table/);
+  assert.match(html, /matched Club/);
+  assert.doesNotMatch(html, /Trained AI is reviewing|policy-preference/);
+  // No hand to ask about either: the same, never an error.
+  const noEngine = render(Review, { props: { notes: differing, trainedAvailable: true } }).body;
+  assert.match(noEngine, /data-review-fallback/);
+  assert.doesNotMatch(noEngine, /role="alert"/);
+});
+
+test('a chosen Club review says nothing about the network', () => {
+  const html = render(Review, { props: { notes: differing, adviser: 'club' } }).body;
+  assert.match(html, /<option value="club"[^>]*selected/);
+  assert.doesNotMatch(html, /data-review-fallback/);
+  assert.match(html, /keeps a ready hand/);
+});
+
 test('the belief panel names honours as the page names tiles, and marks their dora', async () => {
   const agents = 'data:text/javascript,export const AGENTS = { full: "Trained" };';
   const { default: AgentWeights } = await import(await component('AgentWeights', { './Tile.svelte': tile, './agents.js': agents }));

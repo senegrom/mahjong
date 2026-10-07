@@ -107,14 +107,46 @@ test('watch alternative confirmation pauses autoplay, cancels safely, and applie
   }
 });
 
-test('watch setup never selects the trained network when it is absent from this build', () => {
+test('watch setup defaults every seat to Trained, and to Club only while the network is absent', () => {
   const effect = find(watch.ast.instance, node => node.type === 'CallExpression' && node.callee?.name === '$effect');
   const callback = effect.arguments[0];
   for (const [trainedAvailable, expected] of [[false, 'club'], [true, 'full']]) {
+    // Play's table is not the watch's: a Club or mixed Play table changes nothing here.
     const state = { ready: true, configured: false, trainedAvailable,
-      opponents: ['neural', 'beginner', 'club'], lineup: [] };
+      opponents: ['club', 'beginner', 'club'], lineup: [] };
     vm.runInContext(`(${watch.source.slice(callback.start, callback.end)})()`, vm.createContext(state));
-    assert.deepEqual(Array.from(state.lineup), [expected, expected, 'beginner', 'club']);
+    assert.deepEqual(Array.from(state.lineup), [expected, expected, expected, expected]);
+    assert.equal(state.configured, trainedAvailable, 'only a Trained lineup is final; a Club one waits for the network');
+  }
+  // An edited or started draft is never replaced.
+  const state = { configured: true, trainedAvailable: true, lineup: ['beginner', 'club', 'club', 'club'] };
+  vm.runInContext(`(${watch.source.slice(callback.start, callback.end)})()`, vm.createContext(state));
+  assert.deepEqual(state.lineup, ['beginner', 'club', 'club', 'club']);
+});
+
+test('a watch whose network cannot load deals the same table again with Club in the Trained seats', () => {
+  const declaration = find(watch.ast.instance, node => node.type === 'FunctionDeclaration' && node.id?.name === 'watchWithClub');
+  assert.ok(declaration);
+  const started = [];
+  const state = { lineup: ['full', 'full', 'full', 'full'], watch: { lineup: ['full', 'beginner', 'full', 'club'] },
+    isTrained: agent => agent === 'full', start() { started.push([...state.lineup]); } };
+  vm.runInContext(`(${watch.source.slice(declaration.start, declaration.end)})()`, vm.createContext(state));
+  assert.deepEqual(started, [['club', 'beginner', 'club', 'club']], 'the failed game\'s own seats, Trained ones as Club');
+  // Offered beside Retry agent, and only when a seat is Trained.
+  assert.match(watch.source, /\{#if watch\?\.lineup\.some\(isTrained\)\}<button data-watch-club[^>]*onclick=\{watchWithClub\}>Watch with Club instead<\/button>/);
+});
+
+test('a new guided game keeps the adviser the last one used', async () => {
+  const guided = component('../src/lib/GuidedPlay.svelte');
+  const declaration = find(guided.ast.instance, node => node.type === 'FunctionDeclaration' && node.id?.name === 'restart');
+  const { emptyGuided } = await import('../src/lib/guided-game.js');
+  for (const agent of ['club', 'beginner', 'full']) {
+    const state = { loaded: true, conflict: '', unreadable: false, failure: 'old', game: null, emptyGuided,
+      state: { agent }, window: { confirm: () => true } };
+    await vm.runInContext(`(${guided.source.slice(declaration.start, declaration.end)})()`, vm.createContext(state));
+    assert.equal(state.game.state.agent, agent);
+    assert.equal(state.game.state.stage, 'setup');
+    assert.equal(state.failure, '');
   }
 });
 
