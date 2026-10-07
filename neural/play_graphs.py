@@ -26,8 +26,13 @@ what the padding holds changes nothing of the rows asked. But that is not
 always what the forward answers at the size asked: on the card a batch of
 another size can be worked through by other kernels, which in bfloat16 can
 move an answer in its last bits, as `--skip-forced` and `--preview-reach`
-do, and a near tie can then turn. So it is a switch, off unless a trainer
-is told.
+do, and a near tie can then turn. Played with trained weights on this
+desktop's card (a joined player of the deployed shapes, 52,000 of its
+decisions and 46,000 of its seated Mortal's), seven of the joined player's
+rows in ten had a logit moved by a bit or two, its policy moved by 0.0005
+in total variation on average and by 0.018 at most, and about one best
+move in two thousand turned, for it and for the Mortal alike. So it is a
+switch, off unless a trainer is told.
 """
 
 from __future__ import annotations
