@@ -23,7 +23,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from . import combined, policy_inference, ppo_loop, selfplay
+from . import combined, play_graphs, policy_inference, ppo_loop, selfplay
 from .behavior import validate_exploration
 from .checkpoints import atomic_save
 from .observe import pad_rows
@@ -227,6 +227,16 @@ def parse_args() -> argparse.Namespace:
         "Mortal's vectors only where nothing moved Mortal between the round and its learning. "
         "Off by default; not with --compile",
     )
+    parser.add_argument(
+        "--play-graphs", action="store_true",
+        help="answer play's small questions, of the joined player with --amp and of the seated "
+        "--opponents, from CUDA graphs recorded once for each of a few sizes of batch, a question "
+        "padded to the next of them, rather than launching a forward's thousand or two kernels "
+        "one by one each time; a batch above 512 rows is asked eagerly as before. A graph "
+        "answers what the forward answers eagerly at the padded size, bit for bit; that can "
+        "differ from its answer at the size asked in the last bits of bfloat16. Off by "
+        "default; not with --compile",
+    )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260908)
@@ -253,6 +263,11 @@ def parse_args() -> argparse.Namespace:
         # compiled others, which a round played on a worker beside the
         # compiled learning would run, and compile, on a second thread.
         parser.error("--play-ahead plays eagerly beside the learning; with it, compile the "
+                     "learning step alone (--compile-learning)")
+    if args.compile and args.play_graphs:
+        # --compile plays with compiled forwards, which the graphs would
+        # have to record, and the compiler's own graphs are another matter.
+        parser.error("--play-graphs records play's eager forwards; with it, compile the "
                      "learning step alone (--compile-learning)")
     return args
 
@@ -351,6 +366,13 @@ def main() -> None:
         # A round played ahead is played by a copy in any precision: the
         # learner's own weights move while it is being played.
         actor = copy.deepcopy(net).requires_grad_(False)
+    if args.play_graphs:
+        # Small questions from CUDA graphs, every one recorded now, when play
+        # asks in bfloat16 (--amp). The copy is given the learner's weights
+        # where it holds them before each round, and the learner's own are
+        # moved where they are by the optimiser, so the graphs answer by the
+        # weights of the moment.
+        play_graphs.graphed(net if actor is None else actor, device, amp=amp_enabled)
 
     learn = learning_forward(net, args)
 
@@ -358,10 +380,14 @@ def main() -> None:
     # `neural.population`. The checkpoints are the ones `--opponents`
     # names, which is how every launcher passes them.
     roster, seated = ppo_loop.seat_others(args, device)
+    # Play's forwards that answer from graphs, the learner's and the seated
+    # others', for the record.
+    graphed = play_graphs.graphs_of([net if actor is None else actor, *seated])
     print(
         f"device {device} | ours {net.ours.channels}x{net.ours.blocks} | Mortal beneath | "
         f"{net.parameter_count() / 1e6:.2f}M parameters | fixed by turns: {args.fixed}"
-        + (" | each round played ahead" if args.play_ahead else ""),
+        + (" | each round played ahead" if args.play_ahead else "")
+        + (f" | {len(graphed)} players' small questions from graphs" if graphed else ""),
         flush=True,
     )
     # Constructors above consume Torch randomness. Restore only now, so the
@@ -704,6 +730,13 @@ def main() -> None:
                 # play_seconds, the round's own, that the learning did not hide.
                 **({"played_ahead": lagged, "play_wait_seconds": round(waited, 1)}
                    if ahead is not None else {}),
+                # With --play-graphs, how many graphs play holds by now, the
+                # seconds this process has spent recording them, and the
+                # card memory they hold.
+                **({"play_graphs": sum(len(forward.graphs) for forward in graphed),
+                    "graph_seconds": round(sum(forward.seconds for forward in graphed), 1),
+                    "graph_gb": round(play_graphs.held(graphed) / (1 << 30), 2)}
+                   if args.play_graphs else {}),
                 entropy_coef=round(entropy_coef(), 6),
                 # Peaks, so the container's reservation can be sized from data:
                 # memory is billed by what is reserved, not what is used.

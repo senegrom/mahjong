@@ -181,6 +181,10 @@ class Combined(nn.Module):
     #: Mortal again (`train_combined --reuse-phi`). A trainer turns it on
     #: for the rounds that will read it.
     keep_phi = False
+    #: What deciding and a seated player's questions ask instead of
+    #: `decision`, when a trainer has small questions answered from CUDA
+    #: graphs (`play_graphs.graphed`); None asks `decision` itself.
+    deciding = None
 
     #: What a generation may hold still: either network beneath the head,
     #: the head itself, or any combination of them written with a plus.
@@ -373,7 +377,7 @@ class Combined(nn.Module):
         planes, masks = zoo.asked_planes(views, who, fresh, ahead, device)
         mask = torch.from_numpy(allowed).to(device)
         with policy_inference.autocast(device, self.actions):
-            logits, _value, _phi = self.decision(planes, mask)
+            logits, _value, _phi = (self.deciding or self.decision)(planes, mask)
         return logits.float().cpu().numpy(), masks
 
     @torch.no_grad()
@@ -398,7 +402,7 @@ class Combined(nn.Module):
         is given (see `mortal_learner.decide_in_mortal_space`)."""
 
         def score(planes: torch.Tensor, mask: torch.Tensor):
-            answer = self.decision(planes, mask)
+            answer = (self.deciding or self.decision)(planes, mask)
             return answer if self.keep_phi else answer[:2]
 
         return mortal_learner.decide_in_mortal_space(

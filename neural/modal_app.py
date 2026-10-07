@@ -675,6 +675,7 @@ def train_combined(
     compile_learning: bool = False,
     preview_reach: bool = False,
     play_ahead: bool = False,
+    play_graphs: bool = False,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -698,11 +699,19 @@ def train_combined(
     trainer's `--play-ahead`; passed on only when true. Its rounds are
     played eagerly, so it is refused with `compile` unless the learning
     step is compiled alone (`compile_learning`), before any work is done.
+
+    `play_graphs` has play's small questions answered from CUDA graphs,
+    the trainer's `--play-graphs`; passed on only when true, and refused
+    likewise with `compile` unless `compile_learning` is set: the graphs
+    record play's eager forwards.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
     if play_ahead and compile and not compile_learning:
         raise ValueError("play_ahead plays eagerly beside the learning: pass compile=False, "
+                         "or compile_learning=True to compile the learning step alone")
+    if play_graphs and compile and not compile_learning:
+        raise ValueError("play_graphs records play's eager forwards: pass compile=False, "
                          "or compile_learning=True to compile the learning step alone")
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
@@ -742,6 +751,8 @@ def train_combined(
             command.append("--preview-reach")
         if play_ahead:
             command.append("--play-ahead")
+        if play_graphs:
+            command.append("--play-graphs")
         if fixed:
             command += ["--fixed", *fixed]
         if source.exists():

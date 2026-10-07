@@ -25,7 +25,7 @@ from pathlib import Path
 
 import torch
 
-from . import population, zoo
+from . import play_graphs, population, zoo
 from .checkpoints import atomic_save
 from .observe import DevicePlanes, Planes, pad_rows, resident
 from .prefetch import Prefetcher
@@ -82,6 +82,10 @@ def load_others(args, device: str) -> list:
     `--preview-reach` they ask a reach's tile in the question that chooses
     the reach, from the follower's preview of it, and tell the follower
     nothing; without it they tell it and ask again, as they always did.
+    With `--play-graphs` those that play eagerly on the card answer small
+    questions from CUDA graphs (see `play_graphs`), recorded here over the
+    weights as cast here, in bfloat16, which is how a seated player asks
+    itself on the card whatever the trainer's --amp.
     validate_training_options has refused a missing checkpoint already."""
     seated = []
     for path in args.opponents:
@@ -93,7 +97,11 @@ def load_others(args, device: str) -> list:
             other.skip_forced = True
         if getattr(args, "preview_reach", False) and hasattr(other, "preview_reach"):
             other.preview_reach = True
-        seated.append(other if args.compile else zoo.play_in_bfloat16(other, device))
+        if not args.compile:
+            other = zoo.play_in_bfloat16(other, device)
+            if getattr(args, "play_graphs", False):
+                other = play_graphs.graphed(other, device, amp=True)
+        seated.append(other)
     return seated
 
 
