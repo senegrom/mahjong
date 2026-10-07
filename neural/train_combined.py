@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 from contextlib import closing
 import copy
+import json
 import math
 import time
 from pathlib import Path
@@ -387,7 +388,8 @@ def main() -> None:
         f"device {device} | ours {net.ours.channels}x{net.ours.blocks} | Mortal beneath | "
         f"{net.parameter_count() / 1e6:.2f}M parameters | fixed by turns: {args.fixed}"
         + (" | each round played ahead" if args.play_ahead else "")
-        + (f" | {len(graphed)} players' small questions from graphs" if graphed else ""),
+        + (f" | {len(graphed)} players' small questions from graphs: "
+           f"{json.dumps(play_graphs.accounts(graphed))}" if graphed else ""),
         flush=True,
     )
     # Constructors above consume Torch randomness. Restore only now, so the
@@ -733,10 +735,7 @@ def main() -> None:
                 # With --play-graphs, how many graphs play holds by now, the
                 # seconds this process has spent recording them, and the
                 # card memory they hold.
-                **({"play_graphs": sum(len(forward.graphs) for forward in graphed),
-                    "graph_seconds": round(sum(forward.seconds for forward in graphed), 1),
-                    "graph_gb": round(play_graphs.held(graphed) / (1 << 30), 2)}
-                   if args.play_graphs else {}),
+                **(play_graphs.accounts(graphed) if args.play_graphs else {}),
                 entropy_coef=round(entropy_coef(), 6),
                 # Peaks, so the container's reservation can be sized from data:
                 # memory is billed by what is reserved, not what is used.

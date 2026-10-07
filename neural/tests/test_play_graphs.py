@@ -617,9 +617,11 @@ class TrainerOnTheCardTests(unittest.TestCase):
                     "--measure-games", "1", "--amp", "--play-graphs", *flags]
             if module is train_combined:
                 argv += ["--fixed", "none", "mortal"]
-            with patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+            printed = io.StringIO()
+            with patch.object(sys, "argv", argv), contextlib.redirect_stdout(printed):
                 module.main()
-            return [json.loads(line) for line in (out / "log.jsonl").read_text().splitlines()]
+            records = [json.loads(line) for line in (out / "log.jsonl").read_text().splitlines()]
+            return records, printed.getvalue()
 
     def test_each_trainer_plays_from_graphs(self):
         """Every size of the learner's and of the seated Mortal's recorded
@@ -628,8 +630,11 @@ class TrainerOnTheCardTests(unittest.TestCase):
         answers eagerly."""
         for module, flags in ((train_combined, []), (train_combined, ["--play-ahead"]), (train_mortal, [])):
             with self.subTest(trainer=module.__name__, flags=flags):
-                records = self.run_trainer(module, flags)
+                records, printed = self.run_trainer(module, flags)
                 self.assertEqual([record["generation"] for record in records], [0, 1, 2])
+                # Said as the trainer begins, before any round is played.
+                self.assertIn(f"2 players' small questions from graphs: {{\"play_graphs\": "
+                              f"{2 * len(play_graphs.ROWS)}, ", printed)
                 self.assertEqual([record["play_graphs"] for record in records],
                                  [2 * len(play_graphs.ROWS)] * 3)
                 for record in records:

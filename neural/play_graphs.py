@@ -274,6 +274,18 @@ def graphs_of(players) -> list[Graphed]:
     return found
 
 
+def accounts(forwards: list[Graphed]) -> dict:
+    """What a trainer says of `forwards`' graphs, as it begins and in each
+    generation's record: how many play holds by now, the seconds this
+    process has spent recording them, and the card memory they hold, which
+    the learning step no longer has."""
+    return {
+        "play_graphs": sum(len(forward.graphs) for forward in forwards),
+        "graph_seconds": round(sum(forward.seconds for forward in forwards), 1),
+        "graph_gb": round(held(forwards) / (1 << 30), 2),
+    }
+
+
 def held(forwards: list[Graphed]) -> int:
     """The card memory `forwards`' graphs hold, in bytes: what recording
     them left in their pools, their answers and the libraries' workspaces

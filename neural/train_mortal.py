@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
+import json
 import time
 from pathlib import Path
 
@@ -190,7 +191,9 @@ def main() -> None:
     print(
         f"device {device} | Mortal {config['resnet']['conv_channels']}x{config['resnet']['num_blocks']} "
         f"| {sum(p.numel() for p in net.parameters()) / 1e6:.2f}M parameters "
-        f"| temperature {net.temperature}",
+        f"| temperature {net.temperature}"
+        + (f" | {len(graphed)} players' small questions from graphs: "
+           f"{json.dumps(play_graphs.accounts(graphed))}" if graphed else ""),
         flush=True,
     )
 
@@ -317,10 +320,7 @@ def main() -> None:
             # With --play-graphs, how many graphs play holds by now, the
             # seconds this process has spent recording them, and the card
             # memory they hold.
-            **({"play_graphs": sum(len(forward.graphs) for forward in graphed),
-                "graph_seconds": round(sum(forward.seconds for forward in graphed), 1),
-                "graph_gb": round(play_graphs.held(graphed) / (1 << 30), 2)}
-               if args.play_graphs else {}),
+            **(play_graphs.accounts(graphed) if args.play_graphs else {}),
             peak_rss_gb=peak_rss_gb(),
             peak_gpu_gb=peak_gpu_gb(),
         )
