@@ -142,7 +142,11 @@ try {
       || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 }, install);
     if (!(await prompt(page)).includes(install)) await page.click('.hand button[data-hand-index]:not(:disabled)');
     await page.waitForFunction(text => document.querySelector('#hand-help')?.textContent.includes(text), { timeout: 60000 }, install);
-    assert.ok(installing.size > 0, 'the service worker is still saving the unused faces');
+    for (const deadline = Date.now() + 30000; !installing.size;) {
+      assert.ok(Date.now() < deadline, 'the service worker never reached the unused faces');
+      await new Promise(done => setTimeout(done, 50));
+    }
+    assert.ok((await prompt(page)).includes(install), 'the install is still what the opponent waits for');
     assert.match(await page.$eval('[data-offline-status]', el => el.textContent), /Offline: not ready/);
     await page.screenshot({ path: resolve(output, 'trained-default-install.png'), fullPage: true });
     releaseFaces();
