@@ -300,7 +300,10 @@ class PlayAhead:
     probabilities a round recorded as it was played (`Batch.log_probs`),
     the policy's that played it, so its weighting stays exact; what grows
     is the distance its clip is asked to cover, two generations' drift
-    where it was one.
+    where it was one. The trainer's drift guard counts from the learner's
+    own probabilities as the generation began instead, read in the pass
+    that values the round (see `train_combined`): counted from the round's,
+    a generation would begin with the last one's drift already spent.
 
     `play(player, generation, **options)` plays round `generation` with
     `player`, handing `options` on to `selfplay.play`: that the round draw

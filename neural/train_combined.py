@@ -220,10 +220,12 @@ def parse_args() -> argparse.Namespace:
         "bound by the card, then overlap. Each round is played by the weights of a generation "
         "before the ones that learn it, a process's first excepted; PPO's ratio divides by the "
         "probabilities the round recorded, so its weighting stays exact, but its clip covers "
-        "two generations' drift. --baseline-from-play then takes play's values only from a "
-        "round the learner played itself, a process's first, and makes the pass for the rest; "
-        "--reuse-phi learns from Mortal's vectors only where nothing moved Mortal between the "
-        "round and its learning. Off by default; not with --compile",
+        "two generations' drift; the drift guard (--target-kl) counts from the learner's own "
+        "probabilities as the generation begins, read in the pass, as without the switch. "
+        "--baseline-from-play then takes play's values only from a round the learner played "
+        "itself, a process's first, and makes the pass for the rest; --reuse-phi learns from "
+        "Mortal's vectors only where nothing moved Mortal between the round and its learning. "
+        "Off by default; not with --compile",
     )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
@@ -494,11 +496,21 @@ def main() -> None:
             # The baseline: our value head as it stands before the round, from
             # a pass over it or, asked to, from play (see `ppo_loop.baseline_of`).
             rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
+            # For a round played ahead, the probability the learner as it
+            # stands gives each move made, which the drift guard counts from
+            # (see below): read in the pass, which such a round always gets.
+            begun = torch.empty(batch.decisions, device=device) if lagged else None
 
             def values_of(chunk, planes):
                 mask = pad_rows(rollout.legal[chunk], rows, True)
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                    return (learn(planes, mask)[1],)
+                    logits, value, _guessed = learn(planes, mask)
+                if begun is not None:
+                    taken = rollout.actions[chunk]
+                    begun[chunk] = torch.distributions.Categorical(
+                        logits=logits[: len(taken)].float(), validate_args=False
+                    ).log_prob(taken)
+                return (value,)
 
             guess, valued, baseline_said = ppo_loop.baseline_of(
                 rollout, batch, rows, values_of,
@@ -507,8 +519,9 @@ def main() -> None:
                 # the head of the generation before, and a generation's
                 # learning moves that head far beyond the bfloat16 noise the
                 # switch was accepted for: on this desktop, at fusion-long's
-                # rates, such values stood 0.18 to 0.28 from the pass on
-                # average, where the learner's own stood 0.0006. Still a
+                # rates from random weights, such values stood 0.18 to 0.28
+                # from the pass on average, where the learner's own stood
+                # 0.0006 (a trained head's drift is unmeasured). Still a
                 # baseline, since it does not depend on the move made, but
                 # not the one the switch promised, so such a round gets the
                 # pass; checked, the record says how far the head moved.
@@ -559,14 +572,24 @@ def main() -> None:
                         # --play-ahead is the generation before's, so the
                         # ratio below weighs each move by the right one.
                         old_log_prob = rollout.old_log_probs[picks]
+                        # The drift guard counts how far this generation's
+                        # learning has moved the policy: from those same
+                        # probabilities in a round the learner played itself,
+                        # and in one played ahead from the learner's own as
+                        # the generation began (`begun`). Counted from the
+                        # ones it was played by, a generation would begin with
+                        # the last one's drift already spent: after one the
+                        # guard stopped, the next could not take a step, and
+                        # a generation that takes none stops the trainer.
+                        since = old_log_prob if begun is None else begun[picks]
                         chosen = ~explored[picks]
                         own = chosen.sum().clamp(min=1)
                         if args.explore:
-                            stop = bool(chosen.any()) and drift.check(old_log_prob[chosen], log_prob[chosen])
+                            stop = bool(chosen.any()) and drift.check(since[chosen], log_prob[chosen])
                         else:
                             # Nothing was explored, so every row is the policy's;
                             # asking the card which ones would wait on it.
-                            stop = drift.check(old_log_prob, log_prob)
+                            stop = drift.check(since, log_prob)
                         if stop:
                             break
                         # PPO's clipped objective over the rows the policy chose.

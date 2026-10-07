@@ -6,7 +6,8 @@ weights play, drawn from a generator of its own whatever the learning does
 meanwhile. What stops a round is raised where it is taken, a round still
 being played when the learning fails is given up, nothing is played past
 the last generation, play's values are the baseline only where they are
-the learner's own, Mortal's vectors are learned from only where they are
+the learner's own, the drift guard counts a round played ahead from the
+learner as it stands, Mortal's vectors are learned from only where they are
 the learner's Mortal's and kept only where they will be read, the round
 leaves the learning's autocast casts alone, and a run resumes from what
 either way of playing wrote."""
@@ -27,7 +28,9 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from neural import combined, mortal_model, policy_inference, ppo_loop, selfplay, train_combined, zoo
+from neural import (
+    combined, mortal_model, policy_inference, ppo_control, ppo_loop, selfplay, train_combined, zoo,
+)
 from neural.observe import Planes
 from neural.tests import test_mixed_tables
 from neural.tests.test_baseline_from_play import varied
@@ -80,6 +83,19 @@ class Rounds:
         if self.then is not None:
             self.then(generation, options)
         return fake_round(self.values, phi=player.keep_phi)
+
+
+class Behaved(Rounds):
+    """As `Rounds`, with the probability the player gave each move made
+    recorded as play records it, so that a learner as it stands gives a
+    round it played itself the probabilities the round recorded."""
+
+    def __call__(self, player, **options):
+        batch = super().__call__(player, **options)
+        with torch.no_grad():
+            logits = player.decision(batch.observations.dense("cpu"), batch.legal)[0]
+        batch.log_probs = torch.distributions.Categorical(logits=logits.float()).log_prob(batch.actions)
+        return batch
 
 
 def same(one: dict, two: dict) -> bool:
@@ -528,6 +544,42 @@ class TrainerTests(unittest.TestCase):
         for record, passed in zip(records, passes):
             self.assertNotIn("baseline_from_play", record)
             self.assertAlmostEqual(record["value_error"], round(float(((returns - passed) ** 2).mean()), 4))
+
+    def test_the_drift_guard_counts_a_round_played_ahead_from_the_learner_as_it_stands(self):
+        """At rates that carry the policy past the guard in one step, each
+        generation takes that step and is stopped before the next, with the
+        switch as without it. The second round was played by the weights
+        the first generation began with, which its step had already carried
+        past the guard: counted from the probabilities it was played by, the
+        second generation was stopped before its first step, and a
+        generation that takes no step stops the trainer. Counted from the
+        learner as it stands, read in the pass, every generation's first
+        check finds nothing."""
+        firsts = []
+
+        class Watched(ppo_control.PolicyDrift):
+            def check(self, old_log_prob, new_log_prob):
+                stop = super().check(old_log_prob, new_log_prob)
+                if not hasattr(self, "first"):
+                    self.first = self.last
+                    firsts.append(self.first)
+                return stop
+
+        # One step moves the sampled divergence by about half a nat here,
+        # far past the guard and far from a policy that has stopped moving.
+        fast = ["--lr", "0.001", "--lr-ours", "0.001", "--lr-mortal", "0.001", "--target-kl", "0.001"]
+        for flags in ([], ["--play-ahead"]):
+            with self.subTest(flags=flags):
+                firsts.clear()
+                records = Trainer(self).run([*flags, *fast], rounds=3, play=Behaved(),
+                                            patches=[patch.object(train_combined, "PolicyDrift", Watched)])
+                self.assertEqual([record["optimizer_updates"] for record in records], [1, 1, 1])
+                self.assertEqual([record["kl_early_stop"] for record in records], [True, True, True])
+                self.assertEqual(len(firsts), 3)
+                for first in firsts:
+                    self.assertLess(first, 1e-5)
+                if flags:
+                    self.assertEqual([record["played_ahead"] for record in records], [False, True, True])
 
     def test_mortals_vectors_are_learned_from_only_where_nothing_moved_mortal_since_the_round_began(self):
         """Modes none, mortal, mortal, ours, mortal, mortal+head. The first
