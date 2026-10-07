@@ -10,12 +10,14 @@ face set are ready; this does not mean the full offline package has finished.
 
 Only the trained network and its runtime are optional. Trained opponents are the
 default for a new player, so a first match starts their download by itself, and
-the table shows its progress while a Trained opponent waits for it. A player
-whose saved table is Club or Beginner can select a Trained opponent, or choose
-**Download trained AI for offline play** in the status panel without changing
-the current match. Wait for **Offline: game + AI ready** when you need Trained
-opponents; **Offline: game ready** is enough for Beginner and Club. When the
-network cannot be downloaded, the table offers **Continue with Club opponents**.
+the table shows its progress while a Trained opponent waits for it; the hand
+review, Agent watch and a guided game show it too when their first Trained
+advice is what starts the download. A player whose saved table is Club or
+Beginner can select a Trained opponent, or choose **Download trained AI for
+offline play** in the status panel without changing the current match. Wait
+for **Offline: game + AI ready** when you need Trained opponents; **Offline:
+game ready** is enough for Beginner and Club. When the network cannot be
+downloaded, the table offers **Continue with Club opponents**.
 Closing and reopening the app, restoring a match and starting another game use
 saved files. There is no need to clear website data or reinstall; either can
 remove downloads.
