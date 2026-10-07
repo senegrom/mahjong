@@ -213,6 +213,17 @@ def parse_args() -> argparse.Namespace:
         "move it in its last bits. Off by default; a card without room for it, about two "
         "kilobytes a decision, works it out as before",
     )
+    parser.add_argument(
+        "--play-ahead", action="store_true",
+        help="play the next round on a worker while this one is learned, by the weights the "
+        "learner has as this generation begins: play, bound by the processors, and learning, "
+        "bound by the card, then overlap. Each round is played by the weights of a generation "
+        "before the ones that learn it, a process's first excepted; PPO's ratio divides by the "
+        "probabilities the round recorded, so its weighting stays exact, but its clip covers "
+        "two generations' drift. --baseline-from-play then takes play's values only from a "
+        "round the learner played itself, and --reuse-phi Mortal's vectors only where nothing "
+        "moved Mortal between the round and its learning. Off by default; not with --compile",
+    )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260908)
@@ -234,6 +245,12 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.compile and args.compile_learning:
         parser.error("--compile already compiles the learning step; give one or the other")
+    if args.compile and args.play_ahead:
+        # --compile plays with the learner's own compiled forward and seats
+        # compiled others, which a round played on a worker beside the
+        # compiled learning would run, and compile, on a second thread.
+        parser.error("--play-ahead plays eagerly beside the learning; with it, compile the "
+                     "learning step alone (--compile-learning)")
     return args
 
 
@@ -327,6 +344,10 @@ def main() -> None:
     actor = None
     if amp_enabled and not args.compile:
         actor = policy_inference.precast(copy.deepcopy(net)).requires_grad_(False)
+    elif args.play_ahead:
+        # A round played ahead is played by a copy in any precision: the
+        # learner's own weights move while it is being played.
+        actor = copy.deepcopy(net).requires_grad_(False)
 
     learn = learning_forward(net, args)
 
@@ -336,7 +357,8 @@ def main() -> None:
     roster, seated = ppo_loop.seat_others(args, device)
     print(
         f"device {device} | ours {net.ours.channels}x{net.ours.blocks} | Mortal beneath | "
-        f"{net.parameter_count() / 1e6:.2f}M parameters | fixed by turns: {args.fixed}",
+        f"{net.parameter_count() / 1e6:.2f}M parameters | fixed by turns: {args.fixed}"
+        + (" | each round played ahead" if args.play_ahead else ""),
         flush=True,
     )
     # Constructors above consume Torch randomness. Restore only now, so the
@@ -381,25 +403,10 @@ def main() -> None:
     def entropy_coef() -> float:
         return math.exp(floor["log_coef"]) if args.entropy_target > 0 else args.entropy
 
-    end = start + args.rounds if args.rounds else args.generations
-    for generation in range(start, end):
-        began = time.time()
-        batch = rollout = held = played_phi = None
-        # Deciding is the joined player as it stands; what stays fixed in
-        # the update that follows is drawn now and said in the record.
-        fixed = str(drawer.choice(args.fixed))
-        net.set_mode(fixed)
-        net.eval()
-        player = net if actor is None else actor
-        if actor is not None:
-            # Copied with the same rounding autocast makes.
-            actor.load_state_dict(net.state_dict())
-        # A generation that holds Mortal still has nothing to move it, its
-        # weights or its statistics, so its vector of every decision is
-        # the same all generation: kept from play when asked to reuse it.
-        reusing = args.reuse_phi and "mortal" in fixed.split("+")
-        player.keep_phi = reusing
-        batch = selfplay.play(
+    def play(player, generation: int, **options):
+        """Round `generation`, played by `player`: see `selfplay.play`,
+        which `options` are handed on to."""
+        return selfplay.play(
             player,
             games=args.games,
             seed=round_seed(args.seed, generation, args.games),
@@ -411,204 +418,277 @@ def main() -> None:
             population=roster,
             explore_share=args.explore,
             preview_reach=args.preview_reach,
+            **options,
         )
-        require_trainable_round(batch.decisions, args.batch, args.epochs)
-        played = time.time() - began
-        rollout = ppo_loop.on_device(batch, device)
-        # What the three opponents were really holding at each decision: the
-        # label the reading of the hands is trained against, which self-play
-        # knows for free and which is far denser than the game's result.
-        held = batch.held.to(device)
-        if reusing and getattr(batch, "phi", None) is not None:
-            # On the card beside the step, or not at all: gathered from the
-            # host every minibatch it would hold the step up.
-            played_phi = ppo_loop.kept_on_card(batch.phi, device)
-            batch.phi = None
-        loaded = time.time() - began - played
 
-        # The baseline: our value head as it stands before the round, from
-        # a pass over it or, asked to, from play (see `ppo_loop.baseline_of`).
-        rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
+    end = start + args.rounds if args.rounds else args.generations
+    # With --play-ahead each round is played on a worker while the one
+    # before it is learned, by the copy above (see `ppo_loop.PlayAhead`).
+    ahead = ppo_loop.PlayAhead(net, actor, device, play) if args.play_ahead else None
+    try:
+        for generation in range(start, end):
+            began = time.time()
+            batch = rollout = held = played_phi = None
+            # Deciding is the joined player as it stands; what stays fixed in
+            # the update that follows is drawn now and said in the record.
+            fixed = str(drawer.choice(args.fixed))
+            net.set_mode(fixed)
+            net.eval()
+            # A generation that holds Mortal still has nothing to move it, its
+            # weights or its statistics, so its vector of every decision is
+            # the same all generation: kept from play when asked to reuse it.
+            reusing = args.reuse_phi and "mortal" in fixed.split("+")
+            # Whether the round was played beside the last generation's
+            # learning, by the weights from before it (--play-ahead).
+            lagged = False
+            if ahead is None:
+                player = net if actor is None else actor
+                if actor is not None:
+                    # Copied with the same rounding autocast makes.
+                    actor.load_state_dict(net.state_dict())
+                player.keep_phi = reusing
+                batch = play(player, generation)
+                played = time.time() - began
+            else:
+                lagged = ahead.playing is not None
+                if not lagged:
+                    # A process's first round: nothing was played beside a
+                    # generation before, so the learner plays it now.
+                    ahead.start(generation, keep_phi=reusing)
+                batch, played, waited = ahead.take(generation)
+                if generation + 1 < end:
+                    # The next round, played while this one is learned, by the
+                    # weights the learner has now; never one past the last
+                    # generation, which nothing would learn. Mortal's vectors
+                    # are kept from it only when this generation holds Mortal
+                    # still: the next can learn from them only if nothing
+                    # moved Mortal between the copy and its own learning, and
+                    # this generation's learning is all that comes between.
+                    ahead.start(generation + 1, keep_phi=reusing)
+            require_trainable_round(batch.decisions, args.batch, args.epochs)
+            loading = time.time()
+            # Beside a round being played the planes stay on the host: the
+            # card holds that round's work as well, and keeping a round on
+            # the card was never seen to shorten its learning.
+            rollout = ppo_loop.on_device(batch, device, card=ahead is None)
+            # What the three opponents were really holding at each decision: the
+            # label the reading of the hands is trained against, which self-play
+            # knows for free and which is far denser than the game's result.
+            held = batch.held.to(device)
+            if reusing and getattr(batch, "phi", None) is not None:
+                # On the card beside the step, or not at all: gathered from the
+                # host every minibatch it would hold the step up. Beside a round
+                # being played, only with that round's room to spare as well.
+                played_phi = (ppo_loop.kept_on_card(batch.phi, device) if ahead is None
+                              else ppo_loop.kept_on_card(batch.phi, device, ahead.spare()))
+                batch.phi = None
+            loaded = time.time() - loading
 
-        def values_of(chunk, planes):
-            mask = pad_rows(rollout.legal[chunk], rows, True)
-            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                return (learn(planes, mask)[1],)
+            # The baseline: our value head as it stands before the round, from
+            # a pass over it or, asked to, from play (see `ppo_loop.baseline_of`).
+            rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
 
-        guess, valued, baseline_said = ppo_loop.baseline_of(
-            rollout, batch, rows, values_of, from_play=args.baseline_from_play,
-            check=args.check_baseline, dtype=planes_dtype,
-        )
-        value_error = float(((rollout.returns - guess) ** 2).mean())
-        advantages, spread = ppo_loop.standardised(rollout.returns, guess)
+            def values_of(chunk, planes):
+                mask = pad_rows(rollout.legal[chunk], rows, True)
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                    return (learn(planes, mask)[1],)
 
-        net.train()
-        totals = ppo_loop.Totals(device, "leash", "hands", "covered")
-        drift = PolicyDrift(args.target_kl)
-        # Rows whose move was forced by exploration are the value head's
-        # and the hand reading's to learn from, not the policy's: the
-        # policy did not choose them, and a ratio against its own
-        # probability there sits far outside the clip, where a bad move
-        # teaches nothing and a lucky one teaches the wrong thing. Kept out
-        # of every policy term below; nothing is forced when --explore is
-        # zero.
-        explored = (
-            batch.explored.to(device=device, dtype=torch.bool)
-            if getattr(batch, "explored", None) is not None
-            else torch.zeros(batch.decisions, dtype=torch.bool, device=device)
-        )
-        steps = 0
-        for _epoch in range(args.epochs):
-            with closing(ppo_loop.minibatches(rollout, args.batch, dtype=planes_dtype)) as minibatches:
-                for picks, planes in minibatches:
-                    optimiser.zero_grad(set_to_none=True)
-                    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                        if played_phi is None:
-                            logits, value, guessed = learn(planes, rollout.legal[picks])
-                        else:
-                            logits, value, guessed = learn(
-                                planes, rollout.legal[picks], played_phi[picks]
-                            )
-                    logits = logits.float()
-                    value = value.float()
-                    hands_loss, covered = ppo_loop.hands_loss_of(guessed.float(), held[picks])
-                    # Unvalidated: checking the logits and the moves for the
-                    # distribution waited on the card twice a step, and a
-                    # logit that is not a number still stops the step, at the
-                    # gradient's clip below.
-                    distribution = torch.distributions.Categorical(logits=logits, validate_args=False)
-                    log_prob = distribution.log_prob(rollout.actions[picks])
-                    old_log_prob = rollout.old_log_probs[picks]
-                    chosen = ~explored[picks]
-                    own = chosen.sum().clamp(min=1)
-                    if args.explore:
-                        stop = bool(chosen.any()) and drift.check(old_log_prob[chosen], log_prob[chosen])
-                    else:
-                        # Nothing was explored, so every row is the policy's;
-                        # asking the card which ones would wait on it.
-                        stop = drift.check(old_log_prob, log_prob)
-                    if stop:
-                        break
-                    # PPO's clipped objective over the rows the policy chose.
-                    advantage = advantages[picks].masked_fill(~chosen, 0.0)
-                    delta = (log_prob - old_log_prob).masked_fill(~chosen, 0.0)
-                    ratio = torch.exp(delta)
-                    clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
-                    surrogate = torch.min(ratio * advantage, clipped * advantage)
-                    policy_loss = -(surrogate * chosen).sum() / own
-                    value_loss = nn.functional.mse_loss(value, rollout.returns[picks])
-                    entropy = (distribution.entropy() * chosen).sum() / own
-                    loss = (
-                        policy_loss
-                        + args.value_weight * value_loss
-                        + args.hands_weight * hands_loss
-                        - entropy_coef() * entropy
-                    )
-                    # How far this has come from the policy the run began with,
-                    # counted the way that punishes abandoning a move the
-                    # starting policy liked, which is the drift that cost us.
-                    leash = torch.zeros((), device=device)
-                    if reference is not None:
-                        with torch.no_grad(), torch.autocast(
-                            "cuda", dtype=torch.bfloat16, enabled=amp_enabled
-                        ):
-                            before, _before_value, _before_hands = reference.everything(
-                                planes, rollout.legal[picks]
-                            )
-                        allowed = rollout.legal[picks]
-                        before = torch.log_softmax(before.float(), dim=1)
-                        now = torch.log_softmax(logits, dim=1)
-                        # A move outside the mask holds minus infinity in both,
-                        # and one infinity less another is not a number, so it
-                        # is taken out by value; a zero weight does not cancel
-                        # it, it only spreads the NaN.
-                        weight = torch.where(allowed, before.exp(), torch.zeros_like(before))
-                        before = torch.where(allowed, before, torch.zeros_like(before))
-                        now = torch.where(allowed, now, torch.zeros_like(now))
-                        leash = ((weight * (before - now)).sum(dim=1) * chosen).sum() / own
-                        loss = loss + args.leash * leash
-                    loss.backward()
-                    grad_norm = nn.utils.clip_grad_norm_(
-                        [p for p in net.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
-                    )
-                    optimiser.step()
-                    if args.entropy_target > 0:
-                        # A dual step: under the target the bonus climbs,
-                        # over it the bonus sinks back to the fixed floor.
-                        shortfall = args.entropy_target - float(entropy.detach())
-                        floor["log_coef"] = min(ceiling_log, max(
-                            base_log, floor["log_coef"] + args.entropy_rate * shortfall))
-                    with torch.no_grad():
-                        totals.add(
-                            policy=policy_loss,
-                            value=value_loss,
-                            entropy=entropy,
-                            clipped=((ratio != clipped).float() * chosen).sum() / own,
-                            kl=-delta.sum() / own,
-                            grad=grad_norm,
-                            leash=leash,
-                            hands=hands_loss,
-                            covered=covered,
-                        )
-                    steps += 1
-            if drift.stopped:
-                break
+            guess, valued, baseline_said = ppo_loop.baseline_of(
+                rollout, batch, rows, values_of,
+                # Play's values are the head's as it stands only in a round
+                # the learner played itself. One played ahead was valued by
+                # the head of the generation before, still a baseline that
+                # never saw the round, but a generation older than the one
+                # the switch promises, so it gets the pass; checked, the
+                # record says how far apart the two were.
+                from_play=args.baseline_from_play and not lagged,
+                check=args.check_baseline, dtype=planes_dtype,
+            )
+            value_error = float(((rollout.returns - guess) ** 2).mean())
+            advantages, spread = ppo_loop.standardised(rollout.returns, guess)
 
-        # What the head is leaning on, on the last minibatch: how far it
-        # moved our own logits, and the weight it puts on each of the three
-        # answers it weighs, its own, Mortal's and ours.
-        head_shift = 0.0
-        weights = net.fuse.weights.mean(dim=1).tolist()
-        # A round that gathered fewer decisions than one minibatch trains on
-        # none of them, and there is then no last minibatch to read. Only the
-        # weights can be reported, which are the network's rather than the
-        # round's.
-        if steps:
-            with torch.no_grad():
-                net.eval()
-                allowed = rollout.legal[picks]
-                if planes.dtype != torch.float32:
-                    # This runs without autocast, so the minibatch is made
-                    # dense again as it always was.
-                    planes = ppo_loop.planes_of(rollout, picks)
-                phi, q, features, a1, _value, _guessed = net.backbones(planes, allowed)
-                joined = net.fuse(phi.float(), q.float(), features.float(), a1.float(), allowed)
-                shift = (joined - a1).abs().masked_fill(~allowed, 0.0)
-                head_shift = float(shift.sum() / allowed.sum().clamp(min=1))
             net.train()
+            totals = ppo_loop.Totals(device, "leash", "hands", "covered")
+            drift = PolicyDrift(args.target_kl)
+            # Rows whose move was forced by exploration are the value head's
+            # and the hand reading's to learn from, not the policy's: the
+            # policy did not choose them, and a ratio against its own
+            # probability there sits far outside the clip, where a bad move
+            # teaches nothing and a lucky one teaches the wrong thing. Kept out
+            # of every policy term below; nothing is forced when --explore is
+            # zero.
+            explored = (
+                batch.explored.to(device=device, dtype=torch.bool)
+                if getattr(batch, "explored", None) is not None
+                else torch.zeros(batch.decisions, dtype=torch.bool, device=device)
+            )
+            steps = 0
+            for _epoch in range(args.epochs):
+                with closing(ppo_loop.minibatches(rollout, args.batch, dtype=planes_dtype)) as minibatches:
+                    for picks, planes in minibatches:
+                        optimiser.zero_grad(set_to_none=True)
+                        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                            if played_phi is None:
+                                logits, value, guessed = learn(planes, rollout.legal[picks])
+                            else:
+                                logits, value, guessed = learn(
+                                    planes, rollout.legal[picks], played_phi[picks]
+                                )
+                        logits = logits.float()
+                        value = value.float()
+                        hands_loss, covered = ppo_loop.hands_loss_of(guessed.float(), held[picks])
+                        # Unvalidated: checking the logits and the moves for the
+                        # distribution waited on the card twice a step, and a
+                        # logit that is not a number still stops the step, at the
+                        # gradient's clip below.
+                        distribution = torch.distributions.Categorical(logits=logits, validate_args=False)
+                        log_prob = distribution.log_prob(rollout.actions[picks])
+                        # The probabilities the round recorded as it was
+                        # played: the policy that played it, which with
+                        # --play-ahead is the generation before's, so the
+                        # ratio below weighs each move by the right one.
+                        old_log_prob = rollout.old_log_probs[picks]
+                        chosen = ~explored[picks]
+                        own = chosen.sum().clamp(min=1)
+                        if args.explore:
+                            stop = bool(chosen.any()) and drift.check(old_log_prob[chosen], log_prob[chosen])
+                        else:
+                            # Nothing was explored, so every row is the policy's;
+                            # asking the card which ones would wait on it.
+                            stop = drift.check(old_log_prob, log_prob)
+                        if stop:
+                            break
+                        # PPO's clipped objective over the rows the policy chose.
+                        advantage = advantages[picks].masked_fill(~chosen, 0.0)
+                        delta = (log_prob - old_log_prob).masked_fill(~chosen, 0.0)
+                        ratio = torch.exp(delta)
+                        clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
+                        surrogate = torch.min(ratio * advantage, clipped * advantage)
+                        policy_loss = -(surrogate * chosen).sum() / own
+                        value_loss = nn.functional.mse_loss(value, rollout.returns[picks])
+                        entropy = (distribution.entropy() * chosen).sum() / own
+                        loss = (
+                            policy_loss
+                            + args.value_weight * value_loss
+                            + args.hands_weight * hands_loss
+                            - entropy_coef() * entropy
+                        )
+                        # How far this has come from the policy the run began with,
+                        # counted the way that punishes abandoning a move the
+                        # starting policy liked, which is the drift that cost us.
+                        leash = torch.zeros((), device=device)
+                        if reference is not None:
+                            with torch.no_grad(), torch.autocast(
+                                "cuda", dtype=torch.bfloat16, enabled=amp_enabled
+                            ):
+                                before, _before_value, _before_hands = reference.everything(
+                                    planes, rollout.legal[picks]
+                                )
+                            allowed = rollout.legal[picks]
+                            before = torch.log_softmax(before.float(), dim=1)
+                            now = torch.log_softmax(logits, dim=1)
+                            # A move outside the mask holds minus infinity in both,
+                            # and one infinity less another is not a number, so it
+                            # is taken out by value; a zero weight does not cancel
+                            # it, it only spreads the NaN.
+                            weight = torch.where(allowed, before.exp(), torch.zeros_like(before))
+                            before = torch.where(allowed, before, torch.zeros_like(before))
+                            now = torch.where(allowed, now, torch.zeros_like(now))
+                            leash = ((weight * (before - now)).sum(dim=1) * chosen).sum() / own
+                            loss = loss + args.leash * leash
+                        loss.backward()
+                        grad_norm = nn.utils.clip_grad_norm_(
+                            [p for p in net.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
+                        )
+                        optimiser.step()
+                        if args.entropy_target > 0:
+                            # A dual step: under the target the bonus climbs,
+                            # over it the bonus sinks back to the fixed floor.
+                            shortfall = args.entropy_target - float(entropy.detach())
+                            floor["log_coef"] = min(ceiling_log, max(
+                                base_log, floor["log_coef"] + args.entropy_rate * shortfall))
+                        with torch.no_grad():
+                            totals.add(
+                                policy=policy_loss,
+                                value=value_loss,
+                                entropy=entropy,
+                                clipped=((ratio != clipped).float() * chosen).sum() / own,
+                                kl=-delta.sum() / own,
+                                grad=grad_norm,
+                                leash=leash,
+                                hands=hands_loss,
+                                covered=covered,
+                            )
+                        steps += 1
+                if drift.stopped:
+                    break
 
-        require_updates(steps)
-        entry = ppo_loop.record(
-            generation, steps, drift, rows, rollout, batch,
-            {"began": began, "played": played, "loaded": loaded}, totals, spread,
-            fixed=fixed,
-            head_shift=round(head_shift, 4),
-            on_fusion=round(weights[0], 4),
-            on_mortal=round(weights[1], 4),
-            on_ours=round(weights[2], 4),
-            value_error=round(value_error, 4),
-            # The pass that values the round before it is learned, or the
-            # values play recorded, and how far apart the two are when both
-            # were asked for.
-            baseline_seconds=round(valued, 1),
-            **baseline_said,
-            # Whether this generation learned from Mortal's vectors as
-            # play worked them out, when the run reuses them.
-            **({"reused_phi": played_phi is not None} if args.reuse_phi else {}),
-            entropy_coef=round(entropy_coef(), 6),
-            # Peaks, so the container's reservation can be sized from data:
-            # memory is billed by what is reserved, not what is used.
-            peak_rss_gb=peak_rss_gb(),
-            peak_gpu_gb=peak_gpu_gb(),
-            leash_kl=totals.mean("leash", steps, 5),
-            hands_loss=totals.mean("hands", steps, 4),
-            hands_covered=totals.mean("covered", steps, 4),
-            # One row a player met, never summed. Improving against your
-            # own recent past while losing to the fine-tuned Mortal is
-            # specialisation, and an average is what hides it.
-            matchups=getattr(batch, "matchups", None),
-        )
-        ppo_loop.finish(args, generation, entry, measure, checkpoint_payload, benchmark, log_path)
+            # What the head is leaning on, on the last minibatch: how far it
+            # moved our own logits, and the weight it puts on each of the three
+            # answers it weighs, its own, Mortal's and ours.
+            head_shift = 0.0
+            weights = net.fuse.weights.mean(dim=1).tolist()
+            # A round that gathered fewer decisions than one minibatch trains on
+            # none of them, and there is then no last minibatch to read. Only the
+            # weights can be reported, which are the network's rather than the
+            # round's.
+            if steps:
+                with torch.no_grad():
+                    net.eval()
+                    allowed = rollout.legal[picks]
+                    if planes.dtype != torch.float32:
+                        # This runs without autocast, so the minibatch is made
+                        # dense again as it always was.
+                        planes = ppo_loop.planes_of(rollout, picks)
+                    phi, q, features, a1, _value, _guessed = net.backbones(planes, allowed)
+                    joined = net.fuse(phi.float(), q.float(), features.float(), a1.float(), allowed)
+                    shift = (joined - a1).abs().masked_fill(~allowed, 0.0)
+                    head_shift = float(shift.sum() / allowed.sum().clamp(min=1))
+                net.train()
+
+            require_updates(steps)
+            entry = ppo_loop.record(
+                generation, steps, drift, rows, rollout, batch,
+                {"began": began, "played": played, "loaded": loaded}, totals, spread,
+                fixed=fixed,
+                head_shift=round(head_shift, 4),
+                on_fusion=round(weights[0], 4),
+                on_mortal=round(weights[1], 4),
+                on_ours=round(weights[2], 4),
+                value_error=round(value_error, 4),
+                # The pass that values the round before it is learned, or the
+                # values play recorded, and how far apart the two are when both
+                # were asked for.
+                baseline_seconds=round(valued, 1),
+                **baseline_said,
+                # Whether this generation learned from Mortal's vectors as
+                # play worked them out, when the run reuses them.
+                **({"reused_phi": played_phi is not None} if args.reuse_phi else {}),
+                # With --play-ahead, whether the round was played beside the
+                # last generation's learning, by the weights from before it,
+                # and how long this generation waited for it: the part of
+                # play_seconds, the round's own, that the learning did not hide.
+                **({"played_ahead": lagged, "play_wait_seconds": round(waited, 1)}
+                   if ahead is not None else {}),
+                entropy_coef=round(entropy_coef(), 6),
+                # Peaks, so the container's reservation can be sized from data:
+                # memory is billed by what is reserved, not what is used.
+                peak_rss_gb=peak_rss_gb(),
+                peak_gpu_gb=peak_gpu_gb(),
+                leash_kl=totals.mean("leash", steps, 5),
+                hands_loss=totals.mean("hands", steps, 4),
+                hands_covered=totals.mean("covered", steps, 4),
+                # One row a player met, never summed. Improving against your
+                # own recent past while losing to the fine-tuned Mortal is
+                # specialisation, and an average is what hides it.
+                matchups=getattr(batch, "matchups", None),
+            )
+            ppo_loop.finish(args, generation, entry, measure, checkpoint_payload, benchmark, log_path)
+    finally:
+        if ahead is not None:
+            # A round still being played here is one the learning failed
+            # beside: it is given up at its next step, not waited for.
+            ahead.close()
 
     print("training finished", flush=True)
 

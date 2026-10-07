@@ -387,14 +387,15 @@ class Combined(nn.Module):
         explore_share: float = 0.0,
         wanderer=None,
         preview_reach: bool = False,
+        generator: torch.Generator | None = None,
     ):
         """One of our engine's actions per row, and what the policy decided
         to get there, with the value its head gave each decision: the
         fusion's judgement, the one the baseline pass reads; and, with
         `keep_phi`, Mortal's vector of each. Its moves are Mortal's, so a
         riichi is answered in two steps and both are recorded; with
-        `preview_reach`, from one forward (see
-        `mortal_learner.decide_in_mortal_space`)."""
+        `preview_reach`, from one forward; drawn from `generator` when one
+        is given (see `mortal_learner.decide_in_mortal_space`)."""
 
         def score(planes: torch.Tensor, mask: torch.Tensor):
             answer = self.decision(planes, mask)
@@ -412,6 +413,7 @@ class Combined(nn.Module):
             explore_share=explore_share,
             wanderer=wanderer,
             preview_reach=preview_reach,
+            generator=generator,
         )
 
     def parameter_count(self) -> int:

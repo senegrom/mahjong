@@ -409,7 +409,11 @@ def encoder_thread() -> ThreadPoolExecutor:
     """The thread a step's views are encoded on beside the caller's (see
     `Views.prepare`), made when first wanted. One is enough: it hands the
     follower one batch at a time, and the follower spreads each over every
-    processor itself."""
+    processor itself. It serves one round of self-play at a time: a trainer
+    that plays its rounds ahead plays every one of them on its own worker,
+    one after another (`ppo_loop.PlayAhead`), and nothing else encodes
+    aside, a measurement made meanwhile encoding on its own thread from a
+    follower of its own."""
     return ThreadPoolExecutor(max_workers=1, thread_name_prefix="encoder")
 
 

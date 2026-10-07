@@ -62,7 +62,34 @@ PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 # and `measure` report placement alone.
 
 
-def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> tuple:
+class Abandoned(RuntimeError):
+    """A round given up part way, because whoever was waiting for it asked
+    (see `play`'s `abandon`)."""
+
+
+def sampled(
+    distribution: torch.distributions.Categorical, generator: torch.Generator | None = None
+) -> torch.Tensor:
+    """A move from `distribution`, drawn as `distribution.sample()` draws
+    one, from `generator` when one is given rather than from torch's own.
+
+    Torch's generators are the process's. A round played on a thread of
+    its own beside the learning (`ppo_loop.PlayAhead`) would draw from them
+    while the learning drew from them too, on the processor from the very
+    same one, so which numbers the round got would depend on how the two
+    threads happened to interleave; and a checkpoint taken meanwhile would
+    keep them wherever the round had got to. Such a round draws from a
+    generator of its own (`play`'s `own_draws`)."""
+    if generator is None:
+        return distribution.sample()
+    probs = distribution.probs.reshape(-1, distribution.param_shape[-1])
+    return torch.multinomial(probs, 1, True, generator=generator).T.reshape(distribution.batch_shape)
+
+
+def explore(
+    logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng,
+    generator: torch.Generator | None = None,
+) -> tuple:
     """A move from the policy, or now and then a legal one at random, and
     the probability the *behaviour* gave whatever came out.
 
@@ -89,10 +116,13 @@ def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> t
     a forced move is flagged, and the trainer keeps it out of the policy
     gradient altogether (see `train_combined`), while the value and hands
     terms still see the position it led to, which was the point.
+
+    The policy's move is drawn from `generator` when one is given (see
+    `sampled`); the wandering draws from `rng`.
     """
     validate_exploration(epsilon)
     distribution = torch.distributions.Categorical(logits=logits)
-    chosen = distribution.sample()
+    chosen = sampled(distribution, generator)
     if epsilon > 0:
         count = legal.sum(dim=1).clamp(min=1)
         forced = torch.from_numpy(rng.random(len(chosen))).to(logits.device) < epsilon
@@ -203,6 +233,8 @@ def play(
     want_oracle: bool = False,
     want_held: bool = True,
     preview_reach: bool = False,
+    own_draws: bool = False,
+    abandon=None,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -242,6 +274,15 @@ def play(
     telling the follower the reach and asking again (see
     `mortal_learner.decide_in_mortal_space`). The others are asked as their
     trainer seated them (`ppo_loop.load_others`).
+
+    `own_draws` has the learner draw its moves from a generator of the
+    round's own, seeded from `seed` as the wandering is, rather than from
+    torch's (see `sampled`): a round played beside the learning
+    (`ppo_loop.PlayAhead`) is then the same whatever the learning does
+    meanwhile, and leaves torch's generators to it. `abandon`, an event,
+    stops the round at the start of the next step once it is set, with
+    `Abandoned`: a trainer whose learning failed need not wait for the
+    round being played beside it to finish.
     """
     require_training_engine()
     validate_budget(games, max_steps)
@@ -272,6 +313,12 @@ def play(
     # Its own stream, so how much the round wanders cannot change what is
     # dealt, and turning exploration on or off leaves the games alone.
     wanderer = np.random.default_rng(seed ^ 0x3A17_9E55)
+    # The learner's moves from a generator of the round's own when asked,
+    # and otherwise from torch's, as they always were: passed on only when
+    # there is one, so a learner that never draws apart need not know of it.
+    draws = {}
+    if own_draws:
+        draws["generator"] = torch.Generator(device=torch.device(device)).manual_seed(seed ^ 0x6D0E_5EED)
     if opponents and seat_share > 0:
         from .population import mixed_tables
 
@@ -369,6 +416,8 @@ def play(
         return counted
 
     while not arena.all_finished() and steps < max_steps:
+        if abandon is not None and abandon.is_set():
+            raise Abandoned(f"self-play abandoned after {steps} steps, as asked")
         steps += 1
         began = clock()
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
@@ -448,7 +497,7 @@ def play(
                 picked, records = net.decide(
                     views, index, deciding[index], mask[index], greedy,
                     explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
-                    preview_reach=preview_reach,
+                    preview_reach=preview_reach, **draws,
                 )
             began = clock()
             # Whatever of the others' encoding the learner's deciding did
@@ -534,7 +583,7 @@ def play(
                 was_forced = torch.zeros_like(chosen, dtype=torch.bool)
             else:
                 chosen, chosen_log_prob, was_forced = explore(
-                    logits, batch_mask, explore_share, wanderer
+                    logits, batch_mask, explore_share, wanderer, **draws
                 )
             record_actions = chosen.cpu().numpy()
             record_log_probs = chosen_log_prob.cpu().numpy()

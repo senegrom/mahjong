@@ -674,6 +674,7 @@ def train_combined(
     reuse_phi: bool = False,
     compile_learning: bool = False,
     preview_reach: bool = False,
+    play_ahead: bool = False,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -691,9 +692,18 @@ def train_combined(
     `--compile-learning`: play and the seated others stay eager. It is
     taken instead of `compile` whatever that says, since `compile`, on by
     default, would compile them all.
+
+    `play_ahead` plays each round on a worker while the round before is
+    learned, by the weights the learner had a generation earlier, the
+    trainer's `--play-ahead`; passed on only when true. Its rounds are
+    played eagerly, so it is refused with `compile` unless the learning
+    step is compiled alone (`compile_learning`), before any work is done.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
+    if play_ahead and compile and not compile_learning:
+        raise ValueError("play_ahead plays eagerly beside the learning: pass compile=False, "
+                         "or compile_learning=True to compile the learning step alone")
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
     validate_cloud_request(generations, opponents, opponent_share, seat_share)
@@ -730,6 +740,8 @@ def train_combined(
             command.append("--reuse-phi")
         if preview_reach:
             command.append("--preview-reach")
+        if play_ahead:
+            command.append("--play-ahead")
         if fixed:
             command += ["--fixed", *fixed]
         if source.exists():

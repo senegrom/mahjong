@@ -103,6 +103,7 @@ def decide_in_mortal_space(
     explore_share: float = 0.0,
     wanderer=None,
     preview_reach: bool = False,
+    generator: torch.Generator | None = None,
 ) -> tuple[np.ndarray, Records]:
     """One of our engine's actions per row, and the records of everything
     the policy decided to get there, in Mortal's action space.
@@ -134,6 +135,9 @@ def decide_in_mortal_space(
     which first waits for any encoding a worker is still making from the
     follower (see `Views.prepare`); `translate`; `network` for the first
     answer; and `riichi` for the rest of the second.
+
+    The moves and the reach's tiles are drawn from `generator` when one is
+    given, and from torch's own generator otherwise (see `selfplay.sampled`).
     """
     clock = time.perf_counter
     timing = timing if timing is not None else {}
@@ -203,6 +207,7 @@ def decide_in_mortal_space(
             mask,
             explore_share,
             wanderer if wanderer is not None else np.random.default_rng(),
+            generator,
         )
     log_prob = log_prob.cpu().numpy()
     picked = picked.cpu().numpy()
@@ -275,7 +280,12 @@ def decide_in_mortal_space(
             logits_after, value_after, phi_after = scored(score(after.dense(device), mask_after))
             logits_after = logits_after.float()
         distribution_after = torch.distributions.Categorical(logits=logits_after)
-        tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()
+        if greedy:
+            tile = logits_after.argmax(dim=1)
+        else:
+            from .selfplay import sampled
+
+            tile = sampled(distribution_after, generator)
         log_prob_after = distribution_after.log_prob(tile).cpu().numpy()
         tile = tile.cpu().numpy()
         for slot, i in enumerate(second):
@@ -386,11 +396,13 @@ class MortalLearner(nn.Module):
         explore_share: float = 0.0,
         wanderer=None,
         preview_reach: bool = False,
+        generator: torch.Generator | None = None,
     ) -> tuple[np.ndarray, Records]:
         """One of our actions per row, and the records of the decisions
         made, in Mortal's action space, that produced them, with the value
         head's value of each, which the same forward has worked out; a
-        reach's tile from that forward too with `preview_reach` (see
+        reach's tile from that forward too with `preview_reach`; the moves
+        drawn from `generator` when one is given (see
         `decide_in_mortal_space`)."""
         return decide_in_mortal_space(
             self.inference,
@@ -404,6 +416,7 @@ class MortalLearner(nn.Module):
             explore_share=explore_share,
             wanderer=wanderer,
             preview_reach=preview_reach,
+            generator=generator,
         )
 
     def choose(

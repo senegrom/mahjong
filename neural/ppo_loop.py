@@ -14,8 +14,11 @@ three.
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
+import contextlib
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -134,8 +137,11 @@ class Round:
     on_card: DevicePlanes | None
 
 
-def on_device(batch, device: str) -> Round:
-    """`batch`, a round from `selfplay.play`, where the learning step reads it."""
+def on_device(batch, device: str, card: bool = True) -> Round:
+    """`batch`, a round from `selfplay.play`, where the learning step reads
+    it: its planes on the card when the card has room for them, unless
+    `card` is false, which keeps them on the host whatever room there is,
+    as beside a round being played ahead (see `PlayAhead`)."""
     return Round(
         decisions=batch.decisions,
         device=device,
@@ -144,7 +150,7 @@ def on_device(batch, device: str) -> Round:
         actions=batch.actions.to(device),
         returns=batch.returns.to(device),
         old_log_probs=batch.log_probs.to(device),
-        on_card=resident(batch.observations, device),
+        on_card=resident(batch.observations, device) if card else None,
     )
 
 
@@ -187,19 +193,26 @@ def baseline(
     return guesses
 
 
+def step_spare() -> int:
+    """What the learning step needs free on the card beside a round's
+    planes or vectors kept there, in bytes: sixteen gigabytes, or
+    `RESIDENT_SPARE_GB` (see `observe.resident`)."""
+    return int(float(os.environ.get("RESIDENT_SPARE_GB", "16")) * (1 << 30))
+
+
 def kept_on_card(
     tensor: torch.Tensor, device: str | torch.device, spare: int | None = None
 ) -> torch.Tensor | None:
     """`tensor` on `device` when that is the processor, or a card with
     room for it and `spare` bytes to spare afterwards for the learning
     step, as for a round's planes (see `observe.resident`, whose sixteen
-    gigabytes and `RESIDENT_SPARE_GB` this shares); None when the card has
-    no such room."""
+    gigabytes and `RESIDENT_SPARE_GB` this shares, `step_spare`); None when
+    the card has no such room."""
     device = torch.device(device)
     if device.type != "cuda":
         return tensor.to(device)
     if spare is None:
-        spare = int(float(os.environ.get("RESIDENT_SPARE_GB", "16")) * (1 << 30))
+        spare = step_spare()
     free, _total = torch.cuda.mem_get_info(device)
     if free - tensor.numel() * tensor.element_size() < spare:
         return None
@@ -239,8 +252,9 @@ def baseline_of(
     guess = played.to(rollout.device) if from_play else passed
     if torch.device(rollout.device).type == "cuda":
         # Waited for, so that the time is the card's and not only the
-        # launching of its work.
-        torch.cuda.synchronize()
+        # launching of its work; the work on this stream only, the pass's,
+        # and not a round being played beside it on another (`PlayAhead`).
+        torch.cuda.current_stream(rollout.device).synchronize()
     seconds = time.time() - began
     said = {"baseline_from_play": True} if from_play else {}
     if check:
@@ -256,6 +270,123 @@ def standardised(returns: torch.Tensor, baseline: torch.Tensor) -> tuple[torch.T
     advantages = returns - baseline
     spread = advantages.std(unbiased=False)
     return (advantages - advantages.mean()) / (spread + 1e-6), float(spread)
+
+
+#: What a round played beside the learning (`PlayAhead`) may hold on the
+#: card at once, in gigabytes: the planes and activations of a step's
+#: questions, about two or three at four thousand tables. Mortal's vectors
+#: are kept on the card beside such a round only with this to spare as
+#: well as the learning step's own.
+AHEAD_SPARE_GB = 4
+
+
+class PlayAhead:
+    """Self-play a round ahead of the learning (`--play-ahead`): the next
+    round is played on a worker thread, and on the card on a stream of its
+    own, while the learner learns the last. Play is bound by the
+    processors and learning by the card, and each used to wait while the
+    other worked.
+
+    Round g + 1 is begun (`start`) as generation g begins, once round g has
+    been taken (`take`), by `actor`, a copy of `learner` given the weights
+    the learner has then: those it had before it learned round g. So each
+    round is played by the weights of a generation before the ones that
+    learn it, but for a process's first round, which nothing precedes and
+    which the learner plays as it stands, begun and taken at once; a run
+    that resumes starts that way too. PPO's ratio divides by the
+    probabilities a round recorded as it was played (`Batch.log_probs`),
+    the policy's that played it, so its weighting stays exact; what grows
+    is the distance its clip is asked to cover, two generations' drift
+    where it was one.
+
+    `play(player, generation, **options)` plays round `generation` with
+    `player`, handing `options` on to `selfplay.play`: that the round draw
+    its moves from a generator of its own (`own_draws`), so that it is the
+    same whatever the learning does meanwhile and leaves torch's
+    generators, which the checkpoint keeps, to the learning; and the event
+    that abandons it (`close`).
+
+    Every round is played on the one worker, a process's first included,
+    and one at a time. The follower a round reads its tables through, and
+    the encodings made from it aside (`observe.encoder_thread`), are
+    touched by nothing else: a measurement made meanwhile follows tables of
+    its own, encoded on its own thread. And a round's blocks are made in
+    the worker's share of the host's memory, where the round before went
+    back to once it had been learned, rather than in the share of a thread
+    that played only the first."""
+
+    def __init__(self, learner, actor, device: str | torch.device, play) -> None:
+        self.learner = learner
+        self.actor = actor
+        self.play = play
+        self.device = torch.device(device)
+        # High in priority: play's questions are small and many, and queued
+        # behind the learning step's long kernels they would hold up the
+        # round, the longer of the two in most generations.
+        self.stream = (torch.cuda.Stream(self.device, priority=-1)
+                       if self.device.type == "cuda" else None)
+        self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="play-ahead")
+        self.abandon = threading.Event()
+        self.round: tuple[int, Future] | None = None
+
+    @property
+    def playing(self) -> int | None:
+        """The round being played, or None."""
+        return None if self.round is None else self.round[0]
+
+    def start(self, generation: int, keep_phi: bool = False) -> None:
+        """Begins round `generation`, played by the learner's weights as
+        they stand now, keeping Mortal's vector of each decision with
+        `keep_phi` (see `Combined.keep_phi`)."""
+        if self.round is not None:
+            raise RuntimeError(f"round {self.round[0]} is still being played")
+        # Copied on the learner's stream, which the round's waits for before
+        # it reads them. The round never reads the learner's own weights,
+        # so the learning may move them meanwhile.
+        self.actor.load_state_dict(self.learner.state_dict())
+        self.actor.keep_phi = keep_phi
+        if self.stream is not None:
+            self.stream.wait_stream(torch.cuda.current_stream(self.device))
+        self.round = (generation, self.worker.submit(self._play, generation))
+
+    def _play(self, generation: int):
+        began = time.time()
+        with torch.cuda.stream(self.stream) if self.stream is not None else contextlib.nullcontext():
+            batch = self.play(self.actor, generation, own_draws=True, abandon=self.abandon)
+        return batch, time.time() - began
+
+    def take(self, generation: int):
+        """Round `generation` once it has been played, with the seconds it
+        took to play and the seconds waited for it here. Whatever stopped
+        the round is raised here."""
+        if self.round is None or self.round[0] != generation:
+            raise RuntimeError(f"round {generation} is not being played; {self.playing} is")
+        future = self.round[1]
+        self.round = None
+        began = time.time()
+        batch, played = future.result()
+        waited = time.time() - began
+        if self.stream is not None:
+            # Whatever the round left queued is done before the learner's
+            # stream next writes the actor's weights.
+            torch.cuda.current_stream(self.device).wait_stream(self.stream)
+        return batch, played, waited
+
+    def spare(self) -> int:
+        """What the card must keep free beside Mortal's vectors kept there
+        while a round is played: the learning step's (`step_spare`) and the
+        round's (`AHEAD_SPARE_GB`)."""
+        return step_spare() + int(AHEAD_SPARE_GB * (1 << 30))
+
+    def close(self) -> None:
+        """Abandons a round still being played, at its next step, and lets
+        the worker go once it has stopped. What stopped the round is not
+        asked: a trainer comes here with a round still being played only on
+        its way out with an error of its own, which is the one to see."""
+        if self.round is not None:
+            self.abandon.set()
+            self.round = None
+        self.worker.shutdown(wait=True)
 
 
 _STAGING: dict[torch.device, torch.cuda.Stream] = {}
