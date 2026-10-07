@@ -194,9 +194,46 @@ def _generation_or_zoo(checkpoint: Path) -> str:
 # processors are billed whether or not the engine can use them.
 TRAINER_CPUS = 16
 
+# The longest one call of a trainer may run. Modal ends it there, in the
+# middle of a generation if one is under way, and a retry starts again
+# from the last checkpoint published, the partial generation lost.
+TRAINER_TIMEOUT = 24 * 60 * 60
+# What is kept in hand when a trainer is stopped ahead of the timeout (see
+# `_run_trainer`): a generation can run longer than the one before it, by
+# a slower mode or by a measurement, and stopping the trainer and saving
+# the compiler cache take a while themselves.
+TRAINER_SPARE = 10 * 60
+
+
+class StoppedBeforeTimeout(RuntimeError):
+    """A trainer stopped on purpose between two generations, because the
+    next would not have finished before the call's timeout. Raised so that
+    the call fails and Modal's retries start it again at once, in a fresh
+    container, from the checkpoint just published: a call that returned
+    instead would simply have ended, and nothing would start it again."""
+
 
 LOCAL_CACHE = Path("/tmp/inductor-cache")
 SHARED_CACHE = VOLUME / "inductor-cache"
+#: The files of the local cache the volume holds too, by their paths within
+#: it, with the size and modification time each had when it was seeded from
+#: the volume or saved to it: what a save need not copy again.
+_ON_VOLUME: dict[str, tuple[int, int]] = {}
+
+
+def _cache_files() -> dict[str, tuple[int, int]]:
+    """Every file of the local cache, by its path within it, with its size
+    and modification time."""
+    found = {}
+    for folder, _folders, names in os.walk(LOCAL_CACHE):
+        for name in names:
+            path = Path(folder) / name
+            try:
+                stat = path.stat()
+            except OSError:
+                continue  # gone while we looked, as a lock file goes
+            found[path.relative_to(LOCAL_CACHE).as_posix()] = (stat.st_size, stat.st_mtime_ns)
+    return found
 
 
 def _seed_cache() -> Path:
@@ -209,19 +246,39 @@ def _seed_cache() -> Path:
                 print("compiler cache seeded from the volume", flush=True)
             except OSError as error:
                 print(f"compiler cache not seeded: {error}", flush=True)
+        # What came from the volume need not go back to it.
+        _ON_VOLUME.update(_cache_files())
     return LOCAL_CACHE
 
 
 def _save_cache() -> None:
-    """What the compiler built here, back to the volume for the next
-    container. Called when a trainer's block ends, not during it."""
+    """What the compiler has built here since the cache was seeded or last
+    saved, back to the volume for the next container. Called after every
+    generation published, as well as when a trainer's block ends: a
+    container stopped by the timeout or preempted never reaches its end,
+    and when only what the first generation built was saved, the next
+    container compiled every graph a later one first needed all over
+    again. Only files new or changed are copied, and with none nothing is
+    copied or committed, so a generation that compiled nothing costs a
+    walk of the local directory."""
     if not LOCAL_CACHE.exists():
         return
     try:
-        SHARED_CACHE.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(LOCAL_CACHE, SHARED_CACHE, dirs_exist_ok=True)
+        new = {name: kind for name, kind in _cache_files().items() if _ON_VOLUME.get(name) != kind}
+        copied = {}
+        for name, kind in new.items():
+            target = SHARED_CACHE / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(LOCAL_CACHE / name, target)
+            except FileNotFoundError:
+                continue  # gone since the walk
+            copied[name] = kind
+        if not copied:
+            return
         volume.commit()
-        print("compiler cache saved to the volume", flush=True)
+        _ON_VOLUME.update(copied)
+        print(f"compiler cache saved to the volume: {len(copied)} new files", flush=True)
     except OSError as error:
         print(f"compiler cache not saved: {error}", flush=True)
 
@@ -239,6 +296,10 @@ def _environment(cpus: int | None = None) -> dict[str, str]:
     # compiler writing to the network volume while training: a recompile
     # that wrote there stalled a generation by about five minutes.
     environment["TORCHINDUCTOR_CACHE_DIR"] = str(_seed_cache())
+    # The compiler's workers, one a processor of the container's share: by
+    # itself it starts one for every processor the container shows, up to
+    # thirty-two, the same miscount the encoder's threads are spared above.
+    environment["TORCHINDUCTOR_COMPILE_THREADS"] = environment["RAYON_NUM_THREADS"]
     # Say what the container actually has, since the count above is a
     # request: the cgroup's quota is the truth.
     try:
@@ -254,42 +315,79 @@ def _environment(cpus: int | None = None) -> dict[str, str]:
     return environment
 
 
-def _run_trainer(command: list[str], where: Path, run: str) -> str:
+def _target(command: list[str], start: int) -> int:
+    """The generation a trainer's command stops at, worked out as every
+    trainer works it out: `--rounds` more from the one it resumes at, or,
+    with none, `--generations` itself."""
+    rounds = int(command[command.index("--rounds") + 1])
+    return start + rounds if rounds else int(command[command.index("--generations") + 1])
+
+
+def _run_trainer(command: list[str], where: Path, run: str, called: float) -> str:
     """Runs a trainer over the workspace `where` and publishes it to the
     run as it goes: each generation as its record arrives, so a preempted
     container costs a single round, and the last once the trainer exits
-    cleanly. Answers how it ended."""
+    cleanly; whatever the compiler built goes to the volume with each (see
+    `_save_cache`). Answers how it ended.
+
+    A call that cannot finish the run raises rather than answers, so that
+    Modal's retries resume it from the checkpoint published last. A call
+    that returns has ended, and on 1 October a trainer killed at generation
+    147 left the run standing for hours with nothing to start it again.
+    So a trainer that exits with an error short of the generation it was to
+    reach raises `CalledProcessError`. And once the next generation would
+    not finish before the call's timeout, counted from `called`, when the
+    call began, the trainer is stopped as soon as a generation has been
+    published, seconds into the next one, rather than killed by the timeout
+    in the middle of it, and `StoppedBeforeTimeout` is raised."""
     environment = _environment(TRAINER_CPUS)
     print(" ".join(command), flush=True)
-    saved_cache = False
     began = time.time()
     started_at = _generation_of(where / "latest.pt")
+    target = _target(command, started_at)
     seen = started_at
     print(f"the checkpoint says generation {started_at}", flush=True)
-    with managed_process(subprocess.Popen(
-        command,
-        cwd="/src",
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )) as process:
-        assert process.stdout is not None
-        for line in process.stdout:
-            print(line.rstrip(), flush=True)
-            # A finished generation is a JSON record.
-            if line.startswith("{") and '"generation"' in line:
-                try:
-                    record = json.loads(line)
-                    seen = int(record.get("checkpoint_generation", record["generation"] + 1))
-                except Exception:
-                    continue
-                seen = _publish(where, seen, run, started_at)
-                if not saved_cache:
+    try:
+        with managed_process(subprocess.Popen(
+            command,
+            cwd="/src",
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )) as process:
+            assert process.stdout is not None
+            # When the last generation was published, or the trainer began.
+            last = time.time()
+            for line in process.stdout:
+                print(line.rstrip(), flush=True)
+                # A finished generation is a JSON record.
+                if line.startswith("{") and '"generation"' in line:
+                    try:
+                        record = json.loads(line)
+                        seen = int(record.get("checkpoint_generation", record["generation"] + 1))
+                    except Exception:
+                        continue
+                    seen = _publish(where, seen, run, started_at)
+                    # Whatever the generation compiled, kept at once.
                     _save_cache()
-                    saved_cache = True
-        code = process.wait()
+                    now = time.time()
+                    lasted, last = now - last, now
+                    # The next generation is judged by the last, which
+                    # includes its measurement and its checkpoint's save.
+                    if seen < target and now - called + 1.3 * lasted + TRAINER_SPARE > TRAINER_TIMEOUT:
+                        raise StoppedBeforeTimeout(
+                            f"stopped after publishing generation {seen}, {now - called:.0f}s into "
+                            f"the call: the next, at about {lasted:.0f}s, would not finish before "
+                            f"the {TRAINER_TIMEOUT}s timeout; a retry resumes from it"
+                        )
+            code = process.wait()
+    except StoppedBeforeTimeout as stopped:
+        # The trainer has been stopped on the way out of the block above.
+        print(stopped, flush=True)
+        _save_cache()
+        raise
     _save_cache()
     # Publish only when a generation actually finished. A run that trained
     # nothing still rewrites its checkpoint with the target generation
@@ -299,6 +397,10 @@ def _run_trainer(command: list[str], where: Path, run: str) -> str:
         seen = _publish(where, seen, run, started_at)
     else:
         print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
+    if code != 0 and seen < target:
+        raise subprocess.CalledProcessError(
+            code, command, output=f"the trainer stopped at generation {seen} of {target}"
+        )
     return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
 
 
@@ -315,7 +417,7 @@ def _run_trainer(command: list[str], where: Path, run: str) -> str:
     # make on this lineage, not one to carry over.
     cpu=TRAINER_CPUS,
     memory=98304,
-    timeout=24 * 60 * 60,
+    timeout=TRAINER_TIMEOUT,
     volumes={str(VOLUME): volume},
     max_containers=1,
 )
@@ -349,6 +451,8 @@ def train(
     passes over each round three times and its critic learns the round by
     heart.
     """
+    # The timeout counts from here, not from when the trainer starts.
+    called = time.time()
     validate_cloud_request(generations, opponents, opponent_share)
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
@@ -412,7 +516,7 @@ def train(
             where, opponents, opponent_share, lambda name: _checkpoint(run, name)
         )
         command += controls
-        return _run_trainer(command, where, run)
+        return _run_trainer(command, where, run, called)
 
 
 @app.function(
@@ -421,7 +525,7 @@ def train(
     gpu=["H100", "A100-80GB"],
     cpu=TRAINER_CPUS,
     memory=98304,
-    timeout=24 * 60 * 60,
+    timeout=TRAINER_TIMEOUT,
     volumes={str(VOLUME): volume},
     max_containers=1,
 )
@@ -444,6 +548,10 @@ def train_mortal(
     target_kl: float = 0.0,
     baseline_batch: int | None = None,
     until: int = 0,
+    skip_forced: bool = False,
+    baseline_from_play: bool = False,
+    check_baseline: bool = False,
+    preview_reach: bool = False,
 ) -> str:
     """Fine-tunes a published Mortal on our rules by self-play, in a run
     directory of its own: see `neural/train_mortal.py`. Resumes from the
@@ -459,7 +567,22 @@ def train_mortal(
     `temperature` is passed on only when given: a run resumes at the one
     its checkpoint was trained at, and one from the published Mortal
     starts at 1.0 (see `neural/train_mortal.py`).
+
+    `skip_forced` has the seated others leave the rows with one move open
+    unasked, the trainer's `--skip-forced`; off, they play as they did.
+
+    `baseline_from_play` takes the baseline from the values the learner
+    recorded as it played rather than a pass over the round, and
+    `check_baseline` makes the pass as well and records how far the two
+    are apart: the trainer's `--baseline-from-play` and `--check-baseline`.
+    Each is passed on only when true.
+
+    `preview_reach` has the learner and the seated others ask a reach's
+    tile in the forward that decides on the reach, the trainer's
+    `--preview-reach`; passed on only when true.
     """
+    # The timeout counts from here, not from when the trainer starts.
+    called = time.time()
     validate_cloud_request(generations, opponents, opponent_share, seat_share)
     rounds = round_arguments(generations, until)
     controls = training_control_arguments(target_kl, baseline_batch)
@@ -475,6 +598,14 @@ def train_mortal(
         ]
         if temperature is not None:
             command += ["--temperature", str(temperature)]
+        if skip_forced:
+            command.append("--skip-forced")
+        if baseline_from_play:
+            command.append("--baseline-from-play")
+        if check_baseline:
+            command.append("--check-baseline")
+        if preview_reach:
+            command.append("--preview-reach")
         if source.exists():
             _carry(run, source, where)
             command += ["--resume", str(where / "latest.pt")]
@@ -494,7 +625,7 @@ def train_mortal(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run)
+        return _run_trainer(command, where, run, called)
 
 
 @app.function(
@@ -503,7 +634,7 @@ def train_mortal(
     gpu=["H100", "A100-80GB"],
     cpu=TRAINER_CPUS,
     memory=98304,
-    timeout=24 * 60 * 60,
+    timeout=TRAINER_TIMEOUT,
     volumes={str(VOLUME): volume},
     max_containers=1,
 )
@@ -537,13 +668,51 @@ def train_combined(
     entropy_target: float = 0.0,
     entropy_max: float = 0.05,
     until: int = 0,
+    skip_forced: bool = False,
+    baseline_from_play: bool = False,
+    check_baseline: bool = False,
+    reuse_phi: bool = False,
+    compile_learning: bool = False,
+    preview_reach: bool = False,
+    play_ahead: bool = False,
+    play_graphs: bool = False,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
     `neural/train_combined.py`. Resumes from the checkpoint of that name
     in the run when it is there, and otherwise joins the two checkpoints
-    named, which may be any run's. `until` is as for `train_mortal`.
+    named, which may be any run's. `until`, `skip_forced`,
+    `baseline_from_play`, `check_baseline` and `preview_reach` are as for
+    `train_mortal`.
+
+    `reuse_phi` has a generation that holds Mortal still learn from
+    Mortal's vectors as play worked them out, the trainer's `--reuse-phi`;
+    passed on only when true.
+
+    `compile_learning` compiles the learning step alone, the trainer's
+    `--compile-learning`: play and the seated others stay eager. It is
+    taken instead of `compile` whatever that says, since `compile`, on by
+    default, would compile them all.
+
+    `play_ahead` plays each round on a worker while the round before is
+    learned, by the weights the learner had a generation earlier, the
+    trainer's `--play-ahead`; passed on only when true. Its rounds are
+    played eagerly, so it is refused with `compile` unless the learning
+    step is compiled alone (`compile_learning`), before any work is done.
+
+    `play_graphs` has play's small questions answered from CUDA graphs,
+    the trainer's `--play-graphs`; passed on only when true, and refused
+    likewise with `compile` unless `compile_learning` is set: the graphs
+    record play's eager forwards.
     """
+    # The timeout counts from here, not from when the trainer starts.
+    called = time.time()
+    if play_ahead and compile and not compile_learning:
+        raise ValueError("play_ahead plays eagerly beside the learning: pass compile=False, "
+                         "or compile_learning=True to compile the learning step alone")
+    if play_graphs and compile and not compile_learning:
+        raise ValueError("play_graphs records play's eager forwards: pass compile=False, "
+                         "or compile_learning=True to compile the learning step alone")
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
     validate_cloud_request(generations, opponents, opponent_share, seat_share)
@@ -564,9 +733,26 @@ def train_combined(
         ]
         # Six networks compile here, the joined player twice over and its four
         # seated others once, which took a fresh container over an hour before
-        # its first generation; eager is the choice when that is not worth it.
-        if compile:
+        # its first generation; eager is the choice when that is not worth it,
+        # and compiling the learning step alone the one between.
+        if compile_learning:
+            command.append("--compile-learning")
+        elif compile:
             command.append("--compile")
+        if skip_forced:
+            command.append("--skip-forced")
+        if baseline_from_play:
+            command.append("--baseline-from-play")
+        if check_baseline:
+            command.append("--check-baseline")
+        if reuse_phi:
+            command.append("--reuse-phi")
+        if preview_reach:
+            command.append("--preview-reach")
+        if play_ahead:
+            command.append("--play-ahead")
+        if play_graphs:
+            command.append("--play-graphs")
         if fixed:
             command += ["--fixed", *fixed]
         if source.exists():
@@ -592,7 +778,7 @@ def train_combined(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run)
+        return _run_trainer(command, where, run, called)
 
 
 @app.function(

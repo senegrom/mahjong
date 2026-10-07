@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
+import json
 import time
 from pathlib import Path
 
 import torch
 from torch import nn
 
-from . import mortal_learner, ppo_loop, selfplay
+from . import mortal_learner, play_graphs, ppo_loop, selfplay
 from .observe import pad_rows
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
 from .training_batches import require_trainable_round, require_updates
@@ -62,6 +63,43 @@ def parse_args() -> argparse.Namespace:
         help="each player of each game is one of --opponents with this chance, so one table "
         "can hold several of them and the learner at once; instead of --opponent-share",
     )
+    parser.add_argument(
+        "--skip-forced", action="store_true",
+        help="ask the seated --opponents nothing about a row with a single move open in "
+        "Mortal's moves, whose move is then that one. Off by default: the rows still asked "
+        "are scored in a smaller batch, which on the card can change their values in the "
+        "last bit, and so turn a near tie",
+    )
+    parser.add_argument(
+        "--preview-reach", action="store_true",
+        help="ask which tile a reach would throw in the forward that decides on the reach, "
+        "from the follower's preview of it, for the learner and the seated --opponents, "
+        "instead of telling the follower the reach and asking again: one forward where there "
+        "were two. The same questions from the same states; the answers come from a larger "
+        "batch, which in bfloat16 can move them in their last bits. Off by default",
+    )
+    parser.add_argument(
+        "--baseline-from-play", action="store_true",
+        help="measure the advantages against the value head's value of each decision as the "
+        "learner played, instead of a pass over the round before it is learned. The same head, "
+        "weights and planes; only the batches they went through differ, and compiled the "
+        "graph that decides is not the one that learns. Off by default",
+    )
+    parser.add_argument(
+        "--check-baseline", action="store_true",
+        help="run the pass over the round as well and record how far play's values are from "
+        "it (baseline_difference, its largest, and baseline_difference_mean)",
+    )
+    parser.add_argument(
+        "--play-graphs", action="store_true",
+        help="answer play's small questions, of the learner with --amp and of the seated "
+        "--opponents, from CUDA graphs recorded once for each of a few sizes of batch, a "
+        "question padded to the next of them, rather than launching a forward's thousand "
+        "kernels one by one each time; a batch above 512 rows is asked eagerly as before. A "
+        "graph answers what the forward answers eagerly at the padded size, bit for bit; that "
+        "can differ from its answer at the size asked in the last bits of bfloat16. Off by "
+        "default; not with --compile",
+    )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260907)
@@ -75,7 +113,12 @@ def parse_args() -> argparse.Namespace:
         "learning was bound by them rather than by the data",
     )
     add_training_controls(parser)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.compile and args.play_graphs:
+        # The compiled deciding forward and seated others are what the
+        # graphs would have to record.
+        parser.error("--play-graphs records play's eager forwards, which --compile replaces")
+    return args
 
 
 def main() -> None:
@@ -133,14 +176,24 @@ def main() -> None:
     learn = torch.compile(net.policy) if args.compile else net.policy
     if args.compile:
         net.inference = torch.compile(net.policy, dynamic=True)
+    if args.play_graphs:
+        # Small questions from CUDA graphs, every one recorded now, when play
+        # asks in bfloat16 (--amp); they read the weights where the optimiser
+        # moves them (see `play_graphs`).
+        play_graphs.graphed(net, device, amp=amp_enabled)
 
     # Who else sits at the tables, as a roster with roles and shares, made
     # the way train_combined makes it.
     roster, seated = ppo_loop.seat_others(args, device)
+    # Play's forwards that answer from graphs, the learner's and the seated
+    # others', for the record.
+    graphed = play_graphs.graphs_of([net, *seated])
     print(
         f"device {device} | Mortal {config['resnet']['conv_channels']}x{config['resnet']['num_blocks']} "
         f"| {sum(p.numel() for p in net.parameters()) / 1e6:.2f}M parameters "
-        f"| temperature {net.temperature}",
+        f"| temperature {net.temperature}"
+        + (f" | {len(graphed)} players' small questions from graphs: "
+           f"{json.dumps(play_graphs.accounts(graphed))}" if graphed else ""),
         flush=True,
     )
 
@@ -187,13 +240,15 @@ def main() -> None:
             # Mortal has no head that reads the opponents' hands, and they
             # are a gigabyte of host memory on a large round.
             want_held=False,
+            preview_reach=args.preview_reach,
         )
         require_trainable_round(batch.decisions, args.batch, args.epochs)
         played = time.time() - began
         rollout = ppo_loop.on_device(batch, device)
         loaded = time.time() - began - played
 
-        # The baseline: the value head as it stands before the round.
+        # The baseline: the value head as it stands before the round, from
+        # a pass over it or, asked to, from play (see `ppo_loop.baseline_of`).
         net.eval()
         rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
 
@@ -202,7 +257,10 @@ def main() -> None:
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
                 return (learn(planes, mask)[1],)
 
-        (guess,) = ppo_loop.baseline(rollout, rows, values_of)
+        guess, valued, baseline_said = ppo_loop.baseline_of(
+            rollout, batch, rows, values_of, from_play=args.baseline_from_play,
+            check=args.check_baseline,
+        )
         value_error = float(((rollout.returns - guess) ** 2).mean())
         advantages, spread = ppo_loop.standardised(rollout.returns, guess)
 
@@ -250,10 +308,19 @@ def main() -> None:
             generation, steps, drift, rows, rollout, batch,
             {"began": began, "played": played, "loaded": loaded}, totals, spread,
             value_error=round(value_error, 4),
+            # The pass that values the round before it is learned, or the
+            # values play recorded, and how far apart the two are when both
+            # were asked for.
+            baseline_seconds=round(valued, 1),
+            **baseline_said,
             # How the learner placed against each player it met, one row a
             # player, never summed: gaining on its own past while losing
             # to published Mortal is specialisation, and an average hides it.
             matchups=getattr(batch, "matchups", None),
+            # With --play-graphs, how many graphs play holds by now, the
+            # seconds this process has spent recording them, and the card
+            # memory they hold.
+            **(play_graphs.accounts(graphed) if args.play_graphs else {}),
             peak_rss_gb=peak_rss_gb(),
             peak_gpu_gb=peak_gpu_gb(),
         )

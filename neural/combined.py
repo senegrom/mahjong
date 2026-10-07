@@ -169,6 +169,22 @@ class Combined(nn.Module):
 
     kind = "mortal"
     actions = ACTIONS
+    #: Whether, seated as another player, it leaves rows with a single move
+    #: open unasked; see `zoo.choose_in_mortal_space`.
+    skip_forced = False
+    #: Whether, seated as another player, it asks a reach's tile in the
+    #: first question, from the follower's preview of the reach; see
+    #: `zoo.choose_in_mortal_space`. As the learner it is told by `decide`.
+    preview_reach = False
+    #: Whether deciding keeps Mortal's vector of every decision in its
+    #: records, for a generation that learns from it rather than running
+    #: Mortal again (`train_combined --reuse-phi`). A trainer turns it on
+    #: for the rounds that will read it.
+    keep_phi = False
+    #: What deciding and a seated player's questions ask instead of
+    #: `decision`, when a trainer has small questions answered from CUDA
+    #: graphs (`play_graphs.graphed`); None asks `decision` itself.
+    deciding = None
 
     #: What a generation may hold still: either network beneath the head,
     #: the head itself, or any combination of them written with a plus.
@@ -189,6 +205,11 @@ class Combined(nn.Module):
         self.mortal.eval()
         # The forward a trainer may replace with a compiled one.
         self.backbones_forward = self.backbones
+        # Where a round's deciding went, in seconds, for the play record;
+        # `selfplay.play` reads and clears it. Without it the learner's own
+        # share of a round, a few minutes of a generation, was recorded
+        # nowhere.
+        self.timing = {"encode": 0.0, "translate": 0.0, "network": 0.0, "riichi": 0.0}
 
     def always_trained(self) -> list[nn.Parameter]:
         """The critic and the reading of the hands, both halves of each.
@@ -260,10 +281,21 @@ class Combined(nn.Module):
                 module.eval()
         return self
 
-    def backbones(self, planes: torch.Tensor, legal: torch.Tensor) -> tuple[torch.Tensor, ...]:
+    def backbones(
+        self,
+        planes: torch.Tensor,
+        legal: torch.Tensor,
+        hands: bool = True,
+        phi: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, ...]:
         """Both players' last two layers, from the planes: Mortal's vector
         and its move values, our features and our logits over the same
-        moves, with our value and our reading of the opponents' hands."""
+        moves, with our value and our reading of the opponents' hands.
+        `hands=False` leaves the reading out, None in its place, for a
+        caller that wants only the moves and the value. `phi`, Mortal's
+        vector of each row when it is already known, is taken as it is
+        instead of being worked out from the planes again; only its move
+        values are."""
         ours = self.ours
         features = ours.tail(ours.tower(ours.stem(planes)))
         pooled = features.mean(dim=2)
@@ -273,15 +305,25 @@ class Combined(nn.Module):
         # head above weighs it and masks once at the end.
         a1 = torch.cat([tiles, ours.policy_pooled(pooled)], dim=1)
         value = ours.value(pooled.detach()).squeeze(1)
-        guessed = ours.hands_from(planes, features)
-        phi = self.mortal.features(planes)
+        guessed = ours.hands_from(planes, features) if hands else None
+        if phi is None:
+            phi = self.mortal.features(planes)
         q = self.mortal.dqn(phi, legal)
         return phi, q, features, a1, value, guessed
 
     def everything(
-        self, planes: torch.Tensor, legal: torch.Tensor
+        self, planes: torch.Tensor, legal: torch.Tensor, phi: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal)
+        """The logits, the value and the reading of the hands. `phi`, when
+        given, is Mortal's vector of each row, already known: in a
+        generation that holds Mortal still it is the same function of the
+        same planes all generation, so the learning step can take it from
+        play instead of running Mortal on every minibatch (see
+        `train_combined --reuse-phi`)."""
+        if phi is None:
+            phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal)
+        else:
+            phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal, phi=phi)
         phi = phi.float()
         logits = self.fuse(phi, q.float(), features.float(), a1.float(), legal)
         return (
@@ -294,6 +336,29 @@ class Combined(nn.Module):
         logits, value, _guessed = self.everything(planes, legal)
         return logits, value
 
+    def decision(
+        self, planes: torch.Tensor, legal: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """What deciding asks of `everything`: the logits and the value,
+        and Mortal's vector beneath both, without the reading of the
+        opponents' hands, which only the learning step reads. That reading
+        is a tower of its own over the planes and the head above it, a few
+        per cent of the forward. The logits and the value come from the
+        same kernels on the same inputs either way, so they are bit for bit
+        `everything`'s.
+
+        A forward a trainer has compiled (`backbones_forward`) is asked for
+        all of it, as it always was: a graph without the hands would be
+        another graph, and the compiler's answers from it can differ in
+        their last bits."""
+        if self.backbones_forward == self.backbones:
+            phi, q, features, a1, value, _guessed = self.backbones(planes, legal, hands=False)
+        else:
+            phi, q, features, a1, value, _guessed = self.backbones_forward(planes, legal)
+        wide = phi.float()
+        logits = self.fuse(wide, q.float(), features.float(), a1.float(), legal)
+        return logits, self.fuse.judge(wide, value.float()), phi
+
     @torch.no_grad()
     def choose(
         self, views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray
@@ -301,18 +366,18 @@ class Combined(nn.Module):
         """Its best move per row, in our engine's actions. The same two
         steps as `decide`, with nothing recorded."""
         return zoo.choose_in_mortal_space(
-            lambda who, fresh, allowed: self._ask(views, who, fresh, allowed), views, rows, players, legal
+            lambda who, fresh, allowed, ahead=(): self._ask(views, who, fresh, allowed, ahead),
+            views, rows, players, legal,
+            skip_forced=self.skip_forced, preview_reach=self.preview_reach,
         )
 
     @torch.no_grad()
-    def _ask(self, views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray):
-        rows = np.array([game for game, _player in who], dtype=np.int64)
-        players = np.array([player for _game, player in who], dtype=np.int64)
-        sparse, masks = views.sparse_and_masks(rows, players, fresh=fresh)
+    def _ask(self, views, who: list[tuple[int, int]], fresh: bool, allowed: np.ndarray, ahead=()):
         device = str(next(self.parameters()).device)
+        planes, masks = zoo.asked_planes(views, who, fresh, ahead, device)
         mask = torch.from_numpy(allowed).to(device)
         with policy_inference.autocast(device, self.actions):
-            logits, _value = self.forward(sparse.dense(device), mask)
+            logits, _value, _phi = (self.deciding or self.decision)(planes, mask)
         return logits.float().cpu().numpy(), masks
 
     @torch.no_grad()
@@ -325,20 +390,34 @@ class Combined(nn.Module):
         greedy: bool = False,
         explore_share: float = 0.0,
         wanderer=None,
+        preview_reach: bool = False,
+        generator: torch.Generator | None = None,
     ):
         """One of our engine's actions per row, and what the policy decided
-        to get there. Its moves are Mortal's, so a riichi is answered in two
-        steps and both are recorded."""
+        to get there, with the value its head gave each decision: the
+        fusion's judgement, the one the baseline pass reads; and, with
+        `keep_phi`, Mortal's vector of each. Its moves are Mortal's, so a
+        riichi is answered in two steps and both are recorded; with
+        `preview_reach`, from one forward; drawn from `generator` when one
+        is given (see `mortal_learner.decide_in_mortal_space`)."""
+
+        def score(planes: torch.Tensor, mask: torch.Tensor):
+            answer = (self.deciding or self.decision)(planes, mask)
+            return answer if self.keep_phi else answer[:2]
+
         return mortal_learner.decide_in_mortal_space(
-            lambda planes, mask: self.forward(planes, mask)[0],
+            score,
             views,
             rows,
             players,
             legal,
             greedy,
             str(next(self.parameters()).device),
+            self.timing,
             explore_share=explore_share,
             wanderer=wanderer,
+            preview_reach=preview_reach,
+            generator=generator,
         )
 
     def parameter_count(self) -> int:

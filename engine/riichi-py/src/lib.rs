@@ -302,6 +302,67 @@ impl Seat {
     }
 }
 
+/// Writes every game's legality mask into its `ACTIONS` entries of `mask`,
+/// all false where the game owes no decision. The games are spread across
+/// the cores: a game's legal moves take microseconds to work out, a step
+/// asks for thousands of games, and one game after another on the main
+/// thread that took longer than the stepping did across the cores.
+fn legal_masks(seats: &[Seat], mask: &mut [bool]) {
+    use rayon::prelude::*;
+    mask.par_chunks_mut(ACTIONS)
+        .zip(seats.par_iter())
+        .for_each(|(slice, seat)| {
+            slice.fill(false);
+            if let Some(wind) = seat.pending() {
+                encoding::legal_mask(&seat.hand, wind, slice);
+            }
+        });
+}
+
+/// Why `actions` cannot be applied, if they cannot: the first game, in game
+/// order, whose pending decision is not a legal move. Checked across the
+/// cores; `find_map_first` still names the game a loop from the first
+/// would have stopped at, so the error does not depend on scheduling.
+fn first_illegal(seats: &[Seat], actions: &[usize]) -> Option<String> {
+    use rayon::prelude::*;
+    seats
+        .par_iter()
+        .zip(actions.par_iter())
+        .enumerate()
+        .find_map_first(|(game, (seat, &index))| {
+            let wind = seat.pending()?;
+            let valid = if seat.asking.is_empty() {
+                encoding::decode_action(&seat.hand, index).is_some()
+            } else {
+                encoding::decode_call(&seat.hand, wind, index).is_some()
+            };
+            (!valid).then(|| format!("illegal action {index} in game {game} for {wind:?}"))
+        })
+}
+
+/// Applies one action per game, the games spread across the cores. In
+/// `strict` mode the whole batch is checked first and nothing moves if any
+/// of it is illegal: an invalid later row must not leave earlier games
+/// advanced with no corresponding training data. Otherwise an illegal
+/// index is answered with the first legal move, or a pass.
+fn step_all(seats: &mut [Seat], actions: &[usize], strict: bool) -> Result<(), String> {
+    use rayon::prelude::*;
+    if strict {
+        if let Some(error) = first_illegal(seats, actions) {
+            return Err(error);
+        }
+    }
+    // Every game is its own table, hand and generator, and stepping one
+    // means running the heuristic players round to the next decision the
+    // network owes, which is where the CPU time of a generation goes.
+    // The GPU was sitting at ten percent waiting for this loop.
+    seats
+        .par_iter_mut()
+        .zip(actions.par_iter())
+        .for_each(|(seat, index)| seat.step(*index));
+    Ok(())
+}
+
 /// The places the heuristic player takes at each of `games` tables: the
 /// same `bot_places` at every one, or `table_bots` table by table.
 fn places_by_table(
@@ -442,13 +503,9 @@ impl Arena {
 
     /// One legality mask per game, as bytes of 0 and 1.
     fn legal_mask<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        for (index, seat) in self.seats.iter().enumerate() {
-            let slice = &mut self.mask[index * ACTIONS..(index + 1) * ACTIONS];
-            slice.fill(false);
-            if let Some(wind) = seat.pending() {
-                encoding::legal_mask(&seat.hand, wind, slice);
-            }
-        }
+        // Without the GIL, as in `step`, whose comment says why that is safe.
+        let (seats, mask) = (&self.seats, &mut self.mask);
+        py.detach(|| legal_masks(seats, mask));
         let bytes: Vec<u8> = self.mask.iter().map(|flag| u8::from(*flag)).collect();
         PyBytes::new(py, &bytes)
     }
@@ -475,8 +532,10 @@ impl Arena {
     }
 
     /// Applies one action per game. Games that owe no decision ignore theirs.
+    /// With `strict`, an illegal index anywhere refuses the whole batch
+    /// before any game moves; see `step_all`.
     #[pyo3(signature = (actions, strict=true))]
-    fn step(&mut self, actions: Vec<usize>, strict: bool) -> PyResult<()> {
+    fn step(&mut self, py: Python<'_>, actions: Vec<usize>, strict: bool) -> PyResult<()> {
         if actions.len() != self.seats.len() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "expected {} actions, got {}",
@@ -484,37 +543,18 @@ impl Arena {
                 actions.len()
             )));
         }
-        if strict {
-            // Validate the complete batch first: an invalid later row must not
-            // leave earlier games advanced with no corresponding training data.
-            for (game, (seat, index)) in self.seats.iter().zip(&actions).enumerate() {
-                let Some(wind) = seat.pending() else {
-                    continue;
-                };
-                let valid = if seat.asking.is_empty() {
-                    encoding::decode_action(&seat.hand, *index).is_some()
-                } else {
-                    encoding::decode_call(&seat.hand, wind, *index).is_some()
-                };
-                if !valid {
-                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                        "illegal action {index} in game {game} for {wind:?}"
-                    )));
-                }
-            }
-        }
-        // Every game is its own table, hand and generator, and stepping one
-        // means running the heuristic players round to the next decision the
-        // network owes, which is where the CPU time of a generation goes.
-        // The GPU was sitting at ten percent waiting for this loop.
-        {
-            use rayon::prelude::*;
-            self.seats
-                .par_iter_mut()
-                .zip(actions.par_iter())
-                .for_each(|(seat, index)| seat.step(*index));
-        }
-        Ok(())
+        // The check and the stepping run without the GIL, so that a Python
+        // thread beside this one -- a learner launching kernels while this
+        // plays -- is not held up while they run. That is safe: the closure
+        // reads and writes only Rust data, the games and the actions
+        // already copied out of Python, and nothing in the rules engine
+        // calls back into Python. PyO3 holds this method's mutable borrow
+        // of the arena until it returns, so another thread that reaches for
+        // the same arena meanwhile gets PyO3's "already borrowed" error,
+        // never a game in the middle of a move.
+        let seats = &mut self.seats;
+        py.detach(|| step_all(seats, &actions, strict))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Every game's mjai events since they were last asked for, one list
@@ -651,5 +691,7 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod legality_tests;
 #[cfg(test)]
 mod ownership_tests;

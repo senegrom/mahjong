@@ -56,7 +56,9 @@ class EvaluationMaskTests(unittest.TestCase):
                     player.forward = lambda planes, mask: score(planes, mask)[0]
                 else:
                     player = combined.Combined(net, mortal_model.build(8, 1))
-                    player.forward = score
+                    # Asked through its deciding forward, which answers
+                    # Mortal's vector after the logits and the value.
+                    player.decision = lambda planes, mask: (*score(planes, mask), None)
                 legal = np.zeros((1, 78), dtype=bool)
                 legal[0, [0, 34, 35]] = True
                 result = player.choose(views, np.array([0]), np.array([0]), legal)

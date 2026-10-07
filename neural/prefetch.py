@@ -4,6 +4,10 @@ Use as a context manager (or call close in finally) when a consumer can stop
 before exhaustion. Closing waits for the current prepare call, cancels further
 work, drains queued tensors, and joins the owned thread. It cannot interrupt
 an arbitrary blocking prepare function; training uses finite tensor gathers.
+
+`receive`, when given, is called in the consuming thread on each prepared
+item as it is handed over, and its answer handed over instead: where the
+consumer's own stream must wait for work the worker queued on another.
 """
 from __future__ import annotations
 
@@ -17,11 +21,13 @@ Ready = TypeVar('Ready')
 
 
 class Prefetcher(Iterator[Ready]):
-    def __init__(self, items: Iterable[Item], prepare: Callable[[Item], Ready], depth: int = 3) -> None:
+    def __init__(self, items: Iterable[Item], prepare: Callable[[Item], Ready], depth: int = 3,
+                 receive: Callable[[Ready], Ready] | None = None) -> None:
         if type(depth) is not int or depth <= 0:
             raise ValueError('prefetch depth must be a positive integer')
         self.items = iter(items)
         self.prepare = prepare
+        self.receive = receive
         self.queue: queue.Queue = queue.Queue(maxsize=depth)
         self._stop = threading.Event()
         self._closed = False
@@ -65,6 +71,7 @@ class Prefetcher(Iterator[Ready]):
         self._closed = True
         self.items = iter(())
         self.prepare = None
+        self.receive = None
 
     def __enter__(self) -> Prefetcher:
         return self
@@ -84,7 +91,7 @@ class Prefetcher(Iterator[Ready]):
             self.close()
             raise
         if kind == 'ready':
-            return payload
+            return payload if self.receive is None else self.receive(payload)
         self.close()
         if kind == 'error':
             raise payload

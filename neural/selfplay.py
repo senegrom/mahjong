@@ -62,7 +62,34 @@ PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 # and `measure` report placement alone.
 
 
-def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> tuple:
+class Abandoned(RuntimeError):
+    """A round given up part way, because whoever was waiting for it asked
+    (see `play`'s `abandon`)."""
+
+
+def sampled(
+    distribution: torch.distributions.Categorical, generator: torch.Generator | None = None
+) -> torch.Tensor:
+    """A move from `distribution`, drawn as `distribution.sample()` draws
+    one, from `generator` when one is given rather than from torch's own.
+
+    Torch's generators are the process's. A round played on a thread of
+    its own beside the learning (`ppo_loop.PlayAhead`) would draw from them
+    while the learning drew from them too, on the processor from the very
+    same one, so which numbers the round got would depend on how the two
+    threads happened to interleave; and a checkpoint taken meanwhile would
+    keep them wherever the round had got to. Such a round draws from a
+    generator of its own (`play`'s `own_draws`)."""
+    if generator is None:
+        return distribution.sample()
+    probs = distribution.probs.reshape(-1, distribution.param_shape[-1])
+    return torch.multinomial(probs, 1, True, generator=generator).T.reshape(distribution.batch_shape)
+
+
+def explore(
+    logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng,
+    generator: torch.Generator | None = None,
+) -> tuple:
     """A move from the policy, or now and then a legal one at random, and
     the probability the *behaviour* gave whatever came out.
 
@@ -89,10 +116,13 @@ def explore(logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng) -> t
     a forced move is flagged, and the trainer keeps it out of the policy
     gradient altogether (see `train_combined`), while the value and hands
     terms still see the position it led to, which was the point.
+
+    The policy's move is drawn from `generator` when one is given (see
+    `sampled`); the wandering draws from `rng`.
     """
     validate_exploration(epsilon)
     distribution = torch.distributions.Categorical(logits=logits)
-    chosen = distribution.sample()
+    chosen = sampled(distribution, generator)
     if epsilon > 0:
         count = legal.sum(dim=1).clamp(min=1)
         forced = torch.from_numpy(rng.random(len(chosen))).to(logits.device) < epsilon
@@ -150,15 +180,32 @@ class Batch:
     matchups: list[dict] = field(default_factory=list)
     #: Where the round's wall time went, in seconds by part: the engine
     #: and the follower, the encoder, the network, the seated others, and
-    #: the bookkeeping. For finding what to make faster.
+    #: the bookkeeping. A learner that decides for itself adds its own
+    #: account: gathering its rows' planes to the encoder, its first answer
+    #: to the network, translating its moves, and asking for a riichi's
+    #: tile. For finding what to make faster.
     timing: dict[str, float] = field(default_factory=dict)
+    #: What the learner's value head made of each decision as it decided,
+    #: one a decision in the order above, when every step's records said
+    #: (see `mortal_learner.Records.values`); None otherwise.
+    values: torch.Tensor | None = None
+    #: Mortal's vector of each decision as the learner worked it out when
+    #: deciding, in the same order, when it was asked to keep them (see
+    #: `combined.Combined.keep_phi`); None otherwise.
+    phi: torch.Tensor | None = None
 
 
-def gather(blocks: list[np.ndarray]) -> torch.Tensor:
+def gather(blocks: list[np.ndarray] | list[torch.Tensor]) -> torch.Tensor:
     """Stacks a round's blocks into one tensor, freeing each block as it
-    is copied, so the peak is the round itself and one block over."""
+    is copied, so the peak is the round itself and one block over. The
+    blocks are arrays, or tensors on the host where numpy has no kind for
+    them, as for Mortal's vectors in bfloat16."""
     total = sum(len(block) for block in blocks)
-    out = np.empty((total, *blocks[0].shape[1:]), dtype=blocks[0].dtype)
+    first = blocks[0]
+    if isinstance(first, torch.Tensor):
+        out = torch.empty((total, *first.shape[1:]), dtype=first.dtype)
+    else:
+        out = np.empty((total, *first.shape[1:]), dtype=first.dtype)
     at = 0
     for index in range(len(blocks)):
         block = blocks[index]
@@ -166,7 +213,7 @@ def gather(blocks: list[np.ndarray]) -> torch.Tensor:
         at += len(block)
         blocks[index] = None
     blocks.clear()
-    return torch.from_numpy(out)
+    return out if isinstance(out, torch.Tensor) else torch.from_numpy(out)
 
 
 @torch.no_grad()
@@ -185,6 +232,9 @@ def play(
     explore_share: float = 0.0,
     want_oracle: bool = False,
     want_held: bool = True,
+    preview_reach: bool = False,
+    own_draws: bool = False,
+    abandon=None,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -218,6 +268,21 @@ def play(
     One of them may be the engine's heuristic player (`zoo.ClubPlayer`,
     seated by the name `club`): the arena plays its places itself, and
     its presence below one in the roster seats it only in some rounds.
+
+    `preview_reach` has a learner that decides in Mortal's moves ask which
+    tile a reach would throw in the same forward as the reach, instead of
+    telling the follower the reach and asking again (see
+    `mortal_learner.decide_in_mortal_space`). The others are asked as their
+    trainer seated them (`ppo_loop.load_others`).
+
+    `own_draws` has the learner draw its moves from a generator of the
+    round's own, seeded from `seed` as the wandering is, rather than from
+    torch's (see `sampled`): a round played beside the learning
+    (`ppo_loop.PlayAhead`) is then the same whatever the learning does
+    meanwhile, and leaves torch's generators to it. `abandon`, an event,
+    stops the round at the start of the next step once it is set, with
+    `Abandoned`: a trainer whose learning failed need not wait for the
+    round being played beside it to finish.
     """
     require_training_engine()
     validate_budget(games, max_steps)
@@ -248,6 +313,12 @@ def play(
     # Its own stream, so how much the round wanders cannot change what is
     # dealt, and turning exploration on or off leaves the games alone.
     wanderer = np.random.default_rng(seed ^ 0x3A17_9E55)
+    # The learner's moves from a generator of the round's own when asked,
+    # and otherwise from torch's, as they always were: passed on only when
+    # there is one, so a learner that never draws apart need not know of it.
+    draws = {}
+    if own_draws:
+        draws["generator"] = torch.Generator(device=torch.device(device)).manual_seed(seed ^ 0x6D0E_5EED)
     if opponents and seat_share > 0:
         from .population import mixed_tables
 
@@ -290,6 +361,11 @@ def play(
     held: list[np.ndarray] = []
     oracle: list[np.ndarray] = []
     wandered: list[np.ndarray] = []
+    # The learner's values of its decisions, and Mortal's vectors of them,
+    # a block a step, while every step's records carry them; None from the
+    # first that does not.
+    valued: list[np.ndarray] | None = []
+    vectors: list[torch.Tensor] | None = []
     actions: list[int] = []
     log_probs: list[float] = []
     rewards: list[float] = []
@@ -340,6 +416,8 @@ def play(
         return counted
 
     while not arena.all_finished() and steps < max_steps:
+        if abandon is not None and abandon.is_set():
+            raise Abandoned(f"self-play abandoned after {steps} steps, as asked")
         steps += 1
         began = clock()
         seats = np.frombuffer(arena.seats(), dtype=np.uint8)
@@ -375,11 +453,58 @@ def play(
         index = np.nonzero(live & ~theirs)[0]
         timing["other"] += clock() - began
         began = clock()
-        # Every deciding player's view in one call, for whoever asks below.
-        everyone = np.nonzero(live)[0]
-        views.prepare(everyone, deciding[everyone])
+        if decides:
+            # Each player's views in encodings of their own, so that each
+            # is served its own arrays rather than rows gathered from
+            # everyone's (a seated other that leaves its rows with one move
+            # unasked, `--skip-forced`, has the rest gathered from its own):
+            # the learner's here and now, with the views it asks a reach's
+            # tile from when it asks ahead, and the seated others' by a
+            # worker while the learner decides, since they are asked only
+            # after it (see `Views.prepare`); here too on a step the learner
+            # has no decision in. One that reads the engine's planes needs
+            # none of the follower's.
+            views.prepare(index, deciding[index])
+            if preview_reach:
+                ready = index[mask[index, zoo.RIICHI_DISCARD:zoo.TSUMO].any(axis=1)]
+                views.prepare(ready, deciding[ready], after_reach=True)
+            for which in np.unique(holder[theirs]):
+                other = opponents[int(which)]
+                if other.kind != "mortal":
+                    continue
+                rows = np.nonzero(theirs & (holder == which))[0]
+                views.prepare(rows, deciding[rows], aside=bool(len(index)))
+                if getattr(other, "preview_reach", False):
+                    ready = rows[mask[rows, zoo.RIICHI_DISCARD:zoo.TSUMO].any(axis=1)]
+                    views.prepare(ready, deciding[ready], after_reach=True, aside=bool(len(index)))
+        else:
+            # Every deciding player's view in one call, for whoever asks below.
+            everyone = np.nonzero(live)[0]
+            views.prepare(everyone, deciding[everyone])
         timing["encode"] += clock() - began
         began = clock()
+        if decides and len(index):
+            # A learner in an action space of its own (see
+            # `mortal_learner`): it answers the table in ours and records
+            # its decisions itself, possibly more than one per row, and
+            # keeps its own account of the time. It decides first, while
+            # the others' views are made: their moves do not depend on its
+            # and they draw nothing at random, so the order changes nothing.
+            # The precision of the rollout is the trainer's choice, made
+            # here and nowhere inside: the probabilities recorded are the
+            # ones the learning forward will reproduce.
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and str(device).startswith("cuda")):
+                picked, records = net.decide(
+                    views, index, deciding[index], mask[index], greedy,
+                    explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
+                    preview_reach=preview_reach, **draws,
+                )
+            began = clock()
+            # Whatever of the others' encoding the learner's deciding did
+            # not hide.
+            views.wait()
+            timing["encode"] += clock() - began
+            began = clock()
         if theirs.any():
             for which in np.unique(holder[theirs]):
                 rows = np.nonzero(theirs & (holder == which))[0]
@@ -402,18 +527,6 @@ def play(
             continue
         choice = their_choice.copy()
         if decides:
-            # A learner in an action space of its own (see
-            # `mortal_learner`): it answers the table in ours and records
-            # its decisions itself, possibly more than one per row, and
-            # keeps its own account of the time.
-            # The precision of the rollout is the trainer's choice, made
-            # here and nowhere inside: the probabilities recorded are the
-            # ones the learning forward will reproduce.
-            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and str(device).startswith("cuda")):
-                picked, records = net.decide(
-                    views, index, deciding[index], mask[index], greedy,
-                    explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
-                )
             choice[index] = picked
             observations.append(records.planes)
             legal_masks.append(records.masks)
@@ -439,6 +552,16 @@ def play(
             if record_forced is None:
                 record_forced = np.zeros(len(record_slots), dtype=bool)
             wandered.append(record_forced)
+            record_values = getattr(records, "values", None)
+            if record_values is None:
+                valued = None
+            elif valued is not None:
+                valued.append(record_values)
+            record_phi = getattr(records, "phi", None)
+            if record_phi is None:
+                vectors = None
+            elif vectors is not None:
+                vectors.append(record_phi)
             began = clock()
         else:
             if recording:
@@ -460,13 +583,16 @@ def play(
                 was_forced = torch.zeros_like(chosen, dtype=torch.bool)
             else:
                 chosen, chosen_log_prob, was_forced = explore(
-                    logits, batch_mask, explore_share, wanderer
+                    logits, batch_mask, explore_share, wanderer, **draws
                 )
             record_actions = chosen.cpu().numpy()
             record_log_probs = chosen_log_prob.cpu().numpy()
             record_slots = np.arange(len(index))
             choice[index] = record_actions
             wandered.append(was_forced.cpu().numpy())
+            # This path keeps no values or vectors; nothing that plays here
+            # reads them.
+            valued = vectors = None
 
             # Copies, not views: a view would keep the whole step's buffer
             # alive until the round is gathered at the end.
@@ -586,6 +712,8 @@ def play(
         held=gather(held) if held else torch.zeros(0),
         oracle=gather(oracle) if oracle else torch.zeros(0),
         explored=gather(wandered) if wandered else None,
+        values=gather(valued) if valued else None,
+        phi=gather(vectors) if vectors else None,
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
         games=games,

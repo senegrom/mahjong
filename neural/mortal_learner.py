@@ -60,6 +60,35 @@ class Records:
     #: wanderings compounded, and the first already puts the position
     #: somewhere the policy would not have gone.
     forced: np.ndarray | None = None
+    #: What the learner's value head made of each decision's position as
+    #: it decided, by the forward that chose the move: the baseline a
+    #: trainer can measure the returns against without a pass of its own
+    #: over the round (`--baseline-from-play`). None when the score gave
+    #: the logits alone.
+    values: np.ndarray | None = None
+    #: Mortal's vector of each decision as the deciding forward worked it
+    #: out, on the host in the precision it came in, for a generation that
+    #: learns from it instead of running Mortal again (`train_combined
+    #: --reuse-phi`). None unless the score gave it.
+    phi: torch.Tensor | None = None
+
+
+def scored(answer) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+    """A score's logits, and the value and Mortal's vector of each row when
+    it gave them: a score answers the logits alone, the logits and the
+    values, or those and the vectors."""
+    if isinstance(answer, torch.Tensor):
+        return answer, None, None
+    logits, value, *kept = answer
+    return logits, value, kept[0] if kept else None
+
+
+def joined(parts: list, cat):
+    """A step's parts of one field stacked in record order by `cat`, or
+    None when any part is missing."""
+    if any(part is None for part in parts):
+        return None
+    return parts[0] if len(parts) == 1 else cat(parts)
 
 
 def decide_in_mortal_space(
@@ -73,14 +102,42 @@ def decide_in_mortal_space(
     timing: dict | None = None,
     explore_share: float = 0.0,
     wanderer=None,
+    preview_reach: bool = False,
+    generator: torch.Generator | None = None,
 ) -> tuple[np.ndarray, Records]:
     """One of our engine's actions per row, and the records of everything
     the policy decided to get there, in Mortal's action space.
 
-    `score(planes, mask)` gives the logits over those forty-six moves. A
-    riichi names no tile there, so when one is chosen the reach is told to
-    the follower and the same question asked again from the state in which
-    it stands; both answers are recorded, because the policy made both.
+    `score(planes, mask)` gives the logits over those forty-six moves, or
+    the logits and the value of each row, or those and Mortal's vector of
+    each row, which are then recorded too (see `Records.values` and
+    `Records.phi`). A riichi names no tile there, so when one is chosen
+    the reach is told to the follower and the same question asked again
+    from the state in which it stands; both answers are recorded, because
+    the policy made both.
+
+    With `preview_reach` nobody is told and nothing is asked again: every
+    row that may declare riichi is asked as well, in the first forward,
+    which tile it would throw as it would stand having declared, from the
+    follower's preview of the reach (see `Views.sparse_and_masks`), and a
+    row that chooses the reach draws its tile from that answer. The states
+    and the questions are the ones telling would have made, and so are the
+    records; the draws are made in the same order from batches of the same
+    shapes, so the random numbers are the ones they always were. Only the
+    batch the answers come from is larger, which in bfloat16 can move them
+    in their last bits, so it is a switch, off unless the trainer is told.
+    It saves a second forward, a few hundred kernels, wherever a reach is
+    chosen, about eleven hundred times in a round of four thousand tables,
+    for a few more rows in the first.
+
+    `timing`, when given, is added to in seconds: `encode` for gathering
+    the rows' planes, those previewed included, and for telling a reach,
+    which first waits for any encoding a worker is still making from the
+    follower (see `Views.prepare`); `translate`; `network` for the first
+    answer; and `riichi` for the rest of the second.
+
+    The moves and the reach's tiles are drawn from `generator` when one is
+    given, and from torch's own generator otherwise (see `selfplay.sampled`).
     """
     clock = time.perf_counter
     timing = timing if timing is not None else {}
@@ -104,12 +161,35 @@ def decide_in_mortal_space(
     # move and not recorded; it does not happen in practice.
     decidable = allowed.any(axis=1)
     allowed[~decidable, zoo.MORTAL_PASS] = True
+    # With `preview_reach`, the rows that may declare riichi, each asked
+    # ahead which tile it would throw, with only those tiles allowed.
+    ahead = (np.flatnonzero(allowed[:, zoo.MORTAL_RIICHI]) if preview_reach
+             else np.zeros(0, dtype=np.int64))
+    allowed_ahead = np.zeros((len(ahead), zoo.MORTAL_ACTIONS), dtype=bool)
+    allowed_ahead[:, :34] = legal[ahead, zoo.RIICHI_DISCARD:zoo.TSUMO]
     timing["translate"] = timing.get("translate", 0.0) + clock() - began
+    if len(ahead):
+        began = clock()
+        previews, _own_ahead = views.sparse_and_masks(
+            np.asarray(rows)[ahead], np.asarray(players)[ahead], after_reach=True
+        )
+        timing["encode"] = timing.get("encode", 0.0) + clock() - began
     began = clock()
-    mask = torch.from_numpy(allowed).to(device)
-    # Precision is owned by the caller, matching the later PPO forward.
-    logits = score(planes.dense(device), mask)
-    logits = logits.float()
+    if len(ahead):
+        # One forward for both questions: the rows as they stand, then the
+        # same players' reaches as they would stand, split apart again.
+        asked = torch.from_numpy(np.concatenate([allowed, allowed_ahead])).to(device)
+        logits, value, phi = scored(score(Planes.dense_of([planes, previews], device), asked))
+        logits = logits.float()
+        mask = asked[: len(who)]
+        logits, logits_ahead = logits[: len(who)], logits[len(who):]
+        value, value_ahead = (None, None) if value is None else (value[: len(who)], value[len(who):])
+        phi, phi_ahead = (None, None) if phi is None else (phi[: len(who)], phi[len(who):])
+    else:
+        mask = torch.from_numpy(allowed).to(device)
+        # Precision is owned by the caller, matching the later PPO forward.
+        logits, value, phi = scored(score(planes.dense(device), mask))
+        logits = logits.float()
     distribution = torch.distributions.Categorical(logits=logits)
     if greedy:
         picked = logits.argmax(dim=1)
@@ -127,6 +207,7 @@ def decide_in_mortal_space(
             mask,
             explore_share,
             wanderer if wanderer is not None else np.random.default_rng(),
+            generator,
         )
     log_prob = log_prob.cpu().numpy()
     picked = picked.cpu().numpy()
@@ -134,6 +215,10 @@ def decide_in_mortal_space(
         was_forced = np.zeros(len(picked), dtype=bool)
     else:
         was_forced = was_forced.cpu().numpy()
+    if value is not None:
+        value = value.float().cpu().numpy()
+    if phi is not None:
+        phi = phi.cpu()
     timing["network"] = timing.get("network", 0.0) + clock() - began
 
     choice = zoo.first_meaning(picked, legal)
@@ -144,6 +229,8 @@ def decide_in_mortal_space(
     record_log_probs = [log_prob]
     record_slots = [np.arange(len(who))]
     record_forced = [was_forced]
+    record_values = [value]
+    record_phi = [phi]
     second = np.nonzero(decidable & (picked == zoo.MORTAL_RIICHI))[0].tolist()
     if not decidable.all():
         keep = decidable
@@ -153,22 +240,52 @@ def decide_in_mortal_space(
         record_log_probs = [log_prob[keep]]
         record_slots = [np.nonzero(keep)[0]]
         record_forced = [was_forced[keep]]
+        record_values = [None if value is None else value[keep]]
+        record_phi = [None if phi is None else phi[torch.from_numpy(keep)]]
 
     if second:
-        # The reach declared ahead of the table; then the tile, from the
-        # state in which it is declared.
-        for i in second:
-            game, player = who[i]
-            follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
-        indptr, indices, values, masks = follower.encode([who[i] for i in second])
-        after = Planes.from_follower(indptr, indices, values)
-        allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
-        allowed_after[:, :34] = legal[second, zoo.RIICHI_DISCARD:zoo.TSUMO]
-        mask_after = torch.from_numpy(allowed_after).to(device)
-        logits_after = score(after.dense(device), mask_after)
-        logits_after = logits_after.float()
+        if not preview_reach:
+            # The reach declared ahead of the table, told through the views,
+            # which first wait for any encoding a worker is still making
+            # from the follower (see `Views.prepare`): a wait for the seated
+            # others' views, counted with the encoding and not as this
+            # question's time, which it is not.
+            began = clock()
+            for i in second:
+                game, player = who[i]
+                views.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+            timing["encode"] = timing.get("encode", 0.0) + clock() - began
+        began = clock()
+        if preview_reach:
+            # Asked already, each from the state telling the reach would
+            # have left it in: the answers of those who chose it.
+            place = np.full(len(who), -1, dtype=np.int64)
+            place[ahead] = np.arange(len(ahead))
+            at = place[second]
+            if (at < 0).any():
+                raise RuntimeError("the policy declared riichi where it was not allowed to")
+            after = previews.rows(at)
+            allowed_after = allowed_ahead[at]
+            chosen = torch.from_numpy(at).to(device)
+            logits_after = logits_ahead[chosen]
+            value_after = None if value_ahead is None else value_ahead[chosen]
+            phi_after = None if phi_ahead is None else phi_ahead[chosen]
+        else:
+            # Then the tile, from the state in which the reach is declared.
+            indptr, indices, values, masks = follower.encode([who[i] for i in second])
+            after = Planes.from_follower(indptr, indices, values)
+            allowed_after = np.zeros((len(second), zoo.MORTAL_ACTIONS), dtype=bool)
+            allowed_after[:, :34] = legal[second, zoo.RIICHI_DISCARD:zoo.TSUMO]
+            mask_after = torch.from_numpy(allowed_after).to(device)
+            logits_after, value_after, phi_after = scored(score(after.dense(device), mask_after))
+            logits_after = logits_after.float()
         distribution_after = torch.distributions.Categorical(logits=logits_after)
-        tile = logits_after.argmax(dim=1) if greedy else distribution_after.sample()
+        if greedy:
+            tile = logits_after.argmax(dim=1)
+        else:
+            from .selfplay import sampled
+
+            tile = sampled(distribution_after, generator)
         log_prob_after = distribution_after.log_prob(tile).cpu().numpy()
         tile = tile.cpu().numpy()
         for slot, i in enumerate(second):
@@ -181,7 +298,17 @@ def decide_in_mortal_space(
         # The tile a declaration throws is never a forced move; see
         # `Records.forced`.
         record_forced.append(np.zeros(len(second), dtype=bool))
+        # The value and the vector of the state the tile is chosen in, the
+        # reach declared: the position the second record is.
+        record_values.append(None if value_after is None else value_after.float().cpu().numpy())
+        record_phi.append(None if phi_after is None else phi_after.cpu())
+        timing["riichi"] = timing.get("riichi", 0.0) + clock() - began
 
+    # Values and vectors only when every part of the step has them.
+    values = joined(record_values, np.concatenate)
+    if values is not None:
+        values = values.astype(np.float32)
+    phi = joined(record_phi, torch.cat)
     if len(record_planes) == 1:
         records = Records(
             planes=record_planes[0],
@@ -190,6 +317,8 @@ def decide_in_mortal_space(
             log_probs=record_log_probs[0].astype(np.float32),
             slots=record_slots[0].astype(np.int64),
             forced=record_forced[0].astype(bool),
+            values=values,
+            phi=phi,
         )
     else:
         records = Records(
@@ -199,6 +328,8 @@ def decide_in_mortal_space(
             log_probs=np.concatenate(record_log_probs).astype(np.float32),
             slots=np.concatenate(record_slots).astype(np.int64),
             forced=np.concatenate(record_forced).astype(bool),
+            values=values,
+            phi=phi,
         )
     return choice, records
 
@@ -221,7 +352,7 @@ class MortalLearner(nn.Module):
         self.device = "cpu"
         # Where a round's deciding went, in seconds, for the play record;
         # `selfplay.play` reads and clears it.
-        self.timing = {"encode": 0.0, "translate": 0.0, "network": 0.0}
+        self.timing = {"encode": 0.0, "translate": 0.0, "network": 0.0, "riichi": 0.0}
         # The forward used when deciding; a trainer may set a compiled one.
         self.inference = self.policy
 
@@ -264,11 +395,17 @@ class MortalLearner(nn.Module):
         greedy: bool = False,
         explore_share: float = 0.0,
         wanderer=None,
+        preview_reach: bool = False,
+        generator: torch.Generator | None = None,
     ) -> tuple[np.ndarray, Records]:
         """One of our actions per row, and the records of the decisions
-        made, in Mortal's action space, that produced them."""
+        made, in Mortal's action space, that produced them, with the value
+        head's value of each, which the same forward has worked out; a
+        reach's tile from that forward too with `preview_reach`; the moves
+        drawn from `generator` when one is given (see
+        `decide_in_mortal_space`)."""
         return decide_in_mortal_space(
-            lambda planes, mask: self.inference(planes, mask)[0],
+            self.inference,
             views,
             rows,
             players,
@@ -278,6 +415,8 @@ class MortalLearner(nn.Module):
             self.timing,
             explore_share=explore_share,
             wanderer=wanderer,
+            preview_reach=preview_reach,
+            generator=generator,
         )
 
     def choose(

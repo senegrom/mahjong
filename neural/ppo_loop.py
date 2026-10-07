@@ -14,14 +14,18 @@ three.
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
+import contextlib
 import json
+import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 
-from . import population, zoo
+from . import play_graphs, population, zoo
 from .checkpoints import atomic_save
 from .observe import DevicePlanes, Planes, pad_rows, resident
 from .prefetch import Prefetcher
@@ -66,14 +70,37 @@ def setup(args, check=None) -> tuple[str, bool, Path]:
 def load_others(args, device: str) -> list:
     """The players `--opponents` names, each loaded once, at whatever shape
     and of whatever kind its checkpoint says. They are only ever asked for
-    a move, so they need no gradients. validate_training_options has
-    refused a missing checkpoint already."""
+    a move, so they need no gradients, and those that play eagerly on the
+    card in bfloat16 hold their weights that way (see
+    `zoo.play_in_bfloat16`). Compiled players keep their float32 weights:
+    the compiler arranges a graph of weights cast once otherwise than one
+    that casts them itself, and on this desktop's card a compiled Mortal so
+    cast answered 64 rows of 64 with other bits.
+    With `--skip-forced` they leave the rows with one move open unasked
+    (see `zoo.choose_in_mortal_space`); without it, or in a trainer that
+    has no such option, they ask about every row, as they always did. With
+    `--preview-reach` they ask a reach's tile in the question that chooses
+    the reach, from the follower's preview of it, and tell the follower
+    nothing; without it they tell it and ask again, as they always did.
+    With `--play-graphs` those that play eagerly on the card answer small
+    questions from CUDA graphs (see `play_graphs`), recorded here over the
+    weights as cast here, in bfloat16, which is how a seated player asks
+    itself on the card whatever the trainer's --amp.
+    validate_training_options has refused a missing checkpoint already."""
     seated = []
     for path in args.opponents:
         other = zoo.load_player(path, device, compile=args.compile)
         other.eval()
         for parameter in getattr(other, "parameters", list)():
             parameter.requires_grad_(False)
+        if getattr(args, "skip_forced", False) and hasattr(other, "skip_forced"):
+            other.skip_forced = True
+        if getattr(args, "preview_reach", False) and hasattr(other, "preview_reach"):
+            other.preview_reach = True
+        if not args.compile:
+            other = zoo.play_in_bfloat16(other, device)
+            if getattr(args, "play_graphs", False):
+                other = play_graphs.graphed(other, device, amp=True)
         seated.append(other)
     return seated
 
@@ -118,8 +145,11 @@ class Round:
     on_card: DevicePlanes | None
 
 
-def on_device(batch, device: str) -> Round:
-    """`batch`, a round from `selfplay.play`, where the learning step reads it."""
+def on_device(batch, device: str, card: bool = True) -> Round:
+    """`batch`, a round from `selfplay.play`, where the learning step reads
+    it: its planes on the card when the card has room for them, unless
+    `card` is false, which keeps them on the host whatever room there is,
+    as beside a round being played ahead (see `PlayAhead`)."""
     return Round(
         decisions=batch.decisions,
         device=device,
@@ -128,12 +158,14 @@ def on_device(batch, device: str) -> Round:
         actions=batch.actions.to(device),
         returns=batch.returns.to(device),
         old_log_probs=batch.log_probs.to(device),
-        on_card=resident(batch.observations, device),
+        on_card=resident(batch.observations, device) if card else None,
     )
 
 
 @torch.no_grad()
-def baseline(rollout: Round, rows: int, value, heads: int = 1) -> list[torch.Tensor]:
+def baseline(
+    rollout: Round, rows: int, value, heads: int = 1, dtype: torch.dtype = torch.float32
+) -> list[torch.Tensor]:
     """What the value heads made of every decision before any of them
     learned the round, so the advantages cannot collapse as a head fits the
     very targets they are measured against.
@@ -143,19 +175,101 @@ def baseline(rollout: Round, rows: int, value, heads: int = 1) -> list[torch.Ten
     `chunk` names, with their planes padded to `rows`, so a compiled graph
     sees one shape all round. The last chunk was a new shape every
     generation, which had the compiler rebuild the graph now and then:
-    minutes each time."""
+    minutes each time. The planes are float32, or `dtype` for a `value`
+    that reads them only under autocast (see `Planes.dense`).
+
+    This is the one pass over the whole round, and it checks every row of
+    planes kept on the host in full as it makes it dense. The round is
+    trusted from then on (see `Planes`): the minibatches that follow, each
+    row twice over, check only that every column is in bounds."""
     guesses = [torch.empty(rollout.decisions, device=rollout.device) for _ in range(heads)]
     for start in range(0, rollout.decisions, rows):
         chunk = slice(start, start + rows)
         if rollout.on_card is not None:
-            planes = rollout.on_card.slice(start, start + rows)
+            planes = rollout.on_card.slice(start, start + rows, dtype)
         else:
-            planes = rollout.observations.slice(start, start + rows).dense(rollout.device)
+            planes = rollout.observations.slice(start, start + rows).dense(rollout.device, dtype)
         count = planes.shape[0]
         answers = value(chunk, pad_rows(planes, rows))
         for guess, answer in zip(guesses, answers):
             guess[chunk] = answer.float()[:count]
+    observations = rollout.observations
+    if isinstance(observations, Planes) and not observations.trusted:
+        rollout.observations = Planes(
+            observations.indptr, observations.indices, observations.values, trusted=True
+        )
     return guesses
+
+
+def step_spare() -> int:
+    """What the learning step needs free on the card beside a round's
+    planes or vectors kept there, in bytes: sixteen gigabytes, or
+    `RESIDENT_SPARE_GB` (see `observe.resident`)."""
+    return int(float(os.environ.get("RESIDENT_SPARE_GB", "16")) * (1 << 30))
+
+
+def kept_on_card(
+    tensor: torch.Tensor, device: str | torch.device, spare: int | None = None
+) -> torch.Tensor | None:
+    """`tensor` on `device` when that is the processor, or a card with
+    room for it and `spare` bytes to spare afterwards for the learning
+    step, as for a round's planes (see `observe.resident`, whose sixteen
+    gigabytes and `RESIDENT_SPARE_GB` this shares, `step_spare`); None when
+    the card has no such room."""
+    device = torch.device(device)
+    if device.type != "cuda":
+        return tensor.to(device)
+    if spare is None:
+        spare = step_spare()
+    free, _total = torch.cuda.mem_get_info(device)
+    if free - tensor.numel() * tensor.element_size() < spare:
+        return None
+    return tensor.to(device)
+
+
+def baseline_of(
+    rollout: Round,
+    batch,
+    rows: int,
+    value,
+    from_play: bool = False,
+    check: bool = False,
+    dtype: torch.dtype = torch.float32,
+) -> tuple[torch.Tensor, float, dict]:
+    """The baseline of a round for a learner with one value head, what it
+    made of every decision before any of them was learned, with the
+    seconds it took and what the round's record should say about it.
+
+    By default it is the pass over the round (`baseline`, with `rows`,
+    `value` and `dtype` as there). `from_play` takes instead the values
+    the learner recorded as it played (`batch.values`): the same head on
+    the same weights, in the same mode and precision, over the same planes,
+    with only the batches the rows went through different, which in
+    bfloat16 can move a value in its last bits. A round without them gets
+    the pass. Without the pass nothing checks the round's planes whole
+    once, so each minibatch checks its own in full instead (see `Planes`).
+    `check` makes the pass as well and records how far play's values are
+    from it, the largest gap and the mean."""
+    played = getattr(batch, "values", None)
+    from_play = from_play and played is not None
+    check = check and played is not None
+    began = time.time()
+    passed = None
+    if not from_play or check:
+        (passed,) = baseline(rollout, rows, value, dtype=dtype)
+    guess = played.to(rollout.device) if from_play else passed
+    if torch.device(rollout.device).type == "cuda":
+        # Waited for, so that the time is the card's and not only the
+        # launching of its work; the work on this stream only, the pass's,
+        # and not a round being played beside it on another (`PlayAhead`).
+        torch.cuda.current_stream(rollout.device).synchronize()
+    seconds = time.time() - began
+    said = {"baseline_from_play": True} if from_play else {}
+    if check:
+        gap = (played.to(rollout.device) - passed).abs()
+        said["baseline_difference"] = round(float(gap.max()), 6)
+        said["baseline_difference_mean"] = round(float(gap.mean()), 6)
+    return guess, seconds, said
 
 
 def standardised(returns: torch.Tensor, baseline: torch.Tensor) -> tuple[torch.Tensor, float]:
@@ -166,9 +280,170 @@ def standardised(returns: torch.Tensor, baseline: torch.Tensor) -> tuple[torch.T
     return (advantages - advantages.mean()) / (spread + 1e-6), float(spread)
 
 
-def minibatches(rollout: Round, size: int, extra=None):
+#: What a round played beside the learning (`PlayAhead`) may hold on the
+#: card at once, in gigabytes: the planes and activations of a step's
+#: questions, which grow with the tables. A round of 128 tables at the
+#: deployed shapes peaked 32 MB above its weights on this desktop's card,
+#: so about one gigabyte at four thousand; four leaves room for the
+#: allocator's keeping its blocks a stream at a time. Mortal's vectors are
+#: kept on the card beside such a round only with this to spare as well as
+#: the learning step's own.
+AHEAD_SPARE_GB = 4
+
+
+class PlayAhead:
+    """Self-play a round ahead of the learning (`--play-ahead`): the next
+    round is played on a worker thread, and on the card on a stream of its
+    own, while the learner learns the last. Play is bound by the
+    processors and learning by the card, and each used to wait while the
+    other worked.
+
+    Round g + 1 is begun (`start`) as generation g begins, once round g has
+    been taken (`take`), by `actor`, a copy of `learner` given the weights
+    the learner has then: those it had before it learned round g. So each
+    round is played by the weights of a generation before the ones that
+    learn it, but for a process's first round, which nothing precedes and
+    which the learner plays as it stands, begun and taken at once; a run
+    that resumes starts that way too. PPO's ratio divides by the
+    probabilities a round recorded as it was played (`Batch.log_probs`),
+    the policy's that played it, so its weighting stays exact; what grows
+    is the distance its clip is asked to cover, two generations' drift
+    where it was one. The trainer's drift guard counts from the learner's
+    own probabilities as the generation began instead, read in the pass
+    that values the round (see `train_combined`): counted from the round's,
+    a generation would begin with the last one's drift already spent.
+
+    `play(player, generation, **options)` plays round `generation` with
+    `player`, handing `options` on to `selfplay.play`: that the round draw
+    its moves from a generator of its own (`own_draws`), so that it is the
+    same whatever the learning does meanwhile and leaves torch's
+    generators, which the checkpoint keeps, to the learning; and the event
+    that abandons it (`close`).
+
+    Every round is played on the one worker, a process's first included,
+    and one at a time. The follower a round reads its tables through, and
+    the encodings made from it aside (`observe.encoder_thread`), are
+    touched by nothing else: a measurement made meanwhile follows tables of
+    its own, encoded on its own thread. And a round's blocks are made in
+    the worker's share of the host's memory, where the round before went
+    back to once it had been learned, rather than in the share of a thread
+    that played only the first."""
+
+    def __init__(self, learner, actor, device: str | torch.device, play) -> None:
+        self.learner = learner
+        self.actor = actor
+        self.play = play
+        self.device = torch.device(device)
+        # High in priority: play's questions are small and many, and queued
+        # behind the learning step's long kernels they would hold up the
+        # round, the longer of the two in most generations.
+        self.stream = (torch.cuda.Stream(self.device, priority=-1)
+                       if self.device.type == "cuda" else None)
+        self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="play-ahead")
+        self.abandon = threading.Event()
+        self.round: tuple[int, Future] | None = None
+
+    @property
+    def playing(self) -> int | None:
+        """The round being played, or None."""
+        return None if self.round is None else self.round[0]
+
+    def start(self, generation: int, keep_phi: bool = False) -> None:
+        """Begins round `generation`, played by the learner's weights as
+        they stand now, keeping Mortal's vector of each decision with
+        `keep_phi` (see `Combined.keep_phi`)."""
+        if self.round is not None:
+            raise RuntimeError(f"round {self.round[0]} is still being played")
+        # Copied on the learner's stream, which the round's waits for before
+        # it reads them. The round never reads the learner's own weights,
+        # so the learning may move them meanwhile.
+        self.actor.load_state_dict(self.learner.state_dict())
+        self.actor.keep_phi = keep_phi
+        if self.stream is not None:
+            self.stream.wait_stream(torch.cuda.current_stream(self.device))
+        self.round = (generation, self.worker.submit(self._play, generation))
+
+    def _play(self, generation: int):
+        began = time.time()
+        # Autocast keeps one cache of weights cast to bfloat16 for the whole
+        # process, under one lock, and a thread that leaves the outermost of
+        # its autocast regions empties it; self-play leaves one at every
+        # step. Beside the learning, that threw away the casts the learner's
+        # forward had made, to be made again in the middle of it; and beside
+        # the compiler tracing the learning step, whose casts are the
+        # tracer's own tensors, held in that cache, it deadlocked the
+        # trainer, the round stopped in the emptying and the trace in a cast.
+        # The round casts nothing into that cache, none of its weights
+        # needing a gradient, so it counts one region more than it enters
+        # while it plays, and none of its own is ever the outermost. The
+        # count is the thread's own, and only an autocast region's leaving
+        # empties the cache, not the count's going back down at the end.
+        torch.autocast_increment_nesting()
+        try:
+            with torch.cuda.stream(self.stream) if self.stream is not None else contextlib.nullcontext():
+                batch = self.play(self.actor, generation, own_draws=True, abandon=self.abandon)
+        finally:
+            torch.autocast_decrement_nesting()
+        return batch, time.time() - began
+
+    def take(self, generation: int):
+        """Round `generation` once it has been played, with the seconds it
+        took to play and the seconds waited for it here. Whatever stopped
+        the round is raised here."""
+        if self.round is None or self.round[0] != generation:
+            raise RuntimeError(f"round {generation} is not being played; {self.playing} is")
+        future = self.round[1]
+        self.round = None
+        began = time.time()
+        batch, played = future.result()
+        waited = time.time() - began
+        if self.stream is not None:
+            # Whatever the round left queued is done before the learner's
+            # stream next writes the actor's weights.
+            torch.cuda.current_stream(self.device).wait_stream(self.stream)
+        return batch, played, waited
+
+    def spare(self) -> int:
+        """What the card must keep free beside Mortal's vectors kept there
+        while a round is played: the learning step's (`step_spare`) and the
+        round's (`AHEAD_SPARE_GB`)."""
+        return step_spare() + int(AHEAD_SPARE_GB * (1 << 30))
+
+    def close(self) -> None:
+        """Abandons a round still being played, at its next step, and lets
+        the worker go once it has stopped. What stopped the round is not
+        asked: a trainer comes here with a round still being played only on
+        its way out with an error of its own, which is the one to see. The
+        round is abandoned whether or not it is still held here, since
+        `take` lets go of it before waiting, and a wait that was itself
+        interrupted would otherwise leave it to play to the end."""
+        self.abandon.set()
+        self.round = None
+        self.worker.shutdown(wait=True)
+
+
+_STAGING: dict[torch.device, torch.cuda.Stream] = {}
+
+
+def staging_stream(device: str | torch.device) -> torch.cuda.Stream:
+    """The stream minibatches are made dense on, one a device for the life
+    of the process. The caching allocator keeps freed memory a stream at a
+    time, and a fresh stream each epoch left the last one's minibatches'
+    memory where no other stream could use it, over a gigabyte an epoch,
+    until the card was full and every allocation stalled to free it."""
+    device = torch.device(device)
+    if device.index is None:
+        device = torch.device("cuda", torch.cuda.current_device())
+    if device not in _STAGING:
+        _STAGING[device] = torch.cuda.Stream(device)
+    return _STAGING[device]
+
+
+def minibatches(rollout: Round, size: int, extra=None, dtype: torch.dtype = torch.float32):
     """One pass over the round in a fresh order, as (picks, planes, ...)
-    per minibatch, the rows `extra(index)` gathers for them last.
+    per minibatch, the rows `extra(index)` gathers for them last. The
+    planes are float32, or `dtype` for a step that reads them only under
+    autocast (see `Planes.dense`).
 
     The shuffle is made on the host, where the planes may be: a permutation
     made on the card had every minibatch's indices copied back before they
@@ -177,7 +452,14 @@ def minibatches(rollout: Round, size: int, extra=None):
     a new size each generation had it rebuilt now and then, minutes each
     time; the few rows left over differ every epoch. Planes on the host are
     made dense on the device in a thread of their own, a few minibatches
-    ahead of the step. Close what this returns when done with it."""
+    ahead of the step. Close what this returns when done with it.
+
+    On the card, that thread copies from page-locked memory and makes the
+    planes dense on a stream of its own, and the step's stream waits for
+    each minibatch only as it takes it. Copied from ordinary memory, on the
+    step's stream, every copy waited until the card had finished all the
+    work queued before it, so the thread fell behind the step it was meant
+    to run ahead of, and the step's kernels waited behind its copies."""
     order = torch.randperm(rollout.decisions)
     slices = [order[start : start + size] for start in range(0, rollout.decisions, size)]
     slices = [drawn for drawn in slices if drawn.numel() == size]
@@ -185,18 +467,49 @@ def minibatches(rollout: Round, size: int, extra=None):
     if rollout.on_card is not None:
         def gather(drawn: torch.Tensor):
             picks = drawn.to(rollout.device)
-            return (picks, rollout.on_card.rows(picks), *more(picks))
+            return (picks, rollout.on_card.rows(picks, dtype), *more(picks))
 
         return (gather(drawn) for drawn in slices)
 
-    def prepare(drawn: torch.Tensor):
-        return (
-            drawn.to(rollout.device),
-            rollout.observations.rows(drawn.numpy()).dense(rollout.device),
-            *more(drawn),
-        )
+    if torch.device(rollout.device).type != "cuda":
+        def prepare(drawn: torch.Tensor):
+            return (
+                drawn.to(rollout.device),
+                rollout.observations.rows(drawn.numpy()).dense(rollout.device, dtype),
+                *more(drawn),
+            )
 
-    return Prefetcher(slices, prepare)
+        return Prefetcher(slices, prepare)
+
+    side = staging_stream(rollout.device)
+    step = torch.cuda.current_stream(rollout.device)
+
+    def staged(drawn: torch.Tensor):
+        rows = rollout.observations.rows(drawn.numpy())
+        with torch.cuda.stream(side):
+            picks = drawn.pin_memory().to(rollout.device, non_blocking=True)
+            planes = rows.dense(rollout.device, dtype, pinned=True)
+            ready = torch.cuda.Event()
+            ready.record(side)
+        # Made on the side stream and read on the step's: their memory is
+        # not handed out again until the step has finished with them.
+        picks.record_stream(step)
+        planes.record_stream(step)
+        return ready, picks, planes, *more(drawn)
+
+    def receive(prepared):
+        ready, *taken = prepared
+        torch.cuda.current_stream(rollout.device).wait_event(ready)
+        return tuple(taken)
+
+    return Prefetcher(slices, staged, receive=receive)
+
+
+def planes_of(rollout: Round, picks: torch.Tensor, dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    """The planes of the decisions `picks` names, dense on the device."""
+    if rollout.on_card is not None:
+        return rollout.on_card.rows(picks, dtype)
+    return rollout.observations.rows(picks.cpu().numpy()).dense(rollout.device, dtype)
 
 
 def clipped_policy_loss(

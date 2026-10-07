@@ -17,8 +17,10 @@ use crate::state::{ActionCandidate, PlayerState};
 use crate::tile::Tile;
 
 use anyhow::{Context, Result};
+use half::f16;
+use half::slice::HalfFloatSliceExt;
 use ndarray::Array2;
-use numpy::{PyArray1, PyArray2};
+use numpy::{Element, PyArray1, PyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -75,11 +77,29 @@ impl Table {
 }
 
 /// One decision's observation, kept only where it is not zero: about one
-/// value in eighteen is, so this is a twentieth of the dense planes.
-struct Sparse {
+/// value in eighteen is, so this is a twentieth of the dense planes. The
+/// values are the encoder's float32, or float16 for a caller that asked.
+struct Sparse<V = f32> {
     indices: Vec<u16>,
-    values: Vec<f32>,
+    values: Vec<V>,
     mask: Vec<bool>,
+}
+
+impl Sparse {
+    /// The same row with its values in float16, rounded to the nearest and
+    /// ties to even, as numpy rounds a float32 array cast to float16: the
+    /// bits a caller converting the float32 values itself would get, made
+    /// here in the worker that encoded the row rather than afterwards on
+    /// the caller's one thread.
+    fn halved(self) -> Sparse<f16> {
+        let mut values = vec![f16::ZERO; self.values.len()];
+        values.convert_from_f32_slice(&self.values);
+        Sparse {
+            indices: self.indices,
+            values,
+            mask: self.mask,
+        }
+    }
 }
 
 /// Many games' player states, fed events and asked for observations in bulk.
@@ -173,17 +193,22 @@ impl Follower {
     /// `after_reach` previews the player's own declaration on a clone. A
     /// teacher can describe every riichi discard without changing the
     /// follower when the table ultimately chooses an ordinary discard.
+    /// `half` hands the values back as float16 instead of float32,
+    /// converted by the workers (see `Sparse::halved`), for a caller that
+    /// keeps them in float16 anyway and would otherwise convert them itself
+    /// on one thread.
     #[allow(clippy::type_complexity)]
-    #[pyo3(signature = (who, after_reach = false))]
+    #[pyo3(signature = (who, after_reach = false, half = false))]
     fn encode<'py>(
         &self,
         py: Python<'py>,
         who: Vec<(usize, usize)>,
         after_reach: bool,
+        half: bool,
     ) -> PyResult<(
         Bound<'py, PyArray1<i32>>,
         Bound<'py, PyArray1<u16>>,
-        Bound<'py, PyArray1<f32>>,
+        Bound<'py, PyAny>,
         Bound<'py, PyArray2<bool>>,
     )> {
         for &(game, player) in &who {
@@ -195,39 +220,48 @@ impl Follower {
         }
         let version = self.version;
         let tables = &self.tables;
-        let rows: Vec<Sparse> = py.detach(|| {
-            who.par_iter()
-                .map(|&(game, player)| -> Result<Sparse> {
-                    let original = &tables[game].states[player];
-                    let preview = if after_reach {
-                        let mut state = original.clone();
-                        state.update(&Event::Reach {
-                            actor: player as u8,
-                        })?;
-                        Some(state)
-                    } else {
-                        None
-                    };
-                    let state = preview.as_ref().unwrap_or(original);
-                    let (obs, mask) = state.encode_obs(version, false);
-                    let mut indices = Vec::with_capacity(2048);
-                    let mut values = Vec::with_capacity(2048);
-                    for (index, &value) in obs.iter().enumerate() {
-                        if value != 0. {
-                            indices.push(index as u16);
-                            values.push(value);
-                        }
-                    }
-                    Ok(Sparse {
-                        indices,
-                        values,
-                        mask: mask.to_vec(),
-                    })
-                })
-                .collect::<Result<Vec<_>>>()
-        })?;
+        let encode_row = |&(game, player): &(usize, usize)| -> Result<Sparse> {
+            let original = &tables[game].states[player];
+            let preview = if after_reach {
+                let mut state = original.clone();
+                state.update(&Event::Reach {
+                    actor: player as u8,
+                })?;
+                Some(state)
+            } else {
+                None
+            };
+            let state = preview.as_ref().unwrap_or(original);
+            let (obs, mask) = state.encode_obs(version, false);
+            let mut indices = Vec::with_capacity(2048);
+            let mut values = Vec::with_capacity(2048);
+            for (index, &value) in obs.iter().enumerate() {
+                if value != 0. {
+                    indices.push(index as u16);
+                    values.push(value);
+                }
+            }
+            Ok(Sparse {
+                indices,
+                values,
+                mask: mask.to_vec(),
+            })
+        };
 
-        pack(py, rows)
+        if half {
+            let rows: Vec<Sparse<f16>> = py.detach(|| {
+                who.par_iter()
+                    .map(|pair| encode_row(pair).map(Sparse::halved))
+                    .collect::<Result<Vec<_>>>()
+            })?;
+            let (indptr, indices, values, masks) = pack(py, rows)?;
+            Ok((indptr, indices, values.into_any(), masks))
+        } else {
+            let rows: Vec<Sparse> =
+                py.detach(|| who.par_iter().map(encode_row).collect::<Result<Vec<_>>>())?;
+            let (indptr, indices, values, masks) = pack(py, rows)?;
+            Ok((indptr, indices, values.into_any(), masks))
+        }
     }
 }
 
@@ -554,13 +588,13 @@ impl Imagined {
 /// the flat `indices` and `values` between consecutive entries, and the
 /// rows' masks, dense.
 #[allow(clippy::type_complexity)]
-fn pack<'py>(
+fn pack<'py, V: Element + Copy>(
     py: Python<'py>,
-    rows: Vec<Sparse>,
+    rows: Vec<Sparse<V>>,
 ) -> PyResult<(
     Bound<'py, PyArray1<i32>>,
     Bound<'py, PyArray1<u16>>,
-    Bound<'py, PyArray1<f32>>,
+    Bound<'py, PyArray1<V>>,
     Bound<'py, PyArray2<bool>>,
 )> {
     let total: usize = rows.iter().map(|row| row.indices.len()).sum();
