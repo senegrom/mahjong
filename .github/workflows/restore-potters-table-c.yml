@@ -1,0 +1,44 @@
+name: Restore approved Potter's Table C
+on:
+  push:
+    branches: [design/restore-potters-table-c-20261007]
+    paths: [.potters-table-restore/**, .github/workflows/restore-potters-table-c.yml]
+permissions:
+  contents: write
+concurrency:
+  group: restore-potters-table-c
+  cancel-in-progress: false
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: design/restore-potters-table-c-20261007
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Restore approved C and verify all other artwork
+        run: python3 .potters-table-restore/restore.py
+      - name: Lint changed JavaScript
+        working-directory: web
+        run: npx eslint scripts/export-van-gogh-tiles.mjs src/lib/van-gogh-faces.js tests/tile-faces.test.js tests/van-gogh-nine-disks.test.js --max-warnings 0
+      - name: Tile, Van Gogh and offline regression tests
+        working-directory: web
+        run: node --test tests/tile-faces.test.js tests/van-gogh-*.test.js tests/offline.test.js
+      - name: Commit verified restoration and remove one-time preparation
+        run: |
+          rm .potters-table-restore/restore.py .github/workflows/restore-potters-table-c.yml
+          rmdir .potters-table-restore
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/design/van-gogh/README.md docs/design/van-gogh/nine-disks-potters-table-reselected.json web/public/tiles/van-gogh web/scripts/export-van-gogh-tiles.mjs web/src/lib/van-gogh-faces.js web/tests/tile-faces.test.js .potters-table-restore/restore.py .github/workflows/restore-potters-table-c.yml
+          git diff --cached --check
+          git commit -m 'fix(tiles): restore the approved Potters Table C for 9 disks'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
