@@ -6,6 +6,7 @@
   import { PhysicalStore } from './physical-store.js';
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, setTiles } from './guided-game.js';
   import { tileWords } from './tiles.js';
+  import { waitingNote } from './ui.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import HandTile from './HandTile.svelte';
@@ -14,7 +15,7 @@
   import AgentWeights from './AgentWeights.svelte';
   import GuidedResult from './GuidedResult.svelte';
 
-  let { trainedAvailable, storage, hints = true } = $props();
+  let { trainedAvailable, storage, hints = true, offline = null } = $props();
   const trainedSupported = supportsTrainedAgent(PhysicalAnalysis.prototype);
   let game = $state(emptyGuided());
   let state = $derived(game.state);
@@ -38,6 +39,8 @@
     ? position.after_quad ? 'What is your replacement tile?' : 'What did you draw?'
     : `${WINDS[state.nextSeat]} discard?`);
   let candidates = $derived(WINDS.map((name, seat) => ({ name, seat })).filter(s => s.seat !== position.turn && s.seat !== position.seat && s.seat !== state.claim?.seat));
+  // Trained advice may be waiting for the network's first download.
+  let download = $derived(isTrained(state.agent) ? waitingNote('', offline) : '');
 
   async function load() {
     request?.abort(); analysis = null; busy = false; loaded = false;
@@ -188,7 +191,7 @@
         </details>{/if}
       {:else if state.stage === 'decision'}
         <p class="eyebrow">Agent advice</p><h3>{position.phase === 'call' ? `${WINDS[position.turn]} ${position.pending_kind === 'discard' ? 'discarded' : 'declared a kan of'} ${tileWords(position.pending)}` : 'What should you play?'}</h3>
-        {#if busy}<p role="status">Your adviser is thinking…</p>{/if}
+        {#if busy}<p role="status">Your adviser is thinking…{download ? ` ${download}` : ''}</p>{/if}
         {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} disabled={busy || blocked} />
           <button class="primary record-best" onclick={() => choose(analysis.choice, false)}>Record suggested move</button>
         {:else if !busy}<button onclick={() => analyze()}>Retry advice</button>

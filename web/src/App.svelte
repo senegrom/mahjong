@@ -440,9 +440,9 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {trainedAvailable} {hints} />
+    <AgentWatch {trainedAvailable} {hints} {offline} />
   {:else if ready && mode === 'guided'}
-    <GuidedPlay {trainedAvailable} {storage} {hints} />
+    <GuidedPlay {trainedAvailable} {storage} {hints} {offline} />
   {:else if ready && mode === 'physical'}
     <PhysicalPlay {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
@@ -461,7 +461,7 @@
           <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
             bets={view.riichi_sticks ?? 0} onnext={nextHand}
             onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} finalHand={Boolean(standings)} />
-          {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} bind:adviser={reviewAdviser} />{/if}
+          {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} />{/if}
         {:else}
           <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
             loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}

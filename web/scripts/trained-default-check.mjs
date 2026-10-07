@@ -93,6 +93,16 @@ async function clickButton(page, scope, text) {
   await page.evaluate((scope, text) => [...document.querySelectorAll(`${scope} button`)]
     .find(button => button.textContent.trim() === text && !button.disabled).click(), scope, text);
 }
+/** Waits until a Trained wait inside `scope` names the network's download,
+ * with the runtime held back by the server so that download is under way. */
+async function downloading(page, scope) {
+  await page.waitForFunction(scope => /downloading the trained network \d+%/.test(document.querySelector(scope)?.textContent ?? ''),
+    { timeout: 60000 }, scope);
+  for (const deadline = Date.now() + 30000; !waiting.size;) {
+    assert.ok(Date.now() < deadline, 'the trained runtime never started downloading');
+    await new Promise(done => setTimeout(done, 50));
+  }
+}
 const check = (name, body) => cases.check(name, async () => {
   requested.clear();
   try { await body(); } finally { release(); }
@@ -117,12 +127,8 @@ try {
     await page.waitForFunction(() => /downloading the trained network \d+%/.test(document.querySelector('#hand-help')?.textContent ?? '')
       || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 });
     if (!/downloading/.test(await prompt(page))) await page.click('.hand button[data-hand-index]:not(:disabled)');
-    await page.waitForFunction(() => /downloading the trained network \d+%/.test(document.querySelector('#hand-help')?.textContent ?? ''), { timeout: 60000 });
+    await downloading(page, '#hand-help');
     assert.match(await page.$eval('[data-offline-status]', el => el.textContent), /Saving AI… \d+%/);
-    for (const deadline = Date.now() + 30000; !waiting.size;) {
-      assert.ok(Date.now() < deadline, 'the trained runtime never started downloading');
-      await new Promise(done => setTimeout(done, 50));
-    }
     await page.screenshot({ path: resolve(output, 'trained-default-download.png'), fullPage: true });
     // The network itself cannot be had: the table offers its fallbacks.
     release();
@@ -175,12 +181,16 @@ try {
     assert.deepEqual(page.problems, []);
   });
 
-  await check('a Trained review that cannot load the network offers Club, which is then remembered', async () => {
+  await check('a Trained review shows the download it waits for and, when that fails, offers Club, which is then remembered', async () => {
+    holding = true;
     const page = await open({ saved: { [SAVE_KEY]: JSON.stringify(finished) } });
     // Opened before or after the probe answers: a review shown by Club in the
     // meantime turns to Trained AI the moment the network is reported.
     await page.waitForSelector('.screen .quiet'); await page.click('.screen .quiet');
     await page.waitForSelector('select[aria-label="Review adviser"]');
+    await downloading(page, '.review');
+    assert.match(await page.$eval('.review', el => el.textContent), /Trained AI is reviewing your decisions… 0 of \d+ · downloading the trained network/);
+    release();
     await page.waitForSelector('.review [role="alert"] [data-review-club]', { timeout: 120000 });
     assert.ok(await page.evaluate(() => window.networkDownloads) > 0, 'the trained review asked for the network');
     assert.deepEqual(await page.$$eval('.review [role="alert"] button', buttons => buttons.map(button => button.textContent.trim())),
@@ -192,12 +202,19 @@ try {
     assert.deepEqual(page.problems, []);
   });
 
-  await check('Agent watch puts Trained in every seat and can watch the same table with Club when the network fails', async () => {
+  await check('Agent watch puts Trained in every seat, shows its download and can watch the same table with Club when the network fails', async () => {
+    holding = true;
     const page = await open({ mode: 'watch' });
     const lineup = () => page.$$eval('.agent-fields select', selects => selects.map(select => select.value));
-    await page.waitForFunction(() => [...document.querySelectorAll('.agent-fields select')].every(select => select.value === 'full'));
+    await page.waitForFunction(() => {
+      const seats = [...document.querySelectorAll('.agent-fields select')];
+      return seats.length === 4 && seats.every(select => select.value === 'full');
+    });
     assert.deepEqual(await lineup(), ['full', 'full', 'full', 'full']);
     await page.click('.watch-setup .primary');
+    await downloading(page, '.agent-watch');
+    assert.match(await page.$eval('.agent-watch', el => el.textContent), /The agents are thinking… downloading the trained network/);
+    release();
     await page.waitForSelector('.agent-watch [role="alert"] [data-watch-club]', { timeout: 120000 });
     assert.ok(await page.evaluate(() => window.networkDownloads) > 0);
     await page.click('[data-watch-club]');
@@ -208,7 +225,8 @@ try {
     assert.deepEqual(page.problems, []);
   });
 
-  await check('a new guided game is advised by Trained and offers Club when that advice cannot load', async () => {
+  await check('a new guided game is advised by Trained, shows its download and offers Club when that advice cannot load', async () => {
+    holding = true;
     const page = await open({ mode: 'guided' });
     const adviser = '[aria-label="Guided game adviser"]';
     const stage = value => page.waitForSelector(`.guide-prompt[data-stage="${value}"]`);
@@ -221,6 +239,9 @@ try {
     await page.click('.guide-prompt > .primary'); await stage('dora');
     await tile('7z'); await stage('turn');
     await tile('4z'); await stage('decision');
+    await downloading(page, '.guide-prompt');
+    assert.match(await page.$eval('.guide-prompt', el => el.textContent), /Your adviser is thinking… downloading the trained network/);
+    release();
     await page.waitForSelector('[data-guided-club]', { timeout: 120000 });
     assert.ok(await page.evaluate(() => window.networkDownloads) > 0);
     assert.ok(await page.$('.guide-prompt .failure'));

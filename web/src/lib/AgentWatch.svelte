@@ -7,14 +7,14 @@
   import AgentWeights from './AgentWeights.svelte';
   import Tile from './Tile.svelte';
   import HandTile from './HandTile.svelte';
-  import { analyzeDiscards, heldSafeCount, unseenTileCounts } from './ui.js';
+  import { analyzeDiscards, heldSafeCount, unseenTileCounts, waitingNote } from './ui.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
   import ScoreScreen from './ScoreScreen.svelte';
   import Standings from './Standings.svelte';
   import { finishedHands, gameFileName, playerNames, saveLogFile } from './game-log.js';
 
-  let { trainedAvailable, hints = true } = $props();
+  let { trainedAvailable, hints = true, offline = null } = $props();
   // Trained at every seat by default, the followed one and the three it plays
   // against. Club stands in only while the network cannot be had.
   let lineup = $state(['club', 'club', 'club', 'club']);
@@ -47,6 +47,8 @@
   let displayWaits = $derived(recommendedHint?.waits ?? view?.waits ?? []);
   let displayLeft = $derived(recommendedHint?.waits_left ?? view?.waits_left ?? []);
   let hintShanten = $derived(recommendedHint?.shanten ?? view?.shanten);
+  // A Trained seat may be waiting for the network's first download.
+  let download = $derived(watch?.lineup.some(isTrained) ? waitingNote('', offline) : '');
   $effect(() => {
     if (!configured) {
       // Availability may arrive after selected-set startup. Keep an untouched
@@ -169,7 +171,7 @@
         </section>
       {/each}
     </div>
-    {#if busy}<p role="status">The agents are thinking…</p>
+    {#if busy}<p role="status">The agents are thinking…{download ? ` ${download}` : ''}</p>
     {:else if waiting}<p role="status">The hand is over. Auto play is waiting; deal the next hand when you have read it.</p>
     {:else if analysis && !showWeights}<p role="status">{auto ? 'Auto play is running.' : 'Paused before the followed agent’s next choice.'}</p>{/if}
     {#if showWeights}<AgentWeights {analysis} onchoose={chooseAlternative} disabled={busy || Boolean(standings)} dora={shownDora} />{/if}

@@ -4,6 +4,7 @@
   import { tileWords } from './tiles.js';
   import { analyzePolicy } from './policy.js';
   import { reviewWithStrong } from './review-policy.js';
+  import { waitingNote } from './ui.js';
 
   /**
    * What the hand looked like afterwards. A review that only marks moves
@@ -12,7 +13,7 @@
    * have improved it, and whether the tile could have dealt in.
    */
   // Trained AI is the default adviser, as readSettings has it.
-  let { notes = [], hints = true, engine = null, trainedAvailable = false, adviser = $bindable('strong') } = $props();
+  let { notes = [], hints = true, engine = null, trainedAvailable = false, offline = null, adviser = $bindable('strong') } = $props();
   let trainedNotes = $state.raw(null);
   let reviewing = $state(false);
   let completed = $state(0);
@@ -25,6 +26,8 @@
   let trainedPossible = $derived(trainedAvailable && Boolean(engine));
   let reviewer = $derived(adviser === 'strong' && trainedPossible ? 'strong' : 'club');
   let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : notes);
+  // A first Trained review can be what downloads the network.
+  let download = $derived(waitingNote('', offline));
 
   let disputed = $derived(activeNotes.filter((note) => !note.agreed));
   let shown = $state('disputed');
@@ -85,7 +88,7 @@
   {#if !notes.length}
     <p class="empty">You made no decisions this hand.</p>
   {:else if reviewing}
-    <p role="status">Trained AI is reviewing your decisions… {completed} of {notes.length}</p>
+    <p role="status">Trained AI is reviewing your decisions… {completed} of {notes.length}{download ? ` · ${download}` : ''}</p>
   {:else if failure}
     <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Trained review</button>
       <button class="retry" data-review-club onclick={() => adviser = 'club'}>Review with Club</button></p>
