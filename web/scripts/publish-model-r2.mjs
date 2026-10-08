@@ -158,8 +158,14 @@ export async function publish({ modelPath, generation, source, origin,
     await upload(bucket, key, staged);
     const manifest = { source, generation, precision, bytes: bytes.length,
       storedBytes: packed.length, origin, object: key, sha256 };
-    await atomicManifest(manifestPath,
-      `/** Published model identity; verify bytes before use. */\nexport const MANIFEST = Object.freeze(${JSON.stringify(manifest, null, 2)});\n`);
+    await atomicManifest(manifestPath, `/** Which trained network this page plays, and where its bytes are.
+ *
+ * Written by \`web/scripts/publish-model-r2.mjs\` when a network is published.
+ * The object key carries the network's own digest, so the response may be
+ * immutable and a different export is a different address; \`network-store.js\`
+ * checks the digest again before anything runs.
+ */
+export const MANIFEST = Object.freeze(${JSON.stringify(manifest, null, 2)});\n`);
     return manifest;
   } finally { await rm(scratch, { recursive: true, force: true }); }
 }
