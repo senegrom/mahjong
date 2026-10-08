@@ -6,12 +6,12 @@
  * checks the digest again before anything runs.
  */
 export const MANIFEST = Object.freeze({
-  "source": "leashed-run/latest",
-  "generation": 36,
+  "source": "fusion-long/history/gen-00410",
+  "generation": 410,
   "precision": "float32",
   "bytes": 116633861,
-  "storedBytes": 107698449,
+  "storedBytes": 107849226,
   "origin": "https://mahjong-model.connect4-chaos.workers.dev",
-  "object": "models/g36/c3fad611876335d615089d788cf29182bc95d0c8cdf76f57244d5aa31a7b5f97",
-  "sha256": "c3fad611876335d615089d788cf29182bc95d0c8cdf76f57244d5aa31a7b5f97"
+  "object": "models/g410/f7d662b330a8dd31c10e72488371d09eb11a4d1c0b5cd75c7be33253865eca72",
+  "sha256": "f7d662b330a8dd31c10e72488371d09eb11a4d1c0b5cd75c7be33253865eca72"
 });
