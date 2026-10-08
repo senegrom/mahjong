@@ -26,6 +26,33 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Assemble exact olive painting and verify all earlier artwork
         run: python3 .art-import-olive/import.py
+      - name: Retain the raft and other featured faces in the fourteen-tile preview
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          import subprocess
+          path = Path('web/scripts/export-van-gogh-tiles.mjs')
+          text = path.read_text()
+          replacements = [
+              ("const featured = ['8m', '4p', '7m', '6m', '5m', '2m', '3m', '4m', '9p', '3p', '9s', '6s'];", "const featured = ['8m', '4p', '7m', '6m', '5m', '2m', '3m', '4m', '9p', '3p', '9s', '6s', '8s'];"),
+              (".slice(0, 12 - featured.length), '2z', '6z'];", ".slice(0, 13 - featured.length), '2z'];"),
+              ('The last two tiles use Classic artwork.', 'The last tile uses Classic artwork.'),
+          ]
+          for old, new in replacements:
+              assert text.count(old) == 1, old
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          before = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('web/public/tiles').rglob('*') if p.is_file() and p.suffix in {'.svg', '.png', '.webp', '.avif'}}
+          outputs = ['web/public/tiles/van-gogh/manifest.json', 'web/public/tiles/van-gogh/preview.html', 'web/src/lib/van-gogh-faces.js']
+          command = ['node', str(path), '--only=8m']
+          subprocess.run(command, check=True)
+          first = {p: Path(p).read_bytes() for p in outputs}
+          subprocess.run(command, check=True)
+          assert all(Path(p).read_bytes() == b for p, b in first.items())
+          assert all(hashlib.sha256(p.read_bytes()).hexdigest() == h for p, h in before.items())
+          print('Preview retains all thirteen featured faces plus one Classic fallback; image bytes unchanged.')
+          PY
       - name: Install locked web test dependencies
         working-directory: web
         run: npm ci
