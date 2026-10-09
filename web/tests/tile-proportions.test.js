@@ -25,13 +25,15 @@ const fitSettings = record => record && {
 const shown = (box, painting) => box.width / box.height / (painting.width / painting.height) - 1;
 
 // Faces whose counted objects or characters fill more of the painting than a 2%
-// fit leaves. Each keeps the least stretch that shows them whole.
+// fit leaves. Each keeps the least stretch that shows them whole, but never
+// more than 4%, even where that trims the ends of the red dragon's ribbon.
 const WIDER_FITS = new Map([
-  ['matisse 3p', -0.038], ['matisse 7z', 0.0625],
-  ['van-gogh 3m', 0.0265], ['van-gogh 4m', 0.048], ['van-gogh 3p', 0.0545],
+  ['matisse 3p', -0.038], ['matisse 7z', 0.04],
+  ['van-gogh 4m', 0.04], ['van-gogh 3p', 0.04],
 ]);
+const MOST_STRETCH = 0.04;
 
-test('every artist face shows its painting within 2% of the painting\'s own proportions', () => {
+test('every artist face shows its painting within 2% of its own proportions, and none beyond 4%', () => {
   for (const { set, entry } of faces) {
     const name = `${set} ${entry.tile}`;
     const box = imageBox(read(`web/public/tiles/${set}/${entry.svg}`));
@@ -46,7 +48,10 @@ test('every artist face shows its painting within 2% of the painting\'s own prop
     if (wider === undefined) assert.ok(Math.abs(stretch) <= 0.0201, `${name} is stretched by ${(stretch * 100).toFixed(2)}%`);
     else assert.ok(Math.abs(stretch - wider) < 0.0005, `${name} is stretched by ${(stretch * 100).toFixed(2)}%`);
   }
-  for (const name of WIDER_FITS.keys()) assert.ok(faces.some(({ set, entry }) => `${set} ${entry.tile}` === name), name);
+  for (const [name, stretch] of WIDER_FITS) {
+    assert.ok(faces.some(({ set, entry }) => `${set} ${entry.tile}` === name), name);
+    assert.ok(Math.abs(stretch) <= MOST_STRETCH, `${name} may not be stretched by more than 4%`);
+  }
 });
 
 test('the squeezed Van Gogh exports are fitted to the shapes their provenance records', () => {

@@ -16,7 +16,8 @@ const sourceDir = 'docs/design/matisse/studies';
 // A small bleed hides the study's outside backdrop without trimming the art.
 const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
 // Crops that are not 3:4 are cropped further to the face rather than stretched
-// to it, keeping their proportions to within 2% (see face-fit.mjs).
+// to it, keeping their proportions to within 2%, or 4% where their counted
+// objects or characters fill more of them (see face-fit.mjs).
 const fits = {
   // The three rosettes span 92% of the width, more than a 2% fit shows, so the
   // face keeps the least squeeze that shows them whole. One pixel at the top
@@ -33,10 +34,12 @@ const fits = {
   '4s': { stretch: 0.02, anchor: 0.465, bleedPixels: 1 },
   '1z': { stretch: 0.02, anchor: 0.5 },
   '3z': { stretch: 0.02, anchor: 0.5 },
-  // The lemon ribbon of 中 runs through 96% of the height, so only a 6.25%
-  // stretch keeps both of its rounded tips whole. Two pixels at the sides still
-  // hide the tile's anti-aliased outer columns.
-  '7z': { stretch: 0.0625, anchor: 0.59, bleedPixels: 2 },
+  // The lemon ribbon of 中 runs through 96% of the height. Keeping both of its
+  // rounded tips whole would take more than the 4% stretch any face may show, so
+  // the face keeps 4% and trims the two tips equally where they meet the top and
+  // bottom edges. One pixel at the sides still hides the tile's anti-aliased
+  // outer column.
+  '7z': { stretch: 0.04, anchor: 0.559, bleedPixels: 1 },
 };
 const definitions = [
   ['Pin1', '1p', '1 dot', 'approved', 'one-disk-rimless-approved.png', [0, 0, 1086, 1448], 'Approved rim-free update of direction B: black disk and ivory cut-paper rosette on edge-to-edge golden yellow. The complete flat 3:4 artwork has no ivory rim, physical bevel or surrounding shadow and is preserved at native resolution with the shared bleed and rounded clipping.'],

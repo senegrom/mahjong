@@ -11,18 +11,22 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const out = path.join(root, 'web/public/tiles/van-gogh');
 const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
 // Paintings that are not 3:4 are cropped to the face rather than stretched to
-// it, keeping their proportions to within 2% (see face-fit.mjs). The 300 × 400
+// it, keeping their proportions to within 2%, or 4% where their counted objects
+// or characters fill more of them (see face-fit.mjs). The 300 × 400
 // studies for 2s, 3s, 4s, 7s, 8s, 3p, 4p, 9p and 6m were resized from other
 // shapes without keeping proportions, so their fits name the original crop that
 // docs/design/van-gogh records, and the fit undoes the squeeze as it crops.
 const fits = {
   '1p': { stretch: -0.02, anchor: 0.5 },
   '5p': { stretch: -0.02, anchor: 0.5 },
-  '3s': { painting: [439, 673], stretch: 0.02, anchor: 0.5 },
-  // The buds above 三's top branch and the foot of 萬's left leg leave too little
-  // height to cut for a 2% fit, so the face keeps 2.65%. A two-pixel side bleed
-  // still hides the board's cream fringe in the crop's outer columns.
-  '3m': { stretch: 0.0265, anchor: 0.41, bleedPixels: 2 },
+  // Most of the cut falls on the meadow, where the stalks already disappear into
+  // the grass, so the crowns keep more of their leaves against the sky.
+  '3s': { painting: [439, 673], stretch: 0.02, anchor: 0.25 },
+  // The leaves above 三's top branch and the foot of 萬's left leg leave little
+  // height to cut, so the cut is shared evenly between them. A one-pixel side
+  // bleed, which still hides the board's cream fringe in the outermost columns,
+  // leaves enough height for a 2% fit.
+  '3m': { stretch: 0.02, anchor: 0.418, bleedPixels: 1 },
   // A centred cut would clip the tip of the kingfisher's beak, at 96.6% of the
   // width; the bird's back reaches only 5% from the left edge.
   '1s': { stretch: -0.02, anchor: 0.6 },
@@ -34,20 +38,25 @@ const fits = {
   '9p': { painting: [729, 1093], stretch: 0.02, anchor: 0.5 },
   '5z': { stretch: -0.02, anchor: 0.5 },
   '1z': { stretch: 0.02, anchor: 0.5 },
-  '2m': { stretch: 0.02, anchor: 0.5 },
+  // A centred cut would leave the upper roof of 二 against the top edge; this
+  // one gives it and the hook of 萬 equal room.
+  '2m': { stretch: 0.02, anchor: 0.466 },
   // The cypresses of 四萬 run from a flame tip near the top to the point of
-  // 萬's foot near the bottom, so only a 4.8% stretch keeps both whole. The
-  // painting reaches the canvas edge, so it needs no side bleed.
-  '4m': { stretch: 0.048, anchor: 0.595, bleedPixels: 0 },
+  // 萬's foot near the bottom, so the face keeps the 4% stretch that any face
+  // may show at most, which leaves both just touching the edges. The painting
+  // reaches the canvas edge, so it needs no side bleed.
+  '4m': { stretch: 0.04, anchor: 0.573, bleedPixels: 0 },
   '2s': { painting: [433, 667], stretch: 0.02, anchor: 0.5 },
   '4s': { painting: [438, 671], stretch: 0.02, anchor: 0.5 },
   '7s': { painting: [479, 793], stretch: 0.02, anchor: 0.5 },
   '8s': { painting: [1024, 1536], stretch: 0.02, anchor: 0.5 },
   // The lanterns hang through 72% of a painting almost twice as tall as it is
-  // wide, so only a 5.45% stretch keeps the top crown and the bottom drop whole.
-  // Most of the cut falls on the café terrace below them, which is setting, and
-  // the side columns are clean painting, so there is no side bleed.
-  '3p': { painting: [442, 860], stretch: 0.0545, anchor: 0.145, bleedPixels: 0 },
+  // wide, so the face keeps the 4% stretch that any face may show at most,
+  // which leaves the top lantern's finial and the bottom lantern's drop just
+  // touching the edges. Most of the cut falls on the café terrace below them,
+  // which is setting, and the side columns are clean painting, so there is no
+  // side bleed.
+  '3p': { painting: [442, 860], stretch: 0.04, anchor: 0.152, bleedPixels: 0 },
   '6m': { painting: [1295, 1214], stretch: -0.02, anchor: 0.5 },
   '4p': { painting: [442, 796], stretch: 0.02, anchor: 0.5 },
 };
@@ -177,5 +186,5 @@ writeFileSync(path.join(out, 'preview.html'), `<!doctype html>
 <style>*{box-sizing:border-box}body{margin:0;background:#f5efdf;color:#173457;font:16px/1.5 system-ui,sans-serif}main{max-width:1000px;margin:auto;padding:32px 20px 56px}h1{font:48px/1.1 Georgia,serif;margin:8px 0 16px}h2{font-size:22px;margin:36px 0 16px}p{max-width:680px}a{color:inherit}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:24px}figure{margin:0}figure img{width:100%;height:auto;display:block}figcaption{font-size:14px;margin-top:8px}.scroll{overflow-x:auto;padding:12px 4px 24px}.rack{display:flex;gap:2px;width:390px;padding:20px 12px;background:#173d34;border-radius:12px}.rack img{width:calc((100% - 26px)/14);height:auto;aspect-ratio:3/4;min-width:0;flex:none;border-radius:2px}.notes{color:#5d655f;font-size:14px}select{font:inherit;padding:6px;background:#fff;border:1px solid #aaa;border-radius:6px}@media(max-width:500px){main{padding:24px 16px}.gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}</style></head>
 <body><main><a href="../../">← Mahjong</a><h1>Van Gogh</h1><p>${approved.length} approved faces, including Four Oranges A for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, The Potter’s Table C for 9 disks, Three Café Lanterns for 3 disks, Moonlit Wind Chime for 9 bamboo, Green Still Life B for 6 bamboo, Copper Sunset for 5 bamboo, the Bamboo Raft for 8 bamboo, Seven with Irises C for 7 bamboo, green Moonlit Four for 4 bamboo, green Triple Shoots for 3 bamboo, green Garden Rhythm for 2 bamboo, Night Cafe for 2 of characters, Almond Branches for 3, Cypress Fields for 4, Blazing Dawn for East and Wind Ribbons for North. Choose <strong>Options → Tile face → Van Gogh</strong> in the game. The remaining ${manifest.remaining.length} tiles use Classic artwork.</p><h2>Approved artwork</h2><div class="gallery">${gallery}</div>
 <h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label><div class="scroll"><div class="rack" id="rack">${hand}</div></div>
-<p class="notes">The last two tiles use Classic artwork. East wind K is excluded. White dragon L keeps its pale painted dragon under the normal dora ring and foil sheen.</p><p class="notes">Earlier selected art is preserved in lossless PNG crops. Lemon Terrace embeds its entire approved 1295 × 1214 canvas and the face crops it at the sides to keep its proportions; the original is separately preserved. The Potter’s Table C uses its existing approved 300 × 400 quality-95 WebP game export, copied byte-for-byte without repainting or recompression. Nine Stars I remains preserved in the design archive. The newer green bamboo studies use web-optimized crops. Irises at Dusk (7 characters), The Red Vineyard (5 characters), Three Café Lanterns (3 disks), Moonlit Wind Chime (9 bamboo), Green Still Life B (6 bamboo) and Bamboo Raft preserve their complete approved compositions and colours in 300 × 400 WebP images embedded in their SVGs; these are not the full-resolution source PNGs. A painting that is not 3:4, including one squeezed into a 300 × 400 export, is cropped to the face rather than stretched, keeping its proportions to within 2%, or the least stretch that keeps its counted objects and characters whole; the manifest records each fit. Source checksums and processing are documented. <a href="manifest.json">Export manifest</a></p></main><script>document.getElementById('width').addEventListener('change',event=>{document.getElementById('rack').style.width=event.target.value+'px'});</script></body></html>\n`);
+<p class="notes">The last two tiles use Classic artwork. East wind K is excluded. White dragon L keeps its pale painted dragon under the normal dora ring and foil sheen.</p><p class="notes">Earlier selected art is preserved in lossless PNG crops. Lemon Terrace embeds its entire approved 1295 × 1214 canvas and the face crops it at the sides to keep its proportions; the original is separately preserved. The Potter’s Table C uses its existing approved 300 × 400 quality-95 WebP game export, copied byte-for-byte without repainting or recompression. Nine Stars I remains preserved in the design archive. The newer green bamboo studies use web-optimized crops. Irises at Dusk (7 characters), The Red Vineyard (5 characters), Three Café Lanterns (3 disks), Moonlit Wind Chime (9 bamboo), Green Still Life B (6 bamboo) and Bamboo Raft preserve their complete approved compositions and colours in 300 × 400 WebP images embedded in their SVGs; these are not the full-resolution source PNGs. A painting that is not 3:4, including one squeezed into a 300 × 400 export, is cropped to the face rather than stretched, keeping its proportions to within 2%, or within 4% where its counted objects and characters fill more of it; the manifest records each fit. Source checksums and processing are documented. <a href="manifest.json">Export manifest</a></p></main><script>document.getElementById('width').addEventListener('change',event=>{document.getElementById('rack').style.width=event.target.value+'px'});</script></body></html>\n`);
 console.log(`Exported ${approved.length} approved Van Gogh faces; ${manifest.remaining.length} identities use Classic artwork.`);

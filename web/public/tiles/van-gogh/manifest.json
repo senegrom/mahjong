@@ -209,10 +209,10 @@
           "height": 673
         },
         "stretch": 0.02,
-        "anchor": 0.5,
+        "anchor": 0.25,
         "image": {
           "x": -3,
-          "y": -29.95,
+          "y": -14.98,
           "width": 306,
           "height": 459.91
         }
@@ -239,14 +239,14 @@
           "width": 523,
           "height": 782
         },
-        "stretch": 0.0265,
-        "anchor": 0.41,
-        "bleedPixels": 2,
+        "stretch": 0.02,
+        "anchor": 0.418,
+        "bleedPixels": 1,
         "image": {
-          "x": -1.16,
-          "y": -16.55,
-          "width": 302.31,
-          "height": 440.35
+          "x": -0.58,
+          "y": -17.33,
+          "width": 301.15,
+          "height": 441.46
         }
       },
       "pngSha256": "41d6556d517c846747618eb2a6e288e7950130dd66a7c04f2dc4d3799b842448"
@@ -480,10 +480,10 @@
           "height": 1539
         },
         "stretch": 0.02,
-        "anchor": 0.5,
+        "anchor": 0.466,
         "image": {
           "x": -3,
-          "y": -25.88,
+          "y": -24.12,
           "width": 306,
           "height": 451.76
         }
@@ -510,14 +510,14 @@
           "width": 1024,
           "height": 1536
         },
-        "stretch": 0.048,
-        "anchor": 0.595,
+        "stretch": 0.04,
+        "anchor": 0.573,
         "bleedPixels": 0,
         "image": {
           "x": 0,
-          "y": -17.49,
+          "y": -18.73,
           "width": 300,
-          "height": 429.39
+          "height": 432.69
         }
       },
       "pngSha256": "f46d5a84d825851849438cf09db5284941c75094845fb4a678cb6d1353022d0a"
@@ -701,17 +701,17 @@
           "width": 442,
           "height": 860
         },
-        "stretch": 0.0545,
-        "anchor": 0.145,
+        "stretch": 0.04,
+        "anchor": 0.152,
         "bleedPixels": 0,
         "image": {
           "x": 0,
-          "y": -22.26,
+          "y": -24.51,
           "width": 300,
-          "height": 553.54
+          "height": 561.26
         }
       },
-      "svgSha256": "3d0a10f290582976501598710fdbb199bff3a4124048ed2621c99fc6027bf53c",
+      "svgSha256": "1c39339a357fe0ea58456ab8e78a2c5cc452786711ccbd4ef316b48e4843832b",
       "rasterMimeType": "image/webp",
       "rasterSha256": "74d9a2bf1807c3f58a4f5728794d83dfacfdeac1b7fd3400051c35077d57e105"
     },

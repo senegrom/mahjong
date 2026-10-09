@@ -12,6 +12,8 @@
  *   crop it was resized from.
  * - `stretch` is how much wider the face shows the painting than it was
  *   painted, or narrower when negative. A little stretch lets the face crop less.
+ *   Faces keep it within 2%, which nobody sees, or within 4% where counted
+ *   objects or characters fill more of the painting than a 2% fit shows.
  * - `anchor` places the cut: 0 keeps the top or left edge, 0.5 centres the cut
  *   and 1 keeps the bottom or right edge.
  * - `bleedPixels`, when given, replaces the shared bleed on the uncut axis with
