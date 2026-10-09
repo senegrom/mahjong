@@ -19,8 +19,9 @@
      thrown straight from the draw (tsumogiri), a veil of black that keeps
      72% of every colour, and the border on one another player claimed.
      The green is darker than the safe ring's and lighter than the felt
-     under the rows, so it stands out from both the felt and the face, in
-     either theme. */
+     under the rows, so it stands out from the felt in either theme, and
+     from an ivory face; a hairline of the tile's ivory inside it parts it
+     from a face painted in its own green. */
   --from-draw-shade: rgba(0, 0, 0, 0.28);
   --claimed-border: #0e6e33;
   --tile-width: 46px;

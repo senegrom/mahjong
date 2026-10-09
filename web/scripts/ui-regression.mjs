@@ -203,13 +203,16 @@ try {
   });
   for(const dark of [false,true]) await check(`every discard row shows the engine's draw and claim marks (${dark?'dark':'light'})`,async()=>{
     const page=await open(markedSave,{dark}); const view=JSON.parse(markedSave.state)[0];
-    // Both marks lie on one layer over the face: its shade and its border.
+    // Both marks lie on one layer over the face: its shade, and its border
+    // with a hairline of the theme's ivory inside it.
     const rows=selectors=>page.evaluate(selectors=>selectors.map(selector=>[...document.querySelector(selector).querySelectorAll('.tile')].map(tile=>{
       const layer=getComputedStyle(tile.querySelector('.face'),'::after'), marked=layer.content!=='none';
       return {claimed:tile.classList.contains('claimed'),drawn:tile.classList.contains('from-draw'),label:tile.getAttribute('aria-label'),
         opacity:getComputedStyle(tile).opacity,filter:getComputedStyle(tile.querySelector('.face')).filter,
-        shade:marked?layer.backgroundColor:'none',border:marked&&layer.borderTopStyle!=='none'?`${layer.borderTopStyle} ${layer.borderTopColor}`:'none'};
+        shade:marked?layer.backgroundColor:'none',border:marked&&layer.borderTopStyle!=='none'?`${layer.borderTopStyle} ${layer.borderTopColor}`:'none',
+        line:marked?layer.boxShadow:'none'};
     })),selectors);
+    const hairline=`${dark?'rgb(236, 229, 212)':'rgb(247, 242, 228)'} 0px 0px 0px 1px inset`;
     const expect=(shown,where)=>shown.forEach((row,seat)=>{
       assert.equal(row.length,view.seats[seat].discards.length,`${where} ${seat}`);
       row.forEach((tile,index)=>{
@@ -220,6 +223,7 @@ try {
         assert.equal(tile.opacity,'1',tile.label); assert.equal(tile.filter,'none',tile.label);
         assert.equal(tile.shade,discard.drawn?'rgba(0, 0, 0, 0.28)':discard.claimed?'rgba(0, 0, 0, 0)':'none',tile.label);
         assert.equal(tile.border,discard.claimed?'solid rgb(14, 110, 51)':'none',tile.label);
+        assert.equal(tile.line,discard.claimed?hairline:'none',tile.label);
       });
     });
     // The seats in the view's order: you, then right, opposite and left.

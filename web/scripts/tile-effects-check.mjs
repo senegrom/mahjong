@@ -23,14 +23,17 @@ try {
   await mkdir(evidence, {recursive:true});
   await writeFile(resolve(temporary, 'index.html'), '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Tile effects regression</title></head><body><div id="app"></div><script type="module" src="./main.js"></script></body></html>');
   await writeFile(resolve(temporary, 'main.js'), 'import { mount } from "svelte"; import Fixture from "./Fixture.svelte"; mount(Fixture, {target:document.getElementById("app")});');
-  // A painted set for the tiles inside it, whichever set the rest of the page shows.
-  await writeFile(resolve(temporary, 'Painted.svelte'), '<script>import { setContext } from "svelte"; import { TILE_FACE_CONTEXT } from "../src/lib/tile-faces.js"; let { children } = $props(); setContext(TILE_FACE_CONTEXT, () => "matisse");</script>{@render children()}');
+  // A painted set for the tiles inside it, Matisse unless it names another,
+  // whichever set the rest of the page shows.
+  await writeFile(resolve(temporary, 'Painted.svelte'), '<script>import { setContext } from "svelte"; import { TILE_FACE_CONTEXT } from "../src/lib/tile-faces.js"; let { children, face = "matisse" } = $props(); setContext(TILE_FACE_CONTEXT, () => face);</script>{@render children()}');
   await writeFile(resolve(temporary, 'Fixture.svelte'), `<script>
 import Painted from './Painted.svelte';
 import Tile from '../src/lib/Tile.svelte';
 import { setContext } from 'svelte';
 import { TILE_FACE_CONTEXT } from '../src/lib/tile-faces.js';
 import { DALI_APPROVED } from '../src/lib/dali-faces.js';
+import { MATISSE_APPROVED } from '../src/lib/matisse-faces.js';
+import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { TILE_TYPES } from '../src/lib/tiles.js';
 let face = $state('classic');
 setContext(TILE_FACE_CONTEXT, () => face);
@@ -62,6 +65,16 @@ const nudged = [[54,'tiny'],[46,'small'],[52,'small'],[60,'small'],[46,'tiny'],[
   .flatMap(([width,size]) => [0,0.3,0.55,0.8].flatMap(shift => [false,true].map(rotated => ({width,size,shift,rotated}))));
 // The same, turned and unclaimed, in a set painted to every edge.
 const turned = nudged.filter(({rotated}) => rotated);
+// The greenest paintings of each artist's set, whose own edges are nearly the
+// border's green, claimed at the sizes of the table's rows and a phone's,
+// upright and turned for riichi.
+const approved = {matisse:MATISSE_APPROVED, dali:DALI_APPROVED, 'van-gogh':VAN_GOGH_APPROVED};
+const greens = [['matisse',['4s','6s','8s']],['dali',['2s','4s','8s']],['van-gogh',['2s','3s','4s','5s','6s']]]
+  .flatMap(([set,tiles]) => tiles.filter(tile => approved[set].includes(tile)).map(tile => ({set,tile})));
+const greenSizes = [[54,'tiny'],[46,'small'],[28,'tiny'],[23,'tiny']];
+// Shown only for their own check, so their pictures add nothing to the
+// others' screenshots or the time a change of pixel density takes to draw.
+let greensShown = $state(false);
 </script>
 <h1>White dragon · dora foil</h1>
 <div class="samples">{#each cases as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}<section id="phone" style="--tile-width:23px"><p>phone</p><Tile tile="5z" size="tiny" claimed/></section></div>
@@ -73,6 +86,8 @@ const turned = nudged.filter(({rotated}) => rotated);
 <button id="faces" onclick={()=>face=face==='classic'?'matisse':'classic'}>Change tile face</button>
 <button id="unpainted" onclick={()=>face='dali'}>Show a set still being painted</button>
 <div class="samples">{#each named as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}{#each phones as [id, tile]}<section id={id} style="--tile-width:28px"><p>{id}</p><Tile {tile} size="tiny" claimed/></section>{/each}</div>
+<button id="greens-shown" onclick={()=>greensShown=!greensShown}>Show the green paintings, claimed</button>
+{#if greensShown}<div class="samples" id="greens">{#each greens as {set,tile}}<Painted face={set}>{#each greenSizes as [width,size]}{#each [false,true] as rotated}<span data-face="{set} {tile}" style="--tile-width:{width}px"><Tile {tile} {size} {rotated} claimed/></span>{/each}{/each}</Painted>{/each}</div>{/if}
 <style>:global(body){margin:30px;background:#173e35;color:#fff;font:16px system-ui;--tile-width:60px;--ivory:#fffaf0;} .samples{display:flex;gap:26px;align-items:start;flex-wrap:wrap;margin-bottom:40px} section{min-width:70px} #dynamic{margin:25px 0} button{margin:10px;padding:10px}</style>`);
   await build({configFile:false,root:temporary,base:'/mahjong/',publicDir:false,plugins:[svelte()],logLevel:'warn',build:{outDir:out,target:'es2022'}});
   if (!process.argv.includes('--build-only')) {
@@ -143,14 +158,17 @@ const turned = nudged.filter(({rotated}) => rotated);
     });
     await check('a discard from the draw is darker in its own colours; a claimed one has a solid dark green border inside its edge; both combine',async()=>{
       const border=[14,110,51], solid=`solid rgb(${border.join(', ')})`, shade='rgba(0, 0, 0, 0.28)';
-      // Both marks are one layer over the face: its shade and its border.
+      // The hairline inside the border is the fixture's ivory.
+      const line='rgb(255, 250, 240) 0px 0px 0px 1px inset';
+      // Both marks are one layer over the face: its shade, and its border with the hairline inside it.
       const marks=await page.evaluate(()=>['kept','thrown','taken','both'].map(id=>{
         const tile=document.querySelector(`#${id} .tile`), face=tile.querySelector('.face'), layer=getComputedStyle(face,'::after');
         return [getComputedStyle(tile).opacity,getComputedStyle(face).filter,getComputedStyle(tile,'::after').content,
-          layer.content==='none'?'none':layer.backgroundColor,layer.content==='none'||layer.borderTopStyle==='none'?'none':`${layer.borderTopStyle} ${layer.borderTopColor}`];
+          layer.content==='none'?'none':layer.backgroundColor,layer.content==='none'||layer.borderTopStyle==='none'?'none':`${layer.borderTopStyle} ${layer.borderTopColor}`,
+          layer.content==='none'?'none':layer.boxShadow];
       }));
-      assert.deepEqual(marks,[['1','none','none','none','none'],['1','none','none',shade,'none'],
-        ['1','none','none','rgba(0, 0, 0, 0)',solid],['1','none','none',shade,solid]]);
+      assert.deepEqual(marks,[['1','none','none','none','none','none'],['1','none','none',shade,'none','none'],
+        ['1','none','none','rgba(0, 0, 0, 0)',solid,line],['1','none','none',shade,solid,line]]);
       // The border keeps to the tile's proportions: one pixel on a phone's
       // smallest row, two on the table's and three on the largest.
       const [phone,tiny,small]=await page.evaluate(()=>['phone','tiny-taken','taken'].map(id=>
@@ -244,6 +262,96 @@ const turned = nudged.filter(({rotated}) => rotated);
       } finally {
         await page.setViewport({width:1100,height:700,deviceScaleFactor:2});
       }
+      assert.deepEqual(faults,[]);
+    });
+    await check('a hairline of ivory parts a claimed tile\'s border from a painting of its own green, upright or turned, at any size and pixel density',async()=>{
+      // The bamboo of every artist's set is painted to its edges in nearly the
+      // border's green, and the border alone left such a tile looking
+      // unclaimed. Going in from the felt across the straight part of each
+      // side, the border must come first, then the hairline, then the
+      // painting, and the mark must stand apart from the painting just inside
+      // it: by 30 or more in CIE76 delta E, through whichever of its two
+      // colours the painting is further from. The border alone managed about
+      // 20 on these faces, and stands about 70 apart from an ivory one.
+      const green=[14,110,51], ivory=[255,250,240], faults=[], found=[];
+      await page.click('#greens-shown');
+      await page.waitForFunction(()=>{const images=[...document.querySelectorAll('#greens img')];return images.length&&images.every(image=>image.complete&&image.naturalWidth>0);},{timeout:30000});
+      try {
+        for(const scale of [1,2,3]) {
+          await page.setViewport({width:1100,height:700,deviceScaleFactor:scale});
+          await page.evaluate(async()=>{
+            scrollTo(0,0);
+            await Promise.all([...document.querySelectorAll('#greens img')].map(image=>image.decode().catch(()=>null)));
+            await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));
+          });
+          const {clip,boxes}=await page.$eval('#greens',section=>{
+            const box=element=>{const r=element.getBoundingClientRect();return {x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height};};
+            return {clip:box(section),boxes:[...section.querySelectorAll('.tile')].map(tile=>{
+              const face=tile.querySelector('.face'), holder=tile.parentElement;
+              return {...box(face),radius:parseFloat(getComputedStyle(face).borderTopLeftRadius),border:parseFloat(getComputedStyle(face,'::after').borderTopWidth),
+                images:face.querySelectorAll('img').length,
+                label:`${holder.dataset.face} at ${holder.style.getPropertyValue('--tile-width')} ${tile.classList.contains('small')?'small':'tiny'} ${tile.classList.contains('rotated')?'turned':'upright'}`};
+            })};
+          });
+          const margin=6, area={x:clip.x-margin,y:clip.y-margin,width:clip.width+2*margin,height:clip.height+2*margin};
+          const data=await page.screenshot({clip:area,encoding:'base64',captureBeyondViewport:true});
+          await writeFile(resolve(evidence,`claimed-greens-x${scale}.png`),Buffer.from(data,'base64'));
+          const measured=await page.evaluate(async(data,area,boxes,scale,green,ivory)=>{
+            const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+            const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+            const context=canvas.getContext('2d');context.drawImage(image,0,0);
+            const pixels=context.getImageData(0,0,image.width,image.height).data;
+            const at=(x,y)=>{const i=(y*image.width+x)*4;return [pixels[i],pixels[i+1],pixels[i+2]];};
+            // CIE76 delta E, from sRGB through XYZ (D65) to Lab.
+            const lab=rgb=>{
+              const [r,g,b]=rgb.map(v=>v/255).map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4);
+              const f=t=>t>(6/29)**3?Math.cbrt(t):t/(3*(6/29)**2)+4/29;
+              const x=f((.4124564*r+.3575761*g+.1804375*b)/.95047),y=f(.2126729*r+.7151522*g+.072175*b),z=f((.0193339*r+.119192*g+.9503041*b)/1.08883);
+              return [116*y-16,500*(x-y),200*(y-z)];
+            };
+            const de=(a,b)=>{const p=lab(a),q=lab(b);return Math.hypot(p[0]-q[0],p[1]-q[1],p[2]-q[2]);};
+            return boxes.map(({x,y,width,height,radius,border,images,label})=>{
+              // The box as reported can sit a device pixel or two off the one
+              // painted, so each line finds the tile's edge in the pixels, and
+              // keeps clear of the rounded corners by as much again.
+              const [left,top,right,bottom]=[x-area.x,y-area.y,x+width-area.x,y+height-area.y].map(value=>Math.round(value*scale));
+              const corner=Math.ceil(radius*scale)+3, outer=Math.round(border*scale), line=Math.round(scale), inside=Math.round(2*scale), reach=Math.round(4*scale);
+              const lines=[];
+              for(let u=left+corner;u<right-corner;u++)lines.push([u,top,0,1],[u,bottom-1,0,-1]);
+              for(let v=top+corner;v<bottom-corner;v++)lines.push([left,v,1,0],[right-1,v,-1,0]);
+              let crossed=0;const apart=[];
+              for(const [u,v,du,dv] of lines){
+                const pick=n=>at(u+n*du,v+n*dv), isGreen=n=>de(pick(n),green)<=12, isIvory=n=>de(pick(n),ivory)<=12;
+                let edge=-reach;
+                while(edge<=reach&&!isGreen(edge))edge++;
+                if(edge>reach)continue;
+                // From the felt: the whole border, then the whole hairline, then the painting.
+                let run=0;
+                while(isGreen(edge+run))run++;
+                let light=0;
+                while(light<line&&isIvory(edge+run+light))light++;
+                if(run===outer&&light===line)crossed++;
+                // The colours actually drawn where the border and the hairline belong, against the painting inside them.
+                const mean=(from,count)=>[0,1,2].map(k=>Array.from({length:count},(_,n)=>pick(from+n)[k]).reduce((sum,value)=>sum+value,0)/count);
+                const [rim,hairline]=[mean(edge,outer),mean(edge+outer,line)];
+                for(let n=0;n<inside;n++){const paint=pick(edge+outer+line+n);apart.push(Math.max(de(rim,paint),de(hairline,paint)));}
+              }
+              return {label,images,lines:lines.length,crossed,apart:apart.reduce((sum,value)=>sum+value,0)/apart.length};
+            });
+          },data,area,boxes,scale,green,ivory);
+          for(const {label,images,lines,crossed,apart} of measured) {
+            if(images!==1) faults.push(`x${scale} ${label}: not painted`);
+            if(crossed<lines) faults.push(`x${scale} ${label}: ${lines-crossed}/${lines} lines do not cross the border and then the hairline`);
+            if(!(apart>=30)) faults.push(`x${scale} ${label}: the mark stands ${apart.toFixed(1)} apart from the painting`);
+            found.push({scale,label,apart:Math.round(apart*10)/10});
+          }
+        }
+      } finally {
+        await page.setViewport({width:1100,height:700,deviceScaleFactor:2});
+        await page.click('#greens-shown');
+      }
+      await writeFile(resolve(evidence,'claimed-greens.json'),JSON.stringify(found.sort((a,b)=>a.apart-b.apart),null,1));
+      assert.ok(found.length>=3*2*4*2,`the fixture shows the greenest faces: ${found.length}`);
       assert.deepEqual(faults,[]);
     });
     await check('a painting turned with its tile shows no ivory along its edges, at any size, position and pixel density',async()=>{
@@ -352,6 +460,8 @@ const turned = nudged.filter(({rotated}) => rotated);
           return {tile:tile.dataset.tile,width:Math.min(parseFloat(style.width),parseFloat(style.height)),face:box(face),name:box(name),label:tile.getAttribute('aria-label'),
             images:section.querySelectorAll('img').length,classes:[...tile.classList],
             border:layer.content==='none'?0:parseFloat(layer.borderTopWidth),
+            // The hairline inside the border: the spread of its inset shadow.
+            hairline:layer.content==='none'||layer.boxShadow==='none'?0:parseFloat(layer.boxShadow.replace(/rgba?\([^)]*\)/,'').trim().split(/\s+/)[3]),
             lines:[...name.children].filter(line=>getComputedStyle(line).display!=='none').map(line=>({text:line.textContent,box:box(line),size:parseFloat(getComputedStyle(line).fontSize)}))};
         });
         assert.equal(shape.images,0,`${id}: nothing is loaded for a tile without a picture`);
@@ -361,11 +471,12 @@ const turned = nudged.filter(({rotated}) => rotated);
         assert.deepEqual(shape.lines.map(line=>line.text),lines,`${id} at ${shape.width}px`);
         tiers.add(lines.length===2&&lines[1].length===1?'number and letter':lines.length===2?'words':lines[0].length>2?'word':'letters');
         for(let n=0;n<4;n++)assert.ok(Math.abs(shape.name[n]-shape.face[n])<0.5,`${id}: the name covers its face`);
-        // Inside the face, and inside a claimed tile's border as well.
-        const [fx,fy,fw,fh]=shape.face, inset=shape.border;
-        assert.equal(inset>0,shape.classes.includes('claimed'),`${id}: a border only on a claimed tile`);
+        // Inside the face, and inside a claimed tile's border and its hairline as well.
+        const [fx,fy,fw,fh]=shape.face, inset=shape.border+shape.hairline;
+        assert.equal(shape.border>0,shape.classes.includes('claimed'),`${id}: a border only on a claimed tile`);
+        assert.equal(shape.hairline,shape.classes.includes('claimed')?1:0,`${id}: a hairline inside the border of a claimed tile`);
         for(const {text,box:[x,y,width,height],size} of shape.lines) {
-          assert.ok(x>=fx+inset&&y>=fy+inset&&x+width<=fx+fw-inset&&y+height<=fy+fh-inset,`${id}: ${text} stays inside its face and border`);
+          assert.ok(x>=fx+inset&&y>=fy+inset&&x+width<=fx+fw-inset&&y+height<=fy+fh-inset,`${id}: ${text} stays inside its face, border and hairline`);
           assert.ok(size>=6.5,`${id}: ${text} is ${size}px`);
         }
         // A suit's letter lies under its number, or beside it on a tile turned on its side.

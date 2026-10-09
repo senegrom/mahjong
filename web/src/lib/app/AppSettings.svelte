@@ -180,7 +180,7 @@
       <dd>The tile was thrown straight from the draw (tsumogiri), not from the hand.</dd>
 
       <dt><span class="swatch claimed"></span> a dark green border, in a discard row</dt>
-      <dd>Another player claimed the tile for a call, so it now sits in their set. If it was thrown from the draw, its face is darker as well.</dd>
+      <dd>Another player claimed the tile for a call, so it now sits in their set. A thin ivory line inside the border keeps it apart from a painting as green as itself. If it was thrown from the draw, its face is darker as well.</dd>
 
       <dt>A name in place of a picture</dt>
       <dd>The tile face you chose has no picture for this tile yet, so the tile shows its name. On smaller tiles, as in a discard row, a number stands over its suit's letter, as tile notation writes it: m for characters, p for circles and s for bamboo. An honour too small for its word is given in letters: E, S, W and N for the winds, Wh, G and R for the dragons.</dd>

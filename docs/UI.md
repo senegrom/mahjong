@@ -68,8 +68,12 @@ rounded edge, so they line up with the face either way up:
   so the picture still reads. A tile thrown from the hand looks normal.
 - **A dark green border:** another player claimed the tile for a call. The
   border is solid and lies on the rim of the face, inside a dora ring, on a
-  riichi tile as on any other. The face stays solid and keeps its colours, so a
-  darker face always means a tile from the draw.
+  riichi tile as on any other. A one-pixel hairline of the tile's ivory lies
+  inside it: the bamboo of every artist's set is painted to its edges in
+  nearly the border's green, and without the hairline the border ran into the
+  painting and the tile looked unclaimed. On an ivory face the hairline
+  disappears and the green alone stands out. The face stays solid and keeps
+  its colours, so a darker face always means a tile from the draw.
 
 The marks appear on the table, in the inspection of all discards, in agent
 watch and in the guided game's remembered table; the physical editor's tile

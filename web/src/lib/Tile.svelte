@@ -32,7 +32,8 @@
    * tile can carry both. One thrown straight from the draw (tsumogiri) has
    * its face shaded darker, as Tenhou and Mahjong Soul show it; one thrown
    * from the hand keeps its face. One that another player claimed for a call
-   * has a dark green border on its own edge, inside any ring.
+   * has a dark green border on its own edge, inside any ring, with a
+   * hairline of ivory between the border and the picture.
    */
   let {
     tile = null,
@@ -233,7 +234,8 @@
     --ring-width: 3px;
     /* A claimed tile's border, in proportion to the tile: one pixel on a
        phone's smallest rows, where more would cover the picture, two on the
-       table's rows and three on the largest. */
+       table's rows and three on the largest. The ivory hairline inside it
+       is one pixel at every size, the least that still shows as a line. */
     --claimed-width: clamp(1px, calc(var(--face-width) / 11), 3px);
     width: var(--face-width);
     padding: 0;
@@ -509,14 +511,19 @@
     background: var(--from-draw-shade, rgba(0, 0, 0, 0.28));
   }
 
-  /* A claimed discard: a solid dark green border on the rim of its face. It
-     lies inside the face, so it never reaches into the gap between tiles or
-     meets a ring, which lies outside, and it covers the shade on the same
-     layer, so a claimed tile from the draw keeps the same green. The face
-     stays solid: letting the felt show through would darken it just as the
-     shade does. */
+  /* A claimed discard: a solid dark green border on the rim of its face, and
+     a hairline of the tile's ivory inside it. The green alone ran into the
+     edge of a painting of nearly the same green, as on the bamboo of every
+     artist's set, and the tile looked unclaimed. The hairline parts the
+     border from any picture: where a face is ivory too, it disappears, and
+     the green parts them itself. Both lie inside the face, so they never
+     reach into the gap between tiles or meet a ring, which lies outside, and
+     both cover the shade on the same layer, so a claimed tile from the draw
+     keeps the same green and ivory. The face stays solid: letting the felt
+     show through would darken it just as the shade does. */
   .claimed .face::after {
     border: var(--claimed-width) solid var(--claimed-border, #0e6e33);
+    box-shadow: inset 0 0 0 1px var(--ivory);
   }
 
   /* Whatever a tile does, it does as a whole. The lift on hover, on focus
