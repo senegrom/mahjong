@@ -28,7 +28,7 @@ A surrealist tile face set for the mahjong game. Twenty-one faces are approved, 
 | `Pei.svg` | North wind | The Wind-Carved Arch — second composition: sculptural 北, flowing wind ribbons, cypresses and an impossible stone arch |
 | `Chun.svg` | Red dragon | Molten Ruby — translucent ruby-red 中 stretched into an uncanny molten form |
 
-The other 13 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. All nine bamboo faces are now approved; six uses the selected green-hued C, three uses selected A and four uses the approved B adaptation. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
+The other 13 tiles have no approved artwork yet, and the game writes out each one's name on its ivory face until they do; no stand-in picture is shipped. All nine bamboo faces are now approved; six uses the selected green-hued C, three uses selected A and four uses the approved B adaptation. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
 
 ## Presentation
 
@@ -66,7 +66,7 @@ Nine characters uses the exact [approved repaired C image](studies/nine-characte
 
 Present three alternatives for each new tile before selection.
 
-Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: twenty-one approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
+Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. The twenty-one approved faces are in the preload inventory; a tile without approved artwork shows its name and loads nothing. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
 
 ## Reproducing the exports
 

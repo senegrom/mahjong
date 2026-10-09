@@ -8,6 +8,27 @@ Calls are presented as a staged discard followed by the legal response choices. 
 
 The 7-by-2 phone hand layout is intentional: it preserves large, reliable touch targets instead of squeezing fourteen tiles into one row. The newly drawn tile remains slightly separated, including its hint count, and carries no border merely for being newly drawn.
 
+## Tile faces
+
+Classic and Matisse have a picture for every tile. Dalí and Van Gogh are still
+being painted: a tile the chosen set has no approved artwork for shows its name
+in text on the ivory face instead, so it plainly waits for its picture and never
+borrows another set's. In the hand the number stands over its suit, or an
+honour's first word over its second, in the words the tile is announced with.
+On faces of 40px or less, as in discard rows, dora indicators and the physical
+editor's entered tiles, a number stands over its suit's letter as tile notation
+writes it (m characters, p circles, s bamboo), or beside it on a tile turned on
+its side, so a suit never rests on its colour alone; the colours (red
+characters, blue circles, green bamboo) only repeat it. An honour keeps its
+first word down to 34px, as in the inspection of all discards, and on the
+table's own rows and smaller it is given in letters: E, S, W and N for the
+winds, and Wh, G and R for the dragons. The name stays upright on a tile turned
+for riichi and carries the dora ring and shine and both discard marks; a white
+dragon written out has no dragon under its shine, and with reduced motion its
+still shine rests on a corner rather than across the name. Nothing is
+downloaded or saved offline for these tiles, and each becomes its picture as
+soon as its artwork is approved.
+
 ## Discard previews and readiness markings
 
 With **Hints and markings** enabled, each legal discard is analysed using the
@@ -36,14 +57,19 @@ gap while keeping the drawn tile the same size as the rest of the hand.
 
 ## Discard rows
 
-A riichi declaration lies sideways in its row. Two more marks are of different
-kinds, a shade and a fade, so a tile can carry both:
+A riichi declaration lies sideways in its row: the face is laid out lying down,
+so its edge falls on whole pixels like an upright face's, and only the picture
+on it is turned. Two more marks are of different kinds, a shade and a border,
+so a tile can carry both. Both lie on one layer over the face, clipped to its
+rounded edge, so they line up with the face either way up:
 
 - **A darker face:** the tile was thrown straight from the draw (tsumogiri), as
-  Tenhou and Mahjong Soul show it. A tile thrown from the hand looks normal.
-- **See-through:** another player claimed the tile for a call. The whole tile,
-  dora ring included, lets the table show through, so on the felt it reads
-  green while staying legible.
+  Tenhou and Mahjong Soul show it. A veil of black keeps 72% of every colour,
+  so the picture still reads. A tile thrown from the hand looks normal.
+- **A dark green border:** another player claimed the tile for a call. The
+  border is solid and lies on the rim of the face, inside a dora ring, on a
+  riichi tile as on any other. The face stays solid and keeps its colours, so a
+  darker face always means a tile from the draw.
 
 The marks appear on the table, in the inspection of all discards, in agent
 watch and in the guided game's remembered table; the physical editor's tile
@@ -51,8 +77,9 @@ beside each discard shows the boxes ticked for it. They record what happened
 at the table rather than give advice, so they stay when Hints and markings is
 switched off. Each tile's name, read by screen readers and shown on hover, says
 the same: claimed, riichi declaration, discarded from the draw. The shade and
-the fade are the `--from-draw-shade` and `--claimed-opacity` tokens in
-`app.css`, and the tile guide in the settings has a line and a swatch for each.
+the border's colour are the `--from-draw-shade` and `--claimed-border` tokens
+in `app.css`, and the tile guide in the settings has a line and a swatch for
+each.
 
 ## Hand results
 

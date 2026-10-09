@@ -87,7 +87,7 @@ test('--only=8s preserves all other artwork and reproduces the fitted raft', t =
     }
   }
   const run = argument => execFileSync(process.execPath, [path.join(temporary, 'web/scripts/export-van-gogh-tiles.mjs'), argument], { encoding: 'utf8', stdio: 'pipe' });
-  assert.equal(run('--only=8s').trim(), `Exported ${set.tiles.length} approved Van Gogh faces; ${set.remaining.length} identities use Classic artwork.`);
+  assert.equal(run('--only=8s').trim(), `Exported ${set.tiles.length} approved Van Gogh faces; ${set.remaining.length} identities show their names until painted.`);
   for (const [relative, bytes] of unchanged) assert.deepEqual(readFileSync(path.join(temporary, relative)), bytes);
   assert.deepEqual(readFileSync(path.join(temporary, provenance.runtime)), read(provenance.runtime));
   const generated = JSON.parse(readFileSync(path.join(temporary, 'web/public/tiles/van-gogh/manifest.json')));

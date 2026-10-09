@@ -15,11 +15,14 @@
   --warning-text: #ffb8a4;
   --accent-soft: #f0d8d1;
   --gold: #d8a12a;
-  /* The two marks in a discard row: the shade on a tile thrown straight
-     from the draw (tsumogiri), and how much of a claimed tile still shows,
-     with the felt showing through the rest. */
-  --from-draw-shade: brightness(0.86);
-  --claimed-opacity: 0.6;
+  /* The two marks in a discard row: the shade over the face of a tile
+     thrown straight from the draw (tsumogiri), a veil of black that keeps
+     72% of every colour, and the border on one another player claimed.
+     The green is darker than the safe ring's and lighter than the felt
+     under the rows, so it stands out from both the felt and the face, in
+     either theme. */
+  --from-draw-shade: rgba(0, 0, 0, 0.28);
+  --claimed-border: #0e6e33;
   --tile-width: 46px;
   color-scheme: light dark;
 }

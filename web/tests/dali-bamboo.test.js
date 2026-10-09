@@ -140,7 +140,7 @@ for (const face of FACES) {
     assert.equal(tileImage(face.tile, 'classic'), `tiles/${face.name}.svg`);
     assert.equal(tileImage(face.tile, 'matisse'), `tiles/matisse/approved/${face.name}.svg`);
     const other = vanGogh.tiles.find(entry => entry.tile === face.tile);
-    assert.equal(tileImage(face.tile, 'van-gogh'), other ? `tiles/van-gogh/${other.svg}` : `tiles/${face.name}.svg`);
+    assert.equal(tileImage(face.tile, 'van-gogh'), other ? `tiles/van-gogh/${other.svg}` : null);
   });
 }
 

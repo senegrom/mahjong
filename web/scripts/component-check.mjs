@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { DALI_APPROVED } from '../src/lib/dali-faces.js';
+import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
+import { tileFile, tileWords } from '../src/lib/tiles.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { check: run, openContext, report, results } = browserChecks();
@@ -61,6 +64,20 @@ try {
     await page.select('select[aria-label="Tile face"]', 'matisse');
     await page.waitForSelector('.hand .tile.matisse');
     assert.equal((await state(page)).tileFace, 'matisse');
+    // A set still being painted shows each tile it has a picture for, and
+    // writes out in the tile's own words each one it has not.
+    for (const [face, approved] of [['van-gogh', VAN_GOGH_APPROVED], ['dali', DALI_APPROVED]]) {
+      await page.select('select[aria-label="Tile face"]', face);
+      await page.waitForSelector(`.hand .tile.${face}`);
+      const tiles = await page.$$eval('.hand .tile', all => all.map(tile => ({
+        tile: tile.dataset.tile, image: tile.querySelector('.face img')?.getAttribute('src') ?? null,
+        words: [...(tile.querySelector('.face.unpainted .name')?.children ?? [])]
+          .filter(line => getComputedStyle(line).display !== 'none').map(line => line.textContent).join(' '),
+      })));
+      assert.equal(tiles.length, 3);
+      for (const { tile, image, words } of tiles) assert.deepEqual({ image, words }, approved.includes(tile)
+        ? { image: `tiles/${face}/approved/${tileFile(tile)}.svg`, words: '' } : { image: null, words: tileWords(tile) }, `${face} ${tile}`);
+    }
     await page.click('.call-options button[data-choice="riichi"]');
     assert.ok((await state(page)).callbacks.includes('riichi'));
     await page.click('.game-modes button:nth-child(3)');
