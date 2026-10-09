@@ -57,14 +57,18 @@ gap while keeping the drawn tile the same size as the rest of the hand.
 
 ## Discard rows
 
-A riichi declaration lies sideways in its row. Two more marks are of different
-kinds, a shade and a border, so a tile can carry both:
+A riichi declaration lies sideways in its row: the face is laid out lying down,
+so its edge falls on whole pixels like an upright face's, and only the picture
+on it is turned. Two more marks are of different kinds, a shade and a border,
+so a tile can carry both. Both lie on one layer over the face, clipped to its
+rounded edge, so they line up with the face either way up:
 
 - **A darker face:** the tile was thrown straight from the draw (tsumogiri), as
-  Tenhou and Mahjong Soul show it. A tile thrown from the hand looks normal.
+  Tenhou and Mahjong Soul show it. A veil of black keeps 72% of every colour,
+  so the picture still reads. A tile thrown from the hand looks normal.
 - **A dark green border:** another player claimed the tile for a call. The
-  border is solid and lies on the tile's own edge, inside a dora ring, and it
-  turns with a riichi tile. The face stays solid and keeps its colours, so a
+  border is solid and lies on the rim of the face, inside a dora ring, on a
+  riichi tile as on any other. The face stays solid and keeps its colours, so a
   darker face always means a tile from the draw.
 
 The marks appear on the table, in the inspection of all discards, in agent

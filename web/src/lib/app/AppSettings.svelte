@@ -255,7 +255,7 @@
   .swatch.ready { box-shadow: 0 0 0 2px var(--gold); }
   .swatch.marker { box-shadow: 0 0 0 2px #4ea3ff; }
   .swatch.striped { border: 3px solid transparent; background: linear-gradient(var(--ivory),var(--ivory)) padding-box, repeating-linear-gradient(45deg,#e2453d 0 4px,var(--gold) 4px 8px,#7fd1a0 8px 12px) border-box; }
-  .swatch.from-draw { filter: var(--from-draw-shade); }
+  .swatch.from-draw { background-image: linear-gradient(var(--from-draw-shade), var(--from-draw-shade)); }
   .swatch.claimed { border: 2px solid var(--claimed-border); }
   @media (max-width: 760px) {
     .bar { gap: 8px; flex-wrap: nowrap; }

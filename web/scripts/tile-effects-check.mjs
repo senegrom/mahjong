@@ -23,7 +23,10 @@ try {
   await mkdir(evidence, {recursive:true});
   await writeFile(resolve(temporary, 'index.html'), '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Tile effects regression</title></head><body><div id="app"></div><script type="module" src="./main.js"></script></body></html>');
   await writeFile(resolve(temporary, 'main.js'), 'import { mount } from "svelte"; import Fixture from "./Fixture.svelte"; mount(Fixture, {target:document.getElementById("app")});');
+  // A painted set for the tiles inside it, whichever set the rest of the page shows.
+  await writeFile(resolve(temporary, 'Painted.svelte'), '<script>import { setContext } from "svelte"; import { TILE_FACE_CONTEXT } from "../src/lib/tile-faces.js"; let { children } = $props(); setContext(TILE_FACE_CONTEXT, () => "matisse");</script>{@render children()}');
   await writeFile(resolve(temporary, 'Fixture.svelte'), `<script>
+import Painted from './Painted.svelte';
 import Tile from '../src/lib/Tile.svelte';
 import { setContext } from 'svelte';
 import { TILE_FACE_CONTEXT } from '../src/lib/tile-faces.js';
@@ -53,9 +56,17 @@ const cases = [
   ['taken-dora', {tile:'5z',size:'small',claimed:true,fromDraw:true,dora:true,rotated:true}],
   ['tiny-taken', {tile:'5z',size:'tiny',claimed:true}]
 ];
+// Claimed tiles at every size the app draws a row at, upright and turned for
+// riichi, each nudged by a fraction of a pixel as a row's layout may place it.
+const nudged = [[54,'tiny'],[46,'small'],[52,'small'],[60,'small'],[46,'tiny'],[28,'tiny'],[23,'tiny']]
+  .flatMap(([width,size]) => [0,0.3,0.55,0.8].flatMap(shift => [false,true].map(rotated => ({width,size,shift,rotated}))));
+// The same, turned and unclaimed, in a set painted to every edge.
+const turned = nudged.filter(({rotated}) => rotated);
 </script>
 <h1>White dragon · dora foil</h1>
 <div class="samples">{#each cases as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}<section id="phone" style="--tile-width:23px"><p>phone</p><Tile tile="5z" size="tiny" claimed/></section></div>
+<div class="samples" id="nudged">{#each nudged as {width,size,shift,rotated}}<span style="--tile-width:{width}px;margin:{shift}px 0 0 {shift}px"><Tile tile="5z" {size} {rotated} claimed/></span>{/each}</div>
+<Painted><div class="samples" id="painted">{#each turned as {width,size,shift}}<span style="--tile-width:{width}px;margin:{shift}px 0 0 {shift}px"><Tile tile="1p" {size} rotated/></span>{/each}</div></Painted>
 <section id="dynamic"><Tile {tile} dora={marked} onclick={()=>clicks++}/></section>
 <button id="identity" onclick={()=>tile=tile==='5z'?'1m':'5z'}>Change tile</button>
 <button id="mark" onclick={()=>marked=!marked}>Toggle dora / hints</button><output>{clicks}</output>
@@ -119,22 +130,31 @@ const cases = [
     });
     await check('artwork and shine rotate with the face and do not enlarge tile layout',async()=>{
       for(const id of ['dora','small','tiny','rotated','taken','taken-dora','phone']) {
-        const boxes=await page.$eval(`#${id} .tile`,el=>[el,...el.querySelectorAll('.face,.haku-dragon-reveal,.foil')].map(e=>{const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height];}));
-        for(const box of boxes.slice(1))for(let n=0;n<4;n++)assert.ok(Math.abs(box[n]-boxes[0][n])<0.1,`${id} geometry changed`);
+        const [tile,face,...painted]=await page.$eval(`#${id} .tile`,el=>[el,el.querySelector('.face'),...el.querySelectorAll('.face > img,.haku-dragon-reveal,.foil')].map(e=>{const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height];}));
+        for(let n=0;n<4;n++)assert.ok(Math.abs(face[n]-tile[n])<0.1,`${id}: the face fills the tile's box`);
+        // A picture turned with its tile spares a pixel past each edge of
+        // the face, which clips it; an upright one fits the face exactly.
+        const spare=id.includes('rotated')||id==='taken-dora'?1:0;
+        for(const [x,y,width,height] of painted) {
+          assert.ok(Math.abs(x+width/2-(face[0]+face[2]/2))<0.1&&Math.abs(y+height/2-(face[1]+face[3]/2))<0.1,`${id}: the picture and shine are centred on the face`);
+          assert.ok(Math.abs(width-face[2]-2*spare)<0.1&&Math.abs(height-face[3]-2*spare)<0.1,`${id}: the picture and shine cover the face: ${width} by ${height}`);
+        }
       }
     });
     await check('a discard from the draw is darker in its own colours; a claimed one has a solid dark green border inside its edge; both combine',async()=>{
-      const border=[14,110,51], solid=`solid rgb(${border.join(', ')})`;
+      const border=[14,110,51], solid=`solid rgb(${border.join(', ')})`, shade='rgba(0, 0, 0, 0.28)';
+      // Both marks are one layer over the face: its shade and its border.
       const marks=await page.evaluate(()=>['kept','thrown','taken','both'].map(id=>{
-        const tile=document.querySelector(`#${id} .tile`), edge=getComputedStyle(tile,'::after');
-        return [getComputedStyle(tile).opacity,getComputedStyle(tile.querySelector('.face')).filter,
-          edge.content==='none'?'none':`${edge.borderTopStyle} ${edge.borderTopColor}`];
+        const tile=document.querySelector(`#${id} .tile`), face=tile.querySelector('.face'), layer=getComputedStyle(face,'::after');
+        return [getComputedStyle(tile).opacity,getComputedStyle(face).filter,getComputedStyle(tile,'::after').content,
+          layer.content==='none'?'none':layer.backgroundColor,layer.content==='none'||layer.borderTopStyle==='none'?'none':`${layer.borderTopStyle} ${layer.borderTopColor}`];
       }));
-      assert.deepEqual(marks,[['1','none','none'],['1','brightness(0.72)','none'],['1','none',solid],['1','brightness(0.72)',solid]]);
+      assert.deepEqual(marks,[['1','none','none','none','none'],['1','none','none',shade,'none'],
+        ['1','none','none','rgba(0, 0, 0, 0)',solid],['1','none','none',shade,solid]]);
       // The border keeps to the tile's proportions: one pixel on a phone's
       // smallest row, two on the table's and three on the largest.
       const [phone,tiny,small]=await page.evaluate(()=>['phone','tiny-taken','taken'].map(id=>
-        parseFloat(getComputedStyle(document.querySelector(`#${id} .tile`),'::after').borderTopWidth)));
+        parseFloat(getComputedStyle(document.querySelector(`#${id} .face`),'::after').borderTopWidth)));
       assert.ok(phone>=1&&phone<1.5&&tiny>=2&&tiny<3&&small===3,`border widths: ${[phone,tiny,small]}`);
       // Read the actual pixels: the middle of each blank face, the felt
       // beside the tile, and one pixel above the tile's top edge (where a
@@ -173,6 +193,108 @@ const cases = [
       assert.ok(dora.ring[0]>dora.ring[1]+40&&dora.ring[0]>dora.ring[2]+40,`the dora ring still shows red: ${dora.ring}`);
       near(dora.edge,border,'the border lies inside the ring, along the turned tile');
       near(dora.face,both.face,'the ring does not tint a claimed face');
+    });
+    await check('a claimed tile\'s border closes over the rim of its face, upright or turned, at any size, position and pixel density',async()=>{
+      // The boxes agree to the fraction, so only the pixels can show this: a
+      // face turned whole once fell between the device's pixels and showed
+      // its rim past the border. Going in from the felt across the straight
+      // part of each side, the first thing met must be the border, never the face.
+      const faults=[];
+      try {
+        for(const scale of [1,2,3]) {
+          await page.setViewport({width:1100,height:700,deviceScaleFactor:scale});
+          await page.evaluate(()=>new Promise(done=>{scrollTo(0,0);requestAnimationFrame(()=>requestAnimationFrame(done));}));
+          const {clip,boxes}=await page.$eval('#nudged',section=>{
+            const box=element=>{const r=element.getBoundingClientRect();return {x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height};};
+            return {clip:box(section),boxes:[...section.querySelectorAll('.tile')].map(tile=>({...box(tile.querySelector('.face')),
+              radius:parseFloat(getComputedStyle(tile.querySelector('.face')).borderTopLeftRadius),
+              label:`${tile.parentElement.getAttribute('style')} ${tile.classList.contains('rotated')?'turned':'upright'}`}))};
+          });
+          const margin=6, area={x:clip.x-margin,y:clip.y-margin,width:clip.width+2*margin,height:clip.height+2*margin};
+          const data=await page.screenshot({clip:area,encoding:'base64',captureBeyondViewport:true});
+          await writeFile(resolve(evidence,`claimed-borders-x${scale}.png`),Buffer.from(data,'base64'));
+          faults.push(...await page.evaluate(async(data,area,boxes,scale)=>{
+            const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+            const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+            const context=canvas.getContext('2d');context.drawImage(image,0,0);
+            const pixels=context.getImageData(0,0,image.width,image.height).data;
+            const at=(x,y)=>{const i=(y*image.width+x)*4;return [pixels[i],pixels[i+1],pixels[i+2]];};
+            // The border, alone or blended with the felt; the face, ivory alone or blended with the felt.
+            const border=([r,g,b])=>g-r>=40&&g-b>=20&&r<90, face=([r,g,b])=>r>110&&g>110&&b>100;
+            const reach=Math.round(4*scale);
+            return boxes.flatMap(({x,y,width,height,radius,label})=>{
+              const [left,top,right,bottom]=[x-area.x,y-area.y,x+width-area.x,y+height-area.y].map(value=>Math.round(value*scale));
+              // Every device pixel along the straight part of a side, clear of the rounded corners.
+              const corner=Math.ceil(radius*scale)+1;
+              const across=(from,to)=>{const start=from+corner,span=to-corner-start;return span>0?Array.from({length:span},(_,n)=>start+n):[Math.round((from+to)/2)];};
+              // For each side, the lines that cross it and the step inwards along them.
+              const sides={top:across(left,right).map(u=>[u,top,0,1]),bottom:across(left,right).map(u=>[u,bottom-1,0,-1]),
+                left:across(top,bottom).map(v=>[left,v,1,0]),right:across(top,bottom).map(v=>[right-1,v,-1,0])};
+              return Object.entries(sides).flatMap(([side,lines])=>{
+                const met=lines.map(([u,v,du,dv])=>{
+                  for(let n=-reach;n<=reach;n++){const colour=at(u+n*du,v+n*dv);if(border(colour))return 'border';if(face(colour))return `face ${colour}`;}
+                  return 'nothing';
+                });
+                const wrong=met.filter(what=>what!=='border');
+                return wrong.length?[`x${scale} ${label} ${side}: ${wrong.length}/${met.length} lines meet ${wrong[0]} first`]:[];
+              });
+            });
+          },data,area,boxes,scale));
+        }
+      } finally {
+        await page.setViewport({width:1100,height:700,deviceScaleFactor:2});
+      }
+      assert.deepEqual(faults,[]);
+    });
+    await check('a painting turned with its tile shows no ivory along its edges, at any size, position and pixel density',async()=>{
+      // Only the picture turns, and it meets the screen's pixels apart from
+      // the face around it, so it can fall a fraction short of an edge. What
+      // shows there must never be a light line of ivory: change the ivory
+      // alone, and no pixel of a face may change too, short of its rounded
+      // corners, where an upright picture's edge blends with the face's just
+      // the same.
+      const changed=[];
+      try {
+        for(const scale of [1,2,3]) {
+          await page.setViewport({width:1100,height:700,deviceScaleFactor:scale});
+          const settle=()=>page.evaluate(()=>new Promise(done=>{scrollTo(0,0);requestAnimationFrame(()=>requestAnimationFrame(done));}));
+          await settle();
+          const {clip,boxes}=await page.$eval('#painted',section=>{
+            const box=element=>{const r=element.getBoundingClientRect();return {x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height};};
+            return {clip:box(section),boxes:[...section.querySelectorAll('.tile')].map(tile=>({...box(tile.querySelector('.face')),
+              radius:parseFloat(getComputedStyle(tile.querySelector('.face')).borderTopLeftRadius),label:tile.parentElement.getAttribute('style')}))};
+          });
+          const area={x:clip.x-4,y:clip.y-4,width:clip.width+8,height:clip.height+8};
+          const shot=()=>page.screenshot({clip:area,encoding:'base64',captureBeyondViewport:true});
+          const before=await shot();
+          await page.$eval('#painted',section=>section.style.setProperty('--ivory','#ff00ff'));
+          await settle();
+          const after=await shot();
+          await page.$eval('#painted',section=>section.style.removeProperty('--ivory'));
+          for(const [name,data] of [['plain',before],['magenta',after]])await writeFile(resolve(evidence,`turned-pictures-${name}-x${scale}.png`),Buffer.from(data,'base64'));
+          changed.push(...await page.evaluate(async(shots,area,boxes,scale)=>{
+            const [a,b]=await Promise.all(shots.map(async data=>{
+              const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+              const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+              const context=canvas.getContext('2d');context.drawImage(image,0,0);return context.getImageData(0,0,image.width,image.height);
+            }));
+            return boxes.flatMap(({x,y,width,height,radius,label})=>{
+              const [left,top,right,bottom]=[x-area.x,y-area.y,x+width-area.x,y+height-area.y].map(value=>Math.round(value*scale));
+              const corner=Math.ceil(radius*scale)+1, inCorner=(column,row)=>(column<left+corner||column>=right-corner)&&(row<top+corner||row>=bottom-corner);
+              let count=0;
+              for(let row=top;row<bottom;row++)for(let column=left;column<right;column++){
+                if(inCorner(column,row))continue;
+                const i=(row*a.width+column)*4;
+                if(Math.abs(a.data[i]-b.data[i])+Math.abs(a.data[i+1]-b.data[i+1])+Math.abs(a.data[i+2]-b.data[i+2])>12)count++;
+              }
+              return count?[`x${scale} ${label}: ${count} pixels show the face beneath`]:[];
+            });
+          },[before,after],area,boxes,scale));
+        }
+      } finally {
+        await page.setViewport({width:1100,height:700,deviceScaleFactor:2});
+      }
+      assert.deepEqual(changed,[]);
     });
     await check('reused tiles restart both effects together and hint toggles remove them',async()=>{
       await page.click('#identity');await page.waitForSelector('#dynamic .haku-dragon-reveal');
@@ -225,11 +347,11 @@ const cases = [
         if(!await page.$(`#${id}`)) continue;
         const shape=await page.$eval(`#${id}`,section=>{
           const box=element=>{const r=element.getBoundingClientRect();return [r.x,r.y,r.width,r.height];};
-          const tile=section.querySelector('.tile'),face=section.querySelector('.face'),name=section.querySelector('.name'),edge=getComputedStyle(tile,'::after');
+          const tile=section.querySelector('.tile'),face=section.querySelector('.face'),name=section.querySelector('.name'),layer=getComputedStyle(face,'::after');
           const style=getComputedStyle(face);
           return {tile:tile.dataset.tile,width:Math.min(parseFloat(style.width),parseFloat(style.height)),face:box(face),name:box(name),label:tile.getAttribute('aria-label'),
             images:section.querySelectorAll('img').length,classes:[...tile.classList],
-            border:edge.content==='none'?0:parseFloat(edge.borderTopWidth),
+            border:layer.content==='none'?0:parseFloat(layer.borderTopWidth),
             lines:[...name.children].filter(line=>getComputedStyle(line).display!=='none').map(line=>({text:line.textContent,box:box(line),size:parseFloat(getComputedStyle(line).fontSize)}))};
         });
         assert.equal(shape.images,0,`${id}: nothing is loaded for a tile without a picture`);

@@ -203,11 +203,12 @@ try {
   });
   for(const dark of [false,true]) await check(`every discard row shows the engine's draw and claim marks (${dark?'dark':'light'})`,async()=>{
     const page=await open(markedSave,{dark}); const view=JSON.parse(markedSave.state)[0];
+    // Both marks lie on one layer over the face: its shade and its border.
     const rows=selectors=>page.evaluate(selectors=>selectors.map(selector=>[...document.querySelector(selector).querySelectorAll('.tile')].map(tile=>{
-      const edge=getComputedStyle(tile,'::after');
+      const layer=getComputedStyle(tile.querySelector('.face'),'::after'), marked=layer.content!=='none';
       return {claimed:tile.classList.contains('claimed'),drawn:tile.classList.contains('from-draw'),label:tile.getAttribute('aria-label'),
         opacity:getComputedStyle(tile).opacity,filter:getComputedStyle(tile.querySelector('.face')).filter,
-        border:edge.content==='none'?'none':`${edge.borderTopStyle} ${edge.borderTopColor}`};
+        shade:marked?layer.backgroundColor:'none',border:marked&&layer.borderTopStyle!=='none'?`${layer.borderTopStyle} ${layer.borderTopColor}`:'none'};
     })),selectors);
     const expect=(shown,where)=>shown.forEach((row,seat)=>{
       assert.equal(row.length,view.seats[seat].discards.length,`${where} ${seat}`);
@@ -216,7 +217,8 @@ try {
         assert.deepEqual([tile.claimed,tile.drawn],[discard.claimed,discard.drawn],`${where} ${seat}: ${tile.label}`);
         assert.equal(tile.label.includes(', claimed'),discard.claimed); assert.equal(tile.label.includes('discarded from the draw'),discard.drawn);
         // The face stays solid; it is darker only when drawn and bordered only when claimed.
-        assert.equal(tile.opacity,'1',tile.label); assert.equal(tile.filter,discard.drawn?'brightness(0.72)':'none',tile.label);
+        assert.equal(tile.opacity,'1',tile.label); assert.equal(tile.filter,'none',tile.label);
+        assert.equal(tile.shade,discard.drawn?'rgba(0, 0, 0, 0.28)':discard.claimed?'rgba(0, 0, 0, 0)':'none',tile.label);
         assert.equal(tile.border,discard.claimed?'solid rgb(14, 110, 51)':'none',tile.label);
       });
     });

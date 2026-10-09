@@ -291,6 +291,14 @@
       0 0 0 2px #4a7fb5 inset;
   }
 
+  /* A turned picture spares a pixel past the face's edge, so its frame is
+     a pixel wider to show as wide. */
+  .rotated img.blank {
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.55) inset,
+      0 0 0 3px #4a7fb5 inset;
+  }
+
   /* A claimed white dragon is framed by its green border instead. On a
      phone's rows the border is thinner than the blue, which would show
      inside it as a second frame. */
@@ -299,12 +307,13 @@
   }
 
   /* A tile its set has not painted yet: only its name, on the ivory. The
-     type is measured against the face, so the name keeps its proportions
-     whatever size a row or a grid gives the tile, and a phone's text
-     enlarging may not push it past the edge. The sizes in tile widths are
-     for a browser without container units. */
+     type is measured against the face's shorter side, its width standing
+     up and its height lying down, so the name keeps its proportions
+     whatever size a row or a grid gives the tile, either way up, and a
+     phone's text enlarging may not push it past the edge. The sizes in
+     tile widths are for a browser without container units. */
   .face.unpainted {
-    container-type: inline-size;
+    container-type: size;
   }
 
   .name {
@@ -316,7 +325,7 @@
     justify-content: center;
     color: #26302c;
     font-size: calc(var(--face-width) * 0.17);
-    font-size: 17cqi;
+    font-size: 17cqmin;
     font-weight: 600;
     line-height: 1;
     white-space: nowrap;
@@ -351,8 +360,9 @@
      characters, p for circles and s for bamboo. The colour says the same,
      but never alone, so a red 8 and a blue 8 are told apart by their
      letters as well. An honour's first word stands alone. Each leaves room
-     at the edges for a claimed tile's border. */
-  @container (max-width: 40px) {
+     at the edges for a claimed tile's border. A face is measured by its
+     shorter side, whichever way up it lies. */
+  @container (max-width: 40px) or (max-height: 40px) {
     .name .rest {
       display: none;
     }
@@ -396,7 +406,7 @@
   /* On the table's own rows even an honour's word is too small to read at
      a glance, so from here down it is given in its letters, as large as
      they fit: E, S, W and N for the winds, Wh, G and R for the dragons. */
-  @container (max-width: 34px) {
+  @container (max-width: 34px) or (max-height: 34px) {
     [data-tile$='z'] .name .lead {
       display: none;
     }
@@ -421,18 +431,6 @@
   [data-tile$='p'] .name, [data-tile='5z'] .name { color: #1d4f91; }
   [data-tile$='s'] .name, [data-tile='6z'] .name { color: #1e6b3f; }
 
-  /* On a tile turned on its side the name stays upright, so it reads as on
-     every other tile and a 6 is never taken for a 9: its box is laid out
-     lying down and turned back against the face's own turn. */
-  .rotated .name {
-    inset: auto;
-    top: 50%;
-    left: 50%;
-    width: calc(100% * 4 / 3);
-    height: 75%;
-    transform: translate(-50%, -50%) rotate(-90deg);
-  }
-
   .small {
     --face-width: calc(var(--tile-width) * 0.62);
     --ring-width: 2px;
@@ -441,11 +439,6 @@
   .tiny {
     --face-width: calc(var(--tile-width) * 0.5);
     --ring-width: 2px;
-  }
-
-  .rotated .face {
-    transform: rotate(90deg);
-    transform-origin: center;
   }
 
   /* A tile turned on its side, which is how a riichi declaration is shown.
@@ -461,32 +454,69 @@
     justify-content: center;
   }
 
+  /* The face lies down as a box of its own shape, never turned itself, so
+     its edge, its clip and the marks on it fall on the screen's pixels as
+     an upright face's do. Only what is painted on it turns: the picture
+     and the shine over it. A face turned whole sat between pixels, and its
+     rim showed past the border on a claimed riichi tile. A name written on
+     the face stays upright, so it reads as on every other tile and a 6 is
+     never taken for a 9. */
   .rotated .face {
-    width: var(--face-width);
+    width: calc(var(--face-width) * 4 / 3);
+    aspect-ratio: 4 / 3;
   }
 
-  /* A discard thrown straight from the draw: the face is shaded to about
-     half the light of a plain one but keeps its colours, so the picture
-     still reads. Nothing else in a discard row darkens a face, so a darker
-     face means only this. */
-  .from-draw .face {
-    filter: var(--from-draw-shade, brightness(0.72));
+  /* A turned picture meets the screen's pixels apart from the face it lies
+     in, by up to a pixel or so. It spares a pixel past every edge, and the
+     face's own edge clips it. */
+  .rotated .face > :is(img, .haku-dragon-reveal, .foil) {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: calc(75% + 2px);
+    height: calc(100% * 4 / 3 + 2px);
+    transform: translate(-50%, -50%) rotate(90deg);
   }
 
-  /* A claimed discard: a solid dark green border on the tile's own edge,
-     over the rim of its face. It lies inside the tile's box, so it never
-     reaches into the gap between tiles or meets a ring, which lies outside;
-     a turned riichi tile's box is its face's footprint, so the border turns
-     with it; and it is not part of the face, so the shade of a tile from the
-     draw leaves it as it is. The face stays solid: letting the felt show
-     through would darken it just as the shade does. */
-  .claimed::after {
+  /* Where it still falls a fraction short, a painting turned shows the
+     felt there, as at any tile's edge, rather than a light line of the
+     ivory beneath it. The ivory stays under the Classic pictures, which
+     are drawn on it. */
+  .rotated:is(.matisse, .dali, .van-gogh) .face:not(.unpainted) {
+    background: none;
+  }
+
+  /* The two marks of a discard row lie on one layer over the face, above
+     its picture or name and its shine. Being the face's own, the layer is
+     clipped to the face's rounded edge and lies down with a face lying on
+     its side for riichi, so it lines up with the face at any size and on
+     any screen. */
+  .from-draw .face::after,
+  .claimed .face::after {
     content: '';
     position: absolute;
     inset: 0;
-    border: var(--claimed-width) solid var(--claimed-border, #0e6e33);
-    border-radius: var(--face-radius);
+    z-index: 1;
+    border-radius: inherit;
     pointer-events: none;
+  }
+
+  /* A discard thrown straight from the draw: the face is shaded to about
+     half the light of a plain one. The shade is a veil of black, which
+     darkens every colour in the same proportion, so the picture keeps its
+     colours and still reads. Nothing else in a discard row darkens a face,
+     so a darker face means only this. */
+  .from-draw .face::after {
+    background: var(--from-draw-shade, rgba(0, 0, 0, 0.28));
+  }
+
+  /* A claimed discard: a solid dark green border on the rim of its face. It
+     lies inside the face, so it never reaches into the gap between tiles or
+     meets a ring, which lies outside, and it covers the shade on the same
+     layer, so a claimed tile from the draw keeps the same green. The face
+     stays solid: letting the felt show through would darken it just as the
+     shade does. */
+  .claimed .face::after {
+    border: var(--claimed-width) solid var(--claimed-border, #0e6e33);
   }
 
   /* Whatever a tile does, it does as a whole. The lift on hover, on focus
