@@ -1,6 +1,6 @@
 # Van Gogh
 
-**Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is copied byte-for-byte, and Nine Stars remains preserved in the design archive. 8 disks and all other tiles are unchanged. Earlier sections below describe the design history.
+**Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. 8 disks and all other tiles are unchanged. Earlier sections below describe the design history.
 
 **Current set:** 25 painted faces and 9 Classic fallbacks; all nine bamboo identities are covered. Four Oranges A is active for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table C for 9 disks. The history below retains earlier milestone counts.
 
@@ -182,3 +182,11 @@ The source `docs/design/van-gogh/studies/20-four-disks-oranges-a-approved.svg` a
 Board, full-resolution crop, decoded crop pixels, raster and SVG checksums are recorded in `docs/design/van-gogh/four-disks-oranges.json`. The original board and lossless selected crop are preserved in `Van_Gogh_4_Disks_Oranges_A_Approved.zip`, supplied in chat.
 
 Run `node web/scripts/export-van-gogh-tiles.mjs --only=4p` to reproduce this tile, its registration, manifest and preview without rewriting any other tile artwork. The set now has **25 painted faces and 9 Classic fallbacks**. All 24 previously approved faces remain unchanged, including Irises at Dusk C for 7 characters and the restored Nine Stars I.
+
+## Proportions: cropped, not stretched
+
+Every face draws one picture in a 300 × 400 box. Until October 2026 that box was 3:4 whatever the painting's shape, so a painting that is not 3:4 was stretched to fill it, and eighteen faces were more than 2% out of shape. Nine of them were squeezed before they were embedded: the 300 × 400 exports for 2s, 3s, 4s, 7s, 8s, 3p, 4p, 9p and 6m were resized from crops of other shapes, which their provenance records. Three Café Lanterns, for example, showed its lanterns 46% wider than painted.
+
+Each of these faces now has a fit in `web/scripts/export-van-gogh-tiles.mjs`, applied by `web/scripts/face-fit.mjs`: the face crops the painting instead of stretching it, keeping its proportions to within 2%, and centres the cut unless that would clip a counted object or character. Three faces need more stretch than that to keep their identifying content whole: Almond Branches (3m) +2.65%, Cypress Fields (4m) +4.8% and Three Café Lanterns (3p) +5.45%. Only each SVG's picture box changes. Every embedded raster, PNG and approved study is unchanged, and the manifest records each tile's fit and box. The nine squeezed exports keep fewer source pixels across the cut, so they are a little softer than the PNG faces; sharper versions would need the full-resolution originals kept in the chat archives.
+
+Earlier sections that call a playable SVG byte-for-byte identical to its study describe the set before this change. The studies are untouched, and each fitted face differs from its study only in its picture box.

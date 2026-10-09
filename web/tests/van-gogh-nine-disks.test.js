@@ -15,6 +15,8 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const set = JSON.parse(read('web/public/tiles/van-gogh/manifest.json'));
 const record = JSON.parse(read('docs/design/van-gogh/nine-disks-potters-table-c.json'));
 const entry = set.tiles.find(tile => tile.tile === '9p');
+// The face is the approved study with only its picture's box moved.
+const withoutBox = svg => svg.toString('utf8').replace(/ x="[^"]*" y="[^"]*" width="[^"]*" height="[^"]*"/, '');
 
 test('Potter’s Table C is the selected nine-disks painting, not an infographic or another candidate', () => {
   assert.ok(entry);
@@ -24,7 +26,7 @@ test('Potter’s Table C is the selected nine-disks painting, not an infographic
   assert.equal(entry.source, 'docs/design/van-gogh/studies/17-nine-disks-potters-table-c-approved.svg');
   assert.equal(entry.source, record.source);
   const source = read(entry.source), runtime = read(record.runtime);
-  assert.deepEqual(runtime, source);
+  assert.equal(withoutBox(runtime), withoutBox(source));
   assert.equal(hash(source), '7bfed3b794e8a09dc61f2020662d9c70572d883f05194267df07f535778591b1');
   assert.equal(hash(runtime), entry.svgSha256);
   assert.equal(hash(source), record.svgSha256);
@@ -32,6 +34,11 @@ test('Potter’s Table C is the selected nine-disks painting, not an infographic
   assert.equal(record.fullResolutionCropSha256, 'f81be31b80ba4d9eb0f80e3bf3efb565a824dce9fc2ad3741ca9a21df4276c07');
   assert.deepEqual(record.originalDimensions, [1295, 1214]);
   assert.deepEqual(record.originalCrop, { x: 551, y: 56, width: 729, height: 1093 });
+  // The 300 × 400 export squeezed the 729 × 1093 crop; the face crops it back to its shape.
+  assert.deepEqual(entry.fit.painting, { width: 729, height: 1093 });
+  const { x, y, width, height } = entry.fit.image;
+  assert.ok(runtime.toString('utf8').includes(`x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none"`));
+  // The approved study itself keeps the shared box.
   const svg = source.toString('utf8');
   assert.match(svg, /viewBox="0 0 300 400"/);
   assert.match(svg, /rx="26"/);
@@ -73,7 +80,7 @@ test('Nine Stars remains archived while the replacement is registered exactly on
   assert.match(read('web/public/tiles/van-gogh/preview.html').toString('utf8'), /The Potter’s Table C/);
 });
 
-test('--only=9p copies C exactly and preserves every other playable image', t => {
+test('--only=9p reproduces the fitted C and preserves every other playable image', t => {
   const temporary = mkdtempSync(path.join(tmpdir(), 'van-gogh-potters-table-'));
   t.after(() => rmSync(temporary, { recursive: true, force: true }));
   const put = (relative, bytes) => {
@@ -83,6 +90,7 @@ test('--only=9p copies C exactly and preserves every other playable image', t =>
   };
   put('package.json', '{"type":"module"}');
   put('web/scripts/export-van-gogh-tiles.mjs', read('web/scripts/export-van-gogh-tiles.mjs'));
+  put('web/scripts/face-fit.mjs', read('web/scripts/face-fit.mjs'));
   put('web/src/lib/tiles.js', read('web/src/lib/tiles.js'));
   for (const source of set.sources) {
     put(source.source, source.source.endsWith('.svg') ? read(source.source) : Buffer.from(`source fixture: ${source.id}`));
@@ -99,7 +107,7 @@ test('--only=9p copies C exactly and preserves every other playable image', t =>
   const run = () => execFileSync(process.execPath, [path.join(temporary, 'web/scripts/export-van-gogh-tiles.mjs'), '--only=9p'], { encoding: 'utf8', stdio: 'pipe' });
   assert.equal(run().trim(), `Exported ${set.tiles.length} approved Van Gogh faces; ${set.remaining.length} identities use Classic artwork.`);
   for (const [relative, bytes] of unchanged) assert.deepEqual(readFileSync(path.join(temporary, relative)), bytes);
-  assert.deepEqual(readFileSync(path.join(temporary, record.runtime)), read(record.source));
+  assert.deepEqual(readFileSync(path.join(temporary, record.runtime)), read(record.runtime));
   const generated = JSON.parse(readFileSync(path.join(temporary, 'web/public/tiles/van-gogh/manifest.json')));
   assert.deepEqual(generated.tiles.find(tile => tile.tile === '9p'), entry);
   assert.deepEqual(generated.remaining, set.remaining);

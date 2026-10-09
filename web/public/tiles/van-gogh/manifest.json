@@ -141,6 +141,20 @@
         "width": 357,
         "height": 462
       },
+      "fit": {
+        "painting": {
+          "width": 357,
+          "height": 462
+        },
+        "stretch": -0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -4.48,
+          "y": -4,
+          "width": 308.97,
+          "height": 408
+        }
+      },
       "pngSha256": "75bc80080458de5255501619c0129320d39ce36825897981b8ec71236a2f9dc6"
     },
     {
@@ -157,6 +171,20 @@
         "y": 122,
         "width": 356,
         "height": 463
+      },
+      "fit": {
+        "painting": {
+          "width": 356,
+          "height": 463
+        },
+        "stretch": -0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3.72,
+          "y": -4,
+          "width": 307.44,
+          "height": 408
+        }
       },
       "pngSha256": "b99cf6dfb27a48ba346d83006e9f3d536162063f79dd43c657efc6da0541288b"
     },
@@ -175,6 +203,20 @@
         "width": 300,
         "height": 400
       },
+      "fit": {
+        "painting": {
+          "width": 439,
+          "height": 673
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -29.95,
+          "width": 306,
+          "height": 459.91
+        }
+      },
       "pngSha256": "71b40f6a195e24ab4b785cf9680a2b42e895d9a63fad17ef44509c7a785d3ae3"
     },
     {
@@ -191,6 +233,21 @@
         "y": 93,
         "width": 523,
         "height": 782
+      },
+      "fit": {
+        "painting": {
+          "width": 523,
+          "height": 782
+        },
+        "stretch": 0.0265,
+        "anchor": 0.41,
+        "bleedPixels": 2,
+        "image": {
+          "x": -1.16,
+          "y": -16.55,
+          "width": 302.31,
+          "height": 440.35
+        }
       },
       "pngSha256": "41d6556d517c846747618eb2a6e288e7950130dd66a7c04f2dc4d3799b842448"
     },
@@ -226,6 +283,20 @@
         "width": 380,
         "height": 471
       },
+      "fit": {
+        "painting": {
+          "width": 380,
+          "height": 471
+        },
+        "stretch": -0.02,
+        "anchor": 0.6,
+        "image": {
+          "x": -13.55,
+          "y": -4,
+          "width": 322.59,
+          "height": 408
+        }
+      },
       "pngSha256": "d4774125d19efc3c3cb30a513280dc768be2eafdc66f863108a574c888263b8d"
     },
     {
@@ -243,6 +314,20 @@
         "width": 377,
         "height": 471
       },
+      "fit": {
+        "painting": {
+          "width": 377,
+          "height": 471
+        },
+        "stretch": -0.02,
+        "anchor": 0.865,
+        "image": {
+          "x": -17.34,
+          "y": -4,
+          "width": 320.04,
+          "height": 408
+        }
+      },
       "pngSha256": "4a5fcea9949f05dc9b786864ed64ac22c0d1b72b3d908b9bd06b355f88b65fca"
     },
     {
@@ -259,7 +344,21 @@
         "width": 300,
         "height": 400
       },
-      "svgSha256": "7bfed3b794e8a09dc61f2020662d9c70572d883f05194267df07f535778591b1",
+      "fit": {
+        "painting": {
+          "width": 729,
+          "height": 1093
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -24.9,
+          "width": 306,
+          "height": 449.79
+        }
+      },
+      "svgSha256": "66c53789b48bf8dab5ff934f882ca64e6f606ce34608de135f982d6271e26ca5",
       "rasterMimeType": "image/webp",
       "rasterSha256": "847c979c08614d41bbcaab6c802e100050b4d684de46c6474eff7aa348d2d670"
     },
@@ -296,6 +395,20 @@
         "width": 380,
         "height": 495
       },
+      "fit": {
+        "painting": {
+          "width": 380,
+          "height": 495
+        },
+        "stretch": -0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3.47,
+          "y": -4,
+          "width": 306.95,
+          "height": 408
+        }
+      },
       "pngSha256": "00da99912d57e7e9704ae2ba8237118a202ebe1d9829cfbaba489b7bc8870994"
     },
     {
@@ -312,6 +425,20 @@
         "y": 118,
         "width": 526,
         "height": 737
+      },
+      "fit": {
+        "painting": {
+          "width": 526,
+          "height": 737
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -10.17,
+          "width": 306,
+          "height": 420.34
+        }
       },
       "pngSha256": "3b3c9c14c55cbef72156ddea31dd7c9a08435be52ac6d970b2c41a302e0caf7b"
     },
@@ -347,6 +474,20 @@
         "width": 1022,
         "height": 1539
       },
+      "fit": {
+        "painting": {
+          "width": 1022,
+          "height": 1539
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -25.88,
+          "width": 306,
+          "height": 451.76
+        }
+      },
       "pngSha256": "cffc26815cb5b41382237019695be71209a7b60fdbecaad5205c1a7381defc01"
     },
     {
@@ -363,6 +504,21 @@
         "y": 0,
         "width": 1024,
         "height": 1536
+      },
+      "fit": {
+        "painting": {
+          "width": 1024,
+          "height": 1536
+        },
+        "stretch": 0.048,
+        "anchor": 0.595,
+        "bleedPixels": 0,
+        "image": {
+          "x": 0,
+          "y": -17.49,
+          "width": 300,
+          "height": 429.39
+        }
       },
       "pngSha256": "f46d5a84d825851849438cf09db5284941c75094845fb4a678cb6d1353022d0a"
     },
@@ -381,6 +537,20 @@
         "width": 300,
         "height": 400
       },
+      "fit": {
+        "painting": {
+          "width": 433,
+          "height": 667
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -31.06,
+          "width": 306,
+          "height": 462.12
+        }
+      },
       "pngSha256": "581df3d6e7992d547af374a676c5a051314cc698f16fe918fde1decb2099e14d"
     },
     {
@@ -397,6 +567,20 @@
         "y": 0,
         "width": 300,
         "height": 400
+      },
+      "fit": {
+        "painting": {
+          "width": 438,
+          "height": 671
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -29.79,
+          "width": 306,
+          "height": 459.59
+        }
       },
       "pngSha256": "64e5d720aa3fc55dc5df67e832781e6fd8821a9ccddf3105284145b555d9156a"
     },
@@ -415,6 +599,20 @@
         "width": 300,
         "height": 400
       },
+      "fit": {
+        "painting": {
+          "width": 479,
+          "height": 793
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -48.33,
+          "width": 306,
+          "height": 496.66
+        }
+      },
       "pngSha256": "e469700f145e5718db8244492d8ded8118226f8a639326256de233e2d61170a1"
     },
     {
@@ -431,7 +629,21 @@
         "width": 300,
         "height": 400
       },
-      "svgSha256": "94f1651a4aff20b81f82467e7183c886c189c0e5f2a69824026313798a35a856",
+      "fit": {
+        "painting": {
+          "width": 1024,
+          "height": 1536
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -25,
+          "width": 306,
+          "height": 450
+        }
+      },
+      "svgSha256": "d3769e44b8377192954bcb1d5887a0d430d27d66152d0dc0131bd207a248393e",
       "rasterMimeType": "image/webp",
       "rasterSha256": "c0dbf2f2b2793681a2b31d28282b80113b4cd33f33b7bb50d52a6ffb69580aa3"
     },
@@ -484,7 +696,22 @@
         "width": 300,
         "height": 400
       },
-      "svgSha256": "a5fe322fffbe4717b57897209fca1cbaa737989bb318884a510330c5fb6d8713",
+      "fit": {
+        "painting": {
+          "width": 442,
+          "height": 860
+        },
+        "stretch": 0.0545,
+        "anchor": 0.145,
+        "bleedPixels": 0,
+        "image": {
+          "x": 0,
+          "y": -22.26,
+          "width": 300,
+          "height": 553.54
+        }
+      },
+      "svgSha256": "3d0a10f290582976501598710fdbb199bff3a4124048ed2621c99fc6027bf53c",
       "rasterMimeType": "image/webp",
       "rasterSha256": "74d9a2bf1807c3f58a4f5728794d83dfacfdeac1b7fd3400051c35077d57e105"
     },
@@ -520,7 +747,21 @@
         "width": 300,
         "height": 400
       },
-      "svgSha256": "dcd95ef26e4a2dec009d4d5c12aa8b87cd00a57be03f395349707b5fb3808418",
+      "fit": {
+        "painting": {
+          "width": 1295,
+          "height": 1214
+        },
+        "stretch": -0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -63.26,
+          "y": -4,
+          "width": 426.52,
+          "height": 408
+        }
+      },
+      "svgSha256": "b448abf38e3f768de796fb65d9b1265c7d146ae3792264796bb2dc67407b319d",
       "rasterMimeType": "image/webp",
       "rasterSha256": "1fb6ccae9c621b881d676d89d79e452ce6b79e44f365dfc89df404de2ea80cf0"
     },
@@ -556,7 +797,21 @@
         "width": 300,
         "height": 400
       },
-      "svgSha256": "52d7428647df0da97da13594c0913a4849e723ed9ff5d921b5fe2b3b6944a4d1",
+      "fit": {
+        "painting": {
+          "width": 442,
+          "height": 796
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -70.14,
+          "width": 306,
+          "height": 540.27
+        }
+      },
+      "svgSha256": "863000fc98d77a689924b696f2b31f62e143b0dfe30221696a2c83982dff18f9",
       "rasterMimeType": "image/webp",
       "rasterSha256": "e2dcad697285d2baa13e0b4f227b1e2f7016279f15252cd4aa5f53fe6922a9ba"
     }

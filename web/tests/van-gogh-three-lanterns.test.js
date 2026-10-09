@@ -16,6 +16,8 @@ const runtime = 'web/public/tiles/van-gogh/approved/Pin3.svg';
 const entry = set.tiles.find(tile => tile.tile === '3p');
 const expectedSvg = 'a5fe322fffbe4717b57897209fca1cbaa737989bb318884a510330c5fb6d8713';
 const expectedRaster = '74d9a2bf1807c3f58a4f5728794d83dfacfdeac1b7fd3400051c35077d57e105';
+// The face is the approved study with only its picture's box moved.
+const withoutBox = svg => svg.toString('utf8').replace(/ x="[^"]*" y="[^"]*" width="[^"]*" height="[^"]*"/, '');
 
 test('Three Cafe Lanterns B is the approved Van Gogh three disks, registered once', () => {
   assert.ok(entry);
@@ -32,10 +34,10 @@ test('Three Cafe Lanterns B is the approved Van Gogh three disks, registered onc
   assert.deepEqual([...set.tiles.map(tile => tile.tile), ...set.remaining].sort(), [...TILE_TYPES].sort());
 });
 
-test('lantern source and runtime preserve the hash-pinned approved crop export', () => {
-  assert.deepEqual(read(source), read(runtime));
+test('the lantern face preserves the hash-pinned approved crop export, differing only in its fit', () => {
   assert.equal(hash(read(source)), expectedSvg);
-  assert.equal(entry.svgSha256, expectedSvg);
+  assert.equal(withoutBox(read(runtime)), withoutBox(read(source)));
+  assert.equal(entry.svgSha256, hash(read(runtime)));
   assert.equal(set.sources.find(item => item.source === source).sha256, expectedSvg);
   assert.equal(provenance.sourceSha256, expectedSvg);
   assert.equal(provenance.source, source);
@@ -44,11 +46,18 @@ test('lantern source and runtime preserve the hash-pinned approved crop export',
   assert.equal(provenance.title, 'Three Café Lanterns');
 });
 
-test('lantern SVG is self-contained and uses the shared face presentation', () => {
+test('lantern SVG is self-contained and shows the lanterns at their painted proportions', () => {
   const svg = read(runtime).toString('utf8');
   assert.match(svg, /viewBox="0 0 300 400"/);
   assert.match(svg, /rx="26"/);
-  assert.match(svg, /x="-3" y="-4" width="306" height="408" preserveAspectRatio="none"/);
+  // The 300 × 400 export squeezed the 442 × 860 panel; the face's box restores its
+  // shape and crops it to the tile, below the lanterns more than above them.
+  const { x, y, width, height } = entry.fit.image;
+  assert.ok(svg.includes(`x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none"`));
+  assert.deepEqual(entry.fit.painting, { width: provenance.originalCrop.width, height: provenance.originalCrop.height });
+  assert.ok(Math.abs(width / height / (442 / 860) - 1 - entry.fit.stretch) < 0.001);
+  const above = -y, below = height - 400 - above;
+  assert.ok(above > 0 && above < below);
   assert.equal((svg.match(/<image\b/g) ?? []).length, 1);
   assert.doesNotMatch(svg, /<(?:script|foreignObject|iframe)\b/);
   assert.doesNotMatch(svg, /(?:href|src)="(?!data:)/);
