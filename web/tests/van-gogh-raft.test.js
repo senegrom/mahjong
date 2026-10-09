@@ -14,6 +14,9 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const set = JSON.parse(read('web/public/tiles/van-gogh/manifest.json'));
 const provenance = JSON.parse(read('docs/design/van-gogh/eight-bamboo-raft.json'));
 const entry = set.tiles.find(tile => tile.tile === '8s');
+// The face is the approved study with only its picture's box moved.
+const box = image => ` x="${image.x}" y="${image.y}" width="${image.width}" height="${image.height}"`;
+const withoutBox = svg => svg.toString('utf8').replace(/ x="[^"]*" y="[^"]*" width="[^"]*" height="[^"]*"/, '');
 
 test('Bamboo Raft preserves the approved SVG and embedded eight-bamboo painting', () => {
   assert.ok(entry);
@@ -21,12 +24,16 @@ test('Bamboo Raft preserves the approved SVG and embedded eight-bamboo painting'
   assert.equal(entry.name, 'Sou8');
   assert.equal(entry.source, provenance.source);
   const source = read(entry.source), runtime = read(provenance.runtime);
-  assert.deepEqual(runtime, source);
-  assert.equal(hash(runtime), '94f1651a4aff20b81f82467e7183c886c189c0e5f2a69824026313798a35a856');
+  assert.equal(hash(source), '94f1651a4aff20b81f82467e7183c886c189c0e5f2a69824026313798a35a856');
+  assert.equal(hash(source), provenance.svgSha256);
   assert.equal(hash(runtime), entry.svgSha256);
-  assert.equal(hash(runtime), provenance.svgSha256);
+  assert.equal(withoutBox(runtime), withoutBox(source));
+  assert.ok(runtime.toString('utf8').includes(box(entry.fit.image)));
   assert.equal(provenance.originalSha256, '19a9ca0948f628609844b640a94b94ba29ceb33108c751fcae9e20ab36aaa0fa');
   assert.deepEqual(provenance.originalDimensions, [1024, 1536]);
+  // The 300 × 400 export squeezed the whole 1024 × 1536 portrait; the face crops it back to its shape.
+  assert.deepEqual(entry.fit.painting, { width: 1024, height: 1536 });
+  // The approved study itself keeps the shared box.
   const svg = source.toString('utf8');
   assert.match(svg, /viewBox="0 0 300 400"/);
   assert.match(svg, /rx="26"/);
@@ -50,11 +57,11 @@ test('eight bamboo is approved exactly once and appears in the preview', () => {
   assert.ok(!set.remaining.includes('8s'));
   assert.deepEqual(VAN_GOGH_APPROVED, set.tiles.map(tile => tile.tile));
   assert.equal(new Set([...VAN_GOGH_APPROVED, ...set.remaining]).size, 34);
-  assert.equal(set.sources.find(source => source.source === entry.source).sha256, entry.svgSha256);
+  assert.equal(set.sources.find(source => source.source === entry.source).sha256, provenance.svgSha256);
   assert.match(read('web/public/tiles/van-gogh/preview.html').toString('utf8'), /approved\/Sou8\.svg/);
 });
 
-test('--only=8s preserves all other artwork and copies the raft byte-for-byte', t => {
+test('--only=8s preserves all other artwork and reproduces the fitted raft', t => {
   // Isolated fixtures exercise the real exporter without rewriting repository files.
   const temporary = mkdtempSync(path.join(tmpdir(), 'van-gogh-raft-'));
   t.after(() => rmSync(temporary, { recursive: true, force: true }));
@@ -65,6 +72,7 @@ test('--only=8s preserves all other artwork and copies the raft byte-for-byte', 
   };
   put('package.json', '{"type":"module"}');
   put('web/scripts/export-van-gogh-tiles.mjs', read('web/scripts/export-van-gogh-tiles.mjs'));
+  put('web/scripts/face-fit.mjs', read('web/scripts/face-fit.mjs'));
   put('web/src/lib/tiles.js', read('web/src/lib/tiles.js'));
   for (const source of set.sources) {
     put(source.source, source.source.endsWith('.svg') ? read(source.source) : Buffer.from(`source fixture: ${source.id}`));
@@ -81,7 +89,7 @@ test('--only=8s preserves all other artwork and copies the raft byte-for-byte', 
   const run = argument => execFileSync(process.execPath, [path.join(temporary, 'web/scripts/export-van-gogh-tiles.mjs'), argument], { encoding: 'utf8', stdio: 'pipe' });
   assert.equal(run('--only=8s').trim(), `Exported ${set.tiles.length} approved Van Gogh faces; ${set.remaining.length} identities use Classic artwork.`);
   for (const [relative, bytes] of unchanged) assert.deepEqual(readFileSync(path.join(temporary, relative)), bytes);
-  assert.deepEqual(readFileSync(path.join(temporary, provenance.runtime)), read(provenance.source));
+  assert.deepEqual(readFileSync(path.join(temporary, provenance.runtime)), read(provenance.runtime));
   const generated = JSON.parse(readFileSync(path.join(temporary, 'web/public/tiles/van-gogh/manifest.json')));
   assert.deepEqual(generated.tiles.find(tile => tile.tile === '8s'), entry);
   assert.deepEqual(generated.remaining, set.remaining);

@@ -14,6 +14,8 @@ const provenance = JSON.parse(read('docs/design/van-gogh/four-disks-oranges.json
 const source = 'docs/design/van-gogh/studies/20-four-disks-oranges-a-approved.svg';
 const runtime = 'web/public/tiles/van-gogh/approved/Pin4.svg';
 const entry = set.tiles.find(t => t.tile === '4p');
+// The face is the approved study with only its picture's box moved.
+const withoutBox = svg => svg.toString().replace(/ x="[^"]*" y="[^"]*" width="[^"]*" height="[^"]*"/, '');
 
 test('Four Oranges A is approved exactly once as four disks, without replacing another face', () => {
   assert.equal(VAN_GOGH_APPROVED.filter(t => t === '4p').length, 1);
@@ -28,11 +30,11 @@ test('Four Oranges A is approved exactly once as four disks, without replacing a
   assert.deepEqual([...VAN_GOGH_APPROVED, ...set.remaining].sort(), [...TILE_TYPES].sort());
 });
 
-test('orange source and runtime contain the identical checksum-pinned approved crop export', () => {
+test('the orange face keeps the checksum-pinned approved crop export, differing only in its fit', () => {
   const svg = read(source);
-  assert.deepEqual(read(runtime), svg);
+  assert.equal(withoutBox(read(runtime)), withoutBox(svg));
   assert.equal(hash(svg), '52d7428647df0da97da13594c0913a4849e723ed9ff5d921b5fe2b3b6944a4d1');
-  assert.equal(entry.svgSha256, hash(svg));
+  assert.equal(entry.svgSha256, hash(read(runtime)));
   assert.equal(provenance.sourceSha256, hash(svg));
   const embedded = svg.toString().match(/href="data:image\/webp;base64,([A-Za-z0-9+/=]+)"/);
   assert.ok(embedded);
@@ -45,12 +47,16 @@ test('orange source and runtime contain the identical checksum-pinned approved c
   assert.equal(raster.toString('ascii', 8, 12), 'WEBP');
 });
 
-test('orange SVG is self-contained and uses the established tile presentation', () => {
+test('orange SVG is self-contained and shows the oranges at their painted proportions', () => {
   const svg = read(runtime).toString();
   assert.match(svg, /viewBox="0 0 300 400"/);
   assert.match(svg, /rx="26"/);
-  assert.match(svg, /x="-3" y="-4" width="306" height="408"/);
-  assert.match(svg, /preserveAspectRatio="none"/);
+  // The 300 × 400 export squeezed the 442 × 796 panel; the face's box restores its
+  // shape and crops the setting above and below the oranges, not the oranges.
+  const { x, y, width, height } = entry.fit.image;
+  assert.ok(svg.includes(`x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none"`));
+  assert.deepEqual(entry.fit.painting, { width: provenance.originalCrop.width, height: provenance.originalCrop.height });
+  assert.ok(Math.abs(width / height / (442 / 796) - 1 - entry.fit.stretch) < 0.001);
   assert.doesNotMatch(svg, /<script|<foreignObject|(?:href|src)="https?:/i);
   assert.equal((svg.match(/<image\b/g) || []).length, 1);
   assert.deepEqual(entry.crop, { x: 0, y: 0, width: 300, height: 400 });

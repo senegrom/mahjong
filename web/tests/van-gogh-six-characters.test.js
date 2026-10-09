@@ -16,6 +16,8 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const set = JSON.parse(read('web/public/tiles/van-gogh/manifest.json'));
 const record = JSON.parse(read('docs/design/van-gogh/six-characters-lemon-terrace.json'));
 const entry = set.tiles.find(tile => tile.tile === '6m');
+// The face is the approved study with only its picture's box moved.
+const withoutBox = svg => svg.toString('utf8').replace(/ x="[^"]*" y="[^"]*" width="[^"]*" height="[^"]*"/, '');
 
 test('six characters uses the approved red calligraphy and lemon landscape, not the sunflower study', () => {
   assert.ok(entry);
@@ -26,9 +28,9 @@ test('six characters uses the approved red calligraphy and lemon landscape, not 
   assert.equal(entry.source, record.source);
   assert.equal(record.tile, '6m');
   const source = read(entry.source), runtime = read(record.runtime);
-  assert.deepEqual(runtime, source);
+  assert.equal(withoutBox(runtime), withoutBox(source));
   assert.equal(hash(source), 'dcd95ef26e4a2dec009d4d5c12aa8b87cd00a57be03f395349707b5fb3808418');
-  assert.equal(hash(source), entry.svgSha256);
+  assert.equal(hash(runtime), entry.svgSha256);
   assert.equal(hash(source), record.svgSha256);
   assert.equal(record.originalSha256, '5d112801bf30a7e9f16b145c8e84deb71e8e13474b5cfe165189b23c3b4a55f9');
   assert.deepEqual(record.originalDimensions, [1295, 1214]);
@@ -36,12 +38,16 @@ test('six characters uses the approved red calligraphy and lemon landscape, not 
   assert.match(record.processing, /not a proportional resize/);
 });
 
-test('Lemon Terrace preserves the approved embedded raster and standard face geometry', () => {
+test('Lemon Terrace preserves the approved embedded raster and shows the canvas at its own proportions', () => {
   const svg = read(record.runtime).toString('utf8');
   assert.match(svg, /viewBox="0 0 300 400"/);
   assert.match(svg, /rx="26"/);
-  assert.match(svg, /x="-3" y="-4" width="306" height="408"/);
-  assert.match(svg, /preserveAspectRatio="none"/);
+  // The 300 × 400 export squeezed the whole 1295 × 1214 canvas; the face's box
+  // restores its shape and crops lemons and cypresses at the sides, not 六萬.
+  const { x, y, width, height } = entry.fit.image;
+  assert.ok(svg.includes(`x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none"`));
+  assert.deepEqual(entry.fit.painting, { width: 1295, height: 1214 });
+  assert.ok(Math.abs(width / height / (1295 / 1214) - 1 - entry.fit.stretch) < 0.001);
   assert.doesNotMatch(svg, /<script|<foreignObject|href="https?:/i);
   const embedded = svg.match(/href="data:image\/webp;base64,([A-Za-z0-9+/=]+)"/);
   assert.ok(embedded);
@@ -67,7 +73,7 @@ test('six characters is registered and preloaded once without changing Classic o
   assert.equal(tileImage('6m', 'classic'), 'tiles/Man6.svg');
   assert.equal(tileImage('6m', 'van-gogh', true), 'tiles/Back.svg');
   assert.notEqual(tileImage('6m', 'van-gogh'), tileImage('6s', 'van-gogh'));
-  assert.equal(set.sources.find(source => source.source === entry.source).sha256, entry.svgSha256);
+  assert.equal(set.sources.find(source => source.source === entry.source).sha256, record.svgSha256);
 });
 
 test('the preview includes Lemon Terrace and keeps a fourteen-tile hand', () => {
@@ -81,7 +87,7 @@ test('the preview includes Lemon Terrace and keeps a fourteen-tile hand', () => 
   assert.match(preview, /Lemon Terrace for 6 characters/);
 });
 
-test('--only=6m copies the approved image exactly, preserves other artwork and is repeatable', t => {
+test('--only=6m reproduces the fitted image, preserves other artwork and is repeatable', t => {
   const temporary = mkdtempSync(path.join(tmpdir(), 'van-gogh-six-characters-'));
   t.after(() => rmSync(temporary, { recursive: true, force: true }));
   const put = (relative, bytes) => {
@@ -91,6 +97,7 @@ test('--only=6m copies the approved image exactly, preserves other artwork and i
   };
   put('package.json', '{"type":"module"}');
   put('web/scripts/export-van-gogh-tiles.mjs', read('web/scripts/export-van-gogh-tiles.mjs'));
+  put('web/scripts/face-fit.mjs', read('web/scripts/face-fit.mjs'));
   put('web/src/lib/tiles.js', read('web/src/lib/tiles.js'));
   for (const source of set.sources) {
     put(source.source, source.source.endsWith('.svg') ? read(source.source) : Buffer.from(`source fixture: ${source.id}`));
@@ -110,7 +117,7 @@ test('--only=6m copies the approved image exactly, preserves other artwork and i
   assert.deepEqual(generated.tiles.find(tile => tile.tile === '6m'), entry);
   assert.deepEqual(generated.remaining, set.remaining);
   assert.deepEqual(generated.superseded, set.superseded);
-  assert.deepEqual(readFileSync(path.join(temporary, record.runtime)), read(record.source));
+  assert.deepEqual(readFileSync(path.join(temporary, record.runtime)), read(record.runtime));
   const first = readFileSync(path.join(temporary, record.runtime));
   run('--only=6m');
   assert.deepEqual(readFileSync(path.join(temporary, record.runtime)), first);

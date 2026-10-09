@@ -7,6 +7,7 @@
   "approval": "Carl selected the middle panel B and explicitly requested deployment as 3 disks.",
   "source": "docs/design/van-gogh/studies/17-three-disks-cafe-lanterns-b-approved.svg",
   "runtime": "web/public/tiles/van-gogh/approved/Pin3.svg",
+  "runtimeFit": "Since October 2026 the runtime face is this study with only its picture's box moved, so it crops the 442 × 860 panel to the face instead of squeezing it to 3:4. sourceSha256 is the study's hash; web/public/tiles/van-gogh/manifest.json records the face's own hash and fit.",
   "sourceSha256": "a5fe322fffbe4717b57897209fca1cbaa737989bb318884a510330c5fb6d8713",
   "originalFile": "van_gogh_mahjong_three_disk_concepts.png",
   "originalBoardSha256": "878e3350a936d15eec6658fd4f8d698e9ee8fc9f8c294565124776bab30d3591",

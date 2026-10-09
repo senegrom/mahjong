@@ -75,6 +75,7 @@ test('--only=6s preserves every other face, including the raft SVG, and copies B
   };
   put('package.json', '{"type":"module"}');
   put('web/scripts/export-van-gogh-tiles.mjs', read('web/scripts/export-van-gogh-tiles.mjs'));
+  put('web/scripts/face-fit.mjs', read('web/scripts/face-fit.mjs'));
   put('web/src/lib/tiles.js', read('web/src/lib/tiles.js'));
   for (const source of set.sources) {
     put(source.source, source.source.endsWith('.svg') ? read(source.source) : Buffer.from(`source fixture: ${source.id}`));
