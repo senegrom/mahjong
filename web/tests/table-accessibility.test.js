@@ -129,10 +129,12 @@ test('the tile guide explains both discard marks, each with its swatch', async (
     onconfirmationchange() {}, onshortcutschange() {} });
   const guide = settings.slice(settings.indexOf('class="guide'));
   for (const [swatch, words] of [['from-draw', /darker face[\s\S]*thrown straight from the draw \(tsumogiri\)/],
-    ['claimed', /see-through tile[\s\S]*claimed the tile for a call/]]) {
+    ['claimed', /dark green border[\s\S]*claimed the tile for a call/]]) {
     assert.match(guide, new RegExp(`<dt[^>]*><span class="swatch ${swatch}[ "][^>]*></span>`), swatch);
     assert.match(guide, words);
   }
+  // A claimed tile is bordered now, no longer faded.
+  assert.doesNotMatch(guide, /see-through/);
 });
 
 test('no generic element carries a name a screen reader would ignore', async () => {

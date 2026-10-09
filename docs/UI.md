@@ -54,13 +54,14 @@ gap while keeping the drawn tile the same size as the rest of the hand.
 ## Discard rows
 
 A riichi declaration lies sideways in its row. Two more marks are of different
-kinds, a shade and a fade, so a tile can carry both:
+kinds, a shade and a border, so a tile can carry both:
 
 - **A darker face:** the tile was thrown straight from the draw (tsumogiri), as
   Tenhou and Mahjong Soul show it. A tile thrown from the hand looks normal.
-- **See-through:** another player claimed the tile for a call. The whole tile,
-  dora ring included, lets the table show through, so on the felt it reads
-  green while staying legible.
+- **A dark green border:** another player claimed the tile for a call. The
+  border is solid and lies on the tile's own edge, inside a dora ring, and it
+  turns with a riichi tile. The face stays solid and keeps its colours, so a
+  darker face always means a tile from the draw.
 
 The marks appear on the table, in the inspection of all discards, in agent
 watch and in the guided game's remembered table; the physical editor's tile
@@ -68,8 +69,9 @@ beside each discard shows the boxes ticked for it. They record what happened
 at the table rather than give advice, so they stay when Hints and markings is
 switched off. Each tile's name, read by screen readers and shown on hover, says
 the same: claimed, riichi declaration, discarded from the draw. The shade and
-the fade are the `--from-draw-shade` and `--claimed-opacity` tokens in
-`app.css`, and the tile guide in the settings has a line and a swatch for each.
+the border's colour are the `--from-draw-shade` and `--claimed-border` tokens
+in `app.css`, and the tile guide in the settings has a line and a swatch for
+each.
 
 ## Hand results
 

@@ -238,7 +238,7 @@
               </div>
             {/each}
             <TileEntry label={`${WINDS[index]} · add an earlier discard`} onadd={tile => appendPastDiscard(index, tile)} />
-            <p class="help">Order starts at 0 and counts all players’ discards. Mark the riichi declaration tile, tiles taken into calls (shown see-through) and tiles thrown straight from the draw (shown darker).</p>
+            <p class="help">Order starts at 0 and counts all players’ discards. Mark the riichi declaration tile, tiles taken into calls (shown with a dark green border) and tiles thrown straight from the draw (shown darker).</p>
           </div>
         </div>
       </details>

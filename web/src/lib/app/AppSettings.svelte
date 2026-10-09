@@ -179,8 +179,8 @@
       <dt><span class="swatch from-draw"></span> a darker face, in a discard row</dt>
       <dd>The tile was thrown straight from the draw (tsumogiri), not from the hand.</dd>
 
-      <dt><span class="swatch claimed"></span> a see-through tile, in a discard row</dt>
-      <dd>Another player claimed the tile for a call, so it now sits in their set and the table shows through it. If it was thrown from the draw, it is darker as well.</dd>
+      <dt><span class="swatch claimed"></span> a dark green border, in a discard row</dt>
+      <dd>Another player claimed the tile for a call, so it now sits in their set. If it was thrown from the draw, its face is darker as well.</dd>
 
     </dl>
 
@@ -253,7 +253,7 @@
   .swatch.marker { box-shadow: 0 0 0 2px #4ea3ff; }
   .swatch.striped { border: 3px solid transparent; background: linear-gradient(var(--ivory),var(--ivory)) padding-box, repeating-linear-gradient(45deg,#e2453d 0 4px,var(--gold) 4px 8px,#7fd1a0 8px 12px) border-box; }
   .swatch.from-draw { filter: var(--from-draw-shade); }
-  .swatch.claimed { opacity: var(--claimed-opacity); }
+  .swatch.claimed { border: 2px solid var(--claimed-border); }
   @media (max-width: 760px) {
     .bar { gap: 8px; flex-wrap: nowrap; }
     h1 { font-size: 1rem; letter-spacing: .1em; }

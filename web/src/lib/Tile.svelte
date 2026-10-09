@@ -30,9 +30,9 @@
    *
    * A discard row marks two things about a tile, each in its own way so a
    * tile can carry both. One thrown straight from the draw (tsumogiri) has
-   * its face shaded a little darker, as Tenhou and Mahjong Soul show it; one
-   * thrown from the hand keeps its face. One that another player claimed for
-   * a call is see-through, so the table shows through it and it reads green.
+   * its face shaded darker, as Tenhou and Mahjong Soul show it; one thrown
+   * from the hand keeps its face. One that another player claimed for a call
+   * has a dark green border on its own edge, inside any ring.
    */
   let {
     tile = null,
@@ -228,6 +228,10 @@
     --face-width: var(--tile-width);
     --face-radius: 4px;
     --ring-width: 3px;
+    /* A claimed tile's border, in proportion to the tile: one pixel on a
+       phone's smallest rows, where more would cover the picture, two on the
+       table's rows and three on the largest. */
+    --claimed-width: clamp(1px, calc(var(--face-width) / 11), 3px);
     width: var(--face-width);
     padding: 0;
     border: none;
@@ -282,6 +286,13 @@
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.55) inset,
       0 0 0 2px #4a7fb5 inset;
+  }
+
+  /* A claimed white dragon is framed by its green border instead. On a
+     phone's rows the border is thinner than the blue, which would show
+     inside it as a second frame. */
+  .claimed img.blank {
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
   }
 
   /* A tile its set has not painted yet: only its name, on the ivory. The
@@ -421,18 +432,28 @@
     width: var(--face-width);
   }
 
-  /* A discard thrown straight from the draw: the face is shaded darker but
-     stays solid and keeps its colours, so it never reads as a claimed one. */
+  /* A discard thrown straight from the draw: the face is shaded to about
+     half the light of a plain one but keeps its colours, so the picture
+     still reads. Nothing else in a discard row darkens a face, so a darker
+     face means only this. */
   .from-draw .face {
-    filter: var(--from-draw-shade, brightness(0.86));
+    filter: var(--from-draw-shade, brightness(0.72));
   }
 
-  /* A claimed discard: the whole tile is see-through, so whatever it lies
-     on shows through it, and on the table it takes the felt's green. The
-     tile fades as one, ring included, so a dora ring stays a ring rather
-     than showing through the face, and a shade from the draw stays too. */
-  .claimed {
-    opacity: var(--claimed-opacity, 0.6);
+  /* A claimed discard: a solid dark green border on the tile's own edge,
+     over the rim of its face. It lies inside the tile's box, so it never
+     reaches into the gap between tiles or meets a ring, which lies outside;
+     a turned riichi tile's box is its face's footprint, so the border turns
+     with it; and it is not part of the face, so the shade of a tile from the
+     draw leaves it as it is. The face stays solid: letting the felt show
+     through would darken it just as the shade does. */
+  .claimed::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: var(--claimed-width) solid var(--claimed-border, #0e6e33);
+    border-radius: var(--face-radius);
+    pointer-events: none;
   }
 
   /* Whatever a tile does, it does as a whole. The lift on hover, on focus

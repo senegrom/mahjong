@@ -37,7 +37,7 @@ const unpainted = TILE_TYPES.filter(tile => !DALI_APPROVED.includes(tile));
 const suited = unpainted.find(tile => tile[1] !== 'z'), honour = unpainted.find(tile => tile[1] === 'z');
 const named = [
   ['named', {tile:suited}], ['named-turned', {tile:honour,rotated:true,dora:true,size:'small'}],
-  ['named-row', {tile:suited,size:'tiny',fromDraw:true,claimed:true}],
+  ['named-row', {tile:honour,size:'tiny',fromDraw:true,claimed:true}], ['named-small', {tile:suited,size:'small',claimed:true}],
 ].filter(([, props]) => props.tile);
 let tile = $state('1m'); let marked = $state(true); let clicks = $state(0);
 const cases = [
@@ -47,11 +47,12 @@ const cases = [
   ['other', {tile:'7z',dora:true}], ['muted', {tile:'5z',dora:true,disabled:true,onclick:()=>{}}],
   ['kept', {tile:'5z',size:'small'}], ['thrown', {tile:'5z',size:'small',fromDraw:true}],
   ['taken', {tile:'5z',size:'small',claimed:true}], ['both', {tile:'5z',size:'small',claimed:true,fromDraw:true}],
-  ['taken-dora', {tile:'5z',size:'small',claimed:true,fromDraw:true,dora:true,rotated:true}]
+  ['taken-dora', {tile:'5z',size:'small',claimed:true,fromDraw:true,dora:true,rotated:true}],
+  ['tiny-taken', {tile:'5z',size:'tiny',claimed:true}]
 ];
 </script>
 <h1>White dragon · dora foil</h1>
-<div class="samples">{#each cases as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}</div>
+<div class="samples">{#each cases as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}<section id="phone" style="--tile-width:23px"><p>phone</p><Tile tile="5z" size="tiny" claimed/></section></div>
 <section id="dynamic"><Tile {tile} dora={marked} onclick={()=>clicks++}/></section>
 <button id="identity" onclick={()=>tile=tile==='5z'?'1m':'5z'}>Change tile</button>
 <button id="mark" onclick={()=>marked=!marked}>Toggle dora / hints</button><output>{clicks}</output>
@@ -114,19 +115,27 @@ const cases = [
       assert.ok(difference[1]<10,`Off-face endpoint changed ${difference[1]} pixels`);
     });
     await check('artwork and shine rotate with the face and do not enlarge tile layout',async()=>{
-      for(const id of ['dora','small','tiny','rotated']) {
+      for(const id of ['dora','small','tiny','rotated','taken','taken-dora','phone']) {
         const boxes=await page.$eval(`#${id} .tile`,el=>[el,...el.querySelectorAll('.face,.haku-dragon-reveal,.foil')].map(e=>{const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height];}));
         for(const box of boxes.slice(1))for(let n=0;n<4;n++)assert.ok(Math.abs(box[n]-boxes[0][n])<0.1,`${id} geometry changed`);
       }
     });
-    await check('a discard from the draw is darker in its own colours; a claimed one lets the felt through; both combine',async()=>{
+    await check('a discard from the draw is darker in its own colours; a claimed one has a solid dark green border inside its edge; both combine',async()=>{
+      const border=[14,110,51], solid=`solid rgb(${border.join(', ')})`;
       const marks=await page.evaluate(()=>['kept','thrown','taken','both'].map(id=>{
-        const tile=document.querySelector(`#${id} .tile`);
-        return [getComputedStyle(tile).opacity,getComputedStyle(tile.querySelector('.face')).filter];
+        const tile=document.querySelector(`#${id} .tile`), edge=getComputedStyle(tile,'::after');
+        return [getComputedStyle(tile).opacity,getComputedStyle(tile.querySelector('.face')).filter,
+          edge.content==='none'?'none':`${edge.borderTopStyle} ${edge.borderTopColor}`];
       }));
-      assert.deepEqual(marks,[['1','none'],['1','brightness(0.86)'],['0.6','none'],['0.6','brightness(0.86)']]);
+      assert.deepEqual(marks,[['1','none','none'],['1','brightness(0.72)','none'],['1','none',solid],['1','brightness(0.72)',solid]]);
+      // The border keeps to the tile's proportions: one pixel on a phone's
+      // smallest row, two on the table's and three on the largest.
+      const [phone,tiny,small]=await page.evaluate(()=>['phone','tiny-taken','taken'].map(id=>
+        parseFloat(getComputedStyle(document.querySelector(`#${id} .tile`),'::after').borderTopWidth)));
+      assert.ok(phone>=1&&phone<1.5&&tiny>=2&&tiny<3&&small===3,`border widths: ${[phone,tiny,small]}`);
       // Read the actual pixels: the middle of each blank face, the felt
-      // beside the tile and, on the dora tile, the ring just outside its edge.
+      // beside the tile, and one pixel above the tile's top edge (where a
+      // ring shows), one below it (where the border is) and one to its left.
       await freeze(0);
       const pixels={};
       for(const id of ['kept','thrown','taken','both','taken-dora']) {
@@ -138,21 +147,29 @@ const cases = [
           const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
           const context=canvas.getContext('2d');context.drawImage(image,0,0);
           const scale=image.width/width, at=(x,y)=>[...context.getImageData(Math.round(x*scale),Math.round(y*scale),1,1).data.slice(0,3)];
-          // In CSS pixels: the middle of the face, a corner of felt, and one pixel above the tile's top edge.
-          return {face:at(width/2,image.height/scale/2),felt:at(1,1),ring:at(width/2,margin-1)};
+          // In CSS pixels: the middle of the face, a corner of felt, one pixel above the tile's top
+          // edge and one below it, and one pixel to the left of the tile halfway down.
+          const height=image.height/scale;
+          return {face:at(width/2,height/2),felt:at(1,1),ring:at(width/2,margin-1),edge:at(width/2,margin+1),beside:at(margin-1,height/2)};
         },data,clip.width,margin);
       }
       const near=(actual,expected,label)=>actual.forEach((value,channel)=>assert.ok(Math.abs(value-expected[channel])<=6,`${label}: ${actual} against ${expected.map(Math.round)}`));
-      const mix=(top,under,alpha)=>top.map((value,channel)=>alpha*value+(1-alpha)*under[channel]);
-      const {kept,thrown,taken,both}=pixels, felt=kept.felt, green=([r,g])=>g-r;
-      near(thrown.face,kept.face.map(value=>value*0.86),'thrown from the draw: the same colours, darker');
-      near(taken.face,mix(kept.face,felt,0.6),'claimed: the felt shows through');
-      near(both.face,mix(thrown.face,felt,0.6),'claimed and from the draw: both marks');
-      assert.ok(green(kept.face)<=0&&green(thrown.face)<=0&&green(taken.face)>=8,`only the claimed tile reads green: ${[kept,thrown,taken].map(p=>p.face)}`);
-      // Fading the tile as one keeps a dora ring around the face, not through it.
-      near(pixels['taken-dora'].face,both.face,'the ring does not tint a claimed face');
-      const [r,g,b]=pixels['taken-dora'].ring;
-      assert.ok(r>g+40&&r>b+40,`the dora ring still shows red: ${pixels['taken-dora'].ring}`);
+      const luminance=rgb=>rgb.map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
+      const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);};
+      const {kept,thrown,taken,both}=pixels, dora=pixels['taken-dora'];
+      near(thrown.face,kept.face.map(value=>value*0.72),'thrown from the draw: the same colours, darker');
+      near(taken.face,kept.face,'claimed: the face keeps its colours');
+      near(both.face,thrown.face,'claimed and from the draw: only the shade on the face');
+      near(taken.edge,border,'claimed: the border lies inside the tile\'s edge');
+      near(both.edge,border,'the shade leaves the border as it is');
+      near(taken.beside,kept.beside,'the border stays inside the tile: the felt beside it is unchanged');
+      // The border stands out from what it lies between: the felt, and the face plain or shaded.
+      const ratios=[kept.felt,kept.face,thrown.face].map(colour=>contrast(border,colour));
+      assert.ok(ratios[0]>=1.7&&ratios[1]>=4.5&&ratios[2]>=2.5,`border contrast with felt, face and shaded face: ${ratios.map(ratio=>ratio.toFixed(2))}`);
+      // A claimed dora turned for riichi: the ring outside, the border inside it, both turned.
+      assert.ok(dora.ring[0]>dora.ring[1]+40&&dora.ring[0]>dora.ring[2]+40,`the dora ring still shows red: ${dora.ring}`);
+      near(dora.edge,border,'the border lies inside the ring, along the turned tile');
+      near(dora.face,both.face,'the ring does not tint a claimed face');
     });
     await check('reused tiles restart both effects together and hint toggles remove them',async()=>{
       await page.click('#identity');await page.waitForSelector('#dynamic .haku-dragon-reveal');
@@ -195,14 +212,15 @@ const cases = [
       // letters where even its word could not be read.
       const unpainted=(await page.$$eval('.samples section .tile[data-tile]',tiles=>tiles.map(tile=>tile.dataset.tile))).filter(tile=>!DALI_APPROVED.includes(tile));
       assert.ok(unpainted.length,'the fixture shows tiles Dalí has not painted');
-      const shown={named:'both','named-turned':'lead','named-row':'lead','named-phone':'shorthand'};
+      const shown={named:'both','named-turned':'lead','named-row':'lead','named-small':'lead','named-phone':'shorthand'};
       for(const [id,lines] of Object.entries(shown)) {
         if(!await page.$(`#${id}`)) continue;
         const shape=await page.$eval(`#${id}`,section=>{
           const box=element=>{const r=element.getBoundingClientRect();return [r.x,r.y,r.width,r.height];};
-          const tile=section.querySelector('.tile'),name=section.querySelector('.name');
+          const tile=section.querySelector('.tile'),name=section.querySelector('.name'),edge=getComputedStyle(tile,'::after');
           return {tile:tile.dataset.tile,face:box(section.querySelector('.face')),name:box(name),label:tile.getAttribute('aria-label'),
             images:section.querySelectorAll('img').length,classes:[...tile.classList],
+            border:edge.content==='none'?0:parseFloat(edge.borderTopWidth),
             lines:[...name.children].filter(line=>getComputedStyle(line).display!=='none').map(line=>({text:line.textContent,box:box(line),size:parseFloat(getComputedStyle(line).fontSize)}))};
         });
         const [lead,rest]=tileWords(shape.tile).split(' ');
@@ -211,9 +229,11 @@ const cases = [
         assert.ok(shape.classes.includes('dali'),`${id}: the set's rounded corners`);
         assert.deepEqual(shape.lines.map(line=>line.text),{both:[lead,rest],lead:[lead],shorthand:[tileShorthand(shape.tile)]}[lines],id);
         for(let n=0;n<4;n++)assert.ok(Math.abs(shape.name[n]-shape.face[n])<0.5,`${id}: the name covers its face`);
-        const [fx,fy,fw,fh]=shape.face;
+        // Inside the face, and inside a claimed tile's border as well.
+        const [fx,fy,fw,fh]=shape.face, inset=shape.border;
+        assert.equal(inset>0,shape.classes.includes('claimed'),`${id}: a border only on a claimed tile`);
         for(const {text,box:[x,y,width,height],size} of shape.lines) {
-          assert.ok(x>=fx&&y>=fy&&x+width<=fx+fw&&y+height<=fy+fh,`${id}: ${text} stays inside its face`);
+          assert.ok(x>=fx+inset&&y>=fy+inset&&x+width<=fx+fw-inset&&y+height<=fy+fh-inset,`${id}: ${text} stays inside its face and border`);
           assert.ok(size>=6.5,`${id}: ${text} is ${size}px`);
         }
       }

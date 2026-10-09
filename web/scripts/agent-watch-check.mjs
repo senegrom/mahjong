@@ -67,7 +67,7 @@ async function assertHints(page, watch) {
 }
 
 // Every seat's discard row carries the engine's record of each discard:
-// thrown straight from the draw (a darker face) and claimed (see-through),
+// thrown straight from the draw (a darker face) and claimed (a dark green border),
 // to the eye and in the tile's name. Returns those records, row by row.
 async function assertMarks(page, watch) {
   const expected = watch.match.view.seats.map(seat => seat.discards.map(discard => [Boolean(discard.drawn), discard.claimed]));

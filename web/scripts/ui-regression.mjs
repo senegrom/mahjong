@@ -203,20 +203,42 @@ try {
   });
   for(const dark of [false,true]) await check(`every discard row shows the engine's draw and claim marks (${dark?'dark':'light'})`,async()=>{
     const page=await open(markedSave,{dark}); const view=JSON.parse(markedSave.state)[0];
-    const rows=selectors=>page.evaluate(selectors=>selectors.map(selector=>[...document.querySelector(selector).querySelectorAll('.tile')].map(tile=>({
-      claimed:tile.classList.contains('claimed'),drawn:tile.classList.contains('from-draw'),label:tile.getAttribute('aria-label'),
-      opacity:getComputedStyle(tile).opacity,filter:getComputedStyle(tile.querySelector('.face')).filter}))),selectors);
+    const rows=selectors=>page.evaluate(selectors=>selectors.map(selector=>[...document.querySelector(selector).querySelectorAll('.tile')].map(tile=>{
+      const edge=getComputedStyle(tile,'::after');
+      return {claimed:tile.classList.contains('claimed'),drawn:tile.classList.contains('from-draw'),label:tile.getAttribute('aria-label'),
+        opacity:getComputedStyle(tile).opacity,filter:getComputedStyle(tile.querySelector('.face')).filter,
+        border:edge.content==='none'?'none':`${edge.borderTopStyle} ${edge.borderTopColor}`};
+    })),selectors);
     const expect=(shown,where)=>shown.forEach((row,seat)=>{
       assert.equal(row.length,view.seats[seat].discards.length,`${where} ${seat}`);
       row.forEach((tile,index)=>{
         const discard=view.seats[seat].discards[index];
         assert.deepEqual([tile.claimed,tile.drawn],[discard.claimed,discard.drawn],`${where} ${seat}: ${tile.label}`);
         assert.equal(tile.label.includes(', claimed'),discard.claimed); assert.equal(tile.label.includes('discarded from the draw'),discard.drawn);
-        assert.equal(tile.opacity,discard.claimed?'0.6':'1',tile.label); assert.equal(tile.filter,discard.drawn?'brightness(0.86)':'none',tile.label);
+        // The face stays solid; it is darker only when drawn and bordered only when claimed.
+        assert.equal(tile.opacity,'1',tile.label); assert.equal(tile.filter,discard.drawn?'brightness(0.72)':'none',tile.label);
+        assert.equal(tile.border,discard.claimed?'solid rgb(14, 110, 51)':'none',tile.label);
       });
     });
     // The seats in the view's order: you, then right, opposite and left.
     expect(await rows(['.own-discards .pool','.place.right .pool','.place.across .pool','.place.left .pool']),'table');
+    // The border stands out from the felt it lies on: the pixel just inside
+    // each claimed tile's edge against the felt just left of its row.
+    const spots=await page.evaluate(()=>[...document.querySelectorAll('.place .tile.claimed, .own-discards .tile.claimed')].map(tile=>{
+      const box=tile.getBoundingClientRect(), row=tile.closest('.pool').getBoundingClientRect(), y=box.top+scrollY+box.height/2;
+      return [[box.left+1,y],[row.left-3,y]];
+    }));
+    assert.ok(spots.length,'the saved game has a claimed discard at the table');
+    const colours=await page.evaluate(async(data,spots)=>{
+      const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0)); const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+      const canvas=document.createElement('canvas'); canvas.width=image.width; canvas.height=image.height;
+      const context=canvas.getContext('2d'); context.drawImage(image,0,0);
+      return spots.map(pair=>pair.map(([x,y])=>`rgb(${[...context.getImageData(Math.floor(x),Math.floor(y),1,1).data.slice(0,3)]})`));
+    },await page.screenshot({encoding:'base64',fullPage:true}),spots);
+    // About 1.5 on the lightest felt, behind the seat opposite in the light
+    // theme, and more in the dark one; a border in the felt's own green
+    // would read close to 1.
+    for(const [border,felt] of colours) assert.ok(contrast(border,felt)>=1.4,`the claimed border stands out from the felt: ${border} on ${felt}, ${contrast(border,felt).toFixed(2)}`);
     await page.click('.inspect');
     expect(await rows([1,2,3,4].map(n=>`.inspection-grid section:nth-child(${n}) .pool`)),'inspection');
     await shot(page,`discard-marks-${dark?'dark':'light'}`); noErrors(page);
