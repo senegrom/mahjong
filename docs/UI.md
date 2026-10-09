@@ -22,12 +22,12 @@ its side, so a suit never rests on its colour alone; the colours (red
 characters, blue circles, green bamboo) only repeat it. On the same faces an
 honour is given in letters, as large as they fit: E, S, W and N for the winds,
 and Wh, G and R for the dragons; its first word alone was too small there to
-read at a glance. The name stays upright on a tile turned
-for riichi and carries the dora ring and shine and both discard marks; a white
-dragon written out has no dragon under its shine, and with reduced motion its
-still shine rests on a corner rather than across the name. Nothing is
-downloaded or saved offline for these tiles, and each becomes its picture as
-soon as its artwork is approved.
+read at a glance. The name stays upright on a tile turned for riichi and
+carries the dora ring and shine and both discard marks; a white dragon written
+out has no dragon under its shine, and with reduced motion its still shine
+rests on a corner rather than across the name. Nothing is downloaded or saved
+offline for these tiles, and each becomes its picture as soon as its artwork
+is approved.
 
 ## Discard previews and readiness markings
 

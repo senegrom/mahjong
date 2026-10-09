@@ -365,8 +365,8 @@
      characters, p for circles and s for bamboo. The colour says the same,
      but never alone, so a red 8 and a blue 8 are told apart by their
      letters as well. Each leaves room at the edges for a claimed tile's
-     border. A face is measured by its shorter side, whichever way up it
-     lies. */
+     border and its hairline. A face is measured by its shorter side,
+     whichever way up it lies. */
   @container (max-width: 40px) or (max-height: 40px) {
     .name .rest {
       display: none;
