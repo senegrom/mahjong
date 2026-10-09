@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { TILE_TYPES } from '../src/lib/tiles.js';
+import { faceImage, fitRecord, imageAttributes, placeStudyImage } from './face-fit.mjs';
 
 // Mechanical extraction of Carl's selected images; never redraw approved art.
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -34,6 +35,14 @@ const definitions = [
   ['Chun', '7z', 'Red dragon', 'Molten Ruby', board, [847, 656, 373, 513]],
 ];
 const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
+// The board's crops that are not 3:4 are cropped further to the face rather
+// than stretched to it, keeping their proportions to within 2% (see face-fit.mjs).
+const fits = {
+  // The left stalk's top leaf reaches 1.6% from the top, where a centred cut
+  // would clip it; the stalks' bases stand well clear of the bottom.
+  '2s': { stretch: 0.02, anchor: 0.35 },
+  '7z': { stretch: 0.02, anchor: 0.5 },
+};
 const manifest = { version: 1, canvas: { width: 300, height: 400 }, facePresentation, tiles: [] };
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 mkdirSync(path.join(out, 'approved'), { recursive: true });
@@ -42,13 +51,17 @@ for (const [name, tile, label, direction, sourceName, crop] of definitions) {
   const source = `${studies}/${sourceName}`;
   const sourceBytes = readFileSync(path.join(root, source));
   const [x, y, width, height] = crop;
+  const fit = fits[tile];
+  const image = faceImage(fit, [width, height]);
+  const fitted = fit ? { fit: fitRecord(fit, [width, height]) } : {};
   // Self-contained, game-ready SVG studies already carry their raster and clipping.
-  // Copy these exactly; keep the original PNG pipeline unchanged for existing tiles.
+  // Copy these exactly unless a fit moves their picture; keep the original PNG pipeline unchanged for existing tiles.
   if (sourceName.endsWith('.svg')) {
     const svg = `approved/${name}.svg`;
-    writeFileSync(path.join(out, svg), sourceBytes);
+    const face = fit ? placeStudyImage(sourceBytes, image) : sourceBytes;
+    writeFileSync(path.join(out, svg), face);
     manifest.tiles.push({ name, tile, label, direction, status: 'approved', svg, source,
-      sourceSha256: hash(sourceBytes), svgSha256: hash(sourceBytes), crop: { x, y, width, height } });
+      sourceSha256: hash(sourceBytes), svgSha256: hash(face), crop: { x, y, width, height }, ...fitted });
     continue;
   }
   // Standalone studies are complete 3:4 tiles; preserve their original PNG bytes.
@@ -58,10 +71,10 @@ for (const [name, tile, label, direction, sourceName, crop] of definitions) {
   const png = `approved/${name}.png`;
   const svg = `approved/${name}.svg`;
   writeFileSync(path.join(out, png), raster);
-  const markup = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Dali — ${direction}</title><defs><clipPath id="face"><rect width="300" height="400" rx="26"/></clipPath></defs><image clip-path="url(#face)" x="-3" y="-4" width="306" height="408" preserveAspectRatio="none" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`;
+  const markup = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Dali — ${direction}</title><defs><clipPath id="face"><rect width="300" height="400" rx="26"/></clipPath></defs><image clip-path="url(#face)" ${imageAttributes(image)} preserveAspectRatio="none" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`;
   writeFileSync(path.join(out, svg), markup);
   manifest.tiles.push({ name, tile, label, direction, status: 'approved', png, svg, source,
-    sourceSha256: hash(sourceBytes), pngSha256: hash(raster), crop: { x, y, width, height } });
+    sourceSha256: hash(sourceBytes), pngSha256: hash(raster), crop: { x, y, width, height }, ...fitted });
 }
 const approved = manifest.tiles.map(tile => tile.tile);
 manifest.placeholders = TILE_TYPES.filter(tile => !approved.includes(tile)).map(tile => ({

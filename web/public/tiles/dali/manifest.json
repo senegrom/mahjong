@@ -115,6 +115,20 @@
         "y": 656,
         "width": 372,
         "height": 513
+      },
+      "fit": {
+        "painting": {
+          "width": 372,
+          "height": 513
+        },
+        "stretch": 0.02,
+        "anchor": 0.35,
+        "image": {
+          "x": -3,
+          "y": -4.8,
+          "width": 306,
+          "height": 413.71
+        }
       }
     },
     {
@@ -377,6 +391,20 @@
         "y": 656,
         "width": 373,
         "height": 513
+      },
+      "fit": {
+        "painting": {
+          "width": 373,
+          "height": 513
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -6.3,
+          "width": 306,
+          "height": 412.6
+        }
       }
     }
   ],
