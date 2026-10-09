@@ -182,6 +182,9 @@
       <dt><span class="swatch claimed"></span> a dark green border, in a discard row</dt>
       <dd>Another player claimed the tile for a call, so it now sits in their set. If it was thrown from the draw, its face is darker as well.</dd>
 
+      <dt>A name in place of a picture</dt>
+      <dd>The tile face you chose has no picture for this tile yet, so the tile shows its name, or on the smallest tiles its number or letters: E, S, W and N for the winds, Wh, G and R for the dragons.</dd>
+
     </dl>
 
     <dl>

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { compile, parse } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { meldWords } from '../src/lib/ui.js';
+import { TILE_TYPES, tileShorthand } from '../src/lib/tiles.js';
 
 // Server-render the production components, compiling the components they
 // nest in the same way. Only artwork URLs are substituted.
@@ -135,6 +136,11 @@ test('the tile guide explains both discard marks, each with its swatch', async (
   }
   // A claimed tile is bordered now, no longer faded.
   assert.doesNotMatch(guide, /see-through/);
+  // A tile written out in place of its picture, with the letters an honour
+  // is given on the smallest faces, as Tile shows them.
+  const [winds, dragons] = [TILE_TYPES.slice(27, 31), TILE_TYPES.slice(31)].map(tiles => tiles.map(tileShorthand));
+  const list = letters => `${letters.slice(0, -1).join(', ')} and ${letters.at(-1)}`;
+  assert.match(guide, new RegExp(`no picture for this tile yet[\\s\\S]*${list(winds)} for the winds, ${list(dragons)} for the dragons`));
 });
 
 test('no generic element carries a name a screen reader would ignore', async () => {
