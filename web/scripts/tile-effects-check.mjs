@@ -86,6 +86,7 @@ let greensShown = $state(false);
 <button id="faces" onclick={()=>face=face==='classic'?'matisse':'classic'}>Change tile face</button>
 <button id="unpainted" onclick={()=>face='dali'}>Show a set still being painted</button>
 <div class="samples">{#each named as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}{#each phones as [id, tile]}<section id={id} style="--tile-width:28px"><p>{id}</p><Tile {tile} size="tiny" claimed/></section>{/each}</div>
+<div class="samples" id="lit">{#each [['lit-turned','matisse','2p',true],['turned-unlit','matisse','2p',false],['lit-turned-named','dali',suited,true],['turned-unlit-named','dali',suited,false]].filter(([, , tile]) => tile) as [id,set,tile,inShape]}<section id={id}><p>{id}</p><Painted face={set}><Tile {tile} rotated {inShape}/></Painted></section>{/each}</div>
 <button id="greens-shown" onclick={()=>greensShown=!greensShown}>Show the green paintings, claimed</button>
 {#if greensShown}<div class="samples" id="greens">{#each greens as {set,tile}}<Painted face={set}>{#each greenSizes as [width,size]}{#each [false,true] as rotated}<span data-face="{set} {tile}" style="--tile-width:{width}px"><Tile {tile} {size} {rotated} claimed/></span>{/each}{/each}</Painted>{/each}</div>{/if}
 <style>:global(body){margin:30px;background:#173e35;color:#fff;font:16px system-ui;--tile-width:60px;--ivory:#fffaf0;} .samples{display:flex;gap:26px;align-items:start;flex-wrap:wrap;margin-bottom:40px} section{min-width:70px} #dynamic{margin:25px 0} button{margin:10px;padding:10px}</style>`);
@@ -353,6 +354,32 @@ let greensShown = $state(false);
       await writeFile(resolve(evidence,'claimed-greens.json'),JSON.stringify(found.sort((a,b)=>a.apart-b.apart),null,1));
       assert.ok(found.length>=3*2*4*2,`the fixture shows the greenest faces: ${found.length}`);
       assert.deepEqual(faults,[]);
+    });
+    await check('a lit tile turned for a call is lifted, not turned again: its painting lies and its written name reads as on any turned tile',async()=>{
+      const shape=id=>page.$eval(`#${id} .tile`,tile=>{
+        const box=element=>{const r=element.getBoundingClientRect();return [r.width,r.height];};
+        const picture=tile.querySelector('.face > img'), name=tile.querySelector('.name b');
+        return {classes:[...tile.classList],transform:getComputedStyle(tile).transform,tile:box(tile),
+          picture:picture&&box(picture),turn:picture&&getComputedStyle(picture).transform,name:name&&box(name)};
+      });
+      const same=(actual,expected,label)=>actual.forEach((value,n)=>assert.ok(Math.abs(value-expected[n])<0.01,`${label}: ${actual} against ${expected}`));
+      const pairs=[['lit-turned','turned-unlit'],['lit-turned-named','turned-unlit-named']].filter(([id])=>id==='lit-turned'||DALI_APPROVED.length<TILE_TYPES.length);
+      for(const [litId,unlitId] of pairs) {
+        const [lit,unlit]=[await shape(litId),await shape(unlitId)];
+        assert.ok(lit.classes.includes('in-shape')&&lit.classes.includes('rotated'),`${litId}: ${lit.classes}`);
+        // Lifted six pixels and lit, and nothing else: no turn of its own.
+        assert.equal(lit.transform,'matrix(1, 0, 0, 1, 0, -6)',litId);
+        assert.equal(unlit.transform,'none',unlitId);
+        assert.ok(lit.tile[0]>lit.tile[1],`${litId} lies on its side: ${lit.tile}`);
+        same(lit.tile,unlit.tile,`${litId} has the turned tile's box`);
+        if(unlit.picture) {
+          same(lit.picture,unlit.picture,`${litId}: the painting lies as on the unlit tile`);
+          assert.equal(lit.turn,unlit.turn,`${litId}: the painting is turned once`);
+        } else {
+          assert.equal(lit.picture,null,litId);
+          same(lit.name,unlit.name,`${litId}: the written name reads as on the unlit tile`);
+        }
+      }
     });
     await check('a painting turned with its tile shows no ivory along its edges, at any size, position and pixel density',async()=>{
       // Only the picture turns, and it meets the screen's pixels apart from

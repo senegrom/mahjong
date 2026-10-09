@@ -206,7 +206,11 @@
 
 <style>
   /* A tile that makes the yaku being explained: lifted and lit, so the
-     shape reads at a glance without dimming the rest of the hand. */
+     shape reads at a glance without dimming the rest of the hand. A tile
+     turned for a call is lifted just the same and never turned again: its
+     box already lies on its side and its face turns its own picture, so a
+     second turn here stood the picture on its head and a written name on
+     its side. */
   .tile.in-shape {
     transform: translateY(-6px);
     box-shadow: 0 6px 14px rgba(216, 161, 42, .45);
@@ -215,7 +219,6 @@
     border-radius: 6px;
     z-index: 2;
   }
-  .tile.in-shape.rotated { transform: translateY(-6px) rotate(90deg); }
   @media (prefers-reduced-motion: no-preference) {
     .tile { transition: transform 120ms ease, box-shadow 120ms ease; }
   }
