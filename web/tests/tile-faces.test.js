@@ -151,10 +151,13 @@ test('an artist\'s set names exactly the tiles it has not painted, and fetches n
   }
   for (const tile of TILE_TYPES) assert.equal(tileImage(tile, 'classic'), `tiles/${tileFile(tile)}.svg`);
   assert.equal(TILE_IMAGE_URLS.includes(null), false);
-  // Where the words do not fit: the number of a suited tile, a wind's
-  // compass point and a dragon's colour, the white one apart from the west.
+  // Where the words do not fit: a suited tile as the notation writes it,
+  // its number and its suit's letter, so a suit never rests on its colour
+  // alone; a wind's compass point and a dragon's colour, the white one
+  // apart from the west.
   assert.deepEqual(TILE_TYPES.filter(tile => tile[1] === 'z').map(tileShorthand), ['E', 'S', 'W', 'N', 'Wh', 'G', 'R']);
-  for (const tile of TILE_TYPES.filter(tile => tile[1] !== 'z')) assert.equal(tileShorthand(tile), tile[0]);
+  for (const tile of TILE_TYPES.filter(tile => tile[1] !== 'z')) assert.equal(tileShorthand(tile), tile);
+  assert.deepEqual(['2m', '2p', '2s'].map(tileShorthand), ['2m', '2p', '2s']);
   assert.equal(tileShorthand('not-a-tile'), '');
   assert.equal(tileShorthand(null), '');
 });
@@ -214,13 +217,17 @@ test('the real Tile component respects the selected face and hidden state', asyn
           assert.doesNotMatch(html, /\bunpainted\b|class="name\b/, `${face} ${tile}`);
           continue;
         }
-        // Not painted yet: the tile's own words and its shorthand on the
-        // set's rounded face, with nothing to load.
+        // Not painted yet: the tile's own words on the set's rounded face,
+        // with nothing to load, and the letters that stand in for them where
+        // they cannot be read: a suit's letter under its number, or an
+        // honour's letters in place of its words.
         const [lead, rest] = tileWords(tile).split(' ');
+        const letters = tile[1] === 'z' ? tileShorthand(tile) : tile[1];
+        assert.equal(tile[1] === 'z' ? letters : `${lead}${letters}`, tileShorthand(tile), `${face} ${tile}`);
         assert.doesNotMatch(html, /<img\b/, `${face} ${tile}`);
         assert.match(html, new RegExp(`class="tile [^"]*\\b${face}\\b`), `${face} ${tile}`);
         assert.match(html, /class="face[^"]*\bunpainted\b/);
-        assert.match(html, new RegExp(`<span class="name[^"]*" aria-hidden="true"><b[^>]*>${lead}</b><span[^>]*>${rest}</span><b class="shorthand[^"]*">${tileShorthand(tile)}</b></span>`), `${face} ${tile}`);
+        assert.match(html, new RegExp(`<span class="name[^"]*" aria-hidden="true"><b class="lead[^"]*">${lead}</b><span class="rest[^"]*">${rest}</span><b class="letters[^"]*">${letters}</b></span>`), `${face} ${tile}`);
         assert.match(html, new RegExp(`aria-label="${tileWords(tile)}"`));
         assert.match(html, new RegExp(`data-tile="${tile}"`));
       }

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { DALI_APPROVED } from '../src/lib/dali-faces.js';
-import { tileShorthand, tileWords } from '../src/lib/tiles.js';
+import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
 
 const web = fileURLToPath(new URL('../', import.meta.url));
 const temporary = await mkdtemp(resolve(web, '.tile-effects-'));
@@ -32,13 +32,16 @@ import { TILE_TYPES } from '../src/lib/tiles.js';
 let face = $state('classic');
 setContext(TILE_FACE_CONTEXT, () => face);
 // Tiles Dalí has not painted yet, whichever they are when this runs, at the
-// sizes that show both lines, the first alone, and an honour's letters.
+// sizes that show both words, a number over its suit's letter, an honour's
+// first word, and an honour's letters, upright and turned.
 const unpainted = TILE_TYPES.filter(tile => !DALI_APPROVED.includes(tile));
 const suited = unpainted.find(tile => tile[1] !== 'z'), honour = unpainted.find(tile => tile[1] === 'z');
 const named = [
   ['named', {tile:suited}], ['named-turned', {tile:honour,rotated:true,dora:true,size:'small'}],
   ['named-row', {tile:honour,size:'tiny',fromDraw:true,claimed:true}], ['named-small', {tile:suited,size:'small',claimed:true}],
+  ['named-suited-turned', {tile:suited,rotated:true,claimed:true,size:'tiny'}],
 ].filter(([, props]) => props.tile);
+const phones = [['named-phone', honour], ['named-suited-phone', suited]].filter(([, tile]) => tile);
 let tile = $state('1m'); let marked = $state(true); let clicks = $state(0);
 const cases = [
   ['blank', {tile:'5z'}], ['dora', {tile:'5z',dora:true}],
@@ -58,7 +61,7 @@ const cases = [
 <button id="mark" onclick={()=>marked=!marked}>Toggle dora / hints</button><output>{clicks}</output>
 <button id="faces" onclick={()=>face=face==='classic'?'matisse':'classic'}>Change tile face</button>
 <button id="unpainted" onclick={()=>face='dali'}>Show a set still being painted</button>
-<div class="samples">{#each named as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}{#if honour}<section id="named-phone" style="--tile-width:28px"><p>named-phone</p><Tile tile={honour} size="tiny"/></section>{/if}</div>
+<div class="samples">{#each named as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}{#each phones as [id, tile]}<section id={id} style="--tile-width:28px"><p>{id}</p><Tile {tile} size="tiny" claimed/></section>{/each}</div>
 <style>:global(body){margin:30px;background:#173e35;color:#fff;font:16px system-ui;--tile-width:60px;--ivory:#fffaf0;} .samples{display:flex;gap:26px;align-items:start;flex-wrap:wrap;margin-bottom:40px} section{min-width:70px} #dynamic{margin:25px 0} button{margin:10px;padding:10px}</style>`);
   await build({configFile:false,root:temporary,base:'/mahjong/',publicDir:false,plugins:[svelte()],logLevel:'warn',build:{outDir:out,target:'es2022'}});
   if (!process.argv.includes('--build-only')) {
@@ -208,26 +211,33 @@ const cases = [
     await check('a tile its set has not painted is written out, upright, readable and inside its face, keeps its marks and loads nothing',async()=>{
       await page.click('#unpainted');
       await page.waitForSelector('#named .face.unpainted .name');
-      // Both lines in the hand, the first alone in a row, and an honour's
-      // letters where even its word could not be read.
+      // What a written tile shows at each width of its face: both words in a
+      // hand; in a row, a number over its suit's letter or an honour's first
+      // word; and on the table's rows and smaller, an honour's letters.
+      const expected=(tile,width)=>{
+        const [lead,rest]=tileWords(tile).split(' '), short=tileShorthand(tile);
+        return width>40?[lead,rest]:tile[1]!=='z'?[lead,short.slice(lead.length)]:width>34?[lead]:[short];
+      };
       const unpainted=(await page.$$eval('.samples section .tile[data-tile]',tiles=>tiles.map(tile=>tile.dataset.tile))).filter(tile=>!DALI_APPROVED.includes(tile));
       assert.ok(unpainted.length,'the fixture shows tiles Dalí has not painted');
-      const shown={named:'both','named-turned':'lead','named-row':'lead','named-small':'lead','named-phone':'shorthand'};
-      for(const [id,lines] of Object.entries(shown)) {
+      const tiers=new Set();
+      for(const id of ['named','named-turned','named-row','named-small','named-suited-turned','named-phone','named-suited-phone']) {
         if(!await page.$(`#${id}`)) continue;
         const shape=await page.$eval(`#${id}`,section=>{
           const box=element=>{const r=element.getBoundingClientRect();return [r.x,r.y,r.width,r.height];};
-          const tile=section.querySelector('.tile'),name=section.querySelector('.name'),edge=getComputedStyle(tile,'::after');
-          return {tile:tile.dataset.tile,face:box(section.querySelector('.face')),name:box(name),label:tile.getAttribute('aria-label'),
+          const tile=section.querySelector('.tile'),face=section.querySelector('.face'),name=section.querySelector('.name'),edge=getComputedStyle(tile,'::after');
+          const style=getComputedStyle(face);
+          return {tile:tile.dataset.tile,width:Math.min(parseFloat(style.width),parseFloat(style.height)),face:box(face),name:box(name),label:tile.getAttribute('aria-label'),
             images:section.querySelectorAll('img').length,classes:[...tile.classList],
             border:edge.content==='none'?0:parseFloat(edge.borderTopWidth),
             lines:[...name.children].filter(line=>getComputedStyle(line).display!=='none').map(line=>({text:line.textContent,box:box(line),size:parseFloat(getComputedStyle(line).fontSize)}))};
         });
-        const [lead,rest]=tileWords(shape.tile).split(' ');
         assert.equal(shape.images,0,`${id}: nothing is loaded for a tile without a picture`);
         assert.ok(shape.label.startsWith(tileWords(shape.tile)),`${id}: ${shape.label}`);
         assert.ok(shape.classes.includes('dali'),`${id}: the set's rounded corners`);
-        assert.deepEqual(shape.lines.map(line=>line.text),{both:[lead,rest],lead:[lead],shorthand:[tileShorthand(shape.tile)]}[lines],id);
+        const lines=expected(shape.tile,shape.width);
+        assert.deepEqual(shape.lines.map(line=>line.text),lines,`${id} at ${shape.width}px`);
+        tiers.add(lines.length===2&&lines[1].length===1?'number and letter':lines.length===2?'words':lines[0].length>2?'word':'letters');
         for(let n=0;n<4;n++)assert.ok(Math.abs(shape.name[n]-shape.face[n])<0.5,`${id}: the name covers its face`);
         // Inside the face, and inside a claimed tile's border as well.
         const [fx,fy,fw,fh]=shape.face, inset=shape.border;
@@ -236,13 +246,26 @@ const cases = [
           assert.ok(x>=fx+inset&&y>=fy+inset&&x+width<=fx+fw-inset&&y+height<=fy+fh-inset,`${id}: ${text} stays inside its face and border`);
           assert.ok(size>=6.5,`${id}: ${text} is ${size}px`);
         }
+        // A suit's letter lies under its number, or beside it on a tile turned on its side.
+        if(lines.length===2&&lines[1].length===1) {
+          const [[nx,ny,nw],[lx,ly,lw]]=shape.lines.map(line=>line.box);
+          if(shape.classes.includes('rotated')) assert.ok(lx>=nx+nw-0.5,`${id}: the letter follows its number`);
+          else assert.ok(ly>ny&&Math.abs(lx+lw/2-(nx+nw/2))<1,`${id}: the letter stands under its number`);
+        }
       }
+      const left=TILE_TYPES.filter(tile=>!DALI_APPROVED.includes(tile));
+      const possible=[...(left.some(tile=>tile[1]!=='z')?['number and letter','words']:[]),...(left.some(tile=>tile[1]==='z')?['letters','word']:[])];
+      assert.deepEqual([...tiers].sort(),possible.sort(),'the fixture shows every way a tile is written');
       // A turned honour still reads across, and has the shine but no dragon.
       if(await page.$('#named-turned')) {
         const [width,height]=await page.$eval('#named-turned .name b',b=>{const r=b.getBoundingClientRect();return [r.width,r.height];});
         assert.ok(width>height,`a turned name reads upright: ${width} by ${height}`);
         assert.ok(await page.$('#named-turned .foil'));
         assert.equal(await page.$('#named-turned .haku-dragon-reveal'),null);
+        // Held still for reduced motion, the shine rests on a corner of the
+        // face rather than across the name, which has nothing else to read.
+        const still=await page.$eval('#named-turned .foil',foil=>{const style=getComputedStyle(foil);return [style.animationName,style.backgroundPosition];});
+        assert.deepEqual(still,['none','100% 0px']);
       }
       if(!DALI_APPROVED.includes('5z')) {
         // A white dragon written out, not painted, has the shine alone.

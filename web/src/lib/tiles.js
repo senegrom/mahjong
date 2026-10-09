@@ -39,10 +39,12 @@ export function tileWords(name) {
   return `${rank} ${SUIT_WORDS[suit] ?? 'tiles'}`;
 }
 
-/** `"6p"` becomes `"6"`, `"2z"` becomes `"S"` and `"5z"` becomes `"Wh"`. */
+/** A tile's short name, for a face too small for its words. A suited tile
+ * is written as tile notation writes it, its number and its suit's letter,
+ * so `"6p"` stays `"6p"`; `"2z"` becomes `"S"` and `"5z"` becomes `"Wh"`. */
 export function tileShorthand(name) {
   if (!TILE_TYPES.includes(name)) return '';
-  return name[1] === 'z' ? HONOUR_SHORTHAND[Number(name[0]) - 1] : name[0];
+  return name[1] === 'z' ? HONOUR_SHORTHAND[Number(name[0]) - 1] : name;
 }
 
 /** `"5m"` as a sequence start becomes `"5–6–7 characters"`. */

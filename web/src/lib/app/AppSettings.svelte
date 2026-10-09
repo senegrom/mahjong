@@ -183,7 +183,7 @@
       <dd>Another player claimed the tile for a call, so it now sits in their set. If it was thrown from the draw, its face is darker as well.</dd>
 
       <dt>A name in place of a picture</dt>
-      <dd>The tile face you chose has no picture for this tile yet, so the tile shows its name, or on the smallest tiles its number or letters: E, S, W and N for the winds, Wh, G and R for the dragons.</dd>
+      <dd>The tile face you chose has no picture for this tile yet, so the tile shows its name. On smaller tiles, as in a discard row, a number stands over its suit's letter, as tile notation writes it: m for characters, p for circles and s for bamboo. An honour too small for its word is given in letters: E, S, W and N for the winds, Wh, G and R for the dragons.</dd>
 
     </dl>
 

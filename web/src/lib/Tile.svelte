@@ -104,11 +104,14 @@
   );
   // A tile without a picture is written out in the words it is announced
   // with, the number over the suit or an honour's first word over its
-  // second, and in a number or letters where the face is too small for words.
+  // second. Where the face is too small for the second word, its short name
+  // stands in: a suit's letter under the number, which the short name
+  // begins with, or an honour's letters in place of its words.
   let named = $derived.by(() => {
     if (imageUrl) return null;
     const [lead, rest] = tileWords(tile).split(' ');
-    return { lead, rest, shorthand: tileShorthand(tile) };
+    const short = tileShorthand(tile);
+    return { lead, rest, letters: tile[1] === 'z' ? short : short.slice(lead.length) };
   });
   // The white dragon's face is blank, which reads as a missing picture.
   // Sets that do not leave it plain frame it in blue; so does this one.
@@ -150,7 +153,7 @@
   >
     <span class="face" class:haku={whiteDragonDora} class:unpainted={Boolean(named)}>
       {#if named}
-        <span class="name" aria-hidden="true"><b>{named.lead}</b><span>{named.rest}</span><b class="shorthand">{named.shorthand}</b></span>
+        <span class="name" aria-hidden="true"><b class="lead">{named.lead}</b><span class="rest">{named.rest}</span><b class="letters">{named.letters}</b></span>
       {:else}
         <img src={imageUrl} alt="" draggable="false" class:blank />
       {/if}
@@ -184,7 +187,7 @@
   >
     <span class="face" class:haku={whiteDragonDora} class:unpainted={Boolean(named)}>
       {#if named}
-        <span class="name" aria-hidden="true"><b>{named.lead}</b><span>{named.rest}</span><b class="shorthand">{named.shorthand}</b></span>
+        <span class="name" aria-hidden="true"><b class="lead">{named.lead}</b><span class="rest">{named.rest}</span><b class="letters">{named.letters}</b></span>
       {:else}
         <img src={imageUrl} alt="" draggable="false" class:blank />
       {/if}
@@ -337,53 +340,83 @@
     line-height: 1.1;
   }
 
-  .name .shorthand {
+  /* The letters stand in for the words only where those cannot be read. */
+  .name .letters {
     display: none;
   }
 
   /* A face smaller than a tile in the hand, as in a discard row, is too
-     small for the second line to be read, so the first stands alone and
-     larger, the colour of a number still telling its suit. It leaves room
+     small for a second word to be read. A suited tile gives its suit by the
+     letter tile notation writes it with, under a larger number: m for
+     characters, p for circles and s for bamboo. The colour says the same,
+     but never alone, so a red 8 and a blue 8 are told apart by their
+     letters as well. An honour's first word stands alone. Each leaves room
      at the edges for a claimed tile's border. */
   @container (max-width: 40px) {
-    .name > span {
+    .name .rest {
       display: none;
     }
 
-    .name > b {
-      font-size: 4em;
+    .name .lead {
+      font-size: 3.8em;
     }
 
-    [data-tile$='z'] .name > b {
+    /* A small letter's ink sits low in its line, so it is drawn up to its
+       number, which also centres the pair on the face as it is seen. */
+    .name .letters {
+      display: block;
+      position: relative;
+      top: -0.1em;
+      font-size: 3em;
+      line-height: 0.8;
+    }
+
+    [data-tile$='z'] .name .lead {
       font-size: 1.6em;
+    }
+
+    [data-tile$='z'] .name .letters {
+      display: none;
+    }
+
+    /* A tile turned on its side is wide and low, so its number and letter
+       sit side by side on one baseline, as the notation writes them.
+       Wrapping lets the pair be centred on the face. */
+    .rotated .name {
+      flex-flow: row wrap;
+      align-content: center;
+      align-items: baseline;
+    }
+
+    .rotated .name .letters {
+      top: 0;
     }
   }
 
-  /* Smaller still, as in agent watch or a phone's discard rows, not even an
-     honour's word can be read, so it is given in its letters, as large as
-     they fit. */
-  @container (max-width: 25px) {
-    .name > b {
+  /* On the table's own rows even an honour's word is too small to read at
+     a glance, so from here down it is given in its letters, as large as
+     they fit: E, S, W and N for the winds, Wh, G and R for the dragons. */
+  @container (max-width: 34px) {
+    [data-tile$='z'] .name .lead {
       display: none;
     }
 
-    .name > .shorthand {
+    [data-tile$='z'] .name .letters {
       display: block;
-    }
-
-    [data-tile$='z'] .name > .shorthand {
+      top: 0;
       font-size: 4em;
+      line-height: 0.9;
     }
 
-    [data-tile='5z'] .name > .shorthand {
+    [data-tile='5z'] .name .letters {
       font-size: 2.9em;
     }
   }
 
-  /* Each suit keeps the colour its pictures are known by, so the number of
-     a tile too small for its words still tells the suit: red characters,
-     blue circles and green bamboo. The winds are in ink and each dragon in
-     its colour, the white one in the blue that frames it on the Classic face. */
+  /* Each suit keeps the colour its pictures are known by, as a second sign
+     of the suit beside its word or letter: red characters, blue circles
+     and green bamboo. The winds are in ink and each dragon in its colour,
+     the white one in the blue that frames it on the Classic face. */
   [data-tile$='m'] .name, [data-tile='7z'] .name { color: #b3261e; }
   [data-tile$='p'] .name, [data-tile='5z'] .name { color: #1d4f91; }
   [data-tile$='s'] .name, [data-tile='6z'] .name { color: #1e6b3f; }
@@ -587,6 +620,11 @@
     .foil {
       animation: none;
       background-position: 40% 0;
+    }
+    /* A name has no picture around it to read instead, so a shine held
+       still across it would wash it out. It rests on the corner instead. */
+    .unpainted .foil {
+      background-position: 100% 0;
     }
   }
 </style>
