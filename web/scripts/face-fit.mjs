@@ -25,7 +25,8 @@ const SIDE_BLEED = 3, TOP_BLEED = 4;
 // Adding zero turns a negative zero into zero, so equal boxes compare equal.
 const round = value => Math.sign(value) * Math.round(Math.abs(value) * 100) / 100 + 0;
 
-/** The <image> box for a raster of `raster` = [width, height] pixels. */
+/** The <image> box for a fit, or the shared box without one. `raster` is the
+ * embedded raster's [width, height] in pixels. */
 export function faceImage(fit, raster) {
   if (!fit) {
     return { x: -SIDE_BLEED, y: -TOP_BLEED, width: FACE_WIDTH + 2 * SIDE_BLEED, height: FACE_HEIGHT + 2 * TOP_BLEED };
