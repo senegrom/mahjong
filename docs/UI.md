@@ -8,6 +8,23 @@ Calls are presented as a staged discard followed by the legal response choices. 
 
 The 7-by-2 phone hand layout is intentional: it preserves large, reliable touch targets instead of squeezing fourteen tiles into one row. The newly drawn tile remains slightly separated, including its hint count, and carries no border merely for being newly drawn.
 
+## Tile faces
+
+Classic and Matisse have a picture for every tile. Dalí and Van Gogh are still
+being painted: a tile the chosen set has no approved artwork for shows its name
+in text on the ivory face instead, so it plainly waits for its picture and never
+borrows another set's. In the hand the number stands over its suit, or an
+honour's first word over its second, in the words the tile is announced with.
+On the smaller faces of discard rows the first line stands alone and larger,
+and the colour of a number tells its suit: red characters, blue circles, green
+bamboo. Where even an honour's word would be too small to read, as in agent
+watch or on a phone, it is given in letters: E, S, W and N for the winds, and
+Wh, G and R for the dragons. The name stays upright on a tile turned for riichi
+and carries the dora ring and shine and both discard marks; a white dragon
+written out has no dragon under its shine. Nothing is downloaded or saved
+offline for these tiles, and each becomes its picture as soon as its artwork is
+approved.
+
 ## Discard previews and readiness markings
 
 With **Hints and markings** enabled, each legal discard is analysed using the

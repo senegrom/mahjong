@@ -4,13 +4,17 @@ import { MATISSE_DRAGON_URL, TILE_IMAGE_URLS, normalizeTileFace, tileImage } fro
 import { createImagePreloader } from './image-preloader.js';
 
 const images = createImagePreloader();
-/** Selected faces and their actual foil artwork, not unused face sets. */
+/** Selected faces and their actual foil artwork, not unused face sets. A
+ * tile the set has not painted yet shows its name and loads nothing, and a
+ * white dragon shown that way has no dragon to reveal under its foil. */
 function faceImageUrls(face) {
   face = normalizeTileFace(face);
+  const reveal = face === 'van-gogh' || !tileImage('5z', face) ? []
+    : [face === 'matisse' ? MATISSE_DRAGON_URL : dragonUrl];
   return [...new Set([
     'tiles/Back.svg', 'tiles/Front.svg',
-    ...TILE_TYPES.map(tile => tileImage(tile, face)),
-    ...(face === 'van-gogh' ? [] : [face === 'matisse' ? MATISSE_DRAGON_URL : dragonUrl]),
+    ...TILE_TYPES.map(tile => tileImage(tile, face)).filter(Boolean),
+    ...reveal,
   ])];
 }
 /** Cache Storage owns full offline readiness; this pool only owns decoding.

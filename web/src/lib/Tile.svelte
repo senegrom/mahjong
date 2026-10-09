@@ -5,9 +5,8 @@
 
 <script>
   import { getContext } from 'svelte';
-  import { tileWords } from './tiles.js';
+  import { tileShorthand, tileWords } from './tiles.js';
   import { TILE_FACE_CONTEXT, tileImage } from './tile-faces.js';
-  import { VAN_GOGH_APPROVED } from './van-gogh-faces.js';
 
   const currentFace = getContext(TILE_FACE_CONTEXT) ?? (() => 'classic');
   let tileFace = $derived(currentFace());
@@ -16,6 +15,11 @@
    * One tile, using the selected face set; a face-down tile shows the back.
    * Every tile carries its name for screen readers, so
    * a hand can be read out without relying on the picture.
+   *
+   * A face set still being painted has no picture for some tiles. Such a
+   * tile shows its name in text on the ivory instead, so it plainly waits
+   * for its artwork rather than borrowing another set's, and its picture
+   * takes over as soon as the artwork is approved.
    *
    * A tile in the hand can carry marks, each a colour of ring around the
    * face: gold for a discard leaving tenpai, silver for one shanten, red
@@ -98,10 +102,20 @@
       safe && 'safe against declared riichi, not guaranteed against undeclared hands']
       .filter(Boolean).join(', '),
   );
+  // A tile without a picture is written out in the words it is announced
+  // with, the number over the suit or an honour's first word over its
+  // second, and in a number or letters where the face is too small for words.
+  let named = $derived.by(() => {
+    if (imageUrl) return null;
+    const [lead, rest] = tileWords(tile).split(' ');
+    return { lead, rest, shorthand: tileShorthand(tile) };
+  });
   // The white dragon's face is blank, which reads as a missing picture.
   // Sets that do not leave it plain frame it in blue; so does this one.
   let blank = $derived(tileFace === 'classic' && !facedown && tile === '5z');
-  let whiteDragonDora = $derived(!facedown && tile === '5z' && dora);
+  // The dragon revealed under the foil belongs to a picture: a white dragon
+  // written out has the foil alone, as any other dora has.
+  let whiteDragonDora = $derived(!facedown && tile === '5z' && dora && !named);
   // Van Gogh retains its approved white-dragon artwork under the foil.
   let revealUrl = $derived(tileFace === 'van-gogh' ? null : tileFace === 'matisse' ? MATISSE_DRAGON_URL : dragonUrl);
 </script>
@@ -110,7 +124,7 @@
   <button
     class="tile {size}"
     class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
-    class:van-gogh={tileFace === 'van-gogh' && !facedown && VAN_GOGH_APPROVED.includes(tile)}
+    class:van-gogh={tileFace === 'van-gogh' && !facedown && Boolean(tile)}
     class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
     class:claimed
@@ -134,8 +148,12 @@
     aria-label={title || words}
     onclick={() => onclick(tile)}
   >
-    <span class="face" class:haku={whiteDragonDora}>
-      <img src={imageUrl} alt="" draggable="false" class:blank />
+    <span class="face" class:haku={whiteDragonDora} class:unpainted={Boolean(named)}>
+      {#if named}
+        <span class="name" aria-hidden="true"><b>{named.lead}</b><span>{named.rest}</span><b class="shorthand">{named.shorthand}</b></span>
+      {:else}
+        <img src={imageUrl} alt="" draggable="false" class:blank />
+      {/if}
       {#if dora && !facedown}
         {#key whiteDragonDora}
           {#if whiteDragonDora && revealUrl}
@@ -150,7 +168,7 @@
   <span
     class="tile {size}"
     class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
-    class:van-gogh={tileFace === 'van-gogh' && !facedown && VAN_GOGH_APPROVED.includes(tile)}
+    class:van-gogh={tileFace === 'van-gogh' && !facedown && Boolean(tile)}
     class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
     class:claimed
@@ -164,8 +182,12 @@
     aria-label={title || words}
     title={title || words}
   >
-    <span class="face" class:haku={whiteDragonDora}>
-      <img src={imageUrl} alt="" draggable="false" class:blank />
+    <span class="face" class:haku={whiteDragonDora} class:unpainted={Boolean(named)}>
+      {#if named}
+        <span class="name" aria-hidden="true"><b>{named.lead}</b><span>{named.rest}</span><b class="shorthand">{named.shorthand}</b></span>
+      {:else}
+        <img src={imageUrl} alt="" draggable="false" class:blank />
+      {/if}
       {#if dora && !facedown}
         {#key whiteDragonDora}
           {#if whiteDragonDora && revealUrl}
@@ -260,6 +282,111 @@
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.55) inset,
       0 0 0 2px #4a7fb5 inset;
+  }
+
+  /* A tile its set has not painted yet: only its name, on the ivory. The
+     type is measured against the face, so the name keeps its proportions
+     whatever size a row or a grid gives the tile, and a phone's text
+     enlarging may not push it past the edge. The sizes in tile widths are
+     for a browser without container units. */
+  .face.unpainted {
+    container-type: inline-size;
+  }
+
+  .name {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #26302c;
+    font-size: calc(var(--face-width) * 0.17);
+    font-size: 17cqi;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* The number, large, over its suit. */
+  .name b {
+    font-size: 3.3em;
+    font-weight: 700;
+    line-height: 0.9;
+  }
+
+  /* An honour's first word is what tells it apart, so it leads, as large as
+     the longest of them fits. */
+  [data-tile$='z'] .name b {
+    font-size: 1.65em;
+    line-height: 1.1;
+  }
+
+  .name .shorthand {
+    display: none;
+  }
+
+  /* A face smaller than a tile in the hand, as in a discard row, is too
+     small for the second line to be read, so the first stands alone and
+     larger, the colour of a number still telling its suit. It leaves room
+     at the edges for a claimed tile's border. */
+  @container (max-width: 40px) {
+    .name > span {
+      display: none;
+    }
+
+    .name > b {
+      font-size: 4em;
+    }
+
+    [data-tile$='z'] .name > b {
+      font-size: 1.6em;
+    }
+  }
+
+  /* Smaller still, as in agent watch or a phone's discard rows, not even an
+     honour's word can be read, so it is given in its letters, as large as
+     they fit. */
+  @container (max-width: 25px) {
+    .name > b {
+      display: none;
+    }
+
+    .name > .shorthand {
+      display: block;
+    }
+
+    [data-tile$='z'] .name > .shorthand {
+      font-size: 4em;
+    }
+
+    [data-tile='5z'] .name > .shorthand {
+      font-size: 2.9em;
+    }
+  }
+
+  /* Each suit keeps the colour its pictures are known by, so the number of
+     a tile too small for its words still tells the suit: red characters,
+     blue circles and green bamboo. The winds are in ink and each dragon in
+     its colour, the white one in the blue that frames it on the Classic face. */
+  [data-tile$='m'] .name, [data-tile='7z'] .name { color: #b3261e; }
+  [data-tile$='p'] .name, [data-tile='5z'] .name { color: #1d4f91; }
+  [data-tile$='s'] .name, [data-tile='6z'] .name { color: #1e6b3f; }
+
+  /* On a tile turned on its side the name stays upright, so it reads as on
+     every other tile and a 6 is never taken for a 9: its box is laid out
+     lying down and turned back against the face's own turn. */
+  .rotated .name {
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    width: calc(100% * 4 / 3);
+    height: 75%;
+    transform: translate(-50%, -50%) rotate(-90deg);
   }
 
   .small {
