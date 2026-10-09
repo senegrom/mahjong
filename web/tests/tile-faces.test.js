@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compile } from 'svelte/compiler';
@@ -157,6 +157,23 @@ test('an artist\'s set names exactly the tiles it has not painted, and fetches n
   for (const tile of TILE_TYPES.filter(tile => tile[1] !== 'z')) assert.equal(tileShorthand(tile), tile[0]);
   assert.equal(tileShorthand('not-a-tile'), '');
   assert.equal(tileShorthand(null), '');
+});
+
+test('the exports record that an unpainted tile is written out, and ship no stand-in picture for it', () => {
+  const read = name => JSON.parse(readFileSync(new URL(`tiles/${name}/manifest.json`, publicRoot), 'utf8'));
+  const dali = read('dali'), vanGogh = read('van-gogh');
+  for (const set of [dali, vanGogh]) assert.equal(set.fallback, 'text');
+  assert.deepEqual(dali.placeholders, TILE_TYPES.filter(tile => !DALI_APPROVED.includes(tile)).map(tile => ({ tile })));
+  assert.deepEqual(vanGogh.remaining, TILE_TYPES.filter(tile => !VAN_GOGH_APPROVED.includes(tile)));
+  for (const name of ['dali', 'matisse']) assert.equal(existsSync(new URL(`tiles/${name}/placeholders`, publicRoot)), false, name);
+  // The previews say so, and show only painted faces in their hands.
+  const preview = name => readFileSync(new URL(`tiles/${name}/preview.html`, publicRoot), 'utf8');
+  assert.match(preview('dali'), /remaining 13 tiles show their names until their artwork is approved/);
+  assert.match(preview('van-gogh'), new RegExp(`remaining ${vanGogh.remaining.length} tiles show their names until their artwork is approved: ${vanGogh.remaining.map(tileWords).join(', ')}\\.`));
+  for (const name of ['dali', 'van-gogh']) assert.doesNotMatch(preview(name), /Classic artwork|study placeholder|placeholders\/|src="\.\.\//, name);
+  for (const name of ['export-dali-tiles', 'export-van-gogh-tiles', 'export-matisse-tiles']) {
+    assert.doesNotMatch(readFileSync(new URL(`../scripts/${name}.mjs`, import.meta.url), 'utf8'), /placeholders\/|fallback: 'classic'|<text /, name);
+  }
 });
 
 test('tile face survives preference restoration and retired or invalid settings use Classic', () => {

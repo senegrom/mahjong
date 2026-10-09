@@ -9,6 +9,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
+  "fallback": "text",
   "tiles": [
     {
       "name": "Pin1",
@@ -382,56 +383,43 @@
   ],
   "placeholders": [
     {
-      "tile": "1m",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "1m"
     },
     {
-      "tile": "2m",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "2m"
     },
     {
-      "tile": "3m",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "3m"
     },
     {
-      "tile": "4m",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "4m"
     },
     {
-      "tile": "2p",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "2p"
     },
     {
-      "tile": "6p",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "6p"
     },
     {
-      "tile": "7p",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "7p"
     },
     {
-      "tile": "8p",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "8p"
     },
     {
-      "tile": "9p",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "9p"
     },
     {
-      "tile": "2z",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "2z"
     },
     {
-      "tile": "3z",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "3z"
     },
     {
-      "tile": "5z",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "5z"
     },
     {
-      "tile": "6z",
-      "svg": "placeholders/placeholder.svg"
+      "tile": "6z"
     }
   ]
 }

@@ -105,7 +105,7 @@ test('--only=6m copies the approved image exactly, preserves other artwork and i
     }
   }
   const run = argument => execFileSync(process.execPath, [path.join(temporary, 'web/scripts/export-van-gogh-tiles.mjs'), argument], { encoding: 'utf8', stdio: 'pipe' });
-  assert.equal(run('--only=6m').trim(), `Exported ${set.tiles.length} approved Van Gogh faces; ${set.remaining.length} identities use Classic artwork.`);
+  assert.equal(run('--only=6m').trim(), `Exported ${set.tiles.length} approved Van Gogh faces; ${set.remaining.length} identities show their names until painted.`);
   const generated = JSON.parse(readFileSync(path.join(temporary, 'web/public/tiles/van-gogh/manifest.json')));
   assert.deepEqual(generated.tiles.find(tile => tile.tile === '6m'), entry);
   assert.deepEqual(generated.remaining, set.remaining);

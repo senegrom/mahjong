@@ -129,4 +129,4 @@ To reproduce the exports, install Node.js and ImageMagick (`convert`), then run 
 node web/scripts/export-matisse-tiles.mjs
 ```
 
-The script performs lossless rectangular extraction, canvas wrapping, text placeholder generation and preview generation. The 34 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game. If a tile's approval status changes, the script removes its obsolete export and placeholder paths.
+The script performs lossless rectangular extraction, canvas wrapping and preview generation. The 34 approved designs are taken directly from the selected source pixels. It also generates the approved tile list used by the game, which writes out the name of any tile without approved artwork, so no placeholder picture is made. If a tile's approval status changes, the script removes its obsolete export.
