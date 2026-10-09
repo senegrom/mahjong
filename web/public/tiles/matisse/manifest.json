@@ -59,6 +59,21 @@
         "width": 537,
         "height": 636
       },
+      "fit": {
+        "painting": {
+          "width": 537,
+          "height": 636
+        },
+        "stretch": -0.038,
+        "anchor": 0.675,
+        "bleedPixels": 1,
+        "image": {
+          "x": -17.5,
+          "y": -0.63,
+          "width": 325.93,
+          "height": 401.26
+        }
+      },
       "notes": "C: three apricot, mint and carmine cut-paper rosettes in a loose S on deep purple, with coloured centres."
     },
     {
@@ -75,6 +90,20 @@
         "y": 198,
         "width": 483,
         "height": 623
+      },
+      "fit": {
+        "painting": {
+          "width": 483,
+          "height": 623
+        },
+        "stretch": -0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -4.99,
+          "y": -4,
+          "width": 309.99,
+          "height": 408
+        }
       },
       "notes": "Éclipse A: four irregular ultramarine rings with vermilion wedges on warm ivory, in an asymmetric cut-paper dance. The lossless crop preserves the selected artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
@@ -110,6 +139,20 @@
         "width": 548,
         "height": 713
       },
+      "fit": {
+        "painting": {
+          "width": 548,
+          "height": 713
+        },
+        "stretch": -0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3.66,
+          "y": -4,
+          "width": 307.31,
+          "height": 408
+        }
+      },
       "notes": "C: six coral, chartreuse and orange cut-paper rosettes in three loose pairs on forest green, with broad open cuts and contrasting centres. The lossless crop excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
     {
@@ -126,6 +169,21 @@
         "y": 80,
         "width": 514,
         "height": 742
+      },
+      "fit": {
+        "painting": {
+          "width": 514,
+          "height": 742
+        },
+        "stretch": 0.02,
+        "anchor": 0.555,
+        "bleedPixels": 1,
+        "image": {
+          "x": -0.59,
+          "y": -14.56,
+          "width": 301.17,
+          "height": 426.24
+        }
       },
       "notes": "Ivory Garden A: seven blue, vermilion and green cut-paper rosettes in a loose 2-3-2 arrangement on ivory, with contrasting centres. The flat crop preserves the selected source pixels and excludes the study label and surround; it uses the shared 3:4 face, bleed and rounded clipping."
     },
@@ -178,6 +236,20 @@
         "width": 994,
         "height": 1292
       },
+      "fit": {
+        "painting": {
+          "width": 994,
+          "height": 1292
+        },
+        "stretch": -0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3.81,
+          "y": -4,
+          "width": 307.62,
+          "height": 408
+        }
+      },
       "notes": "Cut & Swap C: two mint and forest-green bamboo cut-outs exchange foreground and background colours across a sweeping divided green field. Every visible part of the face stays green for All Green. The lossless crop preserves both complete forms and excludes the presentation label and surround, using the shared 3:4 face, bleed and rounded clipping with no inset rim."
     },
     {
@@ -211,6 +283,21 @@
         "y": 119,
         "width": 500,
         "height": 700
+      },
+      "fit": {
+        "painting": {
+          "width": 500,
+          "height": 700
+        },
+        "stretch": 0.02,
+        "anchor": 0.465,
+        "bleedPixels": 1,
+        "image": {
+          "x": -0.6,
+          "y": -6.24,
+          "width": 301.2,
+          "height": 413.42
+        }
       },
       "notes": "Chapel B: four pale-green sculptural bamboo cut-outs on a deep forest-green field. All artwork stays green for All Green. The flat face excludes the study labels and surround, with the shared full-face fit and rounded clipping."
     },
@@ -314,6 +401,20 @@
         "width": 469,
         "height": 680
       },
+      "fit": {
+        "painting": {
+          "width": 469,
+          "height": 680
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -17.48,
+          "width": 306,
+          "height": 434.97
+        }
+      },
       "notes": "Chapel Stencil C from the second, bolder board: a broad deep-forest-green 東 with four coral-pink cut-out windows and an ivory upper crossbar on coral pink. The lossless crop preserves the selected source pixels and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping with no inset border."
     },
     {
@@ -348,6 +449,20 @@
         "width": 435,
         "height": 602
       },
+      "fit": {
+        "painting": {
+          "width": 435,
+          "height": 602
+        },
+        "stretch": 0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3,
+          "y": -7.59,
+          "width": 306,
+          "height": 415.17
+        }
+      },
       "notes": "Cut-out C: sculptural ivory 西 with a cobalt-blue top stroke on vermilion. The flat crop excludes the study label and surround, using the shared full-face fit, bleed and rounded clipping."
     },
     {
@@ -381,6 +496,21 @@
         "y": 117,
         "width": 857,
         "height": 1253
+      },
+      "fit": {
+        "painting": {
+          "width": 857,
+          "height": 1253
+        },
+        "stretch": 0.0625,
+        "anchor": 0.59,
+        "bleedPixels": 2,
+        "image": {
+          "x": -0.7,
+          "y": -8.71,
+          "width": 301.41,
+          "height": 414.76
+        }
       },
       "notes": "Chapel Flame C: a pale-pink sculptural enclosure and a sweeping lemon-yellow central ribbon form 中 on vermilion. The lossless crop preserves the selected artwork, excludes the study label and surround, and uses the shared 3:4 face, bleed and rounded clipping."
     },
