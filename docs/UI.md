@@ -19,10 +19,10 @@ On faces of 40px or less, as in discard rows, dora indicators and the physical
 editor's entered tiles, a number stands over its suit's letter as tile notation
 writes it (m characters, p circles, s bamboo), or beside it on a tile turned on
 its side, so a suit never rests on its colour alone; the colours (red
-characters, blue circles, green bamboo) only repeat it. An honour keeps its
-first word down to 34px, as in the inspection of all discards, and on the
-table's own rows and smaller it is given in letters: E, S, W and N for the
-winds, and Wh, G and R for the dragons. The name stays upright on a tile turned
+characters, blue circles, green bamboo) only repeat it. On the same faces an
+honour is given in letters, as large as they fit: E, S, W and N for the winds,
+and Wh, G and R for the dragons; its first word alone was too small there to
+read at a glance. The name stays upright on a tile turned
 for riichi and carries the dora ring and shine and both discard marks; a white
 dragon written out has no dragon under its shine, and with reduced motion its
 still shine rests on a corner rather than across the name. Nothing is

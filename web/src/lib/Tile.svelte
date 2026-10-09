@@ -364,9 +364,9 @@
      letter tile notation writes it with, under a larger number: m for
      characters, p for circles and s for bamboo. The colour says the same,
      but never alone, so a red 8 and a blue 8 are told apart by their
-     letters as well. An honour's first word stands alone. Each leaves room
-     at the edges for a claimed tile's border. A face is measured by its
-     shorter side, whichever way up it lies. */
+     letters as well. Each leaves room at the edges for a claimed tile's
+     border. A face is measured by its shorter side, whichever way up it
+     lies. */
   @container (max-width: 40px) or (max-height: 40px) {
     .name .rest {
       display: none;
@@ -386,14 +386,6 @@
       line-height: 0.8;
     }
 
-    [data-tile$='z'] .name .lead {
-      font-size: 1.6em;
-    }
-
-    [data-tile$='z'] .name .letters {
-      display: none;
-    }
-
     /* A tile turned on its side is wide and low, so its number and letter
        sit side by side on one baseline, as the notation writes them.
        Wrapping lets the pair be centred on the face. */
@@ -406,18 +398,16 @@
     .rotated .name .letters {
       top: 0;
     }
-  }
 
-  /* On the table's own rows even an honour's word is too small to read at
-     a glance, so from here down it is given in its letters, as large as
-     they fit: E, S, W and N for the winds, Wh, G and R for the dragons. */
-  @container (max-width: 34px) or (max-height: 34px) {
+    /* An honour is given in its own letters from the same size, as large
+       as they fit: E, S, W and N for the winds, Wh, G and R for the
+       dragons. Its first word alone was too small here to read at a
+       glance. */
     [data-tile$='z'] .name .lead {
       display: none;
     }
 
     [data-tile$='z'] .name .letters {
-      display: block;
       top: 0;
       font-size: 4em;
       line-height: 0.9;

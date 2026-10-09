@@ -38,14 +38,16 @@ import { TILE_TYPES } from '../src/lib/tiles.js';
 let face = $state('classic');
 setContext(TILE_FACE_CONTEXT, () => face);
 // Tiles Dalí has not painted yet, whichever they are when this runs, at the
-// sizes that show both words, a number over its suit's letter, an honour's
-// first word, and an honour's letters, upright and turned.
+// sizes that show both words, a number over its suit's letter, and an
+// honour's letters, upright and turned; an honour at the inspection's 37px
+// too, which once showed only its first word, small.
 const unpainted = TILE_TYPES.filter(tile => !DALI_APPROVED.includes(tile));
 const suited = unpainted.find(tile => tile[1] !== 'z'), honour = unpainted.find(tile => tile[1] === 'z');
 const named = [
   ['named', {tile:suited}], ['named-turned', {tile:honour,rotated:true,dora:true,size:'small'}],
   ['named-row', {tile:honour,size:'tiny',fromDraw:true,claimed:true}], ['named-small', {tile:suited,size:'small',claimed:true}],
   ['named-suited-turned', {tile:suited,rotated:true,claimed:true,size:'tiny'}],
+  ['named-honour-small', {tile:honour,size:'small'}], ['named-honour-turned', {tile:honour,rotated:true}],
 ].filter(([, props]) => props.tile);
 const phones = [['named-phone', honour], ['named-suited-phone', suited]].filter(([, tile]) => tile);
 let tile = $state('1m'); let marked = $state(true); let clicks = $state(0);
@@ -469,16 +471,16 @@ let greensShown = $state(false);
       await page.click('#unpainted');
       await page.waitForSelector('#named .face.unpainted .name');
       // What a written tile shows at each width of its face: both words in a
-      // hand; in a row, a number over its suit's letter or an honour's first
-      // word; and on the table's rows and smaller, an honour's letters.
+      // hand; and from 40px down, as in a row, a number over its suit's
+      // letter, or an honour's letters.
       const expected=(tile,width)=>{
         const [lead,rest]=tileWords(tile).split(' '), short=tileShorthand(tile);
-        return width>40?[lead,rest]:tile[1]!=='z'?[lead,short.slice(lead.length)]:width>34?[lead]:[short];
+        return width>40?[lead,rest]:tile[1]!=='z'?[lead,short.slice(lead.length)]:[short];
       };
       const unpainted=(await page.$$eval('.samples section .tile[data-tile]',tiles=>tiles.map(tile=>tile.dataset.tile))).filter(tile=>!DALI_APPROVED.includes(tile));
       assert.ok(unpainted.length,'the fixture shows tiles Dalí has not painted');
       const tiers=new Set();
-      for(const id of ['named','named-turned','named-row','named-small','named-suited-turned','named-phone','named-suited-phone']) {
+      for(const id of ['named','named-turned','named-row','named-small','named-suited-turned','named-honour-small','named-honour-turned','named-phone','named-suited-phone']) {
         if(!await page.$(`#${id}`)) continue;
         const shape=await page.$eval(`#${id}`,section=>{
           const box=element=>{const r=element.getBoundingClientRect();return [r.x,r.y,r.width,r.height];};
@@ -496,7 +498,10 @@ let greensShown = $state(false);
         assert.ok(shape.classes.includes('dali'),`${id}: the set's rounded corners`);
         const lines=expected(shape.tile,shape.width);
         assert.deepEqual(shape.lines.map(line=>line.text),lines,`${id} at ${shape.width}px`);
-        tiers.add(lines.length===2&&lines[1].length===1?'number and letter':lines.length===2?'words':lines[0].length>2?'word':'letters');
+        tiers.add(lines.length===2&&lines[1].length===1?'number and letter':lines.length===2?'words':'letters');
+        // An honour's letters fill their face, at least nearly half its width
+        // tall, where its first word alone was a quarter.
+        if(shape.tile[1]==='z'&&shape.width<=40) assert.ok(shape.lines[0].size>=0.45*shape.width,`${id}: ${shape.lines[0].text} is ${shape.lines[0].size}px on a ${shape.width}px face`);
         for(let n=0;n<4;n++)assert.ok(Math.abs(shape.name[n]-shape.face[n])<0.5,`${id}: the name covers its face`);
         // Inside the face, and inside a claimed tile's border and its hairline as well.
         const [fx,fy,fw,fh]=shape.face, inset=shape.border+shape.hairline;
@@ -514,12 +519,15 @@ let greensShown = $state(false);
         }
       }
       const left=TILE_TYPES.filter(tile=>!DALI_APPROVED.includes(tile));
-      const possible=[...(left.some(tile=>tile[1]!=='z')?['number and letter','words']:[]),...(left.some(tile=>tile[1]==='z')?['letters','word']:[])];
-      assert.deepEqual([...tiers].sort(),possible.sort(),'the fixture shows every way a tile is written');
-      // A turned honour still reads across, and has the shine but no dragon.
-      if(await page.$('#named-turned')) {
-        const [width,height]=await page.$eval('#named-turned .name b',b=>{const r=b.getBoundingClientRect();return [r.width,r.height];});
+      const possible=new Set([...(left.some(tile=>tile[1]!=='z')?['number and letter','words']:[]),...(left.some(tile=>tile[1]==='z')?['letters','words']:[])]);
+      assert.deepEqual([...tiers].sort(),[...possible].sort(),'the fixture shows every way a tile is written');
+      // A turned honour's words still read across.
+      if(await page.$('#named-honour-turned')) {
+        const [width,height]=await page.$eval('#named-honour-turned .name b',b=>{const r=b.getBoundingClientRect();return [r.width,r.height];});
         assert.ok(width>height,`a turned name reads upright: ${width} by ${height}`);
+      }
+      // A turned honour that is dora has the shine but no dragon.
+      if(await page.$('#named-turned')) {
         assert.ok(await page.$('#named-turned .foil'));
         assert.equal(await page.$('#named-turned .haku-dragon-reveal'),null);
         // Held still for reduced motion, the shine rests on a corner of the
