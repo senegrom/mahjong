@@ -570,7 +570,7 @@ let writtenShown = $state(false);
       // On a claimed tile it must keep inside the face less the border and
       // the hairline, and the same tile unclaimed must be written the same.
       if(!writtenTiles.length) return;
-      const faults=[], least={};
+      const faults=[], least={}, room={};
       await page.click('#written-shown');
       await page.waitForSelector('#written .name');
       try {
@@ -616,6 +616,18 @@ let writtenShown = $state(false);
               if(!(least[kind]?.clear<=clear)) least[kind]={clear:Math.round(clear*100)/100,at:`x${scale} ${label}${rotated?' turned':''}`};
             }
           }
+          // The least room each side of a claimed face leaves, by row, so that a
+          // run on another platform shows where its text sits as well as whether
+          // it fits.
+          if(scale===1) for(const {label,rotated,claimed,face:[width,height],inset,lines} of tiles) {
+            if(!claimed) continue;
+            const row=`${label.replace(/^\S+ at /,'')}${rotated?' turned':''}`;
+            const mins=room[row]??={top:Infinity,bottom:Infinity,left:Infinity,right:Infinity};
+            for(const {ink:[left,top,right,bottom]} of lines) {
+              mins.top=Math.min(mins.top,top-inset); mins.bottom=Math.min(mins.bottom,height-inset-bottom);
+              mins.left=Math.min(mins.left,left-inset); mins.right=Math.min(mins.right,width-inset-right);
+            }
+          }
           // Claimed or not, the same tile is written the same, in the same place.
           const twin=new Map(tiles.filter(t=>!t.claimed).map(t=>[`${t.label} ${t.rotated}`,t]));
           for(const t of tiles.filter(t=>t.claimed)) {
@@ -636,6 +648,8 @@ let writtenShown = $state(false);
             await page.screenshot({path:resolve(evidence,'written-names-x2.png'),clip,captureBeyondViewport:true});
           }
         }
+        console.log('written names: least room inside a claimed face, by side (px at x1)');
+        for(const [row,{top,bottom,left,right}] of Object.entries(room)) console.log(`  ${row.padEnd(18)} top ${top.toFixed(2)}  bottom ${bottom.toFixed(2)}  left ${left.toFixed(2)}  right ${right.toFixed(2)}`);
         // Name the fonts the lines were drawn in, so that a fault from another
         // machine's fallback font says which font it was.
         if(faults.length) {
