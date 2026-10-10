@@ -332,9 +332,15 @@
      more than in anything else that matters here, so each is drawn at the
      size that gives its figures the width of Segoe UI Bold's: DejaVu Sans,
      whose figures are a fifth wider, is drawn a sixth smaller and fits the
-     same room. */
+     same room. Where a line sits in its height differs by platform, since
+     Linux and Windows read a font's ascent and descent from different
+     tables: Linux set DejaVu Sans half a pixel higher. --slack gives a face
+     large enough to spare it up to a pixel and a half more room down its
+     height, and none to the phones' smallest faces, whose letters are
+     already as small as they can be read. */
   .name {
     --room: calc(100cqmin - 2 * var(--claimed-width) - 3px);
+    --slack: clamp(0px, (100cqmin - 18px) * 0.3, 1.5px);
     position: absolute;
     inset: 0;
     display: flex;
@@ -404,7 +410,7 @@
        size of its row. A p's tail hangs below the line the others sit on,
        so a tile of circles keeps part of its depth free below the name. */
     .tile:not([data-tile$='z']) .name {
-      font-size: min(17cqmin, (var(--room) + 33.33cqmin) / 6.05);
+      font-size: min(17cqmin, (var(--room) + 33.33cqmin - var(--slack)) / 6.05);
     }
 
     [data-tile$='p'] .name {
@@ -451,7 +457,7 @@
 
     [data-tile$='z'] .name .letters {
       top: 0;
-      font-size: min(4em, var(--room));
+      font-size: min(4em, var(--room) - var(--slack) / 3);
       line-height: 0.9;
     }
 

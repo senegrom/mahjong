@@ -610,8 +610,9 @@ let writtenShown = $state(false);
             if(!claimed) continue;
             if(!(inset>1)) faults.push(`x${scale} ${label}${rotated?' turned':''}: no border and hairline`);
             for(const {text,ink:[left,top,right,bottom]} of lines) {
-              const clear=Math.min(left-inset,top-inset,width-inset-right,height-inset-bottom), kind=tile[1]==='z'?text:text.length>1?'suit word':/\d/.test(text)?'number':`letter ${text}`;
-              if(!(clear>=0)) faults.push(`x${scale} ${label}${rotated?' turned':''}: ${text} reaches ${(-clear).toFixed(2)}px past the inner edge of the border and hairline`);
+              const sides={left:left-inset,top:top-inset,right:width-inset-right,bottom:height-inset-bottom};
+              const side=Object.keys(sides).reduce((a,b)=>sides[a]<=sides[b]?a:b), clear=sides[side], kind=tile[1]==='z'?text:text.length>1?'suit word':/\d/.test(text)?'number':`letter ${text}`;
+              if(!(clear>=0)) faults.push(`x${scale} ${label}${rotated?' turned':''}: ${text} reaches ${(-clear).toFixed(2)}px past the inner edge of the border and hairline, at its ${side}`);
               if(!(least[kind]?.clear<=clear)) least[kind]={clear:Math.round(clear*100)/100,at:`x${scale} ${label}${rotated?' turned':''}`};
             }
           }
