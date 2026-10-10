@@ -1,0 +1,20 @@
+{
+  "tile": "8m",
+  "name": "Man8",
+  "candidate": "Starry Olive Grove",
+  "title": "Starry Olive Grove",
+  "source": "docs/design/van-gogh/studies/21-eight-characters-starry-olive-grove-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Man8.svg",
+  "originalFilename": "starry_olive_grove_八萬.png",
+  "originalSha256": "66a5db1f2b4be09595809db4a7b46a2267618d24a09ab45645cc1b66cc10f152",
+  "originalDimensions": [1086, 1448],
+  "originalCrop": {"x": 0, "y": 0, "width": 1086, "height": 1448},
+  "rasterDimensions": [300, 400],
+  "rasterMimeType": "image/webp",
+  "rasterBytes": 57764,
+  "rasterSha256": "53d1e0224d3b032e75d71e631d4b9e05e2cf7035f6dfa24158ec1b1fc50d9b06",
+  "svgSha256": "bffea32bd7cdf0b88bb735164f1a5ca94c9e2ec42d5a323623e4e7975620cf95",
+  "processing": "Complete approved portrait resized proportionally to 300 x 400 with Pillow Lanczos, encoded as WebP quality 80, method 6, and embedded in the standard rounded SVG with 1% bleed. No repainting, recolouring or selective cropping. This optimized game export is not the lossless full-resolution original.",
+  "approval": "Carl requested the olive-grove idea for the next missing character tile, approved the generated eight-characters painting (8m / 八萬), and explicitly requested GitHub deployment. The older seven-characters olive study is not used.",
+  "originalPreservation": "Untouched source PNG preserved in Van_Gogh_8_Characters_Starry_Olive_Grove_Approved.zip supplied in chat."
+}

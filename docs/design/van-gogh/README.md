@@ -2,7 +2,7 @@
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. 8 disks and all other tiles are unchanged. Earlier sections below describe the design history.
 
-**Current set:** 25 painted faces, and 9 tiles whose names the game writes out until they are painted; all nine bamboo identities are covered. Four Oranges A is active for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table C for 9 disks. The history below retains earlier milestone counts.
+**Current set:** 26 painted faces, and 8 tiles whose names the game writes out until they are painted; all nine bamboo identities are covered. Starry Olive Grove is active for 8 characters, Four Oranges A for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table C for 9 disks. The history below retains earlier milestone counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -190,3 +190,11 @@ Every face draws one picture in a 300 × 400 box. Until October 2026 that box wa
 Each of these faces now has a fit in `web/scripts/export-van-gogh-tiles.mjs`, applied by `web/scripts/face-fit.mjs`: the face crops the painting instead of stretching it, keeping its proportions to within 2%, and centres the cut unless that would clip a counted object or character. Two faces need more stretch than that to keep their identifying content whole, and take the most any face may show, 4%: Cypress Fields (4m), whose cypress flame tip and the point of 萬's foot touch the top and bottom edges, and Three Café Lanterns (3p), whose top lantern's finial and bottom lantern's drop do the same. Only each SVG's picture box changes. Every embedded raster, PNG and approved study is unchanged, and the manifest records each tile's fit and box. The nine squeezed exports keep fewer source pixels across the cut, so they are a little softer than the PNG faces; sharper versions would need the full-resolution originals kept in the chat archives.
 
 Earlier sections that call a playable SVG byte-for-byte identical to its study describe the set before this change. The studies are untouched, and each fitted face differs from its study only in its picture box.
+
+## Starry Olive Grove — 8 characters (八萬)
+
+Carl approved the olive-branch painting for `8m` / `Man8` and explicitly requested GitHub deployment. Two spreading olive branches form 八 above copper-red 萬 in a swirling blue-and-gold night landscape. This is the newly approved eight-characters painting, not the earlier olive seven study.
+
+The entire 1086 × 1448 portrait is resized proportionally to a 300 × 400 quality-80 WebP using Lanczos, then embedded in the standard self-contained SVG with rounded clipping and 1% bleed. No repainting, recolouring or selective crop is applied. The source and runtime SVGs are identical; original, raster and SVG hashes are recorded in `docs/design/van-gogh/eight-characters-olive-grove.json`. The untouched full-resolution source PNG is preserved in `Van_Gogh_8_Characters_Starry_Olive_Grove_Approved.zip` supplied in chat. The game export is not the lossless original.
+
+Run `node web/scripts/export-van-gogh-tiles.mjs --only=8m` to copy this face exactly without rewriting any other artwork. This addition brings the set to **26 painted faces**; the other eight tiles are written out until they are painted, with characters **2–8** and all nine bamboo faces covered. All previous artwork, including Irises at Dusk C, Four Oranges A and The Potter’s Table C, remains unchanged.
