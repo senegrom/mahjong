@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -78,7 +78,9 @@ for (const [name, tile, label, direction, sourceName, crop] of definitions) {
 }
 const approved = manifest.tiles.map(tile => tile.tile);
 // The game writes out the name of a tile that has no approved artwork yet,
-// so no stand-in picture is recorded for it.
+// so no stand-in picture is recorded for it, and any an earlier export left
+// behind is removed.
+rmSync(path.join(out, 'placeholders'), { recursive: true, force: true });
 manifest.placeholders = TILE_TYPES.filter(tile => !approved.includes(tile)).map(tile => ({ tile }));
 writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 writeFileSync(path.join(root, 'web/src/lib/dali-faces.js'),
