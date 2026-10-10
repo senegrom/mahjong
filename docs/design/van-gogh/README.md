@@ -2,7 +2,7 @@
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. 8 disks and all other tiles are unchanged. Earlier sections below describe the design history.
 
-**Current set:** 26 painted faces, and 8 tiles whose names the game writes out until they are painted; all nine bamboo identities are covered. Starry Olive Grove is active for 8 characters, Four Oranges A for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table C for 9 disks. The history below retains earlier milestone counts.
+**Current set:** 27 painted faces, and 7 tiles whose names the game writes out until they are painted; all nine bamboo identities are covered. The Provençal Kitchen B is active for 6 disks, Starry Olive Grove for 8 characters, Four Oranges A for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table C for 9 disks. The history below retains earlier milestone counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -198,3 +198,13 @@ Carl approved the olive-branch painting for `8m` / `Man8` and explicitly request
 The entire 1086 × 1448 portrait is resized proportionally to a 300 × 400 quality-80 WebP using Lanczos, then embedded in the standard self-contained SVG with rounded clipping and 1% bleed. No repainting, recolouring or selective crop is applied. The source and runtime SVGs are identical; original, raster and SVG hashes are recorded in `docs/design/van-gogh/eight-characters-olive-grove.json`. The untouched full-resolution source PNG is preserved in `Van_Gogh_8_Characters_Starry_Olive_Grove_Approved.zip` supplied in chat. The game export is not the lossless original.
 
 Run `node web/scripts/export-van-gogh-tiles.mjs --only=8m` to copy this face exactly without rewriting any other artwork. This addition brings the set to **26 painted faces**; the other eight tiles are written out until they are painted, with characters **2–8** and all nine bamboo faces covered. All previous artwork, including Irises at Dusk C, Four Oranges A and The Potter’s Table C, remains unchanged.
+
+## The Provençal Kitchen B — 6 disks
+
+Carl selected **B, the middle kitchen painting**, as `6p` / `Pin6`: exactly six decorated plates in two columns of three on an ochre wall, with a blue shutter and the dresser still life below. The sunflower and fishing-float alternatives are not selected.
+
+The source `docs/design/van-gogh/studies/22-six-disks-provencal-kitchen-b-approved.svg` embeds a 300 × 400 quality-90 WebP export of the complete 464 × 873 selected crop, squeezed to the shared face. The runtime `web/public/tiles/van-gogh/approved/Pin6.svg` differs from it only in its picture box, which crops the painting back to its own proportions, as the proportions section describes: the face keeps the six plates and the wall above them, and the cut falls on the jug, lemons and dresser below. No objects, colours or painted details were regenerated, and the shared rounded clipping is retained.
+
+The untouched 1491 × 1055 board and lossless selected crop are supplied in `Van_Gogh_6_Disks_Kitchen_B_Approved.zip` in chat. `docs/design/van-gogh/six-disks-kitchen.json` records original, crop, production and SVG checksums and exact processing.
+
+Run `node web/scripts/export-van-gogh-tiles.mjs --only=6p` to reproduce this face and its registration without rewriting any other tile artwork. The gallery includes the kitchen; the existing fourteen-tile example hand is unchanged.

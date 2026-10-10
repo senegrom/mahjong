@@ -11,7 +11,7 @@
     "bleed": 3,
     "preserveAspectRatio": "none"
   },
-  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept. Carl approved the corrected all-green B still life with six bamboo stalks to replace Green Rhythm J for 6s; its complete composition and colours are preserved. Carl selected the first nine-bamboo option, Moonlit Bamboo Wind Chime, and explicitly approved deployment; the nine hanging tubes and complete painted composition are preserved. Carl approved B, Three Cafe Lanterns, for 3 disks and explicitly requested deployment. The complete selected middle-panel crop is preserved without repainting or recolouring in a documented quality-90 WebP game export. Carl selected C — The Potter’s Table to replace Nine Stars I for 9p and explicitly requested deployment. The nine patterned plates were deployed and the old face archived. The intervening Nine Stars restoration was a misunderstanding. Carl explicitly clarified that The Potter’s Table C must replace Nine Stars as 9 disks. The approved Potter SVG is restored byte-for-byte; Nine Stars remains archived. The eight-star adaptation is not deployed and 8 disks is unchanged. Carl selected the first option, The Red Vineyard, for 5 characters (5m / 五萬) and explicitly approved GitHub deployment. The complete approved composition and colours are preserved; the wheat and iris alternatives are not used. Carl approved the latest red 六萬 calligraphy with lemons, cypresses, lake and village as 6 characters (6m). The complete approved canvas and colours are retained; the sunflower study is not selected. Carl selected the last seven-characters option with blue iris flowers and golden 萬, Irises at Dusk C, and explicitly requested GitHub deployment as 7m / 七萬. The complete composition and proportions are preserved without repainting; the olive and wheat alternatives are not used. Carl selected A, Four Oranges, the left panel with four whole oranges on blue cloth, for 4 disks (4p / Pin4) and explicitly requested GitHub deployment. The complete approved crop is retained without repainting or recolouring; the bowl and orange-slice alternatives are not used. Carl approved the generated Starry Olive Grove painting as 8 characters (8m / 八萬) and explicitly requested GitHub deployment. The complete olive-branch composition, colours and proportions are preserved; the older seven-characters olive study is not used.",
+  "approval": "Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept. Carl approved the corrected all-green B still life with six bamboo stalks to replace Green Rhythm J for 6s; its complete composition and colours are preserved. Carl selected the first nine-bamboo option, Moonlit Bamboo Wind Chime, and explicitly approved deployment; the nine hanging tubes and complete painted composition are preserved. Carl approved B, Three Cafe Lanterns, for 3 disks and explicitly requested deployment. The complete selected middle-panel crop is preserved without repainting or recolouring in a documented quality-90 WebP game export. Carl selected C — The Potter’s Table to replace Nine Stars I for 9p and explicitly requested deployment. The nine patterned plates were deployed and the old face archived. The intervening Nine Stars restoration was a misunderstanding. Carl explicitly clarified that The Potter’s Table C must replace Nine Stars as 9 disks. The approved Potter SVG is restored byte-for-byte; Nine Stars remains archived. The eight-star adaptation is not deployed and 8 disks is unchanged. Carl selected the first option, The Red Vineyard, for 5 characters (5m / 五萬) and explicitly approved GitHub deployment. The complete approved composition and colours are preserved; the wheat and iris alternatives are not used. Carl approved the latest red 六萬 calligraphy with lemons, cypresses, lake and village as 6 characters (6m). The complete approved canvas and colours are retained; the sunflower study is not selected. Carl selected the last seven-characters option with blue iris flowers and golden 萬, Irises at Dusk C, and explicitly requested GitHub deployment as 7m / 七萬. The complete composition and proportions are preserved without repainting; the olive and wheat alternatives are not used. Carl selected A, Four Oranges, the left panel with four whole oranges on blue cloth, for 4 disks (4p / Pin4) and explicitly requested GitHub deployment. The complete approved crop is retained without repainting or recolouring; the bowl and orange-slice alternatives are not used. Carl approved the generated Starry Olive Grove painting as 8 characters (8m / 八萬) and explicitly requested GitHub deployment. The complete olive-branch composition, colours and proportions are preserved; the older seven-characters olive study is not used. Carl selected B, The Provençal Kitchen, the middle painting with six ceramic plates in two columns of three, as 6 disks (6p / Pin6) and explicitly requested GitHub deployment. The full selected crop is fitted to the shared tile format without regeneration, repainting or recolouring; the sunflower and fishing-float alternatives are not used.",
   "fallback": "text",
   "sources": [
     {
@@ -128,6 +128,11 @@
       "id": "eightOliveGrove",
       "source": "docs/design/van-gogh/studies/21-eight-characters-starry-olive-grove-approved.svg",
       "sha256": "bffea32bd7cdf0b88bb735164f1a5ca94c9e2ec42d5a323623e4e7975620cf95"
+    },
+    {
+      "id": "sixKitchen",
+      "source": "docs/design/van-gogh/studies/22-six-disks-provencal-kitchen-b-approved.svg",
+      "sha256": "9c0e3ae5048973c0e1e825346d5cabed550411aaef46c6ddf600cd7e488e1303"
     }
   ],
   "tiles": [
@@ -837,6 +842,38 @@
       "svgSha256": "bffea32bd7cdf0b88bb735164f1a5ca94c9e2ec42d5a323623e4e7975620cf95",
       "rasterMimeType": "image/webp",
       "rasterSha256": "53d1e0224d3b032e75d71e631d4b9e05e2cf7035f6dfa24158ec1b1fc50d9b06"
+    },
+    {
+      "candidate": "Kitchen B",
+      "tile": "6p",
+      "name": "Pin6",
+      "label": "Six disks",
+      "source": "docs/design/van-gogh/studies/22-six-disks-provencal-kitchen-b-approved.svg",
+      "status": "approved",
+      "svg": "approved/Pin6.svg",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 300,
+        "height": 400
+      },
+      "fit": {
+        "painting": {
+          "width": 464,
+          "height": 873
+        },
+        "stretch": 0.02,
+        "anchor": 0,
+        "image": {
+          "x": -3,
+          "y": 0,
+          "width": 306,
+          "height": 564.44
+        }
+      },
+      "svgSha256": "1e881e82b7d71c2087e2e27eacd809d269981f1f0c09967c091d6efb409bd81a",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "95d81654ea7db8776840592f0f28e79a33c936fc201b58c2a154bb4fbe9d9e46"
     }
   ],
   "rejected": [
@@ -884,7 +921,6 @@
   "remaining": [
     "1m",
     "9m",
-    "6p",
     "7p",
     "8p",
     "2z",

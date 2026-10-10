@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { FACE_HEIGHT, FACE_WIDTH, faceImage, placeStudyImage } from '../scripts/face-fit.mjs';
 
 const root = new URL('../../', import.meta.url);
@@ -54,25 +54,32 @@ test('every artist face shows its painting within 2% of its own proportions, and
   }
 });
 
-test('the squeezed Van Gogh exports are fitted to the shapes their provenance records', () => {
-  const originalCrop = record => ({ width: record.originalCrop.width, height: record.originalCrop.height });
-  const squeezed = [
-    ['2s', 'two-bamboo-green.json', originalCrop],
-    ['3s', 'three-bamboo-green.json', originalCrop],
-    ['4s', 'four-bamboo-green.json', originalCrop],
-    ['7s', 'seven-bamboo-irises.json', originalCrop],
-    ['8s', 'eight-bamboo-raft.json', record => ({ width: record.originalDimensions[0], height: record.originalDimensions[1] })],
-    ['3p', 'three-disks-lanterns.json', originalCrop],
-    ['4p', 'four-disks-oranges.json', originalCrop],
-    ['9p', 'nine-disks-potters-table-c.json', originalCrop],
-    ['6m', 'six-characters-lemon-terrace.json', originalCrop],
-  ];
-  for (const [tile, file, shape] of squeezed) {
-    const entry = manifests['van-gogh'].tiles.find(entry => entry.tile === tile);
-    assert.deepEqual(entry.crop, { x: 0, y: 0, width: 300, height: 400 }, tile);
-    assert.ok(entry.fit, `${tile} is a squeezed export without a fit`);
-    assert.deepEqual(entry.fit.painting, shape(JSON.parse(read(`docs/design/van-gogh/${file}`))), tile);
+test('every squeezed Van Gogh export is fitted to the shape its provenance records', () => {
+  // Each provenance record names its tile and the painting's shape before the
+  // 300 × 400 export. A record whose painting is not 3:4 was squeezed into the
+  // face, so its deployed face needs a fit to that shape. The list is read from
+  // the records rather than written here, so a newly deployed squeezed painting
+  // fails this test until it has its fit.
+  const folder = 'docs/design/van-gogh';
+  const shapeOf = record => record.originalCrop
+    ? { width: record.originalCrop.width, height: record.originalCrop.height }
+    : Array.isArray(record.originalDimensions)
+      ? { width: record.originalDimensions[0], height: record.originalDimensions[1] }
+      : null;
+  const squeezed = [];
+  for (const file of readdirSync(new URL(`${folder}/`, root)).filter(name => name.endsWith('.json'))) {
+    const record = JSON.parse(read(`${folder}/${file}`));
+    const shape = record.tile ? shapeOf(record) : null;
+    if (!shape || Math.abs(shape.width / shape.height / 0.75 - 1) <= 0.02) continue;
+    const entry = manifests['van-gogh'].tiles.find(entry => entry.tile === record.tile);
+    // A record for a painting the deployed face no longer uses is history.
+    if (!entry || (record.source && record.source !== entry.source)) continue;
+    squeezed.push(record.tile);
+    assert.deepEqual(entry.crop, { x: 0, y: 0, width: 300, height: 400 }, record.tile);
+    assert.ok(entry.fit, `${record.tile} is a squeezed export without a fit (${file})`);
+    assert.deepEqual(entry.fit.painting, shape, record.tile);
   }
+  assert.deepEqual(squeezed.sort(), ['2s', '3p', '3s', '4p', '4s', '6m', '6p', '7s', '8s', '9p']);
 });
 
 test('the lit Matisse white dragon keeps exactly the quiet face\'s geometry', () => {
