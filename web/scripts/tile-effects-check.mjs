@@ -635,6 +635,26 @@ let writtenShown = $state(false);
             await page.screenshot({path:resolve(evidence,'written-names-x2.png'),clip,captureBeyondViewport:true});
           }
         }
+        // Name the fonts the lines were drawn in, so that a fault from another
+        // machine's fallback font says which font it was.
+        if(faults.length) {
+          const client=await page.createCDPSession();
+          try {
+            await client.send('DOM.enable');
+            await client.send('CSS.enable');
+            const {root}=await client.send('DOM.getDocument',{depth:-1});
+            const families=new Set();
+            for(const selector of ['#written .name .lead','#written .name .letters']) {
+              const {nodeId}=await client.send('DOM.querySelector',{nodeId:root.nodeId,selector});
+              if(!nodeId) continue;
+              const {fonts}=await client.send('CSS.getPlatformFontsForNode',{nodeId});
+              for(const font of fonts) families.add(font.familyName);
+            }
+            faults.unshift(`drawn in ${[...families].join(', ')||'an unnamed font'}`);
+          } finally {
+            await client.detach();
+          }
+        }
       } finally {
         await page.setViewport({width:1100,height:700,deviceScaleFactor:2});
         await page.click('#written-shown');
