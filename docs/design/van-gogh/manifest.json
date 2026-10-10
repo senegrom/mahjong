@@ -189,7 +189,7 @@
       "L"
     ],
     "activeTileCount": 10,
-    "fallback": "classic",
+    "fallback": "text",
     "exports": "../../../web/public/tiles/van-gogh/manifest.json",
     "excluded": [
       "K"

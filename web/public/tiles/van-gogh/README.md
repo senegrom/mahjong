@@ -142,7 +142,7 @@ The source `docs/design/van-gogh/studies/20-four-disks-oranges-a-approved.svg` a
 
 Board, full-resolution crop, decoded crop pixels, raster and SVG checksums are recorded in `docs/design/van-gogh/four-disks-oranges.json`. The original board and lossless selected crop are preserved in `Van_Gogh_4_Disks_Oranges_A_Approved.zip`, supplied in chat.
 
-Run `node web/scripts/export-van-gogh-tiles.mjs --only=4p` to reproduce this tile, its registration, manifest and preview without rewriting any other tile artwork. The set now has **25 painted faces and 9 Classic fallbacks**. All 24 previously approved faces remain unchanged, including Irises at Dusk C for 7 characters and the restored Nine Stars I.
+Run `node web/scripts/export-van-gogh-tiles.mjs --only=4p` to reproduce this tile, its registration, manifest and preview without rewriting any other tile artwork. This addition brought the set to **25 painted faces**. The other nine tiles were Classic fallbacks then; the game now writes out their names instead, until they are painted. All 24 previously approved faces remain unchanged, including Irises at Dusk C for 7 characters and the restored Nine Stars I.
 
 ## Proportions: cropped, not stretched
 
