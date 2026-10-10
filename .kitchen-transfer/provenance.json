@@ -1,0 +1,37 @@
+{
+  "tile": "6p",
+  "name": "Pin6",
+  "candidate": "Kitchen B",
+  "title": "The Provençal Kitchen",
+  "approval": "Carl selected B, the middle painting with six ceramic plates, and explicitly requested deployment to GitHub.",
+  "source": "docs/design/van-gogh/studies/22-six-disks-provencal-kitchen-b-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Pin6.svg",
+  "originalBoard": "six_sunflowers_provençal_kitchen_fishing_floats.png",
+  "originalBoardSha256": "106cdbb426b79422ab7e8672928010493bec1565dd1ff4b38473ed339842a68d",
+  "originalBoardSize": {
+    "width": 1491,
+    "height": 1055
+  },
+  "originalCrop": {
+    "x": 514,
+    "y": 147,
+    "width": 464,
+    "height": 873
+  },
+  "fullResolutionCropSha256": "0846ee8b5242c7ff5775d6098f7a31c676cda0750767476de15825593fed6f26",
+  "productionSize": {
+    "width": 300,
+    "height": 400
+  },
+  "rasterMimeType": "image/webp",
+  "webpQuality": 90,
+  "rasterBytes": 57930,
+  "rasterSha256": "95d81654ea7db8776840592f0f28e79a33c936fc201b58c2a154bb4fbe9d9e46",
+  "svgSha256": "9c0e3ae5048973c0e1e825346d5cabed550411aaef46c6ddf600cd7e488e1303",
+  "processing": "Crop the selected middle panel, excluding labels and neighbouring alternatives. Fit the complete 464 × 873 crop to 300 × 400 using Lanczos; aspect ratio changes to match the existing tile convention. Encode quality-90 WebP and apply the shared rounded SVG clip and 1% bleed. No regeneration, repainting, recolouring or object changes.",
+  "originalArchive": "Van_Gogh_6_Disks_Kitchen_B_Approved.zip",
+  "alternativesNotSelected": [
+    "A — Six Sunflowers",
+    "C — Six Fishing Floats"
+  ]
+}
