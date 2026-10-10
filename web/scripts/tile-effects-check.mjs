@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { DALI_APPROVED } from '../src/lib/dali-faces.js';
+import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
 
 const web = fileURLToPath(new URL('../', import.meta.url));
@@ -18,6 +19,10 @@ const temporary = await mkdtemp(resolve(web, '.tile-effects-'));
 const out = resolve(temporary, 'dist');
 const evidence = resolve(web, 'test-results');
 const { check, report } = browserChecks();
+// Every tile an artist's set writes out, and every size the app draws a
+// row, an indicator or a hand at, as a tile width and a size.
+const writtenTiles = [DALI_APPROVED, VAN_GOGH_APPROVED].flatMap(painted => TILE_TYPES.filter(tile => !painted.includes(tile)));
+const writtenSizes = [23, 28, 36, 42, 46, 52, 54, 60].flatMap(width => [[width, 'tiny'], [width, 'small']]).concat([42, 46, 52, 54, 60].map(width => [width, 'normal']));
 let browser, server;
 try {
   await mkdir(evidence, {recursive:true});
@@ -77,6 +82,11 @@ const greenSizes = [[54,'tiny'],[46,'small'],[28,'tiny'],[23,'tiny']];
 // Shown only for their own check, so their pictures add nothing to the
 // others' screenshots or the time a change of pixel density takes to draw.
 let greensShown = $state(false);
+// Every tile an artist's set writes out, claimed and not, upright and turned,
+// at every size the app draws a row, an indicator or a hand at.
+const written = ['dali','van-gogh'].flatMap(set => TILE_TYPES.filter(tile => !approved[set].includes(tile)).map(tile => ({set,tile})));
+const writtenSizes = ${JSON.stringify(writtenSizes)};
+let writtenShown = $state(false);
 </script>
 <h1>White dragon · dora foil</h1>
 <div class="samples">{#each cases as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}<section id="phone" style="--tile-width:23px"><p>phone</p><Tile tile="5z" size="tiny" claimed/></section></div>
@@ -91,7 +101,9 @@ let greensShown = $state(false);
 <div class="samples" id="lit">{#each [['lit-turned','matisse','2p',true],['turned-unlit','matisse','2p',false],['lit-turned-named','dali',suited,true],['turned-unlit-named','dali',suited,false]].filter(([, , tile]) => tile) as [id,set,tile,inShape]}<section id={id}><p>{id}</p><Painted face={set}><Tile {tile} rotated {inShape}/></Painted></section>{/each}</div>
 <button id="greens-shown" onclick={()=>greensShown=!greensShown}>Show the green paintings, claimed</button>
 {#if greensShown}<div class="samples" id="greens">{#each greens as {set,tile}}<Painted face={set}>{#each greenSizes as [width,size]}{#each [false,true] as rotated}<span data-face="{set} {tile}" style="--tile-width:{width}px"><Tile {tile} {size} {rotated} claimed/></span>{/each}{/each}</Painted>{/each}</div>{/if}
-<style>:global(body){margin:30px;background:#173e35;color:#fff;font:16px system-ui;--tile-width:60px;--ivory:#fffaf0;} .samples{display:flex;gap:26px;align-items:start;flex-wrap:wrap;margin-bottom:40px} section{min-width:70px} #dynamic{margin:25px 0} button{margin:10px;padding:10px}</style>`);
+<button id="written-shown" onclick={()=>writtenShown=!writtenShown}>Show every written tile, claimed and not</button>
+{#if writtenShown}<div class="samples" id="written">{#each written as {set,tile}}<Painted face={set}>{#each writtenSizes as [width,size]}{#each [false,true] as rotated}{#each [true,false] as claimed}<span data-face="{set} {tile}" style="--tile-width:{width}px"><Tile {tile} {size} {rotated} {claimed}/></span>{/each}{/each}{/each}</Painted>{/each}</div>{/if}
+<style>:global(body){margin:30px;background:#173e35;color:#fff;font:16px system-ui;--tile-width:60px;--ivory:#fffaf0;} .samples{display:flex;gap:26px;align-items:start;flex-wrap:wrap;margin-bottom:40px} #written{gap:4px} section{min-width:70px} #dynamic{margin:25px 0} button{margin:10px;padding:10px}</style>`);
   await build({configFile:false,root:temporary,base:'/mahjong/',publicDir:false,plugins:[svelte()],logLevel:'warn',build:{outDir:out,target:'es2022'}});
   if (!process.argv.includes('--build-only')) {
     server = createServer(createFixtureHandler({root:out,publicRoot:resolve(web,'public')}));
@@ -546,6 +558,89 @@ let greensShown = $state(false);
       assert.match(await page.$eval('#hidden img',image=>image.src),/\/tiles\/Back.svg$/);
       await freeze(2500);
       await page.screenshot({path:resolve(evidence,'unpainted-tiles-fixture.png'),fullPage:true});
+    });
+    await check('a written name keeps inside a claimed tile\'s border and hairline, and is the same size claimed or not and upright or turned, at every size and pixel density',async()=>{
+      // A line's box is its advance, not its ink: a W's arms or a p's tail
+      // reach past it. So each line's ink comes from canvas measureText at
+      // 250px, which gives a glyph's outline to a 250th of an em (at a tile's
+      // own few pixels it rounds the outline out to whole pixels), scaled to
+      // the size the line is drawn at, which font-size-adjust can make other
+      // than its computed size, and placed where the page lays the line out:
+      // its start from a Range, its baseline from a zero-size inline-block.
+      // On a claimed tile it must keep inside the face less the border and
+      // the hairline, and the same tile unclaimed must be written the same.
+      if(!writtenTiles.length) return;
+      const faults=[], least={};
+      await page.click('#written-shown');
+      await page.waitForSelector('#written .name');
+      try {
+        for(const scale of [1,2,3]) {
+          await page.setViewport({width:1100,height:700,deviceScaleFactor:scale});
+          await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
+          const tiles=await page.$eval('#written',section=>{
+            const big=250, context=document.createElement('canvas').getContext('2d'), metrics=new Map();
+            const ink=(style,text)=>{
+              const font=`${style.fontStyle} ${style.fontWeight} ${big}px ${style.fontFamily}`, key=`${font}|${text}`;
+              if(!metrics.has(key)){context.font=font;const m=context.measureText(text);metrics.set(key,{advance:m.width/big,left:m.actualBoundingBoxLeft/big,right:m.actualBoundingBoxRight/big,up:m.actualBoundingBoxAscent/big,down:m.actualBoundingBoxDescent/big});}
+              return metrics.get(key);
+            };
+            const lines=[...section.querySelectorAll('.name > *')].filter(line=>getComputedStyle(line).display!=='none');
+            // Every probe goes in before any is read, so the page lays out once.
+            const probes=lines.map(line=>{const probe=document.createElement('i');probe.style.cssText='display:inline-block;width:0;height:0;vertical-align:baseline';line.append(probe);return probe;});
+            const out=new Map();
+            lines.forEach((line,n)=>{
+              const tile=line.closest('.tile'), face=tile.querySelector('.face');
+              if(!out.has(tile)){
+                const r=face.getBoundingClientRect(), layer=getComputedStyle(face,'::after'), holder=tile.parentElement, claimed=tile.classList.contains('claimed');
+                out.set(tile,{label:`${holder.dataset.face} at ${holder.style.getPropertyValue('--tile-width')} ${['tiny','small'].find(size=>tile.classList.contains(size))??'normal'}`,
+                  tile:tile.dataset.tile, rotated:tile.classList.contains('rotated'), claimed, origin:[r.x,r.y], face:[r.width,r.height],
+                  // The border and, inside it, the hairline: the inset shadow's spread.
+                  inset:claimed?parseFloat(layer.borderTopWidth)+parseFloat(layer.boxShadow.replace(/rgba?\([^)]*\)/,'').trim().split(/\s+/)[3]):0, lines:[]});
+              }
+              const record=out.get(tile), style=getComputedStyle(line), text=line.firstChild.textContent, m=ink(style,text);
+              const range=document.createRange();range.setStart(line.firstChild,0);range.setEnd(line.firstChild,text.length);
+              const box=range.getBoundingClientRect(), baseline=probes[n].getBoundingClientRect().bottom, drawn=box.width/m.advance, [fx,fy]=record.origin;
+              record.lines.push({text,size:parseFloat(style.fontSize),ink:[box.x-m.left*drawn-fx,baseline-m.up*drawn-fy,box.x+m.right*drawn-fx,baseline+m.down*drawn-fy]});
+            });
+            probes.forEach(probe=>probe.remove());
+            return [...out.values()];
+          });
+          assert.equal(tiles.length,writtenTiles.length*writtenSizes.length*4,`x${scale}: every written tile is measured`);
+          for(const {label,tile,rotated,claimed,face:[width,height],inset,lines} of tiles) {
+            if(!claimed) continue;
+            if(!(inset>1)) faults.push(`x${scale} ${label}${rotated?' turned':''}: no border and hairline`);
+            for(const {text,ink:[left,top,right,bottom]} of lines) {
+              const clear=Math.min(left-inset,top-inset,width-inset-right,height-inset-bottom), kind=tile[1]==='z'?text:text.length>1?'suit word':/\d/.test(text)?'number':`letter ${text}`;
+              if(!(clear>=0)) faults.push(`x${scale} ${label}${rotated?' turned':''}: ${text} reaches ${(-clear).toFixed(2)}px past the inner edge of the border and hairline`);
+              if(!(least[kind]?.clear<=clear)) least[kind]={clear:Math.round(clear*100)/100,at:`x${scale} ${label}${rotated?' turned':''}`};
+            }
+          }
+          // Claimed or not, the same tile is written the same, in the same place.
+          const twin=new Map(tiles.filter(t=>!t.claimed).map(t=>[`${t.label} ${t.rotated}`,t]));
+          for(const t of tiles.filter(t=>t.claimed)) {
+            const plain=twin.get(`${t.label} ${t.rotated}`);
+            const same=plain&&plain.lines.length===t.lines.length&&plain.lines.every((line,n)=>line.text===t.lines[n].text&&Math.abs(line.size-t.lines[n].size)<0.01&&line.ink.every((value,k)=>Math.abs(value-t.lines[n].ink[k])<0.01));
+            if(!same) faults.push(`x${scale} ${t.label}${t.rotated?' turned':''}: written differently claimed and plain`);
+          }
+          // One size for a row: every suited tile of a size alike, every
+          // wind and dragon in one letter alike, upright or turned for riichi.
+          const sizes=new Map();
+          for(const {label,tile,lines} of tiles) {
+            const row=`${label.replace(/^\S+ \S+ /,'')} ${tile[1]==='z'?(lines.length===1&&lines[0].text.length>1?'two letters':'honour'):'suit'}`;
+            sizes.set(row,[...(sizes.get(row)??[]),lines.map(line=>line.size)]);
+          }
+          for(const [row,list] of sizes) if(list.some(each=>each.length!==list[0].length||each.some((size,n)=>Math.abs(size-list[0][n])>0.02))) faults.push(`x${scale} ${row}: sizes ${[...new Set(list.map(each=>each.map(size=>size.toFixed(2)).join('/')))].join(', ')}`);
+          if(scale===2) {
+            const clip=await page.$eval('#written',section=>{const r=section.getBoundingClientRect();return {x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height};});
+            await page.screenshot({path:resolve(evidence,'written-names-x2.png'),clip,captureBeyondViewport:true});
+          }
+        }
+      } finally {
+        await page.setViewport({width:1100,height:700,deviceScaleFactor:2});
+        await page.click('#written-shown');
+      }
+      await writeFile(resolve(evidence,'written-names.json'),JSON.stringify(least,null,1));
+      assert.deepEqual(faults,[]);
     });
     assert.deepEqual(errors,[]);
   }

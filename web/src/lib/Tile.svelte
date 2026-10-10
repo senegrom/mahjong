@@ -321,7 +321,20 @@
     container-type: size;
   }
 
+  /* A name keeps clear of the border and hairline a claimed tile has, with
+     half a pixel to spare on each side, whether its tile is claimed or not,
+     so a claimed tile's name is the size of its neighbours'. --room is that
+     clear width across the face's shorter side. Only the container rules
+     below use it, since a browser without container units cannot. A line
+     too wide for the room at its usual size is set to the room divided by
+     the most ems it takes in Segoe UI, the table's font on Windows, in
+     DejaVu Sans, the usual one on Linux, or in Arial. Fonts differ in width
+     more than in anything else that matters here, so each is drawn at the
+     size that gives its figures the width of Segoe UI Bold's: DejaVu Sans,
+     whose figures are a fifth wider, is drawn a sixth smaller and fits the
+     same room. */
   .name {
+    --room: calc(100cqmin - 2 * var(--claimed-width) - 3px);
     position: absolute;
     inset: 0;
     display: flex;
@@ -331,6 +344,7 @@
     color: #26302c;
     font-size: calc(var(--face-width) * 0.17);
     font-size: 17cqmin;
+    font-size-adjust: ch-width 0.575;
     font-weight: 600;
     line-height: 1;
     white-space: nowrap;
@@ -359,17 +373,42 @@
     display: none;
   }
 
+  /* On a face as large as a hand's, the longest second word, characters,
+     takes up to 5.2 ems, more than the room on the smaller hands leaves
+     it. An honour's first word needs no such limit: the widest, south,
+     takes 4.5 ems at its larger size, which the room of any face over 40px
+     holds. */
+  @container (width > 40px) and (height > 40px) {
+    .name .rest {
+      font-size: min(1em, var(--room) / 5.2);
+    }
+  }
+
   /* A face smaller than a tile in the hand, as in a discard row, is too
      small for a second word to be read. A suited tile gives its suit by the
      letter tile notation writes it with, under a larger number: m for
      characters, p for circles and s for bamboo. The colour says the same,
      but never alone, so a red 8 and a blue 8 are told apart by their
-     letters as well. Each leaves room at the edges for a claimed tile's
-     border and its hairline. A face is measured by its shorter side,
-     whichever way up it lies. */
+     letters as well. A face is measured by its shorter side, whichever way
+     up it lies. */
   @container (max-width: 40px) or (max-height: 40px) {
     .name .rest {
       display: none;
+    }
+
+    /* A number over its letter needs 6.05 ems down a face standing up, for
+       its ink, a p's tail and the fonts' differing ascents; the room down
+       such a face is the room across it and a third of its width more.
+       Side by side on a tile turned on its side the pair needs less, so the
+       one size serves both, and a tile turned for riichi is written the
+       size of its row. A p's tail hangs below the line the others sit on,
+       so a tile of circles keeps part of its depth free below the name. */
+    .tile:not([data-tile$='z']) .name {
+      font-size: min(17cqmin, (var(--room) + 33.33cqmin) / 6.05);
+    }
+
+    [data-tile$='p'] .name {
+      padding-bottom: 0.3em;
     }
 
     .name .lead {
@@ -381,7 +420,7 @@
     .name .letters {
       display: block;
       position: relative;
-      top: -0.1em;
+      top: -0.2em;
       font-size: 3em;
       line-height: 0.8;
     }
@@ -402,19 +441,22 @@
     /* An honour is given in its own letters from the same size, as large
        as they fit: E, S, W and N for the winds, Wh, G and R for the
        dragons. Its first word alone was too small here to read at a
-       glance. */
+       glance. A W takes at most an em, the most of any one letter, so
+       where four times the name's size would not fit, each wind and dragon
+       written in one letter is set to the room, and the letters of a row
+       stay one size. Wh takes at most 1.6 ems. */
     [data-tile$='z'] .name .lead {
       display: none;
     }
 
     [data-tile$='z'] .name .letters {
       top: 0;
-      font-size: 4em;
+      font-size: min(4em, var(--room));
       line-height: 0.9;
     }
 
     [data-tile='5z'] .name .letters {
-      font-size: 2.9em;
+      font-size: min(2.9em, var(--room) / 1.6);
     }
   }
 
