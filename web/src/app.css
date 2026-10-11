@@ -83,3 +83,19 @@ button {
 
 button, select, summary, label { -webkit-tap-highlight-color: transparent; }
 button { touch-action: manipulation; }
+
+/* Heard by screen readers, never seen, and taking no room. A live region is
+   listened to only once it is in the accessibility tree, which display: none
+   would take it out of, so one that must wait empty for its words is hidden
+   this way instead. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

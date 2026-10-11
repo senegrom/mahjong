@@ -11,8 +11,19 @@
     pendingOpponent, myTurn, confirmDiscards, shortcuts, touch,
     selectedTile, callChoices, choose, discard, oncancel,
   }: TurnChoicesProps = $props();
+  // The discard a call is offered on, and the tile chosen while its discard
+  // waits to be confirmed. Each has a panel that comes and goes with it.
+  let offered = $derived(view.phase === 'call' && callChoices.length ? view.pending_discard : null);
+  let chosen = $derived(myTurn && !busy ? selectedTile : null);
+  let discarder = $derived((view.pending_from ? NAMES[view.pending_from] : undefined) ?? 'An opponent');
+  // A screen reader listens to a live region only once it exists, and JAWS
+  // and NVDA often miss one inserted along with its words, as the panels
+  // are. So their news is said by one region that is always here.
+  let announcement = $derived(offered ? `${discarder} discarded the ${tileWords(offered)}`
+    : chosen ? `Selected: ${tileWords(chosen)}` : '');
 </script>
 
+<p class="visually-hidden" role="status">{announcement}</p>
 <p id="hand-help" class="prompt" role="status">
   {#if saveConflict}Reload the latest match to continue here.
   {:else if failure}Choose a recovery option above to continue.
@@ -23,17 +34,17 @@
   {:else if !callChoices.length}Waiting for the others…
   {:else}Choose a call, or pass.{/if}
 </p>
-{#if view.phase === 'call' && view.pending_discard && callChoices.length}
-  <div class="call-stage" aria-live="polite">
+{#if offered}
+  <div class="call-stage">
     <span class="call-kicker">Discard</span>
-    <Tile tile={view.pending_discard} dora={shownDora.includes(view.pending_discard)} />
-    <span class="call-message"><strong>{(view.pending_from ? NAMES[view.pending_from] : undefined) ?? 'An opponent'}</strong><span>discarded the {tileWords(view.pending_discard)}</span></span>
+    <Tile tile={offered} dora={shownDora.includes(offered)} />
+    <span class="call-message"><strong>{discarder}</strong><span>discarded the {tileWords(offered)}</span></span>
   </div>
 {/if}
-{#if selectedTile && myTurn && !busy}
-  <div class="confirm-discard" aria-live="polite">
-    <span>Selected: {tileWords(selectedTile)}</span>
-    <button class="app-control primary" onclick={() => { if (selectedTile) discard(selectedTile); }}>Discard {tileWords(selectedTile)}</button>
+{#if chosen}
+  <div class="confirm-discard">
+    <span>Selected: {tileWords(chosen)}</span>
+    <button class="app-control primary" onclick={() => { if (selectedTile) discard(selectedTile); }}>Discard {tileWords(chosen)}</button>
     <button class="app-control" onclick={oncancel}>Cancel</button>
   </div>
 {/if}

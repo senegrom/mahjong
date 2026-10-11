@@ -175,3 +175,15 @@ export function calledSet(before, after) {
   if (changed === -1) return '';
   return CALL_WORDS[after[changed]] ?? '';
 }
+
+/**
+ * What a seat's riichi or call says to a screen reader, or `''` when there is
+ * nothing to say. Its listener hears the word without seeing which seat it
+ * appeared at, so the seat is named: "South declared riichi", "West called
+ * pon". `called` is the word calledSet gave, and riichi outlasts it, as the
+ * seat's badge shows.
+ */
+export function seatAnnouncement(wind, riichi, called) {
+  if (riichi) return `${wind} declared riichi`;
+  return called ? `${wind} called ${called.toLowerCase()}` : '';
+}

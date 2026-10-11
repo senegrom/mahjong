@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
 
   import { OPPONENT_LABELS } from './opponents.js';
-  import { calledSet } from './ui.js';
+  import { calledSet, seatAnnouncement } from './ui.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
 
@@ -48,6 +48,11 @@
   onDestroy(() => clearTimeout(timer));
 
   let announcement = $derived(seat.riichi ? 'Riichi' : called);
+  // The badge comes and goes with its word, which is for the eye. A screen
+  // reader listens to a live region only once it exists, and JAWS and NVDA
+  // often miss one inserted along with its words, so the same news is said
+  // by a region that is always here, naming the seat it is about.
+  let spoken = $derived(seatAnnouncement(NAMES[seat.seat], seat.riichi, called));
   const shortScore = score => `${(score / 1000).toFixed(1)}k`;
 </script>
 
@@ -63,8 +68,9 @@
     {/if}
     {#if seat.riichi}<span class="stick" title="declared riichi"></span>{/if}
     {#if announcement}
-      <span class="called" aria-live="polite">{announcement}</span>
+      <span class="called" aria-hidden="true">{announcement}</span>
     {/if}
+    <span class="visually-hidden" role="status">{spoken}</span>
   </header>
 
   <div class="held" role="img" aria-label="{seat.hand_size} tiles in hand">

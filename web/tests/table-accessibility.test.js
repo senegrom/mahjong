@@ -90,6 +90,36 @@ test('an open kan is named as one, whichever table it is on', async () => {
   assert.equal(meldWords({ kind: 'extended-kan', tiles: ['5s', '5s', '5s', '5s'] }), 'Added kan of 5 bamboo');
 });
 
+test('riichi, calls, an offered discard and a selection are said by regions already in the page', async () => {
+  // A screen reader listens to a live region only once it exists, and JAWS
+  // and NVDA often miss one inserted along with its words. So each region is
+  // rendered, empty, before there is anything to say.
+  const said = markup => [...markup.matchAll(/<(?:span|p) class="visually-hidden[^"]*" role="status">([^<]*)<\/(?:span|p)>/g)]
+    .map(match => match[1]);
+  assert.deepEqual(said(await html('Seat.svelte', { seat: seat('south', 1) })), ['']);
+  const riichi = await html('Seat.svelte', { seat: seat('south', 1, { riichi: true }) });
+  assert.deepEqual(said(riichi), ['South declared riichi']);
+  // The badge is for the eye; the region says the same and names the seat.
+  assert.match(riichi, /<span class="called[^"]*" aria-hidden="true">Riichi<\/span>/);
+
+  const view = extra => ({ phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'],
+    dora_types: [], dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: null, pending_from: null,
+    outcome: null, seats: [seat('east', 0, { hand: ['5s'], drawn: null }), seat('south', 1), seat('west', 2), seat('north', 3)], ...extra });
+  const choices = props => html('app/TurnChoices.svelte', { view: view(), shownDora: [], busy: false, thinking: false, failure: '',
+    saveConflict: '', loadNote: '', pendingOpponent: null, myTurn: true, confirmDiscards: true, shortcuts: false, touch: false,
+    selectedTile: null, callChoices: [], choose() {}, discard() {}, oncancel() {}, ...props });
+  assert.deepEqual(said(await choices({})), ['']);
+  const call = await choices({ view: view({ phase: 'call', pending_discard: '5s', pending_from: 'south' }), myTurn: false,
+    callChoices: [{ kind: 'pon', tile: null }, { kind: 'pass', tile: null }] });
+  assert.deepEqual(said(call), ['South discarded the 5 bamboo']);
+  const selection = await choices({ selectedTile: '5s' });
+  assert.deepEqual(said(selection), ['Selected: 5 bamboo']);
+  // The panels still come and go for the eye, but not as regions of their own.
+  assert.match(call, /class="call-stage/);
+  assert.match(selection, /class="confirm-discard/);
+  for (const markup of [call, selection]) assert.doesNotMatch(markup, /aria-live/);
+});
+
 test('the table inspection names each opponent once: position, wind, score', async () => {
   const view = { round: 'east', kyoku: 1, wall: 70, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [], outcome: null,
     seats: [seat('east', 0), seat('south', 1), seat('west', 2), seat('north', 3)] };

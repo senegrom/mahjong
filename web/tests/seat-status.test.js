@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { calledSet } from '../src/lib/ui.js';
+import { calledSet, seatAnnouncement } from '../src/lib/ui.js';
 
 test('a set called in front of the table is announced', () => {
   assert.equal(calledSet([], ['chii']), 'Chii');
@@ -20,6 +20,15 @@ test('sets that were already there when the seat came into view say nothing', ()
   assert.equal(calledSet(['pon', 'chii'], []), '', 'the next deal');
   assert.equal(calledSet(null, ['pon']), '', 'the first look at this seat');
   assert.equal(calledSet(['pon'], undefined), '', 'nothing to compare with');
+});
+
+test('a screen reader is told which seat called or declared riichi', () => {
+  assert.equal(seatAnnouncement('West', false, 'Pon'), 'West called pon');
+  assert.equal(seatAnnouncement('North', false, 'Kan'), 'North called kan');
+  assert.equal(seatAnnouncement('South', true, ''), 'South declared riichi');
+  // Riichi outlasts a call, as the badge shows it.
+  assert.equal(seatAnnouncement('South', true, 'Kan'), 'South declared riichi');
+  assert.equal(seatAnnouncement('East', false, ''), '', 'nothing to say');
 });
 
 test('the opponent seat keeps riichi and lets a call fade on its own', async () => {
