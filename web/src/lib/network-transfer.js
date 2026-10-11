@@ -73,27 +73,31 @@ export async function hasStoredNetwork(url, expect, { scope } = {}) {
   return recorded(await networkCache(scope), url, expect);
 }
 
-/** Own the deadline even when a mocked/broken transport ignores cancellation.
- * The transfer owns total and idle limits and a byte ceiling. It never
- * retains an unbounded list of chunks. */
-async function downloadNetwork(url, expect, onProgress, timeouts) {
-  const { totalMs, idleMs } = { ...NETWORK_TIMEOUTS, ...timeouts };
-  if (![totalMs, idleMs].every(n => Number.isSafeInteger(n) && n > 0 && n <= 2 ** 31 - 1)) {
-    throw new Error('Invalid network download deadline');
-  }
+/** The bounded transfer behind every download: the network, and the service
+ * worker's own files. A deadline that every chunk resets ends a transfer that
+ * has stalled, while one that keeps receiving bytes goes on however slowly
+ * they come; totalMs, when given, bounds the whole of it as well. The body
+ * is read into exactly expect.bytes, so an overlong one is cancelled before
+ * its excess is kept, and is returned with its response only when its
+ * SHA-256 matches. The deadlines hold even when a mocked or broken transport
+ * ignores cancellation. describe(kind, detail) words each failure for the
+ * caller: 'status', 'overrun', 'size', 'digest' or 'timeout'. */
+async function verifiedDownload(url, expect, { init, idleMs, totalMs, onProgress, describe }) {
   const controller = new AbortController();
   let idle, total, reader, rejectAbort;
   const aborted = new Promise((_, reject) => { rejectAbort = reject; });
-  const fail = error => { controller.abort(error); rejectAbort(error); };
-  const timeout = () => fail(new Error('Network download timed out. Reconnect and retry.'));
+  const timeout = () => {
+    const error = new Error(describe('timeout'));
+    controller.abort(error); rejectAbort(error);
+  };
   const resetIdle = () => { clearTimeout(idle); idle = setTimeout(timeout, idleMs); };
   const bounded = promise => Promise.race([promise, aborted]);
-  total = setTimeout(timeout, totalMs);
+  if (totalMs) total = setTimeout(timeout, totalMs);
   resetIdle();
   try {
-    const response = await bounded(fetch(url, { mode: 'cors', signal: controller.signal }));
-    if (!response.ok) throw new Error(`The network could not be fetched: ${response.status}`);
-    // Content-Length can be compressed; the manifest bounds decoded bytes.
+    const response = await bounded(fetch(url, { ...init, signal: controller.signal }));
+    if (!response.ok) throw new Error(describe('status', response.status));
+    // Content-Length can be compressed; the expected size bounds decoded bytes.
     const bytes = new Uint8Array(expect.bytes);
     let seen = 0;
     reader = response.body?.getReader();
@@ -101,7 +105,7 @@ async function downloadNetwork(url, expect, onProgress, timeouts) {
       for (;;) {
         const { done, value } = await bounded(reader.read());
         if (done) break;
-        if (seen + value.byteLength > expect.bytes) throw new Error('The network exceeded its expected byte size');
+        if (seen + value.byteLength > expect.bytes) throw new Error(describe('overrun'));
         bytes.set(value, seen);
         seen += value.byteLength;
         if (value.byteLength) resetIdle();
@@ -109,20 +113,34 @@ async function downloadNetwork(url, expect, onProgress, timeouts) {
       }
     } else {
       const body = new Uint8Array(await bounded(response.arrayBuffer()));
-      if (body.length > expect.bytes) throw new Error('The network exceeded its expected byte size');
+      if (body.length > expect.bytes) throw new Error(describe('overrun'));
       bytes.set(body); seen = body.length;
     }
-    if (seen !== expect.bytes) throw new Error(`The network arrived as ${seen} bytes, not ${expect.bytes}`);
-    if (await bounded(digestOf(bytes)) !== expect.sha256) {
-      throw new Error('The network that arrived is not the one this page was built for');
-    }
-    return bytes;
+    if (seen !== expect.bytes) throw new Error(describe('size', seen));
+    if (await bounded(digestOf(bytes)) !== expect.sha256) throw new Error(describe('digest'));
+    return { response, bytes };
   } finally {
     clearTimeout(idle); clearTimeout(total);
     // Do not await a broken stream's cancellation promise.
     if (reader) { try { void reader.cancel().catch(() => {}); } catch { /* Already closed. */ } }
     controller.abort();
   }
+}
+
+async function downloadNetwork(url, expect, onProgress, timeouts) {
+  const { totalMs, idleMs } = { ...NETWORK_TIMEOUTS, ...timeouts };
+  if (![totalMs, idleMs].every(n => Number.isSafeInteger(n) && n > 0 && n <= 2 ** 31 - 1)) {
+    throw new Error('Invalid network download deadline');
+  }
+  const describe = (kind, detail) => ({
+    status: `The network could not be fetched: ${detail}`,
+    overrun: 'The network exceeded its expected byte size',
+    size: `The network arrived as ${detail} bytes, not ${expect.bytes}`,
+    digest: 'The network that arrived is not the one this page was built for',
+    timeout: 'Network download timed out. Reconnect and retry.',
+  })[kind];
+  const { bytes } = await verifiedDownload(url, expect, { init: { mode: 'cors' }, idleMs, totalMs, onProgress, describe });
+  return bytes;
 }
 
 /** Verified bytes are usable online even when storage fails. Durable callers

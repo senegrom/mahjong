@@ -18,7 +18,7 @@ export async function serviceWorkerTemplate() {
     readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/lib/network-transfer.js', import.meta.url), 'utf8'),
   ]);
-  return template.replace('/* NETWORK_TRANSFER */ null', `(() => {\n${transfer.replace(/^export /gm, '')}\nreturn { storageError, hasStoredNetwork, pruneNetworkCache };\n})()`);
+  return template.replace('/* NETWORK_TRANSFER */ null', `(() => {\n${transfer.replace(/^export /gm, '')}\nreturn { storageError, hasStoredNetwork, pruneNetworkCache, verifiedDownload };\n})()`);
 }
 /** runtime names the folder holding the runtime the page loads. */
 export async function buildOffline(root, { network = MANIFEST, runtime } = {}) {

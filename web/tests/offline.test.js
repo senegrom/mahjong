@@ -4,6 +4,7 @@ import { readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { createHash, webcrypto } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import vm from 'node:vm';
 import { buildOffline, serviceWorkerTemplate } from '../scripts/offline-build.mjs';
 import { verifiedNetworkBytes } from '../src/lib/network-transfer.js';
@@ -27,17 +28,74 @@ function storage() {
       async keys() { return [...entries.keys()].map(url => new Request(url)); } };
   } };
 }
-function worker({ files = bodies, caches = storage(), config = manifest(files), network, remote = 'weights', deadlines } = {}) {
+/** Time that passes only when a test moves it, for every timer the worker
+ * could use: a fixed cap on a download, AbortSignal.timeout included, would
+ * end a slow transfer here as surely as it does in a browser. */
+function testClock() {
+  let now = 0, last = 0;
+  const timers = new Map();
+  const setTimeout = (fn, ms = 0) => { timers.set(++last, { at: now + ms, fn }); return last; };
+  const clearTimeout = id => { timers.delete(id); };
+  return { setTimeout, clearTimeout, now: () => now,
+    AbortSignal: { timeout(ms) {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException('The operation timed out.', 'TimeoutError')), ms);
+      return controller.signal;
+    } },
+    advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        const [id, due] = [...timers].filter(([, timer]) => timer.at <= end).sort(([, a], [, b]) => a.at - b.at)[0] ?? [];
+        if (!due) break;
+        timers.delete(id); now = due.at; due.fn();
+      }
+      now = end;
+    } };
+}
+/** Settles work while the clock moves on a second at a time, for as long as
+ * it takes, and says how it settled. */
+async function overTime(clock, work, seconds = 600) {
+  let outcome;
+  work.then(value => { outcome = { value }; }, error => { outcome = { error }; });
+  for (let second = 0; second < seconds && !outcome; second++) {
+    for (let turn = 0; turn < 10 && !outcome; turn++) await setImmediate();
+    if (!outcome) clock.advance(1000);
+  }
+  assert.ok(outcome, `still running after ${seconds} s`);
+  return outcome;
+}
+/** A body that arrives a byte at a time, one every `every` ms of the clock,
+ * and fails, as a real one does, when its request is aborted. */
+function trickle(body, clock, signal, every = 10000) {
+  const bytes = new TextEncoder().encode(body);
+  let sent = 0;
+  return new Response(new ReadableStream({
+    start(controller) {
+      signal.addEventListener('abort', () => { try { controller.error(signal.reason); } catch { /* Closed. */ } });
+    },
+    pull(controller) {
+      return new Promise(resolve => clock.setTimeout(() => {
+        try {
+          controller.enqueue(bytes.slice(sent, ++sent));
+          if (sent === bytes.length) controller.close();
+        } catch { /* Aborted meanwhile. */ }
+        resolve();
+      }, every));
+    },
+  }));
+}
+function worker({ files = bodies, caches = storage(), config = manifest(files), network, remote = 'weights', clock } = {}) {
   const events = {}, counts = new Map();
   const self = { registration: { scope: base }, clients: { async claim() {} }, addEventListener: (type, fn) => events[type] = fn };
   vm.runInNewContext(template.replace('/* OFFLINE_CONFIG */ null', JSON.stringify(config)), {
-    self, URL, Request, Response, Map, Set, caches, crypto: webcrypto, AbortSignal, AbortController, DOMException,
-    setTimeout: deadlines ? (fn, ms) => setTimeout(fn, ms >= 60000 ? deadlines : ms) : setTimeout, clearTimeout,
-    fetch: async url => {
+    self, URL, Request, Response, Map, Set, caches, crypto: webcrypto, AbortController, DOMException,
+    AbortSignal: clock?.AbortSignal ?? AbortSignal,
+    setTimeout: clock?.setTimeout ?? setTimeout, clearTimeout: clock?.clearTimeout ?? clearTimeout,
+    fetch: async (url, init) => {
       const address = new URL(url);
       const name = address.origin === new URL(base).origin ? address.pathname.slice('/mahjong/'.length) : address.href;
       counts.set(name, (counts.get(name) ?? 0) + 1);
-      if (network) return network(name);
+      if (network) return network(name, init);
       if (config.network && name === `${config.network.origin}/${config.network.object}`) return new Response(remote);
       return new Response(files[name], { status: name in files ? 200 : 404 });
     },
@@ -170,6 +228,45 @@ test('cache eviction is detected and unrelated apps and unknown assets are untou
   assert.equal(await (await other.match(base + 'sentinel')).text(), 'keep');
   assert.equal(await w.get('../plateloader/'), undefined);
   assert.equal(await w.get('missing.wasm'), undefined);
+});
+test('a file that keeps arriving is saved however long it takes; one that stops for a minute ends', async () => {
+  // At 10 s a byte the white dragon takes 170 s: longer than the fixed 90 s
+  // the worker once allowed, which four 3 MB tiles on a slow link outlast.
+  const clock = testClock(), slow = 'tiles/Haku.svg';
+  const w = worker({ clock, network: (name, init) => name === slow ? trickle(bodies[name], clock, init.signal)
+    : new Response(bodies[name]) });
+  assert.equal((await overTime(clock, w.install())).error, undefined);
+  assert.ok(clock.now() >= 170000);
+  assert.equal((await status(w)).coreReady, true);
+  assert.equal(await (await w.get(slow)).text(), bodies[slow]);
+  // A body that stops arriving has stalled: the attempt ends a minute after
+  // its last byte, not whenever the browser gives up on the event.
+  const stalls = testClock();
+  const stalled = worker({ clock: stalls, network: (name, init) => name !== slow ? new Response(bodies[name])
+    : new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('<svg>'));
+      init.signal.addEventListener('abort', () => controller.error(init.signal.reason));
+    } })) });
+  assert.match((await overTime(stalls, stalled.install())).error?.message ?? '', /Download stalled: tiles\/Haku\.svg/);
+  assert.ok(stalls.now() >= 60000 && stalls.now() <= 62000, `ended at ${stalls.now()} ms`);
+  assert.equal((await status(stalled)).coreReady, false);
+});
+test('a file that fails costs the attempt no other file, and the next one fetches only what is missing', async () => {
+  const clock = testClock(), failing = 'tiles/Haku.svg';
+  let broken = true;
+  const w = worker({ clock, network: (name, init) => name === failing && broken
+    ? new Response('', { status: 503 }) : trickle(bodies[name], clock, init.signal, 1000) });
+  const failed = await overTime(clock, w.install());
+  assert.match(failed.error?.message ?? '', /Download failed: tiles\/Haku\.svg \(HTTP 503\)/);
+  // Read as the install fails: a browser abandons a failed install's worker,
+  // and with it any transfer still running.
+  const store = w.caches.stores.get('mahjong-offline-v1:/mahjong/');
+  const others = w.config.entries.filter(entry => entry.group === 'core' && entry.url !== failing);
+  for (const entry of others) assert.ok(store.has(`${base}__offline_content__/${entry.hash}`), entry.url);
+  broken = false;
+  assert.equal((await overTime(clock, w.install())).error, undefined);
+  assert.equal((await status(w)).coreReady, true);
+  assert.deepEqual(Object.fromEntries(w.counts), { 'index.html': 1, 'app.js': 1, [failing]: 2 });
 });
 test('quota errors cannot be misreported as successfully saved offline', async () => {
   const caches = { async open() { return { async match() {}, async put() { throw new Error('QuotaExceededError'); } }; } };

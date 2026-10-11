@@ -77,8 +77,13 @@ bytes, not the server.
 
 Every file is checked against its build-time byte length and SHA-256 before it
 is marked as saved. Captive portals, partial responses and failed writes cannot
-become successful downloads. Retrying requests only missing files. Storage is
-scoped to this app; other projects on the same GitHub Pages origin are untouched.
+become successful downloads. Retrying requests only missing files. No file has
+a fixed time limit: one that keeps arriving is saved however slow the link, and
+one that stops for a minute is tried again later. A file that fails does not
+stop the others, and every file an attempt finishes stays saved, so an install
+the browser abandons after its few minutes (five in Chrome) resumes on the next
+visit or reconnect with only what is still missing. Storage is scoped to this
+app; other projects on the same GitHub Pages origin are untouched.
 The service worker responds cache-first and caches neither unknown URLs nor
 error responses. Equal content is stored once, including duplicate runtime
 outputs and unchanged files across application updates. The runtime is served
@@ -89,11 +94,12 @@ its folder; Trained opponents then wait for that version's windows to close so
 the update takes over.
 
 Updates wait until existing Mahjong windows close. An update installs with the
-game and graphics alone, so a slow connection still completes it. When Trained
-AI was ever requested, the running version's page then saves the waiting
-update's runtime and network while you play; if that does not finish, the
-update's own page saves them after it starts, once per visit while connected,
-with the status panel showing progress. A new version never plays an older
+game and graphics alone, never the network, and on a slow link it resumes over
+several attempts like a first install. When Trained AI was ever requested, the
+running version's page then saves the waiting update's runtime and network
+while you play; if that does not finish, the update's own page saves them after
+it starts, once per visit while connected, with the status panel showing
+progress. A new version never plays an older
 network: until its own is saved, **Offline: game ready** is shown and Trained
 opponents need a connection. Check for **Offline: game + AI ready** after an
 update before flying. The previous network stays stored until the new one is

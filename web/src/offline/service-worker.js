@@ -19,6 +19,13 @@ async function cached(cache, entry) {
   return response?.headers.get('X-Mahjong-SHA256') === entry.hash
     && Number(response.headers.get('Content-Length')) === entry.bytes ? response : null;
 }
+// No fixed cap on a file: on a slow link, four 3 MB tiles share it for
+// minutes, and a file cut off at a fixed time is lost whole, on every
+// attempt. A file that keeps arriving goes on; one silent for a minute has
+// stalled.
+const IDLE_MS = 60000;
+const failure = url => (kind, detail) => kind === 'status' ? `Download failed: ${url} (HTTP ${detail})`
+  : kind === 'timeout' ? `Download stalled: ${url}` : `Incomplete or outdated download: ${url}`;
 async function ensure(entry, durable = true) {
   let cache, hit;
   try { cache = await caches.open(CACHE); hit = await cached(cache, entry); }
@@ -26,15 +33,12 @@ async function ensure(entry, durable = true) {
   if (hit) return hit;
   if (!downloads.has(entry.hash)) {
     const task = (async () => {
-      const response = await fetch(new URL(entry.url, scope), { cache: 'no-store', signal: AbortSignal.timeout(90000) });
-      if (!response.ok) throw new Error(`Download failed: ${entry.url} (HTTP ${response.status})`);
-      const body = await response.arrayBuffer();
-      const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', body))]
-        .map(byte => byte.toString(16).padStart(2, '0')).join('');
-      if (body.byteLength !== entry.bytes || hash !== entry.hash) throw new Error(`Incomplete or outdated download: ${entry.url}`);
+      const { response, bytes } = await networkTransfer.verifiedDownload(new URL(entry.url, scope),
+        { bytes: entry.bytes, sha256: entry.hash },
+        { init: { cache: 'no-store' }, idleMs: IDLE_MS, describe: failure(entry.url) });
       const type = mimeTypes[entry.url.split('.').pop()] ?? response.headers.get('Content-Type') ?? 'application/octet-stream';
-      const saved = new Response(body, { headers: { 'Content-Type': type, 'Content-Length': String(entry.bytes),
-        'X-Mahjong-SHA256': hash, 'X-Content-Type-Options': 'nosniff' } });
+      const saved = new Response(bytes, { headers: { 'Content-Type': type, 'Content-Length': String(entry.bytes),
+        'X-Mahjong-SHA256': entry.hash, 'X-Content-Type-Options': 'nosniff' } });
       try {
         if (!cache) throw networkTransfer.storageError();
         await cache.put(keyFor(entry), saved.clone());
@@ -83,14 +87,20 @@ async function prepare(group, progress = () => {}) {
   const list = [...new Map(CONFIG.entries.filter(entry => entry.group === group).map(entry => [entry.hash, entry])).values()];
   const total = list.reduce((sum, entry) => sum + entry.bytes, 0);
   let next = 0, bytes = 0;
-  const task = Promise.all(Array.from({ length: Math.min(4, list.length) }, async () => {
+  // A lane that fails stops, and the others go on: the attempt keeps every
+  // file it can finish, and the next one fetches only what is missing. The
+  // first failure is reported once every lane has settled.
+  const task = Promise.allSettled(Array.from({ length: Math.min(4, list.length) }, async () => {
     while (next < list.length) {
       const entry = list[next++];
       await ensure(entry);
       bytes += entry.bytes;
       progress({ bytes, total, group });
     }
-  })).finally(() => groups.delete(group));
+  })).then(lanes => {
+    const failed = lanes.find(lane => lane.status === 'rejected');
+    if (failed) throw failed.reason;
+  }).finally(() => groups.delete(group));
   groups.set(group, task);
   await task;
   return status();
