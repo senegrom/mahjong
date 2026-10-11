@@ -13,12 +13,14 @@ async function walk(directory) {
   return (await Promise.all(entries.map(entry => entry.isDirectory()
     ? walk(resolve(directory, entry.name)) : resolve(directory, entry.name)))).flat();
 }
+/** The worker with network-cache.js inlined: only the part of the network
+ * transfer it uses, since it never downloads the network itself. */
 export async function serviceWorkerTemplate() {
-  const [template, transfer] = await Promise.all([
+  const [template, shared] = await Promise.all([
     readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/lib/network-transfer.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/lib/network-cache.js', import.meta.url), 'utf8'),
   ]);
-  return template.replace('/* NETWORK_TRANSFER */ null', `(() => {\n${transfer.replace(/^export /gm, '')}\nreturn { storageError, hasStoredNetwork, pruneNetworkCache, verifiedDownload };\n})()`);
+  return template.replace('/* NETWORK_TRANSFER */ null', `(() => {\n${shared.replace(/^export /gm, '')}\nreturn { storageError, hasStoredNetwork, pruneNetworkCache, verifiedDownload };\n})()`);
 }
 /** runtime names the folder holding the runtime the page loads. */
 export async function buildOffline(root, { network = MANIFEST, runtime } = {}) {
