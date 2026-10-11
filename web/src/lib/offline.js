@@ -60,8 +60,15 @@ async function hasRoom(bytes) {
 }
 /** Saves a network durably from this page. The verified bytes are dropped once
  * stored: the runtime reads, and hashes, its own copy when it starts. A
- * network storage has no room for is not downloaded only to be refused. */
-async function saveNetwork(url, expect, onProgress) {
+ * network storage has no room for is not downloaded only to be refused.
+ * Saves run one at a time, page-wide: each transfer holds a whole network
+ * until it is stored, and two at once would also split the link. */
+let networkSave = Promise.resolve();
+function saveNetwork(url, expect, onProgress) {
+  networkSave = networkSave.catch(() => {}).then(() => storeNetwork(url, expect, onProgress));
+  return networkSave;
+}
+async function storeNetwork(url, expect, onProgress) {
   if (await networkIsStored(url, expect)) return;
   if (!await hasRoom(expect.bytes)) {
     const error = new Error('The network is not saved offline: this device has too little free storage for it.');
@@ -104,7 +111,8 @@ async function saveUpdate(registration) {
   if (!next || updatesSaved.has(next) || !navigator.onLine) return;
   updatesSaved.add(next);
   try {
-    // One network download at a time: this version's own comes first.
+    // This version's own preparation, when under way, comes first; its
+    // network is then ahead of the update's in saveNetwork's queue.
     await aiJob?.catch(() => {});
     const info = await request('MAHJONG_STATUS', null, next);
     if (!info?.hasModel || !info.aiRequested || info.aiReady || !info.network) return;

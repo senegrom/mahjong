@@ -46,7 +46,9 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
   controlled = true, impatient = false } = {}) {
   const calls = [], saves = [], stored = new Set(held || aiReady ? [NETWORK.url] : []);
   const info = { coreReady, runtime: aiReady, aiRequested, hasModel: true, version: 'test' };
-  const faults = { core: failCore, ai: failAi, storage: storageFailure, registration: false, network: null };
+  // transfer, when set, is the network's transfer itself: it may fail or be
+  // held open while the test looks at what runs beside it.
+  const faults = { core: failCore, ai: failAi, storage: storageFailure, registration: false, network: null, transfer: null };
   let latest, registrations = 0;
   const active = fakeWorker({ calls, network: NETWORK, stored, info, faults });
   // With installs, the first registration's worker is still installing: it
@@ -94,6 +96,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
     networkBytes: async ({ url = NETWORK.url, expect, requireStored, onProgress } = {}) => {
       saves.push({ url, expect: expect && { ...expect }, requireStored });
       if (faults.network) throw faults.network;
+      await faults.transfer?.(url);
       onProgress?.({ bytes: 1, total: 2 });
       stored.add(url);
       return new Uint8Array(1);
@@ -308,6 +311,31 @@ test('a waiting update\'s network waits for this version\'s own', async () => {
   await settle();
   assert.deepEqual(c.saves.map(save => save.url), [NETWORK.url, NEXT.url]);
   assert.equal(c.state().aiReady, true);
+});
+
+test('one network download at a time: a retry waits for a waiting update\'s download under way', async () => {
+  // Each transfer holds a whole network, 116 MB, until it is stored.
+  const c = coordinator({ coreReady: true, aiRequested: true, held: false, waiting: { aiRequested: true } });
+  let running = 0, most = 0, ownTries = 0, release;
+  c.faults.transfer = async url => {
+    running++; most = Math.max(most, running);
+    try {
+      if (url === NETWORK.url && ++ownTries === 1) throw new Error('Connection lost');
+      if (url === NEXT.url) await new Promise(done => { release = done; });
+    } finally { running--; }
+  };
+  await c.api.startOffline();
+  await settle();
+  // This version's automatic save failed, so the update's started.
+  assert.equal(c.state().phase, 'incomplete');
+  assert.deepEqual(c.saves.map(save => save.url), [NETWORK.url, NEXT.url]);
+  const retry = c.api.prepareOfflineAi();
+  await settle();
+  assert.deepEqual(c.saves.map(save => save.url), [NETWORK.url, NEXT.url], 'the retry waits its turn');
+  release();
+  assert.equal((await retry).aiReady, true);
+  assert.deepEqual(c.saves.map(save => save.url), [NETWORK.url, NEXT.url, NETWORK.url]);
+  assert.equal(most, 1);
 });
 
 test('a waiting update is left alone without a Trained request or a connection', async () => {

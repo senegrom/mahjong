@@ -101,7 +101,8 @@ Updates wait until existing Mahjong windows close. An update installs with the
 game and graphics alone, never the network, and on a slow link it resumes over
 several attempts like a first install. When Trained AI was ever requested, the
 running version's page then saves the waiting update's runtime and network
-while you play; if that does not finish, the update's own page saves them after
+while you play, after its own network and never beside another network
+download; if that does not finish, the update's own page saves them after
 it starts, once per visit while connected, with the status panel showing
 progress. A new version never plays an older
 network: until its own is saved, **Offline: game ready** is shown and Trained
