@@ -1,11 +1,18 @@
 //! WebAssembly bindings: the same rules engine the training runs on, in the
 //! browser.
 //!
-//! The browser sees one object, [`Game`], which owns a table and the hand in
-//! progress and hands out plain data: a view of the table from one seat, the
-//! actions that seat may take, and the result of taking one. Nothing about
-//! the rules lives on the JavaScript side, so the game a person plays and the
-//! game the opponents were trained on cannot drift apart.
+//! A game played in the page, in Play or Watch, is one object, [`Game`],
+//! which owns a table and the hand in progress and hands out plain data: a
+//! view of the table from one seat, the actions that seat may take, and the
+//! result of taking one. Nothing about the rules of such a game lives on the
+//! JavaScript side, so the game a person plays and the game the opponents
+//! were trained on cannot drift apart.
+//!
+//! A table typed in rather than played has two more: `PhysicalAnalysis`,
+//! which validates a position entered by hand and advises on it, and
+//! `settle_physical`, which scores the hand's end. The guided game that
+//! records such a table checks a few rules itself as it goes, among them
+//! swap-calling, the riichi preconditions and the kan limit.
 
 // Mortal's crate is packaged as `libriichi` but its library is named
 // `riichi`, which is the name Rust sees it by.

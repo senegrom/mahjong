@@ -32,6 +32,19 @@ invented percentages. Additional legal kans that the network cannot name stay
 available but unscored. Advice for physical play uses the table data entered by
 the player; enter visible history accurately, and leave unknown hands empty.
 
+Riichi is one row for the declaration, carrying the network's weight for
+declaring, with its candidate discards beneath it. Each candidate's
+`conditionalWeight` is the answer to the second question a declaration asks,
+which is put only when the network chose riichi; otherwise the candidates show
+as not evaluated, never as zero, and no extra request is made to score them.
+The two stages are never multiplied into one weight, and the network's own
+answer stays the advice whatever the rows show. The declaration row is not a
+button: a discard must still be chosen and confirmed.
+
+The value is shown as **Estimated training reward**, in the units the network
+was trained in: the hand's point change divided by 4,000, plus the final
+placement bonus. It is not a predicted finishing place or a win probability.
+
 ## Custom tables
 
 Choose **Opponents → Custom table** to pick Beginner, Club or Trained separately

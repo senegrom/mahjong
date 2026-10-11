@@ -13,9 +13,12 @@ const aborted = signal => {
 
 export async function reviewWithStrong(engine, notes, analyze, { signal, onProgress = () => {} } = {}) {
   aborted(signal);
-  // Copy the small observations before awaiting anything. Advancing the hand or
-  // freeing its engine cannot invalidate a review already in flight. Each input
-  // is released as it is consumed; no engine positions are cloned or retained.
+  // Copy the small observations before awaiting anything. The engine calls
+  // that follow an await, for a reach's second question and to translate the
+  // answers back, are guarded only by the abort signal checked after each
+  // await, so the caller must abort the review when the hand moves on or the
+  // engine is freed. Each input is released as it is consumed; no engine
+  // positions are cloned or retained.
   const inputs = notes.map((_, index) => ({
     planes: engine.review_observation_mortal(index),
     mask: engine.review_mask_mortal(index),
