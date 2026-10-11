@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { NETWORK_CACHE, networkCacheName, verifiedNetworkBytes, hasStoredNetwork, pruneNetworkCache } from '../src/lib/network-transfer.js';
+import { NETWORK_CACHE, networkCacheName, hasStoredNetwork, pruneNetworkCache } from '../src/lib/network-transfer.js';
 import { networkIsStored } from '../src/lib/network-store.js';
 
 const scope = 'https://test.invalid/mahjong/';
@@ -90,41 +90,15 @@ test('cleanup never touches another installation or the unowned legacy cache', a
   assert.ok(await legacy.match(model(8).url));
 });
 
-test('a verified legacy body migrates without fetching or deleting its shared copy', async t => {
-  const caches = cacheStorageFixture(t), legacy = await caches.open(NETWORK_CACHE), m = model(1);
-  await store(legacy, m);
-  const oldFetch = globalThis.fetch;
-  globalThis.fetch = () => { throw new Error('must not fetch a cached network'); };
-  t.after(() => { globalThis.fetch = oldFetch; });
-  assert.equal(await hasStoredNetwork(m.url, m.expect, { scope }), true);
-  let durable = false;
-  const bytes = await verifiedNetworkBytes({ ...m, scope, requireStored: true, onStorage: saved => { durable = saved; } });
-  assert.equal(new TextDecoder().decode(bytes), m.body);
-  assert.equal(durable, true);
-  assert.ok(await (await caches.open(networkCacheName(scope))).match(m.url));
-  assert.ok(await legacy.match(m.url));
-});
-
-test('failed migration preserves verified legacy offline availability', async t => {
-  const caches = cacheStorageFixture(t), m = model(1);
+test('a stored-network check opens only its own installation\'s cache, never the old shared one', async t => {
+  const caches = cacheStorageFixture(t), m = model(1), opened = [];
+  // A copy there could only be generation 36's, which no build plays, and
+  // opening that cache to look would create it on every miss.
   await store(await caches.open(NETWORK_CACHE), m);
-  const cache = await caches.open(networkCacheName(scope));
-  cache.put = async () => { throw new Error('quota'); };
-  const bytes = await verifiedNetworkBytes({ ...m, scope, requireStored: true });
-  assert.equal(new TextDecoder().decode(bytes), m.body);
-  assert.equal(await hasStoredNetwork(m.url, m.expect, { scope }), true);
-});
-
-test('a legacy copy from before stored records migrates once, by its verified bytes', async t => {
-  const caches = cacheStorageFixture(t), m = model(1);
-  // The first releases stored the body alone, without the identity record.
-  await (await caches.open(NETWORK_CACHE)).put(m.url, new Response(m.body));
+  const open = caches.open;
+  caches.open = async name => { opened.push(name); return open(name); };
   assert.equal(await hasStoredNetwork(m.url, m.expect, { scope }), false);
-  const oldFetch = globalThis.fetch;
-  globalThis.fetch = () => { throw new Error('must not fetch a cached network'); };
-  t.after(() => { globalThis.fetch = oldFetch; });
-  await verifiedNetworkBytes({ ...m, scope, requireStored: true });
-  assert.equal(await hasStoredNetwork(m.url, m.expect, { scope }), true);
+  assert.deepEqual(opened, [networkCacheName(scope)]);
 });
 
 test('verified worker status avoids a second read only for the exact requested identity', async t => {

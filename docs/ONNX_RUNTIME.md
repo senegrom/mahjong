@@ -72,11 +72,10 @@ network. The current and previous model URLs are retained; older scoped
 entries are removed. A network that is not yet stored, a waiting/installing
 worker, or an unreadable retention record prevents pruning.
 
-Legacy v1 bytes are verified and can be copied into the scoped cache without
-fetching again. A quota failure during this copy does not invalidate a verified
-legacy copy. The unscoped legacy cache is deliberately not blanket-deleted:
-its entries may still be needed by another installation on the same origin.
-Other installation scopes and unrelated caches are never pruned.
+The unscoped legacy v1 cache is no longer read: it could only ever hold
+generation 36. It is deliberately not blanket-deleted either: its entries may
+still be needed by another installation on the same origin. Other installation
+scopes and unrelated caches are never pruned.
 
 ## Build and test
 

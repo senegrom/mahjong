@@ -23,8 +23,11 @@ export function storageError(cause, bytes) {
   return error;
 }
 
-/** New downloads belong to an installation scope. The shared v1 cache is
- * read for migration only: its old entries have no reliable scope ownership. */
+/** Every page and worker names its installation scope; a caller without one,
+ * a script or a test, gets the old shared v1 name. Nothing migrates from that
+ * cache any more: it could only ever hold generation 36, which no build since
+ * 8 October plays. Its entries have no reliable scope ownership, so nothing
+ * here deletes them. */
 export function networkCacheName(scope) {
   return scope ? `mahjong-network-v2:${new URL('./', scope).href}` : NETWORK_CACHE;
 }
@@ -67,8 +70,7 @@ async function recorded(cache, url, expect) {
 /** Cheap enough for every status check and foreground return. */
 export async function hasStoredNetwork(url, expect, { scope } = {}) {
   validateNetwork(expect);
-  return Boolean(await recorded(await networkCache(scope), url, expect)
-    || (scope && await recorded(await networkCache(), url, expect)));
+  return recorded(await networkCache(scope), url, expect);
 }
 
 /** Own the deadline even when a mocked/broken transport ignores cancellation.
@@ -137,11 +139,8 @@ export async function verifiedNetworkBytes({ url, expect, onProgress, signal,
   const cache = await networkCache(scope);
   const held = await verifiedCached(cache, url, expect);
   if (held) { onStorage?.(true); return held; }
-  // Copy a verified legacy body into the scoped cache without another fetch.
-  // It is already durable even when copying fails, and is never deleted here.
-  const legacy = scope && await verifiedCached(await networkCache(), url, expect);
-  const bytes = legacy || await downloadNetwork(url, expect, onProgress, signal, timeouts);
-  let stored = Boolean(legacy), failure;
+  const bytes = await downloadNetwork(url, expect, onProgress, signal, timeouts);
+  let stored = false, failure;
   try {
     if (!cache) throw storageError();
     // A Response copies the bytes it is given, so the caller keeps its own.
