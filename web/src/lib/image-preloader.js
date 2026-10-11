@@ -81,5 +81,5 @@ export function createImagePreloader({ createImage = () => new Image(), concurre
     return job.settled;
   }
 
-  return { load, clear() { active?.controller.abort(cancelled()); cached.clear(); retained.clear(); } };
+  return { load };
 }
