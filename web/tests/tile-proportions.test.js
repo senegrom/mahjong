@@ -79,7 +79,7 @@ test('every squeezed Van Gogh export is fitted to the shape its provenance recor
     assert.ok(entry.fit, `${record.tile} is a squeezed export without a fit (${file})`);
     assert.deepEqual(entry.fit.painting, shape, record.tile);
   }
-  assert.deepEqual(squeezed.sort(), ['2s', '3p', '3s', '4p', '4s', '6m', '6p', '7s', '8s', '9p']);
+  assert.deepEqual(squeezed.sort(), ['2s', '3p', '3s', '4p', '4s', '6m', '6p', '7s', '8s', '9m', '9p']);
 });
 
 test('the lit Matisse white dragon keeps exactly the quiet face\'s geometry', () => {

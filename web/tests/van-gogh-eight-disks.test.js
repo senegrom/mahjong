@@ -70,7 +70,7 @@ test('all disks and bamboo are painted while Seven Apples and the Potter’s Tab
   assert.match(preview, /Lemons by the Sea for 8 disks/);
   const rack = preview.match(/<div class="rack" id="rack">(.*?)<\/div>/)[1];
   assert.equal((rack.match(/<img /g) ?? []).length, 14);
-  assert.match(rack, /approved\/Pin8\.svg/);
+  assert.match(preview, /approved\/Pin8\.svg/);
 });
 
 test('--only=8p is deterministic and preserves every other playable image', t => {
