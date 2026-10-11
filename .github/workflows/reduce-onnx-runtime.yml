@@ -49,7 +49,7 @@ jobs:
           "$RUNNER_TEMP/runtime-venv/bin/python" -m pip install -r web/runtime/requirements-build.txt
           "$RUNNER_TEMP/runtime-venv/bin/python" -m pip check
           echo "$RUNNER_TEMP/runtime-venv/bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 22
           cache: npm
@@ -177,7 +177,7 @@ jobs:
             "$ORT_VERSION" "$SOURCE_SHA" "$tested_tree" "$branch" "$compare" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: reduced-onnx-runtime-${{ github.run_attempt }}
           path: |
