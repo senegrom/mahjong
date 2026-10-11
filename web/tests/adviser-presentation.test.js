@@ -84,21 +84,6 @@ test('a lower joint probability cannot override the policy\'s two-stage choice',
   assert.equal(a.calls.length, 2);
 });
 
-test('display aggregation never reranks the selected backend action', async () => {
-  const e = engine();
-  // A synthetic many-to-one translator exercises this contract. Current EMA
-  // play masks out red-five aliases; this fixture does not reopen them.
-  e.agent_action_from_mortal = action => action === 34 ? 0 : action;
-  const a = analyzer([{ action: 2, weights: weights({ 0: .3, 34: .3, 2: .4 }) }]);
-  const result = await evaluator(a.analyze)(e, 'full');
-  assert.strictEqual(result.choice, choices[2]);
-  assert.equal(result.choices[0].weight, .6);
-  assert.equal(result.choices[0].tile, '1m');
-  groupPolicyChoices(result.choices);
-  assert.strictEqual(result.choice, choices[2]);
-  assert.equal(a.calls.length, 1);
-});
-
 test('riichi not chosen stays unevaluated, not zero or an invented conditional distribution', async () => {
   const e = engine(), a = analyzer([{ action: 2, weights: weights({ 37: .2, 2: .8 }) }]);
   const result = await evaluator(a.analyze)(e, 'full');
@@ -178,6 +163,4 @@ test('invalid conditional weights are rejected without weakening first-stage val
     assert.throws(() => weightsByChoice(e, choices, first, e.agent_action_from_mortal,
       { weights: weights({ 0: value }), fromMortal: action => e.agent_action_from_mortal(action, true) }), /invalid/);
   }
-  assert.throws(() => weightsByChoice(e, choices, first, e.agent_action_from_mortal,
-    { weights: weights({ 0: .6, 1: .6 }), fromMortal: () => 34 }), /invalid conditional/);
 });

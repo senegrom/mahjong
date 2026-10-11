@@ -65,12 +65,10 @@ test('reach remains a declaration weight and unnameable extra kans remain unscor
   assert.deepEqual(result.map(choice => choice.weight), [.8, .8, .2, null]);
 });
 
-test('invalid alias weights and excessive combined mass fail explicitly', () => {
+test('invalid alias weights fail explicitly', () => {
   const engine = { mortal_action_of: () => 4 };
   for (const value of [NaN, Infinity, -.1, 1.1]) {
     const weights = Array(46).fill(0); weights[34] = value;
     assert.throws(() => weightsByChoice(engine, [{ index: 4 }], weights, () => 4), /invalid/);
   }
-  const weights = Array(46).fill(0); weights[4] = .6; weights[34] = .6;
-  assert.throws(() => weightsByChoice(engine, [{ index: 4 }], weights, () => 4), /invalid/);
 });

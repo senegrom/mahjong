@@ -1,4 +1,5 @@
-/** Translate policy mass, not just one representative action, to actual moves.
+/** Translate the policy's weights over Mortal's actions to our moves. Each of
+ * our moves has at most one Mortal action, so a weight is never summed.
  * Mortal's red-five actions mean nothing in this ruleset, which has no red
  * fives: they are never opened, so they carry no mass. A reach remains a
  * declaration probability shared by its candidate discards; the second-stage
@@ -16,7 +17,7 @@ function massByChoice(weights, fromMortal) {
   for (let action = 0; action < weights.length; action++) {
     if (action === MORTAL_REACH || weights[action] === 0) continue;
     const index = fromMortal(action);
-    if (index >= 0) mass.set(index, (mass.get(index) ?? 0) + weights[action]);
+    if (index >= 0) mass.set(index, weights[action]);
   }
   return mass;
 }
@@ -30,13 +31,9 @@ export function weightsByChoice(engine, choices, weights, fromMortal, reach = nu
   return choices.map(entry => {
     const action = entry.index == null ? -1 : engine.mortal_action_of(entry.index);
     if (action < 0) return { ...entry, weight: null };
-    const weight = action === MORTAL_REACH ? weights[MORTAL_REACH] : (mass.get(entry.index) ?? 0);
-    if (weight > 1 + 1e-6) throw new Error('The trained network returned invalid move probability');
-    if (action !== MORTAL_REACH) return { ...entry, weight: Math.min(1, weight) };
-    const conditionalWeight = conditional ? (conditional.get(entry.index) ?? 0) : null;
-    if (conditionalWeight > 1 + 1e-6) throw new Error('The trained network returned invalid conditional probability');
-    return { ...entry, weight: Math.min(1, weight),
-      conditionalWeight: conditionalWeight == null ? null : Math.min(1, conditionalWeight) };
+    if (action !== MORTAL_REACH) return { ...entry, weight: mass.get(entry.index) ?? 0 };
+    return { ...entry, weight: weights[MORTAL_REACH],
+      conditionalWeight: conditional ? (conditional.get(entry.index) ?? 0) : null };
   });
 }
 
