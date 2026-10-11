@@ -407,10 +407,6 @@ pub struct NoteView {
     pub dora_types: Vec<String>,
     /// Why they differ, in words.
     pub reason: String,
-    /// A short tag for the reason, for styling.
-    pub kind: String,
-    /// How many improving tiles the move gave up.
-    pub cost: u32,
 }
 
 /// One thing the player may do.
@@ -1322,8 +1318,6 @@ impl Game {
                     dora_advised: note.dora_advised,
                     dora_types: dora_types(position),
                     reason: note.reason.line().to_string(),
-                    kind: reason_name(note.reason).to_string(),
-                    cost: note.cost(),
                 }
             })
             .collect()
@@ -1861,8 +1855,6 @@ fn describe_call_review(hand: &Hand, seat: Wind, played: Call, adviser: &mut Bot
         dora_advised: 0,
         dora_types: dora_types(hand),
         reason: reason.into(),
-        kind: if agreed { "agreed" } else { "call" }.into(),
-        cost: 0,
     }
 }
 
@@ -2061,18 +2053,6 @@ fn danger_name(danger: review::Danger) -> &'static str {
         review::Danger::Quiet => "quiet",
         review::Danger::Safe => "safe",
         review::Danger::Live => "live",
-    }
-}
-
-/// A short tag for why the adviser differs.
-fn reason_name(reason: review::Reason) -> &'static str {
-    match reason {
-        review::Reason::Agreed => "agreed",
-        review::Reason::Shape => "shape",
-        review::Reason::Acceptance => "acceptance",
-        review::Reason::Defence => "defence",
-        review::Reason::Value => "value",
-        review::Reason::Judgement => "judgement",
     }
 }
 
