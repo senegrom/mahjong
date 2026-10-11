@@ -293,8 +293,6 @@ try {
   });
   await check('interrupted runtime download stays incomplete and resumes without re-downloading good weights', async () => {
     failPath = runtimePath;
-    // The hashed duplicate has the same body: fail both network locations.
-    for (const entry of manifest.entries.filter(e=>e.group==='ai'&&e.url.endsWith('.wasm'))) overrides.set(entry.url, Buffer.from('incomplete'));
     const b=await launch(await profile()), p=await page(b); await hand(p);
     await p.waitForFunction(()=>document.body.textContent.includes('AI download incomplete'),{timeout:120000});
     assert.doesNotMatch(await p.$eval('[data-offline-status]',el=>el.textContent),/AI ready/);
@@ -302,12 +300,10 @@ try {
       const reg=await navigator.serviceWorker.getRegistration();
       return Boolean(reg?.active);
     });
-    // Allow outstanding successful sibling requests to be written before retry.
-    await new Promise(done=>setTimeout(done,200));
     // The runtime is saved before the network is fetched, so a runtime that
     // cannot be saved spends none of the network's 116 MB.
     assert.equal(count.get(modelPath) ?? 0,0);
-    failPath=null; overrides.clear();
+    failPath=null;
     await p.click('.settings-trigger'); await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p); await p.click('.mobile-preferences-head button');
     assert.equal(count.get(modelPath),1); assert.ok(count.get(runtimePath)>=1);
     await play(p,4); assert.deepEqual(p.errors,[]);
