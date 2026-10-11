@@ -31,7 +31,7 @@ test('trained readiness updates during the download and after it completes', () 
   assert.doesNotMatch(html, /data-download-ai/);
 });
 
-test('a build without the trained network never offers its download', () => {
+test('until the worker reports its build, no trained download is offered', () => {
   const html = show({ aiReady: false, hasModel: false });
   assert.match(html, /Offline: game ready/);
   assert.doesNotMatch(html, /data-download-ai/);

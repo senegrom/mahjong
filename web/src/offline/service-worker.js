@@ -5,7 +5,7 @@ const CONFIG = /* OFFLINE_CONFIG */ null;
 const scope = new URL(self.registration.scope);
 // GitHub Pages projects share an origin. Never touch another app's caches.
 const CACHE = `mahjong-offline-v1:${scope.pathname}`;
-const networkScope = CONFIG.networkCacheVersion === 2 ? scope.href : undefined;
+const networkScope = scope.href;
 const keyFor = entry => new URL(`__offline_content__/${entry.hash}`, scope).href;
 const entries = new Map(CONFIG.entries.map(entry => [new URL(entry.url, scope).pathname, entry]));
 const downloads = new Map();
@@ -58,13 +58,10 @@ const requestedKey = () => new URL('__offline_meta__/ai-requested', scope);
 // half-received body is kept, so a slow link could never finish 100 MB here.
 // The page saves it instead; this reads the record that save leaves, the way
 // cached() reads the worker's own files, without reading or hashing a body.
-async function networkReady() {
-  // Older hand-written inventories with a same-origin model remain supported.
-  return !CONFIG.network || await networkTransfer.hasStoredNetwork(networkUrl(), CONFIG.network, { scope: networkScope });
-}
+const networkReady = () => networkTransfer.hasStoredNetwork(networkUrl(), CONFIG.network, { scope: networkScope });
 
 async function status() {
-  const complete = { core: true, ai: CONFIG.hasModel };
+  const complete = { core: true, ai: true };
   let aiRequested = false;
   try {
     const cache = await caches.open(CACHE);
@@ -74,16 +71,14 @@ async function status() {
   } catch { complete.core = false; complete.ai = false; }
   // The identity is this build's network, saved or not: aiReady says whether
   // it is stored, and a page saving it for this build needs to know which.
-  return { coreReady: complete.core, aiReady: complete.ai, aiRequested,
-    hasModel: CONFIG.hasModel, version: CONFIG.version,
-    ...(networkScope ? { network: CONFIG.network
-      ? { url: networkUrl(), sha256: CONFIG.network.sha256, bytes: CONFIG.network.bytes } : null } : {}) };
+  // Every build carries the runtime: the build refuses to go without it.
+  return { coreReady: complete.core, aiReady: complete.ai, aiRequested, hasModel: true, version: CONFIG.version,
+    network: { url: networkUrl(), sha256: CONFIG.network.sha256, bytes: CONFIG.network.bytes } };
 }
 async function prepare(group, progress = () => {}) {
-  if (group === 'ai' && !CONFIG.hasModel) throw new Error('No trained model is included in this version.');
   if (groups.has(group)) { await groups.get(group); return status(); }
-  // Deduplicate the public runtime and the bundler's identical copy. For 'ai'
-  // these are the few megabytes of runtime, never the network itself.
+  // Entries with equal content are fetched once. For 'ai' these are the few
+  // megabytes of runtime, never the network itself.
   const list = [...new Map(CONFIG.entries.filter(entry => entry.group === group).map(entry => [entry.hash, entry])).values()];
   const total = list.reduce((sum, entry) => sum + entry.bytes, 0);
   let next = 0, bytes = 0;
@@ -108,7 +103,6 @@ async function prepare(group, progress = () => {}) {
 /** The active worker keeps its own network and the previous one once its
  * page has saved it; a waiting or installing update prevents any deletion. */
 async function pruneNetworks() {
-  if (!networkScope || !CONFIG.network) return;
   await networkTransfer.pruneNetworkCache({
     scope: networkScope, url: networkUrl(), expect: CONFIG.network,
     canPrune: () => !self.registration.installing && !self.registration.waiting,

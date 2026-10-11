@@ -91,10 +91,10 @@ the browser abandons after its few minutes (five in Chrome) resumes on the next
 visit or reconnect with only what is still missing. Storage is scoped to this
 app; other projects on the same GitHub Pages origin are untouched.
 The service worker responds cache-first and caches neither unknown URLs nor
-error responses. Equal content is stored once, including duplicate runtime
-outputs and unchanged files across application updates. The runtime is served
-from a folder named by a hash of its files (`ort/<hash>/`), so no address ever
-holds two versions' bytes in a browser, CDN or service-worker cache. A version
+error responses. Equal content is stored once, including unchanged files
+across application updates. The runtime is served from a folder named by a
+hash of its files (`ort/<hash>/`), so no address ever holds two versions'
+bytes in a browser, CDN or service-worker cache. A version
 whose runtime was never saved cannot fetch it once a later deploy has removed
 its folder; Trained opponents then wait for that version's windows to close so
 the update takes over.

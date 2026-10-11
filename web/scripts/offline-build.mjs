@@ -27,7 +27,7 @@ export async function buildOffline(root, { network = MANIFEST, runtime } = {}) {
   const entries = await Promise.all(files.sort().map(async file => {
     const data = await readFile(file), url = relative(root, file).split('\\').join('/');
     if (/\.onnx$/i.test(url)) throw new Error('Offline build contains an unsupported network; use the remote model manifest');
-    const group = url.startsWith('ort/') || /ort-.*\.wasm$/.test(url) ? 'ai' : 'core';
+    const group = url.startsWith('ort/') ? 'ai' : 'core';
     return { url, hash: createHash('sha256').update(data).digest('hex'), bytes: data.length, group };
   }));
   for (const required of ['index.html', 'tiles/Back.svg', 'tiles/Haku.svg']) {
