@@ -44,7 +44,7 @@
   <button type="button" data-fixture-finish-hand onclick={() => loggedHands += 1}>Finish a hand</button>
   <OpponentDialog bind:customDialog bind:draftOpponents {opponents} trainedAvailable={false} ready={true} saveConflict=""
     startCustomTable={() => { opponents = [...draftOpponents]; callbacks.push('custom'); customDialog?.close(); }} />
-  <PlayerHand {view} {engine} closed={false} {hints} busy={false} blocked={false} discardChoices={choices}
+  <PlayerHand {view} {engine} closed={false} {hints} busy={false} blocked={false} discardChoices={choices} {confirmDiscards}
     picked={null} {selected} canDiscard={() => true} selectTile={(_tile, index) => selected = index}
     syncHandFocus={() => {}} bind:handElement />
   <TurnChoices {view} shownDora={[]} busy={false} thinking={false} failure="" saveConflict="" loadNote=""

@@ -450,7 +450,7 @@
 
     <div class="play-area" class:ended={view.phase === 'over' || Boolean(standings)}>
       <PlayerHand {view} engine={session?.engine} closed={session?.closed ?? false}
-        {hints} {busy} blocked={Boolean(failure || saveConflict)} {discardChoices} {picked} {selected}
+        {hints} {busy} blocked={Boolean(failure || saveConflict)} {discardChoices} {confirmDiscards} {picked} {selected}
         {canDiscard} {selectTile} {syncHandFocus} bind:handElement />
 
       <section class="controls" aria-label="your choices" bind:this={callElement}>

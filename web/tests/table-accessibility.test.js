@@ -38,6 +38,21 @@ test('only a real toggle announces a pressed state', async () => {
   assert.match(await html('HandTile.svelte', { tile: '1m', onclick() {}, toggle: true }), /aria-pressed="false"/);
 });
 
+test('a hand tile is a toggle only when a press selects it for confirmation', async () => {
+  const view = { phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
+    dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: null, pending_from: null, outcome: null,
+    seats: [seat('east', 0, { hand: ['1m', '2m'], drawn: '3m', turn: true }), seat('south', 1), seat('west', 2), seat('north', 3)] };
+  const hand = props => html('app/PlayerHand.svelte', { view, engine: null, closed: false, hints: false, busy: false, blocked: false,
+    discardChoices: ['1m', '2m', '3m'].map(tile => ({ kind: 'discard', tile })), picked: null, selected: null,
+    canDiscard: () => true, selectTile() {}, syncHandFocus() {}, ...props });
+  const pressed = markup => [...markup.matchAll(/<button class="tile [^>]*>/g)].map(([button]) => button.match(/aria-pressed="(\w+)"/)?.[1] ?? null);
+  // Without confirmation a press discards: a plain button, even under the
+  // arrow keys' marker.
+  assert.deepEqual(pressed(await hand({ confirmDiscards: false, picked: 0 })), [null, null, null]);
+  // With it, a press selects the tile, and the selection is its pressed state.
+  assert.deepEqual(pressed(await hand({ confirmDiscards: true, selected: 1 })), ['false', 'true', 'false']);
+});
+
 test('tile entry names tiles in words and its buttons are plain buttons', async () => {
   const body = await html('TileEntry.svelte', { label: 'Your starting hand', tiles: ['1m'], onchange() {}, expanded: true });
   assert.match(body, /aria-label="Remove 1 characters"/);
