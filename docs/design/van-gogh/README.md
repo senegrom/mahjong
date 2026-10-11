@@ -2,7 +2,7 @@
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. 8 disks and all other tiles are unchanged. Earlier sections below describe the design history.
 
-**Current set:** 28 painted faces, and 6 tiles whose names the game writes out until they are painted; all nine bamboo identities are covered. Seven Apples at the Window is active for 7 disks, The Provençal Kitchen B for 6 disks, Starry Olive Grove for 8 characters, Four Oranges A for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table C for 9 disks. The history below retains earlier milestone counts.
+**Current set:** 29 painted faces and 5 unpainted identities showing their names. Poppy Field with smaller 萬 is active for 9 characters; characters 2–9 and all nine bamboo tiles are painted. Earlier sections retain historical counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -218,3 +218,11 @@ The original 1024 × 1536 PNG is cropped at (62, 180) to **900 × 1200, exactly 
 The original and lossless crop are preserved in `Van_Gogh_7_Disks_Seven_Apples_Approved.zip` supplied in chat. The repository source SVG embeds the game-sized export, not the full-resolution original. `docs/design/van-gogh/seven-disks-apples.json` records the selection, framing, dimensions and checksums. Run `node web/scripts/export-van-gogh-tiles.mjs --only=7p` to reproduce the new face, registry, manifest and gallery.
 
 This addition brings the set to **28 painted faces and 6 named fallbacks**. Every earlier painting, fit and manifest entry is preserved; the fourteen-tile example hand and gameplay are unchanged.
+
+## Poppy Field — 9 characters, smaller 萬
+
+Carl selected the middle poppy-field idea, requested a smaller characters sign to sit more organically among the flowers, and approved the resulting revised image as `9m` / `Man9` (九萬). The earlier large-sign version, wheat and harbour are not used. The approved floral nine and smaller golden 萬 are retained without repainting or recolouring.
+
+The source SVG embeds the entire approved 1122 × 1402 portrait in a 300 × 400 AVIF (quality 50) game export. The existing face-fit helper restores the original proportions with zero stretch, clipping a small centered strip from each side to fill the 3:4 face. Source and runtime differ only in image placement. This is a lossy game-sized export; the untouched PNG is preserved in `Van_Gogh_9_Characters_Poppy_Field_Approved.zip` supplied in chat. Original, raster, source and runtime hashes and the fit are recorded in `docs/design/van-gogh/nine-characters-poppy-field.json`.
+
+Run `node web/scripts/export-van-gogh-tiles.mjs --only=9m` to reproduce this face without rewriting other artwork. The set now has **29 painted faces and 5 unpainted identities showing their names**. Characters 2–9 are covered; only 1 characters remains in that suit. The fourteen-tile hand retains the previous thirteen featured paintings.
