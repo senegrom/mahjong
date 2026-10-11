@@ -80,6 +80,57 @@ test('a physical position builds the trained observation and keeps its legal cho
   } finally { engine.free(); }
 });
 
+const thrown = (tile, order, claimed = false) => ({ tile, order, drawn: false, riichi: false, claimed });
+/** East to act on its draw after two rounds nobody called, with no hand but
+ * East's typed in. */
+function twoRounds() {
+  const position = emptyPosition();
+  position.players[0].hand = parseTiles('123m456p789s11235z');
+  position.drawn = '5z'; position.indicators = ['3s']; position.wall = 61; position.first_turns = false;
+  [['9m', '8m'], ['9p', '8p'], ['9s', '8s'], ['4z', '6z']].forEach((river, seat) => river.forEach((tile, turn) =>
+    position.players[seat].discards.push(thrown(tile, 4 * turn + seat))));
+  return position;
+}
+async function asking(position, ask) {
+  const engine = new PhysicalAnalysis(position);
+  try { return await ask(engine); } finally { engine.free(); }
+}
+
+test('trained advice refuses a typed-in set whose claimed discard is not marked', async () => {
+  // The network's replay tells a called set at the discard it took. West
+  // shows a pon of red dragons taken from North, but nothing in North's river
+  // is marked Claimed, so the network would read a table without the pon.
+  const trained = adviserWith(new Float32Array(46));
+  const unmarked = twoRounds();
+  unmarked.players[2].melds.push({ kind: 'pon', tile: '7z', from: 1 });
+  await asking(unmarked, async engine => {
+    await assert.rejects(trained(engine, 'full'),
+      /^West's pon of 7z needs the discard it took marked Claimed in North's river$/);
+    // Club and Beginner read the sets themselves, so they still advise.
+    assert.equal((await evaluateAgent(engine, 'club')).kind, 'selection');
+  });
+  // Marked: North's second discard was the red dragon West called, and West
+  // discarded after calling it.
+  const marked = structuredClone(unmarked);
+  marked.players[3].discards[1] = thrown('7z', 7, true);
+  marked.players[2].discards.push(thrown('1p', 8));
+  marked.players[3].discards.push(thrown('2p', 9));
+  marked.wall = 60;
+  await asking(marked, async engine => assert.equal((await trained(engine, 'full')).kind, 'policy'));
+  // An open quad is refused the same way; the indicator it turned would have
+  // been left out with it.
+  const quad = twoRounds();
+  quad.players[2].melds.push({ kind: 'kan', tile: '7z', from: 1 });
+  quad.indicators.push('9p'); quad.wall = 60;
+  await asking(quad, engine => assert.rejects(trained(engine, 'full'),
+    /^West's open kan of 7z needs the discard it took marked Claimed in North's river$/));
+  // A chii is named by all three of its tiles.
+  const chii = twoRounds();
+  chii.players[1].melds.push({ kind: 'chii', tile: '1m', from: 3 });
+  await asking(chii, engine => assert.rejects(trained(engine, 'full'),
+    /^South's chii of 123m needs the discard it took marked Claimed in East's river$/));
+});
+
 test('trained advice answers an opponent discard the player cannot claim', async () => {
   // North, after East lets go of a tile North can do nothing with. The guided
   // game stops at every discard, and its adviser analyses each one at once.

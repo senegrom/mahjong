@@ -125,10 +125,14 @@ sets remember exactly which tile was claimed, so chii rotates the correct
 tile even after save/reload. Legacy manually entered sets without this metadata
 remain readable; the display does not guess a new claimed tile. Validation
 matches claimed discards to called sets one to one, so an ambiguous chii
-explains whichever discard needs it, and no set explains two claims. After kan,
-enter the real replacement tile and newly exposed indicator. No random wall
-or unknown hand is manufactured. Passed wins record furiten; kan robbery
-preserves ippatsu until the kan stands and its replacement is recorded.
+explains whichever discard needs it, and no set explains two claims. Trained
+advice also needs every called set to have its claimed discard: it replays the
+hand and tells each set at the discard it took, so it names a set whose
+discard is not marked Claimed rather than advise on a table without that set.
+Beginner and Club read the sets as entered. After kan, enter the real
+replacement tile and newly exposed indicator. No random wall or unknown hand
+is manufactured. Passed wins record furiten; kan robbery preserves ippatsu
+until the kan stands and its replacement is recorded.
 
 **Undo edit / move** reverses tile edits, recorded moves, selectors, checkboxes,
 and numeric fields. Consecutive typing in one focused numeric field forms one
