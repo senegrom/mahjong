@@ -82,6 +82,14 @@ test('labelled containers carry a role, so screen readers read their names', asy
   assert.equal(meldWords({ kind: 'concealed-kan', tiles: ['7z', '7z', '7z', '7z'] }), 'Concealed kan of red dragon');
 });
 
+test('an open kan is named as one, whichever table it is on', async () => {
+  // The game's view calls it 'claimed-kan'; the physical and guided tables call it 'kan'.
+  const melds = await html('Melds.svelte', { melds: [{ kind: 'claimed-kan', tiles: ['5s', '5s', '5s', '5s'], from: 'across', claimed_tile: '5s' }] });
+  assert.match(melds, /role="group" aria-label="Open kan of 5 bamboo"/);
+  assert.equal(meldWords({ kind: 'kan', tiles: ['5s', '5s', '5s', '5s'] }), 'Open kan of 5 bamboo');
+  assert.equal(meldWords({ kind: 'extended-kan', tiles: ['5s', '5s', '5s', '5s'] }), 'Added kan of 5 bamboo');
+});
+
 test('the table inspection names each opponent once: position, wind, score', async () => {
   const view = { round: 'east', kyoku: 1, wall: 70, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [], outcome: null,
     seats: [seat('east', 0), seat('south', 1), seat('west', 2), seat('north', 3)] };
