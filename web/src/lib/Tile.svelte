@@ -460,6 +460,20 @@
     }
   }
 
+  /* Where a line sits in its height differs by platform, since Linux and
+     Windows read a font's ascent and descent from different tables. On the
+     narrowest phones' faces, 11.5px across, that leaves no room either way:
+     Linux drew DejaVu Sans a pixel and a half higher than Windows draws
+     Segoe UI, half a pixel past the top of a claimed tile's hairline, where
+     Windows had nine tenths of a pixel to spare above and below. So these
+     faces set their name a little over half a pixel lower, which keeps a
+     tenth of a pixel clear on both; larger faces have room on both. */
+  @container (max-width: 13px) or (max-height: 13px) {
+    .name {
+      padding-top: 10cqmin;
+    }
+  }
+
   /* Each suit keeps the colour its pictures are known by, as a second sign
      of the suit beside its word or letter: red characters, blue circles
      and green bamboo. The winds are in ink and each dragon in its colour,
