@@ -258,6 +258,16 @@ test('a file that keeps arriving is saved however long it takes; one that stops 
   assert.ok(stalls.now() >= 60000 && stalls.now() <= 62000, `ended at ${stalls.now()} ms`);
   assert.equal((await status(stalled)).coreReady, false);
 });
+test('a file the page asks for before it is saved is served however slowly it arrives', async () => {
+  // The opponent's worker can load the runtime while it is still being saved.
+  const clock = testClock(), slow = 'ort/runtime.wasm';
+  const w = worker({ clock, network: (name, init) => name === slow ? trickle(bodies[name], clock, init.signal, 30000)
+    : new Response(bodies[name]) });
+  const served = await overTime(clock, w.get(slow));
+  assert.ok(clock.now() >= 120000);
+  assert.equal(served.value.status, 200);
+  assert.equal(await served.value.text(), bodies[slow]);
+});
 test('a file that fails costs the attempt no other file, and the next one fetches only what is missing', async () => {
   const clock = testClock(), failing = 'tiles/Haku.svg';
   let broken = true;
