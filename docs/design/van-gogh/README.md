@@ -2,7 +2,7 @@
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. 8 disks and all other tiles are unchanged. Earlier sections below describe the design history.
 
-**Current set:** 27 painted faces, and 7 tiles whose names the game writes out until they are painted; all nine bamboo identities are covered. The Provençal Kitchen B is active for 6 disks, Starry Olive Grove for 8 characters, Four Oranges A for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table C for 9 disks. The history below retains earlier milestone counts.
+**Current set:** 28 painted faces, and 6 tiles whose names the game writes out until they are painted; all nine bamboo identities are covered. Seven Apples at the Window is active for 7 disks, The Provençal Kitchen B for 6 disks, Starry Olive Grove for 8 characters, Four Oranges A for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, and The Potter’s Table C for 9 disks. The history below retains earlier milestone counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -208,3 +208,13 @@ The source `docs/design/van-gogh/studies/22-six-disks-provencal-kitchen-b-approv
 The untouched 1491 × 1055 board and lossless selected crop are supplied in `Van_Gogh_6_Disks_Kitchen_B_Approved.zip` in chat. `docs/design/van-gogh/six-disks-kitchen.json` records original, crop, production and SVG checksums and exact processing.
 
 Run `node web/scripts/export-van-gogh-tiles.mjs --only=6p` to reproduce this face and its registration without rewriting any other tile artwork. The gallery includes the kitchen; the existing fourteen-tile example hand is unchanged.
+
+## Seven Apples at the Window — 7 disks
+
+Carl approved the final corrected standalone painting: **four apples in the bowl and three on the cloth**, seven in total. The earlier six-apple and eight-apple attempts are not used.
+
+The original 1024 × 1536 PNG is cropped at (62, 180) to **900 × 1200, exactly 3:4**. This removes the white border and excess setting above and below, while retaining all seven apples. Uniform Lanczos downsampling gives a 300 × 400 quality-90 WebP; the SVG adds the shared 26-unit corner clipping and 1% bleed. No stretching, regeneration, repainting or recolouring is applied. The new source and runtime SVGs are byte-identical, without needing an additional fit override.
+
+The original and lossless crop are preserved in `Van_Gogh_7_Disks_Seven_Apples_Approved.zip` supplied in chat. The repository source SVG embeds the game-sized export, not the full-resolution original. `docs/design/van-gogh/seven-disks-apples.json` records the selection, framing, dimensions and checksums. Run `node web/scripts/export-van-gogh-tiles.mjs --only=7p` to reproduce the new face, registry, manifest and gallery.
+
+This addition brings the set to **28 painted faces and 6 named fallbacks**. Every earlier painting, fit and manifest entry is preserved; the fourteen-tile example hand and gameplay are unchanged.
