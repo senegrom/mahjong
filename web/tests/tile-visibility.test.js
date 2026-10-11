@@ -106,7 +106,7 @@ test('a discard thrown from the draw is shaded and says so; one from the hand do
   }
 });
 
-test('a claimed discard is see-through and says so; an unclaimed one does neither', () => {
+test('a claimed discard is bordered and says so; an unclaimed one does neither', () => {
   for (const onclick of [null, () => {}]) {
     const taken = tile({ tile: '6z', claimed: true, onclick });
     assert.ok(classes(taken).includes('claimed'));
@@ -137,4 +137,16 @@ test('both discard marks combine with the riichi turn and the dora ring and foil
   // Each mark alone leaves the other off.
   assert.ok(!classes(tile({ tile: '7z', fromDraw: true })).includes('claimed'));
   assert.ok(!classes(tile({ tile: '7z', claimed: true })).includes('from-draw'));
+});
+
+test('the discard marks in Tile fall back to the values the theme gives them', async () => {
+  // The tile-effects check renders Tile without app.css, so it sees these
+  // fallbacks: they must be the theme's own values, or it checks another look.
+  const theme = await readFile(new URL('../src/app.css', import.meta.url), 'utf8');
+  const token = name => theme.match(new RegExp(`--${name}:\\s*([^;]+);`))[1].trim();
+  const literal = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  assert.match(source, new RegExp(`var\\(--from-draw-shade,\\s*${literal(token('from-draw-shade'))}\\)`));
+  assert.match(source, new RegExp(`var\\(--claimed-border,\\s*${literal(token('claimed-border'))}\\)`));
+  // The border is the claimed mark: nothing fades a claimed tile any more.
+  assert.doesNotMatch(source + theme, /claimed-opacity|opacity:\s*var\(--claimed/);
 });

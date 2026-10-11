@@ -6,6 +6,7 @@
   "approval": "Carl selected A (the left panel, four whole oranges on blue cloth) and explicitly requested GitHub deployment. B (bowl) and C (slices) are not used.",
   "source": "docs/design/van-gogh/studies/20-four-disks-oranges-a-approved.svg",
   "runtime": "web/public/tiles/van-gogh/approved/Pin4.svg",
+  "runtimeFit": "Since October 2026 the runtime face is this study with only its picture's box moved, so it crops the 442 × 796 panel to the face instead of squeezing it to 3:4. sourceSha256 is the study's hash; web/public/tiles/van-gogh/manifest.json records the face's own hash and fit.",
   "originalBoard": "van_gogh_style_four_orange_tiles.png",
   "originalBoardDimensions": {"width": 1448, "height": 1086},
   "originalBoardSha256": "70b6502946fd751f9e96467dad7da602734c850a63801864f03304ec220823ae",

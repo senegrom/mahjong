@@ -219,25 +219,28 @@ try {
     const game = markedGuide();
     const { page, problems } = await pageAt(context, 'guided', game);
     await page.waitForSelector('.guided-controls:not(:disabled) .guided-seats');
-    const rows = await page.$$eval('.guided-seats section .pool', pools => pools.map(pool => [...pool.querySelectorAll('.tile')].map(tile => ({
-      label: tile.getAttribute('aria-label'), rotated: tile.classList.contains('rotated'),
-      marks: [tile.classList.contains('from-draw'), tile.classList.contains('claimed')],
-      looks: [getComputedStyle(tile.querySelector('.face')).filter, getComputedStyle(tile).opacity],
-    }))));
-    // The tokens as the browser computes them (the build rewrites 0.6 as .6).
+    // Both marks lie on one layer over the face: its shade and its border.
+    const rows = await page.$$eval('.guided-seats section .pool', pools => pools.map(pool => [...pool.querySelectorAll('.tile')].map(tile => {
+      const layer = getComputedStyle(tile.querySelector('.face'), '::after'), marked = layer.content !== 'none';
+      return { label: tile.getAttribute('aria-label'), rotated: tile.classList.contains('rotated'),
+        marks: [tile.classList.contains('from-draw'), tile.classList.contains('claimed')],
+        looks: [marked ? layer.backgroundColor : 'none', marked && layer.borderTopStyle !== 'none' ? layer.borderTopColor : 'none'] };
+    })));
+    // The tokens as the browser computes them.
     const tokens = await page.evaluate(() => {
       const probe = document.body.appendChild(document.createElement('div'));
-      Object.assign(probe.style, { filter: 'var(--from-draw-shade)', opacity: 'var(--claimed-opacity)' });
-      const { filter, opacity } = getComputedStyle(probe);
+      Object.assign(probe.style, { backgroundColor: 'var(--from-draw-shade)', color: 'var(--claimed-border)' });
+      const { backgroundColor, color } = getComputedStyle(probe);
       probe.remove();
-      return [filter, opacity];
+      const root = getComputedStyle(document.documentElement);
+      return [backgroundColor, color, root.getPropertyValue('--from-draw-shade').trim(), root.getPropertyValue('--claimed-border').trim()];
     });
-    assert.notDeepEqual(tokens, ['none', '1'], 'the theme defines both marks');
+    assert.ok(tokens[2] && tokens[3], `the theme defines both marks: ${tokens}`);
     const recorded = game.state.position.players.map(player => player.discards);
     assert.deepEqual(rows.map(row => row.map(tile => tile.marks)), recorded.map(row => row.map(discard => [discard.drawn, discard.claimed])));
-    // The look the tokens give: the darker face, and the see-through tile.
+    // The look the tokens give: the darker face, and the dark green border.
     assert.deepEqual(rows.flat().map(tile => tile.looks), rows.flat().map(({ marks: [drawn, claimed] }) =>
-      [drawn ? tokens[0] : 'none', claimed ? tokens[1] : '1']));
+      [drawn ? tokens[0] : claimed ? 'rgba(0, 0, 0, 0)' : 'none', claimed ? tokens[1] : 'none']));
     for (const [seat, row] of rows.entries()) for (const [slot, tile] of row.entries()) {
       const discard = recorded[seat][slot];
       assert.equal(tile.label.includes(', claimed'), discard.claimed, tile.label);

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { compile, parse } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { meldWords } from '../src/lib/ui.js';
+import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
 
 // Server-render the production components, compiling the components they
 // nest in the same way. Only artwork URLs are substituted.
@@ -129,10 +130,20 @@ test('the tile guide explains both discard marks, each with its swatch', async (
     onconfirmationchange() {}, onshortcutschange() {} });
   const guide = settings.slice(settings.indexOf('class="guide'));
   for (const [swatch, words] of [['from-draw', /darker face[\s\S]*thrown straight from the draw \(tsumogiri\)/],
-    ['claimed', /see-through tile[\s\S]*claimed the tile for a call/]]) {
+    ['claimed', /dark green border[\s\S]*claimed the tile for a call/]]) {
     assert.match(guide, new RegExp(`<dt[^>]*><span class="swatch ${swatch}[ "][^>]*></span>`), swatch);
     assert.match(guide, words);
   }
+  // A claimed tile is bordered now, no longer faded.
+  assert.doesNotMatch(guide, /see-through/);
+  // A tile written out in place of its picture: on smaller faces each suit
+  // by the letter it is written with under its number, and each honour by
+  // its letters, as Tile shows them, so the guide never leaves a suit to
+  // its colour alone.
+  const list = letters => `${letters.slice(0, -1).join(', ')} and ${letters.at(-1)}`;
+  const suits = ['1m', '1p', '1s'].map(tile => `${tileShorthand(tile).slice(1)} for ${tileWords(tile).split(' ')[1]}`);
+  const [winds, dragons] = [TILE_TYPES.slice(27, 31), TILE_TYPES.slice(31)].map(tiles => tiles.map(tileShorthand));
+  assert.match(guide, new RegExp(`no picture for this tile yet[\\s\\S]*${list(suits)}[\\s\\S]*${list(winds)} for the winds, ${list(dragons)} for the dragons`));
 });
 
 test('no generic element carries a name a screen reader would ignore', async () => {

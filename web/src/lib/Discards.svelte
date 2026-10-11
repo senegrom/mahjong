@@ -5,8 +5,8 @@
   /**
    * A discard row, six to a line as at a real table, with the riichi
    * declaration turned sideways, tiles thrown straight from the draw
-   * shaded a little darker, and claimed tiles see-through. The tile's name
-   * says the same, for the pointer and for screen readers.
+   * shaded darker, and claimed tiles bordered in dark green. The tile's
+   * name says the same, for the pointer and for screen readers.
    */
   let { discards = [], compact = false, dora = [] } = $props();
 </script>

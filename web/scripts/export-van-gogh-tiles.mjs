@@ -3,12 +3,66 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { TILE_TYPES, tileFile } from '../src/lib/tiles.js';
+import { TILE_TYPES, tileFile, tileWords } from '../src/lib/tiles.js';
+import { faceImage, fitRecord, imageAttributes, placeStudyImage } from './face-fit.mjs';
 
 // Export selected artwork; newer studies use documented optimized sources.
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const out = path.join(root, 'web/public/tiles/van-gogh');
 const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
+// Paintings that are not 3:4 are cropped to the face rather than stretched to
+// it, keeping their proportions to within 2%, or 4% where their counted objects
+// or characters fill more of them (see face-fit.mjs). The 300 × 400
+// studies for 2s, 3s, 4s, 7s, 8s, 3p, 4p, 6p, 9p and 6m were resized from other
+// shapes without keeping proportions, so their fits name the original crop that
+// docs/design/van-gogh records, and the fit undoes the squeeze as it crops.
+const fits = {
+  '1p': { stretch: -0.02, anchor: 0.5 },
+  '5p': { stretch: -0.02, anchor: 0.5 },
+  // Most of the cut falls on the meadow, where the stalks already disappear into
+  // the grass, so the crowns keep more of their leaves against the sky.
+  '3s': { painting: [439, 673], stretch: 0.02, anchor: 0.25 },
+  // The leaves above 三's top branch and the foot of 萬's left leg leave little
+  // height to cut, so the cut is shared evenly between them. A one-pixel side
+  // bleed, which still hides the board's cream fringe in the outermost columns,
+  // leaves enough height for a 2% fit.
+  '3m': { stretch: 0.02, anchor: 0.418, bleedPixels: 1 },
+  // A centred cut would clip the tip of the kingfisher's beak, at 96.6% of the
+  // width; the bird's back reaches only 5% from the left edge.
+  '1s': { stretch: -0.02, anchor: 0.6 },
+  // Anchored right, so the orange sunflower loses nothing it showed before; its
+  // outermost petal ends a pixel short of the board's cream fringe, which the
+  // bleed must still hide. The cut falls on the yellow sunflower, whose petals
+  // already run off the painting's left edge.
+  '2p': { stretch: -0.02, anchor: 0.865 },
+  '9p': { painting: [729, 1093], stretch: 0.02, anchor: 0.5 },
+  '5z': { stretch: -0.02, anchor: 0.5 },
+  '1z': { stretch: 0.02, anchor: 0.5 },
+  // A centred cut would leave the upper roof of 二 against the top edge; this
+  // one gives it and the hook of 萬 equal room.
+  '2m': { stretch: 0.02, anchor: 0.466 },
+  // The cypresses of 四萬 run from a flame tip near the top to the point of
+  // 萬's foot near the bottom, so the face keeps the 4% stretch that any face
+  // may show at most, which leaves both just touching the edges. The painting
+  // reaches the canvas edge, so it needs no side bleed.
+  '4m': { stretch: 0.04, anchor: 0.573, bleedPixels: 0 },
+  '2s': { painting: [433, 667], stretch: 0.02, anchor: 0.5 },
+  '4s': { painting: [438, 671], stretch: 0.02, anchor: 0.5 },
+  '7s': { painting: [479, 793], stretch: 0.02, anchor: 0.5 },
+  '8s': { painting: [1024, 1536], stretch: 0.02, anchor: 0.5 },
+  // The lanterns hang through 72% of a painting almost twice as tall as it is
+  // wide, so the face keeps the 4% stretch that any face may show at most,
+  // which leaves the top lantern's finial and the bottom lantern's drop just
+  // touching the edges. Most of the cut falls on the café terrace below them,
+  // which is setting, and the side columns are clean painting, so there is no
+  // side bleed.
+  '3p': { painting: [442, 860], stretch: 0.04, anchor: 0.152, bleedPixels: 0 },
+  '6m': { painting: [1295, 1214], stretch: -0.02, anchor: 0.5 },
+  '4p': { painting: [442, 796], stretch: 0.02, anchor: 0.5 },
+  // The six plates hang in the top two thirds; the cut falls on the jug, the
+  // lemons and the dresser below them, which are setting.
+  '6p': { painting: [464, 873], stretch: 0.02, anchor: 0 },
+};
 const sources = {
   first: 'docs/design/van-gogh/studies/01-van-gogh-concepts.png',
   second: 'docs/design/van-gogh/studies/02-van-gogh-concepts.png',
@@ -75,7 +129,7 @@ const manifest = {
   version: 1, id: 'van-gogh', name: 'Van Gogh',
   canvas: { width: 300, height: 400 }, facePresentation,
   approval: 'Carl approved A–E, G–J and L, excluding K, then selected East A and North B. On 13 September 2026 he selected Almond Branches (Characters A) to replace D for 3m and requested deployment. Night Cafe (Characters B) for 2m and Cypress Fields (Characters C) for 4m are also approved for deployment. The user also approved the green Garden Rhythm B for 2s and selected green Triple Shoots A to overwrite C for 3s. The user also approved greener Moonlit Four C for 4s. On 29 September 2026 Carl selected Seven with Irises C for 7s and requested deployment. The later L is the active white dragon; F and D remain studies. Carl selected the raft concept for 8s and approved deployment of the resulting eight-bamboo painting without recolouring. Carl approved Copper Sunset for 5s with four green stalks and a reddish-brown central stalk, replacing the earlier all-green concept. Carl approved the corrected all-green B still life with six bamboo stalks to replace Green Rhythm J for 6s; its complete composition and colours are preserved. Carl selected the first nine-bamboo option, Moonlit Bamboo Wind Chime, and explicitly approved deployment; the nine hanging tubes and complete painted composition are preserved. Carl approved B, Three Cafe Lanterns, for 3 disks and explicitly requested deployment. The complete selected middle-panel crop is preserved without repainting or recolouring in a documented quality-90 WebP game export. Carl selected C — The Potter’s Table to replace Nine Stars I for 9p and explicitly requested deployment. The nine patterned plates were deployed and the old face archived. The intervening Nine Stars restoration was a misunderstanding. Carl explicitly clarified that The Potter’s Table C must replace Nine Stars as 9 disks. The approved Potter SVG is restored byte-for-byte; Nine Stars remains archived. The eight-star adaptation is not deployed and 8 disks is unchanged. Carl selected the first option, The Red Vineyard, for 5 characters (5m / 五萬) and explicitly approved GitHub deployment. The complete approved composition and colours are preserved; the wheat and iris alternatives are not used. Carl approved the latest red 六萬 calligraphy with lemons, cypresses, lake and village as 6 characters (6m). The complete approved canvas and colours are retained; the sunflower study is not selected. Carl selected the last seven-characters option with blue iris flowers and golden 萬, Irises at Dusk C, and explicitly requested GitHub deployment as 7m / 七萬. The complete composition and proportions are preserved without repainting; the olive and wheat alternatives are not used. Carl selected A, Four Oranges, the left panel with four whole oranges on blue cloth, for 4 disks (4p / Pin4) and explicitly requested GitHub deployment. The complete approved crop is retained without repainting or recolouring; the bowl and orange-slice alternatives are not used. Carl approved the generated Starry Olive Grove painting as 8 characters (8m / 八萬) and explicitly requested GitHub deployment. The complete olive-branch composition, colours and proportions are preserved; the older seven-characters olive study is not used. Carl selected B, The Provençal Kitchen, the middle painting with six ceramic plates in two columns of three, as 6 disks (6p / Pin6) and explicitly requested GitHub deployment. The full selected crop is fitted to the shared tile format without regeneration, repainting or recolouring; the sunflower and fishing-float alternatives are not used.',
-  fallback: 'classic',
+  fallback: 'text',
   sources: Object.entries(sources).map(([id, source]) => ({ id, source, sha256: hash(readFileSync(path.join(root, source))) })),
   tiles: [],
   rejected: [{ candidate: 'K', tile: '1z', label: 'East wind', source: sources.second }],
@@ -93,15 +147,20 @@ for (const [candidate, tile, label, sourceId, crop] of definitions) {
   const [x, y, width, height] = crop;
   const png = `approved/${name}.png`, svg = `approved/${name}.svg`;
   const selected = !onlyTiles || onlyTiles.has(tile);
-  // Self-contained approved SVG studies are copied exactly, never rasterized or repainted.
+  const fit = fits[tile];
+  const image = faceImage(fit, [width, height]);
+  const fitted = fit ? { fit: fitRecord(fit, [width, height]) } : {};
+  // Self-contained approved SVG studies are copied exactly, never rasterized or
+  // repainted; a fit moves only their picture's box.
   if (source.endsWith('.svg')) {
     const artwork = readFileSync(path.join(root, source));
     const match = artwork.toString('utf8').match(/href="data:image\/webp;base64,([A-Za-z0-9+/=]+)"/);
     if (!match) throw new Error(`Missing embedded WebP in ${source}`);
     const raster = Buffer.from(match[1], 'base64');
-    if (selected) writeFileSync(path.join(out, svg), artwork);
+    const face = fit ? placeStudyImage(artwork, image) : artwork;
+    if (selected) writeFileSync(path.join(out, svg), face);
     manifest.tiles.push({ candidate, tile, name, label, source, status: 'approved', svg,
-      crop: { x, y, width, height }, svgSha256: hash(artwork),
+      crop: { x, y, width, height }, ...fitted, svgSha256: hash(face),
       rasterMimeType: 'image/webp', rasterSha256: hash(raster) });
     continue;
   }
@@ -112,12 +171,11 @@ for (const [candidate, tile, label, sourceId, crop] of definitions) {
       : execFileSync('convert', [path.join(root, source), '-crop', `${width}x${height}+${x}+${y}`, '+repage', '-strip', 'PNG:-'], { maxBuffer: 8 * 1024 * 1024 });
   if (selected) {
     writeFileSync(path.join(out, png), raster);
-    const { radius, bleed, preserveAspectRatio } = facePresentation;
-    const verticalBleed = bleed * 4 / 3;
-    writeFileSync(path.join(out, svg), `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Van Gogh</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" x="${-bleed}" y="${-verticalBleed}" width="${300 + 2 * bleed}" height="${400 + 2 * verticalBleed}" preserveAspectRatio="${preserveAspectRatio}" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`);
+    const { radius, preserveAspectRatio } = facePresentation;
+    writeFileSync(path.join(out, svg), `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Van Gogh</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" ${imageAttributes(image)} preserveAspectRatio="${preserveAspectRatio}" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`);
   }
   manifest.tiles.push({ candidate, tile, name, label, source, status: 'approved', png, svg,
-    crop: { x, y, width, height }, pngSha256: hash(raster) });
+    crop: { x, y, width, height }, ...fitted, pngSha256: hash(raster) });
 }
 const approved = manifest.tiles.map(entry => entry.tile);
 manifest.remaining = TILE_TYPES.filter(tile => !approved.includes(tile));
@@ -125,15 +183,29 @@ writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2)
 writeFileSync(path.join(root, 'web/src/lib/van-gogh-faces.js'), `// Generated by web/scripts/export-van-gogh-tiles.mjs. Includes The Provencal Kitchen B (6p), Starry Olive Grove (8m), Four Oranges A (4p), Irises at Dusk C (7m), Lemon Terrace (6m), The Red Vineyard A (5m), The Potter’s Table C (9p), restored after the clarified selection, Three Cafe Lanterns B (3p), Moonlit Wind Chime A (9s), completing the bamboo suit, Green Still Life B (6s), replacing J, Copper Sunset (5s) and Bamboo Raft (8s); all other selections remain unchanged.\nexport const VAN_GOGH_APPROVED = Object.freeze(${JSON.stringify(approved)});\n`);
 const gallery = manifest.tiles.map(entry => `<figure><img src="${entry.svg}" alt="${entry.label}" width="300" height="400"><figcaption>${entry.candidate} · ${entry.label}</figcaption></figure>`).join('');
 const featured = ['8m', '4p', '7m', '6m', '5m', '2m', '3m', '4m', '9p', '3p', '9s', '6s', '8s'];
-const handTiles = [...featured, ...approved.filter(tile => !featured.includes(tile)).slice(0, 13 - featured.length), '2z'];
+// The hand shows painted faces only: the game writes out the others' names
+// until they are painted, which a picture here cannot show.
+const handTiles = [...featured.filter(tile => approved.includes(tile)), ...approved.filter(tile => !featured.includes(tile))].slice(0, 14);
 const hand = handTiles.map(tile => {
   const entry = manifest.tiles.find(entry => entry.tile === tile);
-  return `<img src="${entry ? entry.svg : `../${tileFile(tile)}.svg`}" alt="${entry?.label ?? tile}" width="300" height="400">`;
+  return `<img src="${entry.svg}" alt="${entry.label}" width="300" height="400">`;
 }).join('');
+// The tiles still to be painted, in this page's own words: grouped by suit,
+// in disks where the game says circles, and 1 character rather than the
+// game's 1 characters.
+const suitNames = { m: ['character', 'characters'], p: ['disk', 'disks'], s: ['bamboo', 'bamboo'] };
+const series = items => items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items.join('');
+const unpainted = [
+  ...Object.entries(suitNames).map(([suit, [one, many]]) => {
+    const ranks = manifest.remaining.filter(tile => tile[1] === suit).map(tile => tile[0]);
+    return ranks.length ? `${series(ranks)} ${ranks.join() === '1' ? one : many}` : '';
+  }),
+  series(manifest.remaining.filter(tile => tile[1] === 'z').map(tileWords)),
+].filter(Boolean).join('; ');
 writeFileSync(path.join(out, 'preview.html'), `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Van Gogh Mahjong — Approved Tiles</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#f5efdf;color:#173457;font:16px/1.5 system-ui,sans-serif}main{max-width:1000px;margin:auto;padding:32px 20px 56px}h1{font:48px/1.1 Georgia,serif;margin:8px 0 16px}h2{font-size:22px;margin:36px 0 16px}p{max-width:680px}a{color:inherit}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:24px}figure{margin:0}figure img{width:100%;height:auto;display:block}figcaption{font-size:14px;margin-top:8px}.scroll{overflow-x:auto;padding:12px 4px 24px}.rack{display:flex;gap:2px;width:390px;padding:20px 12px;background:#173d34;border-radius:12px}.rack img{width:calc((100% - 26px)/14);height:auto;aspect-ratio:3/4;min-width:0;flex:none;border-radius:2px}.notes{color:#5d655f;font-size:14px}select{font:inherit;padding:6px;background:#fff;border:1px solid #aaa;border-radius:6px}@media(max-width:500px){main{padding:24px 16px}.gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}</style></head>
-<body><main><a href="../../">← Mahjong</a><h1>Van Gogh</h1><p>${approved.length} approved faces, including The Provençal Kitchen B for 6 disks, Starry Olive Grove for 8 characters, Four Oranges A for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, The Potter’s Table C for 9 disks, Three Café Lanterns for 3 disks, Moonlit Wind Chime for 9 bamboo, Green Still Life B for 6 bamboo, Copper Sunset for 5 bamboo, the Bamboo Raft for 8 bamboo, Seven with Irises C for 7 bamboo, green Moonlit Four for 4 bamboo, green Triple Shoots for 3 bamboo, green Garden Rhythm for 2 bamboo, Night Cafe for 2 of characters, Almond Branches for 3, Cypress Fields for 4, Blazing Dawn for East and Wind Ribbons for North. Choose <strong>Options → Tile face → Van Gogh</strong> in the game. The remaining ${manifest.remaining.length} tiles use Classic artwork.</p><h2>Approved artwork</h2><div class="gallery">${gallery}</div>
+<body><main><a href="../../">← Mahjong</a><h1>Van Gogh</h1><p>${approved.length} approved faces, including The Provençal Kitchen B for 6 disks, Starry Olive Grove for 8 characters, Four Oranges A for 4 disks, Irises at Dusk C for 7 characters, Lemon Terrace for 6 characters, The Red Vineyard for 5 characters, The Potter’s Table C for 9 disks, Three Café Lanterns for 3 disks, Moonlit Wind Chime for 9 bamboo, Green Still Life B for 6 bamboo, Copper Sunset for 5 bamboo, the Bamboo Raft for 8 bamboo, Seven with Irises C for 7 bamboo, green Moonlit Four for 4 bamboo, green Triple Shoots for 3 bamboo, green Garden Rhythm for 2 bamboo, Night Cafe for 2 of characters, Almond Branches for 3, Cypress Fields for 4, Blazing Dawn for East and Wind Ribbons for North. Choose <strong>Options → Tile face → Van Gogh</strong> in the game. ${manifest.remaining.length ? `The remaining ${manifest.remaining.length} tiles show their names until their artwork is approved: ${unpainted}.` : 'Every tile type now has approved artwork.'}</p><h2>Approved artwork</h2><div class="gallery">${gallery}</div>
 <h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label><div class="scroll"><div class="rack" id="rack">${hand}</div></div>
-<p class="notes">The last tile uses Classic artwork. East wind K is excluded. White dragon L keeps its pale painted dragon under the normal dora ring and foil sheen.</p><p class="notes">Earlier selected art is preserved in lossless PNG crops. Lemon Terrace fits its entire approved 1295 × 1214 canvas to the shared 300 × 400 face; the original is separately preserved and the aspect ratio changes. The Potter’s Table C uses its existing approved 300 × 400 quality-95 WebP game export, copied byte-for-byte without repainting or recompression. Nine Stars I remains preserved in the design archive. The newer green bamboo studies use web-optimized crops. Irises at Dusk (7 characters), The Red Vineyard (5 characters), Three Café Lanterns (3 disks), Moonlit Wind Chime (9 bamboo), Green Still Life B (6 bamboo) and Bamboo Raft preserve their complete approved compositions and colours in 300 × 400 WebP images embedded in their SVGs; these are not the full-resolution source PNGs. Source checksums and processing are documented. <a href="manifest.json">Export manifest</a></p></main><script>document.getElementById('width').addEventListener('change',event=>{document.getElementById('rack').style.width=event.target.value+'px'});</script></body></html>\n`);
-console.log(`Exported ${approved.length} approved Van Gogh faces; ${manifest.remaining.length} identities use Classic artwork.`);
+<p class="notes">East wind K is excluded. White dragon L keeps its pale painted dragon under the normal dora ring and foil sheen.</p><p class="notes">Earlier selected art is preserved in lossless PNG crops. Lemon Terrace embeds its entire approved 1295 × 1214 canvas and the face crops it at the sides to keep its proportions; the original is separately preserved. The Potter’s Table C uses its existing approved 300 × 400 quality-95 WebP game export, copied byte-for-byte without repainting or recompression. Nine Stars I remains preserved in the design archive. The newer green bamboo studies use web-optimized crops. Irises at Dusk (7 characters), The Red Vineyard (5 characters), Three Café Lanterns (3 disks), Moonlit Wind Chime (9 bamboo), Green Still Life B (6 bamboo) and Bamboo Raft preserve their complete approved compositions and colours in 300 × 400 WebP images embedded in their SVGs; these are not the full-resolution source PNGs. A painting that is not 3:4, including one squeezed into a 300 × 400 export, is cropped to the face rather than stretched, keeping its proportions to within 2%, or within 4% where its counted objects and characters fill more of it; the manifest records each fit. Source checksums and processing are documented. <a href="manifest.json">Export manifest</a></p></main><script>document.getElementById('width').addEventListener('change',event=>{document.getElementById('rack').style.width=event.target.value+'px'});</script></body></html>\n`);
+console.log(`Exported ${approved.length} approved Van Gogh faces; ${manifest.remaining.length} identities show their names until painted.`);

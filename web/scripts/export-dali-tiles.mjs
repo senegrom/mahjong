@@ -1,9 +1,10 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { TILE_TYPES } from '../src/lib/tiles.js';
+import { faceImage, fitRecord, imageAttributes, placeStudyImage } from './face-fit.mjs';
 
 // Mechanical extraction of Carl's selected images; never redraw approved art.
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -34,7 +35,15 @@ const definitions = [
   ['Chun', '7z', 'Red dragon', 'Molten Ruby', board, [847, 656, 373, 513]],
 ];
 const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
-const manifest = { version: 1, canvas: { width: 300, height: 400 }, facePresentation, tiles: [] };
+// The board's crops that are not 3:4 are cropped further to the face rather
+// than stretched to it, keeping their proportions to within 2% (see face-fit.mjs).
+const fits = {
+  // The left stalk's top leaf reaches 1.6% from the top, where a centred cut
+  // would clip it; the stalks' bases stand well clear of the bottom.
+  '2s': { stretch: 0.02, anchor: 0.35 },
+  '7z': { stretch: 0.02, anchor: 0.5 },
+};
+const manifest = { version: 1, canvas: { width: 300, height: 400 }, facePresentation, fallback: 'text', tiles: [] };
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 mkdirSync(path.join(out, 'approved'), { recursive: true });
 
@@ -42,13 +51,17 @@ for (const [name, tile, label, direction, sourceName, crop] of definitions) {
   const source = `${studies}/${sourceName}`;
   const sourceBytes = readFileSync(path.join(root, source));
   const [x, y, width, height] = crop;
+  const fit = fits[tile];
+  const image = faceImage(fit, [width, height]);
+  const fitted = fit ? { fit: fitRecord(fit, [width, height]) } : {};
   // Self-contained, game-ready SVG studies already carry their raster and clipping.
-  // Copy these exactly; keep the original PNG pipeline unchanged for existing tiles.
+  // Copy these exactly unless a fit moves their picture; keep the original PNG pipeline unchanged for existing tiles.
   if (sourceName.endsWith('.svg')) {
     const svg = `approved/${name}.svg`;
-    writeFileSync(path.join(out, svg), sourceBytes);
+    const face = fit ? placeStudyImage(sourceBytes, image) : sourceBytes;
+    writeFileSync(path.join(out, svg), face);
     manifest.tiles.push({ name, tile, label, direction, status: 'approved', svg, source,
-      sourceSha256: hash(sourceBytes), svgSha256: hash(sourceBytes), crop: { x, y, width, height } });
+      sourceSha256: hash(sourceBytes), svgSha256: hash(face), crop: { x, y, width, height }, ...fitted });
     continue;
   }
   // Standalone studies are complete 3:4 tiles; preserve their original PNG bytes.
@@ -58,15 +71,17 @@ for (const [name, tile, label, direction, sourceName, crop] of definitions) {
   const png = `approved/${name}.png`;
   const svg = `approved/${name}.svg`;
   writeFileSync(path.join(out, png), raster);
-  const markup = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Dali — ${direction}</title><defs><clipPath id="face"><rect width="300" height="400" rx="26"/></clipPath></defs><image clip-path="url(#face)" x="-3" y="-4" width="306" height="408" preserveAspectRatio="none" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`;
+  const markup = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Dali — ${direction}</title><defs><clipPath id="face"><rect width="300" height="400" rx="26"/></clipPath></defs><image clip-path="url(#face)" ${imageAttributes(image)} preserveAspectRatio="none" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`;
   writeFileSync(path.join(out, svg), markup);
   manifest.tiles.push({ name, tile, label, direction, status: 'approved', png, svg, source,
-    sourceSha256: hash(sourceBytes), pngSha256: hash(raster), crop: { x, y, width, height } });
+    sourceSha256: hash(sourceBytes), pngSha256: hash(raster), crop: { x, y, width, height }, ...fitted });
 }
 const approved = manifest.tiles.map(tile => tile.tile);
-manifest.placeholders = TILE_TYPES.filter(tile => !approved.includes(tile)).map(tile => ({
-  tile, svg: 'placeholders/placeholder.svg',
-}));
+// The game writes out the name of a tile that has no approved artwork yet,
+// so no stand-in picture is recorded for it, and any an earlier export left
+// behind is removed.
+rmSync(path.join(out, 'placeholders'), { recursive: true, force: true });
+manifest.placeholders = TILE_TYPES.filter(tile => !approved.includes(tile)).map(tile => ({ tile }));
 writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 writeFileSync(path.join(root, 'web/src/lib/dali-faces.js'),
   `// Generated by web/scripts/export-dali-tiles.mjs.\nexport const DALI_APPROVED = Object.freeze(${JSON.stringify(approved)});\n`);
@@ -76,6 +91,6 @@ const hand = ['Sou3', 'Sou4', 'Ton', 'Pei', 'Sou8', 'Sou9', 'Pin4', 'Sou6', 'Man
 writeFileSync(path.join(out, 'preview.html'), `<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Dali mahjong tiles</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#f2eadb;color:#29261e;font:16px/1.5 system-ui}main{max-width:1000px;margin:auto;padding:28px 18px}h1{margin:0}p{max-width:640px}.gallery{display:flex;flex-wrap:wrap;gap:24px}figure{margin:0;text-align:center}img{display:block}figcaption{margin-top:6px}small{display:block;color:#665a49}.scroll{overflow:auto;padding:8px 0 24px}.hand{display:flex;gap:2px;background:#163d35;padding:16px 8px;width:390px;border-radius:12px}.hand img{width:24px;height:32px;flex:none}</style>
-<main><h1>Dali</h1><p>${manifest.tiles.length} approved faces. Four disks uses B — The Soft Staircase: four jade medallions on an impossible ivory staircase, including one melting over a step. The complete approved painting is embedded at its full 1086 × 1448 resolution without adding a tile background. Six bamboo uses C — The Impossible Reflection: the approved green-hued revision with six distinct bamboo stalks around a pool containing an impossible mountain landscape. The bamboo suit is complete. Three and four bamboo use the approved standalone high-resolution portraits at their full 1086 × 1448 pixel dimensions. Both embed full-dimension AVIF artwork; the 300 × 400 SVG viewBox controls game layout only. East wind uses The Dreaming East — the approved first plain-image composition, mechanically extracted without redrawing it or adding a tile background. North wind uses The Wind-Carved Arch — the selected second composition, with a sculptural 北 woven into its wind ribbons above the arch. Three bamboo uses A — The Bamboo That Tied Itself: three green stalks with an impossible knot in the central stem, using its approved high-resolution standalone portrait. Five characters uses A — Theatre of the Impossible; six characters uses B — The Runaway Shadow. Seven characters uses A — The Sleeping Seven; eight characters uses B — The Window in Reality; nine characters uses the corrected C — Sapphire Suspension. Eight bamboo uses Emerald Moonlit Seascape — the selected greener moonlit composition with eight green stalks and no red accents. Nine bamboo uses The Surreal Grove — varied green stems, a ruby centre and red leaf accents on a neutral full-bleed landscape. Seven bamboo uses The Dream Cabinet — one ruby and six jade bamboo cabinets. Five bamboo uses A — The Soft Grove. Three disks uses B — Time coming apart. Choose Options → Tile face → Dalí in the game. The remaining ${manifest.placeholders.length} tiles use the study placeholder.</p>
+<main><h1>Dali</h1><p>${manifest.tiles.length} approved faces. Four disks uses B — The Soft Staircase: four jade medallions on an impossible ivory staircase, including one melting over a step. The complete approved painting is embedded at its full 1086 × 1448 resolution without adding a tile background. Six bamboo uses C — The Impossible Reflection: the approved green-hued revision with six distinct bamboo stalks around a pool containing an impossible mountain landscape. The bamboo suit is complete. Three and four bamboo use the approved standalone high-resolution portraits at their full 1086 × 1448 pixel dimensions. Both embed full-dimension AVIF artwork; the 300 × 400 SVG viewBox controls game layout only. East wind uses The Dreaming East — the approved first plain-image composition, mechanically extracted without redrawing it or adding a tile background. North wind uses The Wind-Carved Arch — the selected second composition, with a sculptural 北 woven into its wind ribbons above the arch. Three bamboo uses A — The Bamboo That Tied Itself: three green stalks with an impossible knot in the central stem, using its approved high-resolution standalone portrait. Five characters uses A — Theatre of the Impossible; six characters uses B — The Runaway Shadow. Seven characters uses A — The Sleeping Seven; eight characters uses B — The Window in Reality; nine characters uses the corrected C — Sapphire Suspension. Eight bamboo uses Emerald Moonlit Seascape — the selected greener moonlit composition with eight green stalks and no red accents. Nine bamboo uses The Surreal Grove — varied green stems, a ruby centre and red leaf accents on a neutral full-bleed landscape. Seven bamboo uses The Dream Cabinet — one ruby and six jade bamboo cabinets. Five bamboo uses A — The Soft Grove. Three disks uses B — Time coming apart. Choose Options → Tile face → Dalí in the game. The remaining ${manifest.placeholders.length} tiles show their names until their artwork is approved.</p>
 <h2>At hand size</h2><div class="scroll"><div class="hand">${hand.map(name => `<img src="approved/${name}.svg" alt="${name}">`).join('')}</div></div>
 <h2>Approved artwork</h2><div class="gallery">${cards}</div></main></html>\n`);

@@ -117,18 +117,20 @@ try {
       { tile: '9m', order: 2, drawn: false, riichi: false, claimed: false },
     ];
     const { page, errors } = await open(context, { mode: 'physical', fixture: initial });
+    // Each tile: its name, and the border's colour and the shade on the
+    // layer over its face.
     const tiles = () => page.$$eval('.physical-seat:first-child .discard-fields', rows => rows.map(row => {
-      const tile = row.querySelector('.tile');
-      return [tile.getAttribute('aria-label'), getComputedStyle(tile).opacity, getComputedStyle(tile.querySelector('.face')).filter];
+      const tile = row.querySelector('.tile'), layer = getComputedStyle(tile.querySelector('.face'), '::after'), marked = layer.content !== 'none';
+      return [tile.getAttribute('aria-label'), marked && layer.borderTopStyle !== 'none' ? layer.borderTopColor : 'none', marked ? layer.backgroundColor : 'none'];
     }));
-    assert.deepEqual(await tiles(), [['3 circles, discarded from the draw', '1', 'brightness(0.86)'],
-      ['green dragon, claimed', '0.6', 'none'], ['9 characters', '1', 'none']]);
+    assert.deepEqual(await tiles(), [['3 circles, discarded from the draw', 'none', 'rgba(0, 0, 0, 0.28)'],
+      ['green dragon, claimed', 'rgb(14, 110, 51)', 'rgba(0, 0, 0, 0)'], ['9 characters', 'none', 'none']]);
     // Ticking the boxes marks the tile beside them, as the discard row will.
     for (const name of ['From draw', 'Claimed']) await page.evaluate(name => [...document.querySelectorAll('.physical-seat:first-child .discard-fields')][2]
       .querySelectorAll('label').forEach(label => { if (label.textContent.trim() === name) label.querySelector('input').click(); }), name);
     const marked = structuredClone(initial); Object.assign(marked.players[0].discards[2], { drawn: true, claimed: true });
     await expectPosition(page, marked);
-    assert.deepEqual((await tiles())[2], ['9 characters, claimed, discarded from the draw', '0.6', 'brightness(0.86)']);
+    assert.deepEqual((await tiles())[2], ['9 characters, claimed, discarded from the draw', 'rgb(14, 110, 51)', 'rgba(0, 0, 0, 0.28)']);
     assert.deepEqual(errors, []);
   });
   for (const width of [1100, 390]) await check(`physical edits undo independently and numeric typing stays usable at ${width}px`, async context => {

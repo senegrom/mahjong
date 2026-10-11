@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
-import { TILE_TYPES } from '../src/lib/tiles.js';
-import { TILE_FACE_CONTEXT, TILE_FACE_OPTIONS, TILE_IMAGE_URLS, tileImage } from '../src/lib/tile-faces.js';
+import { TILE_TYPES, tileFile, tileShorthand, tileWords } from '../src/lib/tiles.js';
+import { MATISSE_DRAGON_URL, TILE_FACE_CONTEXT, TILE_FACE_OPTIONS, TILE_IMAGE_URLS, tileImage } from '../src/lib/tile-faces.js';
+import { DALI_APPROVED } from '../src/lib/dali-faces.js';
+import { MATISSE_APPROVED } from '../src/lib/matisse-faces.js';
 import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { readSettings } from '../src/lib/session.js';
 
@@ -44,7 +46,7 @@ test('Van Gogh preserves selected Almond Branches, East A and North B, excludes 
     const entry = set.tiles.find(entry => entry.tile === tile);
     const url = tileImage(tile, 'van-gogh');
     if (!entry) {
-      assert.equal(url, tileImage(tile, 'classic'));
+      assert.equal(url, null);
       continue;
     }
     assert.equal(url, `tiles/van-gogh/${entry.svg}`);
@@ -80,17 +82,18 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('Dali resolves twenty-one approved images and placeholders for the rest', () => {
+test('Dali resolves twenty-one approved images and no picture for the rest', () => {
   const approved = new Set(['1p', '3p', '4p', '5p', '1s', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '7z']);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'dali');
+    if (!approved.has(tile)) {
+      assert.equal(url, null, tile);
+      continue;
+    }
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
     assert.match(svg, /viewBox="0 0 300 400"/);
-    if (approved.has(tile)) {
-      assert.match(url, /\/dali\/approved\//);
-      assert.match(svg, ['4p', '3s', '4s'].includes(tile) ? /data:image\/avif;base64,/ : ['3s', '4s', '6s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
-    }
-    else assert.equal(url, 'tiles/dali/placeholders/placeholder.svg');
+    assert.match(url, /\/dali\/approved\//);
+    assert.match(svg, ['4p', '3s', '4s'].includes(tile) ? /data:image\/avif;base64,/ : ['3s', '4s', '6s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
   }
   assert.equal(tileImage('1p', 'dali'), 'tiles/dali/approved/Pin1.svg');
   assert.equal(tileImage('3p', 'dali'), 'tiles/dali/approved/Pin3.svg');
@@ -126,13 +129,65 @@ test('all selectable face sets are in the preload inventory with valid files', (
   assert.equal(new Set(TILE_IMAGE_URLS).size, TILE_IMAGE_URLS.length);
   assert.ok(TILE_IMAGE_URLS.includes('tiles/matisse/approved/Haku-foil.svg'));
   assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/approved/Pin1.svg'));
-  assert.ok(TILE_IMAGE_URLS.includes('tiles/dali/placeholders/placeholder.svg'));
+  assert.equal(TILE_IMAGE_URLS.some(url => url.includes('/placeholders/')), false);
   assert.equal(TILE_IMAGE_URLS.some(url => url.startsWith('tiles/cubist/')), false);
   assert.equal(TILE_IMAGE_URLS.filter(url => url.startsWith('tiles/van-gogh/')).length, VAN_GOGH_APPROVED.length);
   for (const face of faces) {
-    for (const tile of TILE_TYPES) assert.ok(TILE_IMAGE_URLS.includes(tileImage(tile, face)));
+    for (const tile of TILE_TYPES) {
+      const url = tileImage(tile, face);
+      if (url) assert.ok(TILE_IMAGE_URLS.includes(url), `${face} ${tile}`);
+    }
   }
   for (const url of TILE_IMAGE_URLS) assert.match(readFileSync(new URL(url, publicRoot), 'utf8'), /<svg/);
+});
+
+test('an artist\'s set names exactly the tiles it has not painted, and fetches nothing for them', () => {
+  for (const [face, approved] of [['matisse', MATISSE_APPROVED], ['dali', DALI_APPROVED], ['van-gogh', VAN_GOGH_APPROVED]]) {
+    for (const tile of TILE_TYPES) {
+      assert.equal(tileImage(tile, face), approved.includes(tile) ? `tiles/${face}/approved/${tileFile(tile)}.svg` : null, `${face} ${tile}`);
+    }
+    // The offline copy holds the set's approved pictures and nothing else.
+    assert.equal(TILE_IMAGE_URLS.filter(url => url.startsWith(`tiles/${face}/`) && url !== MATISSE_DRAGON_URL).length, approved.length, face);
+  }
+  for (const tile of TILE_TYPES) assert.equal(tileImage(tile, 'classic'), `tiles/${tileFile(tile)}.svg`);
+  assert.equal(TILE_IMAGE_URLS.includes(null), false);
+  // Where the words do not fit: a suited tile as the notation writes it,
+  // its number and its suit's letter, so a suit never rests on its colour
+  // alone; a wind's compass point and a dragon's colour, the white one
+  // apart from the west.
+  assert.deepEqual(TILE_TYPES.filter(tile => tile[1] === 'z').map(tileShorthand), ['E', 'S', 'W', 'N', 'Wh', 'G', 'R']);
+  for (const tile of TILE_TYPES.filter(tile => tile[1] !== 'z')) assert.equal(tileShorthand(tile), tile);
+  assert.deepEqual(['2m', '2p', '2s'].map(tileShorthand), ['2m', '2p', '2s']);
+  assert.equal(tileShorthand('not-a-tile'), '');
+  assert.equal(tileShorthand(null), '');
+});
+
+test('the exports record that an unpainted tile is written out, and ship no stand-in picture for it', () => {
+  const read = name => JSON.parse(readFileSync(new URL(`tiles/${name}/manifest.json`, publicRoot), 'utf8'));
+  const dali = read('dali'), vanGogh = read('van-gogh');
+  for (const set of [dali, vanGogh]) assert.equal(set.fallback, 'text');
+  // So does the Van Gogh design record, which once said Classic stood in.
+  const design = JSON.parse(readFileSync(new URL('../../docs/design/van-gogh/manifest.json', import.meta.url), 'utf8'));
+  assert.equal(design.deployment.fallback, 'text');
+  assert.deepEqual(dali.placeholders, TILE_TYPES.filter(tile => !DALI_APPROVED.includes(tile)).map(tile => ({ tile })));
+  assert.deepEqual(vanGogh.remaining, TILE_TYPES.filter(tile => !VAN_GOGH_APPROVED.includes(tile)));
+  for (const name of ['dali', 'matisse']) assert.equal(existsSync(new URL(`tiles/${name}/placeholders`, publicRoot)), false, name);
+  // The previews say so, and show only painted faces in their hands.
+  const preview = name => readFileSync(new URL(`tiles/${name}/preview.html`, publicRoot), 'utf8');
+  assert.match(preview('dali'), /remaining 13 tiles show their names until their artwork is approved/);
+  // The Van Gogh page names them in its own words: by suit, in disks where
+  // the game says circles, and 1 character, never 1 characters.
+  const series = items => items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items.join('');
+  const unpainted = [['m', 'character', 'characters'], ['p', 'disk', 'disks'], ['s', 'bamboo', 'bamboo']].map(([suit, one, many]) => {
+    const ranks = vanGogh.remaining.filter(tile => tile[1] === suit).map(tile => tile[0]);
+    return ranks.length ? `${series(ranks)} ${ranks.join() === '1' ? one : many}` : '';
+  }).concat(series(vanGogh.remaining.filter(tile => tile[1] === 'z').map(tileWords))).filter(Boolean).join('; ');
+  assert.match(preview('van-gogh'), new RegExp(`remaining ${vanGogh.remaining.length} tiles show their names until their artwork is approved: ${unpainted}\\.`));
+  assert.doesNotMatch(preview('van-gogh'), /\b1 characters\b|circles/);
+  for (const name of ['dali', 'van-gogh']) assert.doesNotMatch(preview(name), /Classic artwork|study placeholder|placeholders\/|src="\.\.\//, name);
+  for (const name of ['export-dali-tiles', 'export-van-gogh-tiles', 'export-matisse-tiles']) {
+    assert.doesNotMatch(readFileSync(new URL(`../scripts/${name}.mjs`, import.meta.url), 'utf8'), /placeholders\/|fallback: 'classic'|<text /, name);
+  }
 });
 
 test('tile face survives preference restoration and retired or invalid settings use Classic', () => {
@@ -166,13 +221,31 @@ test('the real Tile component respects the selected face and hidden state', asyn
       context: new Map([[TILE_FACE_CONTEXT, () => face]]),
     }).body;
     for (const tile of TILE_TYPES) {
-      assert.ok(show(tile, 'matisse').includes(`src="${tileImage(tile, 'matisse')}"`));
-      assert.ok(show(tile, 'dali').includes(`src="${tileImage(tile, 'dali')}"`));
-      assert.ok(show(tile, 'van-gogh').includes(`src="${tileImage(tile, 'van-gogh')}"`));
+      for (const face of ['matisse', 'dali', 'van-gogh']) {
+        const html = show(tile, face), url = tileImage(tile, face);
+        if (url) {
+          assert.ok(html.includes(`src="${url}"`), `${face} ${tile}`);
+          assert.doesNotMatch(html, /\bunpainted\b|class="name\b/, `${face} ${tile}`);
+          continue;
+        }
+        // Not painted yet: the tile's own words on the set's rounded face,
+        // with nothing to load, and the letters that stand in for them where
+        // they cannot be read: a suit's letter under its number, or an
+        // honour's letters in place of its words.
+        const [lead, rest] = tileWords(tile).split(' ');
+        const letters = tile[1] === 'z' ? tileShorthand(tile) : tile[1];
+        assert.equal(tile[1] === 'z' ? letters : `${lead}${letters}`, tileShorthand(tile), `${face} ${tile}`);
+        assert.doesNotMatch(html, /<img\b/, `${face} ${tile}`);
+        assert.match(html, new RegExp(`class="tile [^"]*\\b${face}\\b`), `${face} ${tile}`);
+        assert.match(html, /class="face[^"]*\bunpainted\b/);
+        assert.match(html, new RegExp(`<span class="name[^"]*" aria-hidden="true"><b class="lead[^"]*">${lead}</b><span class="rest[^"]*">${rest}</span><b class="letters[^"]*">${letters}</b></span>`), `${face} ${tile}`);
+        assert.match(html, new RegExp(`aria-label="${tileWords(tile)}"`));
+        assert.match(html, new RegExp(`data-tile="${tile}"`));
+      }
       for (const face of faces) {
         const hidden = show(tile, face, { facedown: true, dora: true });
         assert.match(hidden, /src="tiles\/Back.svg"/);
-        assert.doesNotMatch(hidden, /dali\/|matisse\/|van-gogh\/|class="foil|haku-dragon-reveal/);
+        assert.doesNotMatch(hidden, /dali\/|matisse\/|van-gogh\/|class="foil|haku-dragon-reveal|\bunpainted\b|class="name\b/);
       }
     }
     const white = show('5z', 'matisse', { dora: true });
@@ -194,7 +267,18 @@ test('the real Tile component respects the selected face and hidden state', asyn
       assert.match(wind, /\bvan-gogh\b/);
       assert.match(wind, /\bringed\b/);
     }
-    assert.doesNotMatch(show('2z', 'van-gogh'), /\bvan-gogh\b/);
+    // A tile its set has not painted keeps the set's corners and every
+    // mark, the ring and the shine included, but no set's white dragon.
+    for (const [face, approved] of [['dali', DALI_APPROVED], ['van-gogh', VAN_GOGH_APPROVED]]) {
+      const unpainted = TILE_TYPES.filter(tile => !approved.includes(tile));
+      assert.ok(unpainted.length, face);
+      for (const tile of unpainted) {
+        const named = show(tile, face, { dora: true, rotated: true, size: 'small', fromDraw: true, claimed: true });
+        for (const name of [face, 'rotated', 'ringed', 'from-draw', 'claimed']) assert.match(named, new RegExp(`class="tile [^"]*\\b${name}\\b`), `${face} ${tile} ${name}`);
+        assert.match(named, /class="foil\b/);
+        assert.doesNotMatch(named, /<img\b|haku-dragon-reveal|white-dragon\.webp|class="face[^"]*\bhaku\b/, `${face} ${tile}`);
+      }
+    }
   }
 });
 

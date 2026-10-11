@@ -75,6 +75,7 @@ test('--only=6s preserves every other face, including the raft SVG, and copies B
   };
   put('package.json', '{"type":"module"}');
   put('web/scripts/export-van-gogh-tiles.mjs', read('web/scripts/export-van-gogh-tiles.mjs'));
+  put('web/scripts/face-fit.mjs', read('web/scripts/face-fit.mjs'));
   put('web/src/lib/tiles.js', read('web/src/lib/tiles.js'));
   for (const source of set.sources) {
     put(source.source, source.source.endsWith('.svg') ? read(source.source) : Buffer.from(`source fixture: ${source.id}`));
@@ -89,7 +90,7 @@ test('--only=6s preserves every other face, including the raft SVG, and copies B
     }
   }
   const run = argument => execFileSync(process.execPath, [path.join(temporary, 'web/scripts/export-van-gogh-tiles.mjs'), argument], { encoding: 'utf8', stdio: 'pipe' });
-  assert.equal(run('--only=6s').trim(), `Exported ${set.tiles.length} approved Van Gogh faces; ${set.remaining.length} identities use Classic artwork.`);
+  assert.equal(run('--only=6s').trim(), `Exported ${set.tiles.length} approved Van Gogh faces; ${set.remaining.length} identities show their names until painted.`);
   for (const [relative, bytes] of unchanged) assert.deepEqual(readFileSync(path.join(temporary, relative)), bytes);
   assert.deepEqual(readFileSync(path.join(temporary, provenance.runtime)), read(provenance.source));
   const generated = JSON.parse(readFileSync(path.join(temporary, 'web/public/tiles/van-gogh/manifest.json')));

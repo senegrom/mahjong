@@ -28,11 +28,13 @@ A surrealist tile face set for the mahjong game. Twenty-one faces are approved, 
 | `Pei.svg` | North wind | The Wind-Carved Arch — second composition: sculptural 北, flowing wind ribbons, cypresses and an impossible stone arch |
 | `Chun.svg` | Red dragon | Molten Ruby — translucent ruby-red 中 stretched into an uncanny molten form |
 
-The other 13 faces use `web/public/tiles/dali/placeholders/placeholder.svg` until they receive approved artwork. All nine bamboo faces are now approved; six uses the selected green-hued C, three uses selected A and four uses the approved B adaptation. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
+The other 13 tiles have no approved artwork yet, and the game writes out each one's name on its ivory face until they do; no stand-in picture is shipped. All nine bamboo faces are now approved; six uses the selected green-hued C, three uses selected A and four uses the approved B adaptation. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
 
 ## Presentation
 
 The set follows the existing tile system's 300 × 400 face, 26-unit rounded clipping and 1% bleed. Each SVG embeds approved raster artwork. The existing twelve PNG-backed faces remain unchanged. The five remaining faces from the first studies are lossless crops of [the approved board](studies/01-first-six-approved.png), excluding its labels and surround. The board also preserves the earlier eight-character design that Carl replaced with B.
+
+Two of those crops, 2 bamboo and the red dragon, are taller than 3:4 and were stretched about 3% to fill the face until October 2026. The exporter now gives each a fit that crops the picture a little further instead, keeping its proportions to within 2%; 2 bamboo takes more of the cut from the bottom, so its left stalk's top leaf stays whole. Only the SVG's picture box changes, and the manifest's `fit` records it.
 
 East wind uses [the approved first plain-image composition](studies/east-wind-first-approved.svg), mechanically extracted from the first panel of `a_clean_white_background_with_three_surreal_paint.png`. The source board is 1536 × 1024; the crop is `(0, 85, 558, 864)`, with 45 white pixels added on each side to preserve the entire artwork at 648 × 864 (3:4), without stretching or redrawing it. Its game rendering is 300 × 400 WebP, resized with Lanczos and encoded at quality 80, method 6. No ceramic surface, tile background, frame or colour edit is baked into the artwork. The conversation retains the original board and the repository stores the self-contained optimized rendering, not those original PNG bytes. Source and runtime SVGs are byte-identical. See [provenance](east-wind.json) for the board, cropped portrait, raster and SVG hashes. The later regenerated East portraits are not used. All sixteen earlier approved faces are unchanged.
 
@@ -64,7 +66,7 @@ Nine characters uses the exact [approved repaired C image](studies/nine-characte
 
 Present three alternatives for each new tile before selection.
 
-Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. All 34 Dali tile identities are included in the preload inventory: twenty-one approved faces plus one shared placeholder for the remaining identities. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
+Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. The twenty-one approved faces are in the preload inventory; a tile without approved artwork shows its name and loads nothing. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
 
 ## Reproducing the exports
 

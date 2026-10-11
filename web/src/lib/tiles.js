@@ -12,6 +12,10 @@ const HONOUR_WORDS = [
   'green dragon',
   'red dragon',
 ];
+// An honour in a letter or two, for a face too small for its words: a wind
+// by its compass point and a dragon by its colour, the white one in two
+// letters so that it is never read as the west wind.
+const HONOUR_SHORTHAND = ['E', 'S', 'W', 'N', 'Wh', 'G', 'R'];
 const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
 const HONOUR_FILES = ['Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun'];
 
@@ -33,6 +37,14 @@ export function tileWords(name) {
   const suit = name[1];
   if (suit === 'z') return HONOUR_WORDS[rank - 1] ?? 'honour tile';
   return `${rank} ${SUIT_WORDS[suit] ?? 'tiles'}`;
+}
+
+/** A tile's short name, for a face too small for its words. A suited tile
+ * is written as tile notation writes it, its number and its suit's letter,
+ * so `"6p"` stays `"6p"`; `"2z"` becomes `"S"` and `"5z"` becomes `"Wh"`. */
+export function tileShorthand(name) {
+  if (!TILE_TYPES.includes(name)) return '';
+  return name[1] === 'z' ? HONOUR_SHORTHAND[Number(name[0]) - 1] : name;
 }
 
 /** `"5m"` as a sequence start becomes `"5–6–7 characters"`. */

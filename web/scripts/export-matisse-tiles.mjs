@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { TILE_TYPES, tileFile, tileWords } from '../src/lib/tiles.js';
+import { faceImage, fitRecord, imageAttributes } from './face-fit.mjs';
 
 // Export the approved source pixels, without regenerating or redrawing them.
 // Run from any directory: node web/scripts/export-matisse-tiles.mjs
@@ -14,6 +15,32 @@ const sourceDir = 'docs/design/matisse/studies';
 // that tile to the game's face instead of letterboxing one tile inside another.
 // A small bleed hides the study's outside backdrop without trimming the art.
 const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
+// Crops that are not 3:4 are cropped further to the face rather than stretched
+// to it, keeping their proportions to within 2%, or 4% where their counted
+// objects or characters fill more of them (see face-fit.mjs).
+const fits = {
+  // The three rosettes span 92% of the width, more than a 2% fit shows, so the
+  // face keeps the least squeeze that shows them whole. One pixel at the top
+  // and bottom still hides the tile's darker top row and lighter bottom row.
+  '3p': { stretch: -0.038, anchor: 0.675, bleedPixels: 1 },
+  '4p': { stretch: -0.02, anchor: 0.5 },
+  '6p': { stretch: -0.02, anchor: 0.5 },
+  // The top and bottom pairs of flowers reach the crop's edges; a one-pixel
+  // side bleed, which still hides the lighter outer column, keeps them whole.
+  '7p': { stretch: 0.02, anchor: 0.555, bleedPixels: 1 },
+  '2s': { stretch: -0.02, anchor: 0.5 },
+  // A leaf tip near the top and the stalk bases near the bottom need the same
+  // one-pixel side bleed, which still hides the darker outer column.
+  '4s': { stretch: 0.02, anchor: 0.465, bleedPixels: 1 },
+  '1z': { stretch: 0.02, anchor: 0.5 },
+  '3z': { stretch: 0.02, anchor: 0.5 },
+  // The lemon ribbon of 中 runs through 96% of the height. Keeping both of its
+  // rounded tips whole would take more than the 4% stretch any face may show, so
+  // the face keeps 4% and trims the two tips equally where they meet the top and
+  // bottom edges. One pixel at the sides still hides the tile's anti-aliased
+  // outer column.
+  '7z': { stretch: 0.04, anchor: 0.559, bleedPixels: 1 },
+};
 const definitions = [
   ['Pin1', '1p', '1 dot', 'approved', 'one-disk-rimless-approved.png', [0, 0, 1086, 1448], 'Approved rim-free update of direction B: black disk and ivory cut-paper rosette on edge-to-edge golden yellow. The complete flat 3:4 artwork has no ivory rim, physical bevel or surrounding shadow and is preserved at native resolution with the shared bleed and rounded clipping.'],
   ['Pin2', '2p', '2 disks', 'approved', 'two-disks-b-approved.png', [689, 60, 504, 663], 'B: two yellow and magenta cut-paper rosettes on ultramarine, with contrasting petals and blue centres.'],
@@ -51,14 +78,14 @@ const definitions = [
   ['Haku', '5z', 'White dragon', 'approved', 'white-dragon-a-tidal-approved.png', [0, 0, 1086, 1448], 'Tidal A: a full-bleed cobalt-blue surround with a loose asymmetric inner edge frames the quiet ivory ribbon dragon. The complete approved 3:4 artwork is preserved with the shared bleed and rounded clipping. The matching silver dora state uses the same full canvas and crop.'],
 ];
 
-function exportCrop(source, crop, png, svg, label) {
+function exportCrop(source, crop, png, svg, label, fit) {
   const [x, y, width, height] = crop;
   // Mechanical lossless extraction only: keep the artwork's native dimensions.
   const raster = execFileSync('convert', [path.join(root, source), '-crop', `${width}x${height}+${x}+${y}`, '+repage', '-strip', 'PNG:-'], { maxBuffer: 16 * 1024 * 1024 });
   writeFileSync(path.join(out, png), raster, { flush: true });
-  const { radius, bleed, preserveAspectRatio } = facePresentation;
-  const verticalBleed = bleed * 4 / 3;
-  const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Matisse study</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" x="${-bleed}" y="${-verticalBleed}" width="${300 + 2 * bleed}" height="${400 + 2 * verticalBleed}" preserveAspectRatio="${preserveAspectRatio}" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`;
+  const { radius, preserveAspectRatio } = facePresentation;
+  const image = imageAttributes(faceImage(fit, [width, height]));
+  const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Matisse study</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" ${image} preserveAspectRatio="${preserveAspectRatio}" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`;
   writeFileSync(path.join(out, svg), svgText);
   return svgText;
 }
@@ -75,13 +102,17 @@ for (const [name, tile, label, status, sourceName, crop, notes] of definitions) 
   const [x, y, width, height] = crop;
   const png = `${group}/${name}.png`;
   const svg = `${group}/${name}.svg`;
-  exportCrop(source, crop, png, svg, label);
-  const entry = { name, tile, label, status, png, svg, source, sourceSha256: createHash('sha256').update(readFileSync(path.join(root, source))).digest('hex'), crop: { x, y, width, height }, notes };
+  const fit = fits[tile];
+  exportCrop(source, crop, png, svg, label, fit);
+  const entry = { name, tile, label, status, png, svg, source, sourceSha256: createHash('sha256').update(readFileSync(path.join(root, source))).digest('hex'), crop: { x, y, width, height },
+    ...(fit && { fit: fitRecord(fit, [width, height]) }), notes };
   if (name === 'Haku') {
     const foilSource = `${sourceDir}/white-dragon-a-tidal-silver.png`;
     const foilCrop = [0, 0, 1086, 1448];
     entry.foil = { png: 'approved/Haku-foil.png', svg: 'approved/Haku-foil.svg', source: foilSource, sourceSha256: createHash('sha256').update(readFileSync(path.join(root, foilSource))).digest('hex'), crop: { x: foilCrop[0], y: foilCrop[1], width: foilCrop[2], height: foilCrop[3] } };
-    exportCrop(foilSource, foilCrop, entry.foil.png, entry.foil.svg, 'White dragon in the light');
+    // The lit twin takes the quiet face's fit, so the dora reveal lines up with it exactly.
+    if (fit) entry.foil.fit = fitRecord(fit, [foilCrop[2], foilCrop[3]]);
+    exportCrop(foilSource, foilCrop, entry.foil.png, entry.foil.svg, 'White dragon in the light', fit);
   }
   manifest.tiles.push(entry);
   // Reuse the shipped faces instead of duplicating every raster inside the HTML.
@@ -89,20 +120,12 @@ for (const [name, tile, label, status, sourceName, crop, notes] of definitions) 
 }
 const approved = manifest.tiles.filter(tile => tile.status === 'approved').map(tile => tile.tile);
 writeFileSync(path.join(root, 'web/src/lib/matisse-faces.js'), `// Generated by web/scripts/export-matisse-tiles.mjs.\nexport const MATISSE_APPROVED = Object.freeze(${JSON.stringify(approved)});\n`);
-mkdirSync(path.join(out, 'placeholders'), { recursive: true });
-for (const tile of TILE_TYPES) {
-  const name = tileFile(tile);
-  const svg = `placeholders/${name}.svg`;
-  if (approved.includes(tile)) {
-    rmSync(path.join(out, svg), { force: true });
-    continue;
-  }
-  const label = tileWords(tile);
-  const lines = label.split(' ');
-  const spans = lines.map((line, index) => `<tspan x="150" y="${175 + index * 65}">${line}</tspan>`).join('');
-  writeFileSync(path.join(out, svg), `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label}</title><rect width="300" height="400" rx="${facePresentation.radius}" fill="#f5f1e4"/><text text-anchor="middle" fill="#000" font-family="Arial, sans-serif" font-size="43" font-weight="500">${spans}</text></svg>\n`);
-  manifest.placeholders.push({ tile, name, label, svg });
-}
+// The game writes out the name of a tile that has no approved artwork yet,
+// so no stand-in picture is made for it, and any an earlier export left
+// behind is removed.
+rmSync(path.join(out, 'placeholders'), { recursive: true, force: true });
+manifest.placeholders = TILE_TYPES.filter(tile => !approved.includes(tile))
+  .map(tile => ({ tile, name: tileFile(tile), label: tileWords(tile) }));
 writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 
 const html = `<!doctype html>
@@ -112,7 +135,7 @@ const html = `<!doctype html>
 @media(max-width:520px){main{padding:24px 14px}.gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 10px}h1{font-size:29px}}
 </style></head><body><main>
 <div class="eyebrow">Chapelle du Rosaire · Cut-paper studies</div><h1>Matisse Mahjong</h1>
-<p class="intro">${approved.length} approved faces. Select Matisse under Options → Tile face in the game. ${manifest.placeholders.length ? `The remaining ${manifest.placeholders.length} tile types show their names in black until their artwork is approved.` : 'Every tile type now has approved artwork.'}</p>
+<p class="intro">${approved.length} approved faces. Select Matisse under Options → Tile face in the game. ${manifest.placeholders.length ? `The remaining ${manifest.placeholders.length} tile types show their names until their artwork is approved.` : 'Every tile type now has approved artwork.'}</p>
 <h2>A mixed hand</h2><label>Hand width <select id="width"><option value="390">390 px · compact</option><option value="844">844 px · landscape</option></select></label>
 <div class="scroll"><div class="table" id="table"><div class="rack" id="rack" aria-label="Fourteen-tile visual sample"></div></div></div><p class="size" id="size"></p>
 <h2>Approved faces</h2><div class="gallery" id="approved"></div>
@@ -129,4 +152,4 @@ function draw(){const names=['Man1','Man2','Sou7','Man4','Sou5','Pin9','Man7','M
 document.getElementById('width').addEventListener('change',draw);new ResizeObserver(updateSize).observe(rack);draw();
 </script></body></html>`;
 writeFileSync(path.join(out, 'preview.html'), html);
-console.log(`Exported ${approved.length} approved tile faces, ${manifest.placeholders.length} placeholders and a hand preview.`);
+console.log(`Exported ${approved.length} approved tile faces and a hand preview; ${manifest.placeholders.length} tiles show their names until painted.`);

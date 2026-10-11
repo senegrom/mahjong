@@ -64,7 +64,7 @@ test('four disks preloads once and does not change hidden tiles or other sets', 
   assert.equal(tileImage('4p', 'matisse'), 'tiles/matisse/approved/Pin4.svg');
   const vanGogh = JSON.parse(read('web/public/tiles/van-gogh/manifest.json'));
   const other = vanGogh.tiles.find(entry => entry.tile === '4p');
-  assert.equal(tileImage('4p', 'van-gogh'), other ? `tiles/van-gogh/${other.svg}` : 'tiles/Pin4.svg');
+  assert.equal(tileImage('4p', 'van-gogh'), other ? `tiles/van-gogh/${other.svg}` : null);
 });
 
 test('the staircase is registered for reproducible export, preview and complete tile coverage', () => {

@@ -19,6 +19,8 @@ const source = 'docs/design/van-gogh/studies/22-six-disks-provencal-kitchen-b-ap
 const runtime = 'web/public/tiles/van-gogh/approved/Pin6.svg';
 const rasterHash = '95d81654ea7db8776840592f0f28e79a33c936fc201b58c2a154bb4fbe9d9e46';
 const svgHash = '9c0e3ae5048973c0e1e825346d5cabed550411aaef46c6ddf600cd7e488e1303';
+// The face is the approved study with only its picture's box moved.
+const withoutBox = svg => svg.toString().replace(/ x="[^"]*" y="[^"]*" width="[^"]*" height="[^"]*"/, '');
 
 test('Kitchen B is the approved six disks, registered exactly once with all other identities retained', () => {
   assert.ok(entry);
@@ -33,10 +35,10 @@ test('Kitchen B is the approved six disks, registered exactly once with all othe
   assert.deepEqual([...VAN_GOGH_APPROVED, ...set.remaining].sort(), [...TILE_TYPES].sort());
 });
 
-test('kitchen source and runtime preserve the exact approved export and embedded painting', () => {
-  assert.deepEqual(read(source), read(runtime));
+test('the kitchen face keeps the checksum-pinned approved export, differing only in its fit', () => {
+  assert.equal(withoutBox(read(runtime)), withoutBox(read(source)));
   assert.equal(hash(read(source)), svgHash);
-  assert.equal(entry.svgSha256, svgHash);
+  assert.equal(entry.svgSha256, hash(read(runtime)));
   assert.equal(record.svgSha256, svgHash);
   assert.equal(set.sources.find(item => item.source === source).sha256, svgHash);
   const svg = read(runtime).toString('utf8');
@@ -50,7 +52,12 @@ test('kitchen source and runtime preserve the exact approved export and embedded
   assert.equal(entry.rasterMimeType, 'image/webp');
   assert.match(svg, /viewBox="0 0 300 400"/);
   assert.match(svg, /rx="26"/);
-  assert.match(svg, /x="-3" y="-4" width="306" height="408" preserveAspectRatio="none"/);
+  // The 300 × 400 export squeezed the 464 × 873 panel; the face's box restores its
+  // shape and crops the jug, lemons and dresser below the plates, not the plates.
+  const { x, y, width, height } = entry.fit.image;
+  assert.ok(svg.includes(`x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none"`));
+  assert.deepEqual(entry.fit.painting, { width: record.originalCrop.width, height: record.originalCrop.height });
+  assert.ok(Math.abs(width / height / (464 / 873) - 1 - entry.fit.stretch) < 0.001);
   assert.doesNotMatch(svg, /<script|<foreignObject|(?:href|src)="https?:/);
 });
 
@@ -96,7 +103,7 @@ test('--only=6p is reproducible and never changes another approved face', t => {
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, bytes);
   };
-  for (const relative of ['web/package.json', 'web/src/lib/tiles.js', 'web/scripts/export-van-gogh-tiles.mjs']) put(relative, read(relative));
+  for (const relative of ['web/package.json', 'web/src/lib/tiles.js', 'web/scripts/export-van-gogh-tiles.mjs', 'web/scripts/face-fit.mjs']) put(relative, read(relative));
   for (const item of set.sources) put(item.source, read(item.source));
   const protectedFiles = new Map();
   for (const tile of set.tiles) {
