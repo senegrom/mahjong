@@ -7,12 +7,9 @@ opening a direct Watch/Physical/Guided link does not overwrite a regular match.
 ## Advisers and weights
 
 Beginner and Club are built-in agents. Trained uses the single network named
-in the model manifest. The current physical adapter exposes the observation,
-legal-mask, and action-conversion methods needed for Trained advice. Controls
-are enabled when that capability and the network are available, including
-after reconnect or download without reloading. Older adapters lacking those
-methods show an explanation and keep Trained disabled rather than inventing
-an observation. A saved choice is not silently replaced with Club.
+in the model manifest, and is offered once that network is available,
+including after reconnect or download without reloading. A saved choice is
+not silently replaced with Club.
 
 Trained is the default wherever nothing has been chosen: the opponents of a
 first match, every Agent watch seat, the hand-review adviser and a new guided
@@ -148,7 +145,7 @@ Start from points and seat, enter exactly 13 starting tiles, then the real dora
 indicator. East also supplies its extra dealer tile at the first draw prompt.
 The guide asks for opponents' discards and your actual draws in turn order,
 then offers advice and records the choice selected. Choose the adviser in the
-mode's selector; availability follows the capability rules above. A new guided
+mode's selector; Trained is offered as described above. A new guided
 game starts with Trained, and **New guided game** keeps the adviser in use.
 When Trained advice cannot load, **Use Club as adviser** sits beside **Retry
 advice**.
