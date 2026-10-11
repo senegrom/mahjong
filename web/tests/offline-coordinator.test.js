@@ -45,7 +45,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
   registered = true, held = true, storageFailure = false, online = true, waiting = null, installs = false,
   controlled = true, impatient = false } = {}) {
   const calls = [], saves = [], stored = new Set(held || aiReady ? [NETWORK.url] : []);
-  const info = { coreReady, runtime: aiReady, aiRequested, hasModel: true, version: 'test' };
+  const info = { coreReady, runtime: aiReady, aiRequested, hasModel: true };
   // transfer, when set, is the network's transfer itself: it may fail or be
   // held open while the test looks at what runs beside it.
   const faults = { core: failCore, ai: failAi, storage: storageFailure, registration: false, network: null, transfer: null };
@@ -59,7 +59,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
   const registration = { scope: 'https://test.invalid/mahjong/', active: installs ? null : active, installing,
     addEventListener() {}, async update() {},
     waiting: waiting && fakeWorker({ calls, network: NEXT, stored, faults: {},
-      info: { coreReady: true, runtime: false, hasModel: true, version: 'next', ...waiting }, label: 'next:' }) };
+      info: { coreReady: true, runtime: false, hasModel: true, ...waiting }, label: 'next:' }) };
   function finishInstall(state = 'activated') {
     installing.state = state;
     if (state === 'activated') { registration.active = active; registration.installing = null; }
@@ -136,7 +136,6 @@ test('foreground and reconnect repair missing base assets automatically and neve
   await Promise.all([c.api.refreshOffline(), c.api.refreshOffline()]);
   assert.equal(c.state().coreReady, true);
   assert.equal(c.state().coreWarning, '');
-  assert.equal(c.state().coreLoading, false);
   assert.equal(c.calls.filter(type => type === 'MAHJONG_PREPARE_CORE').length, 2);
   assert.equal(c.calls.includes('MAHJONG_PREPARE_AI'), false);
 });

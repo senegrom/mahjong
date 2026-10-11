@@ -16,9 +16,11 @@ let coreJob = null;
 // version's page saves its own network, automatically once per page.
 let filled = false;
 const updatesSaved = new WeakSet();
-let state = { supported: null, coreReady: false, aiReady: false, hasModel: false,
-  phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false,
-  installing: false, persistent: false, updateReady: false };
+/** The state before anything is known, which App also renders until its
+ * first report. Each update replaces the state; none is changed in place. */
+export const INITIAL_OFFLINE = Object.freeze({ supported: null, coreReady: false, aiReady: false, hasModel: false,
+  phase: 'checking', progress: 0, warning: '', coreWarning: '', installing: false, persistent: false, updateReady: false });
+let state = INITIAL_OFFLINE;
 const listeners = new Set();
 function update(values) {
   state = { ...state, ...values };
@@ -156,7 +158,7 @@ async function prepareCore(info) {
   }
   if (coreJob) return coreJob;
   coreJob = (async () => {
-    update({ coreLoading: true, coreWarning: '' });
+    update({ coreWarning: '' });
     try {
       const ready = await request('MAHJONG_PREPARE_CORE');
       update({ ...ready, coreWarning: '' });
@@ -164,7 +166,7 @@ async function prepareCore(info) {
     } catch (error) {
       update({ coreReady: false, coreWarning: `Game and tile download incomplete: ${error.message} It will retry automatically when you reconnect or reopen the app.` });
       return null;
-    } finally { update({ coreLoading: false }); }
+    }
   })().finally(() => { coreJob = null; });
   return coreJob;
 }

@@ -72,7 +72,7 @@ async function status() {
   // The identity is this build's network, saved or not: aiReady says whether
   // it is stored, and a page saving it for this build needs to know which.
   // Every build carries the runtime: the build refuses to go without it.
-  return { coreReady: complete.core, aiReady: complete.ai, aiRequested, hasModel: true, version: CONFIG.version,
+  return { coreReady: complete.core, aiReady: complete.ai, aiRequested, hasModel: true,
     network: { url: networkUrl(), sha256: CONFIG.network.sha256, bytes: CONFIG.network.bytes } };
 }
 async function prepare(group, progress = () => {}) {

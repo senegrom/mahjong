@@ -16,14 +16,13 @@ export async function copyRuntimeAssets(source, output, runtime) {
     ...files.filter(name => /^icons\/[^/]+\.(png|svg)$/.test(name) || /(^|\/)LICENSE(?:\.[^/]*)?$/i.test(name))]);
   // Check the whole inventory before copying; missing approved artwork is an error.
   for (const name of selected) if (!files.includes(name)) throw new Error(`Missing runtime asset: ${name}`);
-  let copiedBytes = 0, excludedBytes = 0;
+  let excludedBytes = 0;
   for (const name of files) {
-    const input = join(source, name), bytes = (await stat(input)).size;
-    if (!selected.has(name)) { excludedBytes += bytes; continue; }
+    const input = join(source, name);
+    if (!selected.has(name)) { excludedBytes += (await stat(input)).size; continue; }
     const target = join(output, name);
     await mkdir(dirname(target), { recursive: true });
     await copyFile(input, target);
-    copiedBytes += bytes;
   }
-  return { files: selected.size, copiedBytes, excludedBytes };
+  return { excludedBytes };
 }
