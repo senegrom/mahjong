@@ -1,0 +1,21 @@
+{
+  "tile": "8p",
+  "name": "Pin8",
+  "candidate": "Eight Lemons",
+  "title": "Lemons by the Sea",
+  "source": "docs/design/van-gogh/studies/24-eight-disks-lemons-by-the-sea-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Pin8.svg",
+  "originalFilename": "van_gogh_style_lemons_by_the_sea.png",
+  "originalDimensions": [1086, 1448],
+  "originalBytes": 3527201,
+  "originalSha256": "1989d02649ee8029e3386e79c729affc2f381a8b9f7eca0cb535a7c76f131bb7",
+  "originalCrop": {"x": 0, "y": 0, "width": 1086, "height": 1448},
+  "rasterMimeType": "image/webp",
+  "rasterDimensions": [300, 400],
+  "rasterBytes": 69178,
+  "rasterSha256": "b97d16c560e0d88b8155e42ed0bc90b35bc48e0357df88d4569bec3986afb757",
+  "svgSha256": "f0d9ed90074049d1db9ebee3731351bf025cd55d9bc296f279941b4ef8618864",
+  "processing": "Complete approved 1086 x 1448 canvas resized proportionally to 300 x 400 with Pillow Lanczos; WebP quality 90, method 6; embedded in the standard SVG with radius 26 and 1% bleed. No repainting, recolouring or compositional crop. Both image dimensions are exactly 3:4. This is an optimized game export, not the lossless original.",
+  "approval": "Carl requested the lemons from candidate C adapted to eight disks because another agent had completed seven disks, then approved the resulting standalone eight-lemon painting for GitHub deployment. Exactly eight lemons in a 3-2-3 arrangement; the Seven Apples 7p and Potter’s Table 9p are not changed.",
+  "originalPreservation": "The unchanged full-resolution original PNG and this provenance are preserved in van-gogh-eight-disks-lemons-original.zip supplied in chat."
+}
