@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
-import { MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
+import { isMemoryError, MemoryBudget, MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
 import { NETWORK_URL } from '../src/lib/network-store.js';
+import { policyWeights } from '../src/lib/policy-weights.js';
 import { loadModule } from './fixtures/load-module.js';
 
 /** The real request coordinator, given a stand-in Worker and offline
@@ -310,6 +311,42 @@ test('bytes offline storage refused are handed to the fresh worker once, not dow
   worker.say(one.id, { progress: 'network ready', ready: true });
   worker.say(one.id, { action: 0 }); worker.say(two.id, { action: 1 });
   assert.deepEqual(await Promise.all([first, second]), [0, 1]);
+});
+
+test('a loaded network reports nothing more, so the table goes on saying who is thinking', async t => {
+  // The real coordinator and the real worker, with only the runtime stood
+  // in for. Messages cross on a later turn, as they do between threads.
+  class Tensor { constructor(_type, data) { this.data = data; } dispose() {} }
+  const ort = { env: { wasm: {} }, Tensor, InferenceSession: { create: async () => ({
+    inputNames: ['planes', 'legal'],
+    run: async () => ({ policy: new Tensor('float32', Float32Array.from({ length: 46 }, (_, i) => (i === 45 ? 2 : 0))) }),
+    release: async () => {},
+  }) } };
+  class Worker {
+    constructor() {
+      const page = this;
+      this.self = { postMessage: data => { void setImmediate().then(() => page.onmessage?.({ data })); } };
+      loadModule('policy.worker.js', { ort, policyWeights, self: this.self, URL, MEMORY_LIMITS_MIB, isMemoryError,
+        networkBytes: async () => new Uint8Array(1),
+        loadMemoryControls: async () => ({ memoryBudget: new MemoryBudget() }),
+      }, [], { 'import(/* @vite-ignore */ controls)': 'loadMemoryControls(controls)' });
+    }
+    postMessage(data) { void setImmediate().then(() => this.self.onmessage({ data })); }
+    terminate() {}
+  }
+  const api = policy({ Worker });
+  const notes = [];
+  api.reportProgress(note => notes.push(note));
+  t.after(() => api.resetPolicy());
+  const move = () => api.chooseAction(new Float32Array(34), Array.from({ length: 46 }, (_, i) => Number(i === 0 || i === 45)));
+  assert.equal(await move(), 45);
+  assert.deepEqual(notes.splice(0), ['loading the network', 'starting the network', 'network ready'],
+    'the first move shows the network loading');
+  assert.equal(await move(), 45);
+  assert.equal(await move(), 45);
+  // The table shows the latest note in place of "… is thinking" until the
+  // opponents have moved, so a warm move must send none.
+  assert.deepEqual(notes, [], 'a move with the network already loaded');
 });
 
 test('an answer proves the network is loaded, even from a worker that sends no notes', async t => {
