@@ -136,6 +136,43 @@ class ClubAtTheTableTests(unittest.TestCase):
                 games = {row["name"]: row["games"] for row in batch.matchups}
                 self.assertGreater(games.get(population.CLUB, 0), 0, batch.matchups)
 
+    def test_a_hand_the_club_ends_while_the_table_is_built_is_counted(self):
+        """Player 0 deals the first hand, so a Club seated there plays its
+        turns while the arena is being made, before anyone outside the
+        engine is asked for a move, and the bots can finish that hand before
+        the learner has drawn a tile. Self-play read endings only after each
+        step, so it noticed one hand fewer than the engine finished and
+        refused the round once it had been played in full. The deals are
+        fixed by the generation, so a relaunch refused the same round again
+        and the run stayed stuck on that generation."""
+        import riichi_py
+
+        from neural import selfplay, zoo
+        from neural.tests.test_selfplay_contract import FirstLegal, FirstLegalDecider
+
+        native = riichi_py.Arena
+        # The Club at players 0, 1 and 2 and the learner at 3. On this deal
+        # player 1 pons player 2's East and wins on player 2's next discard
+        # before player 3 has drawn.
+        tables = np.array([[0, 0, 0, -1]])
+        for learner in (FirstLegal(), FirstLegalDecider()):
+            with self.subTest(learner=type(learner).__name__):
+                built = []
+
+                def build(*args, **kwargs):
+                    arena = native(*args, **kwargs)
+                    built.append((arena, int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())))
+                    return arena
+
+                with patch.object(population, "mixed_tables", return_value=tables), \
+                        patch.object(selfplay.riichi_py, "Arena", side_effect=build):
+                    batch = selfplay.play(learner, games=1, seed=10_041_713, device="cpu",
+                                          opponents=[zoo.ClubPlayer()], seat_share=0.5)
+                arena, ended_while_built = built[0]
+                self.assertEqual(ended_while_built, 1, "the deal must end a hand while the table is built")
+                self.assertEqual(batch.hands, 11)
+                self.assertEqual(sum(arena.hands_done()), batch.hands)
+
     def test_the_arena_takes_places_table_by_table(self):
         import riichi_py
 
