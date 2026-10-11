@@ -46,8 +46,12 @@ reuse successful decodes and release images no longer needed by the displayed se
 The status panel separates **Game and all tile graphics — automatic** from
 **Trained AI — optional**. Missing core files are repaired automatically at
 startup, on reconnect and when returning to the app. This recovery never opts
-into AI. The optional download/retry button requests only the trained AI package,
-not an already complete game or its graphics.
+into AI. A first install that outlasts the page's two-minute wait, one that
+failed, and a page that a hard reload loaded past its worker are each named in
+the game's line, never reported as storage the browser lacks; the panel checks
+again by itself when the finished worker takes control of the page. The
+optional download/retry button requests only the trained AI package, not an
+already complete game or its graphics.
 
 ## Trained opponents and storage
 

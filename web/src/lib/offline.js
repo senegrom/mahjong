@@ -75,7 +75,8 @@ function activated(registration) {
   const installing = registration.installing ?? registration.waiting;
   if (!installing) return Promise.reject(new Error('Offline installation did not start.'));
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error('Offline installation is incomplete. Reconnect and retry.')), 120000);
+    // The install goes on after the page stops waiting for it.
+    const timer = setTimeout(() => finish(new Error('Still saving for offline play. Stay connected until this status says ready.')), 120000);
     const finish = error => {
       clearTimeout(timer); installing.removeEventListener('statechange', changed);
       if (error) reject(error); else resolve();
@@ -159,6 +160,18 @@ async function prepareCore(info) {
   })().finally(() => { coreJob = null; });
   return coreJob;
 }
+/** An install that outlasts the page's wait finishes later by itself, and
+ * its worker then takes control of the page. Nothing else would look again
+ * until a reconnect or a return to the app, so this does, once. */
+let refreshOnControl = false;
+function refreshWhenControlled() {
+  if (refreshOnControl) return;
+  refreshOnControl = true;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    refreshOnControl = false;
+    void refreshOffline().catch(() => {});
+  }, { once: true });
+}
 export function startOffline() {
   if (boot) return boot;
   const attempt = (async () => {
@@ -166,10 +179,11 @@ export function startOffline() {
       update({ supported: false, phase: 'unavailable', warning: 'Offline saving is unavailable here. Keep a connection for this session.' });
       return null;
     }
+    let registration = null;
     try {
       // Existing registration is local. Never make a successful online check
       // a prerequisite for launching an already downloaded app on a plane.
-      let registration = await navigator.serviceWorker.getRegistration(base.href);
+      registration = await navigator.serviceWorker.getRegistration(base.href);
       if (registration?.scope !== base.href || registration?.active?.scriptURL !== script) registration = null;
       if (!registration) registration = await navigator.serviceWorker.register(script, { scope: base.href, updateViaCache: 'none' });
       // A first visit's worker saves the whole game and every tile graphic
@@ -199,20 +213,29 @@ export function startOffline() {
       observeUpdates(registration);
       void persistentStorage();
       // Background updates never block this version or replace it mid-match.
-      // They install with the game alone, so a slow link still completes one.
+      // They install with the game alone, and a slow link resumes one over
+      // several attempts.
       if (navigator.onLine) void registration.update().catch(() => {});
       return state;
     } catch (error) {
       worker = null;
-      update({ supported: false, coreReady: false, aiReady: false, phase: 'unavailable',
-        warning: `Offline saving is not ready: ${error.message}` });
+      if (registration) {
+        // Saving works here and has not finished: an install still running
+        // or one that failed, or a page a hard reload loaded past its
+        // worker. Say which, beside the game's own status.
+        update({ supported: true, coreReady: false, aiReady: false, coreWarning: error.message });
+        refreshWhenControlled();
+      } else {
+        update({ supported: false, coreReady: false, aiReady: false, phase: 'unavailable',
+          warning: `Offline saving is not ready: ${error.message}` });
+      }
       return null;
     }
   })();
   // Only a boot that reached the service worker is kept. One that did not (a
   // first visit that lost its connection, an install still running, a hard
   // reload) is tried again by the next caller: a reconnect or return to the
-  // app, or a Trained opponent's retry.
+  // app, a Trained opponent's retry, or a worker taking control.
   boot = attempt;
   void attempt.then(result => { if (!result && boot === attempt) boot = null; });
   return attempt;

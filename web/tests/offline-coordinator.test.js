@@ -1,8 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { setImmediate } from 'node:timers/promises';
 import { MessageChannel } from 'node:worker_threads';
+import { compile } from 'svelte/compiler';
+import { render } from 'svelte/server';
 import { loadModule } from './fixtures/load-module.js';
+
+// The offline panel itself, to read what a state says to the player.
+const source = await readFile(new URL('../src/lib/app/OfflineStatus.svelte', import.meta.url), 'utf8');
+const code = compile(source, { generate: 'server' }).js.code.replace(/from (['"])([^'"]+)\1/g,
+  (_, _quote, name) => `from ${JSON.stringify(import.meta.resolve(name))}`);
+const { default: Status } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const panel = offline => render(Status, { props: { offline, downloadAi: () => {} } }).body;
 
 const NETWORK = { url: 'https://model.invalid/g1', sha256: '1'.repeat(64), bytes: 116 };
 const NEXT = { url: 'https://model.invalid/g2', sha256: '2'.repeat(64), bytes: 117 };
@@ -32,7 +42,8 @@ function fakeWorker({ calls, network, stored, info, faults, label = '' }) {
 // Exercise the real coordinator against the service-worker message contract.
 // No browser globals or state are shared between tests.
 function coordinator({ coreReady = false, aiReady = false, aiRequested = false, failCore = false, failAi = false,
-  registered = true, held = true, storageFailure = false, online = true, waiting = null, installs = false } = {}) {
+  registered = true, held = true, storageFailure = false, online = true, waiting = null, installs = false,
+  controlled = true, impatient = false } = {}) {
   const calls = [], saves = [], stored = new Set(held || aiReady ? [NETWORK.url] : []);
   const info = { coreReady, runtime: aiReady, aiRequested, hasModel: true, version: 'test' };
   const faults = { core: failCore, ai: failAi, storage: storageFailure, registration: false, network: null };
@@ -52,8 +63,10 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
     if (state === 'activated') { registration.active = active; registration.installing = null; }
     for (const listener of [...changes]) listener();
   }
-  const navigator = { onLine: online, storage: {}, serviceWorker: {
-    controller: active,
+  // Without control, the page is a first visit's before its worker claims it,
+  // or one a hard reload loaded past the worker.
+  const serviceWorker = Object.assign(new EventTarget(), {
+    controller: controlled ? active : null,
     async getRegistration() { return registered ? registration : undefined; },
     async register() {
       registrations++;
@@ -61,10 +74,19 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
       registered = true;
       return registration;
     },
-  } };
+  });
+  /** The worker's clients.claim(): it takes control of the page. */
+  function claim() {
+    serviceWorker.controller = active;
+    serviceWorker.dispatchEvent(new Event('controllerchange'));
+  }
+  const navigator = { onLine: online, storage: {}, serviceWorker };
+  // Impatient, the page's two-minute wait for an install and its 15-second
+  // wait for control end at once, as on a link too slow for either.
+  const wait = impatient ? (fn, ms) => setTimeout(fn, [120000, 15000].includes(ms) ? 20 : ms) : setTimeout;
   // offline.js's one import, network-store.js, is stood in for here.
   const api = loadModule('offline.js', { document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
-    URL, MessageChannel, setTimeout, clearTimeout, caches: {}, isSecureContext: true, WeakSet,
+    URL, MessageChannel, setTimeout: wait, clearTimeout, caches: {}, isSecureContext: true, WeakSet,
     NETWORK, NETWORK_URL: NETWORK.url,
     // The page's own record of a saved network: a header check, never a read.
     networkIsStored: async (url = NETWORK.url) => stored.has(url),
@@ -78,7 +100,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
     } }, ['startOffline', 'refreshOffline', 'prepareOfflineAi', 'watchOffline'], { 'import.meta.env.DEV': 'false' });
   api.watchOffline(value => latest = value);
   return { api, calls, info, faults, stored, saves, navigator, state: () => latest,
-    registrations: () => registrations, finishInstall };
+    registrations: () => registrations, finishInstall, claim };
 }
 const settle = async () => { for (let i = 0; i < 20; i++) await setImmediate(); };
 
@@ -140,8 +162,10 @@ test('a first visit says the game is installing until its worker activates or fa
     c.finishInstall(ending);
     const result = await started;
     assert.equal(c.state().installing, false, ending);
-    assert.equal(c.state().phase, ending === 'activated' ? 'ready' : 'unavailable');
+    assert.equal(c.state().phase, ending === 'activated' ? 'ready' : 'checking');
     assert.equal(Boolean(result), ending === 'activated');
+    // A failed install is not storage this browser lacks: it says what failed.
+    if (ending === 'redundant') assert.match(panel(c.state()), /Game download incomplete/);
   }
   // A returning visit's worker is already active: nothing is installing.
   const returning = coordinator({ coreReady: true });
@@ -149,6 +173,34 @@ test('a first visit says the game is installing until its worker activates or fa
   returning.api.watchOffline(value => seen.push(value.installing));
   await returning.api.startOffline();
   assert.ok(seen.length > 1 && seen.every(value => value === false));
+});
+
+test('a first install that outlasts the page\'s wait is shown as running, and as ready once its worker takes control', async () => {
+  // Below about 5 Mbit/s the first install outlasts the page's two minutes.
+  const c = coordinator({ registered: false, coreReady: true, installs: true, controlled: false, impatient: true });
+  const seen = [];
+  c.api.watchOffline(value => seen.push(value));
+  assert.equal(await c.api.startOffline(), null, 'the page stopped waiting');
+  assert.match(panel(c.state()), /Still saving for offline play\. Stay connected until this status says ready\./);
+  // It finishes later and takes control. Nothing else looks again: no
+  // reconnect, no return to the app, no Trained request.
+  c.finishInstall('activated');
+  c.claim();
+  await settle();
+  assert.equal(c.state().supported, true);
+  assert.equal(c.state().phase, 'ready');
+  assert.equal(c.state().coreReady, true);
+  assert.equal(c.state().coreWarning, '');
+  assert.match(panel(c.state()), /Offline: game ready/);
+  for (const state of seen) assert.doesNotMatch(panel(state), /unavailable here/);
+});
+
+test('a page a hard reload loaded past its worker says to reload, not that storage is unavailable', async () => {
+  const c = coordinator({ coreReady: true, controlled: false, impatient: true });
+  assert.equal(await c.api.startOffline(), null);
+  const html = panel(c.state());
+  assert.match(html, /Reload once to enable offline play/);
+  assert.doesNotMatch(html, /unavailable here/);
 });
 
 test('optional AI download and retry touch only the AI group, not already complete base files', async () => {
