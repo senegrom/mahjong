@@ -10,9 +10,23 @@ import { loadModule } from './fixtures/load-module.js';
  * preparation; the page and its other imports are the same for every test. */
 const policy = globals => loadModule('policy.js', {
   document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout,
-  MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
-  networkIsStored: async () => false, prepareOfflineAi: async () => null, ...globals,
+  MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/', navigator: { onLine: true },
+  networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null, ...globals,
 }, ['chooseAction', 'analyzePolicy', 'modelIsAvailable', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
+
+test('offline, Trained is offered only when its runtime is saved as well as the network', async () => {
+  // The opponent's worker can store the network by itself, before a service
+  // worker controls the page, and then nothing saves the runtime that runs it.
+  for (const aiReady of [false, true]) {
+    const api = policy({ navigator: { onLine: false }, networkIsStored: async () => true,
+      refreshOffline: async () => ({ coreReady: true, aiReady }) });
+    assert.equal(await api.modelIsAvailable(), aiReady);
+  }
+  // Online, the stored network is enough: the runtime comes from the server.
+  const online = policy({ networkIsStored: async () => true,
+    refreshOffline: async () => { throw new Error('online needs no offline status'); } });
+  assert.equal(await online.modelIsAvailable(), true);
+});
 
 // Run the real request coordinator with controllable downloads and responses.
 // One trained network ships, so every request names the same one.

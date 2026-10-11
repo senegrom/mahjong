@@ -77,7 +77,9 @@ hours, and one that stalls for a minute fails and can be retried.
 
 Cached availability does not need a successful online HEAD request. Reopening,
 reloading, retrying an AI worker or starting another match reads the downloaded
-bytes, not the server.
+bytes, not the server. Offline, Trained is offered only when the service worker
+reports the runtime saved as well as the network: the opponent's worker can
+store the network by itself, and a network without its runtime cannot play.
 
 Every file is checked against its build-time byte length and SHA-256 before it
 is marked as saved. Captive portals, partial responses and failed writes cannot
