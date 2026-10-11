@@ -30,6 +30,23 @@
       }
     },
     {
+      "name": "Pin2",
+      "tile": "2p",
+      "label": "2 disks",
+      "direction": "The Impossible Balance — B",
+      "status": "approved",
+      "svg": "approved/Pin2.svg",
+      "source": "docs/design/dali/studies/two-disks-b-approved.svg",
+      "sourceSha256": "309cf800d3679cdad4943bfdb6eb580320927d26bfd4ef1f74b69ab9de394601",
+      "svgSha256": "309cf800d3679cdad4943bfdb6eb580320927d26bfd4ef1f74b69ab9de394601",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
       "name": "Pin3",
       "tile": "3p",
       "label": "3 disks",
@@ -421,9 +438,6 @@
     },
     {
       "tile": "4m"
-    },
-    {
-      "tile": "2p"
     },
     {
       "tile": "6p"

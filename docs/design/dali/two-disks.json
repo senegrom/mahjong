@@ -8,14 +8,31 @@
   "runtime": "web/public/tiles/dali/approved/Pin2.svg",
   "originalFilename": "melting_medallions_over_a_surreal_salt_flat.png",
   "originalSha256": "533ee58b56f9a8e8d78de006c59932315c5e21ffe976c9c656337bdcc0af138b",
-  "originalDimensions": [1086, 1448],
-  "originalCrop": { "x": 0, "y": 0, "width": 1086, "height": 1448 },
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
   "originalStoredInRepository": false,
   "originalLocation": "Approved PNG conversation attachment; repository retains the full-dimension AVIF and self-contained SVG, not the original PNG bytes.",
-  "rasterDimensions": [1086, 1448],
+  "rasterDimensions": [
+    1086,
+    1448
+  ],
   "rasterMimeType": "image/avif",
   "rasterSource": "docs/design/dali/studies/two-disks-b-hires.avif",
   "rasterSha256": "88bc262e1eaed0e05aeb6c0e52241639770ad12623c51851bc48d865b8bfe40d",
-  "encoding": { "encoder": "Pillow 12.3.0 AVIF", "quality": 50, "speed": 0, "lossless": false },
-  "processing": "Approved middle balance portrait encoded at its full 1086 x 1448 pixel dimensions; AVIF quality 50, speed 0; no resizing, crop, redraw, colour edit, added border or tile texture. The 300 x 400 SVG viewBox controls layout only, not embedded raster resolution."
+  "encoding": {
+    "encoder": "Pillow 12.3.0 AVIF",
+    "quality": 50,
+    "speed": 0,
+    "lossless": false
+  },
+  "processing": "Approved middle balance portrait encoded at its full 1086 x 1448 pixel dimensions; AVIF quality 50, speed 0; no resizing, crop, redraw, colour edit, added border or tile texture. The 300 x 400 SVG viewBox controls layout only, not embedded raster resolution.",
+  "svgSha256": "309cf800d3679cdad4943bfdb6eb580320927d26bfd4ef1f74b69ab9de394601"
 }
