@@ -85,11 +85,10 @@ test('corrupt or truncated cache never runs offline', async t => {
 test('all cache failures allow verified online bytes, but never claim durability', async t => {
   for (const fault of ['open', 'match', 'body', 'delete', 'put']) await t.test(fault, async t => {
     const f = fixture(t, { fault, cached: good.slice(1) });
-    let stored;
-    assert.deepEqual(await verifiedNetworkBytes({ url, expect, onStorage: value => stored = value }), good);
+    assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
     assert.equal(f.fetches(), 1);
     if (fault === 'put' || fault === 'open') {
-      assert.equal(stored, false);
+      assert.equal(await hasStoredNetwork(url, expect), false);
       await assert.rejects(verifiedNetworkBytes({ url, expect, requireStored: true }), { name: 'NetworkStorageError' });
     }
   });
@@ -128,15 +127,13 @@ test('overlong streams are cancelled before accepting or retaining excess bytes'
   assert.equal(cancelled, true); assert.equal(f.held(), undefined);
 });
 
-test('a progressing download can outlast its idle deadline; subscriber abort still works', async t => {
+test('a progressing download can outlast its idle deadline', async t => {
   let timer, index = 0;
   fixture(t, { network: () => new Response(new ReadableStream({
     start(c) { timer = setInterval(() => { c.enqueue(good.slice(index, ++index)); if (index === 4) { clearInterval(timer); c.close(); } }, 10); },
     cancel() { clearInterval(timer); },
   })) });
   assert.deepEqual(await verifiedNetworkBytes({ url, expect, timeouts: { idleMs: 30, totalMs: 500 } }), good);
-  const controller = new AbortController(); controller.abort();
-  await assert.rejects(verifiedNetworkBytes({ url, expect, signal: controller.signal }), { name: 'AbortError' });
 });
 
 test('storage that refuses a verified download hands its bytes to the caller, so nothing is fetched twice', async t => {

@@ -74,9 +74,9 @@ export async function hasStoredNetwork(url, expect, { scope } = {}) {
 }
 
 /** Own the deadline even when a mocked/broken transport ignores cancellation.
- * Subscriber cancellation is optional; the transfer always owns total and idle
- * limits and a byte ceiling. It never retains an unbounded list of chunks. */
-async function downloadNetwork(url, expect, onProgress, signal, timeouts) {
+ * The transfer owns total and idle limits and a byte ceiling. It never
+ * retains an unbounded list of chunks. */
+async function downloadNetwork(url, expect, onProgress, timeouts) {
   const { totalMs, idleMs } = { ...NETWORK_TIMEOUTS, ...timeouts };
   if (![totalMs, idleMs].every(n => Number.isSafeInteger(n) && n > 0 && n <= 2 ** 31 - 1)) {
     throw new Error('Invalid network download deadline');
@@ -87,13 +87,10 @@ async function downloadNetwork(url, expect, onProgress, signal, timeouts) {
   const fail = error => { controller.abort(error); rejectAbort(error); };
   const timeout = () => fail(new Error('Network download timed out. Reconnect and retry.'));
   const resetIdle = () => { clearTimeout(idle); idle = setTimeout(timeout, idleMs); };
-  const cancel = () => fail(signal.reason ?? new DOMException('Download cancelled', 'AbortError'));
   const bounded = promise => Promise.race([promise, aborted]);
-  signal?.addEventListener('abort', cancel, { once: true });
   total = setTimeout(timeout, totalMs);
   resetIdle();
   try {
-    if (signal?.aborted) cancel();
     const response = await bounded(fetch(url, { mode: 'cors', signal: controller.signal }));
     if (!response.ok) throw new Error(`The network could not be fetched: ${response.status}`);
     // Content-Length can be compressed; the manifest bounds decoded bytes.
@@ -122,7 +119,6 @@ async function downloadNetwork(url, expect, onProgress, signal, timeouts) {
     return bytes;
   } finally {
     clearTimeout(idle); clearTimeout(total);
-    signal?.removeEventListener('abort', cancel);
     // Do not await a broken stream's cancellation promise.
     if (reader) { try { void reader.cancel().catch(() => {}); } catch { /* Already closed. */ } }
     controller.abort();
@@ -132,15 +128,13 @@ async function downloadNetwork(url, expect, onProgress, signal, timeouts) {
 /** Verified bytes are usable online even when storage fails. Durable callers
  * explicitly require a successful cache write; they must never claim readiness
  * from a transient in-memory download. Errors never publish unverified bytes. */
-export async function verifiedNetworkBytes({ url, expect, onProgress, signal,
-  requireStored = false, onStorage, timeouts, scope } = {}) {
+export async function verifiedNetworkBytes({ url, expect, onProgress,
+  requireStored = false, timeouts, scope } = {}) {
   validateNetwork(expect);
-  if (signal?.aborted) throw signal.reason ?? new DOMException('Download cancelled', 'AbortError');
   const cache = await networkCache(scope);
   const held = await verifiedCached(cache, url, expect);
-  if (held) { onStorage?.(true); return held; }
-  const bytes = await downloadNetwork(url, expect, onProgress, signal, timeouts);
-  let stored = false, failure;
+  if (held) return held;
+  const bytes = await downloadNetwork(url, expect, onProgress, timeouts);
   try {
     if (!cache) throw storageError();
     // A Response copies the bytes it is given, so the caller keeps its own.
@@ -149,10 +143,9 @@ export async function verifiedNetworkBytes({ url, expect, onProgress, signal,
       headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.length),
         'X-Mahjong-SHA256': expect.sha256 },
     }));
-    stored = true;
-  } catch (error) { failure = error; }
-  onStorage?.(stored);
-  if (requireStored && !stored) throw storageError(failure, bytes);
+  } catch (error) {
+    if (requireStored) throw storageError(error, bytes);
+  }
   return bytes;
 }
 
