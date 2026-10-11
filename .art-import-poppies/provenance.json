@@ -1,0 +1,21 @@
+{
+  "tile": "9m",
+  "name": "Man9",
+  "candidate": "Poppies B (smaller Wan)",
+  "title": "Poppy Field — Smaller Wan",
+  "source": "docs/design/van-gogh/studies/24-nine-characters-poppy-field-smaller-wan-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Man9.svg",
+  "originalFilename": "van_gogh_style_poppy_field_characters.png",
+  "originalSha256": "ff3137d35a61f8569d3f6c7ff4c98dc2cc2809fe2b8d0b49be109d20a3ff4ac6",
+  "originalDimensions": [1122, 1402],
+  "originalCrop": {"x": 0, "y": 0, "width": 1122, "height": 1402},
+  "rasterDimensions": [300, 400],
+  "rasterMimeType": "image/avif",
+  "rasterSha256": "5ddc2af7ede1d69f7a51e71ab308afcca157fbaf9b5a2cdfd8b09e56cc539f03",
+  "sourceSha256": "99f6155e1a7972f082fac869aca5e24559d65508be1ad175c2457b578372825a",
+  "svgSha256": "ed88ef4bd1f0531ba649490137076547633e5fc99b8afef9bde9af2beda4b140",
+  "fit": {"painting": [1122, 1402], "stretch": 0, "anchor": 0.5, "bleedPixels": 0},
+  "processing": "Entire approved revised PNG encoded at 300 x 400 as AVIF quality 50, speed 4. The established face-fit helper restores the original 1122:1402 proportions with zero stretch and a centered side crop to the 3:4 face. The smaller golden Wan and floral nine are retained; no repainting or recolouring. The SVG is a lossy game-sized export, not the original.",
+  "approval": "Carl chose the middle poppy-field option for 9 characters, requested a smaller characters sign to fit organically, and explicitly requested GitHub deployment of the resulting revised image. The earlier larger-Wan version, wheat and harbour alternatives are not selected.",
+  "originalPreservation": "Untouched original PNG included in Van_Gogh_9_Characters_Poppy_Field_Approved.zip supplied in chat."
+}
