@@ -1,8 +1,8 @@
 # Van Gogh
 
-**Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. 8 disks and all other tiles are unchanged. Earlier sections below describe the design history.
+**Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. That restoration left the other tiles unchanged. Eight disks now uses Lemons by the Sea. Earlier sections below describe the design history.
 
-**Current set:** 29 painted faces and 5 unpainted identities showing their names. Poppy Field with smaller 萬 is active for 9 characters; characters 2–9 and all nine bamboo tiles are painted. Earlier sections retain historical counts.
+**Current set:** 30 painted faces and 4 unpainted identities showing their names. Lemons by the Sea is active for 8 disks; both the disks and bamboo suits are complete. Poppy Field with smaller 萬 for 9 characters and all prior selections remain unchanged. Earlier sections retain historical counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -226,3 +226,11 @@ Carl selected the middle poppy-field idea, requested a smaller characters sign t
 The source SVG embeds the entire approved 1122 × 1402 portrait in a 300 × 400 AVIF (quality 50) game export. The existing face-fit helper restores the original proportions with zero stretch, clipping a small centered strip from each side to fill the 3:4 face. Source and runtime differ only in image placement. This is a lossy game-sized export; the untouched PNG is preserved in `Van_Gogh_9_Characters_Poppy_Field_Approved.zip` supplied in chat. Original, raster, source and runtime hashes and the fit are recorded in `docs/design/van-gogh/nine-characters-poppy-field.json`.
 
 Run `node web/scripts/export-van-gogh-tiles.mjs --only=9m` to reproduce this face without rewriting other artwork. The set now has **29 painted faces and 5 unpainted identities showing their names**. Characters 2–9 are covered; only 1 characters remains in that suit. The fourteen-tile hand retains the previous thirteen featured paintings.
+
+## Lemons by the Sea — 8 disks
+
+Carl approved the standalone painting of **eight lemons in a 3–2–3 arrangement** for `8p` / `Pin8`. It completes the disks suit. Seven Apples for 7 disks, The Potter’s Table for 9 disks and all other artwork remain unchanged.
+
+The entire 1086 × 1448 original is exactly 3:4 and was proportionally downsampled to 300 × 400 with Lanczos, then encoded as quality-90 WebP. There is no repainting, recolouring or compositional crop; the game uses its standard 26-unit rounded corners and 1% bleed. This is an optimized game export, not a lossless full-resolution original. The original PNG is preserved in `van-gogh-eight-disks-lemons-original.zip` supplied in chat.
+
+The source and runtime SVGs are identical. Original, raster and SVG checksums are recorded in `docs/design/van-gogh/eight-disks-lemons.json`. Reproduce only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=8p`. The set now has **30 painted faces and 4 unpainted identities showing their names**.
