@@ -28,9 +28,10 @@ const POSITIONS = 34;
 // between decisions: reloading it every turn cost a table most of a second
 // at the ninetieth percentile on a desktop and far more on a phone. A
 // runtime that cannot hold it fails the request and the page retries it in
-// a fresh worker with a larger reservation.
-const KEEP = 1;
-const sessions = new Map();
+// a fresh worker with a larger reservation. The session is held with the
+// address it was loaded from, so a request naming another network, as the
+// worker parity check's two models do, releases it before loading its own.
+let held = null;
 const queued = new Map();
 let running = false;
 let failed = false;
@@ -49,15 +50,10 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
     runtimeMemory.configure(memoryLimitMiB);
   }
   runtimeMemory.beginRequest();
-  const ready = sessions.get(url);
-  if (ready) {
-    sessions.delete(url);
-    sessions.set(url, ready);
-    return ready;
-  }
-  while (sessions.size >= KEEP) {
-    const [oldest, session] = sessions.entries().next().value;
-    sessions.delete(oldest);
+  if (held?.url === url) return held.session;
+  if (held) {
+    const { session } = held;
+    held = null;
     await session.release();
   }
   // The bytes rather than the address: the network comes from a bucket on
@@ -71,22 +67,8 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });
-  sessions.set(url, session);
+  held = { url, session };
   return session;
-}
-
-/** The legal entry the policy rates highest: opponents play their best move. */
-function pick(logits, mask) {
-  let best = -1;
-  let bestValue = -Infinity;
-  for (let index = 0; index < mask.length; index += 1) {
-    if (!mask[index]) continue;
-    if (logits[index] > bestValue) {
-      bestValue = logits[index];
-      best = index;
-    }
-  }
-  return best;
 }
 
 async function infer({ id, url, runtimeBase, scope, planes, mask, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
@@ -105,17 +87,17 @@ async function infer({ id, url, runtimeBase, scope, planes, mask, details, memor
       ? new ort.Tensor('float32', Float32Array.from(mask, can => (can ? 1 : 0)), [1, mask.length])
       : null;
     output = await model.run(allowed ? { planes: input, legal: allowed } : { planes: input });
-    const logits = output.policy.data;
-    const analysis = policyWeights(logits, mask);
+    // Its action is the legal entry the policy rates highest: opponents play
+    // their best move.
+    const analysis = policyWeights(output.policy.data, mask);
     // The network answers all three questions in one pass, so the value and
-    // the belief cost nothing beyond copying them out. They are copied
-    // because the tensors are disposed below.
-    const read = {
+    // the belief cost nothing beyond copying them out, which is done only for
+    // an adviser that shows them. They are copied because the tensors are
+    // disposed below.
+    self.postMessage({ id, action: analysis.action, ...(details ? { analysis: { ...analysis,
       value: output.value ? output.value.data[0] : null,
       hands: output.hands ? Float32Array.from(output.hands.data) : null,
-    };
-    self.postMessage({ id, action: pick(logits, mask), ...read,
-      ...(details ? { analysis: { ...analysis, ...read } } : {}) });
+    } } : {}) });
   } finally {
     input?.dispose();
     allowed?.dispose();

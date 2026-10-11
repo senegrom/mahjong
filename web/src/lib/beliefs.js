@@ -80,7 +80,5 @@ export function likeliest(belief, count = 6) {
  * because it is not one.
  */
 export function readValue(value) {
-  if (value == null) return null;
-  const scalar = typeof value === 'number' ? value : value[0];
-  return Number.isFinite(scalar) ? scalar : null;
+  return Number.isFinite(value) ? value : null;
 }
