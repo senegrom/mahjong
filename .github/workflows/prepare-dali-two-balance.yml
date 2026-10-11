@@ -1,0 +1,40 @@
+name: Prepare approved Dali two disks
+
+on:
+  push:
+    branches: [art/dali-two-disks-balance-prep-20261011]
+    paths:
+      - '.art-import/two-balance/**'
+      - '.github/workflows/prepare-dali-two-balance.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install the locked web test dependencies
+        working-directory: web
+        run: npm ci
+      - name: Integrate approved painting and verify preservation and regressions
+        run: node .art-import/two-balance/prepare.mjs
+      - name: Commit verified clean tree on preparation branch only
+        run: |
+          test "$GITHUB_REF" = refs/heads/art/dali-two-disks-balance-prep-20261011
+          test ! -e .github/workflows/prepare-dali-two-balance.yml
+          test ! -e .art-import/two-balance
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Prepare selected middle balance as Dali two disks with verified artwork preservation'
+          git push origin HEAD:refs/heads/art/dali-two-disks-balance-prep-20261011
