@@ -97,8 +97,9 @@ async function play(p, turns = 5) {
     else { await p.click('.hand button:not(:disabled)'); await p.click('.confirm-discard .primary'); }
     await p.waitForFunction((key,n) => JSON.parse(localStorage.getItem(key)).commands.length > n, {}, SAVE_KEY, before.commands.length);
   }
-  // Runtime progress can say 'network ready' before opponents finish moving.
-  // Wait for a real player decision, not a transient status message.
+  // The network's first load leaves 'network ready' in the status until the
+  // opponents have all moved, so the text is no sign that they finished.
+  // Wait for a real player decision instead.
   await p.waitForFunction(() => document.querySelector('.failure, .screen, .standings, .hand button:not(:disabled), .call-options button:not(:disabled)'), { timeout: 45000 });
   assert.equal(await p.$('.failure'), null);
   assert.deepEqual(p.errors, []);

@@ -10,7 +10,7 @@
   // Selection and keyboard focus stay owned by App across turn changes.
   // Only read-only presentation and hypothetical discard analysis live here.
   let {
-    view, engine, closed, hints, busy, blocked, discardChoices, picked, selected,
+    view, engine, closed, hints, busy, blocked, discardChoices, confirmDiscards, picked, selected,
     canDiscard, selectTile, syncHandFocus, handElement = $bindable(null),
   }: PlayerHandProps = $props();
   let me = $derived(view?.seats[0]);
@@ -61,9 +61,12 @@
       {#if view.furiten}<span class="furiten">Furiten — self-draw wins only</span>{/if}
     </div>
   {/if}
+  <!-- A tile is a toggle only while a press selects it for confirmation.
+       Without confirmation a press discards it, so it is a plain button,
+       and the arrow keys' marker is not announced as pressed. -->
   <div class="hand" class:has-draw={Boolean(me.drawn)} role="group" aria-label="your tiles" aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
     {#each handTiles as tile, index (index)}
-      <HandTile {tile} handIndex={index} onclick={() => selectTile(tile, index)} toggle
+      <HandTile {tile} handIndex={index} onclick={() => selectTile(tile, index)} toggle={confirmDiscards}
         disabled={!canDiscard(tile)} muted={view.phase === 'over'} selected={myTurn && (picked === index || selected === index)}
         drawn={Boolean(me.drawn) && index === me.hand.length}
         discardShanten={discardHints.get(tile)?.shanten ?? null}

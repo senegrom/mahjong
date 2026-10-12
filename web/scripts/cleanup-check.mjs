@@ -155,9 +155,11 @@ try {
       assert.equal(await savedMatch(page), saved);
       await page.focus('.hand');
       await page.keyboard.press('ArrowRight');
-      await page.waitForSelector('.hand button[aria-pressed=true]');
+      // Without confirmation a hand tile is a plain button, so the marker is
+      // its class rather than a pressed state.
+      await page.waitForSelector('.hand button.tile.selected');
       await page.keyboard.press('Escape');
-      await page.waitForFunction(() => !document.querySelector('.hand button[aria-pressed=true]'));
+      await page.waitForFunction(() => !document.querySelector('.hand button.tile.selected'));
     }
     assert.deepEqual(problems, []);
   });

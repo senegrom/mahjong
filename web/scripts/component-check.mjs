@@ -83,6 +83,23 @@ try {
     await page.click('.game-modes button:nth-child(3)');
     assert.equal((await state(page)).mode, 'physical');
   });
+  await check('a selection is said by a region that was already in the page, out of sight', desktop, async page => {
+    // A screen reader listens to a live region only once it exists, so the
+    // words must change inside one node rather than arrive with a new one.
+    const region = await page.$('.visually-hidden[role="status"]');
+    const read = () => region.evaluate(el => (el.isConnected ? el.textContent : null));
+    assert.equal(await read(), 'Selected: 1 characters');
+    await page.click('.confirm-discard button:last-child');
+    await page.waitForFunction(() => !document.querySelector('.confirm-discard'));
+    assert.equal(await read(), '');
+    await page.click('.hand button[data-hand-index="1"]');
+    await page.waitForSelector('.confirm-discard');
+    assert.equal(await read(), 'Selected: 2 characters');
+    assert.deepEqual(await region.evaluate(el => {
+      const box = el.getBoundingClientRect(), style = getComputedStyle(el);
+      return { width: box.width, height: box.height, position: style.position, display: style.display, clip: style.clipPath };
+    }), { width: 1, height: 1, position: 'absolute', display: 'block', clip: 'inset(50%)' });
+  });
   await check('real offline status reacts to a parent update and invokes download once', desktop, async page => {
     await page.click('.offline-settings > summary');
     assert.match(await page.$eval('[data-ai-status]', el => el.textContent), /Interrupted fixture download/);

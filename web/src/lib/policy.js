@@ -112,10 +112,14 @@ function ensureWorker() {
     if (progress) {
       // While the network loads, a note about any request is the worker's
       // sign of life: a cancelled request's download serves the next one.
+      // Once it is loaded, the worker's notes only say again that the
+      // resident network is ready. Passing them on would replace the table's
+      // "… is thinking" with "network ready" on every later move, so they
+      // stop here; a worker replaced after a memory failure starts unloaded.
       if (!loaded) {
         if (ready) networkLoaded(); else stillLoading(current);
         onProgress?.(progress);
-      } else if (pending) onProgress?.(progress);
+      }
       return;
     }
     // An answer, from any request, means the network ran: it is loaded

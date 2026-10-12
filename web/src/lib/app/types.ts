@@ -65,6 +65,8 @@ export interface MatchTableProps {
 export interface PlayerHandProps {
   view: GameView; engine?: DiscardAnalyser | null; closed: boolean;
   hints: boolean; busy: boolean; blocked: boolean; discardChoices: LegalChoice[];
+  /** A press selects a tile for confirmation, rather than discarding it. */
+  confirmDiscards: boolean;
   picked: number | null; selected: number | null;
   canDiscard: (tile: Tile) => boolean; selectTile: (tile: Tile, index: number) => void;
   syncHandFocus: (event: FocusEvent) => void; handElement?: HTMLDivElement | null;

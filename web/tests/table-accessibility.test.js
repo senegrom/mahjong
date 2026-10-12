@@ -38,6 +38,21 @@ test('only a real toggle announces a pressed state', async () => {
   assert.match(await html('HandTile.svelte', { tile: '1m', onclick() {}, toggle: true }), /aria-pressed="false"/);
 });
 
+test('a hand tile is a toggle only when a press selects it for confirmation', async () => {
+  const view = { phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
+    dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: null, pending_from: null, outcome: null,
+    seats: [seat('east', 0, { hand: ['1m', '2m'], drawn: '3m', turn: true }), seat('south', 1), seat('west', 2), seat('north', 3)] };
+  const hand = props => html('app/PlayerHand.svelte', { view, engine: null, closed: false, hints: false, busy: false, blocked: false,
+    discardChoices: ['1m', '2m', '3m'].map(tile => ({ kind: 'discard', tile })), picked: null, selected: null,
+    canDiscard: () => true, selectTile() {}, syncHandFocus() {}, ...props });
+  const pressed = markup => [...markup.matchAll(/<button class="tile [^>]*>/g)].map(([button]) => button.match(/aria-pressed="(\w+)"/)?.[1] ?? null);
+  // Without confirmation a press discards: a plain button, even under the
+  // arrow keys' marker.
+  assert.deepEqual(pressed(await hand({ confirmDiscards: false, picked: 0 })), [null, null, null]);
+  // With it, a press selects the tile, and the selection is its pressed state.
+  assert.deepEqual(pressed(await hand({ confirmDiscards: true, selected: 1 })), ['false', 'true', 'false']);
+});
+
 test('tile entry names tiles in words and its buttons are plain buttons', async () => {
   const body = await html('TileEntry.svelte', { label: 'Your starting hand', tiles: ['1m'], onchange() {}, expanded: true });
   assert.match(body, /aria-label="Remove 1 characters"/);
@@ -65,6 +80,44 @@ test('labelled containers carry a role, so screen readers read their names', asy
   assert.match(await html('HandTile.svelte', { tile: '1m', remaining: 2, showRemaining: true }),
     /class="copy-count[^"]*" role="img"[^>]*aria-label="2 unseen 1 characters remain"/);
   assert.equal(meldWords({ kind: 'concealed-kan', tiles: ['7z', '7z', '7z', '7z'] }), 'Concealed kan of red dragon');
+});
+
+test('an open kan is named as one, whichever table it is on', async () => {
+  // The game's view calls it 'claimed-kan'; the physical and guided tables call it 'kan'.
+  const melds = await html('Melds.svelte', { melds: [{ kind: 'claimed-kan', tiles: ['5s', '5s', '5s', '5s'], from: 'across', claimed_tile: '5s' }] });
+  assert.match(melds, /role="group" aria-label="Open kan of 5 bamboo"/);
+  assert.equal(meldWords({ kind: 'kan', tiles: ['5s', '5s', '5s', '5s'] }), 'Open kan of 5 bamboo');
+  assert.equal(meldWords({ kind: 'extended-kan', tiles: ['5s', '5s', '5s', '5s'] }), 'Added kan of 5 bamboo');
+});
+
+test('riichi, calls, an offered discard and a selection are said by regions already in the page', async () => {
+  // A screen reader listens to a live region only once it exists, and JAWS
+  // and NVDA often miss one inserted along with its words. So each region is
+  // rendered, empty, before there is anything to say.
+  const said = markup => [...markup.matchAll(/<(?:span|p) class="visually-hidden[^"]*" role="status">([^<]*)<\/(?:span|p)>/g)]
+    .map(match => match[1]);
+  assert.deepEqual(said(await html('Seat.svelte', { seat: seat('south', 1) })), ['']);
+  const riichi = await html('Seat.svelte', { seat: seat('south', 1, { riichi: true }) });
+  assert.deepEqual(said(riichi), ['South declared riichi']);
+  // The badge is for the eye; the region says the same and names the seat.
+  assert.match(riichi, /<span class="called[^"]*" aria-hidden="true">Riichi<\/span>/);
+
+  const view = extra => ({ phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'],
+    dora_types: [], dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: null, pending_from: null,
+    outcome: null, seats: [seat('east', 0, { hand: ['5s'], drawn: null }), seat('south', 1), seat('west', 2), seat('north', 3)], ...extra });
+  const choices = props => html('app/TurnChoices.svelte', { view: view(), shownDora: [], busy: false, thinking: false, failure: '',
+    saveConflict: '', loadNote: '', pendingOpponent: null, myTurn: true, confirmDiscards: true, shortcuts: false, touch: false,
+    selectedTile: null, callChoices: [], choose() {}, discard() {}, oncancel() {}, ...props });
+  assert.deepEqual(said(await choices({})), ['']);
+  const call = await choices({ view: view({ phase: 'call', pending_discard: '5s', pending_from: 'south' }), myTurn: false,
+    callChoices: [{ kind: 'pon', tile: null }, { kind: 'pass', tile: null }] });
+  assert.deepEqual(said(call), ['South discarded the 5 bamboo']);
+  const selection = await choices({ selectedTile: '5s' });
+  assert.deepEqual(said(selection), ['Selected: 5 bamboo']);
+  // The panels still come and go for the eye, but not as regions of their own.
+  assert.match(call, /class="call-stage/);
+  assert.match(selection, /class="confirm-discard/);
+  for (const markup of [call, selection]) assert.doesNotMatch(markup, /aria-live/);
 });
 
 test('the table inspection names each opponent once: position, wind, score', async () => {
