@@ -38,6 +38,24 @@ class OutcomeTests(unittest.TestCase):
         self.assertEqual(result['placement'], 2.5)
         self.assertTrue(all(row['wins'] == .25 for row in result['by_seat']))
 
+    def test_duplicate_and_duel_read_each_seatings_own_seat(self):
+        """Each seating is scored by the seat the player sat in, and the
+        error comes from the spread across deals of the seatings' mean."""
+        tables = np.random.default_rng(5).integers(0, 60, size=(4, 6, 4)).astype(np.int32) * 500
+        own = [placements(tables[seat])[:, seat] for seat in range(4)]
+        per_deal = np.mean(own, axis=0)
+        error = float(per_deal.std(ddof=1) / np.sqrt(len(per_deal)))
+        with patch.object(arena, 'evaluate_games', side_effect=lambda net, **kw: (tables[kw['place']], 16)):
+            duplicate = arena.duplicate(None, 6, 1, 'cpu')
+        with patch.object(duel, 'table', side_effect=lambda one, other, games, seed, place, **kw: tables[place]):
+            dueled = duel.duel(None, None, 6, 1, 'cpu')
+        for result, seat in ((duplicate, 'seat'), (dueled, 'place')):
+            self.assertEqual([row[seat] for row in result['by_seat']], [0, 1, 2, 3])
+            self.assertEqual([row['placement'] for row in result['by_seat']], [float(o.mean()) for o in own])
+            self.assertEqual(result['by_deal'], per_deal.tolist())
+            self.assertGreater(error, 0)
+            self.assertAlmostEqual(result['standard_error'], error, places=12)
+
     def test_measure_reports_tie_convention(self):
         # Finished as soon as it is made, and no hand ended in the making.
         engine = SimpleNamespace(all_finished=lambda: True,
