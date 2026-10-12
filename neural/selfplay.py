@@ -628,6 +628,11 @@ def play(
         hands += settle()
         timing["engine"] += clock() - began
 
+    # A round that ran out of steps has games still in progress, whose final
+    # scores are whatever the table held when the clock stopped, and their
+    # placements would teach the network from unfinished games as if they
+    # were finished. The limit guards against a hand that will not end; it is
+    # not a budget to be spent, so reaching it refuses the round.
     require_finished(arena, steps=steps, context="self-play")
 
     # A learner that decides for itself kept its own account; fold it in
@@ -637,19 +642,6 @@ def play(
         for name, value in own.items():
             timing[name] = timing.get(name, 0.0) + value
             own[name] = 0.0
-
-    # A round that ran out of steps has games still in progress, and their
-    # final scores are whatever the table happened to hold when the clock
-    # stopped. Turning those into placements labels an unfinished game as a
-    # finished one and teaches the network from it. The limit is a guard
-    # against a hand that will not end, not a budget to be spent, so
-    # reaching it is a fault to be reported rather than worked around.
-    if not arena.all_finished():
-        unfinished = int((np.frombuffer(arena.seats(), dtype=np.uint8) != 0xFF).sum())
-        raise RuntimeError(
-            f"self-play stopped after {steps} steps with {unfinished} of {games} games "
-            "unfinished; their placements would be invented, so the round is refused"
-        )
 
     # Every game is over, so every hand ended, so every decision waiting on
     # a hand was paid by it and nothing can still be waiting. An entry left
