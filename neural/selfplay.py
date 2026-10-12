@@ -713,8 +713,7 @@ def evaluate_games(
 
     The network takes the fixed player identity `place`, not a wind: seats
     rotate between hands. Return final scores by player and the hand count,
-    without retaining training records. Raw Mortal-space networks are adapted
-    before either observation or action masks reach their forward method.
+    without retaining training records.
 
     It plays its best move rather than sampling, because that is what the
     web app does. Measuring sampled play would mix how well the network has
@@ -729,8 +728,6 @@ def evaluate_games(
     validate_budget(games, max_steps)
     if isinstance(place, bool) or not isinstance(place, (int, np.integer)) or not 0 <= place < 4:
         raise ValueError("place must be a player index from 0 to 3")
-    if getattr(net, "speaks_mortal", False):
-        net = zoo.MortalSpacePlayer(net, device)
     net.eval()
     arena = riichi_py.Arena(games=games, seed=seed,
                             bot_places=[player for player in range(4) if player != place])
