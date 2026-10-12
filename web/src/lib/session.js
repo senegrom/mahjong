@@ -148,12 +148,14 @@ export class MatchSession {
         // say the winner took a discard. Neither changes what happened.
         for (const win of view.outcome?.wins ?? []) delete win.payments;
         if (typeof view.outcome?.line === 'string') view.outcome.line = view.outcome.line.replace(/(\w+) robs (\w+)'s quad/g, "$1 wins on $2's discard");
-        // Before format 7 a declared quad left the tile drawn before it held
+        // Before format 7 a declared quad left the turn's drawn tile held
         // apart while the quad could be robbed, and after it was, even when
-        // the quad had taken that tile and the hand no longer held it. At
-        // those moments the concealed tiles are compared as one set, without
-        // a tile all four of whose copies are in a quad, and the waits that
-        // were read from the hand without the tile held apart are left out.
+        // the quad had taken that tile. So at every call and every result,
+        // quad or not, the concealed tiles are compared as one set: the tile
+        // held apart joins them unless all four of its copies are in a quad.
+        // The waits are left out, because the old ones were read from the
+        // hand without the tile held apart; they follow from the tiles,
+        // which are all still compared.
         if (view.phase === 'call' || view.phase === 'over') {
           for (const seat of view.seats ?? []) {
             const quadded = seat.melds?.some(meld => meld.tiles?.length === 4 && meld.tiles.every(tile => tile === seat.drawn));

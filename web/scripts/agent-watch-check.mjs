@@ -214,6 +214,32 @@ try {
       assert.deepEqual(page.problems, []);
     } finally { watch.dispose(); }
   });
+
+  await check('watch calls the followed agent by that name on the result, and a draw keeps the riichi bets note', async () => {
+    // This game's first hand ends in an exhaustive draw with riichi bets
+    // left on the table for the next winner.
+    const watch = new WatchSession(Game, 7, ['club', 'club', 'club', 'club'], { evaluate: builtin });
+    try {
+      await watch.prepare();
+      const page = await open(7);
+      for (let turn = 0; watch.match.view.phase !== 'over'; turn++) {
+        assert.ok(turn < 150, 'the first hand ends');
+        await page.click('.watch-controls > button');
+        await watch.step();
+        await caughtUp(page, watch);
+      }
+      const { outcome, riichi_sticks: bets } = watch.match.view;
+      assert.equal(outcome.kind, 'draw', 'the fixture must end in a draw');
+      assert.ok(bets > 0, 'the fixture must leave riichi bets on the table');
+      const shown = await page.$eval('.agent-watch .screen', el => ({ text: el.textContent,
+        first: el.querySelector('.changes tbody th').textContent.trim() }));
+      assert.equal(shown.first, 'Followed agent');
+      assert.doesNotMatch(shown.text, /\bYou\b/);
+      assert.ok(shown.text.includes(`${bets} riichi bet${bets > 1 ? 's stay' : ' stays'} on the table for the next winner.`), shown.text);
+      await page.screenshot({ path: resolve(output, 'agent-watch-draw.png'), fullPage: true });
+      assert.deepEqual(page.problems, []);
+    } finally { watch.dispose(); }
+  });
 } finally {
   await browser?.close();
   await new Promise(done => server.close(done));

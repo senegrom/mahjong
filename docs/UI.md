@@ -143,9 +143,10 @@ legal commands and checked against all authoritative state; only what was added
 or repaired since (derived waits, result indicators, claimed tiles, player
 identities, score attribution, a win's value as numbers and the words for a
 robbed quad) is left out of that comparison. Before format 7 a declared quad
-left the tile drawn before it held apart while the quad could be robbed and
-after it was, even where the quad had taken that tile; at those moments an
-older save's concealed tiles are compared as one set, without that tile. An
+left the turn's drawn tile held apart while the quad could be robbed and after
+it was, even where the quad had taken that tile. So at a call or a result an
+older save's concealed tiles are compared as one set, without a tile whose four
+copies are all in a quad, and its waits are left out. An
 incompatible or corrupt save fails closed rather than being silently replaced;
 [UI reliability](UI_RELIABILITY.md) lists the saves refused outright.
 
