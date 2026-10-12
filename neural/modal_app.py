@@ -1163,9 +1163,9 @@ SMOKE_OUT = Path("/scratch/smoke")
 
 
 def _written(output: str | bytes | None) -> str:
-    """What a child stopped by its timeout had written, as text:
-    `subprocess` hands it over as bytes whatever `text` asked for, or as
-    nothing at all."""
+    """What a child stopped by its timeout had written, as text: on Linux
+    `subprocess` hands it over as bytes whatever `text` asked for, and as
+    nothing at all when the child wrote nothing."""
     if output is None:
         return ""
     return output.decode(errors="replace") if isinstance(output, bytes) else output
