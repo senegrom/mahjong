@@ -78,6 +78,12 @@ jobs:
             . -> target
             engine/libriichi -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The vendored crate is its own workspace, so the build workflow's
+      # workspace tests never run its tests. Without pymod they need no
+      # Python; that leaves out only the arena's one test.
+      - name: Test the observation engine
+        working-directory: engine/libriichi
+        run: cargo test --locked --no-default-features --lib
       # The same pinned tools and engine wheels as the build workflow's
       # browser worker parity job.
       - name: Install the training tools and the real Python engines

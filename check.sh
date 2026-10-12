@@ -16,6 +16,11 @@ echo "== lints"
 cargo clippy --locked --workspace --all-targets -- -D warnings
 echo "== tests"
 cargo test --locked --workspace
+echo "== observation engine tests"
+# The vendored engine/libriichi is its own workspace, so the workspace tests
+# above never run its tests. Without pymod they need no Python; that leaves
+# out only the arena's one test.
+(cd engine/libriichi && cargo test --locked --no-default-features --lib)
 echo "== Python binding"
 cargo build --locked -p riichi-py
 "${PYTHON:-python3}" engine/riichi-py/smoke-test.py
