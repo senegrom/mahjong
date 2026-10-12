@@ -29,6 +29,16 @@ GAMES = 16
 SEED = 99
 
 
+def first_legal_to_the_end(arena, games):
+    """Every deciding seat takes its first legal move until the games end."""
+    for _ in range(20_000):
+        if arena.all_finished():
+            return
+        mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8).reshape(games, -1)
+        arena.step(mask.argmax(axis=1).tolist())
+    raise AssertionError("the games should finish")
+
+
 class UnfollowedTablesTests(unittest.TestCase):
     def test_an_evaluation_nobody_follows_holds_no_log(self):
         """Three heuristic players and a network of the engine's kind, as
@@ -47,12 +57,10 @@ class UnfollowedTablesTests(unittest.TestCase):
         self.assertTrue(arena.all_finished())
         self.assertEqual(sum(len(lines) for lines in arena.mjai_all()), 0)
 
-        # The same games at a table that keeps its log, each deciding seat
+        # The same games at a table that keeps its log, the deciding seat
         # taking the first legal move as the evaluation's player did.
         kept = NATIVE_ARENA(games=GAMES, seed=SEED, bot_places=[1, 2, 3])
-        while not kept.all_finished():
-            mask = np.frombuffer(kept.legal_mask(), dtype=np.uint8).reshape(GAMES, -1)
-            kept.step(mask.argmax(axis=1).tolist())
+        first_legal_to_the_end(kept, GAMES)
         np.testing.assert_array_equal(
             scores, np.frombuffer(kept.final_scores(), dtype=np.int32).reshape(GAMES, 4))
         self.assertEqual(hands, sum(kept.hands_done()))
@@ -72,12 +80,7 @@ class UnfollowedTablesTests(unittest.TestCase):
                 views = Views(arena, 2, kinds)
                 self.assertEqual(views.observer is not None, followed)
                 self.assertEqual([bool(lines) for lines in arena.mjai_all()], [followed] * 2)
-                steps = 0
-                while not arena.all_finished():
-                    steps += 1
-                    self.assertLess(steps, 4000, "the games should finish")
-                    mask = np.frombuffer(arena.legal_mask(), dtype=np.uint8).reshape(2, -1)
-                    arena.step(mask.argmax(axis=1).tolist())
+                first_legal_to_the_end(arena, 2)
                 held = arena.mjai_all()
                 if followed:
                     self.assertEqual([json.loads(lines[-1])["type"] for lines in held],
