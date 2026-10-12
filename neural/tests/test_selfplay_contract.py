@@ -254,11 +254,6 @@ class LabelsAreReadOnlyWhenWanted(unittest.TestCase):
             self.assertTrue(np.array_equal(getattr(plain, name).numpy(), getattr(bare, name).numpy()), name)
         self.assertEqual(plain.final_scores.tolist(), bare.final_scores.tolist())
 
-        asked, calls = self.play(FirstLegalDecider(), want_oracle=True)
-        self.assertGreater(calls["oracle"], 0)
-        self.assertEqual(len(asked.oracle), asked.decisions)
-        self.assertTrue(np.array_equal(plain.held.numpy(), asked.held.numpy()))
-
     def test_the_network_train_py_trains_still_gets_every_label(self):
         batch, calls = self.play(FirstLegal())
         self.assertGreater(calls["oracle"], 0)

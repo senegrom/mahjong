@@ -161,11 +161,10 @@ class Batch:
     #: concealed tiles, the draws to come and the hidden indicators, as 0/1
     #: planes kept in bytes. For the oracle critic, which only trains; the
     #: network is never shown this when choosing. Empty for a learner that
-    #: decides for itself unless asked for (`want_oracle`).
+    #: decides for itself, which has no oracle critic.
     oracle: torch.Tensor
     returns: torch.Tensor
     log_probs: torch.Tensor
-    games: int
     hands: int
     decisions: int
     final_scores: np.ndarray
@@ -222,7 +221,6 @@ def play(
     games: int,
     seed: int,
     device: str = "cuda",
-    greedy: bool = False,
     max_steps: int = 4000,
     amp: bool = False,
     opponents: list | None = None,
@@ -230,7 +228,6 @@ def play(
     seat_share: float = 0.0,
     population=None,
     explore_share: float = 0.0,
-    want_oracle: bool = False,
     want_held: bool = True,
     preview_reach: bool = False,
     own_draws: bool = False,
@@ -244,9 +241,9 @@ def play(
     The labels that only a trainer's auxiliary heads read are fetched from
     the engine when something will read them and not otherwise, since each
     is copied out for every game on every step. The oracle's planes are
-    4.4 kilobytes a game a step: a learner that decides for itself (one
-    with `decide`) has them only with `want_oracle`, and the network that
-    `train.py` trains always has them, for its oracle critic.
+    4.4 kilobytes a game a step: the network that `train.py` trains always
+    has them, for its oracle critic, and a learner that decides for itself
+    (one with `decide`) never does, having no such critic.
     `want_held=False` leaves out what the opponents held, for a
     learner with no head that reads it: a gigabyte of host memory on a
     round of 2.8 million decisions. Neither changes a move or a reward.
@@ -300,7 +297,7 @@ def play(
         population = population.for_round(seed)
     recording = net.kind == "mortal"
     decides = hasattr(net, "decide")
-    wants_oracle = want_oracle or not decides
+    wants_oracle = not decides
 
     # Which older checkpoint, if any, holds each player of each game, -1
     # being the learner. Fixed for the game, so a seat does not change
@@ -501,8 +498,8 @@ def play(
             # ones the learning forward will reproduce.
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and str(device).startswith("cuda")):
                 picked, records = net.decide(
-                    views, index, deciding[index], mask[index], greedy,
-                    explore_share=0.0 if greedy else explore_share, wanderer=wanderer,
+                    views, index, deciding[index], mask[index], greedy=False,
+                    explore_share=explore_share, wanderer=wanderer,
                     preview_reach=preview_reach, **draws,
                 )
             began = clock()
@@ -545,15 +542,6 @@ def play(
             # of the hands is trained on both.
             if want_held:
                 held.append(truth[index][record_slots].copy())
-            # The oracle's planes on this path too, when somebody is going
-            # to read them. The fusion decides through here, so without
-            # them its oracle critic sees nothing at all and cannot be
-            # trained or even measured -- but nothing trains it yet, and
-            # they are about a kilobyte a decision, which is most of a
-            # gigabyte on a large round. Read from the engine and collected
-            # on request rather than by default.
-            if want_oracle:
-                oracle.append(hidden[index][record_slots].astype(np.uint8))
             record_forced = getattr(records, "forced", None)
             if record_forced is None:
                 record_forced = np.zeros(len(record_slots), dtype=bool)
@@ -582,15 +570,9 @@ def play(
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
                 logits, _value, _guessed = net.everything(batch_planes, batch_mask)
             logits = logits.float()
-            distribution = torch.distributions.Categorical(logits=logits)
-            if greedy:
-                chosen = logits.argmax(dim=1)
-                chosen_log_prob = distribution.log_prob(chosen)
-                was_forced = torch.zeros_like(chosen, dtype=torch.bool)
-            else:
-                chosen, chosen_log_prob, was_forced = explore(
-                    logits, batch_mask, explore_share, wanderer, **draws
-                )
+            chosen, chosen_log_prob, was_forced = explore(
+                logits, batch_mask, explore_share, wanderer, **draws
+            )
             record_actions = chosen.cpu().numpy()
             record_log_probs = chosen_log_prob.cpu().numpy()
             record_slots = np.arange(len(index))
@@ -706,8 +688,8 @@ def play(
         legal=gather(legal_masks),
         actions=torch.tensor(actions, dtype=torch.int64),
         # A label nobody collected is empty: a learner that decides for
-        # itself has the oracle's planes only when asked, and
-        # `want_held=False` leaves out what the opponents held.
+        # itself has no oracle's planes, and `want_held=False` leaves out
+        # what the opponents held.
         held=gather(held) if held else torch.zeros(0),
         oracle=gather(oracle) if oracle else torch.zeros(0),
         explored=gather(wandered) if wandered else None,
@@ -715,7 +697,6 @@ def play(
         phi=gather(vectors) if vectors else None,
         returns=torch.tensor(rewards, dtype=torch.float32),
         log_probs=torch.tensor(log_probs, dtype=torch.float32),
-        games=games,
         hands=hands,
         decisions=decisions,
         final_scores=final_scores.copy(),
@@ -740,8 +721,8 @@ def evaluate_games(
     learned with how much exploration noise is on top of it, and then the
     checkpoint kept as best would be chosen partly on that noise.
 
-    This is a score-only loop rather than `play(..., greedy=True)`: it does
-    not fetch oracle/truth labels, construct rewards, or retain a round-sized
+    This is a score-only loop rather than `play`, which samples: it does not
+    fetch oracle/truth labels, construct rewards, or retain a round-sized
     training batch.
     """
     require_training_engine()

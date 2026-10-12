@@ -99,7 +99,7 @@ class AccountingTests(unittest.TestCase):
             engines.append(engine)
             return engine
         with patch.object(selfplay.riichi_py, 'Arena', side_effect=create):
-            batch = selfplay.play(Heuristic(), games, 1, 'cpu', greedy=True,
+            batch = selfplay.play(Heuristic(), games, 1, 'cpu',
                                   opponents=[Heuristic()], opponent_share=1., max_steps=max_steps)
         return batch, engines[0]
 
