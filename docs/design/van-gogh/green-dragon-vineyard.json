@@ -5,11 +5,22 @@
   "candidate": "Vineyard Dragon C",
   "approval": "Carl selected the vineyard dragon from panel C of the first green-dragon board and explicitly requested GitHub deployment. This is not the later mountain/pine dragon, vase, cypress or iris alternative.",
   "originalFile": "van_gogh_dragons_a_b_c.png",
-  "originalSize": [1448,1086],
+  "originalSize": [
+    1448,
+    1086
+  ],
   "originalSha256": "98b856ce6fa6bd6b6db62ed0ed64fd426284ce5cfa2b60d88c9e40d71533d493",
-  "originalCrop": {"x":979,"y":122,"width":450,"height":600},
+  "originalCrop": {
+    "x": 979,
+    "y": 122,
+    "width": 450,
+    "height": 600
+  },
   "cropSha256": "cfb0e1bf1eb4016157566cb81adef74d4a56c916e9355bf03660903708e446a0",
-  "canvas": {"width":300,"height":400},
+  "canvas": {
+    "width": 300,
+    "height": 400
+  },
   "aspectRatio": "3:4",
   "stretch": 0,
   "processing": "Crop the first board at (979, 122) to 450 x 600, exactly 3:4. Remove captions, gutters and excess lower vineyard while retaining the dragon head, horns, claws, village and vineyard rows. Uniform Lanczos downsampling to 300 x 400; AVIF quality 65, speed 0, 4:4:4. Shared radius-26 clipping and 1% bleed. No regeneration, repainting, recolouring or non-uniform scaling.",
