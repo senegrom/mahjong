@@ -373,7 +373,13 @@ def play(
     pending: list[list[list[int]]] = [[[] for _ in range(4)] for _ in range(games)]
     everything: list[list[list[int]]] = [[[] for _ in range(4)] for _ in range(games)]
 
-    hands = 0
+    # The arena plays the Club's places from the moment it is made, so where
+    # a Club deals the first hand the bots can finish hands before anyone
+    # here is asked for a move. The engine reports those endings until the
+    # first step and counts them among the hands done, so the count starts
+    # from them, as `evaluate_games`' does. Nobody here moved in those
+    # hands, so no decision waits on their points.
+    hands = int(np.frombuffer(arena.hand_ended(), dtype=np.uint8).sum())
     steps = 0
     clock = time.perf_counter
     timing = {"engine": 0.0, "encode": 0.0, "network": 0.0, "opponents": 0.0, "other": 0.0}
@@ -659,17 +665,18 @@ def play(
         )
 
     # The engine counted the hands too, and it cannot miss one. If the two
-    # counts differ then an ending went by unnoticed, and the decisions
+    # counts differ then an ending went by unnoticed, and any decisions
     # waiting on that hand were paid by the hand after it — credited with
     # points from a hand they took no part in. Nothing else shows it: the
     # decisions are paid, once each, by the wrong hand, and every total
-    # still adds up.
+    # still adds up. Whether anything was waiting on the missed hand is not
+    # known here, so the message does not say that anything was.
     truly = int(np.asarray(arena.hands_done(), dtype=np.int64).sum())
     if truly != hands:
         raise RuntimeError(
             f"the engine finished {truly} hands and the collector noticed {hands}; "
-            f"{truly - hands} endings went by unseen, so their points reached the "
-            "decisions of the hand that followed"
+            "any decisions waiting on a hand whose end went unseen were paid by a "
+            "later one, so the round is refused"
         )
 
     # The placement, which is what the game is actually for, reaches every
