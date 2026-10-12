@@ -134,8 +134,8 @@ def choose_in_mortal_space(
     action space.
 
     `ask(who, fresh, allowed)` scores using the core-derived mask and returns
-    those values plus Mortal's original mask for the
-    positions named. A riichi there names no tile, so when one is chosen
+    those values plus Mortal's original mask for the positions named, which
+    nothing here reads. A riichi there names no tile, so when one is chosen
     the reach is told to the follower and the same question asked again,
     from the state in which it is declared, and the tile is decided by the
     discards of that second answer.
