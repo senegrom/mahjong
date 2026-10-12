@@ -26,9 +26,6 @@ class OutcomeTests(unittest.TestCase):
             order = list(order)
             np.testing.assert_array_equal(placements(scores[:, order]), expected[:, order])
             np.testing.assert_allclose(win_shares(scores[:, order]), win_shares(scores)[:, order])
-            for module in (arena, duel):
-                for player in range(4):
-                    np.testing.assert_array_equal(module.placements(scores[:, order], player), expected[:, order[player]])
 
     def test_duplicate_and_duel_reports_share_tied_wins(self):
         scores = np.zeros((2, 4), dtype=np.int32)

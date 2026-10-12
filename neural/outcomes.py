@@ -59,3 +59,14 @@ def win_shares(scores: np.ndarray) -> np.ndarray:
     """First-place credit, divided equally among tied winners."""
     better, tied = _ties(scores)
     return (better == 0) / tied
+
+
+def paired_summary(per_seating: list[np.ndarray]) -> tuple[np.ndarray, float]:
+    """Each deal's placements over the seatings that played it, averaged,
+    and the standard error of their mean. The seatings share their deals
+    and are far from independent, while the deals are independent of one
+    another, so the error comes from the spread across deals (see
+    `arena.duplicate`). One deal has no spread, and its error is nought."""
+    per_deal = np.stack(per_seating).mean(axis=0)
+    error = float(per_deal.std(ddof=1) / (len(per_deal) ** 0.5)) if len(per_deal) > 1 else 0.0
+    return per_deal, error

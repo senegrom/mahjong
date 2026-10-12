@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .outcomes import placements as tied_placements, require_finished, validate_budget, win_shares
+from .outcomes import paired_summary, placements, require_finished, validate_budget, win_shares
 
 import riichi_py
 
@@ -98,10 +98,6 @@ def table(
     return np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, SEATS).copy()
 
 
-def placements(scores: np.ndarray, place: int) -> np.ndarray:
-    return tied_placements(scores)[:, place]
-
-
 def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda",
          max_steps: int = 4000) -> dict:
     """The same deals four times, with the challenger in each seat."""
@@ -109,7 +105,7 @@ def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda",
     per_deal = []
     for place in range(SEATS):
         scores = table(challenger, incumbent, games, seed, place, device=device, max_steps=max_steps)
-        got = placements(scores, place)
+        got = placements(scores)[:, place]
         per_seat.append(
             {
                 "place": place,
@@ -121,8 +117,7 @@ def duel(challenger, incumbent, games: int, seed: int, device: str = "cuda",
         per_deal.append(got.astype(float))
 
     overall = float(statistics.fmean(row["placement"] for row in per_seat))
-    paired = np.stack(per_deal).mean(axis=0)
-    error = float(paired.std(ddof=1) / (len(paired) ** 0.5)) if len(paired) > 1 else 0.0
+    paired, error = paired_summary(per_deal)
     return {
         "training_api_version": TRAINING_API_VERSION,
         "seed": seed,
@@ -151,14 +146,6 @@ def verdict(result: dict) -> str:
     return f"not settled either way, which needs more deals: {size}"
 
 
-def load(path: Path, channels: int, blocks: int, device: str):
-    """The player in a checkpoint: a network of ours at the shape its
-    checkpoint says, of whichever kind, with the width and depth given
-    standing in only where the checkpoint is silent, as the oldest ones
-    are; or a Mortal, from a checkpoint of Mortal's kind."""
-    return zoo.load_player(path, device, channels, blocks)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("challenger", type=Path)
@@ -169,15 +156,17 @@ def main() -> None:
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
+    # The width and depth a network of ours is rebuilt at only where its
+    # checkpoint does not say, as the oldest do not (see `zoo.load_player`).
     parser.add_argument("--channels", type=int, default=320)
     parser.add_argument("--blocks", type=int, default=20)
     parser.add_argument("--incumbent-channels", type=int, default=192)
     parser.add_argument("--incumbent-blocks", type=int, default=10)
     args = parser.parse_args()
 
-    challenger = load(args.challenger, args.channels, args.blocks, args.device)
-    incumbent = load(
-        args.incumbent, args.incumbent_channels, args.incumbent_blocks, args.device
+    challenger = zoo.load_player(args.challenger, args.device, args.channels, args.blocks)
+    incumbent = zoo.load_player(
+        args.incumbent, args.device, args.incumbent_channels, args.incumbent_blocks
     )
     result = duel(challenger, incumbent, args.games, args.seed, device=args.device, max_steps=args.max_steps)
     result["challenger"] = str(args.challenger)
