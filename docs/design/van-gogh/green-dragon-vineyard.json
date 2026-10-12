@@ -1,0 +1,36 @@
+{
+  "tile": "6z",
+  "name": "Hatsu",
+  "title": "Green Dragon at the Vineyard",
+  "candidate": "Vineyard Dragon C",
+  "approval": "Carl selected the vineyard dragon from panel C of the first green-dragon board and explicitly requested GitHub deployment. This is not the later mountain/pine dragon, vase, cypress or iris alternative.",
+  "originalFile": "van_gogh_dragons_a_b_c.png",
+  "originalSize": [
+    1448,
+    1086
+  ],
+  "originalSha256": "98b856ce6fa6bd6b6db62ed0ed64fd426284ce5cfa2b60d88c9e40d71533d493",
+  "originalCrop": {
+    "x": 979,
+    "y": 122,
+    "width": 450,
+    "height": 600
+  },
+  "cropSha256": "cfb0e1bf1eb4016157566cb81adef74d4a56c916e9355bf03660903708e446a0",
+  "canvas": {
+    "width": 300,
+    "height": 400
+  },
+  "aspectRatio": "3:4",
+  "stretch": 0,
+  "processing": "Crop the first board at (979, 122) to 450 x 600, exactly 3:4. Remove captions, gutters and excess lower vineyard while retaining the dragon head, horns, claws, village and vineyard rows. Uniform Lanczos downsampling to 300 x 400; AVIF quality 65, speed 0, 4:4:4. Shared radius-26 clipping and 1% bleed. No regeneration, repainting, recolouring or non-uniform scaling.",
+  "palette": "Preserve the explicitly selected green dragon, blue sky and golden vineyard as shown; do not recolour the approved painting to monochrome green.",
+  "rasterMimeType": "image/avif",
+  "rasterSha256": "3ee4e8913303c7d01b6d56bbbdf82a5518ad463d4e7fd66687a02655aa8422df",
+  "rasterBytes": 43797,
+  "svgSha256": "d4807a9a2d6c712b11310a9f77ee22ef5fe7c65d86e6a63141eaf2f247154994",
+  "source": "docs/design/van-gogh/studies/25-green-dragon-vineyard-c-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Hatsu.svg",
+  "archive": "Van_Gogh_Green_Dragon_Vineyard_C_Approved.zip",
+  "sourceResolutionNote": "The repository SVG embeds the 300 x 400 game export; the untouched original board, full panel and lossless 450 x 600 crop are preserved in the approval archive supplied in chat."
+}

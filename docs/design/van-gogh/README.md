@@ -2,7 +2,7 @@
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. That restoration left the other tiles unchanged. Eight disks now uses Lemons by the Sea. Earlier sections below describe the design history.
 
-**Current set:** 30 painted faces and 4 unpainted identities showing their names. Lemons by the Sea is active for 8 disks; both the disks and bamboo suits are complete. Poppy Field with smaller 萬 for 9 characters and all prior selections remain unchanged. Earlier sections retain historical counts.
+**Current set:** 31 painted faces and 3 unpainted identities showing their names. Green Dragon at the Vineyard C is active for green dragon (6z). Lemons by the Sea is active for 8 disks; both the disks and bamboo suits are complete. Poppy Field with smaller 萬 for 9 characters and all prior selections remain unchanged. Earlier sections retain historical counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -234,3 +234,13 @@ Carl approved the standalone painting of **eight lemons in a 3–2–3 arrangeme
 The entire 1086 × 1448 original is exactly 3:4 and was proportionally downsampled to 300 × 400 with Lanczos, then encoded as quality-90 WebP. There is no repainting, recolouring or compositional crop; the game uses its standard 26-unit rounded corners and 1% bleed. This is an optimized game export, not a lossless full-resolution original. The original PNG is preserved in `van-gogh-eight-disks-lemons-original.zip` supplied in chat.
 
 The source and runtime SVGs are identical. Original, raster and SVG checksums are recorded in `docs/design/van-gogh/eight-disks-lemons.json`. Reproduce only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=8p`. The set now has **30 painted faces and 4 unpainted identities showing their names**.
+
+## Green Dragon at the Vineyard C — green dragon
+
+Carl selected **C from the first green-dragon board**, the green dragon flying above a golden vineyard and village, as **6z / Hatsu**. The later mountain/pine dragon, vase, cypress and iris alternatives are not used. The explicitly approved colours are preserved, including the blue sky and golden vines; this selection is not converted to monochrome green.
+
+The original 1448 × 1086 board is cropped at **(979, 122) to 450 × 600, exactly 3:4**. The crop removes captions, gutters and excess lower vineyard while keeping the dragon head, horns, claws, village and vineyard rows. Uniform Lanczos downsampling gives a 300 × 400 AVIF (quality 65, 4:4:4), wrapped with the shared 26-unit corner clipping and 1% bleed. There is no stretching, regeneration, repainting or recolouring. The source and runtime SVGs are byte-identical and need no additional fit override.
+
+`docs/design/van-gogh/green-dragon-vineyard.json` records selection, crop and image checksums. The untouched board, full selected panel and lossless 3:4 crop are preserved in `Van_Gogh_Green_Dragon_Vineyard_C_Approved.zip`, supplied in chat. The repository SVG embeds the game-sized image, not the full-resolution original.
+
+Run `node web/scripts/export-van-gogh-tiles.mjs --only=6z` to reproduce this face, registry, manifest and gallery without rewriting other artwork. This addition brings the set to **31 painted faces and 3 named fallbacks**. Every prior painting, proportion fit and manifest entry, the fourteen-tile sample hand and gameplay remain unchanged.
