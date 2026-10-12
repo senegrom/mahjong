@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-import json
 from pathlib import Path
 import re
 import tempfile
@@ -19,17 +18,15 @@ def validate_run(run: str) -> str:
 def workspace(run: str, root: Path = Path("/scratch")) -> Iterator[Path]:
     """No checkpoint, replay, log or reference can leak into a later invocation.
 
-    Only this newly created directory is removed. Compiler caches and all
-    existing user data (including old scratch directories) remain untouched.
+    The directory starts empty, its name prefixed with the run's. Only this
+    newly created directory is removed. Compiler caches and all existing
+    user data (including old scratch directories) remain untouched.
     """
     validate_run(run)
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f"{run}-", dir=root) as folder:
-        where = Path(folder)
-        (where / "run.json").write_text(json.dumps({"run": run, "workspace": where.name}),
-                                       encoding="utf-8")
-        yield where
+        yield Path(folder)
 
 
 @contextmanager

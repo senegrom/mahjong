@@ -611,6 +611,16 @@ def record(
     }
 
 
+def keeps_previous() -> bool:
+    """Whether a trainer's saves keep the checkpoint each one replaces as
+    `<name>.previous` (see `checkpoints.atomic_save`). They do unless
+    `MAHJONG_KEEP_PREVIOUS` is `0`, as the cloud launcher sets it: a cloud
+    workspace is deleted when its call ends and publication never uploads
+    the backup, which there cost a read, a write and an fsync of the whole
+    checkpoint every generation, on the trainer's own time."""
+    return os.environ.get("MAHJONG_KEEP_PREVIOUS", "1") != "0"
+
+
 class Benchmark:
     """The placement against the heuristic players, smoothed, and the best
     the smoothed figure has reached.
@@ -672,6 +682,7 @@ def finish(
     payload = payload_of(generation + 1)
     if measured is not None:
         payload["placement"] = measured["placement"]
+    keep = keeps_previous()
     if is_best:
         # `best.pt` is the generation the heuristic table liked best so far,
         # and that is all it is. The bots compress real differences
@@ -679,12 +690,12 @@ def finish(
         # these readings is a reason to put a checkpoint forward, not a
         # finding that it is stronger. Duels at one table (`neural.duel`),
         # pooled over many deals, decide that.
-        atomic_save(payload, args.out / "best.pt")
+        atomic_save(payload, args.out / "best.pt", keep_previous=keep)
     # Saved every generation, not only when measured, so that a restart
     # loses one generation at most rather than every one since the last
     # measurement.
     began = time.time()
-    atomic_save(payload, args.out / "latest.pt")
+    atomic_save(payload, args.out / "latest.pt", keep_previous=keep)
     if time.time() - began > 30:
         print(f"saving the checkpoint took {time.time() - began:.0f}s", flush=True)
     print(json.dumps(entry), flush=True)

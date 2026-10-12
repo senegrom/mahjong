@@ -26,8 +26,7 @@ the published Mortal in `zoo`, and seat it as an opponent.
 The run directory lives on the container's own disk, because the replay
 ring is a few gigabytes a round and a network volume is the wrong place
 for it. Only the checkpoints and the log go to the volume, after every
-generation, so a container that is preempted costs one generation, which
-is what the desktop supervisor already assumes.
+generation, so a container that is preempted costs one generation.
 """
 
 from __future__ import annotations
@@ -37,13 +36,16 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
 import modal
 
 from neural.training_safety import training_control_arguments
-from neural.checkpoints import copy_checkpoint, publish_training_snapshot, validate_checkpoint
+from neural.checkpoints import (
+    copy_checkpoint, publish_training_snapshot, staging_file, validate_checkpoint,
+)
 from neural.cloud_runs import workspace, validate_run, managed_process
 from neural.cloud_requests import round_arguments, validate_cloud_request, stage_opponents
 
@@ -88,7 +90,7 @@ def _checkpoint(run: str, name: str) -> Path:
     another run's, so `zoo/mortal_298k` reaches across lineages."""
     # Named with or without the suffix: the launchers that predate the
     # runs living side by side say "latest.pt", and a name that resolved to
-    # nothing would start a fresh network over a run's history.
+    # nothing could not resume the run (see `_resume_source`).
     validate_run(run)
     # A leading slash is absolute on the volume whatever the host thinks
     # of it: `Path` on Windows calls "/tmp/other" relative.
@@ -103,13 +105,36 @@ def _checkpoint(run: str, name: str) -> Path:
     return VOLUME / f"{name}.pt"
 
 
-def _publish(run: Path, generation: int, target_run: str, resumed_at: int) -> int:
+def _resume_source(run: str, resume: str) -> Path:
+    """The checkpoint a trainer's block resumes from, found as `_checkpoint`
+    finds it, so it may be another run's: a block can start a run from
+    another lineage. When the name finds nothing the trainer starts a fresh
+    network, and that is refused in a run that already holds a `latest.pt`.
+    There the fresh network's first publication overwrote the run's latest,
+    best, reference and log, which nothing can bring back, and every retry
+    of the call did it again; a typo was enough, or a generation that was
+    never archived, as only every tenth is."""
+    source = _checkpoint(run, resume)
+    if not source.exists() and (VOLUME / run / "latest.pt").exists():
+        raise FileNotFoundError(
+            f"no checkpoint {resume!r} to resume from, in {VOLUME / run} or at {source}, and "
+            f"{run} already holds a latest.pt that a fresh start would overwrite: name a "
+            "checkpoint that exists, or a new run to start afresh"
+        )
+    return source
+
+
+def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
+             published: dict[str, tuple[int, int, int]]) -> int:
     """Publish only copied, fully validated checkpoints of completed
     generations. `resumed_at` is the generation the block resumed from:
     archives past it belong to this timeline (see
-    `publish_training_snapshot`)."""
+    `publish_training_snapshot`). `published` is what this call has
+    published of the run's best and reference so far, one mapping for the
+    whole call, so that neither is copied again until it changes."""
     validate_run(target_run)
-    actual = publish_training_snapshot(run, VOLUME / target_run, generation, resumed_at)
+    actual = publish_training_snapshot(run, VOLUME / target_run, generation, resumed_at,
+                                       published=published)
     volume.commit()
     return actual
 
@@ -182,16 +207,16 @@ def _generation_or_zoo(checkpoint: Path) -> str:
     return str(generation) if generation is not None else "none (a player from the zoo)"
 
 
-# Processors for the two trainers. The observation's efficiency lookahead
-# costs about two milliseconds a decision on one of them, and the encoder
-# spreads a step's decisions over all of them, so play is bound by their
-# number: with sixteen, the first block of Mortal's fine-tuning spent 242
-# of a generation's 390 seconds playing. Thirty-two is the measurement to
-# make now; with the old encoding it was slower, but that encoding did not
-# use them.
-# Sixteen, measured: thirty-two made self-play slower (93 s against 78 s a
-# round of 1024 tables) because the engine does not scale past sixteen, and
-# processors are billed whether or not the engine can use them.
+# Processors for the three trainers. Self-play, not the card, is the long
+# pole, and it is bound by their number: the engine and Mortal's encoder
+# spread a step's decisions over all of them, and the encoder's efficiency
+# lookahead costs about two milliseconds a decision on one. With sixteen,
+# the first block of Mortal's fine-tuning spent 242 of a generation's 390
+# seconds playing. Sixteen is the figure measured on 6 September with the
+# engine's own planes, when thirty-two made self-play slower, 93 seconds
+# against 78 a round of 1024 tables, and processors are billed whether or
+# not the engine can use them. Thirty-two against sixteen has not been
+# measured again on Mortal's planes.
 TRAINER_CPUS = 16
 
 # The longest one call of a trainer may run. Modal ends it there, in the
@@ -203,6 +228,18 @@ TRAINER_TIMEOUT = 24 * 60 * 60
 # a slower mode or by a measurement, and stopping the trainer and saving
 # the compiler cache take a while themselves.
 TRAINER_SPARE = 10 * 60
+
+# What the three trainers run on, one container at a time each. An A100
+# when no H100 can be had: on 7 September two blocks sat two hours with no
+# container at all, their calls still marked running.
+TRAINER = dict(
+    gpu=["H100", "A100-80GB"],
+    cpu=TRAINER_CPUS,
+    memory=98304,
+    timeout=TRAINER_TIMEOUT,
+    volumes={str(VOLUME): volume},
+    max_containers=1,
+)
 
 
 class StoppedBeforeTimeout(RuntimeError):
@@ -268,9 +305,17 @@ def _save_cache() -> None:
         copied = {}
         for name, kind in new.items():
             target = SHARED_CACHE / name
-            target.parent.mkdir(parents=True, exist_ok=True)
+            # Copied to a hidden name beside its own and renamed into place,
+            # so a copy cut short, by a failure, by a container preempted
+            # in the middle of it or by a commit taken while it was under
+            # way, never leaves a truncated file under the name. The
+            # compiler never rewrites a file it finds there, and every
+            # container seeded with a broken one failed to load it; its own
+            # scan of the cache passes over hidden names.
             try:
-                shutil.copy2(LOCAL_CACHE / name, target)
+                with staging_file(target) as staged:
+                    shutil.copy2(LOCAL_CACHE / name, staged)
+                    os.replace(staged, target)
             except FileNotFoundError:
                 continue  # gone since the walk
             copied[name] = kind
@@ -283,23 +328,37 @@ def _save_cache() -> None:
         print(f"compiler cache not saved: {error}", flush=True)
 
 
-def _environment(cpus: int | None = None) -> dict[str, str]:
+def _environment(cpus: int | None = None, compiled: bool = False) -> dict[str, str]:
+    """The environment a function's child runs in. `compiled` is for a
+    child that compiles, a trainer or the smoke test's: only that one is
+    given the compiler's cache. The measurements, the distillation and the
+    re-heading compile nothing, and seeding the cache had each of them copy
+    every graph any trainer ever compiled before it began."""
     environment = dict(os.environ)
     # The container reports the host's processors, not its share of them;
     # more threads than the share only queue.
     environment["RAYON_NUM_THREADS"] = str(int(cpus or min(os.cpu_count() or 16, 16)))
     environment["PYTHONPATH"] = "/src"
-    # Compiled kernels are kept on the container's own disk and seeded from
-    # the volume, so a block that resumes in a fresh container finds the
-    # ones the last one built (compiling the network's graphs took the
-    # first generation of a block a quarter of an hour) without the
-    # compiler writing to the network volume while training: a recompile
-    # that wrote there stalled a generation by about five minutes.
-    environment["TORCHINDUCTOR_CACHE_DIR"] = str(_seed_cache())
-    # The compiler's workers, one a processor of the container's share: by
-    # itself it starts one for every processor the container shows, up to
-    # thirty-two, the same miscount the encoder's threads are spared above.
-    environment["TORCHINDUCTOR_COMPILE_THREADS"] = environment["RAYON_NUM_THREADS"]
+    # The trainers' saves keep no `<name>.previous` here (see
+    # `ppo_loop.keeps_previous`): the workspace is deleted when the call
+    # ends and publication never uploads one, so the backup was a read, a
+    # write and an fsync of the whole checkpoint every generation, on the
+    # trainer's own time, for a file nothing could ever use.
+    environment["MAHJONG_KEEP_PREVIOUS"] = "0"
+    if compiled:
+        # Compiled kernels are kept on the container's own disk and seeded
+        # from the volume, so a block that resumes in a fresh container
+        # finds the ones the last one built (compiling the network's graphs
+        # took the first generation of a block a quarter of an hour)
+        # without the compiler writing to the network volume while
+        # training: a recompile that wrote there stalled a generation by
+        # about five minutes.
+        environment["TORCHINDUCTOR_CACHE_DIR"] = str(_seed_cache())
+        # The compiler's workers, one a processor of the container's share:
+        # by itself it starts one for every processor the container shows,
+        # up to thirty-two, the same miscount the encoder's threads are
+        # spared above.
+        environment["TORCHINDUCTOR_COMPILE_THREADS"] = environment["RAYON_NUM_THREADS"]
     # Say what the container actually has, since the count above is a
     # request: the cgroup's quota is the truth.
     try:
@@ -340,12 +399,15 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
     call began, the trainer is stopped as soon as a generation has been
     published, seconds into the next one, rather than killed by the timeout
     in the middle of it, and `StoppedBeforeTimeout` is raised."""
-    environment = _environment(TRAINER_CPUS)
+    environment = _environment(TRAINER_CPUS, compiled=True)
     print(" ".join(command), flush=True)
     began = time.time()
     started_at = _generation_of(where / "latest.pt")
     target = _target(command, started_at)
     seen = started_at
+    # A fresh record for every call, so its first publication copies the
+    # run's best and reference whatever an earlier call published.
+    published: dict[str, tuple[int, int, int]] = {}
     print(f"the checkpoint says generation {started_at}", flush=True)
     try:
         with managed_process(subprocess.Popen(
@@ -369,7 +431,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
                         seen = int(record.get("checkpoint_generation", record["generation"] + 1))
                     except Exception:
                         continue
-                    seen = _publish(where, seen, run, started_at)
+                    seen = _publish(where, seen, run, started_at, published)
                     # Whatever the generation compiled, kept at once.
                     _save_cache()
                     now = time.time()
@@ -389,12 +451,14 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
         _save_cache()
         raise
     _save_cache()
-    # Publish only when a generation actually finished. A run that trained
-    # nothing still rewrites its checkpoint with the target generation
-    # stamped on it, and publishing that overwrote a good record with one
-    # claiming to be two hundred generations younger.
+    # A last publication once the trainer has exited cleanly. The trainer
+    # prints a generation's record before it appends it to the log, so the
+    # publication made when the record arrived can find the log without it,
+    # and for the last generation no later one would bring it; and a last
+    # generation whose record could not be read has not been published at
+    # all. Skipped when no generation finished: there is nothing to add.
     if code == 0 and seen > started_at:
-        seen = _publish(where, seen, run, started_at)
+        seen = _publish(where, seen, run, started_at, published)
     else:
         print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
     if code != 0 and seen < target:
@@ -404,23 +468,74 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
     return f"exit={code} generation={seen} from {started_at} after {time.time() - began:.0f}s"
 
 
-@app.function(
-    # An A100 when no H100 can be had: on 7 September two blocks sat two
-    # hours with no container at all, their calls still marked running.
-    gpu=["H100", "A100-80GB"],
-    # Self-play is the long pole here, not the card. With the engine's own
-    # planes a generation was about 180 seconds of which 80 were playing,
-    # and thirty-two processors made it worse, 93 seconds against 78.
-    # Mortal's encoder adds an efficiency lookahead that costs about two
-    # milliseconds a decision on one processor, which the follower spreads
-    # over all of them; whether more of them now pay is a measurement to
-    # make on this lineage, not one to carry over.
-    cpu=TRAINER_CPUS,
-    memory=98304,
-    timeout=TRAINER_TIMEOUT,
-    volumes={str(VOLUME): volume},
-    max_containers=1,
-)
+def _run_child(command: list[str], tail: int | None = None) -> str:
+    """Runs the child of a measurement, a duel, a distillation or a
+    re-heading, and answers what it wrote to stdout, or the last `tail`
+    characters of it when given.
+
+    Every line goes to the call's log as the child writes it, and its
+    stderr's to the log's stderr: run whole and printed when it ended, a
+    distillation cut off by the six-hour timeout or a preemption left
+    nothing in the log but its command line. A child that exits with an
+    error raises `CalledProcessError` carrying its output: its stdout,
+    tailed the same way, and then its stderr, where its traceback is."""
+    print(" ".join(command), flush=True)
+    written: list[str] = []
+    errors: list[str] = []
+    with managed_process(subprocess.Popen(
+        command,
+        cwd="/src",
+        env=_environment(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )) as process:
+        assert process.stdout is not None and process.stderr is not None
+
+        # Both pipes are read at once, so a child that fills one while the
+        # other is being read never stalls.
+        def read_errors() -> None:
+            for line in process.stderr:
+                errors.append(line)
+                print(line, end="", file=sys.stderr, flush=True)
+
+        reader = threading.Thread(target=read_errors, daemon=True)
+        reader.start()
+        for line in process.stdout:
+            written.append(line)
+            print(line, end="", flush=True)
+        code = process.wait()
+        reader.join()
+        process.stderr.close()
+    output = "".join(written)
+    if tail:
+        output = output[-tail:]
+    if code:
+        raise subprocess.CalledProcessError(code, command, output=output + "".join(errors))
+    return output
+
+
+def _publish_product(out: Path, run: str, name: str) -> str:
+    """A distillation's or a re-heading's product, the `latest.pt` its
+    child saved in `out`, validated on its way to the run's directory as
+    `name`, and what the answer adds to say so: nothing when the child
+    saved none. Called only once the child has succeeded, so a failed
+    one's leftovers are never published; the caller has checked `name`
+    before its child ran."""
+    product = out / "latest.pt"
+    if not product.exists():
+        return ""
+    target = VOLUME / run
+    target.mkdir(parents=True, exist_ok=True)
+    copy_checkpoint(product, target / f"{name}.pt")
+    volume.commit()
+    wrote = f"wrote {run}/{name}.pt"
+    print(wrote, flush=True)
+    return f"\n{wrote}"
+
+
+@app.function(**TRAINER)
 def train(
     generations: int = 40,
     games: int = 1024,
@@ -440,10 +555,18 @@ def train(
     blocks: int = 24,
     target_kl: float = 0.0,
     baseline_batch: int | None = None,
+    until: int = 0,
 ) -> str:
     """Runs `generations` rounds of self-play and learning, resuming from the
     checkpoint of that name in the run's directory on the volume when it is
-    there, and from a fresh network of `channels` by `blocks` when not.
+    there, and from a fresh network of `channels` by `blocks` when not; a
+    run that already holds a `latest.pt` is never started afresh (see
+    `_resume_source`).
+
+    `until`, when given, is the generation to stop at rather than a count
+    from wherever it resumes, as for `train_mortal`: a call that Modal
+    started again from the top then finishes the run instead of playing
+    `generations` more.
 
     The defaults are not the desktop's. A container with the card to itself
     and sixteen processors can play many more games and hold a far larger
@@ -454,11 +577,12 @@ def train(
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
     validate_cloud_request(generations, opponents, opponent_share)
+    rounds = round_arguments(generations, until)
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
         started_from = None
-        source = _checkpoint(run, resume)
+        source = _resume_source(run, resume)
         if source.exists():
             started_from = str(source)
             _carry(run, source, where)
@@ -468,13 +592,7 @@ def train(
             sys.executable,
             "-m",
             "neural.train",
-            # `--rounds` is how many more to train from where the run resumes.
-            # `--generations` is an absolute target, and a resumed run is
-            # already past any small number, so it would stop at once.
-            "--rounds",
-            str(generations),
-            "--generations",
-            "1000000",
+            *rounds,
             "--games",
             str(games),
             "--batch",
@@ -519,16 +637,7 @@ def train(
         return _run_trainer(command, where, run, called)
 
 
-@app.function(
-    # An A100 when no H100 can be had: on 7 September two blocks sat two
-    # hours with no container at all, their calls still marked running.
-    gpu=["H100", "A100-80GB"],
-    cpu=TRAINER_CPUS,
-    memory=98304,
-    timeout=TRAINER_TIMEOUT,
-    volumes={str(VOLUME): volume},
-    max_containers=1,
-)
+@app.function(**TRAINER)
 def train_mortal(
     generations: int = 40,
     games: int = 1024,
@@ -556,7 +665,8 @@ def train_mortal(
     """Fine-tunes a published Mortal on our rules by self-play, in a run
     directory of its own: see `neural/train_mortal.py`. Resumes from the
     checkpoint of that name in the run when it is there, and starts from
-    the published Mortal named otherwise. Its own function, so it runs
+    the published Mortal named otherwise, unless the run already holds a
+    `latest.pt` (see `_resume_source`). Its own function, so it runs
     beside the other lineage's training rather than queueing behind it.
 
     `until`, when given, is the generation to stop at rather than a count
@@ -588,7 +698,7 @@ def train_mortal(
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
-        source = _checkpoint(run, resume)
+        source = _resume_source(run, resume)
         command = [
             sys.executable, "-m", "neural.train_mortal", *rounds,
             "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
@@ -628,16 +738,7 @@ def train_mortal(
         return _run_trainer(command, where, run, called)
 
 
-@app.function(
-    # An A100 when no H100 can be had: on 7 September two blocks sat two
-    # hours with no container at all, their calls still marked running.
-    gpu=["H100", "A100-80GB"],
-    cpu=TRAINER_CPUS,
-    memory=98304,
-    timeout=TRAINER_TIMEOUT,
-    volumes={str(VOLUME): volume},
-    max_containers=1,
-)
+@app.function(**TRAINER)
 def train_combined(
     generations: int = 20,
     games: int = 1024,
@@ -681,7 +782,8 @@ def train_combined(
     fusion head, in a run directory of its own: see
     `neural/train_combined.py`. Resumes from the checkpoint of that name
     in the run when it is there, and otherwise joins the two checkpoints
-    named, which may be any run's. `until`, `skip_forced`,
+    named, which may be any run's, unless the run already holds a
+    `latest.pt` (see `_resume_source`). `until`, `skip_forced`,
     `baseline_from_play`, `check_baseline` and `preview_reach` are as for
     `train_mortal`.
 
@@ -720,7 +822,7 @@ def train_combined(
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
-        source = _checkpoint(run, resume)
+        source = _resume_source(run, resume)
         command = [
             sys.executable, "-m", "neural.train_combined", *rounds,
             "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
@@ -819,8 +921,10 @@ def arena(
         # Say which generation this is. The report named only the file it
         # copied, so two runs on an unchanged checkpoint were indistinguishable
         # from two on different ones, and at a fixed seed they give the same
-        # number: one of them was a container spent to learn nothing.
-        generation = _generation_of(local / f"{name}.pt")
+        # number: one of them was a container spent to learn nothing. A
+        # player from the zoo has none, and is described rather than
+        # refused, as at a duel: it was refused before it was measured.
+        generation = _generation_or_zoo(local / f"{name}.pt")
         print(f"measuring {which}.pt, generation {generation}", flush=True)
 
         command = [
@@ -830,22 +934,10 @@ def arena(
             # oldest, which do not.
             "--channels", str(channels), "--blocks", str(blocks),
         ]
-        result = subprocess.run(
-            command,
-            cwd="/src",
-            env=_environment(),
-            capture_output=True,
-            text=True,
-        )
-    if result.returncode:
-        output = (result.stdout or "") + (result.stderr or "")
-        print(output, flush=True)
-        raise subprocess.CalledProcessError(result.returncode, command, output=output)
+        report = _run_child(command)
     # Prefixed so the caller can tell one measurement from another without
     # parsing the report; the JSON still starts at the first brace.
-    answer = f"generation {generation}\n{result.stdout or ''}"
-    print(answer, flush=True)
-    return answer
+    return f"generation {generation}\n{report}"
 
 
 @app.function(
@@ -906,25 +998,11 @@ def duel(
             "--incumbent-channels", str(incumbent_channels),
             "--incumbent-blocks", str(incumbent_blocks),
         ]
-        result = subprocess.run(
-            command,
-            cwd="/src",
-            env=_environment(),
-            capture_output=True,
-            text=True,
-        )
-    if result.returncode:
-        output = (result.stdout or "") + (result.stderr or "")
-        print(output, flush=True)
-        raise subprocess.CalledProcessError(result.returncode, command, output=output)
-    answer = result.stdout or ""
-    print(answer, flush=True)
-    return answer
+        return _run_child(command)
 
 
 @app.function(
-    # An A100 when no H100 can be had: on 7 September two blocks sat two
-    # hours with no container at all, their calls still marked running.
+    # An A100 when no H100 can be had, as for the trainers.
     gpu=["H100", "A100-80GB"],
     cpu=16.0,
     memory=65536,
@@ -966,10 +1044,13 @@ def distil(
     only networks that read Mortal's (see `neural.export`).
 
     The result goes to the run's directory under `name`, so it can be
-    duelled before anything decides to train on from it. A missing
-    checkpoint raises `FileNotFoundError`, and a failed run raises
+    duelled before anything decides to train on from it. A `name` that is
+    not one directory name raises `ValueError`, and a missing checkpoint
+    `FileNotFoundError`, both before anything runs; a failed run raises
     `CalledProcessError` carrying its output, and publishes nothing.
     """
+    # Checked before the hours of work it names, not after them.
+    validate_run(name)
     with workspace(run) as where:
         volume.reload()
         local = where / "inputs"
@@ -999,28 +1080,8 @@ def distil(
                 "--teacher-channels", str(teacher_channels),
                 "--teacher-blocks", str(teacher_blocks),
             ]
-        print(" ".join(command), flush=True)
-
-        result = subprocess.run(
-            command,
-            cwd="/src",
-            env=_environment(),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode:
-            output = (result.stdout or "")[-4000:] + (result.stderr or "")
-            print(output, flush=True)
-            raise subprocess.CalledProcessError(result.returncode, command, output=output)
-        answer = (result.stdout or "")[-4000:]
-        if (out / "latest.pt").exists():
-            target = VOLUME / run
-            target.mkdir(parents=True, exist_ok=True)
-            copy_checkpoint(out / "latest.pt", target / f"{validate_run(name)}.pt")
-            volume.commit()
-            answer += f"\nwrote {run}/{name}.pt"
-        print(answer, flush=True)
-        return answer
+        answer = _run_child(command, tail=4000)
+        return answer + _publish_product(out, run, name)
 
 
 @app.function(
@@ -1049,10 +1110,13 @@ def rehead(
     replaced, by one over Mortal's forty-six moves, and taught to say what
     the old head said. See `neural/rehead.py`. The result goes to the run's
     directory under `name`, to be duelled against the teacher before
-    anything is built on it. A missing checkpoint raises
-    `FileNotFoundError`, and a failed run raises `CalledProcessError`
-    carrying its output, and publishes nothing.
+    anything is built on it. A `name` that is not one directory name raises
+    `ValueError`, and a missing checkpoint `FileNotFoundError`, both before
+    anything runs; a failed run raises `CalledProcessError` carrying its
+    output, and publishes nothing.
     """
+    # Checked before the hours of work it names, not after them.
+    validate_run(name)
     with workspace(run) as where:
         volume.reload()
         out = where / "out"
@@ -1076,41 +1140,73 @@ def rehead(
             carried = where / "student.pt"
             shutil.copyfile(found, carried)
             command += ["--resume", str(carried)]
-        print(" ".join(command), flush=True)
+        answer = _run_child(command, tail=4000)
+        return answer + _publish_product(out, run, name)
 
+
+# The longest the smoke test may run, and the longest each of its two
+# trainers may: together they end inside it, with five minutes left for the
+# rest. Each was let run forty minutes, so a child that ran its time out
+# raised past the report, and two slow ones met the function's own
+# timeout, which stopped the test with the report unwritten.
+SMOKE_TIMEOUT = 45 * 60
+SMOKE_PART_TIMEOUT = 20 * 60
+# The smoke test's scratch. Nothing in it is published, and no trainer
+# resumes from what an earlier test left in it.
+SMOKE_OUT = Path("/scratch/smoke")
+
+
+def _written(output: str | bytes | None) -> str:
+    """What a child stopped by its timeout had written, as text:
+    `subprocess` hands it over as bytes whatever `text` asked for, or as
+    nothing at all."""
+    if output is None:
+        return ""
+    return output.decode(errors="replace") if isinstance(output, bytes) else output
+
+
+def _smoke_part(name: str, command: list[str], kept: int) -> list[str]:
+    """Runs one of the smoke test's trainers for at most
+    `SMOKE_PART_TIMEOUT` seconds, and answers what the report says of it:
+    how it ended, the last `kept` characters it wrote, and its stderr when
+    it failed or was stopped. Printed as soon as it is known, so a part
+    that finished is in the log whatever becomes of the next."""
+    try:
         result = subprocess.run(
             command,
             cwd="/src",
-            env=_environment(),
+            env=_environment(compiled=True),
             capture_output=True,
             text=True,
+            timeout=SMOKE_PART_TIMEOUT,
         )
-        if result.returncode:
-            output = (result.stdout or "")[-4000:] + (result.stderr or "")
-            print(output, flush=True)
-            raise subprocess.CalledProcessError(result.returncode, command, output=output)
-        answer = (result.stdout or "")[-4000:]
-        if (out / "latest.pt").exists():
-            target = VOLUME / run
-            target.mkdir(parents=True, exist_ok=True)
-            copy_checkpoint(out / "latest.pt", target / f"{validate_run(name)}.pt")
-            volume.commit()
-            answer += f"\nwrote {run}/{name}.pt"
-        print(answer, flush=True)
-        return answer
+        part = [f"{name} exit={result.returncode}", (result.stdout or "")[-kept:]]
+        if result.returncode != 0:
+            part.append((result.stderr or "")[-2500:])
+    except subprocess.TimeoutExpired as stopped:
+        part = [
+            f"{name} stopped after {SMOKE_PART_TIMEOUT}s",
+            _written(stopped.stdout)[-kept:],
+            _written(stopped.stderr)[-2500:],
+        ]
+    print("\n".join(part), flush=True)
+    return part
 
 
 @app.function(
     gpu="L4",
     cpu=8.0,
     memory=32768,
-    timeout=45 * 60,
+    timeout=SMOKE_TIMEOUT,
     volumes={str(VOLUME): volume},
 )
 def smoke() -> str:
     """A tiny round end to end: both engines load, self-play runs, the
     learning step runs, a checkpoint is written. Cheap, and it fails for
-    the same reasons the real run would."""
+    the same reasons the real run would. Each part of the report is
+    printed as soon as it is known as well as returned: the container's
+    output is what streams back to a `modal run`, and a return value alone
+    shows nothing."""
     import torch
 
     import libriichi
@@ -1124,27 +1220,17 @@ def smoke() -> str:
         f"libriichi obs={libriichi.consts.obs_shape(4)}",
         f"cpus={os.cpu_count()}",
     ]
-    out = Path("/scratch/smoke")
+    print("\n".join(report), flush=True)
+    out = SMOKE_OUT
     out.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(
-        [
-            sys.executable, "-m", "neural.train",
-            "--generations", "1", "--games", "24", "--batch", "512", "--epochs", "1",
-            "--measure-every", "1", "--measure-games", "8",
-            "--replay-rounds", "2", "--replay-steps", "4",
-            "--amp", "--compile",
-            "--out", str(out),
-        ],
-        cwd="/src",
-        env=_environment(),
-        capture_output=True,
-        text=True,
-        timeout=40 * 60,
-    )
-    report.append(f"train exit={result.returncode}")
-    report.append((result.stdout or "")[-2500:])
-    if result.returncode != 0:
-        report.append((result.stderr or "")[-2500:])
+    report += _smoke_part("train", [
+        sys.executable, "-m", "neural.train",
+        "--generations", "1", "--games", "24", "--batch", "512", "--epochs", "1",
+        "--measure-every", "1", "--measure-games", "8",
+        "--replay-rounds", "2", "--replay-steps", "4",
+        "--amp", "--compile",
+        "--out", str(out),
+    ], kept=2500)
     # Mortal's fine-tuning too, from the published Mortal on the volume,
     # into scratch: nothing is published.
     volume.reload()
@@ -1152,30 +1238,17 @@ def smoke() -> str:
     if origin.exists():
         local = out / "origin.pt"
         shutil.copyfile(origin, local)
-        result = subprocess.run(
-            [
-                sys.executable, "-m", "neural.train_mortal",
-                "--mortal", str(local), "--rounds", "1", "--games", "16", "--batch", "512",
-                "--measure-every", "1", "--measure-games", "8",
-                "--amp", "--compile", "--out", str(out / "mortal"),
-            ],
-            cwd="/src",
-            env=_environment(),
-            capture_output=True,
-            text=True,
-            timeout=40 * 60,
-        )
-        report.append(f"train_mortal exit={result.returncode}")
-        report.append((result.stdout or "")[-1500:])
-        if result.returncode != 0:
-            report.append((result.stderr or "")[-2500:])
+        report += _smoke_part("train_mortal", [
+            sys.executable, "-m", "neural.train_mortal",
+            "--mortal", str(local), "--rounds", "1", "--games", "16", "--batch", "512",
+            "--measure-every", "1", "--measure-games", "8",
+            "--amp", "--compile", "--out", str(out / "mortal"),
+        ], kept=1500)
     else:
-        report.append(f"no Mortal at {origin}; its trainer not tried")
-    answer = "\n".join(report)
-    # Printed as well as returned: the container's output is what streams
-    # back to a `modal run`, and a return value alone shows nothing.
-    print(answer, flush=True)
-    return answer
+        missing = f"no Mortal at {origin}; its trainer not tried"
+        print(missing, flush=True)
+        report.append(missing)
+    return "\n".join(report)
 
 
 @app.local_entrypoint()

@@ -103,7 +103,8 @@ def copy_checkpoint(source: Path, destination: Path, *, require_generation: bool
 
 
 def publish_training_snapshot(source: Path, target: Path, minimum_generation: int,
-                              resumed_at: int | None = None) -> int:
+                              resumed_at: int | None = None,
+                              published: dict[str, tuple[int, int, int]] | None = None) -> int:
     """Validate all model copies before changing any live volume checkpoint.
 
     A trainer may have advanced since its stdout notification. Metadata and
@@ -116,6 +117,21 @@ def publish_training_snapshot(source: Path, target: Path, minimum_generation: in
     resuming from an earlier generation than the run had reached, and is
     replaced by this timeline's own; an archive at or before it is history
     the two timelines share and is never rewritten.
+
+    `published`, when given, is what this publisher has published of
+    `best.pt` and `reference.pt`: each source file's size, modification time
+    and inode when it was copied, by name, brought up to date here. A file
+    that has not changed since is not copied again. Every generation used to
+    copy, load and sync both, about half a gigabyte, though the reference is
+    written once a run and the best only at a new best. The size alone says
+    little, as two checkpoints of one network are the same size; but a
+    trainer saves by writing a new file and renaming it into place, so a
+    changed one has a new inode even where the clock's coarse ticks could
+    repeat a modification time.
+
+    `opponents.json` describes how the block that publishes was seated: one
+    seated without others removes the manifest an earlier block left, which
+    described a seating these checkpoints were not trained with.
     """
     source, target = Path(source), Path(target)
     target.mkdir(parents=True, exist_ok=True)
@@ -126,13 +142,21 @@ def publish_training_snapshot(source: Path, target: Path, minimum_generation: in
         if generation < minimum_generation:
             raise ValueError("Checkpoint is older than the completed generation notification")
         names = []
+        stamps = {}
         for name in ("best.pt", "reference.pt"):
             if (source / name).exists():
+                # Read before the copy, so a file replaced between the two
+                # is copied again next time rather than taken for unchanged.
+                found = (source / name).stat()
+                stamp = (found.st_size, found.st_mtime_ns, found.st_ino)
+                if published is not None and published.get(name) == stamp:
+                    continue
                 other = copy_checkpoint(source / name, staged / name)
                 # A concurrently completed best from a later round can wait
                 # for that round's notification; never pair it with this latest.
                 if other is None or other <= generation:
                     names.append(name)
+                    stamps[name] = stamp
         for name in ("log.jsonl", "opponents.json"):
             log = source / name
             if log.exists():
@@ -149,6 +173,8 @@ def publish_training_snapshot(source: Path, target: Path, minimum_generation: in
             with (staged / name).open("r+b") as stream:
                 os.fsync(stream.fileno())
             os.replace(staged / name, target / name)
+        if "opponents.json" not in names:
+            (target / "opponents.json").unlink(missing_ok=True)
         with staging_file(target / "generation.txt") as marker:
             with marker.open("w", encoding="utf-8") as stream:
                 stream.write(str(generation))
@@ -156,4 +182,6 @@ def publish_training_snapshot(source: Path, target: Path, minimum_generation: in
                 os.fsync(stream.fileno())
             os.replace(marker, target / "generation.txt")
         sync_directory(target)
+    if published is not None:
+        published.update(stamps)
     return generation

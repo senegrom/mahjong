@@ -68,7 +68,7 @@ class RoundSeedTests(unittest.TestCase):
                 round_seed(*args)
 
 
-TRAINERS = ('train_mortal', 'train_combined')
+TRAINERS = ('train', 'train_mortal', 'train_combined')
 
 
 class StopGenerationTests(unittest.TestCase):
@@ -105,6 +105,16 @@ class StopGenerationTests(unittest.TestCase):
         for trainer in TRAINERS:
             with self.subTest(trainer=trainer):
                 self.assertEqual(self.launch(trainer, generations=30), ("30", "1000000"))
+
+    def test_a_call_started_again_finishes_its_target(self):
+        # Resumed at 30 with a target of 40, every trainer stops at 40;
+        # `train`, which took no target, went on to 70.
+        from neural.tests.test_cloud_isolation import controller
+        app = controller()
+        for trainer in TRAINERS:
+            with self.subTest(trainer=trainer):
+                rounds, generations = self.launch(trainer, generations=40, until=40)
+                self.assertEqual(app._target(["--rounds", rounds, "--generations", generations], 30), 40)
 
     def test_a_bad_stop_generation_is_refused_before_any_work(self):
         from neural.tests.test_cloud_isolation import controller

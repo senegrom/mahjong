@@ -148,3 +148,34 @@ class CloudControllerRequestsTests(unittest.TestCase):
                         with self.assertRaises(FileNotFoundError):
                             getattr(app,trainer)(run='run',generations=3,opponents=names,opponent_share=.5)
                         self.assertEqual(calls,[])
+
+    def test_a_block_seated_without_others_leaves_no_earlier_manifest(self):
+        """The manifest a block seated with others published stayed beside
+        the checkpoints of a later block seated without them, describing a
+        seating they were not trained with."""
+        from neural.tests.test_cloud_isolation import controller
+        from neural import cloud_runs
+        app=controller()
+        def popen(command, **kwargs):
+            where=Path(command[command.index('--out')+1])
+            generation=torch.load(where/'latest.pt',weights_only=True)['generation']
+            atomic_save({'generation':generation+1},where/'latest.pt')
+            record=json.dumps({'generation':generation,'checkpoint_generation':generation+1})
+            return SimpleNamespace(stdout=io.StringIO(record+'\n'),wait=lambda:0)
+        for trainer in ('train','train_mortal','train_combined'):
+            with self.subTest(trainer=trainer),tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
+                root=Path(folder);volume=root/'volume';run=volume/'run'
+                atomic_save({'generation':4},run/'latest.pt')
+                atomic_save({'generation':2},volume/'other/latest.pt')
+                stack.enter_context(patch.object(app,'VOLUME',volume))
+                stack.enter_context(patch.object(app,'workspace',partial(cloud_runs.workspace,root=root/'scratch')))
+                stack.enter_context(patch.object(app,'_environment',return_value={}))
+                stack.enter_context(patch.object(app,'_save_cache'))
+                stack.enter_context(patch.object(app.subprocess,'Popen',side_effect=popen))
+                stack.enter_context(redirect_stdout(io.StringIO()))
+                getattr(app,trainer)(run='run',generations=1,opponents=['other/latest'],opponent_share=.5)
+                manifest=json.loads((run/'opponents.json').read_text())
+                self.assertEqual([entry['requested'] for entry in manifest['opponents']],['other/latest'])
+                getattr(app,trainer)(run='run',generations=1)
+                self.assertEqual((run/'generation.txt').read_text(),'6')
+                self.assertFalse((run/'opponents.json').exists())
