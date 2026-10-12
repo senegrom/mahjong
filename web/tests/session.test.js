@@ -99,16 +99,18 @@ test('restoration rejects invalid versions, illegal commands and changed state',
 test('preferences tolerate inaccessible or malformed storage', () => {
   assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'neural',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'strong'});
   assert.equal(readSettings({getItem(){return '{broken';}}).hints, true);
-  const value = {version:1,difficulty:'club',hints:false,confirmDiscards:false,shortcuts:false};
+  const value = {version:2,difficulty:'club',hints:false,confirmDiscards:false,shortcuts:false};
   assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'club',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic',reviewAdviser:'strong'});
 });
 
 test('the review adviser is remembered, and a retired network preference is ignored', () => {
   for (const reviewAdviser of ['club', 'strong', 'quick', null, '../other']) {
     // Older builds also stored which of two networks played; one ships now.
-    const settings = readSettings({ getItem: () => JSON.stringify({ version: 1, trainedModel: 'strong', reviewAdviser }) });
+    const settings = readSettings({ getItem: () => JSON.stringify({ version: 2, trainedModel: 'strong', reviewAdviser }) });
     assert.equal(settings.reviewAdviser, reviewAdviser === 'club' ? 'club' : 'strong');
     assert.equal(Object.hasOwn(settings, 'trainedModel'), false);
+    // Before 810 every review went back to Trained once (see the next tests).
+    assert.equal(readSettings({ getItem: () => JSON.stringify({ version: 1, reviewAdviser }) }).reviewAdviser, 'strong');
   }
 });
 
@@ -124,23 +126,35 @@ test('a first visit meets Trained opponents and is reviewed by Trained AI', () =
     assert.equal(DEFAULT_REVIEW_ADVISER, 'strong');
   }
   // A record this build cannot read is no choice at all.
-  assert.deepEqual(table(readSettings({ getItem: () => JSON.stringify({ version: 2, difficulty: 'club' }) })), ['neural', 'neural', 'neural']);
+  assert.deepEqual(table(readSettings({ getItem: () => JSON.stringify({ version: 3, difficulty: 'club' }) })), ['neural', 'neural', 'neural']);
+});
+
+test('a record from before 810 meets Trained once, and keeps everything else it holds', () => {
+  const read = value => readSettings({ getItem: () => JSON.stringify(value) });
+  // What builds before 810 wrote: whoever played and reviewed gives way to
+  // Trained, Club, Beginner and seat-by-seat tables alike.
+  for (const choice of [{ difficulty: 'club', opponents: ['club', 'club', 'club'], reviewAdviser: 'club' },
+    { difficulty: 'custom', opponents: ['beginner', 'club', 'neural'] }, { difficulty: 'beginner' }]) {
+    const previous = read({ version: 1, ...choice, hints: false, confirmDiscards: true, shortcuts: false, tileFace: 'van-gogh' });
+    assert.deepEqual(table(previous), ['neural', 'neural', 'neural']);
+    assert.equal(previous.difficulty, 'neural');
+    assert.equal(previous.reviewAdviser, 'strong');
+    assert.deepEqual([previous.hints, previous.confirmDiscards, previous.shortcuts, previous.tileFace], [false, true, false, 'van-gogh']);
+  }
 });
 
 test('saved choices stand, Club included, and only what a record lacks takes the new default', () => {
   const read = value => readSettings({ getItem: () => JSON.stringify(value) });
-  // What the previous build wrote on a first visit: the old defaults, which
-  // cannot be told from a player who chose Club. Both keep Club.
-  const previous = read({ version: 1, difficulty: 'club', opponents: ['club', 'club', 'club'], hints: true,
+  const chosen = read({ version: 2, difficulty: 'club', opponents: ['club', 'club', 'club'], hints: true,
     confirmDiscards: false, shortcuts: true, tileFace: 'classic', reviewAdviser: 'club' });
-  assert.deepEqual(table(previous), ['club', 'club', 'club']);
-  assert.equal(previous.difficulty, 'club');
-  assert.equal(previous.reviewAdviser, 'club');
+  assert.deepEqual(table(chosen), ['club', 'club', 'club']);
+  assert.equal(chosen.difficulty, 'club');
+  assert.equal(chosen.reviewAdviser, 'club');
   // A table chosen seat by seat stays exactly as it was.
-  assert.deepEqual(table(read({ version: 1, difficulty: 'custom', opponents: ['beginner', 'club', 'neural'] })), ['beginner', 'club', 'neural']);
-  // From before seat-by-seat tables and before the review adviser existed:
-  // the single strength stands, the adviser was never chosen.
-  const older = read({ version: 1, difficulty: 'beginner' });
+  assert.deepEqual(table(read({ version: 2, difficulty: 'custom', opponents: ['beginner', 'club', 'neural'] })), ['beginner', 'club', 'neural']);
+  // A record without seat-by-seat tables or a review adviser: the single
+  // strength stands, and the adviser takes the default.
+  const older = read({ version: 2, difficulty: 'beginner' });
   assert.deepEqual(table(older), ['beginner', 'beginner', 'beginner']);
   assert.equal(older.reviewAdviser, 'strong');
   // A Club chosen in this build is written and read back as Club.
@@ -177,7 +191,7 @@ test('preferences are written when they change, not each time the effect reruns'
   let last = writeSettings(storage, preferences);
   // App's effect reruns with an equal copy after every move of a match.
   for (let move = 0; move < 5; move++) last = writeSettings(storage, { ...preferences, opponents: [...preferences.opponents] }, last);
-  assert.deepEqual(writes, [[SETTINGS_KEY, JSON.stringify({ version: 1, ...preferences })]]);
+  assert.deepEqual(writes, [[SETTINGS_KEY, JSON.stringify({ version: 2, ...preferences })]]);
   assert.deepEqual(readSettings({ getItem: () => writes[0][1] }).opponents, preferences.opponents);
   // Another tab's change stays until this tab changes something itself.
   last = writeSettings(storage, { ...preferences, hints: false }, last);

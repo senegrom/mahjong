@@ -38,7 +38,7 @@ async function open(context, base, storedModel) {
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.evaluateOnNewDocument((saveKey, settingsKey, snapshot, trainedModel) => {
     if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(snapshot));
-    localStorage.setItem(settingsKey, JSON.stringify({ version: 1, difficulty: 'neural', trainedModel, confirmDiscards: false }));
+    localStorage.setItem(settingsKey, JSON.stringify({ version: 2, difficulty: 'neural', trainedModel, confirmDiscards: false }));
   }, SAVE_KEY, SETTINGS_KEY, initial, storedModel);
   await page.goto(`${base}?opponents=neural`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.hand');

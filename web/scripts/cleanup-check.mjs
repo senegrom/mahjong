@@ -29,7 +29,7 @@ async function pageAt(context, mode = 'play', game = null) {
   const problems = [];
   page.on('pageerror', error => problems.push(error.message));
   const seed = await page.evaluateOnNewDocument(({ settings, guided, text }) => {
-    localStorage.setItem(settings, JSON.stringify({ version: 1, difficulty: 'club', hints: true, confirmDiscards: false }));
+    localStorage.setItem(settings, JSON.stringify({ version: 2, difficulty: 'club', hints: true, confirmDiscards: false }));
     if (text && !localStorage.getItem(guided)) localStorage.setItem(guided, text);
   }, { settings: SETTINGS_KEY, guided: GUIDED_FORMAT.key, text: game && GUIDED_FORMAT.encode(game) });
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=${mode}`, { waitUntil: 'domcontentloaded' });

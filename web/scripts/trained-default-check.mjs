@@ -64,9 +64,11 @@ const finished = (() => {
     return match.snapshot();
   } finally { match.dispose(); }
 })();
-// What the previous build wrote on a first visit, when Club was the default.
+// What a build from when Club was the default wrote on a first visit.
 const previousDefaults = { version: 1, difficulty: 'club', opponents: ['club', 'club', 'club'], hints: true,
   confirmDiscards: false, shortcuts: true, tileFace: 'classic', reviewAdviser: 'club' };
+// The same choice made in this build, which stands.
+const chosenClub = { ...previousDefaults, version: 2 };
 
 const cases = browserChecks();
 let browser;
@@ -131,7 +133,7 @@ try {
     assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'neural');
     await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.opponents?.length === 3, {}, SAVE_KEY);
     assert.deepEqual((await match(page)).opponents, ['neural', 'neural', 'neural']);
-    assert.deepEqual(await settings(page), { version: 1, difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
+    assert.deepEqual(await settings(page), { version: 2, difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
       hints: true, confirmDiscards: false, shortcuts: true, tileFace: 'classic', reviewAdviser: 'strong' });
     // East discards first; then, or at once, a Trained opponent waits. On a
     // first visit the network's download waits for the service worker to
@@ -169,8 +171,18 @@ try {
     assert.deepEqual(page.problems, []);
   });
 
-  await check('settings saved when Club was the default keep Club, and nothing downloads the network', async () => {
-    const page = await open({ saved: { [SETTINGS_KEY]: JSON.stringify(previousDefaults) } });
+  await check('settings saved before generation 810 meet Trained once and keep everything else', async () => {
+    const page = await open({ saved: { [SETTINGS_KEY]: JSON.stringify({ ...previousDefaults, hints: false, tileFace: 'van-gogh' }) } });
+    await page.waitForSelector('.board');
+    assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'neural');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.version === 2, {}, SETTINGS_KEY);
+    assert.deepEqual(await settings(page), { version: 2, difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
+      hints: false, confirmDiscards: false, shortcuts: true, tileFace: 'van-gogh', reviewAdviser: 'strong' });
+    assert.deepEqual(page.problems, []);
+  });
+
+  await check('Club chosen in this build is kept, and nothing downloads the network', async () => {
+    const page = await open({ saved: { [SETTINGS_KEY]: JSON.stringify(chosenClub) } });
     await page.waitForSelector('.hand');
     assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'club');
     await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.opponents?.length === 3, {}, SAVE_KEY);
@@ -182,7 +194,7 @@ try {
       await (await page.$('.call-options [data-choice=pass]') ?? await page.$('.hand button[data-hand-index]:not(:disabled)')).click();
       await page.waitForFunction((key, count) => JSON.parse(localStorage.getItem(key)).commands.length > count, { timeout: 45000 }, SAVE_KEY, before);
     }
-    assert.deepEqual(await settings(page), previousDefaults);
+    assert.deepEqual(await settings(page), chosenClub);
     assert.equal(await page.evaluate(() => window.networkDownloads), 0);
     for (const url of ai) assert.equal(requested.get(url) ?? 0, 0, `Club play fetched ${url}`);
     assert.deepEqual(page.problems, []);

@@ -104,7 +104,7 @@ try {
     await page.evaluateOnNewDocument((saveKey, settingsKey, initial) => {
       if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(initial));
       if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify({
-        version: 1, difficulty: 'club', trainedModel: 'full', reviewAdviser: 'club', hints: true,
+        version: 2, difficulty: 'club', trainedModel: 'full', reviewAdviser: 'club', hints: true,
       }));
       window.reviewRequests = []; window.reviewAnswers = [];
       const NativeWorker = window.Worker;

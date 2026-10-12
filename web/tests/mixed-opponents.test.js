@@ -43,7 +43,7 @@ test('opponent configuration rejects partial, unknown and aliased inputs', () =>
 });
 
 test('legacy and custom settings are read without retaining invalid assignments', () => {
-  const read = value => readSettings({ getItem: () => JSON.stringify({ version:1, ...value }) });
+  const read = value => readSettings({ getItem: () => JSON.stringify({ version:2, ...value }) });
   assert.equal(read({ difficulty:'neural' }).difficulty, 'neural');
   assert.deepEqual(read({ difficulty:'custom', opponents:['neural','club','beginner'] }).opponents, ['neural','club','beginner']);
   // An unreadable table is no choice: the default, Trained, stands in for it.

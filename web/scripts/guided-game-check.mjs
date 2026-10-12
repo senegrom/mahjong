@@ -49,7 +49,7 @@ async function open(context, width = 1100, { probe } = {}) {
     };
   }, { url: `${MANIFEST.origin}/${MANIFEST.object}`, available: probe });
   await page.evaluateOnNewDocument(({ settings, physical, match }) => {
-    if (!localStorage.getItem(settings)) localStorage.setItem(settings, JSON.stringify({ version: 1, difficulty: 'club', hints: true }));
+    if (!localStorage.getItem(settings)) localStorage.setItem(settings, JSON.stringify({ version: 2, difficulty: 'club', hints: true }));
     if (!localStorage.getItem(physical)) localStorage.setItem(physical, 'existing position editor draft');
     if (!localStorage.getItem(match)) localStorage.setItem(match, 'existing regular match');
   }, { settings: SETTINGS_KEY, physical: PHYSICAL_KEY, match: SAVE_KEY });
@@ -91,7 +91,7 @@ async function loadScoringFixture(page, riichi = false) {
   game = guidedEvent(game, { type: 'choice', choice: { kind: 'ron' }, choices: [{ kind: 'ron' }] });
   await page.evaluate(({ key, text, settings }) => {
     localStorage.setItem(key, text);
-    localStorage.setItem(settings, JSON.stringify({ version: 1, difficulty: 'club', hints: false }));
+    localStorage.setItem(settings, JSON.stringify({ version: 2, difficulty: 'club', hints: false }));
   }, { key: GUIDED_KEY, text: GUIDED_FORMAT.encode(game), settings: SETTINGS_KEY });
   await page.reload({ waitUntil: 'networkidle0' });
   await page.waitForSelector('.guided-controls:not(:disabled)'); await stage(page, 'over');

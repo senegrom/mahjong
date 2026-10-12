@@ -40,7 +40,7 @@ async function open(f, width = 1100, height = 900) {
   await p.emulateMediaFeatures([{ name:'prefers-reduced-motion', value:'reduce' }]);
   await p.evaluateOnNewDocument((key, settings, snapshot) => {
     localStorage.setItem(key, JSON.stringify(snapshot));
-    localStorage.setItem(settings, JSON.stringify({ version:1, difficulty:'club', hints:true, confirmDiscards:true, shortcuts:true }));
+    localStorage.setItem(settings, JSON.stringify({ version:2, difficulty:'club', hints:true, confirmDiscards:true, shortcuts:true }));
   }, SAVE_KEY, SETTINGS_KEY, f.snapshot);
   await p.goto(`http://127.0.0.1:${server.address().port}/mahjong/`, { waitUntil:'networkidle0' });
   await p.waitForSelector('.hand');
