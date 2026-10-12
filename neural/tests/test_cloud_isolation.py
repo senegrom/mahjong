@@ -453,15 +453,31 @@ class CloudIsolationTests(unittest.TestCase):
     def test_a_bad_product_name_fails_before_any_work(self):
         # The name was checked only when the product was published, after
         # up to six hours on an H100, and a bad one threw all of it away.
+        # The teacher is there and the child would succeed, so only the
+        # name can stop the work before it starts.
         app=controller()
-        for function in (app.distil,app.rehead):
-            for name in ('sub/x','','../x'):
-                with self.subTest(function=function.__name__,name=name), \
-                     patch.object(app,'workspace') as work, \
-                     patch.object(app.subprocess,'Popen') as popen,patch.object(app.subprocess,'run') as run:
-                    with self.assertRaises(ValueError):
-                        function(teacher='teacher',run='run',name=name)
-                    work.assert_not_called();popen.assert_not_called();run.assert_not_called()
+        def product(command):
+            out=Path(command[command.index('--out')+1]);atomic_save({'generation':99},out/'latest.pt')
+        def popen(command,**kwargs):
+            product(command);return child()
+        def run(command,**kwargs):
+            product(command);return SimpleNamespace(returncode=0,stdout='',stderr='')
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume';scratch=root/'scratch'
+            atomic_save({'generation':3},volume/'run/teacher.pt')
+            for function in (app.distil,app.rehead):
+                for name in ('sub/x','','../x'):
+                    with self.subTest(function=function.__name__,name=name), \
+                         patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
+                         patch.object(app,'_environment',return_value={}), \
+                         patch.object(app.subprocess,'Popen',side_effect=popen) as started, \
+                         patch.object(app.subprocess,'run',side_effect=run) as ran, \
+                         redirect_stdout(io.StringIO()):
+                        with self.assertRaises(ValueError):
+                            function(teacher='teacher',run='run',name=name)
+                        started.assert_not_called();ran.assert_not_called()
+                        # Not even a workspace was made for it.
+                        self.assertFalse(scratch.exists())
 
     def test_a_childs_lines_reach_the_log_while_it_runs(self):
         # A distillation's child, run whole and printed when it ended, left
