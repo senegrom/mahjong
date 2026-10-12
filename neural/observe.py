@@ -257,12 +257,13 @@ class Planes:
 
 
 class FlatPlanes:
-    """A batch of dense observations, answering what `Planes` answers.
+    """A batch of dense observations, answering what `imitate` asks of
+    `Planes`: `of`, `cat`, `rows` and `dense`.
 
     The engine's own planes are neither sparse nor large: a round of them
     is tens of megabytes where Mortal's would be gigabytes. They are kept
-    half-width on the host and widened on the card, so a training loop can
-    hold either container without knowing which it has.
+    half-width on the host and widened on the card, so the distillation
+    can hold either container without knowing which it has.
     """
 
     __slots__ = ("array",)
@@ -270,20 +271,13 @@ class FlatPlanes:
     def __init__(self, array: np.ndarray) -> None:
         self.array = array
 
-    def __len__(self) -> int:
-        return len(self.array)
-
     def rows(self, rows: np.ndarray) -> FlatPlanes:
         return FlatPlanes(self.array[np.asarray(rows, dtype=np.int64)])
 
-    def slice(self, start: int, stop: int) -> FlatPlanes:
-        return FlatPlanes(self.array[start:stop])
-
-    def dense(
-        self, device: str | torch.device, dtype: torch.dtype = torch.float32, pinned: bool = False
-    ) -> torch.Tensor:
-        """As `Planes.dense`; these are small enough to cross as they are."""
-        return torch.from_numpy(np.ascontiguousarray(self.array)).to(device).to(dtype)
+    def dense(self, device: str | torch.device) -> torch.Tensor:
+        """The rows as float32 planes on `device`, as `Planes.dense` makes
+        them by default; these are small enough to cross as they are."""
+        return torch.from_numpy(np.ascontiguousarray(self.array)).to(device).to(torch.float32)
 
     @staticmethod
     def cat(blocks: list[FlatPlanes]) -> FlatPlanes:
@@ -355,19 +349,25 @@ class DevicePlanes:
         return self.rows(torch.arange(start, stop, device=self.device), dtype)
 
 
+def step_spare_bytes() -> int:
+    """What the learning step needs free on the card beside whatever a
+    round keeps there, in bytes: sixteen gigabytes, which its activations
+    need, unless `RESIDENT_SPARE_GB` says otherwise, so a small card can be
+    made to take the resident path for a small round."""
+    return int(float(os.environ.get("RESIDENT_SPARE_GB", "16")) * (1 << 30))
+
+
 def resident(
     planes: Planes, device: str | torch.device, spare: int | None = None
 ) -> DevicePlanes | None:
     """`planes` on the card when it has room for them and `spare` bytes to
     spare afterwards for the step itself, else None and the host keeps
-    them. Sixteen gigabytes by default, which the learning step's
-    activations need; `RESIDENT_SPARE_GB` overrides it, so a small card
-    can be made to take the path for a small round."""
+    them; `step_spare_bytes` by default."""
     device = torch.device(device)
     if device.type != "cuda":
         return None
     if spare is None:
-        spare = int(float(os.environ.get("RESIDENT_SPARE_GB", "16")) * (1 << 30))
+        spare = step_spare_bytes()
     free, _total = torch.cuda.mem_get_info(device)
     if free - DevicePlanes.bytes_needed(planes) < spare:
         return None
