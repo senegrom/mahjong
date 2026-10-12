@@ -271,19 +271,17 @@ impl Seat {
         self.logged = 0;
     }
 
-    /// Applies one decision from the seat that owed it.
+    /// Applies one decision from the seat that owed it. The arena has
+    /// already refused any batch with an index that names no legal move,
+    /// before any game moved (see `step_all`), so this one names one.
     fn step(&mut self, index: usize) {
         self.endings.clear();
         if self.finished {
             return;
         }
         if let Some(seat) = self.asking.pop_front() {
-            // An index naming no call was refused by the arena in strict
-            // mode before any table moved; what reaches here is either
-            // legal or deliberately lenient, and is answered with a pass.
-            let call = encoding::decode_call(&self.hand, seat, index)
-                .or_else(|| encoding::decode_call(&self.hand, seat, PASS))
-                .unwrap_or(Call::Pass);
+            let call =
+                encoding::decode_call(&self.hand, seat, index).expect("checked by first_illegal");
             self.answers.push((seat, call));
             if self.asking.is_empty() {
                 let answers = std::mem::take(&mut self.answers);
@@ -295,15 +293,8 @@ impl Seat {
             return;
         }
         if matches!(self.hand.phase, Phase::Act) {
-            let action = encoding::decode_action(&self.hand, index).unwrap_or_else(|| {
-                // A policy that names an illegal action still has to move, so
-                // the first legal one is taken. The mask makes this rare.
-                self.hand
-                    .legal_actions()
-                    .into_iter()
-                    .next()
-                    .expect("a player always has something to do")
-            });
+            let action =
+                encoding::decode_action(&self.hand, index).expect("checked by first_illegal");
             self.hand.act(action).expect("the action was legal");
             self.settle();
         }
@@ -370,17 +361,15 @@ fn first_illegal(seats: &[Seat], actions: &[usize]) -> Option<String> {
         })
 }
 
-/// Applies one action per game, the games spread across the cores. In
-/// `strict` mode the whole batch is checked first and nothing moves if any
-/// of it is illegal: an invalid later row must not leave earlier games
-/// advanced with no corresponding training data. Otherwise an illegal
-/// index is answered with the first legal move, or a pass.
-fn step_all(seats: &mut [Seat], actions: &[usize], strict: bool) -> Result<(), String> {
+/// Applies one action per game, the games spread across the cores. The
+/// whole batch is checked first and nothing moves if any of it is illegal:
+/// an invalid later row must not leave earlier games advanced with no
+/// corresponding training data. An illegal index is refused rather than
+/// replaced by a legal move, so the move a record keeps is the move played.
+fn step_all(seats: &mut [Seat], actions: &[usize]) -> Result<(), String> {
     use rayon::prelude::*;
-    if strict {
-        if let Some(error) = first_illegal(seats, actions) {
-            return Err(error);
-        }
+    if let Some(error) = first_illegal(seats, actions) {
+        return Err(error);
     }
     // Every game is its own table, hand and generator, and stepping one
     // means running the heuristic players round to the next decision the
@@ -562,10 +551,9 @@ impl Arena {
     }
 
     /// Applies one action per game. Games that owe no decision ignore theirs.
-    /// With `strict`, an illegal index anywhere refuses the whole batch
-    /// before any game moves; see `step_all`.
-    #[pyo3(signature = (actions, strict=true))]
-    fn step(&mut self, py: Python<'_>, actions: Vec<usize>, strict: bool) -> PyResult<()> {
+    /// An illegal index anywhere refuses the whole batch before any game
+    /// moves; see `step_all`.
+    fn step(&mut self, py: Python<'_>, actions: Vec<usize>) -> PyResult<()> {
         if actions.len() != self.seats.len() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "expected {} actions, got {}",
@@ -583,7 +571,7 @@ impl Arena {
         // the same arena meanwhile gets PyO3's "already borrowed" error,
         // never a game in the middle of a move.
         let seats = &mut self.seats;
-        py.detach(|| step_all(seats, &actions, strict))
+        py.detach(|| step_all(seats, &actions))
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
