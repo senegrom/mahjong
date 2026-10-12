@@ -453,6 +453,11 @@ class Views:
         self.games = games
         kinds = set(kinds or {"mortal"})
         self.observer = Observer(arena, games) if "mortal" in kinds else None
+        if self.observer is None:
+            # Only the follower reads the arena's mjai log, and until it is
+            # read the arena holds every game's: some seventy kilobytes a
+            # game, tens of megabytes over an evaluation of an old network.
+            arena.forget_events()
         self._engine: np.ndarray | None = None
         # The step's encodings of deciding players, each one call of the
         # encoder's, made here or by a worker (see `prepare`).

@@ -80,6 +80,11 @@ struct Seat {
     /// The mjai events of this game not yet handed to Python, as JSON
     /// lines, each written under the seating its hand was dealt with.
     events: Vec<String>,
+    /// Whether those events are written at all. Only a follower reads
+    /// them, and until one takes them they are held, some seventy kilobytes
+    /// a game, so a table nobody follows stops writing them (see
+    /// `Arena::forget_events`).
+    recording: bool,
     /// How many of the current hand's log entries have been written out.
     logged: usize,
     /// Whether start_game and end_game have been written.
@@ -109,6 +114,7 @@ impl Seat {
             bots,
             teacher: Bot::new(seed ^ 0x7EAC_4E12),
             events: Vec::new(),
+            recording: true,
             logged: 0,
             started: false,
             ended: false,
@@ -203,6 +209,9 @@ impl Seat {
     /// because the mjai player numbers are the seating and the seating
     /// changes with the deal.
     fn flush_events(&mut self) {
+        if !self.recording {
+            return;
+        }
         if !self.started {
             let names = std::array::from_fn(|player| format!("player {player}"));
             self.events
@@ -220,14 +229,25 @@ impl Seat {
     /// lines: start_game first, then every event of every hand under the
     /// seating it was dealt with, end_game last. What a player state on
     /// the Python side follows to describe the game the way Mortal's own
-    /// bot sees it.
+    /// bot sees it. Nothing once the game has stopped recording.
     fn take_events(&mut self) -> Vec<String> {
+        if !self.recording {
+            return Vec::new();
+        }
         self.flush_events();
         if self.finished && !self.ended {
             self.events.push(mjai::Event::EndGame.to_json([0, 1, 2, 3]));
             self.ended = true;
         }
         std::mem::take(&mut self.events)
+    }
+
+    /// Stops writing the game's mjai events and drops those not yet handed
+    /// over, for good: a log taken up again partway would leave out what
+    /// was played meanwhile, which no follower can make sense of.
+    fn forget_events(&mut self) {
+        self.recording = false;
+        self.events = Vec::new();
     }
 
     fn next_hand(&mut self) {
@@ -572,6 +592,16 @@ impl Arena {
     /// costs one call a step rather than one a game.
     fn mjai_all(&mut self) -> Vec<Vec<String>> {
         self.seats.iter_mut().map(Seat::take_events).collect()
+    }
+
+    /// Stops writing every game's mjai events and drops those held, for a
+    /// table nobody follows. The arena holds each game's events until
+    /// `mjai_all` hands them over, which at such a table is never: every
+    /// game's whole log, some seventy kilobytes, until the arena is
+    /// dropped. Once stopped it stays stopped (see `Seat::forget_events`),
+    /// and `mjai_all` hands back nothing.
+    fn forget_events(&mut self) {
+        self.seats.iter_mut().for_each(Seat::forget_events);
     }
 
     /// Whether every game has finished.

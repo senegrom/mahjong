@@ -60,7 +60,8 @@ class OutcomeTests(unittest.TestCase):
         # Finished as soon as it is made, and no hand ended in the making.
         engine = SimpleNamespace(all_finished=lambda: True,
                                  hand_ended=lambda: np.zeros(1, dtype=np.uint8).tobytes(),
-                                 final_scores=lambda: np.zeros((1, 4), dtype=np.int32).tobytes())
+                                 final_scores=lambda: np.zeros((1, 4), dtype=np.int32).tobytes(),
+                                 forget_events=lambda: None)
         net = SimpleNamespace(kind='engine', eval=lambda: None)
         with patch.object(selfplay.riichi_py, 'Arena', return_value=engine):
             result = selfplay.measure(net, 1, 1, 'cpu')
