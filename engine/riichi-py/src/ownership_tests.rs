@@ -133,7 +133,7 @@ fn a_game_that_forgets_its_events_holds_none_to_the_end() {
     assert!(forgot.take_events().is_empty());
     let log = kept.take_events();
     assert!(log[0].contains("\"type\":\"start_game\""));
-    assert!(log[log.len() - 1].contains("\"type\":\"end_game\""));
+    assert!(log.last().unwrap().contains("\"type\":\"end_game\""));
 }
 
 #[test]
