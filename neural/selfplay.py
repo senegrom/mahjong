@@ -161,7 +161,7 @@ class Batch:
     #: concealed tiles, the draws to come and the hidden indicators, as 0/1
     #: planes kept in bytes. For the oracle critic, which only trains; the
     #: network is never shown this when choosing. Empty for a learner that
-    #: decides for itself, which has no oracle critic.
+    #: decides for itself, since no trainer of one trains an oracle critic.
     oracle: torch.Tensor
     returns: torch.Tensor
     log_probs: torch.Tensor
@@ -243,7 +243,8 @@ def play(
     is copied out for every game on every step. The oracle's planes are
     4.4 kilobytes a game a step: the network that `train.py` trains always
     has them, for its oracle critic, and a learner that decides for itself
-    (one with `decide`) never does, having no such critic.
+    (one with `decide`) never does: no trainer of one trains an oracle
+    critic, though the fusion's network of ours holds one.
     `want_held=False` leaves out what the opponents held, for a
     learner with no head that reads it: a gigabyte of host memory on a
     round of 2.8 million decisions. Neither changes a move or a reward.
