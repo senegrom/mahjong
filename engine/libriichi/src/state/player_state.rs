@@ -6,11 +6,13 @@ use crate::must_tile;
 use crate::tile::Tile;
 use std::iter;
 
+// Only the mjai JSON entry points below and their Python wrappers use
+// `Result` and `json`, so these imports share the entry points' gate.
+#[cfg(any(feature = "pymod", test))]
 use anyhow::Result;
 use derivative::Derivative;
 #[cfg(feature = "pymod")]
 use pyo3::prelude::*;
-// Only the mjai JSON entry points below use it, and they share its gate.
 #[cfg(any(feature = "pymod", test))]
 use serde_json as json;
 use tinyvec::{ArrayVec, TinyVec};
