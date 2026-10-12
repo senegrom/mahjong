@@ -84,12 +84,14 @@ store the network by itself, and a network without its runtime cannot play.
 Every file is checked against its build-time byte length and SHA-256 before it
 is marked as saved. Captive portals, partial responses and failed writes cannot
 become successful downloads. Retrying requests only missing files. No file has
-a fixed time limit: one that keeps arriving is saved however slow the link, and
-one that stops for a minute is tried again later. A file that fails does not
-stop the others, and every file an attempt finishes stays saved, so an install
-the browser abandons after its few minutes (five in Chrome) resumes on the next
-visit or reconnect with only what is still missing. Storage is scoped to this
-app; other projects on the same GitHub Pages origin are untouched.
+a fixed time limit of its own: one that keeps arriving goes on, and one that
+stops for a minute is tried again later. A file that fails does not stop the
+others, and every file an attempt finishes stays saved, so an install the
+browser abandons after its few minutes (five in Chrome) resumes on the next
+visit or reconnect with only what is still missing. Only a link too slow to
+bring the largest tile graphics within those minutes, below about 300 kbit/s,
+never completes it; play still works online. Storage is scoped to this app;
+other projects on the same GitHub Pages origin are untouched.
 The service worker responds cache-first and caches neither unknown URLs nor
 error responses. Equal content is stored once, including unchanged files
 across application updates. The runtime is served from a folder named by a
