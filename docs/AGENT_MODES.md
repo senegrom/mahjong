@@ -17,11 +17,13 @@ an observation. A saved choice is not silently replaced with Club.
 Trained is the default wherever nothing has been chosen: the opponents of a
 first match, every Agent watch seat, the hand-review adviser and a new guided
 game's adviser. Physical agent play switches to Trained as soon as the network
-is available, unless another agent was already picked. Saved preferences are
-kept as they are, Club included: the settings record is written in full on a
-first visit, so a Club saved by an earlier version cannot be told from a Club
-that was chosen, and only a setting the record does not hold takes the new
-default. Where the network cannot be had (offline before its first download,
+is available, unless another agent was already picked. When generation 810
+became the network, every saved choice of opponents and review adviser went
+back to Trained once, Club and Beginner included (settings record version 2):
+the record is written in full on a first visit, so a Club saved by an earlier
+version could not be told from a Club that was chosen. Hints, keys and tile
+faces were kept. Choices saved since then are kept as they are, and only a
+setting the record does not hold takes the default. Where the network cannot be had (offline before its first download,
 too little memory, a failed download), every mode keeps a way on with Club:
 the recovery choices in Play, **Review with Club**, **Use Club as adviser** in
 a guided game and **Watch with Club instead**. The hand review shows Club's

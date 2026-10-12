@@ -201,7 +201,7 @@ test('tile face survives preference restoration and retired or invalid settings 
   for (const tileFace of [undefined, null, '', false, {}, 'other', '../other']) {
     assert.equal(read({ version: 1, tileFace }).tileFace, 'classic');
   }
-  assert.equal(read({ version: 2, tileFace: 'dali' }).tileFace, 'classic');
+  assert.equal(read({ version: 3, tileFace: 'dali' }).tileFace, 'classic');
 });
 
 test('the real Tile component respects the selected face and hidden state', async t => {

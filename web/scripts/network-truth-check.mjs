@@ -30,7 +30,7 @@ try {
   await page.setViewport({ width: 1100, height: 900 });
   await page.evaluateOnNewDocument((saveKey, settingsKey) => {
     localStorage.setItem(settingsKey, JSON.stringify({
-      version: 1, difficulty: 'custom', opponents: ['neural', 'neural', 'neural'], hints: true,
+      version: 2, difficulty: 'custom', opponents: ['neural', 'neural', 'neural'], hints: true,
     }));
     localStorage.removeItem(saveKey);
     window.asked = [];

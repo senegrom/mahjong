@@ -7,7 +7,8 @@ import { normalizeTileFace } from './tile-faces.js';
 
 export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
-const VERSION = 1;
+// 2 since the site played generation 810: see readSettings.
+const VERSION = 2;
 const MAX_COMMANDS = 20000;
 const MAX_SAVE_BYTES = 2_000_000;
 const DIFFICULTIES = OPPONENT_TYPES;
@@ -20,22 +21,25 @@ function require(condition, message) {
 /** The review adviser a player starts with: the trained network. */
 export const DEFAULT_REVIEW_ADVISER = 'strong';
 
-/** Trained is the default opponent and review adviser, but only where nothing
- * is saved. A saved value is kept as it stands, Club included: the page writes
- * the whole record on its first visit, so a stored Club cannot be told from a
- * Club that was only the old default, and turning a deliberate Club into
- * Trained would cost that player a 116 MB download and a stronger table they
- * had chosen against. A setting the record does not hold takes today's default. */
+/** Trained is the default opponent and review adviser. A record from before
+ * the site played generation 810 (version 1) keeps its hints, keys and tile
+ * faces but not who plays and who reviews: when 810 arrived every player was
+ * put in front of it once, at the owner's word, Club and Beginner included,
+ * since the page writes the whole record on a first visit and a stored Club
+ * cannot be told from one that was only an old default. From version 2 a
+ * saved choice is kept as it stands, Club included. A setting the record does
+ * not hold takes today's default. */
 export function readSettings(storage, touch = false) {
   const defaults = { difficulty: DEFAULT_OPPONENT, hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: DEFAULT_REVIEW_ADVISER };
   try {
     const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
-    if (value?.version !== VERSION) return defaults;
+    if (value?.version !== VERSION && value?.version !== 1) return defaults;
     defaults.tileFace = normalizeTileFace(value.tileFace);
-    if (['club', 'strong'].includes(value.reviewAdviser)) defaults.reviewAdviser = value.reviewAdviser;
     for (const key of ['hints', 'confirmDiscards', 'shortcuts']) {
       if (typeof value[key] === 'boolean') defaults[key] = value[key];
     }
+    if (value.version === 1) return defaults;
+    if (['club', 'strong'].includes(value.reviewAdviser)) defaults.reviewAdviser = value.reviewAdviser;
     if (DIFFICULTIES.includes(value.difficulty)) defaults.difficulty = value.difficulty;
     if (Array.isArray(value.opponents)) {
       // Only a complete valid table replaces the legacy single-tier setting.

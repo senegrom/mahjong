@@ -36,7 +36,7 @@ async function open(seed, width = 1100) {
       void blobs.get(this.href)?.text().then(text => { file.text = text; });
     };
   });
-  await page.evaluateOnNewDocument(key => localStorage.setItem(key, JSON.stringify({ version: 1, difficulty: 'club', hints: true })), SETTINGS_KEY);
+  await page.evaluateOnNewDocument(key => localStorage.setItem(key, JSON.stringify({ version: 2, difficulty: 'club', hints: true })), SETTINGS_KEY);
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=watch`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.watch-setup .primary:not(:disabled)');
   for (const label of ['Followed agent', 'Right', 'Opposite', 'Left']) await page.select(`select[aria-label="${label}"]`, 'club');

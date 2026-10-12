@@ -36,7 +36,7 @@ async function play(page, url, mode) {
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.evaluateOnNewDocument((key, settingsKey, initial) => {
     if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(initial));
-    localStorage.setItem(settingsKey, JSON.stringify({ version: 1, difficulty: 'club', hints: true, confirmDiscards: true }));
+    localStorage.setItem(settingsKey, JSON.stringify({ version: 2, difficulty: 'club', hints: true, confirmDiscards: true }));
   }, SAVE_KEY, SETTINGS_KEY, snapshot);
   await page.goto(url, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.hand');
