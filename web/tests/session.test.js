@@ -254,7 +254,7 @@ test('saved completed matches migrate old attribution only and keep strict new-f
   const match = new MatchSession(ScoredGame, 1, 'club');
   try {
     const current = match.snapshot();
-    assert.equal(current.format, 6);
+    assert.equal(current.format, 7);
     const old = { ...current, format: 5 }, data = JSON.parse(old.state), win = data[0].outcome.wins[0];
     delete win.scoring; delete win.yaku[0].id; delete win.yaku[0].tile;
     old.state = JSON.stringify(data);

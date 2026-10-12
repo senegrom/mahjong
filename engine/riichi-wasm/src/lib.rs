@@ -295,9 +295,25 @@ pub struct WinView {
     pub limit: Option<String>,
     /// What the hand is worth, said the way a table would say it.
     pub payment: String,
+    /// The same as numbers, which the page writes its headline from rather
+    /// than reading them back out of the sentence.
+    pub payments: PaymentsView,
     /// Riichi bets the winner also collected, which is why the points moved
     /// by more than the hand was worth.
     pub bets: i32,
+}
+
+/// What a winning hand is worth, as the payments that settle it: counters
+/// included and riichi bets not, as in the rules engine's own `Payments`.
+#[derive(Serialize)]
+pub struct PaymentsView {
+    /// Everything the winner receives for the hand.
+    pub total: u32,
+    /// On a self-draw, what the dealer pays: zero when the winner is the
+    /// dealer, and on a win by discard, which the discarder pays alone.
+    pub from_dealer: u32,
+    /// On a self-draw, what each non-dealer pays; zero on a win by discard.
+    pub from_each_other: u32,
 }
 
 /// One yaku and its han.
@@ -826,9 +842,7 @@ impl Game {
                 .unwrap_or(Call::Pass);
             self.asking.retain(|other| *other != seat);
             self.gathered.push((seat, call));
-            if !matches!(call, Call::Pass) {
-                self.note(seat, &describe_call(call).label);
-            }
+            self.note_call(seat, call);
             if self.asking.is_empty() {
                 let answers = std::mem::take(&mut self.gathered);
                 self.hand.resolve_calls(&answers).map_err(refused)?;
@@ -866,8 +880,8 @@ impl Game {
             }
             self.hand.resolve_calls(&answers).map_err(refused)?;
             for (seat, call) in &answers {
-                if self.asking.contains(seat) && !matches!(call, Call::Pass) {
-                    self.note(*seat, &describe_call(*call).label);
+                if self.asking.contains(seat) {
+                    self.note_call(*seat, *call);
                 }
             }
         }
@@ -907,9 +921,7 @@ impl Game {
             let call = self.bots[player].call(&self.hand, seat, calls);
             self.asking.retain(|who| *who != seat);
             self.gathered.push((seat, call));
-            if !matches!(call, Call::Pass) {
-                self.note(seat, &describe_call(call).label);
-            }
+            self.note_call(seat, call);
             if self.asking.is_empty() {
                 let answers = std::mem::take(&mut self.gathered);
                 self.hand.resolve_calls(&answers).map_err(refused)?;
@@ -920,6 +932,13 @@ impl Game {
 
     /// The table as the player sees it.
     pub fn view(&self) -> Result<JsValue, JsValue> {
+        serde_wasm_bindgen::to_value(&self.table_view())
+            .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    /// The same before it is handed to the page, which a native test can
+    /// read: a JsValue is only built inside a browser.
+    fn table_view(&self) -> TableView {
         let player = &self.hand.players[self.seat.index()];
         // Waits belong to a 13-tile shape (fewer with melds), never a
         // 14-tile hand plus an imaginary fifteenth tile. Keep the locked
@@ -935,7 +954,7 @@ impl Game {
             riichi_core::TileSet::new()
         };
         let seen = review::visible_to(&self.hand, self.seat);
-        let view = TableView {
+        TableView {
             round: wind_name(self.hand.round).to_string(),
             kyoku: self.hand.kyoku,
             hands_played: self.table.hands_played,
@@ -1035,8 +1054,7 @@ impl Game {
             shanten: riichi_core::shanten::shanten(&player.hand, player.melds.len()),
             furiten: player.is_furiten(),
             safe: self.safe_tiles(),
-        };
-        serde_wasm_bindgen::to_value(&view).map_err(|error| JsValue::from_str(&error.to_string()))
+        }
     }
 
     /// A read-only preview of a legal discard, using the resulting hand.
@@ -1153,9 +1171,7 @@ impl Game {
                         })
                         .collect();
                     for (seat, call) in &answers {
-                        if !matches!(call, Call::Pass) {
-                            self.note(*seat, &describe_call(*call).label);
-                        }
+                        self.note_call(*seat, *call);
                     }
                     self.hand.resolve_calls(&answers).map_err(refused)?;
                 }
@@ -1241,8 +1257,12 @@ impl Game {
                     }
                     self.asking.clear();
                     self.gathered.clear();
-                    if !matches!(call, Call::Pass) {
-                        self.note(self.seat, &describe_call(call).label);
+                    // Every answer is said, the player's first, as play_on
+                    // and begin_mixed_calls say theirs: a bot's call or win
+                    // on a discard the player answered too is still part of
+                    // the hand's history.
+                    for (seat, answer) in &answers {
+                        self.note_call(*seat, *answer);
                     }
                     self.hand.resolve_calls(&answers).map_err(refused)?;
                 }
@@ -1582,9 +1602,7 @@ impl Game {
         self.gathered.clear();
         if let Some(call) = human {
             self.gathered.push((self.seat, call));
-            if !matches!(call, Call::Pass) {
-                self.note(self.seat, &describe_call(call).label);
-            }
+            self.note_call(self.seat, call);
         }
         for (seat, calls) in offered {
             if *seat == self.seat {
@@ -1596,9 +1614,7 @@ impl Game {
                 let who = self.hand_seating[seat.index()];
                 let call = self.bots[who].call(&self.hand, *seat, calls);
                 self.gathered.push((*seat, call));
-                if !matches!(call, Call::Pass) {
-                    self.note(*seat, &describe_call(call).label);
-                }
+                self.note_call(*seat, call);
             }
         }
         if self.asking.is_empty() {
@@ -1724,17 +1740,29 @@ impl Game {
                                 matches!(seat, Wind::East),
                                 discarder.is_some(),
                             ),
+                            payments: PaymentsView {
+                                total: score.payments.total,
+                                from_dealer: score.payments.from_dealer,
+                                from_each_other: score.payments.from_each_other,
+                            },
                             bets: moved[seat.index()] - score.payments.total as i32,
                         }
                     })
                     .collect();
                 let how = match discarder {
-                    Some(from) => format!("on {}'s discard", seat_title(*from)),
-                    None => "by self-draw".to_string(),
+                    // A win on a quad being declared robs it: nobody
+                    // discarded the tile (EMA section 3.3.13). Only the
+                    // quad going ahead clears the mark, so a hand won on
+                    // the quad still carries it.
+                    Some(from) if self.hand.robbable_quad.is_some() => {
+                        format!("robs {}'s quad", seat_title(*from))
+                    }
+                    Some(from) => format!("wins on {}'s discard", seat_title(*from)),
+                    None => "wins by self-draw".to_string(),
                 };
                 let line = winners
                     .iter()
-                    .map(|(seat, _)| format!("{} wins {how}", seat_title(*seat)))
+                    .map(|(seat, _)| format!("{} {how}", seat_title(*seat)))
                     .collect::<Vec<String>>()
                     .join("; ");
                 OutcomeView {
@@ -1766,6 +1794,18 @@ impl Game {
         // Seats read as names in the commentary, not as identifiers.
         let name = seat_title(seat);
         self.log.push(format!("{name} {what}"));
+    }
+
+    /// A seat's answer to the tile on the table, unless it passed. Noted
+    /// before the answers are resolved, or after a win on a quad, so a quad
+    /// being declared is still marked: a win on it robs the quad, as the
+    /// result says, rather than taking a discard (EMA section 3.3.13).
+    fn note_call(&mut self, seat: Wind, call: Call) {
+        match call {
+            Call::Pass => {}
+            Call::Ron if self.hand.robbable_quad.is_some() => self.note(seat, "robs the quad"),
+            _ => self.note(seat, &describe_call(call).label),
+        }
     }
 }
 
@@ -2405,6 +2445,199 @@ mod ui_review_tests {
         assert!(game.table.finished);
         assert_eq!(game.controllers, controllers);
         assert_eq!(game.hand_seating[game.seat.index()], human);
+    }
+
+    /// East, the player, holds a triplet of 1 circles claimed from the left
+    /// and has just drawn the fourth. South, a trained opponent, waits on
+    /// the 1 circles with riichi declared, so adding it to the triplet opens
+    /// a window the page has to answer for South.
+    fn quad_to_rob() -> Game {
+        let mut game = Game::new(81.0, Some("neural".into()));
+        game.player = 0;
+        game.seat = Wind::East;
+        game.hand_seating = [0, 1, 2, 3];
+        game.hand.turn = Wind::East;
+        game.hand.phase = Phase::Act;
+        game.hand.just_claimed = None;
+        let tile: Tile = "1p".parse().unwrap();
+        let east = &mut game.hand.players[0];
+        east.melds = vec![riichi_core::Meld {
+            kind: riichi_core::MeldKind::Pon,
+            tile,
+            from: riichi_core::ClaimedFrom::Left,
+        }];
+        east.hand = "234m567m789s1p5s".parse().unwrap();
+        game.hand.drawn = Some(tile);
+        let south = &mut game.hand.players[1];
+        south.hand = "23p456p789p111z22z".parse().unwrap();
+        south.discards.clear();
+        south.riichi = riichi_core::score::Riichi::Declared;
+        south.riichi_order = Some(0);
+        south.furiten = false;
+        south.temporary_furiten = false;
+        game
+    }
+
+    #[test]
+    fn a_quad_that_may_be_robbed_shows_no_drawn_tile_and_robbing_it_is_said_so() {
+        let mut game = quad_to_rob();
+        game.choose("extended-kan", Some("1p".into())).unwrap();
+        game.play_on().unwrap();
+        assert_eq!(game.hand.phase, Phase::CallWindow);
+        assert_eq!(
+            game.opponent_player(),
+            Some(1),
+            "the page answers for South"
+        );
+        // The hand beside the quad, and no fifth 1 circles held apart.
+        let held = |view: &TableView| (view.seats[0].hand.join(" "), view.seats[0].drawn.clone());
+        let view = game.table_view();
+        assert_eq!(view.phase, "call");
+        assert_eq!(
+            held(&view),
+            ("2m 3m 4m 5m 6m 7m 5s 7s 8s 9s".to_string(), None)
+        );
+
+        game.play_opponent(encoding::RON).unwrap();
+        while !game.asking.is_empty() {
+            game.play_opponent(encoding::PASS).unwrap();
+        }
+        assert_eq!(game.hand.phase, Phase::Over);
+        let view = game.table_view();
+        assert_eq!(
+            held(&view),
+            ("2m 3m 4m 5m 6m 7m 5s 7s 8s 9s".to_string(), None),
+            "nor once it is robbed"
+        );
+        // Nobody discarded the 1 circles: the result and the history say
+        // the quad was robbed.
+        let outcome = view.outcome.expect("South won");
+        assert_eq!(outcome.line, "South robs East's quad");
+        assert!(
+            game.log.iter().any(|line| line == "South robs the quad"),
+            "{:?}",
+            game.log
+        );
+        assert!(
+            !game.log.iter().any(|line| line.contains("discard")),
+            "{:?}",
+            game.log
+        );
+    }
+
+    /// The page writes a win's headline from these numbers, so they must be
+    /// the payments the sentence beside them names.
+    #[test]
+    fn a_win_is_worth_the_same_in_numbers_as_in_words() {
+        for winner in [Wind::East, Wind::South] {
+            let mut game = Game::new(81.0, Some("club".into()));
+            game.hand.first_turns_unbroken = false;
+            // Somebody has discarded, so the dealer's draw is no blessing.
+            game.hand.players[3]
+                .discards
+                .push(riichi_core::game::Discard {
+                    tile: "9p".parse().unwrap(),
+                    order: 0,
+                    drawn: false,
+                    riichi: false,
+                    claimed: false,
+                });
+            game.hand.turn = winner;
+            game.hand.phase = Phase::Act;
+            game.hand.players[winner.index()].hand = "123m456m789m123p55s".parse().unwrap();
+            game.hand.drawn = Some("5s".parse().unwrap());
+            game.hand.act(Action::Tsumo).unwrap();
+            let outcome = game.describe_outcome().unwrap();
+            let win = &outcome.wins[0];
+            let paid = &win.payments;
+            if winner == Wind::East {
+                assert_eq!(paid.from_dealer, 0);
+                assert_eq!(paid.total, 3 * paid.from_each_other);
+                assert_eq!(win.payment, format!("{} from each", paid.from_each_other));
+            } else {
+                assert!(paid.from_dealer > paid.from_each_other);
+                assert_eq!(paid.total, paid.from_dealer + 2 * paid.from_each_other);
+                assert_eq!(
+                    win.payment,
+                    format!(
+                        "{} from the dealer and {} from the others",
+                        paid.from_dealer, paid.from_each_other
+                    )
+                );
+            }
+        }
+        // A win by discard is paid by the discarder alone, here for a quad.
+        let mut game = quad_to_rob();
+        game.choose("extended-kan", Some("1p".into())).unwrap();
+        game.play_on().unwrap();
+        game.play_opponent(encoding::RON).unwrap();
+        while !game.asking.is_empty() {
+            game.play_opponent(encoding::PASS).unwrap();
+        }
+        let outcome = game.describe_outcome().unwrap();
+        let win = &outcome.wins[0];
+        assert_eq!(
+            (win.payments.from_dealer, win.payments.from_each_other),
+            (0, 0)
+        );
+        assert_eq!(
+            win.payment,
+            format!("{} from the discarder", win.payments.total)
+        );
+    }
+
+    /// At a table of bots alone the player is asked first, and the bots then
+    /// answer the same discard: what they do is said in the hand's history,
+    /// as it is when the player is not asked at all.
+    #[test]
+    fn a_bots_answer_to_a_discard_the_player_passed_is_noted() {
+        // East's 3 characters: West, the player, could pon it and South wins
+        // on it.
+        let mut game = shared_window(false);
+        game.external = false;
+        game.controllers = [Controller::Club; 4];
+        game.choose("pass", None).unwrap();
+        assert!(matches!(game.hand.outcome, Some(Outcome::Win { .. })));
+        assert_eq!(game.log, ["South wins on the discard"]);
+
+        // East's red dragon: South, the player, could win on it, and West,
+        // holding a pair of it, pons it.
+        let mut game = Game::new(287.0, Some("club".into()));
+        game.player = 1;
+        game.seat = Wind::South;
+        game.hand_seating = [0, 1, 2, 3];
+        let hands = [
+            "568m268p2358s3457z",
+            "123456789m123p7z",
+            "239m1459p167s177z",
+            "147m147p147s1234z",
+        ];
+        for (index, text) in hands.iter().enumerate() {
+            game.hand.players[index].hand = text.parse().unwrap();
+            game.hand.players[index].discards.clear();
+        }
+        let red: Tile = "7z".parse().unwrap();
+        game.hand.turn = Wind::East;
+        game.hand.phase = Phase::Act;
+        game.hand.drawn = Some(red);
+        game.hand.first_turns_unbroken = false;
+        game.hand.act(Action::Discard(red)).unwrap();
+        let offered = game.hand.legal_calls();
+        assert!(
+            offered.contains(&(Wind::South, vec![Call::Ron, Call::Pass])),
+            "{offered:?}"
+        );
+        assert!(
+            offered.contains(&(Wind::West, vec![Call::Pon, Call::Pass])),
+            "{offered:?}"
+        );
+        game.choose("pass", None).unwrap();
+        assert_eq!(
+            game.hand.players[Wind::West.index()].melds.len(),
+            1,
+            "West pons it"
+        );
+        assert_eq!(game.log, ["West calls a triplet"]);
     }
 }
 

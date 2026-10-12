@@ -175,10 +175,11 @@
     {:else if waiting}<p role="status">The hand is over. Auto play is waiting; deal the next hand when you have read it.</p>
     {:else if analysis && !showWeights}<p role="status">{auto ? 'Auto play is running.' : 'Paused before the followed agent’s next choice.'}</p>{/if}
     {#if showWeights}<AgentWeights {analysis} onchoose={chooseAlternative} disabled={busy || Boolean(standings)} dora={shownDora} />{/if}
-    {#if standings}<Standings {standings} onagain={start} onsave={saveGame} />{/if}
+    <!-- The first seat is the followed agent, not the person watching. -->
+    {#if standings}<Standings {standings} onagain={start} onsave={saveGame} playerLabel={positions[0]} />{/if}
     {#if view.phase === 'over' && view.outcome}
       <ScoreScreen outcome={view.outcome} seats={view.seats} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
-        onnext={() => watch.step()} ongame={saveGame} reviewed={true} />
+        bets={view.riichi_sticks ?? 0} playerLabel={positions[0]} onnext={() => watch.step()} ongame={saveGame} reviewed={true} />
     {/if}
     <details><summary>Hand history · {log.length} events</summary>{#each log as line, index (index)}<p class="log-line">{line}</p>{/each}</details>
   {/if}

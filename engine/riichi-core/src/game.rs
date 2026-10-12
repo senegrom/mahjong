@@ -708,6 +708,12 @@ impl Hand {
                 consumed: vec![tile; 3],
             }
         });
+        // The turn's draw has been used: the quad may have taken it, and what
+        // the hand holds next is the quad's replacement, which
+        // finish_quad_draw draws once nobody robs the quad. Kept, it named a
+        // tile the hand might no longer hold through the robbing window, and
+        // after a robbed quad to the end of the hand.
+        self.drawn = None;
         // An extended quad may be robbed for a win, and a concealed one only
         // by a hand of Thirteen Orphans (EMA section 3.3.13).
         self.robbable_quad = Some(tile);
@@ -1631,6 +1637,79 @@ mod tests {
                 .any(|event| matches!(event, mjai::Event::Dora { .. })),
             "and the log does not claim one was turned"
         );
+    }
+
+    /// A declared quad uses the turn's draw. While the quad may be robbed,
+    /// and after it has been, no tile is held apart as drawn: the quad may
+    /// have taken it, and the next drawn tile is the quad's replacement. A
+    /// page shows the drawn tile beside the hand, so a stale one was a fifth
+    /// copy of the quad's tile.
+    #[test]
+    fn a_quad_that_may_be_robbed_leaves_no_drawn_tile() {
+        let tile: Tile = "1p".parse().unwrap();
+        // East adds the fourth 1 circles to its triplet, having just drawn
+        // it, or having held it while drawing the 5 bamboo.
+        for (held, drawn) in [("234m567m789s5s", "1p"), ("234m567m789s1p", "5s")] {
+            let mut hand = fresh();
+            let drawn: Tile = drawn.parse().unwrap();
+            hand.players[0].melds = vec![Meld {
+                kind: MeldKind::Pon,
+                tile,
+                from: ClaimedFrom::Left,
+            }];
+            hand.players[0].hand = held.parse().unwrap();
+            hand.players[0].hand.add(drawn);
+            hand.drawn = Some(drawn);
+            hand.turn = Wind::East;
+            hand.phase = Phase::Act;
+            hand.just_claimed = None;
+            // South waits on the 1 circles with riichi declared, as above.
+            let south = &mut hand.players[1];
+            south.hand = "23p456p789p111z22z".parse().unwrap();
+            south.discards.clear();
+            south.riichi = Riichi::Declared;
+            south.riichi_order = Some(0);
+            south.furiten = false;
+            south.temporary_furiten = false;
+
+            hand.act(Action::ExtendedKan(tile))
+                .expect("the fourth tile extends the triplet");
+            assert!(matches!(hand.phase, Phase::CallWindow), "South may rob it");
+            assert_eq!(hand.drawn, None, "drawing the {drawn}");
+            assert_eq!(
+                hand.players[0].hand.count(tile),
+                0,
+                "the quad holds all four"
+            );
+            assert_eq!(
+                hand.players[0].hand.count("5s".parse().unwrap()),
+                1,
+                "the 5 bamboo is in the hand either way"
+            );
+            hand.resolve_calls(&[(Wind::South, Call::Ron)])
+                .expect("the win was offered");
+            assert!(matches!(hand.phase, Phase::Over));
+            assert_eq!(hand.drawn, None, "drawing the {drawn}, once robbed");
+        }
+
+        // A concealed quad, which only Thirteen Orphans may rob.
+        let mut hand = fresh();
+        let red: Tile = "7z".parse().unwrap();
+        hand.players[1].hand = "119m19p19s123456z".parse().unwrap();
+        hand.players[0].hand = "7777z".parse().unwrap();
+        hand.turn = Wind::East;
+        hand.phase = Phase::Act;
+        hand.drawn = Some(red);
+        hand.declare_quad(red, MeldKind::ConcealedKan);
+        assert!(
+            matches!(hand.phase, Phase::CallWindow),
+            "Thirteen Orphans may rob it"
+        );
+        assert_eq!(hand.drawn, None);
+        hand.resolve_calls(&[(Wind::South, Call::Ron)])
+            .expect("the win was offered");
+        assert!(matches!(hand.phase, Phase::Over));
+        assert_eq!(hand.drawn, None, "once robbed");
     }
 
     /// EMA 2025 section 3.3.1: a win beats a set call, and a triplet beats a
