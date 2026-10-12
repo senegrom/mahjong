@@ -279,7 +279,12 @@ def _seed_cache() -> Path:
         LOCAL_CACHE.mkdir(parents=True, exist_ok=True)
         if SHARED_CACHE.exists():
             try:
-                shutil.copytree(SHARED_CACHE, LOCAL_CACHE, dirs_exist_ok=True)
+                # Without the hidden copies a save left behind when its
+                # container died in the middle of one (see `_save_cache`):
+                # the graph cache of the torch this image installs reads
+                # every file in a graph's folder, whatever its name.
+                shutil.copytree(SHARED_CACHE, LOCAL_CACHE, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns(".*.partial"))
                 print("compiler cache seeded from the volume", flush=True)
             except OSError as error:
                 print(f"compiler cache not seeded: {error}", flush=True)
@@ -310,8 +315,8 @@ def _save_cache() -> None:
             # in the middle of it or by a commit taken while it was under
             # way, never leaves a truncated file under the name. The
             # compiler never rewrites a file it finds there, and every
-            # container seeded with a broken one failed to load it; its own
-            # scan of the cache passes over hidden names.
+            # container seeded with a broken one failed to load it. A
+            # hidden copy left behind is never seeded (see `_seed_cache`).
             try:
                 with staging_file(target) as staged:
                     shutil.copy2(LOCAL_CACHE / name, staged)

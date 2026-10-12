@@ -224,6 +224,27 @@ class CacheTests(unittest.TestCase):
             self.assertEqual([path.name for path in shared.rglob("*") if path.is_file()], ["graph.py"])
             self.assertEqual((shared / "graph.py").read_text(), "compiled")
 
+    def test_a_hidden_copy_left_on_the_volume_is_never_seeded(self):
+        """A container killed in the middle of a save leaves its hidden copy
+        on the volume, and the graph cache of the torch the image installs
+        tries every file in a graph's folder, whatever its name."""
+        app = controller()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            local, shared = root / "local", root / "shared"
+            graph = shared / "fxgraph" / "ab" / "fabc"
+            graph.mkdir(parents=True)
+            (graph / "0").write_bytes(b"compiled")
+            # Named as `checkpoints.staging_file` names a copy of `0`.
+            descriptor, _ = tempfile.mkstemp(prefix=".0.", suffix=".partial", dir=graph)
+            os.write(descriptor, b"comp")
+            os.close(descriptor)
+            with patch.object(app, "LOCAL_CACHE", local), patch.object(app, "SHARED_CACHE", shared), \
+                    patch.object(app, "_ON_VOLUME", {}), contextlib.redirect_stdout(io.StringIO()):
+                app._seed_cache()
+            self.assertEqual([path.relative_to(local).as_posix() for path in local.rglob("*") if path.is_file()],
+                             ["fxgraph/ab/fabc/0"])
+
     def test_the_compilers_workers_are_the_containers_share(self):
         app = controller()
         with tempfile.TemporaryDirectory() as folder, \
