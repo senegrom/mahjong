@@ -110,12 +110,12 @@ fn each_step_reports_the_hands_it_ended() {
 
 /// A game nobody follows drops the events it holds and writes no more, not
 /// even the end of the game, and plays and reports every hand exactly as a
-/// game that keeps its log.
+/// game that keeps its log. It forgets once its first hand is over, so that
+/// it has a hand's events to drop.
 #[test]
 fn a_game_that_forgets_its_events_holds_none_to_the_end() {
     let mut kept = Seat::new(11, &[1, 2, 3]);
     let mut forgot = Seat::new(11, &[1, 2, 3]);
-    forgot.forget_events();
     let mut steps = 0;
     while !kept.finished {
         steps += 1;
@@ -125,8 +125,17 @@ fn a_game_that_forgets_its_events_holds_none_to_the_end() {
         kept.step(action);
         forgot.step(action);
         assert_eq!(forgot.endings, kept.endings);
-        assert!(forgot.events.is_empty());
+        if forgot.recording && forgot.hands_done > 0 {
+            // Written when the hand ended and held since, nobody having
+            // asked for them.
+            assert!(!forgot.events.is_empty());
+            forgot.forget_events();
+        }
+        if !forgot.recording {
+            assert!(forgot.events.is_empty());
+        }
     }
+    assert!(!forgot.recording, "the game forgot partway");
     assert!(forgot.finished);
     assert_eq!(forgot.hands_done, kept.hands_done);
     assert_eq!(forgot.table.final_scores(), kept.table.final_scores());

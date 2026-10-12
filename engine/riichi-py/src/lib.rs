@@ -344,7 +344,9 @@ fn legal_masks(seats: &[Seat], mask: &mut [bool]) {
 /// with `numpy.frombuffer`: what `fill` writes for the seat owing the
 /// game's decision, and zeros where the game owes none. Each row is encoded
 /// into one row of scratch and copied into the bytes object as it is made,
-/// so the arena keeps no buffer of every game's rows between calls.
+/// so the arena keeps no buffer of every game's rows between calls. One row
+/// of scratch serves every game because each encoder clears the row it is
+/// given before writing to it.
 fn per_game<'py>(
     py: Python<'py>,
     seats: &[Seat],
