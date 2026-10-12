@@ -131,7 +131,8 @@ test('real format-6 saves restore and show what format 7 adds: the value, no fif
       assert.equal(view.outcome.line, "South robs North's quad");
     },
     robbing(view, old, match) {
-      assert.deepEqual(view, old, 'nothing in the window differs');
+      // Compared as a save holds it, where a field with no value is absent.
+      assert.deepEqual(JSON.parse(JSON.stringify(view)), old, 'nothing in the window differs');
       assert.equal(quadOnOffer(view), 'extended-kan');
       assert.deepEqual(match.choices.map(choice => choice.kind), ['ron', 'pass']);
       match.apply({ type: 'choose', kind: 'ron', tile: null });
