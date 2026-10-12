@@ -65,6 +65,13 @@ class ReconciledCheckpointTests(unittest.TestCase):
                     previous = path.with_name("latest.pt.previous")
                     if previous.exists():
                         self.assertEqual(checkpoints.validate_checkpoint(previous), 1)
+                    # Nothing else is left behind, no staged copy under a
+                    # hidden name, and the retained copy is there once its
+                    # own rename has been made.
+                    kept = {"latest.pt"}
+                    if target == "latest.pt" or after:
+                        kept.add("latest.pt.previous")
+                    self.assertEqual({p.name for p in Path(directory).iterdir()}, kept)
 
     def test_hard_exit_around_live_rename_preserves_recovery(self):
         for after in (False, True):

@@ -1,6 +1,5 @@
 """No failed save or publication may destroy the previous recovery checkpoint."""
 import ast
-import os
 from pathlib import Path
 import signal
 import subprocess
@@ -36,23 +35,6 @@ class CheckpointSafetyTests(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), before)
                 self.assertEqual(checkpoints.validate_checkpoint(path), 1)
                 self.assertEqual(list(Path(folder).iterdir()), [path])
-
-    def test_sigint_after_real_rename_keeps_complete_new_checkpoint(self):
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "latest.pt"
-            checkpoints.atomic_save(saved(1), path)
-            replace = os.replace
-            def commit_then_interrupt(source, target):
-                replace(source, target)
-                if Path(target) == path:
-                    signal.raise_signal(signal.SIGINT)
-            with patch.object(checkpoints.os, 'replace', side_effect=commit_then_interrupt):
-                with self.assertRaises(KeyboardInterrupt):
-                    checkpoints.atomic_save(saved(2), path)
-            self.assertEqual(checkpoints.validate_checkpoint(path), 2)
-            previous = path.with_name(path.name + ".previous")
-            self.assertEqual(checkpoints.validate_checkpoint(previous), 1)
-            self.assertEqual(set(Path(folder).iterdir()), {path, previous})
 
     def test_failed_fsync_or_replace_keeps_a_loadable_checkpoint(self):
         for operation in ('fsync', 'replace'):
