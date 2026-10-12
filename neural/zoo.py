@@ -59,7 +59,6 @@ MORTAL_CHI_LOW, MORTAL_CHI_MID, MORTAL_CHI_HIGH = 38, 39, 40
 MORTAL_PON = 41
 MORTAL_KAN = 42
 MORTAL_AGARI = 43
-MORTAL_RYUKYOKU = 44
 MORTAL_PASS = 45
 
 
@@ -128,7 +127,6 @@ def choose_in_mortal_space(
     rows: np.ndarray,
     players: np.ndarray,
     legal: np.ndarray,
-    stats: dict | None = None,
     skip_forced: bool = False,
     preview_reach: bool = False,
 ) -> np.ndarray:
@@ -150,8 +148,7 @@ def choose_in_mortal_space(
     rows that are asked are then scored in a smaller batch, and on the card
     a batch of another size is worked through by other kernels: on this
     desktop's card a small Mortal gave 13 of 63 rows other bits once the
-    64th was left out, and a near tie can turn on a bit. `stats` counts a
-    fallback only among the rows asked, and never at an orphan.
+    64th was left out, and a near tie can turn on a bit.
 
     With `preview_reach` nobody is told anything and there is no second
     question: every row asked that may declare riichi is asked as well, in
@@ -172,8 +169,6 @@ def choose_in_mortal_space(
     # What our engine allows, named in Mortal's moves, and not what the two
     # rule sets agree on: Mortal will not reach with fewer than four tiles
     # left in the wall, and EMA 2025 section 3.3.10 allows it down to one.
-    # `own` is still read below, to say how often Mortal would have chosen
-    # otherwise.
     allowed = translatable(legal)
     orphan = ~allowed.any(axis=1)
     allowed[orphan, MORTAL_PASS] = True
@@ -194,21 +189,13 @@ def choose_in_mortal_space(
         if len(ahead):
             allowed_ahead = np.zeros((len(ahead), MORTAL_ACTIONS), dtype=bool)
             allowed_ahead[:, :riichi_py.POSITIONS] = tiles_of[ahead]
-            answers, own = ask([who[i] for i in asked], False,
-                               np.concatenate([allowed[asked], allowed_ahead]),
-                               [who[i] for i in ahead])
+            answers, _own = ask([who[i] for i in asked], False,
+                                np.concatenate([allowed[asked], allowed_ahead]),
+                                [who[i] for i in ahead])
             values, previewed = answers[: len(asked)], answers[len(asked):]
         else:
-            values, own = ask([who[i] for i in asked], False, allowed[asked])
+            values, _own = ask([who[i] for i in asked], False, allowed[asked])
         best[asked] = np.where(allowed[asked], values, -np.inf).argmax(axis=1)
-        if stats is not None:
-            # A fallback is its own first choice not being a move here.
-            stats["fallbacks"] = stats.get("fallbacks", 0) + int(
-                ((np.where(own, values, -np.inf).argmax(axis=1) != best[asked])
-                 & ~orphan[asked]).sum()
-            )
-    if stats is not None:
-        stats["orphans"] = stats.get("orphans", 0) + int(orphan.sum())
     choice = first_meaning(best, legal)
     choice = np.where(orphan | (choice < 0), legal.argmax(axis=1), choice)
 
@@ -300,8 +287,6 @@ class MortalSpacePlayer:
         self.forward = torch.compile(net, dynamic=True) if compile else net
         self.device = device
         self.kind = net.kind
-        self.fallbacks = 0
-        self.orphans = 0
 
     def eval(self) -> MortalSpacePlayer:
         self.net.eval()
@@ -337,15 +322,11 @@ class MortalSpacePlayer:
     def choose(
         self, views: Views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray
     ) -> np.ndarray:
-        stats: dict = {}
-        choice = choose_in_mortal_space(
+        return choose_in_mortal_space(
             lambda who, fresh, allowed, ahead=(): self._ask(views, who, fresh, allowed, ahead),
-            views, rows, players, legal, stats,
+            views, rows, players, legal,
             skip_forced=self.skip_forced, preview_reach=self.preview_reach,
         )
-        self.orphans += stats.get("orphans", 0)
-        self.fallbacks += stats.get("fallbacks", 0)
-        return choice
 
 
 class ClubPlayer:
@@ -375,10 +356,6 @@ class MortalPlayer:
         self.forward = torch.compile(self.net, dynamic=True) if compile else self.net
         self.device = device
         self.path = str(path)
-        # How often the answer had to fall back on a later choice of
-        # Mortal's, and how often nothing of Mortal's was legal at all.
-        self.fallbacks = 0
-        self.orphans = 0
 
     def eval(self) -> MortalPlayer:
         return self
@@ -405,15 +382,11 @@ class MortalPlayer:
         """One of our actions per row, for `players[i]` in game `rows[i]`,
         given our engine's legal mask for each: the best of Mortal's
         actions that our engine allows, translated."""
-        stats: dict = {}
-        choice = choose_in_mortal_space(
+        return choose_in_mortal_space(
             lambda who, fresh, allowed, ahead=(): self._ask(views, who, fresh, allowed, ahead),
-            views, rows, players, legal, stats,
+            views, rows, players, legal,
             skip_forced=self.skip_forced, preview_reach=self.preview_reach,
         )
-        self.orphans += stats.get("orphans", 0)
-        self.fallbacks += stats.get("fallbacks", 0)
-        return choice
 
 
 def choose(
@@ -423,7 +396,6 @@ def choose(
     players: np.ndarray,
     legal: np.ndarray,
     device: str,
-    greedy: bool = True,
 ) -> np.ndarray:
     """One of our actions per row from any player: a zoo player answers
     for itself; a network of ours is shown the planes it sees and plays
@@ -435,9 +407,7 @@ def choose(
             views.dense(player.kind, rows, players, device),
             torch.from_numpy(legal).to(device),
         )
-    if greedy:
-        return logits.argmax(dim=1).cpu().numpy()
-    return torch.distributions.Categorical(logits=logits.float()).sample().cpu().numpy()
+    return logits.argmax(dim=1).cpu().numpy()
 
 
 def play_in_bfloat16(player, device: str):
