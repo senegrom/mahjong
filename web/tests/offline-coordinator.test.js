@@ -205,6 +205,19 @@ test('a page a hard reload loaded past its worker says to reload, not that stora
   assert.doesNotMatch(html, /unavailable here/);
 });
 
+test('a first visit that lost its connection and then outlasts the wait keeps nothing of the lost attempt', async () => {
+  const c = coordinator({ registered: false, coreReady: true, installs: true, controlled: false, impatient: true });
+  c.faults.registration = true;
+  assert.equal(await c.api.startOffline(), null);
+  assert.equal(c.state().phase, 'unavailable');
+  // The connection returns, and the install it starts outlasts the wait.
+  c.faults.registration = false;
+  assert.equal(await c.api.startOffline(), null, 'the page stopped waiting');
+  const { supported, phase, warning } = c.state();
+  assert.deepEqual({ supported, phase, warning }, { supported: true, phase: 'checking', warning: '' });
+  assert.match(panel(c.state()), /Still saving for offline play/);
+});
+
 test('optional AI download and retry touch only the AI group, not already complete base files', async () => {
   const c = coordinator({ coreReady: true, failAi: true });
   await c.api.startOffline();

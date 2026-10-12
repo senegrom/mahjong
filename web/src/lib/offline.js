@@ -232,8 +232,10 @@ export function startOffline() {
       if (registration) {
         // Saving works here and has not finished: an install still running
         // or one that failed, or a page a hard reload loaded past its
-        // worker. Say which, beside the game's own status.
-        update({ supported: true, coreReady: false, aiReady: false, coreWarning: error.message });
+        // worker. Say which, beside the game's own status, and drop what an
+        // earlier attempt that never reached a worker said.
+        update({ supported: true, phase: 'checking', warning: '', coreReady: false, aiReady: false,
+          coreWarning: error.message });
         refreshWhenControlled();
       } else {
         update({ supported: false, coreReady: false, aiReady: false, phase: 'unavailable',
