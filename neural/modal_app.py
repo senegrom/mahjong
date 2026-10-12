@@ -108,12 +108,13 @@ def _checkpoint(run: str, name: str) -> Path:
 def _resume_source(run: str, resume: str) -> Path:
     """The checkpoint a trainer's block resumes from, found as `_checkpoint`
     finds it, so it may be another run's: a block can start a run from
-    another lineage. When the name finds nothing the trainer starts a fresh
-    network, and that is refused in a run that already holds a `latest.pt`.
-    There the fresh network's first publication overwrote the run's latest,
-    best, reference and log, which nothing can bring back, and every retry
-    of the call did it again; a typo was enough, or a generation that was
-    never archived, as only every tenth is."""
+    another lineage. When the name finds nothing the trainer starts a new
+    one, from a fresh network, the published Mortal or a join, and that is
+    refused in a run that already holds a `latest.pt`. There the new
+    lineage's first publication overwrote the run's latest, best, reference
+    and log, which nothing can bring back, and every retry of the call did
+    it again; a typo was enough, or a generation that was never archived,
+    as only every tenth is."""
     source = _checkpoint(run, resume)
     if not source.exists() and (VOLUME / run / "latest.pt").exists():
         raise FileNotFoundError(
