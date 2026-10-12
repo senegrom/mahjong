@@ -68,16 +68,20 @@ class TheReaderSCorrectionIsReal(unittest.TestCase):
         self.assertGreater(float((one - other).abs().max()), 1e-3)
 
     def test_a_belief_target_reaches_the_correction(self):
-        read = self.fuse.read_hands(self.phi, self.guessed)
+        """Both of its layers, and nothing beneath them: Mortal's vector is
+        read, not trained, so the reading sends its encoder no gradient."""
+        phi = self.phi.clone().requires_grad_()
+        read = self.fuse.read_hands(phi, self.guessed)
         wanted = torch.softmax(torch.randn_like(self.guessed), dim=2)
         loss = -(wanted * torch.log_softmax(read, dim=2)).sum(dim=2).mean()
         loss.backward()
-        largest = max(
-            float(p.grad.abs().max())
-            for p in self.fuse.hands_out.parameters()
-            if p.grad is not None
-        )
-        self.assertGreater(largest, 1e-4, "nothing can train a head nothing reaches")
+        for layer in (self.fuse.hands_out, self.fuse.hands_fix):
+            largest = max(
+                (float(p.grad.abs().max()) for p in layer.parameters() if p.grad is not None),
+                default=0.0,
+            )
+            self.assertGreater(largest, 1e-4, "nothing can train a head nothing reaches")
+        self.assertIsNone(phi.grad, "the reading would reshape Mortal's encoder")
 
     def test_it_starts_silent_so_a_resumed_run_is_unchanged(self):
         torch.manual_seed(0)
