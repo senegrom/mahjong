@@ -509,15 +509,13 @@ def play(
             timing["encode"] += clock() - began
             began = clock()
         if theirs.any():
+            # No precision is chosen for the others here: every one that is
+            # asked for a move sets its own (see `policy_inference.autocast`).
             for which in np.unique(holder[theirs]):
                 rows = np.nonzero(theirs & (holder == which))[0]
-                other = opponents[int(which)]
-                with torch.autocast(
-                    "cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"
-                ):
-                    their_choice[rows] = zoo.choose(
-                        other, views, rows, deciding[rows], mask[rows], device
-                    )
+                their_choice[rows] = zoo.choose(
+                    opponents[int(which)], views, rows, deciding[rows], mask[rows], device
+                )
         timing["opponents"] += clock() - began
         began = clock()
         if not len(index):
