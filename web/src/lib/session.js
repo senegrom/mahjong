@@ -7,8 +7,10 @@ import { normalizeTileFace } from './tile-faces.js';
 
 export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
-// 2 since the site played generation 810: see readSettings.
-const VERSION = 2;
+const VERSION = 1;
+// The settings record's own version, 2 since the site played generation 810:
+// see readSettings. Saved matches keep VERSION.
+const SETTINGS_VERSION = 2;
 const MAX_COMMANDS = 20000;
 const MAX_SAVE_BYTES = 2_000_000;
 const DIFFICULTIES = OPPONENT_TYPES;
@@ -33,7 +35,7 @@ export function readSettings(storage, touch = false) {
   const defaults = { difficulty: DEFAULT_OPPONENT, hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: DEFAULT_REVIEW_ADVISER };
   try {
     const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
-    if (value?.version !== VERSION && value?.version !== 1) return defaults;
+    if (value?.version !== SETTINGS_VERSION && value?.version !== 1) return defaults;
     defaults.tileFace = normalizeTileFace(value.tileFace);
     for (const key of ['hints', 'confirmDiscards', 'shortcuts']) {
       if (typeof value[key] === 'boolean') defaults[key] = value[key];
@@ -56,7 +58,7 @@ export function readSettings(storage, touch = false) {
  * effect reruns would overwrite a change another tab made meanwhile. Returns
  * what this tab last stored, for the next call. */
 export function writeSettings(storage, settings, last = null) {
-  const text = JSON.stringify({ version: VERSION, ...settings });
+  const text = JSON.stringify({ version: SETTINGS_VERSION, ...settings });
   if (text === last) return last;
   try { storage?.setItem(SETTINGS_KEY, text); } catch { return last; /* Gameplay still works. */ }
   return text;
