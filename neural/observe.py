@@ -258,7 +258,7 @@ class Planes:
 
 class FlatPlanes:
     """A batch of dense observations, answering what `imitate` asks of
-    `Planes`: `of`, `cat`, `rows` and `dense`.
+    `Planes`: `cat`, `rows` and `dense`.
 
     The engine's own planes are neither sparse nor large: a round of them
     is tens of megabytes where Mortal's would be gigabytes. They are kept
