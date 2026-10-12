@@ -340,6 +340,34 @@ fn legal_masks(seats: &[Seat], mask: &mut [bool]) {
         });
 }
 
+/// One row of `width` float32 numbers per game, as the bytes Python reads
+/// with `numpy.frombuffer`: what `fill` writes for the seat owing the
+/// game's decision, and zeros where the game owes none. Each row is encoded
+/// into one row of scratch and copied into the bytes object as it is made,
+/// so the arena keeps no buffer of every game's rows between calls.
+fn per_game<'py>(
+    py: Python<'py>,
+    seats: &[Seat],
+    width: usize,
+    fill: fn(&Hand, Wind, &mut [f32]),
+) -> PyResult<Bound<'py, PyBytes>> {
+    const FLOAT: usize = std::mem::size_of::<f32>();
+    let mut row = vec![0.0; width];
+    PyBytes::new_with(py, seats.len() * width * FLOAT, |bytes| {
+        for (seat, out) in seats.iter().zip(bytes.chunks_exact_mut(width * FLOAT)) {
+            // The bytes start as zeros, which is what a game owing nothing
+            // is given.
+            if let Some(wind) = seat.pending() {
+                fill(&seat.hand, wind, &mut row);
+                for (value, out) in row.iter().zip(out.chunks_exact_mut(FLOAT)) {
+                    out.copy_from_slice(&value.to_ne_bytes());
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
 /// Why `actions` cannot be applied, if they cannot: the first game, in game
 /// order, whose pending decision is not a legal move. Checked across the
 /// cores; `find_map_first` still names the game a loop from the first
@@ -416,12 +444,7 @@ fn places_by_table(
 #[pyclass]
 pub struct Arena {
     seats: Vec<Seat>,
-    observations: Vec<f32>,
-    /// What each deciding seat cannot see, filled in only when asked for.
-    oracle: Vec<f32>,
     mask: Vec<bool>,
-    /// What the opponents are holding, filled in only when asked for.
-    hands: Vec<f32>,
 }
 
 #[pymethods]
@@ -450,10 +473,7 @@ impl Arena {
                 .enumerate()
                 .map(|(index, places)| Seat::new(seed.wrapping_add(index as u64), places))
                 .collect(),
-            observations: vec![0.0; games * OBSERVATION],
-            oracle: vec![0.0; games * ORACLE],
             mask: vec![false; games * ACTIONS],
-            hands: vec![0.0; games * HANDS],
         })
     }
 
@@ -477,30 +497,16 @@ impl Arena {
     }
 
     /// One observation per game, for the seat owing a decision, as float32.
-    fn observations<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        for (index, seat) in self.seats.iter().enumerate() {
-            let slice = &mut self.observations[index * OBSERVATION..(index + 1) * OBSERVATION];
-            match seat.pending() {
-                Some(wind) => encoding::observe(&seat.hand, wind, slice),
-                None => slice.fill(0.0),
-            }
-        }
-        PyBytes::new(py, bytemuck_cast(&self.observations))
+    fn observations<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        per_game(py, &self.seats, OBSERVATION, encoding::observe)
     }
 
     /// What each deciding seat cannot see, as float32 planes for the
     /// oracle critic: [`ORACLE_PLANES`] planes of thirty-four per game,
     /// zeros for a game that owes no decision. Only training asks for it;
     /// the network is never shown it when choosing a move.
-    fn oracle<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        for (index, seat) in self.seats.iter().enumerate() {
-            let slice = &mut self.oracle[index * ORACLE..(index + 1) * ORACLE];
-            match seat.pending() {
-                Some(wind) => encoding::oracle(&seat.hand, wind, slice),
-                None => slice.fill(0.0),
-            }
-        }
-        PyBytes::new(py, bytemuck_cast(&self.oracle))
+    fn oracle<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        per_game(py, &self.seats, ORACLE, encoding::oracle)
     }
 
     /// What the opponents are actually holding, one answer per game, as
@@ -509,15 +515,8 @@ impl Arena {
     ///
     /// This is the label for the head that reads a table. It is only ever
     /// used to teach: the network is never shown it when choosing a move.
-    fn opponent_hands<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        for (index, seat) in self.seats.iter().enumerate() {
-            let slice = &mut self.hands[index * HANDS..(index + 1) * HANDS];
-            match seat.pending() {
-                Some(wind) => encoding::opponent_hands(&seat.hand, wind, slice),
-                None => slice.fill(0.0),
-            }
-        }
-        PyBytes::new(py, bytemuck_cast(&self.hands))
+    fn opponent_hands<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        per_game(py, &self.seats, HANDS, encoding::opponent_hands)
     }
 
     /// One legality mask per game, as bytes of 0 and 1.
@@ -627,21 +626,25 @@ impl Arena {
     /// a hand was made in. A later hand ended on the same step was dealt
     /// and played out by native bots alone, so nothing waits on it.
     fn hand_result<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        let mut values: Vec<i32> = Vec::with_capacity(self.seats.len() * 4);
-        for seat in &self.seats {
-            values.extend_from_slice(&seat.endings.first().copied().unwrap_or_default());
-        }
-        PyBytes::new(py, cast_i32(&values))
+        let bytes: Vec<u8> = self
+            .seats
+            .iter()
+            .flat_map(|seat| seat.endings.first().copied().unwrap_or_default())
+            .flat_map(i32::to_ne_bytes)
+            .collect();
+        PyBytes::new(py, &bytes)
     }
 
     /// The final scores of every game, four per game, as int32 by player.
     /// These already carry the winner bonus.
     fn final_scores<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        let mut values: Vec<i32> = Vec::with_capacity(self.seats.len() * 4);
-        for seat in &self.seats {
-            values.extend_from_slice(&seat.table.final_scores());
-        }
-        PyBytes::new(py, cast_i32(&values))
+        let bytes: Vec<u8> = self
+            .seats
+            .iter()
+            .flat_map(|seat| seat.table.final_scores())
+            .flat_map(i32::to_ne_bytes)
+            .collect();
+        PyBytes::new(py, &bytes)
     }
 
     /// Which player holds each seat, four per game, so a game's rewards can
@@ -681,19 +684,6 @@ impl Arena {
     }
 }
 
-fn bytemuck_cast(values: &[f32]) -> &[u8] {
-    // Safe: f32 has no padding and any bit pattern is a valid u8.
-    unsafe {
-        std::slice::from_raw_parts(values.as_ptr() as *const u8, std::mem::size_of_val(values))
-    }
-}
-
-fn cast_i32(values: &[i32]) -> &[u8] {
-    unsafe {
-        std::slice::from_raw_parts(values.as_ptr() as *const u8, std::mem::size_of_val(values))
-    }
-}
-
 /// The riichi rules engine, as a batched environment.
 #[pymodule(gil_used = true)]
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -714,7 +704,6 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
         "PLACEMENT_VALUE",
         riichi_core::encoding::PLACEMENT_VALUE.to_vec(),
     )?;
-    module.add("HANDS", HANDS)?;
     module.add("PASS", PASS)?;
     Ok(())
 }
