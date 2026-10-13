@@ -452,8 +452,7 @@ impl Hand {
         // (EMA 2025 section 3.3.10, changed from four in the 2016 edition).
         // The cheap check first: a hand can only be waiting after a discard
         // if the whole hand is at most tenpai already.
-        if !player.has_riichi()
-            && player.is_concealed()
+        if player.is_concealed()
             && self.wall.remaining() >= 1
             && player.score >= 1000
             && shanten::shanten(&player.hand, player.melds.len()) <= shanten::TENPAI
