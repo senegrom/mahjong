@@ -142,11 +142,11 @@ class Trainer:
         heads = {}
         save = ppo_loop.atomic_save
 
-        def saving(payload, path):
+        def saving(payload, path, **options):
             if Path(path).name == "latest.pt":
                 heads[payload["generation"]] = {
                     name: value.detach().clone() for name, value in payload["combined"].items()}
-            return save(payload, path)
+            return save(payload, path, **options)
 
         with contextlib.ExitStack() as stack:
             for patched in (
@@ -712,10 +712,10 @@ class RealRoundTests(unittest.TestCase):
             played[generation_of(options["seed"])] = batch
             return batch
 
-        def saving(payload, path):
+        def saving(payload, path, **options):
             if Path(path).name == "latest.pt":
                 payloads[payload["generation"]] = copy.deepcopy(payload)
-            return save(payload, path)
+            return save(payload, path, **options)
 
         argv = ["trainer", "--resume", str(resume or self.origin), "--out", str(self.root / out),
                 "--rounds", str(rounds), "--games", "1", "--batch", "64", "--epochs", "1",

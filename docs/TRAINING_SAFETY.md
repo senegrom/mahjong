@@ -26,7 +26,11 @@ it is never used as a resume source. Existing corrupt files are not repaired.
 passes `keep_previous=False`. The backup is local and single-writer, not a
 transaction, and no proof that the older file was sound. Restoring from it
 is an operator's choice, never automatic; cloud publication neither
-restores from it nor uploads it.
+restores from it nor uploads it. The self-play trainers skip it when
+`MAHJONG_KEEP_PREVIOUS` is `0`, which the cloud launcher sets for its
+children: a cloud workspace is deleted when its call ends, so there the
+backup only cost a copy of the checkpoint every generation. On the desktop
+it is kept.
 
 The cloud publisher validates staged copies of **all** checkpoint files before
 changing any live checkpoint. `generation.txt` and tenth-generation archives
@@ -34,17 +38,25 @@ use the generation in the copied `latest.pt`, not a stale stdout counter.
 Checkpoint renames are individually atomic, not one transaction across logs,
 latest, best, reference and metadata. A failed controller stops its child;
 a failed training process does not trigger another final publication. Earlier
-completed generations already published remain available.
+completed generations already published remain available. Within one call,
+`best.pt` and `reference.pt` are copied again only when they have changed
+since the call last published them (by size, modification time and inode);
+the first publication of every call copies both.
 
 ## Container reuse and resume
 
 Each cloud training, distillation and reheading invocation receives its own
-fresh temporary directory and explicit `run.json` identity. An existing local
-`latest.pt` is never a reason to resume. Only a checkpoint resolved from the
-requested volume source enables resume. Same-run resume carries the saved
-reference, best checkpoint and history explicitly; cross-lineage starts do
-not inherit the target run's old reference or history. Completed output is
-validated before it is copied to the volume.
+fresh, empty temporary directory, its name prefixed with the run's. An
+existing local `latest.pt` is never a reason to resume. Only a checkpoint
+resolved from the requested volume source enables resume. Same-run resume
+carries the saved reference, best checkpoint and history explicitly;
+cross-lineage starts do not inherit the target run's old reference or
+history. A resume name that resolves to nothing starts a new lineage (a
+fresh network, the published Mortal or a join) only in a run that holds no
+`latest.pt` yet; in one that does, the call fails before anything is copied,
+staged or started, because the new lineage's first publication would
+overwrite the run's checkpoints and log. Completed output is validated
+before it is copied to the volume.
 
 The invocation owns and cleans up only its own temporary directory. Existing
 scratch directories, volume checkpoints, and compiler caches are not deleted.
@@ -59,7 +71,10 @@ anything is staged: one missing checkpoint aborts the invocation rather than
 shrinking the population. Each is copied through the validated checkpoint
 writer into its own numbered directory, and `opponents.json` records the
 requested name, the staged copy's SHA-256 and its generation; cloud
-publication keeps that manifest beside the checkpoints.
+publication keeps that manifest beside the checkpoints. A block seated
+without others publishes no manifest and removes the one an earlier block
+left, so the published manifest always describes the block that published
+last.
 
 Deal seeds do not depend on the round size, so `--games` may change on
 resume. `training_state.round_seed` gives every absolute generation its own

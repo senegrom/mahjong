@@ -3,11 +3,12 @@
 No Modal SDK, external service or GPU job is required. Only top-level deployment
 objects are stubbed; scratch allocation and checkpoint IO use their real code.
 """
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from functools import partial
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import subprocess
@@ -16,7 +17,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from neural import cloud_runs
+from neural import checkpoints, cloud_runs
 from neural.checkpoints import atomic_save, validate_checkpoint
 
 
@@ -41,6 +42,14 @@ def controller():
     return module
 
 
+def child(stdout='', stderr='', code=0):
+    """A child of `arena`, `duel`, `distil` or `rehead` as `subprocess.Popen`
+    hands it over, already finished: what it wrote to each pipe, and how it
+    exited."""
+    return SimpleNamespace(stdout=io.StringIO(stdout),stderr=io.StringIO(stderr),
+                           wait=lambda timeout=None:code,poll=lambda:code)
+
+
 class CloudIsolationTests(unittest.TestCase):
     def test_reused_container_never_supplies_resume_or_other_run_metadata(self):
         app=controller()
@@ -54,8 +63,8 @@ class CloudIsolationTests(unittest.TestCase):
             calls=[]
             def popen(command,**kwargs):
                 where=Path(command[command.index('--out')+1])
-                calls.append((command,list(p.name for p in where.iterdir()),
-                              json.loads((where/'run.json').read_text())['run']))
+                # The workspace is named after its run, and nothing else says which.
+                calls.append((command,list(p.name for p in where.iterdir()),where.name.rsplit('-',1)[0]))
                 return SimpleNamespace(stdout=io.StringIO(),wait=lambda:0)
             with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
                  patch.object(app,'_environment',return_value={}),patch.object(app,'_save_cache'), \
@@ -65,7 +74,7 @@ class CloudIsolationTests(unittest.TestCase):
                 app.train(run='fresh',generations=1)
             self.assertNotIn('--resume',calls[0][0]);self.assertNotIn('--resume',calls[2][0])
             self.assertIn('--resume',calls[1][0]);self.assertIn('best.pt',calls[1][1])
-            self.assertEqual(calls[0][1],['run.json']);self.assertEqual(calls[2][1],['run.json'])
+            self.assertEqual(calls[0][1],[]);self.assertEqual(calls[2][1],[])
             self.assertEqual([call[2] for call in calls],['fresh','resumed','fresh'])
             paths=[call[0][call[0].index('--out')+1] for call in calls]
             self.assertEqual(len(set(paths)),3)
@@ -291,6 +300,41 @@ class CloudIsolationTests(unittest.TestCase):
                 self.assertIn('latest.pt',seen['files'])
                 self.assertFalse(seen['files']&{'log.jsonl','best.pt','reference.pt'})
 
+    def test_a_resume_that_names_nothing_never_starts_a_run_that_exists_afresh(self):
+        # A typo, or a generation that was never archived, started a fresh
+        # network under the run's name, and its first publication replaced
+        # the run's latest, best, reference and log; every retry did it
+        # again. Everything a fresh start needs is here, so only the refusal
+        # can stop it.
+        app=controller()
+        def popen(command,**kwargs):
+            calls.append(command)
+            where=Path(command[command.index('--out')+1])
+            atomic_save({'generation':1},where/'latest.pt')
+            return SimpleNamespace(stdout=io.StringIO(json.dumps({'generation':0,'checkpoint_generation':1})+'\n'),
+                                   wait=lambda:0)
+        for trainer in ('train','train_mortal','train_combined'):
+            for resume in ('lastest','history/gen-00405'):
+                with self.subTest(trainer=trainer,resume=resume),tempfile.TemporaryDirectory() as folder:
+                    root=Path(folder);volume=root/'volume';run=volume/'run'
+                    for name in ('latest.pt','best.pt','reference.pt'):atomic_save({'generation':410},run/name)
+                    atomic_save({'generation':400},run/'history/gen-00400.pt')
+                    (run/'log.jsonl').write_text(''.join(json.dumps({'generation':g})+'\n' for g in range(410)))
+                    (run/'generation.txt').write_text('410')
+                    for start in ('zoo/mortal_298k','w1012-run/mortal-space','mortal-run/latest'):
+                        atomic_save({'generation':0},volume/f'{start}.pt')
+                    files=lambda:{path:path.read_bytes() for path in volume.rglob('*') if path.is_file()}
+                    before,calls=files(),[]
+                    with self.assertRaises(FileNotFoundError) as refused:
+                        self.launch(app,trainer,volume,root/'scratch',popen,run='run',resume=resume,generations=10)
+                    self.assertIn(str(volume/f'{resume}.pt'),str(refused.exception))
+                    self.assertEqual(calls,[])
+                    self.assertEqual(files(),before)
+                    # A run that holds nothing yet still starts afresh.
+                    self.launch(app,trainer,volume,root/'scratch',popen,run='new',resume=resume,generations=1)
+                    self.assertEqual(len(calls),1);self.assertNotIn('--resume',calls[0])
+                    self.assertEqual(validate_checkpoint(volume/'new/latest.pt'),1)
+
     def test_failed_rehead_and_distillation_cannot_publish_leftover_outputs(self):
         app=controller()
         with tempfile.TemporaryDirectory() as folder:
@@ -298,12 +342,13 @@ class CloudIsolationTests(unittest.TestCase):
             atomic_save({'generation':3},volume/'run/teacher.pt')
             atomic_save({'generation':2},volume/'run/product.pt')
             before=(volume/'run/product.pt').read_bytes()
-            def execute(command,**kwargs):
+            def popen(command,**kwargs):
+                # The child saved a product before it failed.
                 out=Path(command[command.index('--out')+1]);atomic_save({'generation':99},out/'latest.pt')
-                return SimpleNamespace(stdout='',stderr='failed',returncode=1)
+                return child(stderr='failed',code=1)
             with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
-                 patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'run',side_effect=execute), \
-                 redirect_stdout(io.StringIO()):
+                 patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'Popen',side_effect=popen), \
+                 redirect_stdout(io.StringIO()),redirect_stderr(io.StringIO()):
                 for function in (app.rehead,app.distil):
                     with self.subTest(function=function.__name__), \
                          self.assertRaises(subprocess.CalledProcessError) as failed:
@@ -320,16 +365,13 @@ class CloudIsolationTests(unittest.TestCase):
             root=Path(folder);volume=root/'volume';scratch=root/'scratch'
             atomic_save({'generation':3},volume/'run/teacher.pt')
             calls,outcomes=[],[]
-            def execute(command,**kwargs):
-                calls.append(command)
-                return outcomes.pop(0)
             def popen(command,**kwargs):
                 calls.append(command)
-                return SimpleNamespace(stdout=io.StringIO(),wait=lambda:0)
+                return outcomes.pop(0)
             with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
                  patch.object(app,'_environment',return_value={}),patch.object(app,'_save_cache'), \
-                 patch.object(app.subprocess,'run',side_effect=execute), \
-                 patch.object(app.subprocess,'Popen',side_effect=popen),redirect_stdout(io.StringIO()):
+                 patch.object(app.subprocess,'Popen',side_effect=popen), \
+                 redirect_stdout(io.StringIO()),redirect_stderr(io.StringIO()):
                 for name,call in (
                         ('train_mortal',lambda:app.train_mortal(run='fresh',mortal='zoo/missing',generations=1)),
                         ('train_combined ours',lambda:app.train_combined(run='fresh',ours='missing',mortal='run/teacher',generations=1)),
@@ -342,12 +384,12 @@ class CloudIsolationTests(unittest.TestCase):
                     with self.subTest(name=name),self.assertRaises(FileNotFoundError):
                         call()
                 self.assertEqual(calls,[])
-                outcomes.append(SimpleNamespace(stdout='{"placement": 2.4',stderr='Traceback: boom',returncode=1))
+                outcomes.append(child('{"placement": 2.4','Traceback: boom',1))
                 with self.assertRaises(subprocess.CalledProcessError) as failed:
                     app.arena(which='teacher',run='run')
                 self.assertEqual(failed.exception.returncode,1)
                 self.assertIn('boom',failed.exception.output)
-                outcomes.append(SimpleNamespace(stdout='{"placement": 2.4}',stderr='a warning',returncode=0))
+                outcomes.append(child('{"placement": 2.4}','a warning',0))
                 self.assertEqual(app.arena(which='teacher',run='run'),'generation 3\n{"placement": 2.4}')
             self.assertEqual([command[:3] for command in calls],[[sys.executable,'-m','neural.arena']]*2)
             self.assertEqual(list(scratch.iterdir()),[])
@@ -362,30 +404,203 @@ class CloudIsolationTests(unittest.TestCase):
             atomic_save({'generation':5},volume/'run/latest.pt')
             atomic_save({'generation':4},volume/'run/older.pt')
             calls,outcomes=[],[]
-            def execute(command,**kwargs):
+            def popen(command,**kwargs):
                 calls.append(command)
                 self.assertTrue(Path(command[3]).exists() and Path(command[4]).exists())
                 return outcomes.pop(0)
             with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
-                 patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'run',side_effect=execute), \
-                 redirect_stdout(io.StringIO()):
+                 patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'Popen',side_effect=popen), \
+                 redirect_stdout(io.StringIO()),redirect_stderr(io.StringIO()):
                 for challenger,incumbent in (('missing','older'),('latest','missing')):
                     with self.subTest(challenger=challenger,incumbent=incumbent),self.assertRaises(FileNotFoundError):
                         app.duel(challenger=challenger,incumbent=incumbent,run='run')
                 self.assertEqual(calls,[])
-                outcomes.append(SimpleNamespace(stdout='{"placement": 2.4',stderr='Traceback: boom',returncode=1))
+                outcomes.append(child('{"placement": 2.4','Traceback: boom',1))
                 with self.assertRaises(subprocess.CalledProcessError) as failed:
                     app.duel(challenger='latest',incumbent='older',run='run')
                 self.assertEqual(failed.exception.returncode,1)
                 self.assertIn('boom',failed.exception.output)
                 report={'placement':2.4,'by_deal':[2.5,2.3]}
-                outcomes.append(SimpleNamespace(stdout=json.dumps(report),stderr='a warning',returncode=0))
+                # A warning on stderr reaches the log, never the answer.
+                outcomes.append(child(json.dumps(report),'a warning',0))
                 self.assertEqual(json.loads(app.duel(challenger='latest',incumbent='older',run='run')),report)
             self.assertEqual(len(calls),2)
             self.assertEqual(calls[0][:3],[sys.executable,'-m','neural.duel'])
             self.assertEqual([Path(path).name for path in calls[0][3:5]],['latest.pt','older.pt'])
             # Each call copied the checkpoints into its own scratch and removed it.
             self.assertEqual(list(scratch.iterdir()),[])
+
+    def test_arena_measures_a_player_from_the_zoo(self):
+        # A published Mortal carries no generation, and arena refused one
+        # before its child started, as duel did until 254604b. A table is
+        # not a promotion: the player is described rather than refused.
+        import torch
+        app=controller()
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume'
+            atomic_save({'mortal':{'weight':torch.zeros(1)}},volume/'zoo/mortal_x.pt')
+            calls=[]
+            def popen(command,**kwargs):
+                calls.append(command)
+                return child('{"placement": 2.4}\n')
+            with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=root/'scratch')), \
+                 patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'Popen',side_effect=popen), \
+                 redirect_stdout(io.StringIO()):
+                answer=app.arena(which='zoo/mortal_x',run='run')
+            self.assertEqual([command[:3] for command in calls],[[sys.executable,'-m','neural.arena']])
+            self.assertEqual(answer,'generation none (a player from the zoo)\n{"placement": 2.4}\n')
+
+    def test_a_bad_product_name_fails_before_any_work(self):
+        # The name was checked only when the product was published, after
+        # up to six hours on an H100, and a bad one threw all of it away.
+        # The teacher is there and the child would succeed, so only the
+        # name can stop the work before it starts.
+        app=controller()
+        def product(command):
+            out=Path(command[command.index('--out')+1]);atomic_save({'generation':99},out/'latest.pt')
+        def popen(command,**kwargs):
+            product(command);return child()
+        def run(command,**kwargs):
+            product(command);return SimpleNamespace(returncode=0,stdout='',stderr='')
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume';scratch=root/'scratch'
+            atomic_save({'generation':3},volume/'run/teacher.pt')
+            for function in (app.distil,app.rehead):
+                for name in ('sub/x','','../x'):
+                    with self.subTest(function=function.__name__,name=name), \
+                         patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
+                         patch.object(app,'_environment',return_value={}), \
+                         patch.object(app.subprocess,'Popen',side_effect=popen) as started, \
+                         patch.object(app.subprocess,'run',side_effect=run) as ran, \
+                         redirect_stdout(io.StringIO()):
+                        with self.assertRaises(ValueError):
+                            function(teacher='teacher',run='run',name=name)
+                        started.assert_not_called();ran.assert_not_called()
+                        # Not even a workspace was made for it.
+                        self.assertFalse(scratch.exists())
+
+    def test_a_childs_lines_reach_the_log_while_it_runs(self):
+        # A distillation's child, run whole and printed when it ended, left
+        # nothing in the log but its command line when the timeout cut it
+        # off. This child says it is halfway and waits, for up to half a
+        # minute, to be told its line reached the log before it finishes.
+        app=controller()
+        script=("import pathlib, sys, time\n"
+                "print('halfway', flush=True)\n"
+                "told = pathlib.Path(sys.argv[1])\n"
+                "for _ in range(300):\n"
+                "    if told.exists():\n"
+                "        print('finished', flush=True)\n"
+                "        sys.exit(0)\n"
+                "    time.sleep(0.1)\n"
+                "sys.exit(3)\n")
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume';told=root/'told'
+            atomic_save({'generation':3},volume/'run/teacher.pt')
+            logged=[]
+            def log(*parts,**options):
+                logged.append(' '.join(map(str,parts)))
+                if 'halfway' in logged[-1]:told.touch()
+            start=subprocess.Popen
+            def popen(command,**kwargs):
+                # The distillation's child, played by the script.
+                return start([sys.executable,'-c',script,str(told)],**{**kwargs,'cwd':folder})
+            with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=root/'scratch')), \
+                 patch.object(app,'_environment',return_value=dict(os.environ)), \
+                 patch.object(app,'print',log,create=True),patch.object(app.subprocess,'Popen',side_effect=popen):
+                answer=app.distil(teacher='teacher',run='run',name='product')
+            self.assertEqual(answer,'halfway\nfinished\n')
+            self.assertFalse((volume/'run/product.pt').exists())
+
+    def test_smoke_reports_a_part_stopped_by_its_timeout_and_goes_on(self):
+        # Each trainer was let run forty minutes inside a function of
+        # forty-five, and one that ran its time out raised past the report.
+        import torch
+        app=controller()
+        self.assertLess(2*app.SMOKE_PART_TIMEOUT,app.SMOKE_TIMEOUT)
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume'
+            atomic_save({'generation':0},volume/'zoo/mortal_298k.pt')
+            logged,calls=[],[]
+            def log(*parts,**options):
+                logged.append(' '.join(map(str,parts)))
+            def run(command,**kwargs):
+                calls.append((command[2],kwargs['timeout'],'\n'.join(logged)))
+                if command[2]=='neural.train':
+                    raise subprocess.TimeoutExpired(command,kwargs['timeout'],output=b'round 1 played\n',
+                                                    stderr=b'still compiling\n')
+                return SimpleNamespace(returncode=0,stdout='mortal trained\n',stderr='')
+            with patch.object(app,'VOLUME',volume),patch.object(app,'SMOKE_OUT',root/'smoke'), \
+                 patch.object(app,'_environment',return_value={}),patch.object(app,'print',log,create=True), \
+                 patch.object(torch.cuda,'is_available',return_value=False), \
+                 patch.object(app.subprocess,'run',side_effect=run):
+                report=app.smoke()
+            self.assertEqual([call[:2] for call in calls],[('neural.train',app.SMOKE_PART_TIMEOUT),
+                                                          ('neural.train_mortal',app.SMOKE_PART_TIMEOUT)])
+            for said in (f'train stopped after {app.SMOKE_PART_TIMEOUT}s','round 1 played','still compiling',
+                         'train_mortal exit=0','mortal trained'):
+                self.assertIn(said,report)
+            # The first part was in the log before the second began.
+            self.assertIn('train stopped after',calls[1][2])
+
+    def test_an_unchanged_best_and_reference_are_published_once_a_call(self):
+        # Every generation copied, loaded and synced both, about half a
+        # gigabyte, though the reference is written once a run and the best
+        # only at a new best. Here the best changes once, at generation 45.
+        app=controller()
+        copied=[]
+        copy=checkpoints.copy_checkpoint
+        def counting(source,destination,**kwargs):
+            copied.append(Path(source).name)
+            return copy(source,destination,**kwargs)
+        def popen(command,**kwargs):
+            where=Path(command[command.index('--out')+1])
+            start=validate_checkpoint(where/'latest.pt')
+            def lines():
+                for generation in range(start,start+int(command[command.index('--rounds')+1])):
+                    atomic_save({'generation':generation+1},where/'latest.pt')
+                    if generation+1==45:atomic_save({'generation':45},where/'best.pt')
+                    yield json.dumps({'generation':generation,'checkpoint_generation':generation+1})+'\n'
+            return SimpleNamespace(stdout=lines(),wait=lambda:0)
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume';run=volume/'run'
+            atomic_save({'generation':40},run/'latest.pt')
+            atomic_save({'generation':35},run/'best.pt')
+            atomic_save({'generation':0},run/'reference.pt')
+            with patch.object(checkpoints,'copy_checkpoint',side_effect=counting):
+                answer=self.launch(app,'train_combined',volume,root/'scratch',popen,run='run',generations=10)
+                self.assertIn('generation=50 from 40',answer)
+                # Eleven publications, one a generation and the last, copied
+                # the best at the first and when it changed, the reference once.
+                self.assertEqual((copied.count('best.pt'),copied.count('reference.pt')),(2,1))
+                self.assertEqual([validate_checkpoint(run/name) for name in ('best.pt','reference.pt')],[45,0])
+                # The next call copies both again at its first publication.
+                copied.clear()
+                self.launch(app,'train_combined',volume,root/'scratch',popen,run='run',generations=2)
+                self.assertEqual((copied.count('best.pt'),copied.count('reference.pt')),(1,1))
+
+    def test_a_cloud_workspace_keeps_no_previous_checkpoint(self):
+        # A cloud workspace is deleted when its call ends and publication
+        # never uploads a `.previous`, so the launcher's children save
+        # without it; the desktop keeps it.
+        from neural import ppo_loop
+        app=controller()
+        with patch.object(app,'_seed_cache'),redirect_stdout(io.StringIO()):
+            cloud=app._environment(app.TRAINER_CPUS,compiled=True)
+        for environment,kept in ((cloud,False),({},True)):
+            with self.subTest(kept=kept),tempfile.TemporaryDirectory() as folder,patch.dict(os.environ), \
+                 redirect_stdout(io.StringIO()):
+                os.environ.pop('MAHJONG_KEEP_PREVIOUS',None)
+                if 'MAHJONG_KEEP_PREVIOUS' in environment:
+                    os.environ['MAHJONG_KEEP_PREVIOUS']=environment['MAHJONG_KEEP_PREVIOUS']
+                out=Path(folder);benchmark=ppo_loop.Benchmark()
+                for generation in range(2):
+                    # Each measurement better than the last, so both checkpoints are replaced.
+                    ppo_loop.finish(SimpleNamespace(out=out,measure_every=1),generation,{'generation':generation},
+                                    lambda g:{'placement':2.5-0.1*g,'score':0.0,'wins':0.25},
+                                    lambda g:{'generation':g},benchmark,out/'log.jsonl')
+                backups={'latest.pt.previous','best.pt.previous'} if kept else set()
+                self.assertEqual({path.name for path in out.iterdir()},{'latest.pt','best.pt','log.jsonl'}|backups)
 
     def test_no_function_defaults_to_the_retired_engine_plane_lineage(self):
         # w320-run's networks read the engine's planes as version 1 wrote

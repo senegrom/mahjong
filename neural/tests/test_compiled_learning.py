@@ -11,6 +11,7 @@ import copy
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -193,15 +194,112 @@ class CacheTests(unittest.TestCase):
                 self.assertEqual(commits, [1, 1])
                 self.assertEqual((shared / "fresh.bin").read_bytes(), b"compiled again")
 
+    def test_a_copy_cut_short_leaves_nothing_under_the_files_name(self):
+        """A file goes to a hidden name beside its own and is renamed into
+        place, so a copy that fails, or is committed while under way, never
+        leaves a truncated file where the compiler loads it: the compiler
+        never rewrites a file it finds there."""
+        app = controller()
+        with tempfile.TemporaryDirectory() as folder, contextlib.ExitStack() as stack:
+            root = Path(folder)
+            local, shared = root / "local", root / "shared"
+            local.mkdir()
+            (local / "graph.py").write_text("compiled")
+            for name, value in (("LOCAL_CACHE", local), ("SHARED_CACHE", shared), ("_ON_VOLUME", {}),
+                                ("volume", SimpleNamespace(commit=lambda: None))):
+                stack.enter_context(patch.object(app, name, value))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            copy = app.shutil.copy2
+
+            def cut_short(source, destination, **options):
+                Path(destination).write_text("comp")
+                raise OSError("no space left on device")
+
+            with patch.object(app.shutil, "copy2", side_effect=cut_short):
+                app._save_cache()
+            self.assertEqual([path for path in shared.rglob("*") if path.is_file()], [])
+            # The next save, with room, copies the file whole.
+            self.assertIs(app.shutil.copy2, copy)
+            app._save_cache()
+            self.assertEqual([path.name for path in shared.rglob("*") if path.is_file()], ["graph.py"])
+            self.assertEqual((shared / "graph.py").read_text(), "compiled")
+
+    def test_a_hidden_copy_left_on_the_volume_is_never_seeded(self):
+        """A container killed in the middle of a save leaves its hidden copy
+        on the volume, and the graph cache of the torch the image installs
+        tries every file in a graph's folder, whatever its name."""
+        app = controller()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            local, shared = root / "local", root / "shared"
+            graph = shared / "fxgraph" / "ab" / "fabc"
+            graph.mkdir(parents=True)
+            (graph / "0").write_bytes(b"compiled")
+            # Named as `checkpoints.staging_file` names a copy of `0`.
+            descriptor, _ = tempfile.mkstemp(prefix=".0.", suffix=".partial", dir=graph)
+            os.write(descriptor, b"comp")
+            os.close(descriptor)
+            with patch.object(app, "LOCAL_CACHE", local), patch.object(app, "SHARED_CACHE", shared), \
+                    patch.object(app, "_ON_VOLUME", {}), contextlib.redirect_stdout(io.StringIO()):
+                app._seed_cache()
+            self.assertEqual([path.relative_to(local).as_posix() for path in local.rglob("*") if path.is_file()],
+                             ["fxgraph/ab/fabc/0"])
+
     def test_the_compilers_workers_are_the_containers_share(self):
         app = controller()
         with tempfile.TemporaryDirectory() as folder, \
                 patch.object(app, "_seed_cache", return_value=Path(folder)), \
                 contextlib.redirect_stdout(io.StringIO()):
-            environment = app._environment(app.TRAINER_CPUS)
+            environment = app._environment(app.TRAINER_CPUS, compiled=True)
             self.assertEqual(environment["TORCHINDUCTOR_COMPILE_THREADS"], str(app.TRAINER_CPUS))
-            self.assertEqual(app._environment()["TORCHINDUCTOR_COMPILE_THREADS"],
-                             app._environment()["RAYON_NUM_THREADS"])
+            environment = app._environment(compiled=True)
+            self.assertEqual(environment["TORCHINDUCTOR_COMPILE_THREADS"], environment["RAYON_NUM_THREADS"])
+
+    def test_only_a_child_that_compiles_is_given_the_cache(self):
+        """The trainers compile; a measurement, a duel, a distillation and a
+        re-heading do not, and seeding the cache had each of them copy every
+        graph any trainer ever compiled before it began."""
+        from functools import partial
+
+        from neural import cloud_runs
+        from neural.checkpoints import atomic_save
+
+        app = controller()
+        seeded, environments = [], {}
+        with tempfile.TemporaryDirectory() as folder, contextlib.ExitStack() as stack:
+            root = Path(folder)
+            volume = root / "volume"
+            for name in ("latest", "older", "teacher"):
+                atomic_save({"generation": 3}, volume / f"run/{name}.pt")
+
+            def popen(command, **kwargs):
+                environments[command[2]] = kwargs["env"]
+                return SimpleNamespace(stdout=io.StringIO("{}\n"), stderr=io.StringIO(),
+                                       wait=lambda timeout=None: 0, poll=lambda: 0)
+
+            def seed():
+                seeded.append(True)
+                return root / "cache"
+
+            stack.enter_context(patch.dict(os.environ))
+            for variable in ("TORCHINDUCTOR_CACHE_DIR", "TORCHINDUCTOR_COMPILE_THREADS"):
+                os.environ.pop(variable, None)
+            stack.enter_context(patch.object(app, "VOLUME", volume))
+            stack.enter_context(patch.object(app, "workspace", partial(cloud_runs.workspace, root=root / "scratch")))
+            stack.enter_context(patch.object(app, "_seed_cache", side_effect=seed))
+            stack.enter_context(patch.object(app, "_save_cache"))
+            stack.enter_context(patch.object(app.subprocess, "Popen", side_effect=popen))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            app.arena(which="latest", run="run")
+            app.duel(challenger="latest", incumbent="older", run="run")
+            app.distil(teacher="teacher", run="run")
+            app.rehead(teacher="teacher", run="run")
+            self.assertEqual(seeded, [])
+            app.train(run="run", generations=1)
+            self.assertEqual(seeded, [True])
+        for child in ("neural.arena", "neural.duel", "neural.imitate", "neural.rehead"):
+            self.assertNotIn("TORCHINDUCTOR_CACHE_DIR", environments[child], child)
+        self.assertEqual(environments["neural.train"]["TORCHINDUCTOR_CACHE_DIR"], str(root / "cache"))
 
 
 class RecompileTests(unittest.TestCase):
