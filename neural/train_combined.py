@@ -306,7 +306,7 @@ def main() -> None:
         entropy_log_coef = payload.get("entropy_log_coef")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.ours is not None and args.mortal is not None:
-        net, _config = combined.build(args.ours, args.mortal, device)
+        net = combined.build(args.ours, args.mortal, device)
         print(f"joined {args.ours} and {args.mortal}", flush=True)
     else:
         raise SystemExit("give --ours and --mortal to start, or --resume")

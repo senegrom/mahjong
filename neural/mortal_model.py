@@ -179,15 +179,22 @@ def shape_of(state: dict) -> dict:
     }
 
 
-def load(path: Path | str, device: str = "cuda") -> Mortal:
-    """A Mortal from a checkpoint file of the kind Mortal writes: its
+def from_state(state: dict) -> Mortal:
+    """A Mortal from what a checkpoint of the kind Mortal writes holds: its
     config names the version and shape, `mortal` holds the brain and
-    `current_dqn` the head."""
-    state = torch.load(path, map_location="cpu", weights_only=False)
+    `current_dqn` the head. On the processor and as built, in training mode
+    with every weight learning, for the caller to move and set."""
     net = build(**shape_of(state))
     net.brain.load_state_dict(state["mortal"])
     net.dqn.load_state_dict(state["current_dqn"])
-    net = net.to(device).eval()
+    return net
+
+
+def load(path: Path | str, device: str = "cuda") -> Mortal:
+    """A Mortal from a checkpoint file of the kind Mortal writes (see
+    `from_state`), to play: on `device`, evaluating, its weights fixed."""
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    net = from_state(state).to(device).eval()
     for parameter in net.parameters():
         parameter.requires_grad_(False)
     return net

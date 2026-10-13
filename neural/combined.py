@@ -435,9 +435,9 @@ class Combined(nn.Module):
         }
 
 
-def build(ours_path: Path | str, mortal_path: Path | str, device: str) -> tuple[Combined, dict]:
-    """A joined player over the two checkpoints named, F starting at zero.
-    Returns it with Mortal's config, which its checkpoints carry."""
+def build(ours_path: Path | str, mortal_path: Path | str, device: str) -> Combined:
+    """A joined player over the two checkpoints named, F starting at zero,
+    with Mortal's config, which its checkpoints carry, as `mortal_config`."""
     payload = torch.load(ours_path, map_location="cpu", weights_only=True)
     ours = from_payload(payload, device)
     if not ours.speaks_mortal:
@@ -446,12 +446,9 @@ def build(ours_path: Path | str, mortal_path: Path | str, device: str) -> tuple[
             f"{ACTIONS}; re-head it first with neural.rehead"
         )
     state = torch.load(mortal_path, map_location="cpu", weights_only=False)
-    mortal = mortal_model.build(**mortal_model.shape_of(state))
-    mortal.brain.load_state_dict(state["mortal"])
-    mortal.dqn.load_state_dict(state["current_dqn"])
-    net = Combined(ours, mortal.to(device)).to(device)
+    net = Combined(ours, mortal_model.from_state(state).to(device)).to(device)
     net.mortal_config = state["config"]
-    return net, state["config"]
+    return net
 
 
 def load(path: Path | str, device: str) -> tuple[Combined, dict]:
@@ -471,10 +468,7 @@ def load(path: Path | str, device: str) -> tuple[Combined, dict]:
         state.get("actions", ACTIONS),
     ).to(device)
     load_weights(ours, state["model"])
-    mortal = mortal_model.build(**mortal_model.shape_of(state))
-    mortal.brain.load_state_dict(state["mortal"])
-    mortal.dqn.load_state_dict(state["current_dqn"])
-    net = Combined(ours, mortal.to(device)).to(device)
+    net = Combined(ours, mortal_model.from_state(state).to(device)).to(device)
     net.mortal_config = state["config"]
     # A head saved before it judged positions and read hands keeps
     # everything it had and starts those at nothing, which is where they

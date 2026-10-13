@@ -447,9 +447,7 @@ def load(path: Path | str, device: str, temperature: float | None = None) -> tup
     another: every logit is a Q value over it, so a different one is a
     different policy."""
     state = torch.load(path, map_location="cpu", weights_only=False)
-    net = mortal_model.build(**mortal_model.shape_of(state))
-    net.brain.load_state_dict(state["mortal"])
-    net.dqn.load_state_dict(state["current_dqn"])
+    net = mortal_model.from_state(state)
     if temperature is None:
         saved = state.get("temperature")
         temperature = 1.0 if saved is None else float(saved)
