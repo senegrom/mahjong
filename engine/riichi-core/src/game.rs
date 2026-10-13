@@ -1163,10 +1163,9 @@ impl Hand {
     ///
     /// [`Player::liability`] names a feeder only once the third dragon set
     /// or the fourth wind set stands among the player's sets. Sets are
-    /// never taken back, and a later one cannot take that set's place among
-    /// them, so a later call never moves the liability, and a hand with a
-    /// feeder named is always the Big Three Dragons or Big Four Winds that
-    /// feeder answers for.
+    /// never taken back or reordered, so a later call never moves the
+    /// liability, and a hand with a feeder named is always the Big Three
+    /// Dragons or Big Four Winds that feeder answers for.
     fn liable_for(&self, seat: Wind) -> Option<Wind> {
         let (dragons, winds) = self.players[seat.index()].liability();
         dragons.or(winds)

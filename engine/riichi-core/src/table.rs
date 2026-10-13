@@ -66,7 +66,8 @@ impl Table {
 
     /// Which hand of the round this is, counting from one. Counters do not
     /// advance it: a repeated East 1 is still East 1. Player 0 began as
-    /// East, so the dealer's number is how often the deal has passed.
+    /// East, so the dealer's number is how many times the deal has passed
+    /// in this round.
     pub fn kyoku(&self) -> u8 {
         self.dealer as u8 + 1
     }
