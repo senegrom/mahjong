@@ -4,18 +4,23 @@ import { readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { createHash, webcrypto } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import vm from 'node:vm';
 import { buildOffline, serviceWorkerTemplate } from '../scripts/offline-build.mjs';
-import { verifiedNetworkBytes } from '../src/lib/network-transfer.js';
+import { networkCacheName, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
 
 const template = await serviceWorkerTemplate();
 const sha = body => createHash('sha256').update(body).digest('hex');
 const base = 'https://test.invalid/mahjong/';
 const bodies = { 'index.html': '<html>Game</html>', 'app.js': 'game', 'tiles/Haku.svg': '<svg>dragon</svg>',
-  'model-full.onnx': 'weights', 'ort/runtime.wasm': 'wasm', 'ort/runtime.mjs': 'runtime' };
-const manifest = (files = bodies) => ({ version: sha(JSON.stringify(files)), hasModel: true,
+  'ort/runtime.wasm': 'wasm', 'ort/runtime.mjs': 'runtime' };
+/** An inventory shaped as buildOffline writes one: the AI group is the
+ * runtime alone, and the network lives in its bucket, kept by the page in
+ * the installation's scoped cache. */
+const manifest = (files = bodies, network = external('weights')) => ({ version: sha(JSON.stringify(files)),
+  hasModel: true, networkCacheVersion: 2, network,
   entries: Object.entries(files).map(([url, body]) => ({ url, hash: sha(body), bytes: Buffer.byteLength(body),
-    group: url === 'model-full.onnx' || url.startsWith('ort/') ? 'ai' : 'core' })) });
+    group: url.startsWith('ort/') ? 'ai' : 'core' })) });
 function storage() {
   const stores = new Map();
   return { stores, async open(name) {
@@ -27,18 +32,75 @@ function storage() {
       async keys() { return [...entries.keys()].map(url => new Request(url)); } };
   } };
 }
-function worker({ files = bodies, caches = storage(), config = manifest(files), network, remote = 'weights', deadlines } = {}) {
+/** Time that passes only when a test moves it, for every timer the worker
+ * could use: a fixed cap on a download, AbortSignal.timeout included, would
+ * end a slow transfer here as surely as it does in a browser. */
+function testClock() {
+  let now = 0, last = 0;
+  const timers = new Map();
+  const setTimeout = (fn, ms = 0) => { timers.set(++last, { at: now + ms, fn }); return last; };
+  const clearTimeout = id => { timers.delete(id); };
+  return { setTimeout, clearTimeout, now: () => now,
+    AbortSignal: { timeout(ms) {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException('The operation timed out.', 'TimeoutError')), ms);
+      return controller.signal;
+    } },
+    advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        const [id, due] = [...timers].filter(([, timer]) => timer.at <= end).sort(([, a], [, b]) => a.at - b.at)[0] ?? [];
+        if (!due) break;
+        timers.delete(id); now = due.at; due.fn();
+      }
+      now = end;
+    } };
+}
+/** Settles work while the clock moves on a second at a time, for as long as
+ * it takes, and says how it settled. */
+async function overTime(clock, work, seconds = 600) {
+  let outcome;
+  work.then(value => { outcome = { value }; }, error => { outcome = { error }; });
+  for (let second = 0; second < seconds && !outcome; second++) {
+    for (let turn = 0; turn < 10 && !outcome; turn++) await setImmediate();
+    if (!outcome) clock.advance(1000);
+  }
+  assert.ok(outcome, `still running after ${seconds} s`);
+  return outcome;
+}
+/** A body that arrives a byte at a time, one every `every` ms of the clock,
+ * and fails, as a real one does, when its request is aborted. */
+function trickle(body, clock, signal, every = 10000) {
+  const bytes = new TextEncoder().encode(body);
+  let sent = 0;
+  return new Response(new ReadableStream({
+    start(controller) {
+      signal.addEventListener('abort', () => { try { controller.error(signal.reason); } catch { /* Closed. */ } });
+    },
+    pull(controller) {
+      return new Promise(resolve => clock.setTimeout(() => {
+        try {
+          controller.enqueue(bytes.slice(sent, ++sent));
+          if (sent === bytes.length) controller.close();
+        } catch { /* Aborted meanwhile. */ }
+        resolve();
+      }, every));
+    },
+  }));
+}
+function worker({ files = bodies, caches = storage(), config = manifest(files), network, remote = 'weights', clock } = {}) {
   const events = {}, counts = new Map();
   const self = { registration: { scope: base }, clients: { async claim() {} }, addEventListener: (type, fn) => events[type] = fn };
   vm.runInNewContext(template.replace('/* OFFLINE_CONFIG */ null', JSON.stringify(config)), {
-    self, URL, Request, Response, Map, Set, caches, crypto: webcrypto, AbortSignal, AbortController, DOMException,
-    setTimeout: deadlines ? (fn, ms) => setTimeout(fn, ms >= 60000 ? deadlines : ms) : setTimeout, clearTimeout,
-    fetch: async url => {
+    self, URL, Request, Response, Map, Set, caches, crypto: webcrypto, AbortController, DOMException,
+    AbortSignal: clock?.AbortSignal ?? AbortSignal,
+    setTimeout: clock?.setTimeout ?? setTimeout, clearTimeout: clock?.clearTimeout ?? clearTimeout,
+    fetch: async (url, init) => {
       const address = new URL(url);
       const name = address.origin === new URL(base).origin ? address.pathname.slice('/mahjong/'.length) : address.href;
       counts.set(name, (counts.get(name) ?? 0) + 1);
-      if (network) return network(name);
-      if (config.network && name === `${config.network.origin}/${config.network.object}`) return new Response(remote);
+      if (network) return network(name, init);
+      if (name === externalUrl(config.network)) return new Response(remote);
       return new Response(files[name], { status: name in files ? 200 : 404 });
     },
   });
@@ -70,8 +132,7 @@ async function pageSaves(w, body, respond = () => new Response(body)) {
   globalThis.caches = w.caches;
   globalThis.fetch = async (...args) => { fetched++; return respond(...args); };
   try {
-    await verifiedNetworkBytes({ url: `${network.origin}/${network.object}`, expect: network, requireStored: true,
-      scope: w.config.networkCacheVersion === 2 ? base : undefined });
+    await verifiedNetworkBytes({ url: externalUrl(network), expect: network, requireStored: true, scope: base });
   } finally { globalThis.caches = previous.caches; globalThis.fetch = previous.fetch; }
   await w.message('MAHJONG_NETWORK_SAVED');
   return fetched;
@@ -82,7 +143,7 @@ test('offline install saves the shell and all graphics, with AI explicitly incom
   const w = worker(); await w.install();
   assert.equal((await status(w)).coreReady, true);
   assert.equal((await status(w)).aiReady, false);
-  assert.equal(w.counts.has('model-full.onnx'), false);
+  assert.deepEqual([...w.counts.keys()].sort(), ['app.js', 'index.html', 'tiles/Haku.svg'], 'no runtime, no network');
   assert.equal(await (await w.get('?opponents=neural')).text(), bodies['index.html']);
   assert.equal(await (await w.get('tiles/Haku.svg')).text(), bodies['tiles/Haku.svg']);
 });
@@ -90,37 +151,39 @@ test('all AI bytes are durable before ready; simultaneous requests share downloa
   const files = { ...bodies, 'ort/duplicate.wasm': bodies['ort/runtime.wasm'] };
   const w = worker({ files }); await w.install();
   await Promise.all([download(w), download(w), download(w)]);
+  const sum = [...w.counts].filter(([name]) => name.startsWith('ort/')).reduce((n, [, count]) => n + count, 0);
+  assert.equal(sum, 2, 'the runtime module and one copy of the WASM');
+  assert.equal((await status(w)).aiReady, false, 'the runtime alone is not the trained AI');
+  await pageSaves(w, 'weights');
   assert.equal((await status(w)).aiReady, true);
-  const sum = [...w.counts].filter(([name]) => /model|ort\//.test(name)).reduce((n, [, count]) => n + count, 0);
-  assert.equal(sum, 3, 'the network, the runtime module and one copy of the WASM');
-  await download(w); assert.equal([...w.counts.values()].reduce((a, b) => a + b), 6);
+  await download(w); assert.equal([...w.counts.values()].reduce((a, b) => a + b), 5);
 });
-test('a cold worker serves navigation, tiles, model and runtime without ANY network, including HEAD', async () => {
-  const original = worker(); await original.install(); await download(original);
+test('a cold worker serves navigation, tiles and the runtime without ANY network, including HEAD', async () => {
+  const original = worker(); await original.install(); await prepareAi(original, 'weights');
   const cold = worker({ caches: original.caches, network() { throw new Error('plane'); } });
   assert.equal((await status(cold)).aiReady, true);
   for (const [path, body] of Object.entries(bodies)) assert.equal(await (await cold.get(path)).text(), body);
-  assert.equal(await (await cold.get('model-full.onnx', 'HEAD')).text(), '');
+  assert.equal(await (await cold.get('ort/runtime.wasm', 'HEAD')).text(), '');
   assert.equal(await (await cold.get('?launched=home-screen')).text(), bodies['index.html']);
   assert.equal(cold.counts.size, 0);
 });
 test('truncated or captive-portal downloads never count as AI ready and retry reuses good files', async () => {
   for (const bad of ['', 'portal!']) {
     let corrupt = true;
-    const w = worker({ network: name => new Response(corrupt && name === 'model-full.onnx' ? bad : bodies[name]) });
-    await w.install(); await assert.rejects(download(w), /Incomplete or outdated/);
+    const w = worker({ network: name => new Response(corrupt && name === 'ort/runtime.wasm' ? bad : bodies[name]) });
+    // The network is stored already, so only the runtime stands between.
+    await w.install(); await pageSaves(w, 'weights');
+    await assert.rejects(download(w), /Incomplete or outdated/);
     assert.equal((await status(w)).aiReady, false);
     assert.equal((await status(w)).coreReady, true);
-    // In-flight sibling downloads settle before retrying.
-    await new Promise(done => setTimeout(done, 10));
     corrupt = false; await download(w);
     assert.equal((await status(w)).aiReady, true);
-    assert.equal(w.counts.get('model-full.onnx'), 2);
-    assert.equal(w.counts.get('ort/runtime.wasm'), 1);
+    assert.equal(w.counts.get('ort/runtime.wasm'), 2);
+    assert.equal(w.counts.get('ort/runtime.mjs'), 1);
   }
 });
-test('an app-only upgrade reuses every tile and all trained weights/runtime bytes', async () => {
-  const old = worker(); await old.install(); await download(old);
+test('an app-only upgrade reuses every tile, the runtime and the stored network', async () => {
+  const old = worker(); await old.install(); await prepareAi(old, 'weights');
   const files = { ...bodies, 'index.html': '<html>New game UI</html>' };
   const update = worker({ files, caches: old.caches }); await update.install();
   assert.equal((await status(update)).aiReady, true);
@@ -128,33 +191,34 @@ test('an app-only upgrade reuses every tile and all trained weights/runtime byte
   assert.equal(await (await old.get('index.html')).text(), bodies['index.html']);
 });
 test('activation removes obsolete Mahjong bodies but keeps current content and metadata', async () => {
-  const old = worker(); await old.install(); await download(old);
-  const files = { ...bodies, 'index.html': 'new shell', 'tiles/Haku.svg': '<svg>new dragon</svg>', 'model-full.onnx': 'new weights' };
+  const old = worker(); await old.install(); await prepareAi(old, 'weights');
+  const files = { ...bodies, 'index.html': 'new shell', 'tiles/Haku.svg': '<svg>new dragon</svg>', 'ort/runtime.wasm': 'new wasm' };
   const update = worker({ files, caches: old.caches }); await update.install();
   const store = update.caches.stores.get('mahjong-offline-v1:/mahjong/');
-  const oldHashes = [bodies['index.html'], bodies['tiles/Haku.svg'], bodies['model-full.onnx']].map(sha);
+  const oldHashes = [bodies['index.html'], bodies['tiles/Haku.svg'], bodies['ort/runtime.wasm']].map(sha);
   for (const hash of oldHashes) assert.equal(store.has(base + '__offline_content__/' + hash), true);
-  assert.equal(update.counts.has('model-full.onnx'), false, 'installation saves the game alone');
+  assert.equal(update.counts.has('ort/runtime.wasm'), false, 'installation saves the game alone');
   await update.activate();
   for (const hash of oldHashes) assert.equal(store.has(base + '__offline_content__/' + hash), false);
-  const core = Object.entries(files).filter(([name]) => name !== 'model-full.onnx' && !name.startsWith('ort/'));
+  const core = Object.entries(files).filter(([name]) => !name.startsWith('ort/'));
   for (const [, body] of core) assert.equal(store.has(base + '__offline_content__/' + sha(body)), true);
   assert.equal(store.has(base + '__offline_meta__/ai-requested'), true);
   // The request survives the upgrade, and the new version's AI is saved on it.
   assert.equal((await status(update)).aiRequested, true);
   assert.equal((await status(update)).aiReady, false);
   await download(update);
-  assert.equal(store.has(base + '__offline_content__/' + sha('new weights')), true);
+  assert.equal(store.has(base + '__offline_content__/' + sha('new wasm')), true);
   assert.equal((await status(update)).aiReady, true);
 });
 test('an AI upgrade that cannot be fetched still installs the game and leaves the working version intact', async () => {
-  const old = worker(); await old.install(); await download(old);
-  const files = { ...bodies, 'index.html': 'new shell', 'model-full.onnx': 'new weights' };
-  const update = worker({ files, caches: old.caches, network: name => new Response(name === 'model-full.onnx' ? '' : files[name], { status: name === 'model-full.onnx' ? 503 : 200 }) });
+  const old = worker(); await old.install(); await prepareAi(old, 'weights');
+  const files = { ...bodies, 'index.html': 'new shell', 'ort/runtime.wasm': 'new wasm' };
+  const update = worker({ files, caches: old.caches, network: name => name === 'ort/runtime.wasm'
+    ? new Response('', { status: 503 }) : new Response(files[name]) });
   await update.install();
-  assert.equal(update.counts.has('model-full.onnx'), false);
+  assert.equal(update.counts.has('ort/runtime.wasm'), false);
   assert.equal((await status(old)).aiReady, true);
-  assert.equal(await (await old.get('model-full.onnx')).text(), bodies['model-full.onnx']);
+  assert.equal(await (await old.get('ort/runtime.wasm')).text(), bodies['ort/runtime.wasm']);
   await update.activate();
   await assert.rejects(download(update), /Download failed/);
   assert.equal((await status(update)).aiReady, false);
@@ -162,14 +226,64 @@ test('an AI upgrade that cannot be fetched still installs the game and leaves th
   assert.equal(await (await update.get('index.html')).text(), 'new shell');
 });
 test('cache eviction is detected and unrelated apps and unknown assets are untouched', async () => {
-  const w = worker(); await w.install(); await download(w);
+  const w = worker(); await w.install(); await prepareAi(w, 'weights');
   const other = await w.caches.open('plateloader'); await other.put(base + 'sentinel', new Response('keep'));
   const store = w.caches.stores.get('mahjong-offline-v1:/mahjong/');
-  store.delete(base + '__offline_content__/' + sha(bodies['model-full.onnx']));
+  assert.equal((await status(w)).aiReady, true);
+  store.delete(base + '__offline_content__/' + sha(bodies['ort/runtime.wasm']));
   assert.equal((await status(w)).aiReady, false);
   assert.equal(await (await other.match(base + 'sentinel')).text(), 'keep');
   assert.equal(await w.get('../plateloader/'), undefined);
   assert.equal(await w.get('missing.wasm'), undefined);
+});
+test('a file that keeps arriving is saved however long it takes; one that stops for a minute ends', async () => {
+  // At 10 s a byte the white dragon takes 170 s: longer than the fixed 90 s
+  // the worker once allowed, which four 3 MB tiles on a slow link outlast.
+  const clock = testClock(), slow = 'tiles/Haku.svg';
+  const w = worker({ clock, network: (name, init) => name === slow ? trickle(bodies[name], clock, init.signal)
+    : new Response(bodies[name]) });
+  assert.equal((await overTime(clock, w.install())).error, undefined);
+  assert.ok(clock.now() >= 170000);
+  assert.equal((await status(w)).coreReady, true);
+  assert.equal(await (await w.get(slow)).text(), bodies[slow]);
+  // A body that stops arriving has stalled: the attempt ends a minute after
+  // its last byte, not whenever the browser gives up on the event.
+  const stalls = testClock();
+  const stalled = worker({ clock: stalls, network: (name, init) => name !== slow ? new Response(bodies[name])
+    : new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('<svg>'));
+      init.signal.addEventListener('abort', () => controller.error(init.signal.reason));
+    } })) });
+  assert.match((await overTime(stalls, stalled.install())).error?.message ?? '', /Download stalled: tiles\/Haku\.svg/);
+  assert.ok(stalls.now() >= 60000 && stalls.now() <= 62000, `ended at ${stalls.now()} ms`);
+  assert.equal((await status(stalled)).coreReady, false);
+});
+test('a file the page asks for before it is saved is served however slowly it arrives', async () => {
+  // The opponent's worker can load the runtime while it is still being saved.
+  const clock = testClock(), slow = 'ort/runtime.wasm';
+  const w = worker({ clock, network: (name, init) => name === slow ? trickle(bodies[name], clock, init.signal, 30000)
+    : new Response(bodies[name]) });
+  const served = await overTime(clock, w.get(slow));
+  assert.ok(clock.now() >= 120000);
+  assert.equal(served.value.status, 200);
+  assert.equal(await served.value.text(), bodies[slow]);
+});
+test('a file that fails costs the attempt no other file, and the next one fetches only what is missing', async () => {
+  const clock = testClock(), failing = 'tiles/Haku.svg';
+  let broken = true;
+  const w = worker({ clock, network: (name, init) => name === failing && broken
+    ? new Response('', { status: 503 }) : trickle(bodies[name], clock, init.signal, 1000) });
+  const failed = await overTime(clock, w.install());
+  assert.match(failed.error?.message ?? '', /Download failed: tiles\/Haku\.svg \(HTTP 503\)/);
+  // Read as the install fails: a browser abandons a failed install's worker,
+  // and with it any transfer still running.
+  const store = w.caches.stores.get('mahjong-offline-v1:/mahjong/');
+  const others = w.config.entries.filter(entry => entry.group === 'core' && entry.url !== failing);
+  for (const entry of others) assert.ok(store.has(`${base}__offline_content__/${entry.hash}`), entry.url);
+  broken = false;
+  assert.equal((await overTime(clock, w.install())).error, undefined);
+  assert.equal((await status(w)).coreReady, true);
+  assert.deepEqual(Object.fromEntries(w.counts), { 'index.html': 1, 'app.js': 1, [failing]: 2 });
 });
 test('quota errors cannot be misreported as successfully saved offline', async () => {
   const caches = { async open() { return { async match() {}, async put() { throw new Error('QuotaExceededError'); } }; } };
@@ -214,9 +328,9 @@ function external(body, generation = 1) {
     sha256: sha(body), bytes: Buffer.byteLength(body) };
 }
 const externalUrl = model => `${model.origin}/${model.object}`;
-const runtimeOnly = Object.fromEntries(Object.entries(bodies).filter(([name]) => !name.endsWith('.onnx')));
-function externalWorker(body, { files = runtimeOnly, generation = 1, ...options } = {}) {
-  return worker({ files, remote: body, config: { ...manifest(files), network: external(body, generation) }, ...options });
+/** A build that plays the network `body`, published as this generation. */
+function externalWorker(body, { files = bodies, generation = 1, ...options } = {}) {
+  return worker({ files, remote: body, config: manifest(files, external(body, generation)), ...options });
 }
 // Fails rather than hangs when a lifecycle event waits on the network.
 function within(promise, ms = 2000) {
@@ -228,7 +342,7 @@ function within(promise, ms = 2000) {
 
 test('an upgrade whose network is slow or unreachable installs and activates with the game alone', async () => {
   const old = externalWorker('old weights'); await old.install(); await prepareAi(old, 'old weights');
-  const files = { ...runtimeOnly, 'index.html': 'new app, new model' };
+  const files = { ...bodies, 'index.html': 'new app, new model' };
   const model = external('new weights', 2);
   // A network that never finishes: an install or activation that waited on
   // it would be abandoned by the browser, and the update never installed.
@@ -238,7 +352,7 @@ test('an upgrade whose network is slow or unreachable installs and activates wit
   await within(update.install());
   assert.equal(update.counts.has(externalUrl(model)), false);
   assert.equal((await status(old)).aiReady, true, 'the running version keeps its trained AI');
-  assert.equal(await (await old.get('index.html')).text(), runtimeOnly['index.html']);
+  assert.equal(await (await old.get('index.html')).text(), bodies['index.html']);
   await within(update.activate());
   assert.equal(update.counts.has(externalUrl(model)), false);
   // The old network is still stored, but it is not this version's.
@@ -251,7 +365,7 @@ test('an upgrade whose network is slow or unreachable installs and activates wit
 
 test('the page saves a new version\'s network after activation, and it then plays on a plane', async () => {
   const old = externalWorker('old weights'); await old.install(); await prepareAi(old, 'old weights');
-  const files = { ...runtimeOnly, 'index.html': 'new app, new model' };
+  const files = { ...bodies, 'index.html': 'new app, new model' };
   const update = externalWorker('new weights', { generation: 2, files, caches: old.caches });
   await update.install(); await update.activate();
   assert.equal((await status(update)).aiReady, false);
@@ -266,7 +380,7 @@ test('the page saves a new version\'s network after activation, and it then play
 
 test('UI-only remote-model upgrades never redownload verified weights', async () => {
   const old = externalWorker('weights'); await old.install(); await prepareAi(old, 'weights');
-  const update = externalWorker('weights', { files: { ...runtimeOnly, 'app.js': 'new UI only' }, caches: old.caches });
+  const update = externalWorker('weights', { files: { ...bodies, 'app.js': 'new UI only' }, caches: old.caches });
   await update.install(); await update.activate();
   assert.equal((await status(update)).aiReady, true);
   assert.deepEqual([...update.counts.keys()], ['app.js']);
@@ -274,7 +388,7 @@ test('UI-only remote-model upgrades never redownload verified weights', async ()
 
 test('remote cache tampering is not offline readiness, and a failed save keeps the old version', async () => {
   const old = externalWorker('weights'); await old.install(); await prepareAi(old, 'weights');
-  const cache = await old.caches.open('mahjong-network-v1');
+  const cache = await old.caches.open(networkCacheName(base));
   await cache.put(externalUrl(external('other!!', 2)), new Response('wrong!!'));
   const update = externalWorker('other!!', { generation: 2, caches: old.caches });
   await update.install();
@@ -282,7 +396,7 @@ test('remote cache tampering is not offline readiness, and a failed save keeps t
   await download(update);
   await assert.rejects(pageSaves(update, '', () => new Response('', { status: 503 })), /could not be fetched/);
   assert.equal((await status(update)).aiReady, false);
-  assert.equal(await (await old.get('index.html')).text(), runtimeOnly['index.html']);
+  assert.equal(await (await old.get('index.html')).text(), bodies['index.html']);
   assert.equal((await status(old)).aiReady, true);
 });
 
@@ -292,7 +406,7 @@ test('the worker never fetches the trained network, even for a player who asked 
   await download(w);
   assert.equal((await status(w)).aiRequested, true);
   assert.equal((await status(w)).aiReady, false);
-  const again = externalWorker('weights', { files: { ...runtimeOnly, 'app.js': 'next UI' }, caches: w.caches });
+  const again = externalWorker('weights', { files: { ...bodies, 'app.js': 'next UI' }, caches: w.caches });
   await again.install(); await again.activate(); await download(again);
   for (const each of [w, again]) assert.equal(each.counts.has(externalUrl(external('weights'))), false);
   assert.equal(await pageSaves(again, 'weights'), 1);

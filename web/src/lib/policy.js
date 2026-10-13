@@ -1,7 +1,7 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
 /* global __RUNTIME_DIRECTORY__ */
-import { prepareOfflineAi } from './offline.js';
+import { prepareOfflineAi, refreshOffline } from './offline.js';
 import { NETWORK_URL, networkIsStored } from './network-store.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
 
@@ -138,8 +138,13 @@ function ensureWorker() {
 
 export async function modelIsAvailable() {
   try {
-    // Held here already, or the bucket answers. The runtime that runs it is
-    // the service worker's business; this is about the network itself.
+    // Offline, the runtime must be saved too, and only the service worker's
+    // aiReady covers both. The opponent's worker can store the network by
+    // itself before a worker controls the page, and nothing then saves the
+    // runtime: offering Trained would fail at its first move.
+    if (!navigator.onLine) return Boolean((await refreshOffline())?.aiReady);
+    // Online, held here already, or the bucket answers; the server has the
+    // runtime.
     if (await networkIsStored(NETWORK_URL)) return true;
     const response = await fetch(NETWORK_URL, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
     return response.ok;

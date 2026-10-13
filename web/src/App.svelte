@@ -8,7 +8,7 @@
   import { onMount, setContext, tick, untrack } from 'svelte';
   import init, { Game } from './wasm/riichi.js';
   import { preloadTiles } from './lib/tile-preload.js';
-  import { startOffline, watchOffline, prepareOfflineAi, refreshOffline } from './lib/offline.js';
+  import { INITIAL_OFFLINE, startOffline, watchOffline, prepareOfflineAi, refreshOffline } from './lib/offline.js';
   import ScoreScreen from './lib/ScoreScreen.svelte';
   import Standings from './lib/Standings.svelte';
   import Review from './lib/Review.svelte';
@@ -49,7 +49,7 @@
   let startupNote = $state('Loading the game and selected tile graphics…');
   // One trained network ships with the game, so its download is the only
   // optional one: readiness and availability are read straight from offline.
-  let offline = $state({ coreReady: false, aiReady: false, hasModel: false, phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false, installing: false, persistent: false, updateReady: false });
+  let offline = $state(INITIAL_OFFLINE);
   let failure = $state('');
   let storageWarning = $state('');
   let saveConflict = $state('');

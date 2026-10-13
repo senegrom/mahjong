@@ -16,9 +16,11 @@ let coreJob = null;
 // version's page saves its own network, automatically once per page.
 let filled = false;
 const updatesSaved = new WeakSet();
-let state = { supported: null, coreReady: false, aiReady: false, hasModel: false,
-  phase: 'checking', progress: 0, warning: '', coreWarning: '', coreLoading: false,
-  installing: false, persistent: false, updateReady: false };
+/** The state before anything is known, which App also renders until its
+ * first report. Each update replaces the state; none is changed in place. */
+export const INITIAL_OFFLINE = Object.freeze({ supported: null, coreReady: false, aiReady: false, hasModel: false,
+  phase: 'checking', progress: 0, warning: '', coreWarning: '', installing: false, persistent: false, updateReady: false });
+let state = INITIAL_OFFLINE;
 const listeners = new Set();
 function update(values) {
   state = { ...state, ...values };
@@ -60,8 +62,15 @@ async function hasRoom(bytes) {
 }
 /** Saves a network durably from this page. The verified bytes are dropped once
  * stored: the runtime reads, and hashes, its own copy when it starts. A
- * network storage has no room for is not downloaded only to be refused. */
-async function saveNetwork(url, expect, onProgress) {
+ * network storage has no room for is not downloaded only to be refused.
+ * Saves run one at a time, page-wide: each transfer holds a whole network
+ * until it is stored, and two at once would also split the link. */
+let networkSave = Promise.resolve();
+function saveNetwork(url, expect, onProgress) {
+  networkSave = networkSave.catch(() => {}).then(() => storeNetwork(url, expect, onProgress));
+  return networkSave;
+}
+async function storeNetwork(url, expect, onProgress) {
   if (await networkIsStored(url, expect)) return;
   if (!await hasRoom(expect.bytes)) {
     const error = new Error('The network is not saved offline: this device has too little free storage for it.');
@@ -75,7 +84,8 @@ function activated(registration) {
   const installing = registration.installing ?? registration.waiting;
   if (!installing) return Promise.reject(new Error('Offline installation did not start.'));
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error('Offline installation is incomplete. Reconnect and retry.')), 120000);
+    // The install goes on after the page stops waiting for it.
+    const timer = setTimeout(() => finish(new Error('Still saving for offline play. Stay connected until this status says ready.')), 120000);
     const finish = error => {
       clearTimeout(timer); installing.removeEventListener('statechange', changed);
       if (error) reject(error); else resolve();
@@ -103,7 +113,8 @@ async function saveUpdate(registration) {
   if (!next || updatesSaved.has(next) || !navigator.onLine) return;
   updatesSaved.add(next);
   try {
-    // One network download at a time: this version's own comes first.
+    // This version's own preparation, when under way, comes first; its
+    // network is then ahead of the update's in saveNetwork's queue.
     await aiJob?.catch(() => {});
     const info = await request('MAHJONG_STATUS', null, next);
     if (!info?.hasModel || !info.aiRequested || info.aiReady || !info.network) return;
@@ -147,7 +158,7 @@ async function prepareCore(info) {
   }
   if (coreJob) return coreJob;
   coreJob = (async () => {
-    update({ coreLoading: true, coreWarning: '' });
+    update({ coreWarning: '' });
     try {
       const ready = await request('MAHJONG_PREPARE_CORE');
       update({ ...ready, coreWarning: '' });
@@ -155,9 +166,21 @@ async function prepareCore(info) {
     } catch (error) {
       update({ coreReady: false, coreWarning: `Game and tile download incomplete: ${error.message} It will retry automatically when you reconnect or reopen the app.` });
       return null;
-    } finally { update({ coreLoading: false }); }
+    }
   })().finally(() => { coreJob = null; });
   return coreJob;
+}
+/** An install that outlasts the page's wait finishes later by itself, and
+ * its worker then takes control of the page. Nothing else would look again
+ * until a reconnect or a return to the app, so this does, once. */
+let refreshOnControl = false;
+function refreshWhenControlled() {
+  if (refreshOnControl) return;
+  refreshOnControl = true;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    refreshOnControl = false;
+    void refreshOffline().catch(() => {});
+  }, { once: true });
 }
 export function startOffline() {
   if (boot) return boot;
@@ -166,10 +189,11 @@ export function startOffline() {
       update({ supported: false, phase: 'unavailable', warning: 'Offline saving is unavailable here. Keep a connection for this session.' });
       return null;
     }
+    let registration = null;
     try {
       // Existing registration is local. Never make a successful online check
       // a prerequisite for launching an already downloaded app on a plane.
-      let registration = await navigator.serviceWorker.getRegistration(base.href);
+      registration = await navigator.serviceWorker.getRegistration(base.href);
       if (registration?.scope !== base.href || registration?.active?.scriptURL !== script) registration = null;
       if (!registration) registration = await navigator.serviceWorker.register(script, { scope: base.href, updateViaCache: 'none' });
       // A first visit's worker saves the whole game and every tile graphic
@@ -199,20 +223,31 @@ export function startOffline() {
       observeUpdates(registration);
       void persistentStorage();
       // Background updates never block this version or replace it mid-match.
-      // They install with the game alone, so a slow link still completes one.
+      // They install with the game alone, and a slow link resumes one over
+      // several attempts.
       if (navigator.onLine) void registration.update().catch(() => {});
       return state;
     } catch (error) {
       worker = null;
-      update({ supported: false, coreReady: false, aiReady: false, phase: 'unavailable',
-        warning: `Offline saving is not ready: ${error.message}` });
+      if (registration) {
+        // Saving works here and has not finished: an install still running
+        // or one that failed, or a page a hard reload loaded past its
+        // worker. Say which, beside the game's own status, and drop what an
+        // earlier attempt that never reached a worker said.
+        update({ supported: true, phase: 'checking', warning: '', coreReady: false, aiReady: false,
+          coreWarning: error.message });
+        refreshWhenControlled();
+      } else {
+        update({ supported: false, coreReady: false, aiReady: false, phase: 'unavailable',
+          warning: `Offline saving is not ready: ${error.message}` });
+      }
       return null;
     }
   })();
   // Only a boot that reached the service worker is kept. One that did not (a
   // first visit that lost its connection, an install still running, a hard
   // reload) is tried again by the next caller: a reconnect or return to the
-  // app, or a Trained opponent's retry.
+  // app, a Trained opponent's retry, or a worker taking control.
   boot = attempt;
   void attempt.then(result => { if (!result && boot === attempt) boot = null; });
   return attempt;

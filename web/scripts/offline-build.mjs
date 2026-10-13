@@ -13,12 +13,14 @@ async function walk(directory) {
   return (await Promise.all(entries.map(entry => entry.isDirectory()
     ? walk(resolve(directory, entry.name)) : resolve(directory, entry.name)))).flat();
 }
+/** The worker with network-cache.js inlined: only the part of the network
+ * transfer it uses, since it never downloads the network itself. */
 export async function serviceWorkerTemplate() {
-  const [template, transfer] = await Promise.all([
+  const [template, shared] = await Promise.all([
     readFile(new URL('../src/offline/service-worker.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/lib/network-transfer.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/lib/network-cache.js', import.meta.url), 'utf8'),
   ]);
-  return template.replace('/* NETWORK_TRANSFER */ null', `(() => {\n${transfer.replace(/^export /gm, '')}\nreturn { storageError, hasStoredNetwork, pruneNetworkCache };\n})()`);
+  return template.replace('/* NETWORK_TRANSFER */ null', `(() => {\n${shared.replace(/^export /gm, '')}\nreturn { storageError, hasStoredNetwork, pruneNetworkCache, verifiedDownload };\n})()`);
 }
 /** runtime names the folder holding the runtime the page loads. */
 export async function buildOffline(root, { network = MANIFEST, runtime } = {}) {
@@ -27,7 +29,7 @@ export async function buildOffline(root, { network = MANIFEST, runtime } = {}) {
   const entries = await Promise.all(files.sort().map(async file => {
     const data = await readFile(file), url = relative(root, file).split('\\').join('/');
     if (/\.onnx$/i.test(url)) throw new Error('Offline build contains an unsupported network; use the remote model manifest');
-    const group = url.startsWith('ort/') || /ort-.*\.wasm$/.test(url) ? 'ai' : 'core';
+    const group = url.startsWith('ort/') ? 'ai' : 'core';
     return { url, hash: createHash('sha256').update(data).digest('hex'), bytes: data.length, group };
   }));
   for (const required of ['index.html', 'tiles/Back.svg', 'tiles/Haku.svg']) {

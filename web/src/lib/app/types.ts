@@ -36,7 +36,7 @@ export interface OfflineState {
   coreReady: boolean; aiReady: boolean; hasModel: boolean;
   phase: 'checking' | 'ready' | 'ai' | 'incomplete' | 'unavailable';
   progress: number; warning?: string; coreWarning?: string;
-  coreLoading?: boolean; persistent?: boolean; updateReady?: boolean;
+  persistent?: boolean; updateReady?: boolean;
   /** A first visit's service worker is still saving the game to activate. */
   installing?: boolean;
 }
