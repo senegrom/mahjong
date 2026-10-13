@@ -495,6 +495,10 @@ def _run_child(command: list[str], tail: int | None = None) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        # A stray undecodable byte must not end the stderr reader, or a child
+        # that keeps writing would fill the pipe and stall until the timeout.
+        encoding="utf-8",
+        errors="replace",
         bufsize=1,
     )) as process:
         assert process.stdout is not None and process.stderr is not None
