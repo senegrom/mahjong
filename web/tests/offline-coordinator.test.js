@@ -14,16 +14,19 @@ const code = compile(source, { generate: 'server' }).js.code.replace(/from (['"]
 const { default: Status } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const panel = offline => render(Status, { props: { offline, downloadAi: () => {} } }).body;
 
-const NETWORK = { url: 'https://model.invalid/g1', sha256: '1'.repeat(64), bytes: 116 };
-const NEXT = { url: 'https://model.invalid/g2', sha256: '2'.repeat(64), bytes: 117 };
+const NETWORK = { url: 'https://model.invalid/g1', version: '0.1.1', sha256: '1'.repeat(64), bytes: 116 };
+const NEXT = { url: 'https://model.invalid/g2', version: '0.1.2', sha256: '2'.repeat(64), bytes: 117 };
 
 /** A service worker speaking the real message contract: it saves the game and
- * the runtime, reports whether the network is stored, and never fetches it. */
-function fakeWorker({ calls, network, stored, info, faults, label = '' }) {
+ * the runtime, reports whether the network is stored, and never fetches it.
+ * It answers about `network`, whatever version a page names; which network a
+ * version names is the real worker's business (offline.test.js). */
+function fakeWorker({ calls, asked, network, stored, info, faults, label = '' }) {
   return {
     scriptURL: 'https://test.invalid/mahjong/sw.js',
-    postMessage({ type }, [port]) {
+    postMessage({ type, version }, [port]) {
       calls.push(label + type);
+      asked.push([label + type, version]);
       queueMicrotask(() => {
         const reply = () => ({ ...info, aiReady: info.runtime && stored.has(network.url), network });
         if (type === 'MAHJONG_PREPARE_CORE' && faults.core) port.postMessage({ error: 'Connection lost' });
@@ -40,17 +43,18 @@ function fakeWorker({ calls, network, stored, info, faults, label = '' }) {
 }
 
 // Exercise the real coordinator against the service-worker message contract.
-// No browser globals or state are shared between tests.
+// No browser globals or state are shared between tests. `network` is the one
+// the page plays, and `pick` the version its player picked, if any.
 function coordinator({ coreReady = false, aiReady = false, aiRequested = false, failCore = false, failAi = false,
   registered = true, held = true, storageFailure = false, online = true, waiting = null, installs = false,
-  controlled = true, impatient = false } = {}) {
-  const calls = [], saves = [], stored = new Set(held || aiReady ? [NETWORK.url] : []);
+  controlled = true, impatient = false, network = NETWORK, pick } = {}) {
+  const calls = [], asked = [], saves = [], stored = new Set(held || aiReady ? [network.url] : []);
   const info = { coreReady, runtime: aiReady, aiRequested, hasModel: true };
   // transfer, when set, is the network's transfer itself: it may fail or be
   // held open while the test looks at what runs beside it.
   const faults = { core: failCore, ai: failAi, storage: storageFailure, registration: false, network: null, transfer: null };
   let latest, registrations = 0;
-  const active = fakeWorker({ calls, network: NETWORK, stored, info, faults });
+  const active = fakeWorker({ calls, asked, network, stored, info, faults });
   // With installs, the first registration's worker is still installing: it
   // activates (or fails) only when the test finishes the install.
   const changes = new Set();
@@ -58,7 +62,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
     removeEventListener: (_, listener) => changes.delete(listener) } : null;
   const registration = { scope: 'https://test.invalid/mahjong/', active: installs ? null : active, installing,
     addEventListener() {}, async update() {},
-    waiting: waiting && fakeWorker({ calls, network: NEXT, stored, faults: {},
+    waiting: waiting && fakeWorker({ calls, asked, network: NEXT, stored, faults: {},
       info: { coreReady: true, runtime: false, hasModel: true, ...waiting }, label: 'next:' }) };
   function finishInstall(state = 'activated') {
     installing.state = state;
@@ -86,14 +90,15 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
   // Impatient, the page's two-minute wait for an install and its 15-second
   // wait for control end at once, as on a link too slow for either.
   const wait = impatient ? (fn, ms) => setTimeout(fn, [120000, 15000].includes(ms) ? 20 : ms) : setTimeout;
-  // offline.js's one import, network-store.js, is stood in for here.
+  // offline.js's imports, network-store.js and the page's choice of network
+  // in trained-network.js, are stood in for here.
   const api = loadModule('offline.js', { document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
     URL, MessageChannel, setTimeout: wait, clearTimeout, caches: {}, isSecureContext: true, WeakSet,
-    NETWORK, NETWORK_URL: NETWORK.url,
+    networkUrl: entry => entry.url, playedNetwork: () => network, pickedVersion: () => pick,
     // The page's own record of a saved network: a header check, never a read.
-    networkIsStored: async (url = NETWORK.url) => stored.has(url),
+    networkIsStored: async (url = network.url) => stored.has(url),
     // The page's download: verified, then stored durably, or it throws.
-    networkBytes: async ({ url = NETWORK.url, expect, requireStored, onProgress } = {}) => {
+    networkBytes: async ({ url = network.url, expect, requireStored, onProgress } = {}) => {
       saves.push({ url, expect: expect && { ...expect }, requireStored });
       if (faults.network) throw faults.network;
       await faults.transfer?.(url);
@@ -102,7 +107,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
       return new Uint8Array(1);
     } }, ['startOffline', 'refreshOffline', 'prepareOfflineAi', 'watchOffline'], { 'import.meta.env.DEV': 'false' });
   api.watchOffline(value => latest = value);
-  return { api, calls, info, faults, stored, saves, navigator, state: () => latest,
+  return { api, calls, asked, info, faults, stored, saves, navigator, state: () => latest,
     registrations: () => registrations, finishInstall, claim };
 }
 const settle = async () => { for (let i = 0; i < 20; i++) await setImmediate(); };
@@ -396,4 +401,26 @@ test('a network storage has no room for is not downloaded only to be refused', a
   c.navigator.storage.estimate = async () => ({ quota: 1000, usage: 1000 - NETWORK.bytes });
   assert.equal((await c.api.prepareOfflineAi()).aiReady, true, 'room for it exactly is room');
   assert.equal(c.saves.length, 1);
+});
+
+test('the page saves the network its player picked, and names the pick to its worker and to a waiting update', async () => {
+  const OLDER = { url: 'https://model.invalid/g410', version: '0.1.410', sha256: '4'.repeat(64), bytes: 118 };
+  const c = coordinator({ coreReady: true, aiRequested: true, held: false, network: OLDER, pick: '0.1.410',
+    waiting: { aiRequested: true } });
+  await c.api.startOffline();
+  await settle();
+  // Its own network first, then the one the waiting worker names for the same pick.
+  assert.deepEqual(c.saves, [{ url: OLDER.url, expect: OLDER, requireStored: true },
+    { url: NEXT.url, expect: NEXT, requireStored: true }]);
+  assert.equal(c.state().aiReady, true);
+  assert.ok(c.asked.some(([call]) => call === 'next:MAHJONG_STATUS'));
+  assert.ok(c.asked.some(([call]) => call === 'MAHJONG_NETWORK_SAVED'), 'its worker then keeps the picked network');
+  assert.deepEqual([...new Set(c.asked.map(([, version]) => version))], ['0.1.410'], 'every message names the pick');
+  // A player who picked nothing names nothing: each worker answers for its own default.
+  const d = coordinator({ coreReady: true, aiRequested: true, held: false, waiting: { aiRequested: true } });
+  await d.api.startOffline();
+  await settle();
+  assert.ok(d.asked.length > 2);
+  assert.ok(d.asked.every(([, version]) => version === undefined));
+  assert.deepEqual(d.saves.map(save => save.url), [NETWORK.url, NEXT.url]);
 });

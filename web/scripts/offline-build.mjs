@@ -3,7 +3,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve, relative, basename } from 'node:path';
 import { RUNTIME_FILES } from '../src/lib/model-package.js';
-import { MANIFEST } from '../src/lib/model-manifest.js';
+import { NETWORKS } from '../src/lib/model-manifest.js';
 import { validateNetwork } from '../src/lib/network-transfer.js';
 import { copyRuntimeAssets } from './runtime-assets.mjs';
 import { runtimeDirectory } from './copy-runtime.mjs';
@@ -22,9 +22,18 @@ export async function serviceWorkerTemplate() {
   ]);
   return template.replace('/* NETWORK_TRANSFER */ null', `(() => {\n${shared.replace(/^export /gm, '')}\nreturn { storageError, hasStoredNetwork, pruneNetworkCache, verifiedDownload };\n})()`);
 }
-/** runtime names the folder holding the runtime the page loads. */
-export async function buildOffline(root, { network = MANIFEST, runtime } = {}) {
-  validateNetwork(network);
+/** runtime names the folder holding the runtime the page loads. networks are
+ * the trained networks the build lists, its default first: the worker
+ * reports on the one a page plays and never deletes any of them. */
+export async function buildOffline(root, { networks = NETWORKS, runtime } = {}) {
+  if (!Array.isArray(networks) || !networks.length) throw new Error('Offline build lists no trained network');
+  for (const network of networks) {
+    validateNetwork(network);
+    if (typeof network.version !== 'string' || !network.version) throw new Error('Offline build lists a trained network without a version');
+  }
+  if (new Set(networks.map(network => network.version)).size !== networks.length) {
+    throw new Error('Offline build lists two trained networks under one version');
+  }
   const files = (await walk(root)).filter(file => !['sw.js', 'offline-manifest.json'].includes(basename(file)));
   const entries = await Promise.all(files.sort().map(async file => {
     const data = await readFile(file), url = relative(root, file).split('\\').join('/');
@@ -38,14 +47,16 @@ export async function buildOffline(root, { network = MANIFEST, runtime } = {}) {
   const hasModel = Boolean(runtime) && RUNTIME_FILES.every(name => entries.some(entry => entry.url === `${runtime}${name}`));
   if (!hasModel) throw new Error('Offline build is missing the AI runtime');
   const networkCacheVersion = 2;
-  const version = createHash('sha256').update(JSON.stringify({ entries, network, networkCacheVersion })).digest('hex').slice(0, 20);
+  const version = createHash('sha256').update(JSON.stringify({ entries, networks, networkCacheVersion })).digest('hex').slice(0, 20);
   const unique = [...new Map(entries.map(entry => [entry.hash, entry])).values()];
   const bytes = {
     core: unique.filter(entry => entry.group === 'core').reduce((sum, entry) => sum + entry.bytes, 0),
     runtime: unique.filter(entry => entry.group === 'ai').reduce((sum, entry) => sum + entry.bytes, 0),
-    network: network.bytes,
+    // A page saves the one network it plays, the default unless its player
+    // picked another.
+    network: networks[0].bytes,
   };
-  const manifest = { version, hasModel, networkCacheVersion, entries, network, bytes };
+  const manifest = { version, hasModel, networkCacheVersion, entries, networks, bytes };
   const template = await serviceWorkerTemplate();
   await writeFile(resolve(root, 'sw.js'), template.replace('/* OFFLINE_CONFIG */ null', JSON.stringify(manifest)));
   await writeFile(resolve(root, 'offline-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');

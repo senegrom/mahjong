@@ -4,8 +4,13 @@
  * The service worker saves the game and the few megabytes of runtime. The
  * trained network is saved here, by the page: a worker's install, activation
  * or message event is abandoned after a few minutes, and a slow link needs
- * longer than that for 100 MB. A page has no such deadline. */
-import { NETWORK, NETWORK_URL, networkBytes, networkIsStored } from './network-store.js';
+ * longer than that for 100 MB. A page has no such deadline.
+ *
+ * A build lists several networks and a page plays one of them, the one its
+ * player picked (trained-network.js). Every message names that pick, so the
+ * worker reports on, and keeps, the network the page plays. */
+import { networkBytes, networkIsStored } from './network-store.js';
+import { networkUrl, pickedVersion, playedNetwork } from './trained-network.js';
 const base = new URL('./', document.baseURI);
 const script = new URL('sw.js', base).href;
 let worker = null;
@@ -48,7 +53,10 @@ function request(type, progress, target = worker) {
         finish(error, data.value);
       }
     };
-    try { target.postMessage({ type }, [channel.port2]); }
+    // The version the player picked, not the network this page resolved it
+    // to: a waiting update reads it against its own list, as its page will,
+    // and one that no longer lists it answers with its own default.
+    try { target.postMessage({ type, version: pickedVersion() }, [channel.port2]); }
     catch (error) { finish(error); }
   });
 }
@@ -107,7 +115,9 @@ async function persistentStorage() {
 /** An update installs with the game alone and waits for this version's
  * windows to close. When Trained was requested, save the update's runtime and
  * network now, while this version runs, so the update does not start without
- * them on a plane. Should this not finish, the update's own page saves them. */
+ * them on a plane: the network its page will play for this player's pick,
+ * which its worker names. Should this not finish, the update's own page saves
+ * them. */
 async function saveUpdate(registration) {
   const next = registration.waiting;
   if (!next || updatesSaved.has(next) || !navigator.onLine) return;
@@ -132,10 +142,11 @@ function observeUpdates(registration) {
     registration.installing?.addEventListener('statechange', check);
   });
 }
-/** The worker reports the network it found stored. Match that identity to
- * this page's manifest; a reply about another version's network is checked
- * against this page's own stored record instead. Neither reads the model:
- * never hash the same model again just to repeat status. */
+/** The worker reports on the network it resolved the player's pick to. Match
+ * that identity to the network this page plays; a reply about another
+ * version's network is checked against this page's own stored record
+ * instead. Neither reads the model: never hash the same model again just to
+ * repeat status. */
 async function withNetwork(info) {
   if (!info || !info.aiReady) return info;
   return { ...info, aiReady: await networkIsStored(undefined, undefined, info.network) };
@@ -260,7 +271,7 @@ export async function refreshOffline() {
   fillRequested(info);
   return info;
 }
-/** Saves the one trained network the game carries, with its runtime. It is
+/** Saves the trained network this page plays, with its runtime. It is
  * downloaded only when a Trained player is chosen (or was, in an earlier
  * version), and one job runs at a time. */
 export function prepareOfflineAi() {
@@ -279,10 +290,12 @@ export function prepareOfflineAi() {
       await request('MAHJONG_PREPARE_AI', ({ bytes, total }) => {
         update({ progress: total ? Math.floor(20 * bytes / total) : 0 });
       });
-      await saveNetwork(NETWORK_URL, NETWORK, ({ bytes, total }) => {
+      const network = playedNetwork();
+      await saveNetwork(networkUrl(network), network, ({ bytes, total }) => {
         update({ progress: 20 + (total ? Math.floor(80 * bytes / total) : 0) });
       });
-      // The worker now keeps this network and the previous one only.
+      // The worker now keeps this network, the one saved before it and those
+      // its build lists, and no other.
       const verified = await withNetwork(await request('MAHJONG_NETWORK_SAVED'));
       update({ ...verified, phase: 'ready', progress: 100, warning: '' });
       void persistentStorage();

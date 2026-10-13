@@ -3,6 +3,7 @@ import test from 'node:test';
 import { MatchSession, readSettings, writeSettings, SETTINGS_KEY, DEFAULT_REVIEW_ADVISER } from '../src/lib/session.js';
 import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents } from '../src/lib/opponents.js';
 import { heldSafeCount, callTiles, callLabel, unseenTileCounts, waitingNote } from '../src/lib/ui.js';
+import { MANIFEST, networkFor } from '../src/lib/trained-network.js';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 class FakeGame {
@@ -105,10 +106,12 @@ test('preferences tolerate inaccessible or malformed storage', () => {
 
 test('the review adviser is remembered, and a retired network preference is ignored', () => {
   for (const reviewAdviser of ['club', 'strong', 'quick', null, '../other']) {
-    // Older builds also stored which of two networks played; one ships now.
+    // Older builds also stored which of two networks played, as 'quick' or
+    // 'strong'. That preference is retired: a network is picked by version.
     const settings = readSettings({ getItem: () => JSON.stringify({ version: 2, trainedModel: 'strong', reviewAdviser }) });
     assert.equal(settings.reviewAdviser, reviewAdviser === 'club' ? 'club' : 'strong');
     assert.equal(Object.hasOwn(settings, 'trainedModel'), false);
+    assert.equal(Object.hasOwn(settings, 'trainedNetwork'), false);
     // Before 810 every review went back to Trained once (see the next tests).
     assert.equal(readSettings({ getItem: () => JSON.stringify({ version: 1, reviewAdviser }) }).reviewAdviser, 'strong');
   }
@@ -164,6 +167,42 @@ test('saved choices stand, Club included, and only what a record lacks takes the
   const reread = readSettings({ getItem: key => writes.get(key) ?? null });
   assert.deepEqual(table(reread), ['club', 'club', 'club']);
   assert.equal(reread.reviewAdviser, 'club');
+});
+
+test('a picked trained network is kept by version, and without a listed pick the default plays', () => {
+  const read = value => readSettings({ getItem: () => JSON.stringify(value) });
+  const playing = settings => networkFor(settings.trainedNetwork).version;
+  // A first visit, and a record written before networks could be picked,
+  // play the default: 0.1.810, at the owner's word, until a newer network is
+  // published.
+  for (const settings of [readSettings(null), readSettings({ getItem: () => null }), read({ version: 2, difficulty: 'club' })]) {
+    assert.equal(Object.hasOwn(settings, 'trainedNetwork'), false);
+    assert.equal(playing(settings), '0.1.810');
+  }
+  assert.equal(MANIFEST.version, '0.1.810');
+  // Either listed network is read back as it was picked.
+  for (const version of ['0.1.410', '0.1.810']) assert.equal(read({ version: 2, trainedNetwork: version }).trainedNetwork, version);
+  // Anything that is not a listed version is no pick: the default plays.
+  for (const trainedNetwork of ['0.1.36', '0.1.4100', 'strong', 'full', '', 410, null, ['0.1.410'], { version: '0.1.410' }]) {
+    const settings = read({ version: 2, trainedNetwork, hints: false });
+    assert.equal(Object.hasOwn(settings, 'trainedNetwork'), false, JSON.stringify(trainedNetwork));
+    assert.equal(playing(settings), '0.1.810');
+    assert.equal(settings.hints, false, 'the rest of the record stands');
+  }
+  // A record from before 810 holds no pick; it would not be read if it did.
+  assert.equal(Object.hasOwn(read({ version: 1, trainedNetwork: '0.1.410' }), 'trainedNetwork'), false);
+  // Round trip: written with the other preferences, in the version 2 record.
+  const writes = new Map();
+  const storage = { setItem: (key, value) => writes.set(key, value), getItem: key => writes.get(key) ?? null };
+  const preferences = { difficulty: 'neural', opponents: ['neural', 'neural', 'neural'], hints: true, confirmDiscards: false,
+    shortcuts: true, tileFace: 'classic', reviewAdviser: 'strong' };
+  writeSettings(storage, { ...preferences, trainedNetwork: '0.1.410' });
+  assert.deepEqual(JSON.parse(writes.get(SETTINGS_KEY)), { version: 2, ...preferences, trainedNetwork: '0.1.410' });
+  assert.deepEqual(readSettings(storage), { ...preferences, trainedNetwork: '0.1.410' });
+  // A player who has picked nothing writes no pick, so a newer default reaches them.
+  writeSettings(storage, { ...preferences, trainedNetwork: undefined });
+  assert.equal(Object.hasOwn(JSON.parse(writes.get(SETTINGS_KEY)), 'trainedNetwork'), false);
+  assert.equal(playing(readSettings(storage)), MANIFEST.version);
 });
 
 test('the table shows the network download while a Trained opponent waits for it', () => {

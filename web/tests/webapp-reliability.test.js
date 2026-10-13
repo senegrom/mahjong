@@ -28,7 +28,7 @@ function client(t, prepareOfflineAi) {
     URL, DOMException, Worker, setTimeout, clearTimeout, prepareOfflineAi, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     // The memory allocator and model transport have their own integration tests.
     MEMORY_LIMITS_MIB: [256, 512, 1024], nextMemoryLimit: () => null,
-    NETWORK_URL: 'https://test.invalid/network',
+    networkUrl: network => network.url, playedNetwork: () => ({ url: 'https://test.invalid/network' }),
     networkIsStored: async () => false,
   }, ['chooseAction', 'resetPolicy']);
   t.after(() => api.resetPolicy());

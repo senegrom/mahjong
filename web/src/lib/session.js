@@ -4,6 +4,7 @@
  */
 import { normalizeOpponents, opponentPreset, DEFAULT_OPPONENT, OPPONENT_TYPES, OPPONENT_POSITIONS } from './opponents.js';
 import { normalizeTileFace } from './tile-faces.js';
+import { NETWORKS } from './model-manifest.js';
 
 export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
@@ -30,7 +31,13 @@ export const DEFAULT_REVIEW_ADVISER = 'strong';
  * since the page writes the whole record on a first visit and a stored Club
  * cannot be told from one that was only an old default. From version 2 a
  * saved choice is kept as it stands, Club included. A setting the record does
- * not hold takes today's default. */
+ * not hold takes today's default.
+ *
+ * trainedNetwork is the version of the trained network the player picked. It
+ * is written only once they pick one, so a player who never has plays the
+ * default, the network published last, and moves on with it when a newer one
+ * is published. Without a pick, and for a version this build does not list,
+ * it is left out, and the page plays the default (trained-network.js). */
 export function readSettings(storage, touch = false) {
   const defaults = { difficulty: DEFAULT_OPPONENT, hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: DEFAULT_REVIEW_ADVISER };
   try {
@@ -42,6 +49,7 @@ export function readSettings(storage, touch = false) {
     }
     if (value.version === 1) return defaults;
     if (['club', 'strong'].includes(value.reviewAdviser)) defaults.reviewAdviser = value.reviewAdviser;
+    if (NETWORKS.some(network => network.version === value.trainedNetwork)) defaults.trainedNetwork = value.trainedNetwork;
     if (DIFFICULTIES.includes(value.difficulty)) defaults.difficulty = value.difficulty;
     if (Array.isArray(value.opponents)) {
       // Only a complete valid table replaces the legacy single-tier setting.

@@ -2,13 +2,15 @@
  * discarded; retry never reuses a rejected loading promise or a hung process. */
 /* global __RUNTIME_DIRECTORY__ */
 import { prepareOfflineAi, refreshOffline } from './offline.js';
-import { NETWORK_URL, networkIsStored } from './network-store.js';
+import { networkIsStored } from './network-store.js';
+import { networkUrl, playedNetwork } from './trained-network.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
 
 /** The trained opponent: the network itself, not a small copy taught to
  * imitate it. It reads Mortal's 1012 planes, which the engine in this page
  * builds, and answers in Mortal's forty-six moves, which the engine turns
- * back into moves it can play. One network ships, so every request names it.
+ * back into moves it can play. A page plays one network, the one its player
+ * picked, so every request names that one.
  */
 // The runtime's folder is named by its contents (scripts/copy-runtime.mjs), so
 // its address never serves another version's bytes, from any cache.
@@ -145,8 +147,8 @@ export async function modelIsAvailable() {
     if (!navigator.onLine) return Boolean((await refreshOffline())?.aiReady);
     // Online, held here already, or the bucket answers; the server has the
     // runtime.
-    if (await networkIsStored(NETWORK_URL)) return true;
-    const response = await fetch(NETWORK_URL, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
+    if (await networkIsStored()) return true;
+    const response = await fetch(networkUrl(playedNetwork()), { method: 'HEAD', signal: AbortSignal.timeout(10000) });
     return response.ok;
   } catch { return false; }
 }
@@ -208,7 +210,7 @@ async function requestPolicy(planes, mask, timeout, signal, details) {
       clearTimeout(timer);
       const copy = planes.slice();
       const target = ensureWorker();
-      const message = { id, url: NETWORK_URL, runtimeBase: runtimeBase(),
+      const message = { id, url: networkUrl(playedNetwork()), runtimeBase: runtimeBase(),
         scope: new URL('./', document.baseURI).href, planes: copy, mask, details, memoryLimitMiB };
       const transfer = [copy.buffer];
       // A fresh worker is handed bytes storage refused rather than fetch them.
