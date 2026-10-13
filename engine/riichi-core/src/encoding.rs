@@ -1,8 +1,16 @@
 //! How a position is shown to a network, and how its answer is read back.
 //!
-//! Both halves live here, in the rules engine, because the browser and the
-//! training runs must agree on them exactly. A model exported from training
-//! and run in the game sees the same numbers in the same order.
+//! The two halves no longer have the same readers. The action space is the
+//! legality and translation layer that training and the game share:
+//! riichi_py and riichi-wasm both take the legality mask from here and turn
+//! a network's answer back into one of the engine's moves, so a move means
+//! the same at a training table as in the page. The observation is the
+//! engine's own view of a position, which the older networks of the
+//! engine's kind read, and it is kept for those checkpoints through
+//! riichi_py's `Arena.observations`. The networks trained now, and the one
+//! the page plays, read Mortal's planes, which `engine/libriichi` encodes.
+//! The oracle and the opponents' hands are training labels, whichever
+//! planes the network reads.
 //!
 //! **The observation** is a stack of planes over the 34 tile kinds. Counts
 //! are unary: a plane per threshold, so three copies of a tile light the

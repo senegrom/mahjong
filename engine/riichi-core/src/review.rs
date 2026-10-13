@@ -8,8 +8,9 @@
 //! the advice and see exactly what they are trading away.
 //!
 //! The adviser is the heuristic bot, which is always available and instant.
-//! A trained network can be asked the same question through
-//! [`crate::encoding`], and the two answers together are more informative
+//! The app can also ask a trained network the same question, on Mortal's
+//! planes, through riichi-wasm's `review_observation_mortal` and the page's
+//! `review-policy.js`, and the two answers together are more informative
 //! than either alone, because they disagree in interesting places.
 
 use crate::bot::{self, Bot};
