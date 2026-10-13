@@ -100,4 +100,33 @@ class EngineObservationContractTests(unittest.TestCase):
         self.assertNotIn('engine_observation', payload)
         self.assertEqual(model.from_payload(payload, 'cpu').kind, 'mortal')
 
+
+class MortalVersionTests(unittest.TestCase):
+    """Only version four of Mortal is kept, the version of the planes our
+    follower encodes: version three's 934 planes would meet our 1012 only at
+    a network's first forward."""
+
+    def test_a_version_four_mortal_keeps_its_keys_and_another_is_refused_as_it_is_built(self):
+        from neural import mortal_model
+        config = {'resnet': {'conv_channels': 8, 'num_blocks': 1}, 'control': {'version': 4}}
+        torch.manual_seed(13)
+        net = mortal_model.build(8, 1)
+        self.assertEqual(sorted(net.dqn.state_dict()), ['net.bias', 'net.weight'])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'mortal.pt'
+            torch.save({**net.state(), 'config': config}, path)
+            loaded = mortal_model.load(path, 'cpu')
+        for part in ('brain', 'dqn'):
+            mine, theirs = getattr(net, part).state_dict(), getattr(loaded, part).state_dict()
+            self.assertEqual(sorted(mine), sorted(theirs))
+            for key, value in mine.items():
+                self.assertTrue(torch.equal(theirs[key], value), (part, key))
+        old = {**config, 'control': {'version': 3}}
+        with self.assertRaisesRegex(ValueError, 'version 3'):
+            mortal_model.build(**mortal_model.shape_of({'config': old}))
+        for build in (lambda: mortal_model.Brain(conv_channels=8, num_blocks=1, version=3),
+                      lambda: mortal_model.DQN(version=3)):
+            with self.assertRaisesRegex(ValueError, 'only Mortal version 4'):
+                build()
+
 if __name__ == '__main__': unittest.main()

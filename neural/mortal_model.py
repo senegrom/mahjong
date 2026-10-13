@@ -87,14 +87,29 @@ class ResNet(nn.Module):
         return self.net(x)
 
 
+#: The one version of Mortal's kept here: the planes our follower encodes
+#: (`observe.VERSION`) are version four's thousand and twelve, and a network
+#: of another version reads another count.
+VERSION = 4
+
+
+def require_version(version: int) -> None:
+    """Refuses a Mortal of any version but `VERSION` as it is built, rather
+    than at its first forward, where version three's 934 planes would meet
+    our 1012."""
+    if version != VERSION:
+        raise ValueError(
+            f"only Mortal version {VERSION} is kept here, whose {obs_shape(VERSION)[0]} planes our "
+            f"follower encodes; this checkpoint is version {version}"
+        )
+
+
 class Brain(nn.Module):
     """The encoder: planes in, a vector of 1024 out."""
 
-    def __init__(self, *, conv_channels: int, num_blocks: int, version: int = 4):
+    def __init__(self, *, conv_channels: int, num_blocks: int, version: int = VERSION):
         super().__init__()
-        if version not in (3, 4):
-            raise ValueError(f"only Mortal versions 3 and 4 are kept here, not {version}")
-        self.version = version
+        require_version(version)
         norm_builder = partial(nn.BatchNorm1d, conv_channels, momentum=0.01, eps=1e-3)
         actv_builder = partial(nn.Mish, inplace=True)
         self.encoder = ResNet(
@@ -113,25 +128,13 @@ class Brain(nn.Module):
 class DQN(nn.Module):
     """The duelling head: a value and an advantage per action, masked."""
 
-    def __init__(self, *, version: int = 4):
+    def __init__(self, *, version: int = VERSION):
         super().__init__()
-        self.version = version
-        if version == 4:
-            self.net = nn.Linear(1024, 1 + ACTION_SPACE)
-        elif version == 3:
-            self.v_head = nn.Sequential(nn.Linear(1024, 256), nn.Mish(inplace=True), nn.Linear(256, 1))
-            self.a_head = nn.Sequential(
-                nn.Linear(1024, 256), nn.Mish(inplace=True), nn.Linear(256, ACTION_SPACE)
-            )
-        else:
-            raise ValueError(f"only Mortal versions 3 and 4 are kept here, not {version}")
+        require_version(version)
+        self.net = nn.Linear(1024, 1 + ACTION_SPACE)
 
     def forward(self, phi: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        if self.version == 4:
-            v, a = self.net(phi).split((1, ACTION_SPACE), dim=-1)
-        else:
-            v = self.v_head(phi)
-            a = self.a_head(phi)
+        v, a = self.net(phi).split((1, ACTION_SPACE), dim=-1)
         a_sum = a.masked_fill(~mask, 0.0).sum(-1, keepdim=True)
         a_mean = a_sum / mask.sum(-1, keepdim=True)
         return (v + a - a_mean).masked_fill(~mask, -torch.inf)
@@ -145,7 +148,6 @@ class Mortal(nn.Module):
         super().__init__()
         self.brain = brain
         self.dqn = dqn
-        self.version = brain.version
 
     def features(self, obs: torch.Tensor) -> torch.Tensor:
         """The encoder's vector of 1024 per position."""
@@ -160,7 +162,7 @@ class Mortal(nn.Module):
         return {"mortal": self.brain.state_dict(), "current_dqn": self.dqn.state_dict()}
 
 
-def build(conv_channels: int, num_blocks: int, version: int = 4) -> Mortal:
+def build(conv_channels: int, num_blocks: int, version: int = VERSION) -> Mortal:
     return Mortal(
         Brain(conv_channels=conv_channels, num_blocks=num_blocks, version=version),
         DQN(version=version),
