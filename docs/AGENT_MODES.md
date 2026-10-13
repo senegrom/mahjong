@@ -19,7 +19,8 @@ restored match may have been played by another network.
 
 Picking another version asks first, then reloads the page with the other
 network, in the mode it was in: a match, a guided game and a physical
-table come back as they were, and a watched game ends. One network plays
+table come back as they were, though the physical table's undo history
+starts afresh, and a watched game ends. One network plays
 in a page, so its opponents, advisers and offline status never mix two.
 A player who has never picked plays the default, and the next network
 published becomes theirs too; a pick, the default's version included, is
