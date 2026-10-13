@@ -1863,20 +1863,48 @@ mod tests {
 
     /// EMA 2025 section 3.4.1: the last discard may be claimed for a win
     /// only, not for a set.
+    ///
+    /// South holds a pair of the 5 characters East throws, and the 1 and 9
+    /// circles to discard after claiming it, so while tiles remain South is
+    /// offered the triplet. Thrown as the last discard, the same tile is
+    /// offered to nobody and the hand ends in a draw. A hand of the pair
+    /// alone would be offered nothing either way, since a claim must leave
+    /// a tile to discard, and so could not tell the rule from its absence.
     #[test]
     fn the_last_discard_is_only_open_to_a_win() {
-        let mut hand = fresh();
-        while hand.wall.draw().is_some() {}
-        hand.players[1].hand = "55m".parse().unwrap();
-        hand.players[0].hand = "5m".parse().unwrap();
-        hand.turn = Wind::East;
-        hand.phase = Phase::Act;
-        hand.drawn = None;
-        hand.discard("5m".parse().unwrap(), false);
-        for (_, calls) in hand.legal_calls() {
-            assert!(!calls.contains(&Call::Pon));
-            assert!(!calls.contains(&Call::Kan));
-        }
+        let five: Tile = "5m".parse().unwrap();
+        let east_throws_the_five = |wall_empty: bool| -> Hand {
+            let mut hand = fresh();
+            if wall_empty {
+                while hand.wall.draw().is_some() {}
+            }
+            hand.players[1].hand = "55m19p".parse().unwrap();
+            hand.players[0].hand = "5m".parse().unwrap();
+            hand.turn = Wind::East;
+            hand.phase = Phase::Act;
+            hand.drawn = None;
+            hand.discard(five, false);
+            hand
+        };
+
+        let hand = east_throws_the_five(false);
+        assert_eq!(
+            hand.legal_calls(),
+            vec![(Wind::South, vec![Call::Pon, Call::Pass])],
+            "with tiles left South may claim the triplet, and nobody else may claim"
+        );
+
+        let hand = east_throws_the_five(true);
+        assert!(
+            hand.legal_calls().is_empty(),
+            "the last discard is offered for no set: {:?}",
+            hand.legal_calls()
+        );
+        assert!(
+            matches!(hand.outcome, Some(Outcome::ExhaustiveDraw { .. })),
+            "so the hand ends in a draw: {:?}",
+            hand.outcome
+        );
     }
 
     /// EMA 2025 section 3.4.2: the noten penalty totals 3,000 points.
