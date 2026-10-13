@@ -57,12 +57,6 @@ pub const ORACLE_DRAWS: usize = 16;
 pub const ORACLE_PLANES: usize = OPPONENTS * COPIES as usize + ORACLE_DRAWS + COPIES as usize;
 /// Numbers in one oracle view.
 pub const ORACLE: usize = ORACLE_PLANES * POSITIONS;
-/// Planes holding the three opponents' concealed tiles as unary counts, in
-/// the observation's relative seat order: the first part of the oracle's
-/// view.
-pub const HIDDEN_HANDS_PLANES: usize = OPPONENTS * COPIES as usize;
-/// Numbers in one set of hidden hands.
-pub const HIDDEN_HANDS: usize = HIDDEN_HANDS_PLANES * POSITIONS;
 /// Numbers in one answer about what the opponents are holding.
 pub const HANDS: usize = OPPONENTS * POSITIONS;
 /// Roughly how many discards a hand holds before the wall runs out, used to
@@ -300,8 +294,12 @@ pub fn observe(hand: &Hand, seat: Wind, out: &mut [f32]) {
 pub fn oracle(hand: &Hand, seat: Wind, out: &mut [f32]) {
     assert_eq!(out.len(), ORACLE, "oracle buffer is the wrong size");
     out.fill(0.0);
-    hidden_hands(hand, seat, &mut out[..HIDDEN_HANDS]);
-    let mut plane = HIDDEN_HANDS_PLANES;
+    let mut plane = 0;
+    // The opponents' concealed tiles, starting with the player to the right.
+    for offset in 1..=OPPONENTS {
+        let other = &hand.players[seat.plus(offset).index()];
+        unary(out, &mut plane, |tile| other.hand.count(tile));
+    }
     for (order, tile) in hand.wall.upcoming(ORACLE_DRAWS).iter().enumerate() {
         out[(plane + order) * POSITIONS + tile.idx()] = 1.0;
     }
@@ -314,24 +312,6 @@ pub fn oracle(hand: &Hand, seat: Wind, out: &mut [f32]) {
             .count() as u8
     });
     debug_assert_eq!(plane, ORACLE_PLANES, "the oracle must fill every plane");
-}
-
-/// Writes the three opponents' concealed tiles into `out`, which must hold
-/// [`HIDDEN_HANDS`] numbers, as unary counts in the observation's relative
-/// seat order: the first part of what [`oracle`] writes.
-pub fn hidden_hands(hand: &Hand, seat: Wind, out: &mut [f32]) {
-    assert_eq!(
-        out.len(),
-        HIDDEN_HANDS,
-        "hidden hands buffer is the wrong size"
-    );
-    out.fill(0.0);
-    let mut plane = 0;
-    for offset in 1..4 {
-        let other = &hand.players[seat.plus(offset).index()];
-        unary(out, &mut plane, |tile| other.hand.count(tile));
-    }
-    debug_assert_eq!(plane, HIDDEN_HANDS_PLANES);
 }
 
 fn meld_count(hand: &Hand, seat: Wind, tile: Tile) -> u8 {
@@ -575,19 +555,6 @@ mod tests {
         let row = &out[indicators * POSITIONS..(indicators + 1) * POSITIONS];
         assert_eq!(row[ura[0].idx()], 1.0, "the hidden indicator is shown");
         assert_eq!(row.iter().sum::<f32>(), 1.0);
-    }
-
-    /// The hidden hands on their own are the first part of the oracle's
-    /// view, plane for plane.
-    #[test]
-    fn the_hidden_hands_are_the_front_of_the_oracle() {
-        let hand = fresh();
-        let mut whole = vec![0.0; ORACLE];
-        oracle(&hand, Wind::North, &mut whole);
-        let mut part = vec![0.0; HIDDEN_HANDS];
-        hidden_hands(&hand, Wind::North, &mut part);
-        assert_eq!(part, whole[..HIDDEN_HANDS]);
-        assert_eq!(part.iter().sum::<f32>(), 40.0);
     }
 
     /// How many copies of `tile` the unseen planes say `seat` cannot see.
