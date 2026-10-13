@@ -39,7 +39,10 @@ fn a_number_that_does_not_parse_is_refused() {
         assert_eq!(output.status.code(), Some(2), "{arguments:?}: {output:?}");
         assert!(output.stdout.is_empty(), "{arguments:?} played anyway");
         let said = String::from_utf8_lossy(&output.stderr);
-        assert!(said.contains("takes a whole number"), "{arguments:?}: {said}");
+        assert!(
+            said.contains("takes a whole number"),
+            "{arguments:?}: {said}"
+        );
     }
 }
 
@@ -50,7 +53,10 @@ fn help_and_no_command_print_the_usage_and_succeed() {
         let output = run(arguments);
         assert!(output.status.success(), "{arguments:?}: {output:?}");
         let said = String::from_utf8_lossy(&output.stdout);
-        assert!(said.starts_with("usage: riichi-cli"), "{arguments:?}: {said}");
+        assert!(
+            said.starts_with("usage: riichi-cli"),
+            "{arguments:?}: {said}"
+        );
     }
 }
 
