@@ -17,6 +17,7 @@ from neural import model, train, train_combined, train_mortal, combined, mortal_
 from neural.observe import Planes
 from neural.ppo_control import PolicyDrift, baseline_batch_size
 from neural.tests.test_evaluation_masks import ConflictingViews
+from neural.training_safety import validate_training_options
 
 
 class ControlTests(unittest.TestCase):
@@ -68,6 +69,33 @@ class ControlTests(unittest.TestCase):
                 with self.subTest(trainer=module.__name__,option=option), \
                         patch.object(sys,'argv',['trainer',option,value]):
                     with self.assertRaises(ValueError): module.main()
+
+    def test_entropy_floor_options_are_refused_before_anything_is_written(self):
+        # The floor's options were read unchecked: a NaN ceiling made the
+        # bonus NaN and stopped the trainer at its first step, after the
+        # model was built and a whole round played; an infinite target, a
+        # negative rate, a ceiling at or below --entropy or a rate of nought
+        # changed or disabled the floor without a word.
+        target=['--entropy-target','0.5']
+        cases=[(['--entropy-target','nan'],'entropy_target'),(['--entropy-target','inf'],'entropy_target'),
+               (['--entropy-target','-1'],'entropy_target'),
+               (target+['--entropy-max','nan'],'entropy_max'),(target+['--entropy-max','inf'],'entropy_max'),
+               (target+['--entropy-max','-0.1'],'entropy_max'),
+               (target+['--entropy-rate','nan'],'entropy_rate'),(target+['--entropy-rate','inf'],'entropy_rate'),
+               (target+['--entropy-rate','-0.01'],'entropy_rate'),
+               (target+['--entropy','0.01','--entropy-max','0.005'],'entropy_max'),
+               (target+['--entropy','0.01','--entropy-max','0.01'],'entropy_max'),
+               (target+['--entropy-rate','0'],'entropy_rate')]
+        for flags,name in cases:
+            with self.subTest(flags=flags),tempfile.TemporaryDirectory() as folder:
+                out=Path(folder)/'run'
+                with patch.object(sys,'argv',['trainer',*flags,'--out',str(out)]):
+                    with self.assertRaisesRegex(ValueError,name): train_combined.main()
+                self.assertFalse(out.exists())
+        # Without a target there is no floor to rise, and its other options
+        # are only held to being finite and nonnegative.
+        with patch.object(sys,'argv',['trainer','--entropy-rate','0','--entropy-max','0']):
+            validate_training_options(train_combined.parse_args())
 
     def test_both_riichi_stages_inherit_the_callers_precision(self):
         linear = torch.nn.Linear(1, 46)

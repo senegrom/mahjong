@@ -90,10 +90,19 @@ def validate_training_options(args) -> None:
         if value is not None and (not math.isfinite(value) or value <= 0):
             raise ValueError(f'{name} must be finite and positive')
     for name in ('target_kl', 'entropy', 'value_weight', 'hands_weight', 'distil_weight',
-                 'leash'):
+                 'leash', 'entropy_target', 'entropy_max', 'entropy_rate'):
         value = getattr(args, name, 0.0)
         if not math.isfinite(value) or value < 0:
             raise ValueError(f'{name} must be finite and nonnegative')
+    # The entropy floor (train_combined's --entropy-target) raises the bonus
+    # from --entropy towards --entropy-max by --entropy-rate an update. With
+    # a ceiling no higher than where it starts, or a rate of nought, it never
+    # moves, and the run trains without the floor it asked for, unannounced.
+    if getattr(args, 'entropy_target', 0.0) > 0:
+        if args.entropy_max <= args.entropy:
+            raise ValueError('entropy_max must be above entropy for the entropy floor to rise')
+        if args.entropy_rate == 0:
+            raise ValueError('entropy_rate must be positive for the entropy floor to rise')
     clip = getattr(args, 'clip', 0.2)
     if not math.isfinite(clip) or not 0 < clip < 1:
         raise ValueError('clip must be finite and between zero and one')
