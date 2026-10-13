@@ -56,7 +56,10 @@ pub struct Player {
     pub ippatsu: bool,
     /// Points.
     pub score: i32,
-    /// Furiten because a wait sits among the player's own discards.
+    /// Permanent furiten (EMA section 3.3.9): a wait sits among the
+    /// player's own discards, or the player passed a winning tile after
+    /// declaring riichi. A player who has not declared leaves it by
+    /// changing their wait; after riichi it lasts to the end of the hand.
     pub furiten: bool,
     /// Furiten until the next draw or claim, after passing a winning tile.
     pub temporary_furiten: bool,
@@ -271,7 +274,7 @@ pub struct Hand {
     pub wall: Wall,
     /// The four players, indexed by seat.
     pub players: [Player; 4],
-    /// The dealer's seat, always East within a hand.
+    /// The round wind: East in the east round, South in the south round.
     pub round: Wind,
     /// Which hand of the round this is, counting from one. The log records
     /// it, and the observation shows it, since how many hands are left
