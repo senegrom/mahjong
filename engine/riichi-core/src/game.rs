@@ -62,12 +62,6 @@ pub struct Player {
     pub temporary_furiten: bool,
     /// Where the riichi declaration falls in the hand's order of discards.
     pub riichi_order: Option<u32>,
-    /// Who fed this player the last of three called dragon sets, and so
-    /// answers for a Big Three Dragons (EMA section 3.3.7); see
-    /// [`Player::liability`].
-    pub liable_for_dragons: Option<Wind>,
-    /// Who fed this player the last of four called wind sets.
-    pub liable_for_winds: Option<Wind>,
 }
 
 impl Player {
@@ -83,8 +77,6 @@ impl Player {
             furiten: false,
             temporary_furiten: false,
             riichi_order: None,
-            liable_for_dragons: None,
-            liable_for_winds: None,
         }
     }
 
@@ -1153,7 +1145,6 @@ impl Hand {
             },
             Call::Ron | Call::Pass => unreachable!("handled before"),
         });
-        self.note_liability(seat);
         if matches!(call, Call::Kan) {
             self.finish_quad_draw();
         } else {
@@ -1163,32 +1154,17 @@ impl Hand {
         }
     }
 
-    /// Notices when a claim hands a player the last of the three dragon
-    /// sets or four wind sets, which makes the feeder answer for the yakuman
-    /// (EMA section 3.3.7). Only a triplet or quad just claimed can be that
-    /// set and name its feeder ([`Player::liability`]); once named, a later
-    /// call cannot move the liability, and a set completed by the player's
-    /// own concealed quad names nobody however many calls follow.
-    fn note_liability(&mut self, seat: Wind) {
-        let (dragons, winds) = self.players[seat.index()].liability();
-        let player = self.player_mut(seat);
-        if player.liable_for_dragons.is_none() {
-            player.liable_for_dragons = dragons;
-        }
-        if player.liable_for_winds.is_none() {
-            player.liable_for_winds = winds;
-        }
-    }
-
     /// Who, if anyone, answers for this player's winning hand.
     ///
-    /// A feeder is only recorded once the third dragon set or the fourth
-    /// wind set stands among the player's sets, and sets are never taken
-    /// back, so a hand with a feeder recorded is always the Big Three
-    /// Dragons or Big Four Winds that feeder answers for.
+    /// [`Player::liability`] names a feeder only once the third dragon set
+    /// or the fourth wind set stands among the player's sets. Sets are
+    /// never taken back, and a later one cannot take that set's place among
+    /// them, so a later call never moves the liability, and a hand with a
+    /// feeder named is always the Big Three Dragons or Big Four Winds that
+    /// feeder answers for.
     fn liable_for(&self, seat: Wind) -> Option<Wind> {
-        let player = &self.players[seat.index()];
-        player.liable_for_dragons.or(player.liable_for_winds)
+        let (dragons, winds) = self.players[seat.index()].liability();
+        dragons.or(winds)
     }
 
     /// Everything `seat` can see of the tiles: their own hand and sets,
@@ -2199,8 +2175,8 @@ mod tests {
         hand.discard("7z".parse().unwrap(), false);
         hand.resolve_calls(&[(Wind::South, Call::Pon)]).unwrap();
         assert_eq!(
-            hand.players[1].liable_for_dragons,
-            Some(Wind::West),
+            hand.players[1].liability(),
+            (Some(Wind::West), None),
             "West fed the third dragon set"
         );
 
@@ -2261,7 +2237,7 @@ mod tests {
                 hand.act(Action::Discard(discarded.parse().unwrap()))
                     .unwrap();
             }
-            assert_eq!(hand.players[0].liable_for_dragons, Some(Wind::South));
+            assert_eq!(hand.players[0].liability(), (Some(Wind::South), None));
 
             if self_draw {
                 hand.turn = Wind::East;
@@ -2322,7 +2298,7 @@ mod tests {
             hand.drawn = None;
             hand.discard(tile("7z"), false);
             hand.resolve_calls(&[(Wind::South, Call::Pon)]).unwrap();
-            assert_eq!(hand.players[1].liable_for_dragons, Some(Wind::West));
+            assert_eq!(hand.players[1].liability(), (Some(Wind::West), None));
 
             // South throws 5s and waits on 1m-4m.
             hand.players[1].hand = "23m99p".parse().unwrap();
@@ -2373,7 +2349,7 @@ mod tests {
         hand.just_claimed = None;
         hand.act(Action::ConcealedKan(tile("7z"))).unwrap();
         assert_eq!(hand.players[1].melds.len(), 3);
-        assert_eq!(hand.players[1].liable_for_dragons, None);
+        assert_eq!(hand.players[1].liability(), (None, None));
 
         // South throws what the quad drew and later takes East's 4m for 2-3-4m.
         hand.players[1].hand = "23m9p5s".parse().unwrap();
@@ -2387,7 +2363,8 @@ mod tests {
             .unwrap();
         assert_eq!(hand.players[1].melds.len(), 4);
         assert_eq!(
-            hand.players[1].liable_for_dragons, None,
+            hand.players[1].liability(),
+            (None, None),
             "a sequence claimed after the last dragon set names nobody"
         );
 
@@ -2420,7 +2397,7 @@ mod tests {
         hand.drawn = None;
         hand.discard(tile("4z"), false);
         hand.resolve_calls(&[(Wind::South, Call::Pon)]).unwrap();
-        assert_eq!(hand.players[1].liable_for_winds, Some(Wind::West));
+        assert_eq!(hand.players[1].liability(), (None, Some(Wind::West)));
 
         // South throws 5s, later draws the last south wind and extends.
         hand.players[1].hand = "2z9p".parse().unwrap();
@@ -2432,7 +2409,7 @@ mod tests {
         if hand.phase == Phase::CallWindow {
             hand.resolve_calls(&[]).unwrap();
         }
-        assert_eq!(hand.players[1].liable_for_winds, Some(Wind::West));
+        assert_eq!(hand.players[1].liability(), (None, Some(Wind::West)));
 
         hand.players[1].hand = "99p".parse().unwrap();
         hand.turn = Wind::South;
