@@ -54,8 +54,8 @@
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
   let startupNote = $state('Loading the game and selected tile graphics…');
-  // One trained network ships with the game, so its download is the only
-  // optional one: readiness and availability are read straight from offline.
+  // A page plays one trained network, so its download is the only optional
+  // one: readiness and availability are read straight from offline.
   let offline = $state(INITIAL_OFFLINE);
   let failure = $state('');
   let storageWarning = $state('');

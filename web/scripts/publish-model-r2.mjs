@@ -172,7 +172,7 @@ export async function listedNetworks(path) {
   try {
     // Its own module, evaluated by itself: the manifest imports nothing.
     ({ NETWORKS: networks } = await import(`data:text/javascript;base64,${Buffer.from(text).toString('base64')}`));
-  } catch (error) { throw new Error(`The model manifest could not be read: ${error.message}`); }
+  } catch (error) { throw new Error(`The model manifest could not be read: ${error.message}`, { cause: error }); }
   if (!Array.isArray(networks) || !networks.length) throw new Error('The model manifest lists no networks.');
   for (const network of networks) checkNetwork(network);
   for (const field of ['version', 'sha256']) {
