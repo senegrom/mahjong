@@ -268,10 +268,8 @@ mod tests {
         table.counters = 3;
         let mut rng = Rng::from_seed(2);
         let mut hand = table.deal(&mut rng);
-        hand.outcome = Some(Outcome::ExhaustiveDraw {
-            tenpai: vec![Wind::South],
-        });
-        // Stand in a win by South rather than a draw.
+        // A win with no winners listed stands in for a win by South: all
+        // that counts here is that East is not among them.
         hand.outcome = Some(Outcome::Win {
             winners: Vec::new(),
             discarder: None,

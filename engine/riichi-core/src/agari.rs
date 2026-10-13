@@ -225,9 +225,10 @@ mod tests {
             .contains(&Block::Pair("1s".parse().unwrap())));
     }
 
-    /// EMA 2025, scoring example 8: 1112223334455 style hands can be read as
-    /// sequences or as triplets, and the rules take the better reading, so
-    /// both must be offered.
+    /// EMA 2025 section 3.3.10, and section 6.7.1, example 4: three
+    /// consecutive triplets in one suit can also be read as three identical
+    /// sequences. A win takes the highest-scoring reading (section 3.4.3),
+    /// so both must be offered.
     #[test]
     fn ambiguous_hands_have_several_readings() {
         // Three identical sequences or three triplets, plus a pair.

@@ -1507,10 +1507,8 @@ mod tests {
     fn a_quad_turns_its_indicator_before_the_replacement_is_drawn() {
         let mut hand = fresh();
         let tile: Tile = "5s".parse().unwrap();
-        hand.players[0].hand = "123m456m789m99p".parse().unwrap();
-        hand.players[0].hand.counts_mut()[tile.idx()] = 4;
-        // Thirteen tiles plus the four of the quad is more than a hand, so
-        // trim the pair back to what a quad-holding hand really has.
+        // Three sequences, a 9 circles and all four 5 bamboo, the last of
+        // them just drawn: fourteen tiles, as at any turn.
         hand.players[0].hand = "123m456m789m9p".parse().unwrap();
         for _ in 0..4 {
             hand.players[0].hand.add(tile);

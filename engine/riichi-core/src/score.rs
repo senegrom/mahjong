@@ -798,7 +798,7 @@ mod tests {
         let mut situation = Situation::new(Wind::South, Wind::East, WinBy::Discard, tile("8s"));
         // 3 characters indicates 4 characters, which the hand holds three times.
         situation.dora_indicators = vec![tile("3m")];
-        let score = score_hand(&tiles, &melds_none(), &situation).unwrap();
+        let score = score_hand(&tiles, &[], &situation).unwrap();
         assert!(names(&score).contains(&"Three Concealed Triplets"));
         assert!(names(&score).contains(&"All Triplets"));
         assert!(names(&score).contains(&"All Simples"));
@@ -893,9 +893,5 @@ mod tests {
             .map(|(_, value)| *value)
             .sum();
         assert_eq!(value_pairs, 2);
-    }
-
-    fn melds_none() -> Vec<Meld> {
-        Vec::new()
     }
 }
