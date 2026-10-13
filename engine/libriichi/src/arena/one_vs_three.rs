@@ -14,7 +14,9 @@ use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-#[pyclass]
+// Extractable by value as before: PyO3 0.28 deprecated deriving that for a
+// Clone pyclass unless it asks for it.
+#[pyclass(from_py_object)]
 #[derive(Clone, Default)]
 pub struct OneVsThree {
     pub disable_progress_bar: bool,

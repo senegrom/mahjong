@@ -52,7 +52,14 @@ Local changes, all under the same licence:
   now `Py<PyAny>`, `Python::with_gil` is `Python::attach` and
   `allow_threads` is `detach`, in `src/agent/{mjai_log,mortal,py_agent}.rs`,
   `src/arena/{one_vs_three,two_vs_two}.rs` and `src/mjai/bot.rs`, and
-  `src/lib.rs` declares the module `gil_used = true`.
+  `src/lib.rs` declares the module `gil_used = true`. Every `#[pyclass]`
+  that derives `Clone`, in `src/arena/{one_vs_three,two_vs_two}.rs`,
+  `src/dataset/{gameplay,grp}.rs`, `src/stat.rs` and
+  `src/state/{action,player_state}.rs`, asks for `from_py_object`, so it
+  stays extractable by value now that PyO3 0.28 has deprecated deriving
+  that unasked.
+- `src/dataset/grp.rs` no longer has `Grp::len` and `is_empty`, which
+  nothing in the crate called and the Python class never exposed.
 - Newer dependencies: `Cargo.toml` takes PyO3 and numpy 0.29 and pyo3-log
   0.13 for that port, then ndarray 0.17, rand and rand_chacha 0.10, sha3
   0.12 and indicatif 0.18, and adds the `half` crate, with numpy's `half`

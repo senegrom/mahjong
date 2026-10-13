@@ -43,7 +43,9 @@ pub struct GameplayLoader {
     excludes_set: AHashSet<String>,
 }
 
-#[pyclass]
+// Extractable by value as before: PyO3 0.28 deprecated deriving that for a
+// Clone pyclass unless it asks for it.
+#[pyclass(from_py_object)]
 #[derive(Clone, Default)]
 pub struct Gameplay {
     // per move

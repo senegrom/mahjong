@@ -23,7 +23,9 @@ use tinyvec::{ArrayVec, TinyVec};
 /// mjai event, along with some helper functions to build an actual agent.
 /// Notably, `PlayerState` encodes observation features into numpy arrays which
 /// serve as inputs for deep learning model.
-#[cfg_attr(feature = "pymod", pyclass)]
+// Extractable by value as before: PyO3 0.28 deprecated deriving that for a
+// Clone pyclass unless it asks for it.
+#[cfg_attr(feature = "pymod", pyclass(from_py_object))]
 #[derive(Clone, Derivative)]
 #[derivative(Default)]
 pub struct PlayerState {

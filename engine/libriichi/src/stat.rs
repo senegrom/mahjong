@@ -25,7 +25,9 @@ use serde_json as json;
 ///   discarded.
 /// - Every other Δscore cover kyotakus.
 /// - Ankan is not recognized as fuuro.
-#[pyclass]
+// Extractable by value as before: PyO3 0.28 deprecated deriving that for a
+// Clone pyclass unless it asks for it.
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Add, AddAssign, Sum)]
 pub struct Stat {
     #[pyo3(get, set)]
