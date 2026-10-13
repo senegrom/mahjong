@@ -1728,35 +1728,6 @@ mod tests {
         );
     }
 
-    /// EMA 2025 section 3.3.9: a player whose wait sits among their own
-    /// discards may not win by discard.
-    #[test]
-    fn furiten_bars_a_win_by_discard() {
-        let mut hand = fresh();
-        hand.players[1].hand = "123m456m789m11s34p".parse().unwrap();
-        hand.players[1].discards.push(Discard {
-            tile: "2p".parse().unwrap(),
-            order: 0,
-            drawn: true,
-            riichi: false,
-            claimed: false,
-        });
-        hand.players[1].refresh_furiten();
-        assert!(hand.players[1].is_furiten());
-
-        hand.players[0].hand = "2p".parse().unwrap();
-        hand.turn = Wind::East;
-        hand.phase = Phase::Act;
-        hand.drawn = None;
-        hand.discard("2p".parse().unwrap(), false);
-        let calls = hand.legal_calls();
-        let south = calls.iter().find(|(seat, _)| *seat == Wind::South);
-        assert!(
-            south.is_none() || !south.unwrap().1.contains(&Call::Ron),
-            "a furiten player must not be offered the win"
-        );
-    }
-
     /// EMA 2025 sections 3.3.11 and 3.3.12, which differ on exactly one
     /// word: a player may win by self-draw "with the tile just drawn... A
     /// furiten player may still call tsumo", but may win by discard only
@@ -1768,7 +1739,8 @@ mod tests {
         let tile: Tile = "2p".parse().unwrap();
 
         // The same furiten hand is set up twice, so the only thing that
-        // differs between the two halves is how the tile arrives.
+        // differs between the two halves is how the tile arrives. South is
+        // furiten on a wait among their own discards (EMA section 3.3.9).
         let furiten_south = |hand: &mut Hand| {
             hand.players[1].hand = waiting.parse().unwrap();
             hand.players[1].discards.push(Discard {
