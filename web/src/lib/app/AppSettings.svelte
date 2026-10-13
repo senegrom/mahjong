@@ -314,7 +314,8 @@
     }
     h1 { margin-right: auto; font-size: 1rem; letter-spacing: .18em; white-space: nowrap; }
     .opponents { margin-left: 0; }
-    .opponents select { min-height: 44px; width: 128px; max-width: 128px; padding: 5px 30px 5px 12px; font-size: .82rem; }
+    /* Wide enough to name the Trained network with its version, "Trained 0.1.810", clear of the chevron. */
+    .opponents select { min-height: 44px; width: 136px; max-width: 136px; padding: 5px 30px 5px 12px; font-size: .82rem; }
     .settings-trigger {
       display: inline-flex;
       width: 44px;
