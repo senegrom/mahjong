@@ -20,19 +20,45 @@ export function heldSafeCount(view) {
   return [...me.hand, ...(me.drawn ? [me.drawn] : [])].filter((tile) => view.safe.includes(tile)).length;
 }
 
-export function callLabel(choice) {
+/** A choice as its button says it. `robbing` is true in a window to rob a
+ * quad, where the win is on the tile added to it, not on a discard. */
+export function callLabel(choice, robbing = false) {
   const tile = tileWords(choice.tile);
   switch (choice.kind) {
     case 'chii': return `Chii — ${sequenceWords(choice.tile)}`;
     case 'pon': return 'Pon — triplet';
     case 'kan': return 'Kan — quad';
-    case 'ron': return 'Ron — win on discard';
+    case 'ron': return robbing ? 'Ron — rob the quad' : 'Ron — win on discard';
     case 'tsumo': return 'Tsumo — self-draw win';
     case 'riichi': return `Riichi — discard the ${tile}`;
     case 'concealed-kan': return `Kan — concealed quad of ${tile}`;
     case 'extended-kan': return `Kan — extend the ${tile} triplet`;
     default: return 'Pass';
   }
+}
+
+/** The kind of quad a call window offers to be robbed, `'extended-kan'` or
+ * `'concealed-kan'`, or `null` at an ordinary discard. The engine puts a
+ * declared quad's tile on the table as it puts a discard, so the window is
+ * told apart by the quad itself: all four copies are in it, so no other
+ * seat's tile can be one of them (EMA section 3.3.13). */
+export function quadOnOffer(view) {
+  if (view?.phase !== 'call' || !view.pending_discard) return null;
+  const from = view.seats?.find(seat => seat.seat === view.pending_from);
+  return from?.melds?.find(meld => ['extended-kan', 'concealed-kan'].includes(meld.kind)
+    && meld.tiles.includes(view.pending_discard))?.kind ?? null;
+}
+
+/** What a win is worth, as a table announces it, written from the engine's
+ * numbers rather than read out of its sentence: a win by discard as its
+ * total, a dealer's self-draw as what each of the others pays ("4,000 all"),
+ * and anyone else's as each non-dealer's share and then the dealer's
+ * ("2,000 / 4,000"). A self-draw's first payment alone is only a part of the
+ * hand. Counters are in every figure; riichi bets are not. */
+export function winValue(win) {
+  const { total, from_dealer: dealer, from_each_other: each } = win.payments;
+  if (win.by !== 'self-draw') return total.toLocaleString();
+  return dealer ? `${each.toLocaleString()} / ${dealer.toLocaleString()}` : `${each.toLocaleString()} all`;
 }
 
 export function callTiles(choice, pending) {

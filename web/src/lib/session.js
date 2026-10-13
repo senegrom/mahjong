@@ -109,7 +109,7 @@ export class MatchSession {
   stateKey() { return JSON.stringify([this.view, this.choices, this.over]); }
 
   snapshot() {
-    return { version: VERSION, format: 6, seed: this.seed, difficulty: this.initialDifficulty, opponents: [...this.initialOpponents],
+    return { version: VERSION, format: 7, seed: this.seed, difficulty: this.initialDifficulty, opponents: [...this.initialOpponents],
       commands: this.commands.map((command) => ({ ...command })), state: this.stateKey() };
   }
 
@@ -117,7 +117,7 @@ export class MatchSession {
     require(typeof text === 'string' && text.length <= MAX_SAVE_BYTES, 'Saved match is too large');
     const saved = JSON.parse(text);
     const format = saved?.format ?? 0;
-    require(saved?.version === VERSION && [0, 2, 3, 4, 5, 6].includes(format) && Array.isArray(saved.commands), 'Unsupported saved match');
+    require(saved?.version === VERSION && [0, 2, 3, 4, 5, 6, 7].includes(format) && Array.isArray(saved.commands), 'Unsupported saved match');
     require(saved.commands.length <= MAX_COMMANDS && typeof saved.state === 'string', 'Invalid saved match');
     require(format >= 4 || !saved.commands.some(command => command?.type === 'opponent-club'), 'Unsupported legacy controller change');
     // Up to format 4 a trained opponent's move was recorded in our own
@@ -141,8 +141,31 @@ export class MatchSession {
       // Divergent rules/commands still fail closed and leave the save untouched.
       const state = session.stateKey();
       const comparable = (value) => {
-        if (format >= 6) return value;
-        const data = JSON.parse(value);
+        if (format >= 7) return value;
+        const data = JSON.parse(value), view = data[0];
+        // Format 7 gives a win's value as numbers beside the sentence that is
+        // still compared, and says a robbed quad was robbed where it used to
+        // say the winner took a discard. Neither changes what happened.
+        for (const win of view.outcome?.wins ?? []) delete win.payments;
+        if (typeof view.outcome?.line === 'string') view.outcome.line = view.outcome.line.replace(/(\w+) robs (\w+)'s quad/g, "$1 wins on $2's discard");
+        // Before format 7 a declared quad left the turn's drawn tile held
+        // apart while the quad could be robbed, and after it was, even when
+        // the quad had taken that tile. So at every call and every result,
+        // quad or not, the concealed tiles are compared as one set: the tile
+        // held apart joins them unless all four of its copies are in a quad.
+        // The waits are left out, because the old ones were read from the
+        // hand without the tile held apart; they follow from the tiles,
+        // which are all still compared.
+        if (view.phase === 'call' || view.phase === 'over') {
+          for (const seat of view.seats ?? []) {
+            const quadded = seat.melds?.some(meld => meld.tiles?.length === 4 && meld.tiles.every(tile => tile === seat.drawn));
+            seat.hand = [...seat.hand ?? [], ...(seat.drawn && !quadded ? [seat.drawn] : [])].sort();
+            delete seat.drawn;
+          }
+          delete view.waits;
+          delete view.waits_left;
+        }
+        if (format >= 6) return JSON.stringify(data);
         // Format 6 adds scorer-owned tile attribution, not a rules change.
         // Old saved hands still verify all tiles, yaku/han and payments.
         for (const win of data[0].outcome?.wins ?? []) {

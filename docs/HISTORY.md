@@ -72,4 +72,5 @@ last version of each as a file of its own.
 - [HAND_RESULTS.md](https://github.com/senegrom/mahjong/blob/b34d169ad6341b273866970b93a9793ffef8c2fb/docs/HAND_RESULTS.md)
   and [DISCARD_HINTS.md](https://github.com/senegrom/mahjong/blob/b34d169ad6341b273866970b93a9793ffef8c2fb/docs/DISCARD_HINTS.md):
   hand results, waits, mjai accounting and discard previews, now sections of
-  [UI.md](UI.md). HAND_RESULTS.md called save format 3 current; it is 6.
+  [UI.md](UI.md). HAND_RESULTS.md called save format 3 current; UI.md names
+  the current one.

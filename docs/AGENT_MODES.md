@@ -90,7 +90,9 @@ outstanding work. Watched games start fresh and do not replace regular saves.
 Hints and markings apply here too; blue marks the recommendation and combines
 with dora, readiness, and safety markings. Once a hand has ended, the watched
 game can be saved as one mjai log from East 1, as in Play; the hand being
-played is left out until it ends.
+played is left out until it ends. The hand results and the final standings
+call the followed seat the followed agent, and an exhaustive draw notes the
+riichi bets left on the table, as Play's do.
 
 ## Physical table editor
 

@@ -2,6 +2,7 @@
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
   import { tilesFor, noteFor, isCircumstance } from './yaku.js';
+  import { winValue } from './ui.js';
 
   let {
     outcome,
@@ -16,6 +17,9 @@
     bets = 0,
     busy = false,
     hints = true,
+    // What the first seat, the one the view belongs to, is called: the
+    // person playing, or in Watch the agent being followed.
+    playerLabel = 'You',
   } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
@@ -28,6 +32,7 @@
   const stopAsking = () => { asking = null; };
   const showing = (win, yaku) => asking?.win === win && asking?.yaku === yaku;
   let primaryWin = $derived(outcome?.wins?.[0] ?? null);
+  let primaryValue = $derived(primaryWin ? winValue(primaryWin) : '');
 
   function reveal(node) {
     const id = requestAnimationFrame(() => {
@@ -42,12 +47,6 @@
   function signed(value) {
     if (value === 0) return '0';
     return value > 0 ? `+${value.toLocaleString()}` : value.toLocaleString();
-  }
-
-  function heroPayment(payment = '') {
-    return payment.split(',')[0]
-      .replace(/\b\d{4,6}\b/g, value => Number(value).toLocaleString())
-      .replace(/\s+from.*$/, '');
   }
 
   function reviewTable() {
@@ -67,10 +66,10 @@
       <h2>{outcome.line}</h2>
     </div>
     {#if primaryWin}
-      <div class="hero-score" role="img" aria-label={`${NAMES[primaryWin.seat]} ${primaryWin.by === 'self-draw' ? 'Tsumo' : 'Ron'}, ${primaryWin.limit ?? `${primaryWin.han} han`}, ${heroPayment(primaryWin.payment)}`}>
+      <div class="hero-score" role="img" aria-label={`${NAMES[primaryWin.seat]} ${primaryWin.by === 'self-draw' ? 'Tsumo' : 'Ron'}, ${primaryWin.limit ?? `${primaryWin.han} han`}, ${primaryValue}`}>
         <span>{NAMES[primaryWin.seat]} · {primaryWin.by === 'self-draw' ? 'Tsumo' : 'Ron'}</span>
         <strong>{primaryWin.limit ? primaryWin.limit.toUpperCase() : `${primaryWin.han} HAN`}</strong>
-        <b>{heroPayment(primaryWin.payment)}</b>
+        <b>{primaryValue}</b>
       </div>
     {/if}
     {#if outcome.kind === 'draw' && outcome.tenpai.length}
@@ -153,7 +152,7 @@
     <thead><tr><th scope="col">Player</th><th scope="col">Change</th><th scope="col">Points</th></tr></thead>
     <tbody>
       {#each seats as seat, index (seat.seat)}
-        <tr><th scope="row">{index === 0 ? 'You' : NAMES[seat.seat]}</th>
+        <tr><th scope="row">{index === 0 ? playerLabel : NAMES[seat.seat]}</th>
           <td class:up={outcome.changes[index] > 0} class:down={outcome.changes[index] < 0}>{signed(outcome.changes[index] ?? 0)}</td>
           <td class="after">{seat.score.toLocaleString()}</td></tr>
       {/each}

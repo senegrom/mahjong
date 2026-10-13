@@ -81,6 +81,18 @@ async function assertMarks(page, watch) {
   return expected;
 }
 
+// The page has caught up with this copy once it shows the same wall and the
+// same discards, and is waiting on the next choice or showing the hand's
+// result. A pass can add no line to the history.
+function caughtUp(page, watch) {
+  const view = watch.match.view;
+  return page.waitForFunction(({ wall, discards, over }) =>
+    document.querySelector('.watch-round span')?.textContent.startsWith(`${wall} tiles left`)
+      && document.querySelectorAll('.watch-table .pool .tile').length === discards
+      && Boolean(document.querySelector(over ? '.agent-watch .screen' : '.weight-row.best .choice-action:not(:disabled)')),
+  {}, { wall: view.wall, discards: view.seats.reduce((sum, seat) => sum + seat.discards.length, 0), over: view.phase === 'over' });
+}
+
 try {
   await mkdir(output, { recursive: true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
@@ -164,24 +176,13 @@ try {
       await watch.prepare();
       const page = await open(23);
       const button = () => page.$eval('.watch-controls [data-save-game]', el => ({ disabled: el.disabled, text: el.textContent.trim() }));
-      // The page has caught up with this copy once it shows the same wall
-      // and the same discards, and is waiting on the next choice or showing
-      // the hand's result. A pass can add no line to the history.
-      const caughtUp = () => {
-        const view = watch.match.view;
-        return page.waitForFunction(({ wall, discards, over }) =>
-          document.querySelector('.watch-round span')?.textContent.startsWith(`${wall} tiles left`)
-            && document.querySelectorAll('.watch-table .pool .tile').length === discards
-            && Boolean(document.querySelector(over ? '.agent-watch .screen' : '.weight-row.best .choice-action:not(:disabled)')),
-        {}, { wall: view.wall, discards: view.seats.reduce((sum, seat) => sum + seat.discards.length, 0), over: view.phase === 'over' });
-      };
       // The page and this copy play the same hand move for move.
       for (let turn = 0; watch.match.view.phase !== 'over'; turn++) {
         assert.ok(turn < 150, 'the first hand ends');
         assert.deepEqual(await button(), { disabled: true, text: 'No hand has finished yet' });
         await page.click('.watch-controls > button');
         await watch.step();
-        await caughtUp();
+        await caughtUp(page, watch);
       }
       await page.waitForSelector('.agent-watch .screen [data-save-game]');
       assert.deepEqual(await button(), { disabled: false, text: 'Save game so far (1 finished hand)' });
@@ -206,10 +207,36 @@ try {
       // Dealing on puts the next hand on the table and keeps it out.
       await page.click('.watch-controls > button');
       await watch.step();
-      await caughtUp();
+      await caughtUp(page, watch);
       assert.deepEqual(await button(), { disabled: false, text: 'Save game so far (1 finished hand)' });
       assert.equal(await saveFrom('.watch-controls [data-save-game]'), expected);
       await page.screenshot({ path: resolve(output, 'agent-watch-export.png'), fullPage: true });
+      assert.deepEqual(page.problems, []);
+    } finally { watch.dispose(); }
+  });
+
+  await check('watch calls the followed agent by that name on the result, and a draw keeps the riichi bets note', async () => {
+    // This game's first hand ends in an exhaustive draw with riichi bets
+    // left on the table for the next winner.
+    const watch = new WatchSession(Game, 7, ['club', 'club', 'club', 'club'], { evaluate: builtin });
+    try {
+      await watch.prepare();
+      const page = await open(7);
+      for (let turn = 0; watch.match.view.phase !== 'over'; turn++) {
+        assert.ok(turn < 150, 'the first hand ends');
+        await page.click('.watch-controls > button');
+        await watch.step();
+        await caughtUp(page, watch);
+      }
+      const { outcome, riichi_sticks: bets } = watch.match.view;
+      assert.equal(outcome.kind, 'draw', 'the fixture must end in a draw');
+      assert.ok(bets > 0, 'the fixture must leave riichi bets on the table');
+      const shown = await page.$eval('.agent-watch .screen', el => ({ text: el.textContent,
+        first: el.querySelector('.changes tbody th').textContent.trim() }));
+      assert.equal(shown.first, 'Followed agent');
+      assert.doesNotMatch(shown.text, /\bYou\b/);
+      assert.ok(shown.text.includes(`${bets} riichi bet${bets > 1 ? 's stay' : ' stays'} on the table for the next winner.`), shown.text);
+      await page.screenshot({ path: resolve(output, 'agent-watch-draw.png'), fullPage: true });
       assert.deepEqual(page.problems, []);
     } finally { watch.dispose(); }
   });

@@ -5,8 +5,10 @@
    * points, so the places lead and the arithmetic follows: what was on the
    * table, the bonus the place earned or cost, and what the game came to.
    * `onsave`, where given, saves the whole game as one mjai log.
+   * `playerLabel` is what the row the engine marks as `you` is called: the
+   * person playing, or in Watch the agent being followed.
    */
-  let { standings = [], onagain, onsave } = $props();
+  let { standings = [], onagain, onsave, playerLabel = 'You' } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
@@ -21,7 +23,7 @@
 <section class="standings" aria-label="final standings">
   <h2>
     {#if yours}
-      You finished {placeLabel(yours).toLowerCase()}
+      {playerLabel} finished {placeLabel(yours).toLowerCase()}
     {:else}
       The game is over
     {/if}
@@ -47,7 +49,7 @@
       {#each standings as row (row.player)}
         <tr class:you={row.you}>
           <td>{placeLabel(row)}</td>
-          <td>{row.you ? 'You' : NAMES[row.seat]}</td>
+          <td>{row.you ? playerLabel : NAMES[row.seat]}</td>
           <td class="number">{row.score.toLocaleString()}</td>
           <td class="number" class:up={row.uma > 0} class:down={row.uma < 0}>
             {signed(row.uma)}

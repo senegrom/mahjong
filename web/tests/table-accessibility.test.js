@@ -219,3 +219,64 @@ test('no generic element carries a name a screen reader would ignore', async () 
   for (const file of files) visit(parse(await readFile(new URL(file, root), 'utf8'), { modern: true }).fragment, file);
   assert.deepEqual(unnamed, []);
 });
+
+// A win as the engine describes it: its words, and the same as numbers.
+const won = (seat, by, payments, extra = {}) => ({ seat, by, from: by === 'discard' ? 'west' : null, hand: [], melds: [],
+  winning_tile: '5p', yaku: [], han: 5, dora: 0, dora_types: [], dora_indicators: [], ura_indicators: [], ura_dora: 0, fu: 30,
+  limit: 'mangan', bets: 0, payments: { from_dealer: 0, from_each_other: 0, ...payments }, ...extra });
+const ended = (wins, line) => ({ kind: wins.length ? 'win' : 'draw', line, wins, tenpai: [], changes: [0, 0, 0, 0] });
+const sheet = (outcome, props = {}) => html('ScoreScreen.svelte', { outcome, onnext() {},
+  seats: ['east', 'south', 'west', 'north'].map((wind, player) => seat(wind, player)), ...props });
+const hero = markup => ({ label: markup.match(/class="hero-score[^"]*" role="img" aria-label="([^"]*)"/)?.[1],
+  value: markup.match(/class="hero-score[\s\S]*?<b[^>]*>([^<]*)<\/b>/)?.[1] });
+
+test('the result headline says what the hand is worth, to the eye and by name', async () => {
+  for (const [win, value] of [
+    // A self-draw is paid by all three, so its first payment is only part of it.
+    [won('south', 'self-draw', { total: 8000, from_dealer: 4000, from_each_other: 2000 },
+      { payment: '4000 from the dealer and 2000 from the others' }), '2,000 / 4,000'],
+    [won('east', 'self-draw', { total: 12000, from_each_other: 4000 }, { payment: '4000 from each' }), '4,000 all'],
+    [won('south', 'discard', { total: 8000 }, { payment: '8000 from the discarder' }), '8,000'],
+  ]) {
+    const shown = hero(await sheet(ended([win], 'A win')));
+    assert.equal(shown.value, value, win.payment);
+    assert.equal(shown.label, `${win.seat === 'east' ? 'East' : 'South'} ${win.by === 'self-draw' ? 'Tsumo' : 'Ron'}, mangan, ${value}`);
+  }
+});
+
+test('Watch calls its first seat the followed agent, and its draw keeps the riichi bets note', async () => {
+  // AgentWatch hands both result screens these: the first seat is the agent
+  // being followed, and the bets are the table's.
+  const draw = await sheet(ended([], 'Exhaustive draw'), { playerLabel: 'Followed agent', bets: 2 });
+  assert.match(draw, /<th scope="row"[^>]*>Followed agent<\/th>/);
+  assert.match(draw, /2 riichi bets stay on the table for the next winner/);
+  const standings = await html('Standings.svelte', { playerLabel: 'Followed agent', onagain() {}, standings: [
+    { player: 1, tied: false, place: 1, seat: 'south', score: 40000, uma: 15000, total: 25000, you: false },
+    { player: 0, tied: false, place: 2, seat: 'east', score: 30000, uma: 5000, total: 5000, you: true }] });
+  assert.match(standings, /Followed agent finished 2nd/);
+  assert.match(standings, /<td[^>]*>Followed agent<\/td>/);
+  for (const markup of [draw, standings]) assert.doesNotMatch(markup, /\bYou\b/);
+  // Play keeps calling it you.
+  assert.match(await sheet(ended([], 'Exhaustive draw')), /<th scope="row"[^>]*>You<\/th>/);
+});
+
+test('a quad offered to be robbed is announced as a kan, not as a discard', async () => {
+  const quad = { kind: 'extended-kan', tiles: ['1p', '1p', '1p', '1p'], from: 'left', claimed_tile: '1p' };
+  const view = { phase: 'call', round: 'east', kyoku: 1, wall: 40, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
+    dora: [], safe: [], shanten: 0, waits: ['1p'], waits_left: [0], furiten: false, pending_discard: '1p', pending_from: 'south', outcome: null,
+    seats: [seat('east', 0, { hand: ['2p', '3p'], drawn: null }), seat('south', 1, { melds: [quad] }), seat('west', 2), seat('north', 3)] };
+  const choices = (offered, props = {}) => html('app/TurnChoices.svelte', { view: offered, shownDora: [], busy: false, thinking: false,
+    failure: '', saveConflict: '', loadNote: '', pendingOpponent: null, myTurn: false, confirmDiscards: false, shortcuts: true,
+    touch: false, selectedTile: null, callChoices: [{ kind: 'ron', tile: null }, { kind: 'pass', tile: null }],
+    choose() {}, discard() {}, oncancel() {}, ...props });
+  const robbing = await choices(view);
+  assert.match(robbing, /<span class="call-kicker[^"]*">Kan<\/span>/);
+  assert.match(robbing, /<strong[^>]*>South<\/strong><span[^>]*>declared a kan of the 1 circles<\/span>/);
+  assert.match(robbing, /aria-label="Ron — rob the quad"/);
+  assert.doesNotMatch(robbing, /discarded|on discard/);
+  // An ordinary discard of the same tile, by a seat with no quad of it.
+  const discarded = await choices({ ...view, seats: [view.seats[0], seat('south', 1), view.seats[2], view.seats[3]] });
+  assert.match(discarded, /<span class="call-kicker[^"]*">Discard<\/span>/);
+  assert.match(discarded, /<strong[^>]*>South<\/strong><span[^>]*>discarded the 1 circles<\/span>/);
+  assert.match(discarded, /aria-label="Ron — win on discard"/);
+});

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TurnChoicesProps } from './types';
   import Tile from '../Tile.svelte';
-  import { callLabel, callTiles } from '../ui.js';
+  import { callLabel, callTiles, quadOnOffer } from '../ui.js';
   import { tileWords, SEAT_NAMES as NAMES } from '../tiles.js';
 
   // All actions return to App's guarded match session. The controls do not
@@ -16,10 +16,13 @@
   let offered = $derived(view.phase === 'call' && callChoices.length ? view.pending_discard : null);
   let chosen = $derived(myTurn && !busy ? selectedTile : null);
   let discarder = $derived((view.pending_from ? NAMES[view.pending_from] : undefined) ?? 'An opponent');
+  // A quad that may be robbed is offered as its tile, the way a discard is,
+  // but nobody discarded it: the win takes the tile added to the quad.
+  let robbing = $derived(Boolean(quadOnOffer(view)));
   // A screen reader listens to a live region only once it exists, and JAWS
   // and NVDA often miss one inserted along with its words, as the panels
   // are. So their news is said by one region that is always here.
-  let announcement = $derived(offered ? `${discarder} discarded the ${tileWords(offered)}`
+  let announcement = $derived(offered ? `${discarder} ${robbing ? 'declared a kan of' : 'discarded'} the ${tileWords(offered)}`
     : chosen ? `Selected: ${tileWords(chosen)}` : '');
 </script>
 
@@ -36,9 +39,9 @@
 </p>
 {#if offered}
   <div class="call-stage">
-    <span class="call-kicker">Discard</span>
+    <span class="call-kicker">{robbing ? 'Kan' : 'Discard'}</span>
     <Tile tile={offered} dora={shownDora.includes(offered)} />
-    <span class="call-message"><strong>{discarder}</strong><span>discarded the {tileWords(offered)}</span></span>
+    <span class="call-message"><strong>{discarder}</strong><span>{robbing ? 'declared a kan of' : 'discarded'} the {tileWords(offered)}</span></span>
   </div>
 {/if}
 {#if chosen}
@@ -52,8 +55,8 @@
   <div class="call-options">
     {#each callChoices as choice, index (index)}
       <button class="app-control" class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} class:win-call={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
-        aria-label={callLabel(choice)} disabled={busy || Boolean(failure || saveConflict)} onclick={() => choose(choice)}>
-        <span class="call-label">{callLabel(choice)}</span>
+        aria-label={callLabel(choice, robbing)} disabled={busy || Boolean(failure || saveConflict)} onclick={() => choose(choice)}>
+        <span class="call-label">{callLabel(choice, robbing)}</span>
         {#if callTiles(choice, view.pending_discard).length}
           <span class="call-preview" aria-hidden="true">
             {#each callTiles(choice, view.pending_discard) as tile, slot (slot)}<Tile {tile} size="tiny" />{/each}
