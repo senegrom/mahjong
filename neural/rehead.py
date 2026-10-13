@@ -36,7 +36,7 @@ import numpy as np
 import torch
 
 from .checkpoints import atomic_save
-from .auxiliary_training import validate_auxiliary_options, require_supervised_rows
+from .auxiliary_training import validate_auxiliary_options, require_supervised_rows, soft_cross_entropy
 from .training_batches import require_updates
 from torch import nn
 
@@ -243,12 +243,7 @@ def main() -> None:
                     planes.rows(picks.cpu().numpy()).dense(device), legal[picks]
                 )
                 weight = wanted[picks]
-                # A masked logit is negative infinity and carries no weight;
-                # zero times that is not zero, so take the log only where
-                # the teacher put something.
-                log_odds = torch.log_softmax(logits.float(), dim=1)
-                log_odds = torch.where(weight > 0, log_odds, torch.zeros_like(log_odds))
-                loss = -(weight * log_odds).sum(dim=1).mean()
+                loss = soft_cross_entropy(logits, weight)
                 if not torch.isfinite(loss):
                     raise FloatingPointError("Nonfinite auxiliary loss; no optimizer step was applied")
                 optimiser.zero_grad(set_to_none=True)
