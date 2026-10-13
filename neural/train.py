@@ -208,21 +208,12 @@ def main() -> None:
         weight_decay=1e-4,
         fused=device == "cuda",
     )
-    if resume_payload is not None and "optimizer" in resume_payload:
-        try:
-            optimiser.load_state_dict(resume_payload["optimizer"])
-            # A checkpoint carries the moments, not command-line policy.
-            # Explicit options on a resumed run still win.
-            for group in optimiser.param_groups:
-                group["lr"] = args.lr
-                group["weight_decay"] = 1e-4
-                group["fused"] = device == "cuda"
-            print("restored AdamW state", flush=True)
-        except (ValueError, RuntimeError) as error:
-            # Freezing a different set of heads changes the parameter groups;
-            # weights still resume safely, but those experiments need fresh
-            # optimiser state.
-            print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
+    # Freezing a different set of heads changes the parameter groups, and a
+    # checkpoint of another freezing then starts the optimiser afresh; the
+    # weights still resume.
+    ppo_loop.restore_optimiser(
+        optimiser, None if resume_payload is None else resume_payload.get("optimizer")
+    )
 
     # The full on-policy pass needs every head. Baseline evaluation and replay
     # do not: using `with_oracle` for them calculated policy logits and/or the

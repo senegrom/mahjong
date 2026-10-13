@@ -161,14 +161,7 @@ def main() -> None:
     optimiser = torch.optim.AdamW(
         net.parameters(), lr=args.lr, weight_decay=0.01, fused=device == "cuda"
     )
-    if optimiser_state is not None:
-        try:
-            optimiser.load_state_dict(optimiser_state)
-            for group in optimiser.param_groups:
-                group["lr"] = args.lr
-            print("restored AdamW state", flush=True)
-        except (ValueError, RuntimeError) as error:
-            print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
+    ppo_loop.restore_optimiser(optimiser, optimiser_state)
     # Nothing reads the checkpoint from here on but its config, kept above:
     # its weights and Adam's moments are in the learner and the optimiser
     # now, and kept they stayed on the host for the whole run.

@@ -345,14 +345,10 @@ def main() -> None:
         weight_decay=1e-4,
         fused=device == "cuda",
     )
-    if optimiser_state is not None:
-        try:
-            optimiser.load_state_dict(combined.migrate_belief_optimizer(optimiser_state, optimiser, net))
-            for group, lr in zip(optimiser.param_groups, (args.lr, args.lr_ours, args.lr_mortal)):
-                group["lr"] = lr
-            print("restored AdamW state", flush=True)
-        except (ValueError, RuntimeError) as error:
-            print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
+    ppo_loop.restore_optimiser(
+        optimiser, optimiser_state,
+        migrate=lambda saved: combined.migrate_belief_optimizer(saved, optimiser, net),
+    )
     # Nothing reads the checkpoint from here on: its weights and Adam's
     # moments are in the network and the optimiser now, and kept they were a
     # third of a gigabyte of the host's memory held through every generation.
