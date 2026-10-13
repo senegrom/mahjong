@@ -1,8 +1,16 @@
-// Publish a checked ONNX export under its digest, then atomically publish its
-// manifest. Uploading does not certify export parity or playing strength.
+// Publish a checked ONNX export under its digest, then atomically publish the
+// manifest that lists it as the default network, with every network listed
+// before it kept for players to pick by version. Uploading does not certify
+// export parity or playing strength.
 //
 //   node web/scripts/publish-model-r2.mjs network.onnx --generation <n> \
-//     --source <checkpoint> --origin https://<model host>
+//     --source <checkpoint> --origin https://<model host> [--version <a.b.c>]
+//
+// The version is 0.1.<generation> unless --version names another. Publishing
+// a version that is listed already replaces that entry, as a new export of
+// the same network; publishing the listed bytes again makes them the default.
+// Publish one network at a time: each publication reads the list the last
+// one wrote.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, open, rename, mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -109,6 +117,72 @@ async function uploadR2(bucket, key, file) {
   process.stdout.write(stdout || stderr);
 }
 
+// A version players pick a network by: three whole numbers, such as 0.1.810.
+const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+
+/** Whether a manifest entry is a whole network identity, as publish writes
+ * one. Throws naming the first field that is not. */
+function checkNetwork(network) {
+  const bad = field => new Error(`The model manifest lists a network whose ${field} is not valid.`);
+  if (!network || typeof network !== 'object') throw bad('entry');
+  if (typeof network.version !== 'string' || !VERSION.test(network.version)) throw bad('version');
+  if (typeof network.source !== 'string' || !network.source.trim()) throw bad('source');
+  if (!Number.isSafeInteger(network.generation) || network.generation < 0) throw bad('generation');
+  if (![...PRECISIONS.values()].includes(network.precision)) throw bad('precision');
+  for (const field of ['bytes', 'storedBytes']) {
+    if (!Number.isSafeInteger(network[field]) || network[field] <= 0) throw bad(field);
+  }
+  if (typeof network.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(network.sha256)) throw bad('sha256');
+  if (network.object !== `models/g${network.generation}/${network.sha256}`) throw bad('object');
+  let origin;
+  try { origin = new URL(network.origin); } catch { throw bad('origin'); }
+  if (origin.protocol !== 'https:' || origin.origin !== network.origin) throw bad('origin');
+}
+
+/** The manifest module for these networks, the default first: what publish
+ * writes, and reads back when it publishes the next one. */
+export function manifestSource(networks) {
+  return `/** Which trained networks this page can play, and where their bytes are.
+ *
+ * Written by \`web/scripts/publish-model-r2.mjs\` when a network is published:
+ * the network published last comes first and is the default, and the others
+ * stay listed, newest first, for a player to pick by version. Each object key
+ * carries the network's own digest, so the response may be immutable and a
+ * different export is a different address; \`network-store.js\` checks the
+ * digest again before anything runs.
+ */
+export const NETWORKS = Object.freeze(${JSON.stringify(networks, null, 2)}.map(network => Object.freeze(network)));
+
+/** The default network: the one a player who has picked none plays. */
+export const MANIFEST = NETWORKS[0];
+`;
+}
+
+/** The networks a manifest lists, the default first; none before the first
+ * publication. A manifest that cannot be read as a list of whole networks
+ * stops the publication: writing over it would drop networks players picked. */
+export async function listedNetworks(path) {
+  let text;
+  try { text = await readFile(path, 'utf8'); }
+  catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+  let networks;
+  try {
+    // Its own module, evaluated by itself: the manifest imports nothing.
+    ({ NETWORKS: networks } = await import(`data:text/javascript;base64,${Buffer.from(text).toString('base64')}`));
+  } catch (error) { throw new Error(`The model manifest could not be read: ${error.message}`); }
+  if (!Array.isArray(networks) || !networks.length) throw new Error('The model manifest lists no networks.');
+  for (const network of networks) checkNetwork(network);
+  for (const field of ['version', 'sha256']) {
+    if (new Set(networks.map(network => network[field])).size !== networks.length) {
+      throw new Error(`The model manifest lists one ${field} twice.`);
+    }
+  }
+  return networks.map(network => ({ ...network }));
+}
+
 /** A complete, synced manifest is the publication boundary. Concurrent writers
  * can finish in either order, but every visible manifest is a complete snapshot. */
 export async function atomicManifest(path, body, io = { open, rename, mkdir, mkdtemp, rm }) {
@@ -128,7 +202,7 @@ export async function atomicManifest(path, body, io = { open, rename, mkdir, mkd
   } finally { await io.rm(dir, { recursive: true, force: true }); }
 }
 
-export async function publish({ modelPath, generation, source, origin,
+export async function publish({ modelPath, generation, source, origin, version,
   bucket = process.env.R2_BUCKET ?? 'mahjong-models', manifestPath = MANIFEST,
   upload = uploadR2 } = {}) {
   // Validate before reading/staging/uploading anything. Never coerce undefined
@@ -137,6 +211,8 @@ export async function publish({ modelPath, generation, source, origin,
   if ((typeof generation !== 'number' && !(typeof generation === 'string' && /^[0-9]+$/.test(generation)))
       || !Number.isSafeInteger(Number(generation)) || Number(generation) < 0) throw new Error('Invalid generation.');
   generation = Number(generation);
+  version ??= `0.1.${generation}`;
+  if (typeof version !== 'string' || !VERSION.test(version)) throw new Error('Invalid version: name it as three numbers, such as 0.1.810.');
   if (typeof modelPath !== 'string' || !modelPath) throw new Error('Name the exported network to publish.');
   if (typeof source !== 'string' || !source.trim()) throw new Error('Name the source checkpoint.');
   let address;
@@ -156,23 +232,23 @@ export async function publish({ modelPath, generation, source, origin,
     const file = await open(staged, 'wx');
     try { await file.writeFile(packed); await file.sync(); } finally { await file.close(); }
     await upload(bucket, key, staged);
-    const manifest = { source, generation, precision, bytes: bytes.length,
+    const network = { version, source, generation, precision, bytes: bytes.length,
       storedBytes: packed.length, origin, object: key, sha256 };
-    await atomicManifest(manifestPath, `/** Which trained network this page plays, and where its bytes are.
- *
- * Written by \`web/scripts/publish-model-r2.mjs\` when a network is published.
- * The object key carries the network's own digest, so the response may be
- * immutable and a different export is a different address; \`network-store.js\`
- * checks the digest again before anything runs.
- */
-export const MANIFEST = Object.freeze(${JSON.stringify(manifest, null, 2)});\n`);
-    return manifest;
+    // Read just before the write that replaces it. The upload is immutable
+    // and named by its digest, so one that ends up unlisted costs nothing.
+    const listed = await listedNetworks(manifestPath);
+    const twin = listed.find(entry => entry.sha256 === sha256 && entry.version !== version);
+    if (twin) throw new Error(`This network is listed already, as ${twin.version}; publish it as that version to make it the default.`);
+    await atomicManifest(manifestPath, manifestSource([network, ...listed.filter(entry => entry.version !== version)]));
+    return network;
   } finally { await rm(scratch, { recursive: true, force: true }); }
 }
 
 const invoked = process.argv[1] ? process.argv[1].split(/[/\\]/).pop() : '';
 if (invoked === 'publish-model-r2.mjs') {
-  const manifest = await publish({ modelPath: process.argv[2], generation: option('generation'),
-    source: option('source'), origin: option('origin') });
-  process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
+  const network = await publish({ modelPath: process.argv[2], generation: option('generation'),
+    source: option('source'), origin: option('origin'), version: option('version') });
+  process.stdout.write(`${JSON.stringify(network, null, 2)}\n`);
+  const listed = await listedNetworks(MANIFEST);
+  process.stdout.write(`Listed: ${listed.map((entry, index) => index ? entry.version : `${entry.version} (default)`).join(', ')}\n`);
 }
