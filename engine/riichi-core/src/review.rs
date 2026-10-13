@@ -348,16 +348,22 @@ mod tests {
     }
 
     /// With somebody waiting on a declared riichi, a tile that is already
-    /// through cannot deal in and a fresh one can. The review has to say so
-    /// when the two are otherwise the same choice.
+    /// through cannot deal in and a fresh one can. Throwing the fresh one
+    /// when the safe one was there is named as a defence note.
     #[test]
     fn throwing_into_a_riichi_is_named_as_the_reason() {
-        let mut hand =
-            crate::game::Hand::deal(&mut Rng::from_seed(31337), Wind::East, 1, 0, 0, [30000; 4]);
+        // A deal whose indicator is a suited tile, so neither honour below
+        // is dora or pointed at, and only the riichi separates the two.
+        let mut hand = (0..)
+            .map(|seed| {
+                crate::game::Hand::deal(&mut Rng::from_seed(seed), Wind::East, 1, 0, 0, [30000; 4])
+            })
+            .find(|hand| !hand.wall.dora_indicators()[0].is_honour())
+            .expect("some deal turns a suited tile");
 
         // South declares, and their own discards are safe against them.
-        let through: Tile = "9m".parse().unwrap();
-        let fresh: Tile = "5p".parse().unwrap();
+        let through: Tile = "4z".parse().unwrap();
+        let fresh: Tile = "3z".parse().unwrap();
         {
             let south = &mut hand.players[Wind::South.index()];
             south.riichi = crate::score::Riichi::Declared;
@@ -371,8 +377,10 @@ mod tests {
             });
         }
 
-        // East holds two tiles that are equally useless to the hand, so the
-        // only thing separating them is whether they can deal in.
+        // East holds two isolated honours, alike in shape: whichever stays
+        // waits for its pair. South has thrown one North, so one fewer is
+        // left to pair it with, and letting the North go is the wider
+        // choice as well as the safe one. The adviser throws it.
         {
             let east = &mut hand.players[Wind::East.index()];
             east.hand = TileSet::new();
@@ -399,15 +407,20 @@ mod tests {
             "a tile nobody has seen might"
         );
 
-        // Playing the live tile when the safe one was there is a defence
-        // note, whichever of them the adviser happens to prefer.
+        // The safe tile was also the wider choice, by the copy South threw,
+        // and the note names the danger ahead of the acceptance.
         let mut adviser = Bot::new(9);
         let note = judge(&hand, Action::Discard(fresh), &mut adviser);
-        if discarded(note.advised) == Some(through) {
-            assert_eq!(note.reason, Reason::Defence, "{note:?}");
-            assert_eq!(note.danger_played, Danger::Live);
-            assert_eq!(note.danger_advised, Danger::Safe);
-        }
+        assert_eq!(discarded(note.advised), Some(through), "{note:?}");
+        assert_eq!(note.reason, Reason::Defence, "{note:?}");
+        assert_eq!(note.danger_played, Danger::Live);
+        assert_eq!(note.danger_advised, Danger::Safe);
+        assert_eq!(note.shanten_played, note.shanten_advised, "{note:?}");
+        assert_eq!(
+            note.acceptance_advised,
+            note.acceptance_played + 1,
+            "{note:?}"
+        );
 
         // And with nobody waiting, neither tile is dangerous at all.
         hand.players[Wind::South.index()].riichi = crate::score::Riichi::None;
