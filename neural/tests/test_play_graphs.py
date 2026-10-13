@@ -1,8 +1,8 @@
 """Play's small questions answered from CUDA graphs (`--play-graphs`): a
 graph answers what the forward answers eagerly at the padded size, bit for
 bit, for every kind of player asked in bfloat16; it answers by the weights
-of the moment when new ones are copied in or an optimiser moves them, and
-is recorded again when weights are put somewhere else; a cast autocast
+of the moment when new ones are copied in, and is recorded again when
+weights are put somewhere else; a cast autocast
 kept is never what it reads; it can be recorded on a worker beside work
 that waits on its own stream, as the learning does; a whole round played
 from graphs is the round played eagerly at the padded sizes, with every
@@ -26,7 +26,7 @@ import numpy as np
 import torch
 
 from neural import (
-    combined, mortal_learner, mortal_model, play_graphs, policy_inference, ppo_loop, selfplay,
+    combined, mortal_model, play_graphs, policy_inference, ppo_loop, selfplay,
     train_combined, train_mortal, zoo,
 )
 from neural.model import MORTAL_PLANES, PolicyValueNet
@@ -86,16 +86,12 @@ class PaddedEagerly(play_graphs.Graphed):
 
 def networks():
     """One small network of every kind a trainer plays from graphs, on the
-    card, and what its deciding forward is: a joined player, a Mortal, one
-    of ours in Mortal's moves, and a learner of Mortal's kind."""
+    card, and what its deciding forward is: a joined player, a Mortal, and
+    one of ours in Mortal's moves."""
     torch.manual_seed(41)
     yield "joined", varied(fusion(16, 2)).cuda().eval(), lambda net: net.decision
     yield "mortal", mortal_model.build(16, 2).cuda().eval(), lambda net: net
     yield "reheaded", PolicyValueNet(16, 2, actions=46).cuda().eval(), lambda net: net
-    learner = mortal_learner.MortalLearner(mortal_model.build(16, 2)).cuda().eval()
-    with torch.no_grad():
-        learner.value_head.weight.normal_()
-    yield "learner", learner, lambda net: net.policy
 
 
 class FallbackTests(unittest.TestCase):
@@ -152,10 +148,9 @@ class FallbackTests(unittest.TestCase):
 class GraphTests(unittest.TestCase):
     def test_a_graph_answers_what_the_forward_answers_at_the_padded_size(self):
         """Every kind under autocast in bfloat16, its weights cast once as
-        the trainers' copies and seated players hold them, or in float32 as
-        a learner that plays itself holds them; at sizes on and between the
-        graphs', and above them, where the forward answers eagerly at the
-        size asked."""
+        the trainers' copies and seated players hold them, or in float32;
+        at sizes on and between the graphs', and above them, where the
+        forward answers eagerly at the size asked."""
         for name, net, forward_of in networks():
             for cast in (True, False):
                 player = policy_inference.precast(copy.deepcopy(net)) if cast else copy.deepcopy(net)
@@ -220,14 +215,11 @@ class GraphTests(unittest.TestCase):
             self.assertTrue(torch.equal(bits(got), bits(want)))
         self.assertEqual((len(graphed.graphs), graphed.replays), (2, 6))
         self.assertEqual((eager.graphs, eager.replays), ({}, 0))
-        # A learner that plays in float32, as without --amp, is left as it is.
-        learner = mortal_learner.MortalLearner(mortal_model.build(16, 2)).cuda()
-        self.assertEqual(play_graphs.graphed(learner, "cuda", amp=False).inference, learner.policy)
 
-    def test_weights_copied_in_or_moved_by_an_optimiser_are_the_ones_answered_by(self):
+    def test_weights_copied_in_are_the_ones_answered_by(self):
         """As a trainer copies the learner's weights into its playing copy
-        before each round, and as an optimiser steps a learner that plays
-        itself: where they are stored, so nothing is recorded again."""
+        before each round: where they are stored, so nothing is recorded
+        again."""
         for name, net, forward_of in networks():
             player = policy_inference.precast(copy.deepcopy(net))
             deciding = forward_of(player)
@@ -242,39 +234,11 @@ class GraphTests(unittest.TestCase):
                 player.load_state_dict(moved.state_dict())
                 after = parts(graphed(planes, mask))
                 want = padded(deciding, planes, mask, 32)
-            with self.subTest(player=name, by="copy"):
+            with self.subTest(player=name):
                 self.assertEqual((len(graphed.graphs), graphed.seconds), (recorded, seconds))
                 self.assertFalse(torch.equal(bits(before[0]), bits(after[0])))
                 for one, two in zip(after, want):
                     self.assertTrue(torch.equal(bits(one), bits(two)))
-        # An optimiser's step, on a learner of float32 weights that plays
-        # itself under autocast, as train_mortal's does.
-        torch.manual_seed(43)
-        learner = mortal_learner.MortalLearner(mortal_model.build(16, 2)).cuda()
-        play_graphs.graphed(learner, "cuda", amp=True)
-        self.assertIsInstance(learner.inference, play_graphs.Graphed)
-        # Every size recorded at once, in training mode as it was found.
-        self.assertEqual(len(learner.inference.graphs), len(play_graphs.ROWS))
-        self.assertTrue(learner.training)
-        optimiser = torch.optim.AdamW(learner.parameters(), lr=1e-2, fused=True)
-        planes, mask = questions(40, 7)
-        for step in range(3):
-            learner.eval()
-            with torch.no_grad(), policy_inference.autocast("cuda"):
-                got = parts(learner.inference(planes, mask))
-                want = padded(learner.policy, planes, mask, 64)
-            with self.subTest(by="optimiser", step=step):
-                for one, two in zip(got, want):
-                    self.assertTrue(torch.equal(bits(one), bits(two)))
-            learner.train()
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                logits, value = learner.policy(planes, mask)
-            loss = logits.float().masked_fill(~mask, 0.0).pow(2).mean() + value.float().pow(2).mean()
-            optimiser.zero_grad()
-            loss.backward()
-            optimiser.step()
-        # Nothing recorded again: the graphs were asked as play asks.
-        self.assertEqual(len(learner.inference.graphs), len(play_graphs.ROWS))
 
     def test_weights_put_somewhere_else_are_recorded_again(self):
         """A cast to another precision moves the weights; the graphs would
@@ -514,73 +478,67 @@ class SwitchTests(unittest.TestCase):
                         self.assertEqual(found, [])
         self.assertIsNone(combined.Combined.deciding)
 
-    def test_the_trainers_play_from_graphs_with_the_player_that_plays(self):
+    def test_the_trainer_plays_from_graphs_with_the_player_that_plays(self):
         """train_combined graphs its playing copy where it has one, the
-        learner itself where it plays its own rounds; train_mortal its
-        learner; on the device the trainer chose, only when told."""
-        for module in (train_combined, train_mortal):
-            for flags in ([], ["--play-graphs"], ["--play-graphs", "--play-ahead"]):
-                if module is train_mortal and "--play-ahead" in flags:
-                    continue
-                graphed, played = [], []
+        learner itself where it plays its own rounds; on the device the
+        trainer chose, only when told."""
+        for flags in ([], ["--play-graphs"], ["--play-graphs", "--play-ahead"]):
+            graphed, played = [], []
 
-                def graph(player, device, amp):
-                    graphed.append((player, device, amp))
-                    return player
+            def graph(player, device, amp):
+                graphed.append((player, device, amp))
+                return player
 
-                def play(player, **_options):
-                    played.append(player)
-                    return fake_round()
+            def play(player, **_options):
+                played.append(player)
+                return fake_round()
 
-                with self.subTest(trainer=module.__name__, flags=flags), \
-                        tempfile.TemporaryDirectory() as folder:
-                    root = Path(folder)
-                    origin, out = root / "source.pt", root / "run"
-                    if module is train_mortal:
-                        torch.save({**mortal_model.build(8, 1).state(), "config": MORTAL_CONFIG}, origin)
-                    else:
-                        torch.save(fusion(8, 1).state(), origin)
-                    argv = ["trainer", "--mortal" if module is train_mortal else "--resume", str(origin),
-                            "--out", str(out), "--rounds", "2", "--batch", "4", "--epochs", "1",
-                            "--games", "1", "--measure-games", "1", *flags]
-                    if module is train_combined:
-                        argv += ["--fixed", "none"]
-                    torch.set_num_threads(1)
-                    with patch.object(sys, "argv", argv), \
-                            patch.object(torch.cuda, "is_available", return_value=False), \
-                            patch.object(play_graphs, "graphed", side_effect=graph), \
-                            patch.object(module.selfplay, "play", side_effect=play), \
-                            patch.object(module.selfplay, "measure",
-                                         return_value={"placement": 2.5, "score": 0.0, "wins": 0.25}), \
-                            contextlib.redirect_stdout(io.StringIO()):
-                        module.main()
-                    records = [json.loads(line) for line in (out / "log.jsonl").read_text().splitlines()]
-                    if flags:
-                        ((player, device, amp),) = graphed
-                        self.assertEqual((device, amp), ("cpu", False))
-                        self.assertTrue(all(one is player for one in played))
-                        for record in records:
-                            self.assertEqual(
-                                (record["play_graphs"], record["graph_seconds"], record["graph_gb"]),
-                                (0, 0.0, 0.0))
-                    else:
-                        self.assertEqual(graphed, [])
-                        for record in records:
-                            for field in ("play_graphs", "graph_seconds", "graph_gb"):
-                                self.assertNotIn(field, record)
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                origin, out = root / "source.pt", root / "run"
+                torch.save(fusion(8, 1).state(), origin)
+                argv = ["trainer", "--resume", str(origin), "--out", str(out), "--rounds", "2",
+                        "--batch", "4", "--epochs", "1", "--games", "1", "--measure-games", "1",
+                        "--fixed", "none", *flags]
+                torch.set_num_threads(1)
+                with patch.object(sys, "argv", argv), \
+                        patch.object(torch.cuda, "is_available", return_value=False), \
+                        patch.object(play_graphs, "graphed", side_effect=graph), \
+                        patch.object(train_combined.selfplay, "play", side_effect=play), \
+                        patch.object(train_combined.selfplay, "measure",
+                                     return_value={"placement": 2.5, "score": 0.0, "wins": 0.25}), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    train_combined.main()
+                records = [json.loads(line) for line in (out / "log.jsonl").read_text().splitlines()]
+                if flags:
+                    ((player, device, amp),) = graphed
+                    self.assertEqual((device, amp), ("cpu", False))
+                    self.assertTrue(all(one is player for one in played))
+                    for record in records:
+                        self.assertEqual(
+                            (record["play_graphs"], record["graph_seconds"], record["graph_gb"]),
+                            (0, 0.0, 0.0))
+                else:
+                    self.assertEqual(graphed, [])
+                    for record in records:
+                        for field in ("play_graphs", "graph_seconds", "graph_gb"):
+                            self.assertNotIn(field, record)
 
     def test_off_unless_asked_and_refused_with_the_compiled_player(self):
-        for module in (train_combined, train_mortal):
-            with self.subTest(trainer=module.__name__):
-                with patch.object(sys, "argv", ["trainer"]):
-                    self.assertFalse(module.parse_args().play_graphs)
-                with patch.object(sys, "argv", ["trainer", "--play-graphs"]):
-                    self.assertTrue(module.parse_args().play_graphs)
-                with patch.object(sys, "argv", ["trainer", "--play-graphs", "--compile"]), \
-                        contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                    module.parse_args()
+        with patch.object(sys, "argv", ["trainer"]):
+            self.assertFalse(train_combined.parse_args().play_graphs)
+        with patch.object(sys, "argv", ["trainer", "--play-graphs"]):
+            self.assertTrue(train_combined.parse_args().play_graphs)
+        with patch.object(sys, "argv", ["trainer", "--play-graphs", "--compile"]), \
+                contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            train_combined.parse_args()
         with patch.object(sys, "argv", ["trainer", "--play-graphs", "--compile-learning", "--play-ahead"]):
             self.assertTrue(train_combined.parse_args().play_graphs)
+        # train_mortal has no such switch: the cloud always compiles its
+        # learner, which the graphs would have had to record.
+        with patch.object(sys, "argv", ["trainer", "--play-graphs"]), \
+                contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            train_mortal.parse_args()
 
     def test_the_cloud_passes_it_on_only_when_asked_and_never_with_the_compiled_player(self):
         launch = test_mixed_tables.CloudLaunchTests.launch
@@ -597,40 +555,34 @@ class SwitchTests(unittest.TestCase):
 
 @unittest.skipUnless(CUDA, "CUDA graphs are the card's")
 class TrainerOnTheCardTests(unittest.TestCase):
-    """The trainers on the card with the switch, small networks and a real
-    round: their records say how many graphs play holds."""
+    """The trainer on the card with the switch, small networks and a real
+    round: its records say how many graphs play holds."""
 
-    def run_trainer(self, module, flags):
+    def run_trainer(self, flags):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             origin, out = root / "source.pt", root / "run"
             other = root / "mortal.pt"
             torch.manual_seed(79)
             torch.save({**mortal_model.build(8, 1).state(), "config": MORTAL_CONFIG}, other)
-            if module is train_mortal:
-                torch.save({**mortal_model.build(8, 1).state(), "config": MORTAL_CONFIG}, origin)
-            else:
-                torch.save(fusion(8, 1).state(), origin)
-            argv = ["trainer", "--mortal" if module is train_mortal else "--resume", str(origin),
-                    "--out", str(out), "--rounds", "3", "--batch", "64", "--epochs", "1", "--games", "2",
-                    "--opponents", str(other), "--seat-share", "0.5", "--measure-every", "2",
-                    "--measure-games", "1", "--amp", "--play-graphs", *flags]
-            if module is train_combined:
-                argv += ["--fixed", "none", "mortal"]
+            torch.save(fusion(8, 1).state(), origin)
+            argv = ["trainer", "--resume", str(origin), "--out", str(out), "--rounds", "3",
+                    "--batch", "64", "--epochs", "1", "--games", "2", "--opponents", str(other),
+                    "--seat-share", "0.5", "--measure-every", "2", "--measure-games", "1", "--amp",
+                    "--play-graphs", "--fixed", "none", "mortal", *flags]
             printed = io.StringIO()
             with patch.object(sys, "argv", argv), contextlib.redirect_stdout(printed):
-                module.main()
+                train_combined.main()
             records = [json.loads(line) for line in (out / "log.jsonl").read_text().splitlines()]
             return records, printed.getvalue()
 
-    def test_each_trainer_plays_from_graphs(self):
-        """Every size of the learner's and of the seated Mortal's recorded
-        before the first round, and nothing more, beside the learning or
-        not; train_mortal's measurement asks its learner in bfloat16 as its
-        self-play does, and is answered from the graphs already recorded."""
-        for module, flags in ((train_combined, []), (train_combined, ["--play-ahead"]), (train_mortal, [])):
-            with self.subTest(trainer=module.__name__, flags=flags):
-                records, printed = self.run_trainer(module, flags)
+    def test_the_trainer_plays_from_graphs(self):
+        """Every size of the playing copy's and of the seated Mortal's
+        recorded before the first round, and nothing more, beside the
+        learning or not."""
+        for flags in ([], ["--play-ahead"]):
+            with self.subTest(flags=flags):
+                records, printed = self.run_trainer(flags)
                 self.assertEqual([record["generation"] for record in records], [0, 1, 2])
                 # Said as the trainer begins, before any round is played.
                 self.assertIn(f"2 players' small questions from graphs: {{\"play_graphs\": "

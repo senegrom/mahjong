@@ -100,8 +100,8 @@ class Graphed:
     A graph reads `module`'s weights where they are stored, so it answers
     by whatever they hold when it is launched: copying new weights in
     (`load_state_dict`), as a trainer does into its playing copy before
-    each round, or an optimiser's step changes them where they are, and
-    the graph answers by the new ones. Weights put somewhere else, as a
+    each round, changes them where they are, and the graph answers by the
+    new ones. Weights put somewhere else, as a
     cast to another precision puts them, would leave the graph reading
     where they were, so each question first checks that every parameter
     and buffer is where it was when the graphs were recorded, and records
@@ -240,15 +240,14 @@ class Graphed:
 def graphed(player, device: str | torch.device, amp: bool):
     """`player`, the forward it decides with answered from CUDA graphs
     (see `Graphed`) when it plays on the card in bfloat16: a joined
-    player's (`Combined.deciding`), a learner of Mortal's kind's
-    (`inference`), or a seated Mortal's or one of ours's that answers in
-    Mortal's moves (`forward`). `amp` says whether play asks it in
-    bfloat16, as self-play asks a learner with --amp and as a seated player
-    always asks itself on the card (see `policy_inference.autocast`); one
-    asked in float32 is left as it is, as are one of ours over the engine's
-    seventy-eight moves and the heuristic player, which has no network.
-    For a player whose forward runs eagerly: a compiled one is not
-    recorded.
+    player's (`Combined.deciding`), or a seated Mortal's or one of ours's
+    that answers in Mortal's moves (`forward`). `amp` says whether play
+    asks it in bfloat16, as self-play asks a learner with --amp and as a
+    seated player always asks itself on the card (see
+    `policy_inference.autocast`); one asked in float32 is left as it is,
+    as are one of ours over the engine's seventy-eight moves and the
+    heuristic player, which has no network. For a player whose forward
+    runs eagerly: a compiled one is not recorded.
 
     Every size is recorded here, before play begins and while nothing else
     uses the card, so that no graph is recorded beside the learning (see
@@ -257,8 +256,6 @@ def graphed(player, device: str | torch.device, amp: bool):
         return player
     if hasattr(player, "deciding"):
         player.deciding = forward = Graphed(player.decision, player)
-    elif hasattr(player, "inference"):
-        player.inference = forward = Graphed(player.inference, player)
     elif isinstance(getattr(player, "net", None), nn.Module) and hasattr(player, "forward"):
         player.forward = forward = Graphed(player.forward, player.net)
     else:
@@ -272,7 +269,7 @@ def graphs_of(players) -> list[Graphed]:
     `graphed`)."""
     found = []
     for player in players:
-        for name in ("deciding", "inference", "forward"):
+        for name in ("deciding", "forward"):
             forward = getattr(player, "__dict__", {}).get(name)
             if isinstance(forward, Graphed):
                 found.append(forward)
