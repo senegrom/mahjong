@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { OpponentDialogProps } from './types';
-  import { OPPONENT_LABELS, OPPONENT_TYPES, OPPONENT_POSITIONS } from '../opponents.js';
+  import { opponentName, OPPONENT_TYPES, OPPONENT_POSITIONS } from '../opponents.js';
 
   // Only the draft is editable here. App confirms replacement of the current
   // match before promoting these assignments to the active opponents.
@@ -19,13 +19,13 @@
         <span>{OPPONENT_POSITIONS[position]}</span>
         <select class="app-control" bind:value={draftOpponents[position]} aria-label={`${OPPONENT_POSITIONS[position]} opponent`}>
           {#each OPPONENT_TYPES as type (type)}
-            <option value={type} disabled={type === 'neural' && !trainedAvailable && !opponents.includes('neural')}>{OPPONENT_LABELS[type]}</option>
+            <option value={type} disabled={type === 'neural' && !trainedAvailable && !opponents.includes('neural')}>{opponentName(type)}</option>
           {/each}
         </select>
       </label>
     {/each}
   </div>
-  <p class="custom-help">Beginner plays simply. Club uses tile efficiency and defence. Trained uses the published network; all Trained players share one loaded model.</p>
+  <p class="custom-help">Beginner plays simply. Club uses tile efficiency and defence. Trained plays the network picked under Trained network in the game settings; all Trained players share one loaded model.</p>
   {#if !trainedAvailable && !opponents.includes('neural')}<p class="custom-help">The trained model is not currently available. Beginner and Club can still be mixed.</p>{/if}
   <div class="custom-actions">
     <button class="app-control" onclick={() => customDialog?.close()}>Cancel</button>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { OfflineStatusProps } from './types';
-  let { offline, downloadAi, open = $bindable(false) }: OfflineStatusProps = $props();
+  // network, when given, is the version the page plays, which is the one saved.
+  let { offline, downloadAi, network = '', open = $bindable(false) }: OfflineStatusProps = $props();
 </script>
 
 <details class="offline-settings" bind:open>
@@ -11,7 +12,7 @@
         ? 'Fully saved on this device. Beginner and Club already work offline; no download button is needed.'
         : offline.supported === false ? 'Offline storage is unavailable here. The selected tile graphics are loaded for this session.'
         : 'Play can start with the selected tiles while the complete game and every tile graphic save automatically. Stay connected until this status says ready.')}</p>
-    <p data-ai-status role="status"><strong>Trained AI — optional.</strong>
+    <p data-ai-status role="status"><strong>Trained AI{network ? ` ${network}` : ''} — optional.</strong>
       {(offline.phase === 'incomplete' && offline.warning) || (offline.aiReady
         ? 'The network and its runtime are saved too.'
         : offline.phase === 'ai' ? `Saving the trained network and runtime… ${offline.progress}%`

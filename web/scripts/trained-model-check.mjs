@@ -1,4 +1,4 @@
-/** The shipped trained network, including preferences saved by older builds.
+/** The default trained network, played for preferences saved by older builds.
  * Model requests must use the shared inventory, never retired model filenames.
  * Exercise real inference and replay; a missing network cannot silently pass.
  */
@@ -74,7 +74,7 @@ try {
   const base = `http://127.0.0.1:${server.address().port}/mahjong/`;
   browser = await launchChrome();
 
-  // Old preference IDs are migration inputs, not additional shipped networks.
+  // Old preference IDs are migration inputs, not picks of a listed network.
   for (const storedModel of ['full', 'quick', 'strong']) {
     await check(`${storedModel} preference uses only the shipped trained network and preserves replay`, async () => {
       const context = await openContext(browser), before = downloads.length;
@@ -84,7 +84,9 @@ try {
       });
       const page = await open(context, base, storedModel);
       assert.equal(await page.$('select[aria-label="Trained opponent"]'), null,
-        'One shipped network must not offer the retired network selector');
+        'The retired network selector must not come back');
+      // A retired preference is no pick of a network: the default plays.
+      assert.equal(await page.$eval('select[aria-label="Trained network"]', el => el.value), MANIFEST.version);
       await play(page, 12);
       const fetched = downloads.slice(before);
       await stopObserving();

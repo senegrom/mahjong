@@ -5,6 +5,7 @@
   import { analyzePolicy } from './policy.js';
   import { reviewWithStrong } from './review-policy.js';
   import { waitingNote } from './ui.js';
+  import { trainedName } from './trained-network.js';
 
   /**
    * What the hand looked like afterwards. A review that only marks moves
@@ -72,7 +73,7 @@
     <label class="adviser">Review adviser
       <select bind:value={adviser} aria-label="Review adviser">
         <option value="club">Club</option>
-        <option value="strong" disabled={!trainedPossible}>Trained AI</option>
+        <option value="strong" disabled={!trainedPossible}>{trainedName('Trained AI')}</option>
       </select>
     </label>
     {#if reviewer === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>
@@ -82,7 +83,7 @@
     {#if activeNotes.length && !reviewing && !failure}
       <p class="summary">
         {activeNotes.length - disputed.length} of {activeNotes.length}
-        {activeNotes.length === 1 ? 'decision' : 'decisions'} matched {reviewer === 'strong' ? 'Trained AI' : 'Club'}.
+        {activeNotes.length === 1 ? 'decision' : 'decisions'} matched {reviewer === 'strong' ? trainedName('Trained AI') : 'Club'}.
       </p>
     {/if}
   </header>

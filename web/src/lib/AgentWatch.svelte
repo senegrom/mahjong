@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import { Game } from '../wasm/riichi.js';
   import { chooseAction } from './policy.js';
-  import { AGENTS, WINDS, evaluateAgent, isTrained } from './agents.js';
+  import { AGENTS, WINDS, agentName, evaluateAgent, isTrained } from './agents.js';
   import { WatchSession } from './watch-session.js';
   import AgentWeights from './AgentWeights.svelte';
   import Tile from './Tile.svelte';
@@ -116,12 +116,12 @@
 <section class="agent-watch" aria-label="Agent watch">
   <div class="watch-heading"><h2>Agent watch</h2><span>Follow one seat through a full game.</span></div>
   <details open={!view} class="watch-setup">
-    <summary>Agents at the table{#if watch} · following {AGENTS[watch.lineup[0]]}{/if}</summary>
+    <summary>Agents at the table{#if watch} · following {agentName(watch.lineup[0])}{/if}</summary>
     <div class="agent-fields">
       {#each positions as position, index (index)}
         <label>{position}<select bind:value={lineup[index]} onchange={() => configured = true} aria-label={position}>
-          {#each Object.entries(AGENTS) as [key, label] (key)}
-            {#if !isTrained(key) || trainedAvailable || lineup[index] === key}<option value={key} disabled={isTrained(key) && !trainedAvailable}>{label}</option>{/if}
+          {#each Object.keys(AGENTS) as key (key)}
+            {#if !isTrained(key) || trainedAvailable || lineup[index] === key}<option value={key} disabled={isTrained(key) && !trainedAvailable}>{agentName(key)}</option>{/if}
           {/each}
         </select></label>
       {/each}
@@ -145,7 +145,7 @@
     <div class="watch-table">
       {#each view.seats as seat, index (index)}
         <section class:followed={index === 0} class:turn={seat.turn}>
-          <header><strong>{index === 0 ? 'Following' : positions[index]} · {WINDS[['east','south','west','north'].indexOf(seat.seat)]}</strong><span>{AGENTS[watch.lineup[index]]} · {seat.score.toLocaleString()}{seat.riichi ? ' · Riichi' : ''}</span></header>
+          <header><strong>{index === 0 ? 'Following' : positions[index]} · {WINDS[['east','south','west','north'].indexOf(seat.seat)]}</strong><span>{agentName(watch.lineup[index])} · {seat.score.toLocaleString()}{seat.riichi ? ' · Riichi' : ''}</span></header>
           {#if index === 0}
             <div class="tiles hand" role="group" aria-label="Followed agent hand">
               {#each [...seat.hand, ...(seat.drawn ? [seat.drawn] : [])] as tile, slot (slot)}

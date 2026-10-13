@@ -23,10 +23,17 @@
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
   import { DEFAULT_OPPONENT, normalizeOpponents, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
+  import { playNetwork } from './lib/trained-network.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
   const touch = matchMedia('(pointer: coarse)').matches;
   const preferences = readSettings(storage, touch);
+  // The version of the trained network the player picked, if any, and the
+  // network the page plays for it, the default without one. Picking another
+  // reloads the page (changeNetwork), so every download, digest check and
+  // offline report this page makes is about this network.
+  let trainedNetwork = preferences.trainedNetwork;
+  const network = playNetwork(trainedNetwork);
   const requested = new URLSearchParams(location.search).get('opponents');
   const requestedMode = new URLSearchParams(location.search).get('mode');
   let mode = $state(['watch', 'physical', 'guided'].includes(requestedMode) ? requestedMode : 'play');
@@ -81,11 +88,13 @@
   let shownDora = $derived(hints ? (view?.dora_types ?? []) : []);
   let selectedTile = $derived(selected === null ? null : handTiles[selected]);
 
-  // Stored when a preference changes, not whenever this effect reruns.
+  // Stored when a preference changes, not whenever this effect reruns. A
+  // player who has not picked a network has no trainedNetwork in the record.
   let storedSettings = null;
+  const currentSettings = () =>
+    ({ difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, trainedNetwork });
   $effect(() => {
-    storedSettings = writeSettings(storage,
-      { difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser }, storedSettings);
+    storedSettings = writeSettings(storage, currentSettings(), storedSettings);
   });
 
   // A call is offered under a table that fills the window, so the choices
@@ -249,6 +258,32 @@
 
   function downloadAi() { void prepareOfflineAi().catch(() => {}); }
 
+  // Another network is loaded with the page, not swapped into this one: the
+  // opponents' worker, every adviser and the offline status are about the
+  // network a page plays. So the pick is saved and the page loads again, in
+  // the mode it was in. Matches, guided games and physical tables are saved
+  // and come back as they were; a watched game is not saved, and ends.
+  function changeNetwork(version) {
+    if (version === network.version) return true;
+    if (!confirm(`Switch to Trained ${version}? The page reloads to load it${mode === 'watch' ? ', and the watched game ends' : ''}.`)) return false;
+    trainedNetwork = version;
+    storedSettings = writeSettings(storage, currentSettings(), storedSettings);
+    // A pick that is not kept would be lost as the page reloads.
+    if (readSettings(storage, touch).trainedNetwork !== version) {
+      trainedNetwork = preferences.trainedNetwork;
+      storedSettings = writeSettings(storage, currentSettings(), storedSettings);
+      notice = 'This browser is not keeping your settings, so another trained network cannot be loaded here.';
+      return false;
+    }
+    const address = new URL(location.href);
+    if (mode === 'play') address.searchParams.delete('mode');
+    else address.searchParams.set('mode', mode);
+    // The same address with a fragment would only scroll, not load again.
+    if (address.href === location.href) location.reload();
+    else location.replace(address.href);
+    return true;
+  }
+
   function start(strength = opponents) {
     if (saveConflict) return;
     session?.dispose();
@@ -402,6 +437,7 @@
 
 <main>
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts {tileFace} {pendingTileFace} onfacechange={changeTileFace}
+    network={network.version} onnetworkchange={changeNetwork}
     {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
     {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={saveGame}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />

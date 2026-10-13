@@ -40,11 +40,18 @@ export interface OfflineState {
   /** A first visit's service worker is still saving the game to activate. */
   installing?: boolean;
 }
-export interface OfflineStatusProps { offline: OfflineState; downloadAi: () => void; open?: boolean }
+export interface OfflineStatusProps {
+  offline: OfflineState; downloadAi: () => void; open?: boolean;
+  /** The version of the trained network the page plays, such as '0.1.810'. */
+  network?: string;
+}
 export interface SettingsProps extends OfflineStatusProps {
   mode?: GameMode; settingsOpen?: boolean;
   hints?: boolean; confirmDiscards?: boolean; shortcuts?: boolean;
   tileFace: TileFace; pendingTileFace?: TileFace | null;
+  /** Asked to play another listed network by version: true once App takes
+   * the pick (it reloads the page), false to keep the one playing. */
+  onnetworkchange?: (version: string) => boolean;
   difficulty: Difficulty; opponents: Opponent[];
   ready: boolean; busy: boolean; saveConflict: string; trainedAvailable: boolean;
   changeOpponents: (event: Event & { currentTarget: HTMLSelectElement }) => void;

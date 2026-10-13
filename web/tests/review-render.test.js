@@ -93,7 +93,7 @@ test('a chosen Club review says nothing about the network', () => {
 });
 
 test('the belief panel names honours as the page names tiles, and marks their dora', async () => {
-  const agents = 'data:text/javascript,export const AGENTS = { full: "Trained" };';
+  const agents = 'data:text/javascript,export const AGENTS = { full: "Trained" }; export const agentName = agent => AGENTS[agent];';
   const { default: AgentWeights } = await import(await component('AgentWeights', { './Tile.svelte': tile, './agents.js': agents }));
   // The belief head in Mortal's order: index 31 is its P, the white dragon.
   const hands = new Float32Array(3 * 34).fill(-5);

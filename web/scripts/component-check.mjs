@@ -9,6 +9,7 @@ import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { DALI_APPROVED } from '../src/lib/dali-faces.js';
 import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { tileFile, tileWords } from '../src/lib/tiles.js';
+import { MANIFEST, NETWORKS } from '../src/lib/model-manifest.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { check: run, openContext, report, results } = browserChecks();
@@ -127,6 +128,21 @@ try {
     assert.equal(await page.$eval('.settings-dialog .game-export', el => el.open), true);
     await page.click('.settings-dialog .game-export [data-save-game]');
     assert.deepEqual((await state(page)).callbacks, ['save-game:2', 'save-game:2']);
+  });
+  await check('the trained network picker shows the network that plays and asks the parent for another', desktop, async page => {
+    // The fixture plays the default, and declines every pick.
+    assert.equal(await page.$eval('[data-trained-network]', el => el.textContent.trim()), `Trained network ${MANIFEST.version}`);
+    await page.click('.network-choice > summary');
+    const picker = 'select[aria-label="Trained network"]';
+    assert.deepEqual(await page.$$eval(`${picker} option`, options => options.map(option => [option.value, option.textContent.trim()])),
+      NETWORKS.map(network => [network.version, network === MANIFEST ? `${network.version} (default)` : network.version]));
+    assert.match(await page.$eval('.network-choice', el => el.textContent), /Changing it reloads the page/);
+    await page.select(picker, NETWORKS[1].version);
+    assert.deepEqual((await state(page)).callbacks, [`network:${NETWORKS[1].version}`]);
+    assert.equal(await page.$eval(picker, el => el.value), MANIFEST.version, 'a pick the parent declines leaves the playing network on show');
+    // The offline panel names the network a page saves.
+    await page.click('.offline-settings > summary');
+    assert.match(await page.$eval('[data-ai-status]', el => el.textContent), new RegExp(`Trained AI ${MANIFEST.version.replaceAll('.', '\\.')} — optional`));
   });
   await check('native compact modal traps focus, blocks the hand and restores its opener', phone, async page => {
     await openSettings(page);
