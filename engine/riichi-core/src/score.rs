@@ -193,8 +193,6 @@ pub struct Score {
     pub fu_detail: Vec<(FuReason, u32)>,
     /// The limit reached, if any.
     pub limit: Option<Limit>,
-    /// The base value payments are computed from.
-    pub base: u32,
     /// Who pays what.
     pub payments: Payments,
 }
@@ -529,7 +527,6 @@ fn score_one(
         fu,
         fu_detail,
         limit,
-        base,
         payments,
     })
 }
