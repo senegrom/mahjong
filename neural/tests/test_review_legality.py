@@ -56,7 +56,7 @@ class LegalityReviewTests(unittest.TestCase):
             return logits.masked_fill(~mask,-torch.inf),torch.zeros(len(mask))
         with patch.object(rehead.riichi_py,'Arena',Arena),patch.object(rehead,'Views',Views), \
              patch.object(torch.distributions.Categorical,'sample',lambda self:self.probs.argmax(-1)):
-            _,masks,targets,declared=rehead.collect(teacher,object(),1,1,'cpu',1.)
+            _,masks,targets,declared=rehead.collect(teacher,1,1,'cpu',1.)
         self.assertEqual(declared,1)
         self.assertTrue(masks[0,37])
         self.assertEqual(np.flatnonzero(masks[1]).tolist(),[0,1])
@@ -82,7 +82,7 @@ class LegalityReviewTests(unittest.TestCase):
             logits[:,0]=np.log(.4);logits[:,4]=np.log(.6)
             return logits,torch.zeros(len(mask))
         with patch.object(rehead.riichi_py,'Arena',Arena),patch.object(rehead,'Views',Views):
-            _,masks,targets,_=rehead.collect(teacher,object(),1,1,'cpu',1.)
+            _,masks,targets,_=rehead.collect(teacher,1,1,'cpu',1.)
         self.assertEqual(np.flatnonzero(masks[0]).tolist(),[0,4])
         self.assertFalse(masks[:,list(zoo.MORTAL_RED_FIVES)].any())
         np.testing.assert_allclose(targets[0,[0,4]],[.4,.6],atol=1e-6)
