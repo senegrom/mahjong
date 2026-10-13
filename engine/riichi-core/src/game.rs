@@ -109,6 +109,9 @@ impl Player {
     }
 
     /// Whether the hand is waiting (EMA section 3.3.8).
+    ///
+    /// A hand whose only candidate is a fifth copy is noten, which is why
+    /// this asks for the waits rather than the shanten number alone.
     pub fn is_tenpai(&self) -> bool {
         !self.waits().is_empty()
     }
