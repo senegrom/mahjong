@@ -7,10 +7,8 @@
 //! across the four seatings is the error bar on the answer.
 
 use riichi_core::bot::{Bot, Style};
-use riichi_core::game::{Call, Phase};
 use riichi_core::rng::Rng;
 use riichi_core::table::Table;
-use riichi_core::Wind;
 
 /// What one seating came to.
 struct Seating {
@@ -57,34 +55,7 @@ fn play_seating(
             guard += 1;
             assert!(guard < 200, "a game of two rounds does not run this long");
             let mut hand = table.deal(&mut rng);
-            let mut turns = 0;
-            while !matches!(hand.phase, Phase::Over) {
-                turns += 1;
-                assert!(turns < 600, "a hand ends well before this");
-                match hand.phase {
-                    Phase::Draw => {
-                        let _ = hand.draw();
-                    }
-                    Phase::Act => {
-                        let who = table.player_at(hand.turn);
-                        let action = bots[who].act(&hand);
-                        hand.act(action).expect("the bot chose a legal action");
-                    }
-                    Phase::CallWindow => {
-                        let answers: Vec<(Wind, Call)> = hand
-                            .legal_calls()
-                            .iter()
-                            .map(|(seat, calls)| {
-                                let who = table.player_at(*seat);
-                                (*seat, bots[who].call(&hand, *seat, calls))
-                            })
-                            .collect();
-                        hand.resolve_calls(&answers)
-                            .expect("the calls were offered");
-                    }
-                    Phase::Over => break,
-                }
-            }
+            super::play_hand(&mut hand, &table, &mut bots);
             table.finish(&hand);
         }
 

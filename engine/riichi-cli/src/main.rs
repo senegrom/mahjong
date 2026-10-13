@@ -145,33 +145,7 @@ fn write_log(games: usize, seed: u64) {
         while !table.finished {
             let seating = table.seating();
             let mut hand = table.deal(&mut rng);
-            while !matches!(hand.phase, Phase::Over) {
-                match hand.phase {
-                    Phase::Draw => {
-                        let _ = hand.draw();
-                    }
-                    Phase::Act => {
-                        let seat = hand.turn;
-                        let action = bots[table.player_at(seat)].act(&hand);
-                        hand.act(action).expect("the bot chose a legal action");
-                    }
-                    Phase::CallWindow => {
-                        let answers: Vec<(Wind, Call)> = hand
-                            .legal_calls()
-                            .iter()
-                            .map(|(seat, calls)| {
-                                (
-                                    *seat,
-                                    bots[table.player_at(*seat)].call(&hand, *seat, calls),
-                                )
-                            })
-                            .collect();
-                        hand.resolve_calls(&answers)
-                            .expect("the calls were offered");
-                    }
-                    Phase::Over => break,
-                }
-            }
+            play_hand(&mut hand, &table, &mut bots);
             for event in &hand.log {
                 println!("{}", event.to_json(seating));
             }
@@ -408,6 +382,9 @@ fn check_invariants(hand: &Hand, game: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Plays a dealt hand to its end with the heuristic bots, which are indexed
+/// by player rather than by seat, so each keeps its own seed and style as
+/// the seats move round. The arena, the logs and the duel all play this way.
 fn play_hand(hand: &mut Hand, table: &Table, bots: &mut [Bot]) {
     let mut guard = 0;
     while !matches!(hand.phase, Phase::Over) {
