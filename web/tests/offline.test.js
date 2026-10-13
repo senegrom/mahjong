@@ -453,12 +453,13 @@ const kept = async (w, body, generation) =>
 test('a build that lists several networks reports on the one the page plays, and on its default without a pick', async () => {
   const w = listingWorker([['g810', 810], ['g410', 410]]);
   await w.install(); await download(w);
-  // No pick, or one this build does not list, is the default.
+  // No pick, or one this build does not list, is the default. (Copied out
+  // of the worker's realm to be compared.)
   for (const version of [undefined, '0.1.36', 'strong']) {
-    assert.deepEqual((await status(w, version)).network,
+    assert.deepEqual({ ...(await status(w, version)).network },
       { url: externalUrl(external('g810', 810)), version: '0.1.810', sha256: sha('g810'), bytes: 4 }, String(version));
   }
-  assert.deepEqual((await status(w, '0.1.410')).network,
+  assert.deepEqual({ ...(await status(w, '0.1.410')).network },
     { url: externalUrl(external('g410', 410)), version: '0.1.410', sha256: sha('g410'), bytes: 4 });
   // A page that plays 410 saves 410: ready for it, and not for the default.
   assert.equal(await pageSaves(w, 'g410', undefined, '0.1.410'), 1);

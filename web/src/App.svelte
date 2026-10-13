@@ -265,7 +265,11 @@
   // and come back as they were; a watched game is not saved, and ends.
   function changeNetwork(version) {
     if (version === network.version) return true;
-    if (!confirm(`Switch to Trained ${version}? The page reloads to load it${mode === 'watch' ? ', and the watched game ends' : ''}.`)) return false;
+    // Offline, a network that was never saved here cannot be loaded, and
+    // Trained then waits for a connection. The one playing now stays saved
+    // if it was, so picking it again brings it back.
+    const offlineNote = navigator.onLine ? '' : ' Offline, it plays only if it was saved on this device.';
+    if (!confirm(`Switch to Trained ${version}? The page reloads to load it${mode === 'watch' ? ', and the watched game ends' : ''}.${offlineNote}`)) return false;
     trainedNetwork = version;
     storedSettings = writeSettings(storage, currentSettings(), storedSettings);
     // A pick that is not kept would be lost as the page reloads.
