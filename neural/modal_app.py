@@ -904,8 +904,6 @@ def arena(
     which: str = "best",
     games: int = 1000,
     seed: int = 555_000,
-    channels: int = 320,
-    blocks: int = 24,
     run: str = DEFAULT_RUN,
 ) -> str:
     """Measures a checkpoint from the volume against the heuristic players.
@@ -937,12 +935,10 @@ def arena(
         generation = _generation_or_zoo(local / f"{name}.pt")
         print(f"measuring {which}.pt, generation {generation}", flush=True)
 
+        # The checkpoint says its own shape (see `model.shape_of`).
         command = [
             sys.executable, "-m", "neural.arena", str(local / f"{name}.pt"),
             "--games", str(games), "--seed", str(seed),
-            # The checkpoint says its own shape; these stand in only for the
-            # oldest, which do not.
-            "--channels", str(channels), "--blocks", str(blocks),
         ]
         report = _run_child(command)
     # Prefixed so the caller can tell one measurement from another without
@@ -962,10 +958,6 @@ def duel(
     incumbent: str = "zoo/mortal_298k",
     games: int = 1000,
     seed: int = 555_000,
-    channels: int = 320,
-    blocks: int = 24,
-    incumbent_channels: int = 192,
-    incumbent_blocks: int = 10,
     run: str = DEFAULT_RUN,
 ) -> str:
     """Sits two checkpoints from the volume at the same table.
@@ -1004,9 +996,6 @@ def duel(
         command = [
             sys.executable, "-m", "neural.duel", str(files[0]), str(files[1]),
             "--games", str(games), "--seed", str(seed),
-            "--channels", str(channels), "--blocks", str(blocks),
-            "--incumbent-channels", str(incumbent_channels),
-            "--incumbent-blocks", str(incumbent_blocks),
         ]
         return _run_child(command)
 
@@ -1026,8 +1015,6 @@ def distil(
     rounds: int = 60,
     games: int = 256,
     lr: float = 2e-4,
-    teacher_channels: int = 192,
-    teacher_blocks: int = 10,
     channels: int = 320,
     blocks: int = 24,
     student_planes: str = "mortal",
@@ -1085,11 +1072,6 @@ def distil(
             copied = local / (which.replace("/", "--") + ".pt")
             shutil.copyfile(source, copied)
             command += [label, str(copied)]
-        if teacher:
-            command += [
-                "--teacher-channels", str(teacher_channels),
-                "--teacher-blocks", str(teacher_blocks),
-            ]
         answer = _run_child(command, tail=4000)
         return answer + _publish_product(out, run, name)
 

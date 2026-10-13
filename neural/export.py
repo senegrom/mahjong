@@ -145,7 +145,7 @@ def load_network(checkpoint: Path):
 
         net, _state = load_fusion(checkpoint, "cpu")
         return net.eval(), payload
-    return from_payload(payload, "cpu", 192, 10).eval(), payload
+    return from_payload(payload, "cpu").eval(), payload
 
 
 def validation_positions() -> tuple[torch.Tensor, torch.Tensor]:

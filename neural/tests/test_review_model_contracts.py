@@ -101,6 +101,41 @@ class EngineObservationContractTests(unittest.TestCase):
         self.assertEqual(model.from_payload(payload, 'cpu').kind, 'mortal')
 
 
+class ShapeContractTests(unittest.TestCase):
+    """A checkpoint of ours is rebuilt at the shape it says it was trained
+    at, and nothing else: the width and depth a command line or the weights
+    once stood in with could take effect for no checkpoint that loads, and
+    one that does not say its shape is refused by what it leaves out."""
+
+    def test_a_checkpoint_is_rebuilt_at_the_shape_it_says(self):
+        net = model.PolicyValueNet(8, 2, actions=46, attention=False)
+        payload = {'model': net.state_dict(), **net.payload_fields()}
+        self.assertEqual(model.shape_of(payload), {'channels': 8, 'blocks': 2, 'planes': model.MORTAL_PLANES,
+                                                   'attention': False, 'actions': 46})
+        # From before the moves were said, as the first of Mortal's planes
+        # were: read from the heads.
+        del payload['actions']
+        self.assertEqual(model.shape_of(payload)['actions'], 46)
+
+    def test_a_checkpoint_that_does_not_say_its_shape_is_refused_by_what_it_leaves_out(self):
+        net = model.PolicyValueNet(8, 1, actions=46)
+        fields = net.payload_fields()
+        for name in model.SHAPE_FIELDS:
+            payload = {'model': net.state_dict(), **{k: v for k, v in fields.items() if k != name}}
+            with self.subTest(missing=name):
+                with self.assertRaisesRegex(ValueError, f'does not say its {name},'):
+                    model.shape_of(payload)
+                with tempfile.TemporaryDirectory() as temp:
+                    path = Path(temp) / 'silent.pt'
+                    atomic_save(payload, path)
+                    with self.assertRaisesRegex(ValueError, f'does not say its {name},'):
+                        zoo.load_player(path, 'cpu')
+        # Nothing but the weights, of Mortal's planes: refused, where it used
+        # to be rebuilt at whatever the weights or a command line said.
+        with self.assertRaisesRegex(ValueError, 'does not say its channels or blocks or attention'):
+            model.from_payload({'model': net.state_dict()}, 'cpu')
+
+
 class MortalVersionTests(unittest.TestCase):
     """Only version four of Mortal is kept, the version of the planes our
     follower encodes: version three's 934 planes would meet our 1012 only at

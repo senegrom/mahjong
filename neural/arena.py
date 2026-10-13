@@ -133,11 +133,9 @@ def main() -> None:
         "processor when there is none, which is slow but lets a command "
         "line be tried while a run holds the card",
     )
-    parser.add_argument("--channels", type=int, default=320)
-    parser.add_argument("--blocks", type=int, default=20)
     args = parser.parse_args()
 
-    net = zoo.load_player(args.checkpoint, args.device, args.channels, args.blocks)
+    net = zoo.load_player(args.checkpoint, args.device)
     net.eval()
 
     result = duplicate(net, games=args.games, seed=args.seed, device=args.device,

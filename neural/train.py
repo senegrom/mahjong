@@ -150,10 +150,9 @@ def main() -> None:
         # larger than the model itself and should not transiently occupy the
         # card twice while loading.
         resume_payload = torch.load(args.resume, map_location="cpu", weights_only=True)
-        # The checkpoint says what shape it is; the flags stand in only
-        # where it is silent.
-        shape = shape_of(resume_payload, args.channels, args.blocks)
-        net = PolicyValueNet(**shape).to(device)
+        # The checkpoint says what shape it is; --channels and --blocks
+        # shape only a fresh network.
+        net = PolicyValueNet(**shape_of(resume_payload)).to(device)
         load_weights(net, resume_payload["model"])
         start = int(resume_payload.get("generation", 0))
         benchmark = ppo_loop.Benchmark(*benchmark_history(resume_payload))

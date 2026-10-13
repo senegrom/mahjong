@@ -79,8 +79,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="a checkpoint to learn from instead of the heuristic player",
     )
-    parser.add_argument("--teacher-channels", type=int, default=192)
-    parser.add_argument("--teacher-blocks", type=int, default=10)
     parser.add_argument(
         "--temperature",
         type=float,
@@ -265,7 +263,7 @@ def main() -> None:
 
     if args.resume is not None:
         payload = torch.load(args.resume, map_location=device, weights_only=True)
-        net = PolicyValueNet(**shape_of(payload, args.channels, args.blocks)).to(device)
+        net = PolicyValueNet(**shape_of(payload)).to(device)
         load_weights(net, payload["model"])
         print(
             f"student resumed from {args.resume} at generation "
@@ -288,9 +286,7 @@ def main() -> None:
     if args.teacher is not None:
         # Whatever the checkpoint holds: one of ours, or a joined player,
         # whose fusion head and Mortal are the point of naming it.
-        teacher = zoo.load_player(
-            args.teacher, device, args.teacher_channels, args.teacher_blocks
-        )
+        teacher = zoo.load_player(args.teacher, device)
         if not all(callable(getattr(teacher, name, None)) for name in ("forward", "parameters")):
             raise SystemExit(
                 f"{args.teacher} is not a teacher this can ask for a whole "

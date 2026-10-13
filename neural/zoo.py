@@ -426,13 +426,7 @@ def play_in_bfloat16(player, device: str):
     return player
 
 
-def load_player(
-    path: Path | str,
-    device: str,
-    channels: int | None = None,
-    blocks: int | None = None,
-    compile: bool = False,
-):
+def load_player(path: Path | str, device: str, compile: bool = False):
     """A player from a checkpoint of either kind: one of ours, rebuilt at
     the shape it says, or a Mortal, told apart by what the file holds.
     With `compile`, the forward it plays with is compiled, the batch's
@@ -457,7 +451,7 @@ def load_player(
             net.backbones_forward = torch.compile(net.backbones, dynamic=True)
         return net
     if payload is not None and "model" in payload:
-        net = from_payload(payload, device, channels, blocks)
+        net = from_payload(payload, device)
         net.eval()
         if getattr(net, "speaks_mortal", False):
             # Its moves are Mortal's, so it is asked for them Mortal's way.
