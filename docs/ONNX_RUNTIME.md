@@ -2,18 +2,21 @@
 
 ## Source of truth
 
-`web/src/lib/model-manifest.js` identifies the one published remote network:
-its source, generation, precision, decoded byte count, stored byte count,
-origin, immutable object key, and SHA-256. Inspect those fields for the current
-release. `neural.export` checks the graph's operators; the publication tool
-`web/scripts/publish-model-r2.mjs` writes the delivery manifest, reading the
-precision from the exported weights and refusing to run without the source
-checkpoint's name. It uploads with an exact wrangler release, gzipped, under
-`models/g<generation>/<sha256>`, which `workers/model-cdn` serves to the page,
-and writes the manifest only after the upload, staged and atomically renamed:
-a failed upload leaves the previous manifest in place. It expects an export
-`neural.export` has already checked; uploading proves nothing about parity or
-playing strength.
+`web/src/lib/model-manifest.js` lists the published remote networks a player
+can pick, the default first, each by its version (such as 0.1.810) with its
+source, generation, precision, decoded byte count, stored byte count, origin,
+immutable object key, and SHA-256; `MANIFEST` is the default. Inspect those
+fields for the current release. `neural.export` checks the graph's operators;
+the publication tool `web/scripts/publish-model-r2.mjs` writes the delivery
+manifest, reading the precision from the exported weights and refusing to run
+without the source checkpoint's name. It uploads with an exact wrangler
+release, gzipped, under `models/g<generation>/<sha256>`, which
+`workers/model-cdn` serves to the page, and writes the manifest only after the
+upload, staged and atomically renamed: a failed upload leaves the previous
+manifest in place. The network it publishes becomes the default and every
+network listed before it stays listed; its version is `0.1.<generation>`
+unless `--version` names another. It expects an export `neural.export` has
+already checked; uploading proves nothing about parity or playing strength.
 
 No ONNX model is served from `web/public`. Both packaging and offline inventory
 creation reject unexpected local ONNX files, including nested files. There is
@@ -47,11 +50,12 @@ Every stored copy carries the size and SHA-256 its writer verified, as
 `X-Mahjong-SHA256` and `Content-Length` headers, the same record the service
 worker keeps for its own files. Status checks, the foreground availability
 probe and retention read that record; they never read or hash the body. The
-bytes given to ONNX Runtime are always read and hashed in full. The service
-worker's status reply names its build's network and whether it is stored; the
-page accepts that answer only when the identity exactly matches its own
-manifest, and otherwise reads its own record. This proof comes from the app's
-service-worker channel, not a localStorage flag.
+bytes given to ONNX Runtime are always read and hashed in full. Each page
+names its player's pick in its messages; the service worker's status reply
+names the network that pick resolves to in its build's list and whether it is
+stored, and the page accepts that answer only when the identity exactly
+matches the network it plays, and otherwise reads its own record. This proof
+comes from the app's service-worker channel, not a localStorage flag.
 
 ## Cache lifetime and upgrades
 
@@ -68,9 +72,10 @@ after it starts. A new version never plays the previous network. Normal
 waiting-worker activation is retained: there is no forced mid-match upgrade.
 
 Only the active worker prunes: at activation and after its page has saved its
-network. The current and previous model URLs are retained; older scoped
-entries are removed. A network that is not yet stored, a waiting/installing
-worker, or an unreadable retention record prevents pruning.
+network. Every model its build lists, and the current and previous model
+URLs, are retained; older scoped entries are removed. A network that is not
+yet stored, a waiting/installing worker, or an unreadable retention record
+prevents pruning.
 
 The unscoped legacy v1 cache is no longer read: it could only ever hold
 generation 36. It is deliberately not blanket-deleted either: its entries may

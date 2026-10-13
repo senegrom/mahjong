@@ -6,10 +6,31 @@ opening a direct Watch/Physical/Guided link does not overwrite a regular match.
 
 ## Advisers and weights
 
-Beginner and Club are built-in agents. Trained uses the single network named
-in the model manifest, and is offered once that network is available,
-including after reconnect or download without reloading. A saved choice is
-not silently replaced with Club.
+Beginner and Club are built-in agents. Trained plays one of the networks
+the model manifest lists, picked by version under **Game settings → Trained
+network**: 0.1.810, the default, or 0.1.410, which the site played before
+it. The section's title names the network the page plays, and so does every
+place that names Trained as an opponent, adviser or watched agent: the
+opponents menu and custom table, each opponent's badge, the watch lineup,
+the guided and physical advisers, the decision weights, the review adviser
+and the offline panel all say **Trained 0.1.810**, or the version picked.
+Saved game logs say Trained alone, since a restored match may have been
+played by another network.
+
+Picking another version asks first, then reloads the page with the other
+network, in the mode it was in: a match, a guided game and a physical
+table come back as they were, and a watched game ends. One network plays
+in a page, so its opponents, advisers and offline status never mix two.
+A player who has never picked plays the default, and the next network
+published becomes theirs too; a pick, the default's version included, is
+kept until it is changed, and a version the site no longer lists plays
+the default. The pick is the settings record's `trainedNetwork` (record
+version 2), written only once a player picks; nothing else in the record
+changed, and nothing was reset for it.
+
+Trained is offered once the network it plays is available, including after
+reconnect or download without reloading. A saved choice is not silently
+replaced with Club.
 
 Trained is the default wherever nothing has been chosen: the opponents of a
 first match, every Agent watch seat, the hand-review adviser and a new guided
