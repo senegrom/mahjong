@@ -82,21 +82,6 @@ def parse_args() -> argparse.Namespace:
         "update, for those heads only; about one pass over a round",
     )
     parser.add_argument(
-        "--freeze-aux",
-        action="store_true",
-        help="train only the policy tower and its heads, by the policy loss "
-        "alone: no value, table reading, critic, oracle or replay pass. For "
-        "finding whether the PPO step by itself flattens the policy",
-    )
-    parser.add_argument(
-        "--freeze-policy",
-        action="store_true",
-        help="train only the value heads and the head that reads the table; "
-        "the policy tower and its heads keep their weights. For a night when "
-        "the evaluator is worth improving and the policy is not to be "
-        "trusted to improve itself",
-    )
-    parser.add_argument(
         "--distil-weight",
         type=float,
         default=1.0,
@@ -186,19 +171,6 @@ def main() -> None:
     if net.kind != "mortal":
         raise SystemExit("training needs a network that sees Mortal's planes")
 
-    if args.freeze_policy:
-        for name, parameter in net.named_parameters():
-            if not name.startswith(("critic", "oracle_", "belief_", "hands.", "value.")):
-                parameter.requires_grad_(False)
-        print("policy frozen: training the value heads and the reading of the table", flush=True)
-    if args.freeze_aux:
-        for name, parameter in net.named_parameters():
-            if name.startswith(("critic", "oracle_", "belief_", "hands.", "value.")):
-                parameter.requires_grad_(False)
-        args.value_weight = 0.0
-        args.hands_weight = 0.0
-        args.replay_steps = 0
-        print("auxiliaries frozen: training the policy by the policy loss alone", flush=True)
     trainable = [parameter for parameter in net.parameters() if parameter.requires_grad]
     # PyTorch's fused CUDA AdamW performs the same update in far fewer kernel
     # launches. On CPU the ordinary implementation remains the right path.
@@ -208,9 +180,6 @@ def main() -> None:
         weight_decay=1e-4,
         fused=device == "cuda",
     )
-    # Freezing a different set of heads changes the parameter groups, and a
-    # checkpoint of another freezing then starts the optimiser afresh; the
-    # weights still resume.
     ppo_loop.restore_optimiser(
         optimiser, None if resume_payload is None else resume_payload.get("optimizer")
     )
