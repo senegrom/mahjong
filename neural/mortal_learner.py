@@ -190,10 +190,11 @@ def decide_in_mortal_space(
         # Precision is owned by the caller, matching the later PPO forward.
         logits, value, phi = scored(score(planes.dense(device), mask))
         logits = logits.float()
-    distribution = torch.distributions.Categorical(logits=logits)
     if greedy:
         picked = logits.argmax(dim=1)
-        log_prob = distribution.log_prob(picked)
+        # Built here alone: validating a distribution reads the card back,
+        # and drawing a move builds one of its own (`selfplay.explore`).
+        log_prob = torch.distributions.Categorical(logits=logits).log_prob(picked)
     else:
         # Now and then a legal move at random instead of the policy's, and
         # record the policy's likelihood and a forced-row flag. Forced
