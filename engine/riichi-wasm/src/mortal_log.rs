@@ -27,7 +27,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use super::analysis::claims;
+use super::analysis::{claims, unclaimed_set};
 use riichi::mjai::Event as MortalEvent;
 use riichi::state::PlayerState as MortalState;
 use riichi_core::game::{Discard, Hand, Phase};
@@ -158,9 +158,15 @@ fn discards_after(kind: MeldKind) -> bool {
 type Called = (Wind, MeldKind, Tile);
 
 fn events(hand: &Hand, seat: Wind) -> Option<Vec<String>> {
-    // The same pairing the position's validation found, so a table it
-    // accepted is one the replay can tell.
+    // The same pairing the position's validation found. Each called set is
+    // told at the claimed discard it was paired with, so a set paired with
+    // none would never be told, and the state would be a table without it.
+    // Validation accepts such a set, since the built-in advisers read the
+    // sets themselves; the replay refuses it.
     let taken = claims(hand).ok()?;
+    if unclaimed_set(hand, &taken).is_some() {
+        return None;
+    }
     let rows = ordered(hand);
     // Each claim follows the very discard it was paired with: two sets that
     // took the same tile from the same seat took two different discards.

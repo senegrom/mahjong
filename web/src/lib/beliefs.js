@@ -3,7 +3,7 @@
  * The trained network answers three things about a position at once: which
  * move it prefers, what the hand is worth, and what each opponent is
  * holding. The third is the belief head, and this turns its raw numbers
- * into something a page can show and a search can sample from.
+ * into something a page can show.
  *
  * A row is a distribution over the thirty-four kinds: the chance that a
  * tile drawn at random from that opponent's concealed hand is of each kind.
@@ -41,8 +41,7 @@ function softmax(row) {
  *
  * `held` says how many concealed tiles each opponent has, in the same
  * order; where it is given, each row also carries the expected number of
- * copies, which is what a person reads. A seat holding nothing — it has
- * won, or the hand is over — is left out.
+ * copies, which is what a person reads.
  */
 export function readBeliefs(hands, held = null) {
   if (!hands || hands.length !== OPPONENTS * POSITIONS) {
@@ -80,7 +79,5 @@ export function likeliest(belief, count = 6) {
  * because it is not one.
  */
 export function readValue(value) {
-  if (value == null) return null;
-  const scalar = typeof value === 'number' ? value : value[0];
-  return Number.isFinite(scalar) ? scalar : null;
+  return Number.isFinite(value) ? value : null;
 }

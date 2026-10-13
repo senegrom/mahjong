@@ -54,6 +54,10 @@ reader of hidden hands, a candidate/champion gate, and red-five aliases.
   completed-game rewards, ties, incomplete games and replay publication.
 - [POLICY_SEARCH_PARITY.md](https://github.com/senegrom/mahjong/blob/b34d169ad6341b273866970b93a9793ffef8c2fb/docs/POLICY_SEARCH_PARITY.md):
   the acting policy's precision and the browser worker parity fixture.
+- [ADVISER_WEIGHTS.md](https://github.com/senegrom/mahjong/blob/809fdd3a65b018341be1e1bed8ea505323bfa9a3/docs/ADVISER_WEIGHTS.md):
+  the adviser presentation repair of PR #77, removed in October 2026 once
+  its riichi rows and the value's units were in
+  [AGENT_MODES.md](AGENT_MODES.md).
 
 ## Merged documents
 

@@ -7,12 +7,9 @@ opening a direct Watch/Physical/Guided link does not overwrite a regular match.
 ## Advisers and weights
 
 Beginner and Club are built-in agents. Trained uses the single network named
-in the model manifest. The current physical adapter exposes the observation,
-legal-mask, and action-conversion methods needed for Trained advice. Controls
-are enabled when that capability and the network are available, including
-after reconnect or download without reloading. Older adapters lacking those
-methods show an explanation and keep Trained disabled rather than inventing
-an observation. A saved choice is not silently replaced with Club.
+in the model manifest, and is offered once that network is available,
+including after reconnect or download without reloading. A saved choice is
+not silently replaced with Club.
 
 Trained is the default wherever nothing has been chosen: the opponents of a
 first match, every Agent watch seat, the hand-review adviser and a new guided
@@ -34,6 +31,19 @@ win probabilities. Built-in agents mark the selected move instead of displaying
 invented percentages. Additional legal kans that the network cannot name stay
 available but unscored. Advice for physical play uses the table data entered by
 the player; enter visible history accurately, and leave unknown hands empty.
+
+Riichi is one row for the declaration, carrying the network's weight for
+declaring, with its candidate discards beneath it. Each candidate's
+`conditionalWeight` is the answer to the second question a declaration asks,
+which is put only when the network chose riichi; otherwise the candidates show
+as not evaluated, never as zero, and no extra request is made to score them.
+The two stages are never multiplied into one weight, and the network's own
+answer stays the advice whatever the rows show. The declaration row is not a
+button: a discard must still be chosen and confirmed.
+
+The value is shown as **Estimated training reward**, in the units the network
+was trained in: the hand's point change divided by 4,000, plus the final
+placement bonus. It is not a predicted finishing place or a win probability.
 
 ## Custom tables
 
@@ -125,10 +135,14 @@ sets remember exactly which tile was claimed, so chii rotates the correct
 tile even after save/reload. Legacy manually entered sets without this metadata
 remain readable; the display does not guess a new claimed tile. Validation
 matches claimed discards to called sets one to one, so an ambiguous chii
-explains whichever discard needs it, and no set explains two claims. After kan,
-enter the real replacement tile and newly exposed indicator. No random wall
-or unknown hand is manufactured. Passed wins record furiten; kan robbery
-preserves ippatsu until the kan stands and its replacement is recorded.
+explains whichever discard needs it, and no set explains two claims. Trained
+advice also needs every called set to have its claimed discard: it replays the
+hand and tells each set at the discard it took, so it names a set whose
+discard is not marked Claimed rather than advise on a table without that set.
+Beginner and Club read the sets as entered. After kan, enter the real
+replacement tile and newly exposed indicator. No random wall or unknown hand
+is manufactured. Passed wins record furiten; kan robbery preserves ippatsu
+until the kan stands and its replacement is recorded.
 
 **Undo edit / move** reverses tile edits, recorded moves, selectors, checkboxes,
 and numeric fields. Consecutive typing in one focused numeric field forms one
@@ -144,7 +158,7 @@ Start from points and seat, enter exactly 13 starting tiles, then the real dora
 indicator. East also supplies its extra dealer tile at the first draw prompt.
 The guide asks for opponents' discards and your actual draws in turn order,
 then offers advice and records the choice selected. Choose the adviser in the
-mode's selector; availability follows the capability rules above. A new guided
+mode's selector; Trained is offered as described above. A new guided
 game starts with Trained, and **New guided game** keeps the adviser in use.
 When Trained advice cannot load, **Use Club as adviser** sits beside **Retry
 advice**.

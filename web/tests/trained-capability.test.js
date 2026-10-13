@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import init, { Game, PhysicalAnalysis } from '../src/wasm/riichi.js';
+import init, { PhysicalAnalysis } from '../src/wasm/riichi.js';
 import { emptyPosition, parseTiles } from '../src/lib/physical-position.js';
 import { emptyGuided, editGuided, guidedEvent } from '../src/lib/guided-game.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
@@ -9,10 +9,11 @@ import { readBeliefs, readValue } from '../src/lib/beliefs.js';
 import { weightsByChoice, MORTAL_REACH } from '../src/lib/action-weights.js';
 import { loadModule } from './fixtures/load-module.js';
 
-// Loading policy.js resolves URLs, but an unsupported adapter must never
-// construct a worker or download the trained model.
+// agents.js loads the policy client, whose offline storage resolves the
+// page's folder as it loads. Nothing here constructs a worker or downloads
+// the trained model: Trained is asked through adviserWith below.
 globalThis.document = { baseURI: 'https://example.invalid/mahjong/' };
-const { evaluateAgent, supportsTrainedAgent, TRAINED_HISTORY_REQUIRED } = await import('../src/lib/agents.js');
+const { evaluateAgent } = await import('../src/lib/agents.js');
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
 /** Mortal's pass, the last of its forty-six moves. */
@@ -31,28 +32,6 @@ function adviserWith(logits) {
     ['evaluateAgent']).evaluateAgent;
 }
 
-test('trained capability is met by the live game and by a typed-in position alike', () => {
-  // A position typed into the guided or physical table is replayed into
-  // the events Mortal's encoder needs (mortal_log.rs), so the position-only
-  // engine answers the same six questions the live game does.
-  assert.equal(supportsTrainedAgent(Game.prototype), true);
-  assert.equal(supportsTrainedAgent(PhysicalAnalysis.prototype), true);
-  assert.equal(supportsTrainedAgent(null), false);
-  assert.equal(supportsTrainedAgent({}), false);
-});
-
-test('trained capability requires both riichi stages and action translation', () => {
-  const names = ['agent_observation_mortal', 'agent_mask_mortal',
-    'agent_observation_after_reach', 'agent_mask_after_reach',
-    'agent_action_from_mortal', 'mortal_action_of'];
-  const complete = Object.fromEntries(names.map(name => [name, () => {}]));
-  assert.equal(supportsTrainedAgent(complete), true);
-  for (const name of names) {
-    assert.equal(supportsTrainedAgent({ ...complete, [name]: undefined }), false, name);
-    assert.equal(supportsTrainedAgent({ ...complete, [name]: true }), false, name);
-  }
-});
-
 test('a physical position builds the trained observation and keeps its legal choices', async () => {
   const position = emptyPosition();
   position.players[0].hand = parseTiles('123m456p789s11234z');
@@ -67,9 +46,6 @@ test('a physical position builds the trained observation and keeps its legal cho
     assert.ok(planes.length / 34 > 900, 'not Mortal planes');
     assert.equal(engine.agent_mask_mortal().length, 46);
     assert.deepEqual(engine.agent_choices(), choices);
-    // An engine that cannot answer the six questions is still refused by
-    // name rather than being asked half of one.
-    await assert.rejects(evaluateAgent({ agent_choices: () => choices }, 'full'), { message: TRAINED_HISTORY_REQUIRED });
     for (const agent of ['beginner', 'club']) {
       const answer = await evaluateAgent(engine, agent);
       assert.equal(answer.agent, agent);
@@ -78,6 +54,57 @@ test('a physical position builds the trained observation and keeps its legal cho
     }
     assert.deepEqual(position, original);
   } finally { engine.free(); }
+});
+
+const thrown = (tile, order, claimed = false) => ({ tile, order, drawn: false, riichi: false, claimed });
+/** East to act on its draw after two rounds nobody called, with no hand but
+ * East's typed in. */
+function twoRounds() {
+  const position = emptyPosition();
+  position.players[0].hand = parseTiles('123m456p789s11235z');
+  position.drawn = '5z'; position.indicators = ['3s']; position.wall = 61; position.first_turns = false;
+  [['9m', '8m'], ['9p', '8p'], ['9s', '8s'], ['4z', '6z']].forEach((river, seat) => river.forEach((tile, turn) =>
+    position.players[seat].discards.push(thrown(tile, 4 * turn + seat))));
+  return position;
+}
+async function asking(position, ask) {
+  const engine = new PhysicalAnalysis(position);
+  try { return await ask(engine); } finally { engine.free(); }
+}
+
+test('trained advice refuses a typed-in set whose claimed discard is not marked', async () => {
+  // The network's replay tells a called set at the discard it took. West
+  // shows a pon of red dragons taken from North, but nothing in North's river
+  // is marked Claimed, so the network would read a table without the pon.
+  const trained = adviserWith(new Float32Array(46));
+  const unmarked = twoRounds();
+  unmarked.players[2].melds.push({ kind: 'pon', tile: '7z', from: 1 });
+  await asking(unmarked, async engine => {
+    await assert.rejects(trained(engine, 'full'),
+      /^West's pon of 7z needs the discard it took marked Claimed in North's river$/);
+    // Club and Beginner read the sets themselves, so they still advise.
+    assert.equal((await evaluateAgent(engine, 'club')).kind, 'selection');
+  });
+  // Marked: North's second discard was the red dragon West called, and West
+  // discarded after calling it.
+  const marked = structuredClone(unmarked);
+  marked.players[3].discards[1] = thrown('7z', 7, true);
+  marked.players[2].discards.push(thrown('1p', 8));
+  marked.players[3].discards.push(thrown('2p', 9));
+  marked.wall = 60;
+  await asking(marked, async engine => assert.equal((await trained(engine, 'full')).kind, 'policy'));
+  // An open quad is refused the same way; the indicator it turned would have
+  // been left out with it.
+  const quad = twoRounds();
+  quad.players[2].melds.push({ kind: 'kan', tile: '7z', from: 1 });
+  quad.indicators.push('9p'); quad.wall = 60;
+  await asking(quad, engine => assert.rejects(trained(engine, 'full'),
+    /^West's open kan of 7z needs the discard it took marked Claimed in North's river$/));
+  // A chii is named by all three of its tiles.
+  const chii = twoRounds();
+  chii.players[1].melds.push({ kind: 'chii', tile: '1m', from: 3 });
+  await asking(chii, engine => assert.rejects(trained(engine, 'full'),
+    /^South's chii of 123m needs the discard it took marked Claimed in East's river$/));
 });
 
 test('trained advice answers an opponent discard the player cannot claim', async () => {

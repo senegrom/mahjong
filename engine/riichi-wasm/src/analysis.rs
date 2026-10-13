@@ -3,7 +3,7 @@
 #[path = "physical_settlement.rs"]
 mod settlement;
 
-use super::{describe_action, describe_call, mortal_log};
+use super::{describe_action, describe_call, mortal_log, seat_title};
 use riichi::mjai::Event as MortalEvent;
 use riichi_core::bot::{Bot, Style};
 use riichi_core::encoding::{self, ACTIONS};
@@ -566,11 +566,8 @@ impl PhysicalAnalysis {
 
 impl PhysicalAnalysis {
     fn planes(&self, after_reach: bool) -> Result<Vec<f32>, JsValue> {
-        let mut state = mortal_log::state_for(&self.hand, self.seat).ok_or_else(|| {
-            JsValue::from_str(
-                "This position cannot be replayed as a hand: check the discard order numbers, the called sets and the wall count",
-            )
-        })?;
+        let mut state = mortal_log::state_for(&self.hand, self.seat)
+            .ok_or_else(|| JsValue::from_str(&replay_refusal(&self.hand)))?;
         if after_reach && super::may_reach_from(&self.hand, self.seat) {
             // Put to a copy of the state, never to a game: the declaration
             // itself is recorded only when the move is actually made.
@@ -581,6 +578,34 @@ impl PhysicalAnalysis {
         let (observation, _mask) = state.encode_obs(super::MORTAL_VERSION, false);
         Ok(observation.iter().copied().collect())
     }
+}
+
+/// Why the replay refused a position. The editor takes a called set and the
+/// Claimed tick on the discard it took as two separate edits, so a missing
+/// tick is the likeliest cause, and the set is named; anything else gets the
+/// general refusal.
+fn replay_refusal(hand: &Hand) -> String {
+    let unclaimed = claims(hand)
+        .ok()
+        .and_then(|taken| unclaimed_set(hand, &taken));
+    let Some((claimer, set, target)) = unclaimed else {
+        return "This position cannot be replayed as a hand: check the discard order numbers, the called sets and the wall count".into();
+    };
+    let named = match set.kind {
+        MeldKind::Chii => {
+            let run = set.tiles();
+            format!("chii of {}{}{}", run[0].rank(), run[1].rank(), run[2])
+        }
+        MeldKind::Pon => format!("pon of {}", set.tile),
+        MeldKind::ClaimedKan => format!("open kan of {}", set.tile),
+        MeldKind::ExtendedKan => format!("added kan of {}", set.tile),
+        MeldKind::ConcealedKan => format!("concealed kan of {}", set.tile),
+    };
+    format!(
+        "{}'s {named} needs the discard it took marked Claimed in {}'s river",
+        seat_title(claimer),
+        seat_title(target)
+    )
 }
 
 /// The three other seats' concealed tile counts, from the seat asked
@@ -643,8 +668,9 @@ struct Taker {
 /// from another go to its sets in the order they were recorded.
 ///
 /// The position's validation and Mortal's replay of it both read this one
-/// answer, so every table that passes validation is one the replay can
-/// tell. The error names the first claimed discard no set explains.
+/// answer, so the replay pairs every claim the way validation did; only the
+/// replay also needs every called set paired (`unclaimed_set`). The error
+/// names the first claimed discard no set explains.
 pub(super) fn claims(hand: &Hand) -> Result<Vec<Claim>, (Wind, Tile)> {
     let mut takers: Vec<Taker> = Vec::new();
     for claimer in Wind::ALL {
@@ -732,6 +758,35 @@ pub(super) fn claims(hand: &Hand) -> Result<Vec<Claim>, (Wind, Tile)> {
         .collect();
     paired.sort_unstable_by_key(|claim| claim.order);
     Ok(paired)
+}
+
+/// The first set taken from a river that no claimed discard was paired
+/// with, if any: the seat that called it, the set, and whose river it took
+/// from.
+///
+/// Validation lets such a set stand, since Club and Beginner read the sets
+/// themselves. The trained adviser's replay cannot: it tells a set at the
+/// discard it took, so a set with no claimed discard would be left out of
+/// the network's view, together with any indicator its quad turned.
+pub(super) fn unclaimed_set(hand: &Hand, taken: &[Claim]) -> Option<(Wind, Meld, Wind)> {
+    Wind::ALL.into_iter().find_map(|claimer| {
+        let melds = &hand.players[claimer.index()].melds;
+        melds.iter().enumerate().find_map(|(at, set)| {
+            let offset = match set.from {
+                ClaimedFrom::Right => 1,
+                ClaimedFrom::Across => 2,
+                ClaimedFrom::Left => 3,
+                ClaimedFrom::SelfDrawn => return None,
+            };
+            let paired = taken
+                .iter()
+                .any(|claim| claim.claimer == claimer && claim.meld == at);
+            if paired || set.kind == MeldKind::ConcealedKan {
+                return None;
+            }
+            Some((claimer, *set, claimer.plus(offset)))
+        })
+    })
 }
 
 /// Finds a set for one claimed discard, moving earlier pairings along where
@@ -1046,6 +1101,60 @@ mod tests {
         position
             .build()
             .expect("a claimed discard matched by a pon is fine");
+    }
+
+    /// East to act on its draw after two rounds nobody called, with no hand
+    /// but East's typed in, and West showing a pon of red dragons taken
+    /// from North, though nothing in North's river is marked Claimed.
+    fn unticked_pon() -> Position {
+        let mut position = acting();
+        position.wall = 61;
+        let rivers = [["9m", "8m"], ["9p", "8p"], ["9s", "8s"], ["4z", "6z"]];
+        for (at, river) in rivers.iter().enumerate() {
+            position.players[at].discards = river
+                .iter()
+                .enumerate()
+                .map(|(turn, tile)| thrown(tile, (4 * turn + at) as u32, false))
+                .collect();
+        }
+        position.players[2].melds.push(set("pon", "7z", 1));
+        position
+    }
+
+    /// The replay tells each called set at the claimed discard it took, so
+    /// a set with none would be missing from the planes, and a quad's
+    /// indicator with it. Validation lets the set stand, since Club and
+    /// Beginner read the sets themselves; only the replay refuses, naming
+    /// the set and the river its discard lies in.
+    #[test]
+    fn a_called_set_without_its_claimed_discard_is_refused_by_the_replay() {
+        let (hand, seat) = unticked_pon().build().expect("validation lets it stand");
+        assert!(mortal_log::state_for(&hand, seat).is_none());
+        assert_eq!(
+            replay_refusal(&hand),
+            "West's pon of 7z needs the discard it took marked Claimed in North's river"
+        );
+
+        // Ticked: North's second discard was the dragon West called, and West
+        // and then North have discarded since.
+        let mut position = unticked_pon();
+        position.players[3].discards[1] = thrown("7z", 7, true);
+        position.players[2].discards.push(thrown("1p", 8, false));
+        position.players[3].discards.push(thrown("2p", 9, false));
+        position.wall = 60;
+        let (hand, seat) = position.build().expect("a valid position");
+        assert!(mortal_log::state_for(&hand, seat).is_some());
+
+        let mut position = unticked_pon();
+        position.players[2].melds[0] = set("kan", "7z", 1);
+        position.indicators.push("9p".into());
+        position.wall = 60;
+        let (hand, seat) = position.build().expect("validation lets it stand");
+        assert!(mortal_log::state_for(&hand, seat).is_none());
+        assert_eq!(
+            replay_refusal(&hand),
+            "West's open kan of 7z needs the discard it took marked Claimed in North's river"
+        );
     }
 
     /// Claiming 4 characters for 4-5-6 bars the 4 and the 7 (EMA section

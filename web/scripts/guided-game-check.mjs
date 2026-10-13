@@ -184,7 +184,6 @@ try {
     // A typed-in position is replayed into the events the network's encoder
     // needs, so the trained adviser is offered here as it is in a live game.
     assert.deepEqual(await page.$$eval(`${selector} option:not(:disabled)`, options => options.map(o => o.value)), ['beginner', 'club', 'full']);
-    assert.equal(await page.$('.adviser-availability'), null, 'nothing is unavailable to explain');
     assert.equal(await page.$('.weight-row meter'), null, 'Club selection is not a trained percentage');
     assert.equal(await page.$$eval('.held-tiles .copy-count', nodes => nodes.length), 14);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
@@ -243,7 +242,6 @@ try {
     await page.waitForFunction(selector => document.querySelector(selector)?.value === 'full', {}, selector);
     assert.equal(await page.$eval(selector, el => el.value), 'full');
     assert.deepEqual(await page.$$eval(`${selector} option:not(:disabled)`, options => options.map(o => o.value)), ['beginner', 'club', 'full']);
-    assert.equal(await page.$('.adviser-availability'), null, 'nothing is unavailable to explain');
     await page.select(selector, 'club');
     await page.click('.physical-toolbar .primary');
     await page.waitForSelector('.recommendation');

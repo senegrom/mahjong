@@ -1,11 +1,18 @@
 //! WebAssembly bindings: the same rules engine the training runs on, in the
 //! browser.
 //!
-//! The browser sees one object, [`Game`], which owns a table and the hand in
-//! progress and hands out plain data: a view of the table from one seat, the
-//! actions that seat may take, and the result of taking one. Nothing about
-//! the rules lives on the JavaScript side, so the game a person plays and the
-//! game the opponents were trained on cannot drift apart.
+//! A game played in the page, in Play or Watch, is one object, [`Game`],
+//! which owns a table and the hand in progress and hands out plain data: a
+//! view of the table from one seat, the actions that seat may take, and the
+//! result of taking one. Nothing about the rules of such a game lives on the
+//! JavaScript side, so the game a person plays and the game the opponents
+//! were trained on cannot drift apart.
+//!
+//! A table typed in rather than played has two more: `PhysicalAnalysis`,
+//! which validates a position entered by hand and advises on it, and
+//! `settle_physical`, which scores the hand's end. The guided game that
+//! records such a table checks a few rules itself as it goes, among them
+//! swap-calling, the riichi preconditions and the kan limit.
 
 // Mortal's crate is packaged as `libriichi` but its library is named
 // `riichi`, which is the name Rust sees it by.
@@ -407,10 +414,6 @@ pub struct NoteView {
     pub dora_types: Vec<String>,
     /// Why they differ, in words.
     pub reason: String,
-    /// A short tag for the reason, for styling.
-    pub kind: String,
-    /// How many improving tiles the move gave up.
-    pub cost: u32,
 }
 
 /// One thing the player may do.
@@ -1322,8 +1325,6 @@ impl Game {
                     dora_advised: note.dora_advised,
                     dora_types: dora_types(position),
                     reason: note.reason.line().to_string(),
-                    kind: reason_name(note.reason).to_string(),
-                    cost: note.cost(),
                 }
             })
             .collect()
@@ -1861,8 +1862,6 @@ fn describe_call_review(hand: &Hand, seat: Wind, played: Call, adviser: &mut Bot
         dora_advised: 0,
         dora_types: dora_types(hand),
         reason: reason.into(),
-        kind: if agreed { "agreed" } else { "call" }.into(),
-        cost: 0,
     }
 }
 
@@ -2061,18 +2060,6 @@ fn danger_name(danger: review::Danger) -> &'static str {
         review::Danger::Quiet => "quiet",
         review::Danger::Safe => "safe",
         review::Danger::Live => "live",
-    }
-}
-
-/// A short tag for why the adviser differs.
-fn reason_name(reason: review::Reason) -> &'static str {
-    match reason {
-        review::Reason::Agreed => "agreed",
-        review::Reason::Shape => "shape",
-        review::Reason::Acceptance => "acceptance",
-        review::Reason::Defence => "defence",
-        review::Reason::Value => "value",
-        review::Reason::Judgement => "judgement",
     }
 }
 

@@ -186,7 +186,7 @@ function editor() {
     players: Array.from({ length: 4 }, () => ({ score: 31000, hand: [], melds: [], discards: [], riichi: 'none', ippatsu: false, furiten: false })) });
   const context = vm.createContext({
     structuredClone, emptyPosition, $state: value => value, $effect() {}, $props: () => ({}),
-    onMount() {}, onDestroy() {}, PhysicalAnalysis: class {}, supportsTrainedAgent: () => false,
+    onMount() {}, onDestroy() {}, PhysicalAnalysis: class {},
   });
   const script = physicalSource.slice(physicalScript.start, physicalScript.end).replace(/^\s*import .*;$/gm, '');
   vm.runInContext(script + `\nloaded = true;

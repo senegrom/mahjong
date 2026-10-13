@@ -90,6 +90,6 @@ try {
     assert.ok(tensors.every(tensor => tensor.disposed), 'all inputs and outputs released after each request');
   }
 } finally {
-  await vm.runInContext('Promise.all([...sessions.values()].map(session => session.release()))', context);
+  await vm.runInContext('held?.session.release()', context);
 }
 console.log(`PASS: ${cases.length} production-worker inferences using real exported graphs and reduced WASM; both riichi stages, one/two-input compatibility, masked logits and tensor disposal`);

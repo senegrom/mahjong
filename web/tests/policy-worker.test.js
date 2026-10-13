@@ -38,7 +38,8 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
           if (runError) { memoryBudget.failure = memoryFailure; throw new RangeError('Out of memory'); }
           return {
             policy: new Tensor('float32', invalidOutput ? [NaN, 2] : [1, 3]),
-            auxiliary: new Tensor('float32', [0]),
+            value: new Tensor('float32', [0.25]),
+            hands: new Tensor('float32', new Float32Array(102)),
           };
         },
         release: async () => { assert.equal(active, 0); releases.push(url); live--; },
@@ -81,6 +82,32 @@ test('queued decisions load the network once, run one at a time and answer in or
   assert.deepEqual(h.runs, [MODEL, MODEL, MODEL, MODEL]);
   assert.deepEqual(h.messages.filter(message => message.analysis).map(({ id, action }) => [id, action]), [[1, 1], [2, 1], [3, 1], [4, 1]]);
   assert.ok(h.tensors.every(tensor => tensor.disposed), 'all input and output tensors must be disposed');
+});
+
+test('an opponent move carries its action alone; advice also carries the value and beliefs', async () => {
+  const h = harness();
+  await h.send(1, MODEL, { details: false });
+  await h.send(2);
+  const [move, advice] = h.messages.filter(message => message.action !== undefined);
+  assert.deepEqual({ ...move }, { id: 1, action: 1 });
+  assert.deepEqual(Object.keys(advice).sort(), ['action', 'analysis', 'id']);
+  assert.equal(advice.action, 1);
+  assert.equal(advice.analysis.action, 1);
+  assert.equal(advice.analysis.value, 0.25);
+  assert.equal(advice.analysis.hands.length, 102);
+  assert.ok(h.tensors.every(tensor => tensor.disposed));
+});
+
+test('a request naming another network releases the one held before loading it', async () => {
+  // The worker parity check runs two exported networks through one worker.
+  const h = harness();
+  await h.send(1);
+  await h.send(2, 'fusion.onnx');
+  await h.send(3, 'fusion.onnx');
+  assert.deepEqual(h.loads, [MODEL, 'fusion.onnx']);
+  assert.deepEqual(h.releases, [MODEL]);
+  assert.deepEqual(h.runs, [MODEL, 'fusion.onnx', 'fusion.onnx']);
+  assert.equal(h.messages.some(message => message.error), false);
 });
 
 test('a cancelled queued decision is dropped before it reaches the network', async () => {
