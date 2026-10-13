@@ -626,8 +626,8 @@ class TrainerOnTheCardTests(unittest.TestCase):
     def test_each_trainer_plays_from_graphs(self):
         """Every size of the learner's and of the seated Mortal's recorded
         before the first round, and nothing more, beside the learning or
-        not; train_mortal's measurement asks its learner in float32, which
-        answers eagerly."""
+        not; train_mortal's measurement asks its learner in bfloat16 as its
+        self-play does, and is answered from the graphs already recorded."""
         for module, flags in ((train_combined, []), (train_combined, ["--play-ahead"]), (train_mortal, [])):
             with self.subTest(trainer=module.__name__, flags=flags):
                 records, printed = self.run_trainer(module, flags)

@@ -38,7 +38,7 @@ from torch import nn
 
 from libriichi.consts import ACTION_SPACE
 
-from . import mortal_model, zoo
+from . import mortal_model, policy_inference, zoo
 from .observe import Planes, Views
 
 
@@ -422,8 +422,16 @@ class MortalLearner(nn.Module):
     def choose(
         self, views: Views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray
     ) -> np.ndarray:
-        """Its best move per row, in our action space, as a zoo player."""
-        choice, _records = self.decide(views, rows, players, legal, greedy=True)
+        """Its best move per row, in our action space, as a zoo player: at
+        the precision every player at a table chooses at (see
+        `policy_inference`), as the joined player and the zoo's Mortal do.
+        `decide` leaves precision to its caller, and measuring the learner
+        against the heuristic players called it bare, so train_mortal chose
+        its best checkpoint by a float32 policy while its self-play, and
+        every table the checkpoint is later seated at, play in bfloat16 on
+        the card, and a near tie could turn between the two."""
+        with policy_inference.autocast(self.device, self.actions):
+            choice, _records = self.decide(views, rows, players, legal, greedy=True)
         return choice
 
 
