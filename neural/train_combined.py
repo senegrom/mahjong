@@ -321,7 +321,9 @@ def main() -> None:
         if not kept.exists():
             atomic_save(net.state(), kept)
             print(f"kept the starting policy at {kept}", flush=True)
-        reference, _reference_state = combined.load(kept, device)
+        # The network alone: the checkpoint it was read from is a copy of
+        # every weight, and kept it stayed on the host for the whole run.
+        reference = combined.load(kept, device)[0]
         reference.eval()
         reference.requires_grad_(False)
         print(f"leashed to {kept} at {args.leash} a nat", flush=True)
@@ -351,6 +353,10 @@ def main() -> None:
             print("restored AdamW state", flush=True)
         except (ValueError, RuntimeError) as error:
             print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
+    # Nothing reads the checkpoint from here on: its weights and Adam's
+    # moments are in the network and the optimiser now, and kept they were a
+    # third of a gigabyte of the host's memory held through every generation.
+    payload = optimiser_state = None
 
     # The joined player as it plays: a copy whose convolutions and linear
     # layers hold their weights in bfloat16, refreshed from the learner

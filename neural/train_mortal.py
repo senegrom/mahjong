@@ -169,6 +169,10 @@ def main() -> None:
             print("restored AdamW state", flush=True)
         except (ValueError, RuntimeError) as error:
             print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
+    # Nothing reads the checkpoint from here on but its config, kept above:
+    # its weights and Adam's moments are in the learner and the optimiser
+    # now, and kept they stayed on the host for the whole run.
+    payload = optimiser_state = None
 
     # The learning step's forward with the minibatch's fixed shape, and
     # the deciding forward with the batch's size left symbolic, since it

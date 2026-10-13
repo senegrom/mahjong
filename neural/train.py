@@ -292,6 +292,10 @@ def main() -> None:
             )
         if "replay_rng_state" in resume_payload:
             replay_rng.bit_generator.state = resume_payload["replay_rng_state"]
+    # Nothing reads the checkpoint from here on: its weights and Adam's
+    # moments are in the network and the optimiser now, and kept it stayed
+    # on the host for the whole run.
+    resume_payload = None
 
     def checkpoint_payload(generation: int) -> dict:
         # Adam's moments are deliberately part of the checkpoint: restarting
