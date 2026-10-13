@@ -45,7 +45,9 @@ Local changes, all under the same licence:
   attributes, imports and module registration are gated, and the Python
   getters and methods move into `#[pymethods]` blocks of their own that
   forward to the plain Rust ones; `player_state.rs` also gates the two
-  mjai JSON entry points that only Python and the tests call.
+  mjai JSON entry points that only Python and the tests call, and
+  `src/rankings.rs` lets a plain build leave `player_by_rank` unread, as
+  only the Python half reads it.
 - The port to PyO3 0.29, with the renames PyO3 0.26 made: `PyObject` is
   now `Py<PyAny>`, `Python::with_gil` is `Python::attach` and
   `allow_threads` is `detach`, in `src/agent/{mjai_log,mortal,py_agent}.rs`,

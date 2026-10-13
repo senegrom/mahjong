@@ -1,5 +1,9 @@
 #[derive(Debug, Clone, Copy)]
 pub struct Rankings {
+    // Only the Python half of the crate reads it (dataset and stat, both
+    // behind `pymod`), so a plain build such as wasm would warn that it is
+    // never read.
+    #[cfg_attr(not(feature = "pymod"), allow(dead_code))]
     pub player_by_rank: [u8; 4],
     pub rank_by_player: [u8; 4],
 }
