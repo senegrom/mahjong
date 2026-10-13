@@ -12,10 +12,10 @@ network**: 0.1.810, the default, or 0.1.410, which the site played before
 it. The section's title names the network the page plays, and so does every
 place that names Trained as an opponent, adviser or watched agent: the
 opponents menu and custom table, each opponent's badge, the watch lineup,
-the guided and physical advisers, the decision weights, the review adviser
-and the offline panel all say **Trained 0.1.810**, or the version picked.
-Saved game logs say Trained alone, since a restored match may have been
-played by another network.
+the guided and physical advisers and the decision weights say **Trained
+0.1.810**, or the version picked, and the review adviser and the offline
+panel **Trained AI 0.1.810**. Saved game logs say Trained alone, since a
+restored match may have been played by another network.
 
 Picking another version asks first, then reloads the page with the other
 network, in the mode it was in: a match, a guided game and a physical
