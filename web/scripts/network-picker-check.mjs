@@ -29,8 +29,9 @@ let browser;
 
 /** A page whose requests for any listed network are recorded in `asked`:
  * the page's own, which the availability probe (HEAD, answered as present)
- * and the offline save (GET, which fails as it does offline) make, and its
- * workers' and service worker's, which reach no server. */
+ * and the offline save (GET, which fails as it does offline) make, each with
+ * the document that made it, and its workers' and service worker's, which
+ * reach no server. */
 async function open(asked, mode) {
   const context = await cases.openContext(browser);
   await observeNetworkRequests(context, (request, from) => {
@@ -41,14 +42,16 @@ async function open(asked, mode) {
   page.on('pageerror', error => page.problems.push(error.message));
   await page.setViewport({ width: 1100, height: 900 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await page.exposeFunction('reportNetworkRequest', (method, url) => asked.push({ method, url, from: 'page' }));
+  await page.exposeFunction('reportNetworkRequest', (method, url, documentId) => asked.push({ method, url, documentId, from: 'page' }));
   await page.evaluateOnNewDocument(urls => {
+    const documentId = `${performance.timeOrigin}-${Math.random()}`;
+    Object.defineProperty(window, 'networkDocument', { value: documentId });
     const realFetch = window.fetch;
     window.fetch = (input, options) => {
       const target = input instanceof Request ? input.url : String(input);
       if (!urls.includes(target)) return realFetch(input, options);
       const method = String(options?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
-      void window.reportNetworkRequest(method, target);
+      void window.reportNetworkRequest(method, target, documentId);
       return method === 'HEAD' ? Promise.resolve(new Response(null, { status: 200 })) : Promise.reject(new TypeError('Failed to fetch'));
     };
   }, NETWORKS.map(addressOf));
@@ -56,13 +59,21 @@ async function open(asked, mode) {
   return page;
 }
 const settings = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), SETTINGS_KEY);
-/** Waits until this page has asked for its network and given up on it: its
- * offline save failed, and the panel names the network it tried. */
-async function triedToSave(page, version) {
-  await page.waitForFunction(version => {
-    const status = document.querySelector('[data-ai-status]')?.textContent ?? '';
-    return status.includes(`Trained AI ${version}`) && status.includes('AI download incomplete');
-  }, { timeout: 180000 }, version);
+const addresses = requests => [...new Set(requests.map(request => request.url))];
+/** Waits until the page now open, or its opponents' worker, has asked for
+ * the bytes of `network`, which it does to save it as a match starts, and
+ * returns every network address they asked for. A report the page left
+ * behind as it reloaded is not the new page's. */
+async function askedFor(page, asked, network) {
+  const documentId = await page.evaluate(() => window.networkDocument);
+  const mine = () => asked.filter(request => request.from !== 'page' || request.documentId === documentId);
+  for (const deadline = Date.now() + 180000; !mine().some(request => request.method === 'GET' && request.url === addressOf(network));) {
+    assert.ok(Date.now() < deadline, `the page never asked for the bytes of ${network.version}`);
+    await new Promise(done => setTimeout(done, 100));
+  }
+  // The download is the last thing a page asks for; give a stray request time to show.
+  await new Promise(done => setTimeout(done, 1500));
+  return addresses(mine());
 }
 /** What the page names: the settings summary, the picker, the opponents
  * menu and each Trained seat's badge. */
@@ -105,7 +116,6 @@ const workerStatus = (page, version) => page.evaluate(version => new Promise((do
 }), version);
 const playing = network => ({ summary: `Trained network ${network.version}`, picker: network.version, menu: `Trained ${network.version}`,
   badges: Array(3).fill(`Trained ${network.version} | Trained ${network.version} opponent`) });
-const addresses = requests => [...new Set(requests.map(request => request.url))];
 
 try {
   await mkdir(output, { recursive: true });
@@ -119,15 +129,14 @@ try {
 
   await cases.check('picking 0.1.410 plays it alone, names it everywhere, and picking the default again restores 0.1.810', async () => {
     const asked = [];
-    let page = await open(asked);
+    const page = await open(asked);
     await page.waitForSelector('.board');
-    await triedToSave(page, MANIFEST.version);
+    assert.deepEqual(await askedFor(page, asked, MANIFEST), [addressOf(MANIFEST)], 'a first visit asks for the default alone');
     assert.deepEqual(await named(page), playing(MANIFEST));
-    assert.deepEqual(addresses(asked), [addressOf(MANIFEST)], 'a first visit asks for the default alone');
     assert.equal(Object.hasOwn(await settings(page), 'trainedNetwork'), false, 'no pick is written before one is made');
 
     // A pick that is not confirmed changes nothing.
-    assert.match(await pick(page, older.version, false), /^Switch to Trained 0\.1\.410\? The page reloads to load it\.$/);
+    assert.equal(await pick(page, older.version, false), `Switch to Trained ${older.version}? The page reloads to load it.`);
     assert.equal(await page.$eval('select[aria-label="Trained network"]', el => el.value), MANIFEST.version);
     assert.equal(Object.hasOwn(await settings(page), 'trainedNetwork'), false);
 
@@ -135,10 +144,9 @@ try {
     await pick(page, older.version);
     await page.waitForSelector('.board');
     assert.equal((await settings(page)).trainedNetwork, older.version);
-    await triedToSave(page, older.version);
+    assert.deepEqual(await askedFor(page, asked, older), [addressOf(older)], 'the reloaded page asks for 410 alone, never 810');
     assert.deepEqual(await named(page), playing(older));
-    assert.ok(asked.some(request => request.method === 'GET'), 'the reloaded page tried to save 410');
-    assert.deepEqual(addresses(asked), [addressOf(older)], 'and asked for 410 alone, never 810');
+    assert.ok((await page.$eval('[data-ai-status]', el => el.textContent)).includes(`Trained AI ${older.version} — optional`));
     // The service worker reports on the network the page plays.
     const reply = await workerStatus(page, older.version);
     assert.deepEqual(reply.network, { url: addressOf(older), version: older.version, sha256: older.sha256, bytes: older.bytes });
@@ -150,16 +158,14 @@ try {
     asked.length = 0;
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForSelector('.board');
-    await triedToSave(page, older.version);
-    assert.deepEqual(addresses(asked), [addressOf(older)]);
+    assert.deepEqual(await askedFor(page, asked, older), [addressOf(older)]);
 
     asked.length = 0;
     await pick(page, MANIFEST.version);
     await page.waitForSelector('.board');
     assert.equal((await settings(page)).trainedNetwork, MANIFEST.version);
-    await triedToSave(page, MANIFEST.version);
+    assert.deepEqual(await askedFor(page, asked, MANIFEST), [addressOf(MANIFEST)], 'back on the default, 410 is not asked for');
     assert.deepEqual(await named(page), playing(MANIFEST));
-    assert.deepEqual(addresses(asked), [addressOf(MANIFEST)], 'back on the default, 410 is not asked for');
     assert.deepEqual(page.problems, []);
   });
 
