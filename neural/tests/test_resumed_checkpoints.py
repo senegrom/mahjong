@@ -5,6 +5,7 @@ every trainer, fresh or resumed, leashed or not. The fusion's relaunch with
 the arguments its watcher gives it restores the optimiser it always did."""
 
 import contextlib
+import copy
 from functools import partial
 import gc
 import io
@@ -20,7 +21,8 @@ import numpy as np
 import torch
 
 from neural import (
-    cloud_runs, combined, model, mortal_learner, mortal_model, train, train_combined, train_mortal,
+    cloud_runs, combined, model, mortal_learner, mortal_model, ppo_loop, train, train_combined,
+    train_mortal,
 )
 from neural.checkpoints import atomic_save
 from neural.observe import Planes
@@ -350,6 +352,101 @@ class ResumeTests(unittest.TestCase):
         self.assertEqual(groups, [{**group, "lr": rate} for group, rate in zip(saved[0], rates)])
         self.assertEqual([group["weight_decay"] for group in groups], [1e-4, 1e-4, 0.01])
         self.assertSameStates(states, saved[1])
+
+
+class RestoreOptimiserTests(unittest.TestCase):
+    """`ppo_loop.restore_optimiser` by itself, on the processor: what it
+    takes from a saved state and what from the optimiser as a trainer built
+    it, and what it does when there is nothing to restore or the state does
+    not fit, which each trainer used to handle on its own."""
+
+    def saved(self) -> tuple[torch.nn.Linear, dict]:
+        """A small network, and the state an AdamW of other settings than
+        the trainers' holds after two steps, as a checkpoint carries it."""
+        torch.manual_seed(11)
+        net = torch.nn.Linear(4, 3)
+        old = torch.optim.AdamW(net.parameters(), lr=0.5, weight_decay=0.25, betas=(0.8, 0.9), eps=1e-6)
+        for _ in range(2):
+            old.zero_grad()
+            net(torch.randn(5, 4)).square().sum().backward()
+            old.step()
+        # Copied, as a checkpoint read back from disk is: loaded as it is, a
+        # state would share its tensors with the optimiser that saved it.
+        return net, copy.deepcopy(old.state_dict())
+
+    def restored(self, optimiser, saved, migrate=None) -> str:
+        """What restoring `saved` into `optimiser` printed."""
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            ppo_loop.restore_optimiser(optimiser, saved, migrate=migrate)
+        return printed.getvalue()
+
+    def test_the_moments_come_from_the_checkpoint_and_the_settings_from_the_code(self):
+        """Into an optimiser built as the trainers build theirs, fused as on
+        the card or not: the moments and step counts as saved, once the
+        migration step has had the state; the rate, weight decay and kernel
+        as built; every other setting as saved. The update then runs from
+        them, fused or not."""
+        net, saved = self.saved()
+        handed = []
+
+        def migrate(state):
+            handed.append(state)
+            return state
+
+        for fused in (False, True):
+            with self.subTest(fused=fused):
+                optimiser = torch.optim.AdamW(net.parameters(), lr=1e-3, weight_decay=1e-4, fused=fused)
+                self.assertEqual(self.restored(optimiser, copy.deepcopy(saved), migrate),
+                                 "restored AdamW state\n")
+                (group,) = optimiser.param_groups
+                self.assertEqual((group["lr"], group["weight_decay"], group["fused"]), (1e-3, 1e-4, fused))
+                self.assertEqual((group["betas"], group["eps"]), ((0.8, 0.9), 1e-6))
+                for parameter, index in zip(group["params"], saved["param_groups"][0]["params"]):
+                    state, kept = optimiser.state[parameter], saved["state"][index]
+                    self.assertEqual(sorted(state), sorted(kept))
+                    for key, value in kept.items():
+                        self.assertTrue(torch.equal(state[key], value), key)
+                    # Where a fused update reads its step count: on the
+                    # parameter's own device, the processor here and the card
+                    # in the cloud.
+                    self.assertEqual((state["step"].dtype, state["step"].device),
+                                     (torch.float32, parameter.device))
+                optimiser.zero_grad()
+                net(torch.randn(5, 4)).square().sum().backward()
+                optimiser.step()
+                self.assertEqual(float(optimiser.state[net.weight]["step"]), 3.0)
+        self.assertEqual(len(handed), 2)
+
+    def test_nothing_to_restore_or_a_state_that_does_not_fit_leaves_it_as_built(self):
+        """Without a saved state nothing is said or changed. A state whose
+        groups do not fit the optimiser, or that the migration step refuses,
+        as the fusion's refuses moments of a shape it does not know, leaves
+        it as built, which is said; the weights still resume."""
+        net, saved = self.saved()
+
+        def refuse(_state):
+            raise ValueError("Unexpected fusion belief optimizer tensor shape")
+
+        one = lambda: torch.optim.AdamW(net.parameters(), lr=1e-3, weight_decay=1e-4)  # noqa: E731
+        two = lambda: torch.optim.AdamW(  # noqa: E731
+            [{"params": [net.weight]}, {"params": [net.bias], "weight_decay": 0.01}],
+            lr=1e-3, weight_decay=1e-4)
+        optimiser = one()
+        self.assertEqual(self.restored(optimiser, None), "")
+        self.assertEqual(len(optimiser.state), 0)
+        for refused_by, optimiser, migrate, built in (
+                ("its groups", two(), None, [(1e-3, 1e-4), (1e-3, 0.01)]),
+                ("the migration", one(), refuse, [(1e-3, 1e-4)])):
+            with self.subTest(refused_by=refused_by):
+                printed = self.restored(optimiser, copy.deepcopy(saved), migrate)
+                self.assertTrue(printed.startswith("could not restore AdamW state ("), printed)
+                self.assertTrue(printed.endswith("); starting it fresh\n"), printed)
+                self.assertEqual(len(optimiser.state), 0)
+                self.assertEqual([(group["lr"], group["weight_decay"]) for group in optimiser.param_groups],
+                                 built)
+                self.assertEqual([group["betas"] for group in optimiser.param_groups],
+                                 [(0.9, 0.999)] * len(built))
 
 
 if __name__ == "__main__":
