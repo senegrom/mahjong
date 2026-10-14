@@ -131,8 +131,9 @@ OWN_SETTINGS = ("lr", "weight_decay", "fused")
 
 def restore_optimiser(optimiser: torch.optim.Optimizer, saved: dict | None, migrate=None) -> None:
     """Restores into `optimiser`, just built by a trainer, the optimiser state
-    a checkpoint saved, `saved`, when there is one: Adam's moments and step
-    counts as the checkpoint has them, and `OWN_SETTINGS` as the trainer
+    a checkpoint saved, `saved`, when there is one. Adam's moments and step
+    counts come from the checkpoint, as do the settings no trainer gives,
+    the betas and epsilon among them; `OWN_SETTINGS` stay as the trainer
     built each group. `migrate(saved)`, when given, first fits a state of an
     older layout to this one (see `combined.migrate_belief_optimizer`).
 

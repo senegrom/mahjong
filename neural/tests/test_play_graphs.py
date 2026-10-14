@@ -2,9 +2,9 @@
 graph answers what the forward answers eagerly at the padded size, bit for
 bit, for every kind of player asked in bfloat16; it answers by the weights
 of the moment when new ones are copied in, and is recorded again when
-weights are put somewhere else; a cast autocast
-kept is never what it reads; it can be recorded on a worker beside work
-that waits on its own stream, as the learning does; a whole round played
+weights are put somewhere else; a cast autocast kept is never what it
+reads; it can be recorded on a worker beside work that waits on its own
+stream, as the learning does; a whole round played
 from graphs is the round played eagerly at the padded sizes, with every
 graph recorded before it; and everything else, the processor, float32,
 gradients, training, bigger batches, is answered eagerly as before. Off

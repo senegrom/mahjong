@@ -101,11 +101,11 @@ class Graphed:
     by whatever they hold when it is launched: copying new weights in
     (`load_state_dict`), as a trainer does into its playing copy before
     each round, changes them where they are, and the graph answers by the
-    new ones. Weights put somewhere else, as a
-    cast to another precision puts them, would leave the graph reading
-    where they were, so each question first checks that every parameter
-    and buffer is where it was when the graphs were recorded, and records
-    them again if one is not. A new process records its own.
+    new ones. Weights put somewhere else, as a cast to another precision
+    puts them, would leave the graph reading where they were, so each
+    question first checks that every parameter and buffer is where it was
+    when the graphs were recorded, and records them again if one is not.
+    A new process records its own.
 
     Each question is copied into the graph's own inputs, and its answer
     out of the graph's before it is handed back, since the next launch
