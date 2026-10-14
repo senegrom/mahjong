@@ -63,7 +63,9 @@ The `engine/` workspace supplies the CLI, browser, and Python bindings. The
 it leaves out, and how it is tested.
 `neural/` contains self-play, evaluation, export, checkpoint management, and
 cloud training. See [training safety](docs/TRAINING_SAFETY.md) for
-checkpoints, runs, rewards and the controls on each policy update.
+checkpoints, runs, rewards and the controls on each policy update, and
+[the ruler](docs/RULER.md) for measuring one network against another and
+reading a series of such measurements by a rule fixed in advance.
 
 Dated benchmark narratives and earlier implementation reports are indexed in
 [historical evidence](docs/HISTORY.md). They describe the recorded revision,
