@@ -24,7 +24,7 @@ let runtimeMemory = null;
 // told when the observation grows.
 const POSITIONS = 34;
 
-// The page carries one trained network, and its session is kept loaded
+// A page plays one trained network, and its session is kept loaded
 // between decisions: reloading it every turn cost a table most of a second
 // at the ninetieth percentile on a desktop and far more on a phone. A
 // runtime that cannot hold it fails the request and the page retries it in
@@ -58,7 +58,8 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
   }
   // The bytes rather than the address: the network comes from a bucket on
   // another origin and is kept in Cache Storage, which the runtime knows
-  // nothing about. What it is handed has already been hashed.
+  // nothing about. What it is handed has already been hashed, against the
+  // listed network at that address.
   const bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
     onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`) });
   handed = null;

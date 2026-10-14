@@ -5,7 +5,9 @@ import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { publish, atomicManifest } from '../scripts/publish-model-r2.mjs';
+import { fileURLToPath } from 'node:url';
+import { publish, atomicManifest, listedNetworks, manifestSource } from '../scripts/publish-model-r2.mjs';
+import { NETWORKS } from '../src/lib/model-manifest.js';
 
 async function folder(t) {
   const dir = await fs.mkdtemp(join(tmpdir(), 'mahjong-publish-test-'));
@@ -57,6 +59,11 @@ test('invalid publication requests fail before uploading or changing the manifes
     await assert.rejects(publish({ ...good, ...bad }), /generation|origin|checkpoint/);
     assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
   }
+  // A version is what a player picks a network by: three whole numbers.
+  for (const version of ['', 'v0.1.36', '0.1', '0.1.36.1', '0.01.36', '0.1.-36', ' 0.1.36', 36]) {
+    await assert.rejects(publish({ ...good, version }), /Invalid version/, String(version));
+    assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
+  }
   assert.equal(uploads, 0);
 });
 
@@ -95,4 +102,82 @@ test('the manifest records the precision the weights are stored in, or nothing i
   }
   assert.equal(uploads, 3);
   assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
+});
+
+/** The manifest at path as the page imports it. */
+async function imported(path) {
+  return import(`data:text/javascript;base64,${Buffer.from(await fs.readFile(path)).toString('base64')}`);
+}
+
+test('a published network becomes the default and every network listed before it stays listed', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  const sent = [];
+  const request = { modelPath, manifestPath, source: 'actor', origin: 'https://model.invalid',
+    upload: (_bucket, key) => { sent.push(key); } };
+  const published = [];
+  for (const generation of [36, 410, 810]) {
+    await fs.writeFile(modelPath, network(1, `weights of generation ${generation}`));
+    published.push(await publish({ ...request, generation, source: `run/gen-${generation}` }));
+  }
+  assert.deepEqual(published.map(entry => entry.version), ['0.1.36', '0.1.410', '0.1.810']);
+  const { NETWORKS: listed, MANIFEST } = await imported(manifestPath);
+  assert.deepEqual(listed.map(entry => entry.version), ['0.1.810', '0.1.410', '0.1.36'], 'the default first, then newest first');
+  assert.equal(MANIFEST, listed[0]);
+  assert.deepEqual(listed.map(entry => ({ ...entry })), [...published].reverse(), 'each keeps its whole identity');
+  assert.deepEqual(sent, published.map(entry => entry.object));
+  for (const entry of listed) {
+    assert.deepEqual(Object.keys(entry), ['version', 'source', 'generation', 'precision', 'bytes', 'storedBytes', 'origin', 'object', 'sha256']);
+    assert.equal(entry.object, `models/g${entry.generation}/${entry.sha256}`);
+  }
+  assert.deepEqual(await listedNetworks(manifestPath), [...published].reverse());
+});
+
+test('a listed version is replaced, listed bytes published again become the default, and a version may be named', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  const request = { modelPath, manifestPath, source: 'actor', origin: 'https://model.invalid', upload: () => {} };
+  const versions = async () => (await listedNetworks(manifestPath)).map(entry => [entry.version, entry.sha256]);
+  await fs.writeFile(modelPath, network(1, 'generation 410'));
+  const older = await publish({ ...request, generation: 410 });
+  await fs.writeFile(modelPath, network(1, 'generation 810'));
+  const newer = await publish({ ...request, generation: 810 });
+  // Publishing the older network again puts it first, once.
+  await fs.writeFile(modelPath, network(1, 'generation 410'));
+  await publish({ ...request, generation: 410 });
+  assert.deepEqual(await versions(), [['0.1.410', older.sha256], ['0.1.810', newer.sha256]]);
+  // Another export of a listed version replaces that entry.
+  await fs.writeFile(modelPath, network(10, 'generation 810 in float16'));
+  const reexport = await publish({ ...request, generation: 810 });
+  assert.equal(reexport.precision, 'float16');
+  assert.deepEqual(await versions(), [['0.1.810', reexport.sha256], ['0.1.410', older.sha256]]);
+  // A version need not follow the generation.
+  await fs.writeFile(modelPath, network(1, 'another line'));
+  assert.equal((await publish({ ...request, generation: 12, version: '0.2.12' })).version, '0.2.12');
+  assert.deepEqual((await versions()).map(([version]) => version), ['0.2.12', '0.1.810', '0.1.410']);
+});
+
+test('the same network under a second version, or a manifest that is not a list, changes nothing', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  const request = { modelPath, manifestPath, generation: 410, source: 'actor', origin: 'https://model.invalid', upload: () => {} };
+  await fs.writeFile(modelPath, network(1, 'generation 410'));
+  await publish(request);
+  const before = await fs.readFile(manifestPath, 'utf8');
+  await assert.rejects(publish({ ...request, version: '0.2.410' }), /listed already, as 0\.1\.410/);
+  assert.equal(await fs.readFile(manifestPath, 'utf8'), before);
+  // A manifest it cannot read as whole networks would lose every network
+  // players picked if it were written over.
+  for (const [text, reason] of [['previous manifest', /could not be read/], ['export const NETWORKS = [];', /lists no networks/],
+    ['export const NETWORKS = [{ "version": "0.1.1" }];', /network whose source is not valid/],
+    [manifestSource([{ ...(await listedNetworks(manifestPath))[0], object: 'models/g1/elsewhere' }]), /network whose object is not valid/]]) {
+    await fs.writeFile(manifestPath, text);
+    await assert.rejects(publish(request), reason);
+    assert.equal(await fs.readFile(manifestPath, 'utf8'), text);
+  }
+  assert.deepEqual(await listedNetworks(join(dir, 'missing.js')), [], 'before the first publication nothing is listed');
+});
+
+test('the checked-in manifest is what the publisher writes, and reads back whole', async () => {
+  const path = fileURLToPath(new URL('../src/lib/model-manifest.js', import.meta.url));
+  // A Windows checkout may end its lines with CR LF; the module is the same.
+  assert.equal((await fs.readFile(path, 'utf8')).replaceAll('\r\n', '\n'), manifestSource(NETWORKS.map(entry => ({ ...entry }))));
+  assert.deepEqual(await listedNetworks(path), NETWORKS.map(entry => ({ ...entry })));
 });

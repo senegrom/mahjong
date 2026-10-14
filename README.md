@@ -40,12 +40,13 @@ interpreter when `python3` is only the Microsoft Store alias.
 
 The game and every playable tile graphic are prepared automatically. Trained is
 the default opponent, watch agent and review adviser for a new player; using it
-additionally prepares its runtime and the single published network.
+additionally prepares its runtime and the network picked under Game settings →
+Trained network (0.1.810 unless another version is picked).
 The app distinguishes a working resident model from a model durably saved for
 an offline restart. Check the displayed offline status before disconnecting.
 
-The authoritative model identity, precision, sizes, and download location are
-in [model-manifest.js](web/src/lib/model-manifest.js), not copied benchmark
+The authoritative identity, precision, sizes, and download location of each
+network are in [model-manifest.js](web/src/lib/model-manifest.js), not copied benchmark
 numbers in this README. The model is remote; do not export ONNX into
 `web/public`. See [runtime and delivery](docs/ONNX_RUNTIME.md).
 

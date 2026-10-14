@@ -13,4 +13,8 @@ const badReadiness: OfflineState['aiReady'] = 'ready';
 const badCallback: SettingsProps['onfacechange'] = (face: number) => { void face; };
 // @ts-expect-error A discard must name its tile.
 const missingTile: LegalChoice = { kind: 'discard' };
-void [badFace, badChoice, badReadiness, badCallback, missingTile];
+// @ts-expect-error A trained network is picked by its version, a string.
+const badNetwork: SettingsProps['onnetworkchange'] = (version: number) => version > 0;
+// @ts-expect-error App answers a pick with whether it took it.
+const silentNetwork: SettingsProps['onnetworkchange'] = (version: string) => { void version; };
+void [badFace, badChoice, badReadiness, badCallback, missingTile, badNetwork, silentNetwork];

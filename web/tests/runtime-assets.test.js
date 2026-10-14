@@ -7,6 +7,7 @@ import { copyRuntimeAssets } from '../scripts/runtime-assets.mjs';
 import { buildOffline } from '../scripts/offline-build.mjs';
 import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
 import { RUNTIME_FILES } from '../src/lib/model-package.js';
+import { NETWORKS } from '../src/lib/model-manifest.js';
 
 const RUNTIME = 'ort/0123456789abcdef/';
 
@@ -49,6 +50,9 @@ test('production manifest reports sizes, scoped cache version and deterministic 
   assert.deepEqual(second, first);
   assert.equal(first.networkCacheVersion, 2);
   assert.ok(first.bytes.core > 0 && first.bytes.runtime > 0);
-  assert.equal(first.bytes.network, first.network.bytes);
+  // Every listed network goes to the worker, the default first, and a page
+  // saves the one it plays.
+  assert.deepEqual(first.networks.map(network => network.version), NETWORKS.map(network => network.version));
+  assert.equal(first.bytes.network, first.networks[0].bytes);
   assert.ok((await readFile(join(output, 'sw.js'), 'utf8')).includes('pruneNetworkCache'));
 });

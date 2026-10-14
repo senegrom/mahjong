@@ -8,8 +8,12 @@ and save automatically at startup. **No click is required for the game, graphics
 Beginner or Club opponents.** Play becomes available once the engine and selected
 face set are ready; this does not mean the full offline package has finished.
 
-Only the trained network and its runtime are optional. Trained opponents are the
-default for a new player, so a first match starts their download by itself, and
+Only the trained network and its runtime are optional. The network is the one
+picked under **Game settings → Trained network**, 0.1.810 unless another was
+picked; the offline panel's Trained AI line names it, and after picking
+another, wait for **Offline: game + AI ready** again before flying. Trained
+opponents are the default for a new player, so a first match starts their
+download by itself, and
 the table shows its progress while a Trained opponent waits for it; the hand
 review, Agent watch and a guided game show it too when their first Trained
 advice is what starts the download. On a first visit the network's download
@@ -61,6 +65,17 @@ This starts even when the human has the first turn. Abandoning a match detaches
 its request without cancelling shared asset preparation or applying the old
 response to a replacement match.
 
+A build lists every network a player may pick, and its service worker knows
+them all. A page plays one, the one picked (or the default), for as long as
+it is open: picking another reloads the page. That network alone is what
+the page asks for, checks against its own size and SHA-256, saves and runs,
+and every message to the worker names the pick, so the worker reports
+whether that network is saved, never another. The worker deletes no network
+its build lists: a player who goes back to a network saved earlier finds it
+still saved, at the cost of keeping each one picked (about 117 MB apiece).
+A network the site stops listing goes the way an older version's does: it
+is kept only while it is the one saved before the current one.
+
 Loading the network into the opponent's worker is its own phase. Where the page
 could not save the network (no service worker, an installation still running, a
 hard reload, a storage failure), the worker downloads it itself, showing its
@@ -108,10 +123,13 @@ running version's page then saves the waiting update's runtime and network
 while you play, after its own network and never beside another network
 download; if that does not finish, the update's own page saves them after
 it starts, once per visit while connected, with the status panel showing
-progress. A new version never plays an older
-network: until its own is saved, **Offline: game ready** is shown and Trained
-opponents need a connection. Check for **Offline: game + AI ready** after an
-update before flying. The previous network stays stored until the new one is
+progress. The update's network is the one its page will play for this
+player: the waiting worker reads the pick against its own list, and answers
+with its default when the player picked nothing or a version it no longer
+lists. A new version never plays a network it does not list: until the one
+it plays is saved, **Offline: game ready** is shown and Trained opponents
+need a connection. Check for **Offline: game + AI ready** after an update
+before flying. The previous network stays stored until the new one is
 saved. No downloaded model is replaced merely because a newer UI was published.
 
 The app requests persistent storage where supported, and reports whether the
@@ -138,7 +156,7 @@ saved preferences across reload, unchanged matches, unavailable unused artwork
 and failed face switches. Unit tests cover preload cancellation and retry.
 
 `scripts/offline-check.mjs`, part of `npm run test:browser`, exercises the real
-production service worker and shipped network, including a browser-process restart with HTTP cache cleared, disabled
+production service worker and the default network, including a browser-process restart with HTTP cache cleared, disabled
 network access, all graphics reloaded offline, continued mixed-opponent play,
 interrupted downloads and version updates. It also checks that the optional
 button downloads only trained-AI bytes without changing the match, and that
@@ -148,6 +166,11 @@ cache isolation and failed upgrades.
 The cold-restart checks also refuse game assets at the HTTP server, so ordinary
 HTTP caching cannot conceal a missing offline file. Existing small-phone layout
 assertions remain part of verification.
+`scripts/network-picker-check.mjs` picks 0.1.410 in the production build and
+then the default again, and checks that each page asks for its own network's
+address alone, names it, and that the real service worker reports on it;
+unit tests run the worker with several listed networks, picked, saved,
+updated and pruned.
 
 Automated browser checks use Chromium. They do not replace physical iPhone,
 Safari installation or VoiceOver testing. Inspect the PR's CI results for the

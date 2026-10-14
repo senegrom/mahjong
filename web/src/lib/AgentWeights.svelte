@@ -1,6 +1,6 @@
 <script>
   import Tile from './Tile.svelte';
-  import { AGENTS } from './agents.js';
+  import { agentName } from './agents.js';
   import { likeliest } from './beliefs.js';
   import { groupPolicyChoices } from './action-weights.js';
   let { analysis = null, onchoose = null, disabled = false, dora = [] } = $props();
@@ -19,7 +19,7 @@
 
 {#if analysis}
   <section class="weights" aria-label="Agent decision weights">
-    <div class="recommendation"><strong>{AGENTS[analysis.agent]}</strong><span>Next choice: {analysis.choice.label}</span>
+    <div class="recommendation"><strong>{agentName(analysis.agent)}</strong><span>Next choice: {analysis.choice.label}</span>
       {#if analysis.value != null}<span class="worth" title="Estimated mixed training reward, not an expected finishing place or win probability">Estimated training reward {worth(analysis.value)}</span>{/if}
     </div>
     {#if analysis.value != null}<p class="reward-help">The current model's reward combines the hand's point change ÷ 4,000 with its final placement bonus. This is not a predicted finishing place, place gain or win probability.</p>{/if}

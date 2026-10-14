@@ -4,11 +4,18 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
+import { MANIFEST } from '../src/lib/model-manifest.js';
 
 // Compile the production presentation components. Only Tile's artwork and the
 // agent-name import (which otherwise initializes the browser worker) are stood
 // in for; grouping, numeric formatting, branches, labels and buttons are real.
+// The stand-in names a Trained agent as agents.js does, with the network the
+// page plays.
 const uri = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
+const network = new URL('../src/lib/trained-network.js', import.meta.url).href;
+const agents = uri(`import { trainedName } from ${JSON.stringify(network)};
+export const AGENTS = { full: 'Trained', club: 'Club', beginner: 'Beginner' };
+export const agentName = agent => agent === 'full' ? trainedName() : AGENTS[agent];`);
 const loaded = new Map();
 async function component(name) {
   if (!loaded.has(name)) loaded.set(name, (async () => {
@@ -24,7 +31,7 @@ async function component(name) {
     const absolute = code => code.replace(/from (['"])(svelte[^'"]*)\1/g, (_, _quote, specifier) => `from ${JSON.stringify(import.meta.resolve(specifier))}`);
     for (const specifier of new Set([...server.matchAll(/from (['"])([^'"]+)\1/g)].map(match => match[2]))) {
       const target = specifier === './Tile.svelte' ? uri(absolute(tile))
-        : specifier === './agents.js' ? uri("export const AGENTS = { full: 'Trained', club: 'Club', beginner: 'Beginner' };")
+        : specifier === './agents.js' ? agents
         : specifier.startsWith('.') ? new URL(specifier, file).href : import.meta.resolve(specifier);
       server = server.replaceAll(`'${specifier}'`, JSON.stringify(target)).replaceAll(`"${specifier}"`, JSON.stringify(target));
     }
@@ -92,7 +99,13 @@ test('built-in selection does not acquire percentages or a riichi probability gr
   const body = await html('AgentWeights.svelte', { analysis: { agent: 'club', kind: 'selection', choice: reachA,
     choices: [{ ...reachA, weight: 1 }, { ...discard, weight: 0 }] } });
   assert.match(body, /Selected/);
+  assert.match(body, /<strong>Club<\/strong>/);
   assert.doesNotMatch(body, /<meter |\d\.\d%|Riichi declaration weight|Estimated training reward/);
+});
+
+test('trained advice names the network that gave it by version', async () => {
+  const body = await html('AgentWeights.svelte', { analysis: analysis() });
+  assert.match(body, new RegExp(`<strong>Trained ${MANIFEST.version.replaceAll('.', '\\.')}</strong>`));
 });
 
 test('historical review distinguishes shared declaration weights from different conditional discards', async () => {

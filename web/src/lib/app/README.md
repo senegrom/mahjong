@@ -6,7 +6,7 @@ Presentation components cannot write a match or choose a fallback opponent.
 
 | Component | Boundary |
 | --- | --- |
-| `AppSettings` | Bind preference scalars to App; own the responsive settings dialog and focus. |
+| `AppSettings` | Bind preference scalars to App; own the responsive settings dialog and focus; ask App to load another trained network, which App does by reloading the page. |
 | `OfflineStatus` | Render actual core/AI persistence status and invoke an explicit download callback. |
 | `OpponentDialog` | Edit a separate draft; ask App to confirm replacement of the match. |
 | `MatchTable` | Render opponents and table inspection; own all regular-table breakpoints. |

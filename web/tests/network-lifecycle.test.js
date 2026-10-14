@@ -28,8 +28,9 @@ function worker(caches, generation, { broken = false } = {}) {
   const events = {}, calls = [];
   const body = `weights-${generation}`, url = `https://model.invalid/g${generation}`;
   const files = { 'index.html': `shell-${generation}`, 'ort/runtime.wasm': 'runtime' };
-  const config = { version: String(generation), hasModel: true, networkCacheVersion: 2,
-    network: { origin: 'https://model.invalid', object: `g${generation}`, bytes: body.length, sha256: digest(body) },
+  // Each version lists one network, the default its page plays.
+  const network = { version: `0.1.${generation}`, origin: 'https://model.invalid', object: `g${generation}`, bytes: body.length, sha256: digest(body) };
+  const config = { version: String(generation), hasModel: true, networkCacheVersion: 2, networks: [network],
     entries: Object.entries(files).map(([url, body]) => ({ url, bytes: body.length, hash: digest(body), group: url.startsWith('ort/') ? 'ai' : 'core' })) };
   const registration = { scope, installing: null, waiting: null };
   vm.runInNewContext(template.replace('/* OFFLINE_CONFIG */ null', JSON.stringify(config)), {
@@ -56,10 +57,10 @@ function worker(caches, generation, { broken = false } = {}) {
     const previous = { caches: globalThis.caches, fetch: globalThis.fetch };
     globalThis.caches = caches;
     globalThis.fetch = async request => { calls.push(`page:${request}`); return new Response(broken ? 'wrong bytes' : body); };
-    try { await verifiedNetworkBytes({ url, expect: config.network, requireStored: true, scope }); }
+    try { await verifiedNetworkBytes({ url, expect: network, requireStored: true, scope }); }
     finally { globalThis.caches = previous.caches; globalThis.fetch = previous.fetch; }
   }
-  return { url, config, calls, registration, install: () => event('install'), activate: () => event('activate'), save,
+  return { url, network, config, calls, registration, install: () => event('install'), activate: () => event('activate'), save,
     download: async () => { await message('MAHJONG_PREPARE_AI'); await save(); return message('MAHJONG_NETWORK_SAVED'); },
     saved: () => message('MAHJONG_NETWORK_SAVED'), status: () => message('MAHJONG_STATUS') };
 }
@@ -79,7 +80,8 @@ test('the active worker keeps its network and the previous one, pruning after a 
   assert.ok(await cache.match(second.url)); assert.ok(await cache.match(third.url));
   const status = await third.status();
   assert.equal(status.aiReady, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(status.network)), { url: third.url, sha256: third.config.network.sha256, bytes: third.config.network.bytes });
+  assert.deepEqual(JSON.parse(JSON.stringify(status.network)),
+    { url: third.url, version: third.network.version, sha256: third.network.sha256, bytes: third.network.bytes });
   for (const w of [first, second, third]) {
     assert.deepEqual(w.calls.filter(call => call.includes('model.invalid')), [`page:${w.url}`], 'only the page fetches the network');
   }

@@ -5,6 +5,7 @@
   import PlayerHand from '../../src/lib/app/PlayerHand.svelte';
   import TurnChoices from '../../src/lib/app/TurnChoices.svelte';
   import { TILE_FACE_CONTEXT } from '../../src/lib/tile-faces.js';
+  import { MANIFEST } from '../../src/lib/model-manifest.js';
   import type { GameMode, TileFace, Opponent, GameView, LegalChoice, OfflineState, DiscardAnalyser, SeatName } from '../../src/lib/app/types';
 
   let mode = $state<GameMode>('play'), settingsOpen = $state(false);
@@ -34,6 +35,7 @@
 
 <main>
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts {tileFace}
+    network={MANIFEST.version} onnetworkchange={version => { callbacks.push(`network:${version}`); return false; }}
     difficulty="custom" {opponents} ready={true} busy={false} saveConflict="" trainedAvailable={false} {offline}
     changeOpponents={() => configureTable()} startFresh={() => { callbacks.push('new'); return true; }} {configureTable}
     downloadAi={() => { callbacks.push('download'); offline = { ...offline, phase: 'ready', aiReady: true }; }}

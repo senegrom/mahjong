@@ -1,7 +1,7 @@
 <script>
   import { onDestroy } from 'svelte';
 
-  import { OPPONENT_LABELS } from './opponents.js';
+  import { OPPONENT_LABELS, opponentName } from './opponents.js';
   import { calledSet, seatAnnouncement } from './ui.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
@@ -64,7 +64,7 @@
     <span class="score score-short" title={seat.score.toLocaleString()}>{shortScore(seat.score)}</span>
     {#if OPPONENT_LABELS[seat.controller]}
       <span class="opponent-type" data-controller={seat.controller} data-player={seat.player} role="img"
-        aria-label={`${OPPONENT_LABELS[seat.controller]} opponent`}>{OPPONENT_LABELS[seat.controller]}</span>
+        aria-label={`${opponentName(seat.controller)} opponent`}>{opponentName(seat.controller)}</span>
     {/if}
     {#if seat.riichi}<span class="stick" title="declared riichi"></span>{/if}
     {#if announcement}

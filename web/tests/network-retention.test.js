@@ -54,6 +54,19 @@ test('scope-owned caches retain only the current and previous activated models',
   assert.ok(await cache.match(model(5).url));
 });
 
+test('every listed model is kept, whatever was saved after it', async t => {
+  const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
+  const listed = [model(1).url, model(2).url];
+  for (const n of [1, 2, 3, 4]) { await store(cache, model(n)); await prune(model(n), { listed }); }
+  const held = (await cache.keys()).map(k => k.url).filter(url => url.startsWith('https://models.invalid/'));
+  // 3 is the previous model, 4 the current one, and 1 and 2 are listed.
+  assert.deepEqual(held.sort(), [1, 2, 3, 4].map(n => model(n).url));
+  // Once no longer listed, an old model goes like any other.
+  await store(cache, model(5)); await prune(model(5));
+  assert.deepEqual((await cache.keys()).map(k => k.url).filter(url => url.startsWith('https://models.invalid/')).sort(),
+    [model(4).url, model(5).url]);
+});
+
 test('the first activation can precede the optional model download', async t => {
   const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
   assert.equal(await prune(model(1)), false);

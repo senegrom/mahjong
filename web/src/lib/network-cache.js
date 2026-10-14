@@ -115,10 +115,13 @@ export async function verifiedDownload(url, expect, { init, idleMs, totalMs, onP
 
 /** Called by the active worker only: at activation, after the previous worker
  * has released its clients, and after its own page has saved this model.
- * Keep this model and the previous activated model. Installation, waiting
- * workers and failed replacement downloads never trigger deletion. canPrune
- * is checked again before each delete in case an update starts. */
-export async function pruneNetworkCache({ scope, url, expect, canPrune = () => true }) {
+ * Keep this model, the previous activated model and every model at an
+ * address in `listed`: the networks the worker's build lists, any of which
+ * its pages may play, so a network a player picked is never deleted because
+ * another was saved after it. Installation, waiting workers and failed
+ * replacement downloads never trigger deletion. canPrune is checked again
+ * before each delete in case an update starts. */
+export async function pruneNetworkCache({ scope, url, expect, listed = [], canPrune = () => true }) {
   if (!scope || !canPrune()) return false;
   validateNetwork(expect);
   const cache = await networkCache(scope);
@@ -137,7 +140,7 @@ export async function pruneNetworkCache({ scope, url, expect, canPrune = () => t
       return false;
     }
     const previous = old?.current === url ? old.previous : old?.current;
-    const keep = new Set([key, url, previous].filter(Boolean));
+    const keep = new Set([key, url, previous, ...listed].filter(Boolean));
     if (!canPrune()) return false;
     await cache.put(key, new Response(JSON.stringify({ current: url, previous: previous ?? null }), {
       headers: { 'Content-Type': 'application/json' },

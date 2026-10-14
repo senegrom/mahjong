@@ -1,7 +1,12 @@
+import { trainedName } from './trained-network.js';
+
 /** Configuration is in fixed physical order from the human: right, opposite,
  * left. Wind labels rotate between hands; these controller assignments do not.
  */
 export const OPPONENT_LABELS = Object.freeze({ beginner: 'Beginner', club: 'Club', neural: 'Trained' });
+/** An opponent as the table names it: "Club", or "Trained 0.1.810" with the
+ * version of the network this page plays. */
+export const opponentName = type => type === 'neural' ? trainedName() : OPPONENT_LABELS[type];
 export const OPPONENT_TYPES = Object.freeze(/** @type {(keyof typeof OPPONENT_LABELS)[]} */ (Object.keys(OPPONENT_LABELS)));
 export const OPPONENT_POSITIONS = Object.freeze(['Right', 'Opposite', 'Left']);
 /** Who a player meets when nothing has been chosen: the trained network at

@@ -21,7 +21,7 @@ export class WatchSession {
     this.closed = false;
     this.timer = null;
     const opponents = lineup.slice(1).map(agent => agent === 'full' ? 'neural' : agent);
-    // One network ships: every trained seat asks the same one.
+    // A page plays one network: every trained seat asks the same one.
     this.match = new MatchSession(Game, seed, opponents, { ai, onChange: () => this.notify() });
   }
 

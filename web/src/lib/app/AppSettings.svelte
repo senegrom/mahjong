@@ -3,14 +3,18 @@
   import { cycleDialogFocus } from '../dialog-focus.js';
   import { TILE_FACE_OPTIONS } from '../tile-faces.js';
   import { finishedHands } from '../game-log.js';
+  import { MANIFEST, NETWORKS, playedNetwork } from '../trained-network.js';
   import OfflineStatus from './OfflineStatus.svelte';
   import type { SettingsProps, GameMode, TileFace } from './types';
 
   // App owns persistence and match lifecycle; only panel/focus state is local.
+  // network is the version of the trained network the page plays; App reloads
+  // the page to play another (onnetworkchange), or answers false to keep it.
   let {
     mode = $bindable('play'), settingsOpen = $bindable(false),
     hints = $bindable(true), confirmDiscards = $bindable(false),
     shortcuts = $bindable(true), tileFace, pendingTileFace = null,
+    network = playedNetwork().version, onnetworkchange,
     difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
     onconfirmationchange, onshortcutschange, loggedHands = 0, onsavegame,
@@ -18,10 +22,15 @@
   const MODES: [GameMode, string][] = [['play', 'Play'], ['watch', 'Agent watch'], ['physical', 'Physical agent play'], ['guided', 'Guided physical game']];
   const COMPACT = '(max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape)';
   let compact = $state(false);
-  let guideOpen = $state(false), optionsOpen = $state(false), offlineOpen = $state(false), exportOpen = $state(false);
+  let guideOpen = $state(false), optionsOpen = $state(false), offlineOpen = $state(false), exportOpen = $state(false), networkOpen = $state(false);
   let settingsDialog = $state<HTMLDialogElement | null>(null);
   let settingsTrigger = $state<HTMLButtonElement | null>(null);
   let preferencesElement = $state<HTMLDivElement | null>(null);
+
+  function pickNetwork(picker: HTMLSelectElement) {
+    // A pick App does not take leaves the network that plays on show.
+    if (!onnetworkchange?.(picker.value)) picker.value = network;
+  }
 
   function closeSettings() {
     settingsOpen = false;
@@ -64,7 +73,7 @@
     <select class="app-control" value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
       <option value="beginner">Beginner</option>
       <option value="club">Club</option>
-      {#if trainedAvailable || opponents.includes('neural')}<option value="neural">Trained</option>{/if}
+      {#if trainedAvailable || opponents.includes('neural')}<option value="neural">Trained {network}</option>{/if}
       <option value="custom">Custom table</option>
     </select>
     <svg class="select-chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
@@ -111,6 +120,20 @@
     <label><input type="checkbox" bind:checked={confirmDiscards} onchange={onconfirmationchange} /> Select before discarding</label>
     <label><input type="checkbox" bind:checked={shortcuts} onchange={onshortcutschange} /> Keyboard shortcuts in your hand</label>
     <p>With confirmation on, tap a tile to select it, then tap it again or press Discard. Your match and preferences are saved on this device.</p>
+  </div>
+</details>
+<details class="network-choice" bind:open={networkOpen}>
+  <summary data-trained-network>Trained network {network}</summary>
+  <div class="option-fields">
+    <label>Version
+      <select class="app-control" value={network} aria-label="Trained network" disabled={!ready || !onnetworkchange}
+        onchange={event => pickNetwork(event.currentTarget)}>
+        {#each NETWORKS as listed (listed.version)}
+          <option value={listed.version}>{listed.version}{listed === MANIFEST ? ' (default)' : ''}</option>
+        {/each}
+      </select>
+    </label>
+    <p>Trained opponents and advisers play this network in every mode. Changing it reloads the page: your match is kept, and a watched game ends.</p>
   </div>
 </details>
 {#if mode === 'play' && onsavegame}
@@ -209,7 +232,7 @@
     </dl>
   </div>
 </details>
-<OfflineStatus {offline} {downloadAi} bind:open={offlineOpen} />
+<OfflineStatus {offline} {downloadAi} {network} bind:open={offlineOpen} />
 </div>
 {/snippet}
 
@@ -238,7 +261,7 @@
   .restart { font-size: .85rem; }
   .preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-width: 0; }
   .preferences :global(details[open]) { flex-basis: 100%; order: 1; }
-  .options, .guide, .game-export { font-size: .85rem; min-width: 0; }
+  .options, .network-choice, .guide, .game-export { font-size: .85rem; min-width: 0; }
   summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .option-fields { display: flex; gap: 4px 20px; flex-wrap: wrap; background: #0003; padding: 10px; border-radius: 8px; }
   .option-fields label { min-height: 44px; display: flex; gap: 8px; align-items: center; }
@@ -264,7 +287,7 @@
     .preferences { gap: 0 16px; }
     .opponents { gap: 5px; }
     .opponents > span { display: none; }
-    .options, .guide, .game-export { font-size: .8rem; }
+    .options, .network-choice, .guide, .game-export { font-size: .8rem; }
   }
   @media (max-width: 359px) {
     .preferences { column-gap: 8px; }
@@ -291,7 +314,8 @@
     }
     h1 { margin-right: auto; font-size: 1rem; letter-spacing: .18em; white-space: nowrap; }
     .opponents { margin-left: 0; }
-    .opponents select { min-height: 44px; width: 128px; max-width: 128px; padding: 5px 30px 5px 12px; font-size: .82rem; }
+    /* Wide enough to name the Trained network with its version, "Trained 0.1.810", clear of the chevron. */
+    .opponents select { min-height: 44px; width: 136px; max-width: 136px; padding: 5px 30px 5px 12px; font-size: .82rem; }
     .settings-trigger {
       display: inline-flex;
       width: 44px;

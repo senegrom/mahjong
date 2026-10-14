@@ -2,17 +2,40 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
 import { isMemoryError, MemoryBudget, MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
-import { NETWORK_URL } from '../src/lib/network-store.js';
+import { MANIFEST, NETWORKS, networkUrl } from '../src/lib/trained-network.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { loadModule } from './fixtures/load-module.js';
 
+// The page plays the default unless a test says otherwise.
+const NETWORK_URL = networkUrl(MANIFEST);
 /** The real request coordinator, given a stand-in Worker and offline
  * preparation; the page and its other imports are the same for every test. */
 const policy = globals => loadModule('policy.js', {
   document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout,
-  MEMORY_LIMITS_MIB, nextMemoryLimit, NETWORK_URL, __RUNTIME_DIRECTORY__: 'ort/0123abcd/', navigator: { onLine: true },
+  MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => MANIFEST, __RUNTIME_DIRECTORY__: 'ort/0123abcd/', navigator: { onLine: true },
   networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null, ...globals,
 }, ['chooseAction', 'analyzePolicy', 'modelIsAvailable', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
+
+test('a page that plays another listed network probes and asks for that one alone', async t => {
+  const older = NETWORKS.find(network => network.version === '0.1.410');
+  const probes = [], workers = [];
+  class Worker {
+    constructor() { this.messages = []; workers.push(this); }
+    postMessage(message) { this.messages.push(message); }
+    terminate() {}
+  }
+  const api = policy({ Worker, playedNetwork: () => older, AbortSignal,
+    fetch: async (url, options) => { probes.push([url, options.method]); return new Response(null, { status: 200 }); } });
+  t.after(() => api.resetPolicy());
+  assert.equal(await api.modelIsAvailable(), true);
+  assert.deepEqual(probes, [[networkUrl(older), 'HEAD']]);
+  const move = api.chooseAction(new Float32Array(34), [1]);
+  await setImmediate();
+  assert.equal(workers[0].messages[0].url, networkUrl(older));
+  assert.notEqual(workers[0].messages[0].url, NETWORK_URL);
+  workers[0].onmessage({ data: { id: workers[0].messages[0].id, action: 0 } });
+  assert.equal(await move, 0);
+});
 
 test('offline, Trained is offered only when its runtime is saved as well as the network', async () => {
   // The opponent's worker can store the network by itself, before a service
@@ -29,7 +52,7 @@ test('offline, Trained is offered only when its runtime is saved as well as the 
 });
 
 // Run the real request coordinator with controllable downloads and responses.
-// One trained network ships, so every request names the same one.
+// A page plays one trained network, so every request names the same one.
 test('concurrent decisions share one worker and preserve a pending turn', async (t) => {
   const downloads = [], workers = [];
   class Worker {

@@ -51,32 +51,40 @@ async function ensure(entry, durable = true) {
   if (durable && !answer.stored) throw networkTransfer.storageError(answer.error);
   return answer.response.clone();
 }
-const networkUrl = () => `${CONFIG.network.origin}/${CONFIG.network.object}`;
+const networkUrl = network => `${network.origin}/${network.object}`;
+// The build lists several networks, its default first, and a page plays the
+// one its player picked. Every message from a page names that pick, which is
+// read here against this build's own list, as this build's page reads it: a
+// version this build does not list, or none, is its default. So a waiting
+// update answers for the network its own page will play.
+const networkFor = version => CONFIG.networks.find(network => network.version === version) ?? CONFIG.networks[0];
 const requestedKey = () => new URL('__offline_meta__/ai-requested', scope);
 // The worker never downloads the network. An install, activation or message
 // event is abandoned after a few minutes (Chrome: five), and nothing of a
 // half-received body is kept, so a slow link could never finish 100 MB here.
 // The page saves it instead; this reads the record that save leaves, the way
 // cached() reads the worker's own files, without reading or hashing a body.
-const networkReady = () => networkTransfer.hasStoredNetwork(networkUrl(), CONFIG.network, { scope: networkScope });
+const networkReady = network => networkTransfer.hasStoredNetwork(networkUrl(network), network, { scope: networkScope });
 
-async function status() {
+async function status(version) {
+  const network = networkFor(version);
   const complete = { core: true, ai: true };
   let aiRequested = false;
   try {
     const cache = await caches.open(CACHE);
     for (const entry of CONFIG.entries) if (!(await cached(cache, entry))) complete[entry.group] = false;
-    if (complete.ai && !(await networkReady())) complete.ai = false;
+    if (complete.ai && !(await networkReady(network))) complete.ai = false;
     aiRequested = Boolean(await cache.match(requestedKey()));
   } catch { complete.core = false; complete.ai = false; }
-  // The identity is this build's network, saved or not: aiReady says whether
-  // it is stored, and a page saving it for this build needs to know which.
-  // Every build carries the runtime: the build refuses to go without it.
+  // The identity is the network the asking page plays, saved or not: aiReady
+  // says whether it is stored, and a page saving it for this build needs to
+  // know which. Every build carries the runtime: the build refuses to go
+  // without it.
   return { coreReady: complete.core, aiReady: complete.ai, aiRequested, hasModel: true,
-    network: { url: networkUrl(), sha256: CONFIG.network.sha256, bytes: CONFIG.network.bytes } };
+    network: { url: networkUrl(network), version: network.version, sha256: network.sha256, bytes: network.bytes } };
 }
-async function prepare(group, progress = () => {}) {
-  if (groups.has(group)) { await groups.get(group); return status(); }
+async function prepare(group, progress = () => {}, version) {
+  if (groups.has(group)) { await groups.get(group); return status(version); }
   // Entries with equal content are fetched once. For 'ai' these are the few
   // megabytes of runtime, never the network itself.
   const list = [...new Map(CONFIG.entries.filter(entry => entry.group === group).map(entry => [entry.hash, entry])).values()];
@@ -98,13 +106,16 @@ async function prepare(group, progress = () => {}) {
   }).finally(() => groups.delete(group));
   groups.set(group, task);
   await task;
-  return status();
+  return status(version);
 }
-/** The active worker keeps its own network and the previous one once its
- * page has saved it; a waiting or installing update prevents any deletion. */
-async function pruneNetworks() {
+/** The active worker keeps every network its build lists, which its pages
+ * may play, the network a page has just saved (at activation, the default)
+ * and the one current before it; a waiting or installing update prevents any
+ * deletion. */
+async function pruneNetworks(version) {
+  const network = networkFor(version);
   await networkTransfer.pruneNetworkCache({
-    scope: networkScope, url: networkUrl(), expect: CONFIG.network,
+    scope: networkScope, url: networkUrl(network), expect: network, listed: CONFIG.networks.map(networkUrl),
     canPrune: () => !self.registration.installing && !self.registration.waiting,
   });
 }
@@ -131,9 +142,10 @@ self.addEventListener('install', event => {
 });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
-    // Nothing is downloaded here either. A network the page saved while this
-    // version waited becomes current; one not yet saved leaves the retention
-    // record, and the previous version's recoverable bytes, untouched.
+    // Nothing is downloaded here either. The default network, when the page
+    // saved it while this version waited, becomes current; one not yet saved
+    // leaves the retention record, and the previous version's recoverable
+    // bytes, untouched. No network this build lists is deleted.
     await pruneNetworks();
     await pruneObsoleteContent();
     await self.clients.claim();
@@ -144,9 +156,12 @@ self.addEventListener('message', event => {
   const groupOf = { MAHJONG_PREPARE_AI: 'ai', MAHJONG_PREPARE_CORE: 'core' };
   if (!port || !['MAHJONG_STATUS', 'MAHJONG_NETWORK_SAVED', ...Object.keys(groupOf)].includes(event.data?.type)) return;
   const progress = value => port.postMessage({ progress: value });
+  // The version the asking page's player picked; a page of a build from
+  // before networks were picked names none, and plays the default.
+  const version = typeof event.data.version === 'string' ? event.data.version : undefined;
   const work = (async () => {
-    if (event.data.type === 'MAHJONG_STATUS') return status();
-    if (event.data.type === 'MAHJONG_NETWORK_SAVED') { await pruneNetworks(); return status(); }
+    if (event.data.type === 'MAHJONG_STATUS') return status(version);
+    if (event.data.type === 'MAHJONG_NETWORK_SAVED') { await pruneNetworks(version); return status(version); }
     if (event.data.type === 'MAHJONG_PREPARE_AI') {
       // Remembered across upgrades: later versions' pages save their own
       // network for a player who once asked for Trained offline.
@@ -155,7 +170,7 @@ self.addEventListener('message', event => {
         await cache.put(requestedKey(), new Response('requested'));
       } catch (error) { throw networkTransfer.storageError(error); }
     }
-    return prepare(groupOf[event.data.type], progress);
+    return prepare(groupOf[event.data.type], progress, version);
   })();
   event.waitUntil(work.then(value => port.postMessage({ value }))
     .catch(error => port.postMessage({ error: error.message, storage: error.name === 'NetworkStorageError'

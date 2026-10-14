@@ -15,10 +15,10 @@ const base = 'https://test.invalid/mahjong/';
 const bodies = { 'index.html': '<html>Game</html>', 'app.js': 'game', 'tiles/Haku.svg': '<svg>dragon</svg>',
   'ort/runtime.wasm': 'wasm', 'ort/runtime.mjs': 'runtime' };
 /** An inventory shaped as buildOffline writes one: the AI group is the
- * runtime alone, and the network lives in its bucket, kept by the page in
- * the installation's scoped cache. */
-const manifest = (files = bodies, network = external('weights')) => ({ version: sha(JSON.stringify(files)),
-  hasModel: true, networkCacheVersion: 2, network,
+ * runtime alone, and the networks the build lists, its default first, live
+ * in their bucket, kept by the page in the installation's scoped cache. */
+const manifest = (files = bodies, networks = [external('weights')]) => ({ version: sha(JSON.stringify(files)),
+  hasModel: true, networkCacheVersion: 2, networks,
   entries: Object.entries(files).map(([url, body]) => ({ url, hash: sha(body), bytes: Buffer.byteLength(body),
     group: url.startsWith('ort/') ? 'ai' : 'core' })) });
 function storage() {
@@ -115,16 +115,17 @@ function worker({ files = bodies, caches = storage(), config = manifest(files), 
       const name = address.origin === new URL(base).origin ? address.pathname.slice('/mahjong/'.length) : address.href;
       counts.set(name, (counts.get(name) ?? 0) + 1);
       if (network) return network(name, init);
-      if (name === externalUrl(config.network)) return new Response(remote);
+      if (config.networks.some(listed => externalUrl(listed) === name)) return new Response(remote);
       return new Response(files[name], { status: name in files ? 200 : 404 });
     },
   });
   return { caches, counts, config,
     async install() { let work; events.install({ waitUntil(p) { work = p; } }); await work; },
     async activate() { let work; events.activate({ waitUntil(p) { work = p; } }); await work; },
-    async message(type) {
+    // version is the one the asking page's player picked, as offline.js names it.
+    async message(type, version) {
       let work, reply;
-      events.message({ data: { type }, ports: [{ postMessage(data) { if (!data.progress) reply = data; } }], waitUntil(p) { work = p; } });
+      events.message({ data: { type, version }, ports: [{ postMessage(data) { if (!data.progress) reply = data; } }], waitUntil(p) { work = p; } });
       await work;
       if (reply.error) throw new Error(reply.error);
       return reply.value;
@@ -136,20 +137,22 @@ function worker({ files = bodies, caches = storage(), config = manifest(files), 
     },
   };
 }
-const status = w => w.message('MAHJONG_STATUS');
-const download = w => w.message('MAHJONG_PREPARE_AI');
+const status = (w, version) => w.message('MAHJONG_STATUS', version);
+const download = (w, version) => w.message('MAHJONG_PREPARE_AI', version);
 /** What offline.js does once the worker has saved the runtime: the page
- * fetches, verifies and stores the network with the real transfer code,
- * against the same Cache Storage, then tells the worker it is saved. */
-async function pageSaves(w, body, respond = () => new Response(body)) {
-  const { network } = w.config, previous = { caches: globalThis.caches, fetch: globalThis.fetch };
+ * fetches, verifies and stores the network it plays (the one picked, or the
+ * default) with the real transfer code, against the same Cache Storage, then
+ * tells the worker it is saved. */
+async function pageSaves(w, body, respond = () => new Response(body), version) {
+  const network = w.config.networks.find(listed => listed.version === version) ?? w.config.networks[0];
+  const previous = { caches: globalThis.caches, fetch: globalThis.fetch };
   let fetched = 0;
   globalThis.caches = w.caches;
   globalThis.fetch = async (...args) => { fetched++; return respond(...args); };
   try {
     await verifiedNetworkBytes({ url: externalUrl(network), expect: network, requireStored: true, scope: base });
   } finally { globalThis.caches = previous.caches; globalThis.fetch = previous.fetch; }
-  await w.message('MAHJONG_NETWORK_SAVED');
+  await w.message('MAHJONG_NETWORK_SAVED', version);
   return fetched;
 }
 const prepareAi = async (w, body) => { await download(w); return pageSaves(w, body); };
@@ -315,9 +318,16 @@ test('production inventory classifies the external model/runtime package', async
     'ort/0123abcd/ort-wasm-simd-threaded.wasm': 'wasm',
     'ort/0123abcd/ort-wasm-simd-threaded.mjs': 'loader', 'ort/0123abcd/memory-budget.mjs': 'memory controls' };
   for (const [path, body] of Object.entries(files)) { await mkdir(join(root, path, '..'), { recursive: true }); await writeFile(join(root, path), body); }
-  const options = { network: external('weights'), runtime: 'ort/0123abcd/' };
-  await assert.rejects(buildOffline(root, { network: options.network }), /missing the AI runtime/);
+  // Two listed networks, the default first, as model-manifest.js lists them.
+  const options = { networks: [external('weights', 3), external('older weights', 2)], runtime: 'ort/0123abcd/' };
+  await assert.rejects(buildOffline(root, { networks: options.networks }), /missing the AI runtime/);
+  for (const [networks, reason] of [[[], /lists no trained network/], [[{ ...external('weights', 3), version: '' }], /without a version/],
+    [[external('weights', 3), { ...external('older weights', 2), version: '0.1.3' }], /two trained networks under one version/],
+    [[{ ...external('weights', 3), sha256: 'not a digest' }], /SHA-256 identity/]]) {
+    await assert.rejects(buildOffline(root, { ...options, networks }), reason);
+  }
   const first = await buildOffline(root, options), second = await buildOffline(root, options);
+  assert.deepEqual(first.networks, options.networks);
   assert.deepEqual(first, second);
   assert.equal(first.entries.length, Object.keys(files).length);
   // The trained network itself is not here: it is fetched from its bucket and
@@ -332,20 +342,24 @@ test('production inventory classifies the external model/runtime package', async
   await download(generated);
   assert.equal((await status(generated)).aiReady, false, 'the runtime alone is not the trained AI');
   assert.equal(await pageSaves(generated, 'weights'), 1);
-  assert.equal(generated.counts.has(externalUrl(first.network)), false, 'the worker never fetches the network');
+  for (const listed of first.networks) assert.equal(generated.counts.has(externalUrl(listed)), false, 'the worker never fetches a network');
   assert.equal((await status(generated)).aiReady, true);
+  // The other listed network is a pick of its own, saved by a page that plays it.
+  assert.equal((await status(generated, '0.1.2')).aiReady, false);
+  assert.equal(await pageSaves(generated, 'older weights', undefined, '0.1.2'), 1);
+  assert.equal((await status(generated, '0.1.2')).aiReady, true);
   assert.equal(first.entries.filter(e => e.url.startsWith('tiles/matisse/') && e.group === 'core').length, 2);
   assert.ok((await readFile(join(root, 'sw.js'), 'utf8')).includes(JSON.stringify(first)));
 });
 
 function external(body, generation = 1) {
-  return { origin: 'https://model.invalid', object: `models/g${generation}/${sha(body)}`,
+  return { version: `0.1.${generation}`, origin: 'https://model.invalid', object: `models/g${generation}/${sha(body)}`,
     sha256: sha(body), bytes: Buffer.byteLength(body) };
 }
 const externalUrl = model => `${model.origin}/${model.object}`;
 /** A build that plays the network `body`, published as this generation. */
 function externalWorker(body, { files = bodies, generation = 1, ...options } = {}) {
-  return worker({ files, remote: body, config: manifest(files, external(body, generation)), ...options });
+  return worker({ files, remote: body, config: manifest(files, [external(body, generation)]), ...options });
 }
 // Fails rather than hangs when a lifecycle event waits on the network.
 function within(promise, ms = 2000) {
@@ -426,4 +440,79 @@ test('the worker never fetches the trained network, even for a player who asked 
   for (const each of [w, again]) assert.equal(each.counts.has(externalUrl(external('weights'))), false);
   assert.equal(await pageSaves(again, 'weights'), 1);
   assert.equal((await status(again)).aiReady, true);
+});
+
+/** A build that lists these networks, its default first, each given as the
+ * body it serves and the generation it was published as. */
+function listingWorker(listed, { files = bodies, ...options } = {}) {
+  return worker({ files, config: manifest(files, listed.map(([body, generation]) => external(body, generation))), ...options });
+}
+const kept = async (w, body, generation) =>
+  Boolean(await (await w.caches.open(networkCacheName(base))).match(externalUrl(external(body, generation))));
+
+test('a build that lists several networks reports on the one the page plays, and on its default without a pick', async () => {
+  const w = listingWorker([['g810', 810], ['g410', 410]]);
+  await w.install(); await download(w);
+  // No pick, or one this build does not list, is the default. (Copied out
+  // of the worker's realm to be compared.)
+  for (const version of [undefined, '0.1.36', 'strong']) {
+    assert.deepEqual({ ...(await status(w, version)).network },
+      { url: externalUrl(external('g810', 810)), version: '0.1.810', sha256: sha('g810'), bytes: 4 }, String(version));
+  }
+  assert.deepEqual({ ...(await status(w, '0.1.410')).network },
+    { url: externalUrl(external('g410', 410)), version: '0.1.410', sha256: sha('g410'), bytes: 4 });
+  // A page that plays 410 saves 410: ready for it, and not for the default.
+  assert.equal(await pageSaves(w, 'g410', undefined, '0.1.410'), 1);
+  assert.equal((await status(w, '0.1.410')).aiReady, true);
+  assert.equal((await status(w)).aiReady, false);
+  // The runtime is shared: the default then needs its network alone.
+  assert.equal(await pageSaves(w, 'g810'), 1);
+  assert.equal((await status(w)).aiReady, true);
+  assert.equal((await status(w, '0.1.410')).aiReady, true);
+  for (const listed of w.config.networks) assert.equal(w.counts.has(externalUrl(listed)), false, 'the worker fetched no network');
+});
+
+test('the worker never deletes a network its build lists, though others were saved after it', async () => {
+  // Saved in turn, the first is neither the current network nor the one
+  // before it by the time the third is saved, which alone would cost it its
+  // bytes; a player who picked it would have to download it again.
+  const listed = [['g900', 900], ['g810', 810], ['g410', 410]];
+  const w = listingWorker(listed);
+  await w.install(); await w.activate(); await download(w);
+  for (const [body, generation] of [...listed].reverse()) await pageSaves(w, body, undefined, `0.1.${generation}`);
+  for (const [body, generation] of listed) {
+    assert.equal(await kept(w, body, generation), true, `0.1.${generation}`);
+    assert.equal((await status(w, `0.1.${generation}`)).aiReady, true);
+  }
+  // The next build lists a newer default and one of these. Until its page
+  // saves that default nothing goes; then what it no longer lists does,
+  // except the network current before.
+  const next = listingWorker([['g1000', 1000], ['g810', 810]], { files: { ...bodies, 'app.js': 'next UI' }, caches: w.caches });
+  await next.install(); await next.activate();
+  for (const [body, generation] of listed) assert.equal(await kept(w, body, generation), true, `0.1.${generation} before`);
+  await download(next);
+  await pageSaves(next, 'g1000');
+  assert.deepEqual(await Promise.all([['g1000', 1000], ['g900', 900], ['g810', 810], ['g410', 410]]
+    .map(([body, generation]) => kept(next, body, generation))), [true, true, true, false]);
+});
+
+test('a waiting update answers for the network its own page will play for the player\'s pick', async () => {
+  const old = listingWorker([['g810', 810], ['g410', 410]]);
+  await old.install(); await download(old); await pageSaves(old, 'g410', undefined, '0.1.410');
+  // The next build still lists 410, behind a newer default: a player who
+  // picked 410 has nothing more to save, and one who picked nothing will
+  // play the new default.
+  const keeps = listingWorker([['g900', 900], ['g410', 410]], { files: { ...bodies, 'app.js': 'next UI' }, caches: old.caches });
+  await keeps.install();
+  const picked = await status(keeps, '0.1.410');
+  assert.equal(picked.network.version, '0.1.410');
+  assert.equal(picked.aiReady, true);
+  assert.equal((await status(keeps)).network.version, '0.1.900');
+  // A build that no longer lists 410 answers with its default, the network
+  // its page will play for that player, which is not saved yet.
+  const drops = listingWorker([['g900', 900], ['g810', 810]], { files: { ...bodies, 'app.js': 'other UI' }, caches: old.caches });
+  await drops.install();
+  const instead = await status(drops, '0.1.410');
+  assert.equal(instead.network.version, '0.1.900');
+  assert.equal(instead.aiReady, false);
 });
