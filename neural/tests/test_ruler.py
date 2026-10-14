@@ -1,11 +1,12 @@
 """The ruler (`neural.ruler`): every table of a duel in one arena, each dealt
 from its deal's own seed. Asked as the old duel asked, it plays the old
 duel's games bit for bit, on the processor and on the card, where its
-players' weights are cast once; asked in fixed rows, a row's answer is its
-own, so the switches that change a question's size change no game and two
-challengers that are one network play the same games; a second challenger
-is read deal by deal against the first; a timed duel plays the same games;
-and the cloud keeps every report on the volume."""
+players' weights are cast once and graphs answer at the very sizes asked;
+asked in fixed rows on the card, a row's answer is its own, so the switches
+that change a question's size change no game and two challengers that are
+one network play the same games; a second challenger is read deal by deal
+against the first; a timed duel plays the same games; and the cloud keeps
+every report on the volume."""
 
 import contextlib
 from functools import partial
@@ -289,34 +290,39 @@ class GamesTests(unittest.TestCase):
             # Told and asked again, as the old duel asked: the same rows.
             self.assertEqual((after.reaches, after.asked_again), (before.reaches, before.asked_again))
 
-    def test_in_fixed_rows_no_switch_changes_a_game(self):
-        """Pieces of four rows, so most questions are cut and padded; the
-        rows left unasked and the tiles asked ahead change which rows sit
-        beside which, and no answer."""
-        results = []
+    def test_in_fixed_rows_every_question_is_asked_in_pieces(self):
+        """Whole duels in pieces of four rows with the switches on: every
+        forward is asked at four rows, the rows with one move go unasked,
+        and a reach's tile is asked with the reach, so nothing is told. That
+        no switch changes a game is the card's property, tested there: on
+        the processor a row's answer can depend on where it sits in the
+        batch."""
         with patch.object(duel, "Views", Taught):
-            for switches in ({}, {"skip_forced": True, "preview_reach": True}):
-                players = [self.seated(name, questions="fixed", rows=4, **switches)
-                           for name in ("fused", "mortal")]
-                results.append(ruler.ruler([players[0]], players[1], 2, SEED, "cpu", questions="fixed"))
-                self.assertGreater(players[1].reaches, 5)
-                if switches:
-                    # Asked ahead: nobody was told a reach and asked again.
-                    self.assertEqual(players[1].asked_again, 0)
-                    self.assertGreater(sum(forward.pieces for forward in ruler.forwards_of(players[1])), 100)
-        same_reading(self, results[1], results[0])
+            players = [self.seated(name, questions="fixed", rows=4, skip_forced=True, preview_reach=True)
+                       for name in ("fused", "mortal")]
+            sizes = []
+            for player in players:
+                for forward in ruler.forwards_of(player, ruler.FixedRows):
+                    inner = forward.forward
+                    forward.forward = lambda planes, mask, inner=inner: sizes.append(len(planes)) or inner(
+                        planes, mask)
+            got = ruler.ruler([players[0]], players[1], 2, SEED, "cpu", questions="fixed")
+        self.assertEqual(got["games_total"], 8)
+        self.assertEqual(set(sizes), {4})
+        self.assertGreater(players[1].reaches, 5)
+        self.assertEqual(players[1].asked_again, 0)
+        self.assertGreater(sum(forward.padded for forward in ruler.forwards_of(players[1])), 0)
 
     def test_two_challengers_that_are_one_network_play_the_same_games(self):
+        """Asked by seating, each arm's seatings are asked in batches of
+        their own, the same rows in the same places, so on any device the
+        two arms of one network play the same games."""
         with patch.object(duel, "Views", Taught):
-            for questions in ("seating", "fixed"):
-                options = {"questions": questions, "rows": 4} if questions == "fixed" else {}
-                arms = [self.seated("fused", **options) for _ in range(2)]
-                incumbent = self.seated("mortal", **options)
-                got = ruler.ruler(arms, incumbent, 2, SEED, "cpu", questions=questions)
-                with self.subTest(questions=questions):
-                    self.assertEqual(got["arms"][0]["by_deal"], got["arms"][1]["by_deal"])
-                    self.assertEqual((got["difference"]["edge"], got["difference"]["standard_error"],
-                                      got["difference"]["same_games"]), (0.0, 0.0, 8))
+            arms = [self.seated("fused") for _ in range(2)]
+            got = ruler.ruler(arms, self.seated("mortal"), 2, SEED, "cpu", questions="seating")
+        self.assertEqual(got["arms"][0]["by_deal"], got["arms"][1]["by_deal"])
+        self.assertEqual((got["difference"]["edge"], got["difference"]["standard_error"],
+                          got["difference"]["same_games"]), (0.0, 0.0, 8))
 
     def test_a_timed_duel_plays_the_same_games_and_says_where_the_time_went(self):
         players = [zoo.load_player(self.paths[name], "cpu") for name in ("reheaded", "mortal")]
@@ -383,14 +389,30 @@ class CardTests(unittest.TestCase):
                         self.assertGreater(replays, asked // 2)
 
     def test_in_fixed_rows_graphs_and_switches_change_no_game(self):
+        """Pieces of sixteen rows, so most questions are cut and padded; the
+        rows left unasked and the tiles asked ahead change which rows sit
+        beside which, and no answer."""
         results = []
         with patch.object(duel, "Views", Taught):
             for switches in ({}, {"graphs": True}, {"graphs": True, "skip_forced": True, "preview_reach": True}):
                 players = [steer(ruler.seat(self.paths[name], "cuda", questions="fixed", rows=16, **switches))
                            for name in ("fused", "mortal")]
                 results.append(ruler.ruler([players[0]], players[1], 3, SEED, "cuda", questions="fixed"))
+                self.assertGreater(players[1].reaches, 5)
         same_reading(self, results[1], results[0])
         same_reading(self, results[2], results[0])
+
+    def test_in_fixed_rows_two_challengers_that_are_one_network_play_the_same_games(self):
+        """The incumbent is asked about both arms' tables at once, where a
+        table of the second arm sits elsewhere in the question than its
+        twin of the first: its answers are the same all the same."""
+        with patch.object(duel, "Views", Taught):
+            options = {"questions": "fixed", "rows": 16, "graphs": True, "skip_forced": True, "preview_reach": True}
+            arms = [steer(ruler.seat(self.paths["fused"], "cuda", **options)) for _ in range(2)]
+            incumbent = steer(ruler.seat(self.paths["mortal"], "cuda", **options))
+            got = ruler.ruler(arms, incumbent, 3, SEED, "cuda", questions="fixed")
+        self.assertEqual(got["arms"][0]["by_deal"], got["arms"][1]["by_deal"])
+        self.assertEqual((got["difference"]["edge"], got["difference"]["same_games"]), (0.0, 12))
 
 
 class CloudTests(unittest.TestCase):

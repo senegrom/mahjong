@@ -1009,7 +1009,7 @@ def duel(
 #: by its tag, holding one report a seed (`seed-<seed>.json`) and the rule
 #: it is read by (`design.json`, see `neural.looks`). A call's own answer
 #: lasts only as long as Modal keeps it: the rulers of fusion-long's 110,
-#: measured on 1 October, could no longer be read on the 14th.
+#: spawned on 29 September, could no longer be read on 14 October.
 RULERS = "rulers"
 
 
@@ -1035,8 +1035,11 @@ def _keep(folder: Path, name: str, text: str) -> None:
 @app.function(
     gpu="L40S",
     cpu=16.0,
-    # Twice a duel's tables in one arena, and the paired call's eight
-    # thousand; a duel needed 48 GiB once in twenty (see the launchers).
+    # A table and its follower take a few tenths of a megabyte on the host
+    # (4,000 on the desktop: 0.4 GB more), so a paired call's 8,000 are not
+    # what needs room; a fusion's duel died of signal 9 at 32 GiB once in
+    # twenty calls, and its launcher asks 48 (see `duel`), so this asks
+    # more again for the second challenger.
     memory=65536,
     timeout=3 * 60 * 60,
     volumes={str(VOLUME): volume},

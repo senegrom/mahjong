@@ -194,6 +194,33 @@ class SeriesTests(unittest.TestCase):
         self.assertEqual(ruler_cloud.mirror(modal, nothing), 0)
 
 
+class KeepTests(unittest.TestCase):
+    def test_an_old_rulers_finished_calls_are_kept_as_a_series(self):
+        """As `modal-duel-many.py` lists them: a seed and a call id a line,
+        and a line a kill cut short. Kept once; a call that failed or still
+        plays is said, and kept when run again once it has finished."""
+        modal = Modal(lambda name, arguments: None)
+        report = {"seed": 9_100_000, "placement": 2.411, "by_deal": [2.5, 2.0]}
+        modal.results = {"fc-a": json.dumps(report), "fc-b": RuntimeError("lost"),
+                         "fc-c": json.dumps({**report, "seed": 9_300_006})}
+        lines = ["9100000\tfc-a", "9200003\tfc-b", "9300006\tfc-c", "9400009"]
+        with tempfile.TemporaryDirectory() as folder:
+            series = ruler_cloud.Series(Path(folder) / "g910")
+            kept, missing = ruler_cloud.keep_calls(modal, series, lines)
+            self.assertEqual(kept, 2)
+            self.assertEqual(len(missing), 1)
+            self.assertIn("seed 9200003: failed", missing[0])
+            self.assertEqual(series.reports()[9_100_000], report)
+            again, _missing = ruler_cloud.keep_calls(modal, series, lines)
+            self.assertEqual(again, 0)
+            # Read against another series of the same seeds, deal by deal.
+            other = ruler_cloud.Series(Path(folder) / "g810")
+            other.folder.mkdir()
+            other.keep({"seed": 9_100_000, "placement": 2.25, "by_deal": [2.5, 2.0]})
+            lines = ruler_cloud.reading(modal, other, series)
+            self.assertIn("waiting for the seeds of look 1", lines[-1])
+
+
 class TimingTests(unittest.TestCase):
     def report(self, by_deal, seconds, **play):
         return {"seed": 9_100_000, "placement": sum(by_deal) / len(by_deal), "standard_error": 0.017,

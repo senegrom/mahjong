@@ -36,13 +36,17 @@ turn on a bit (see `play_graphs`). So:
   and so changes no answer (see `ExactGraphs`).
 - `--questions fixed` asks each network once a step about all of its tables,
   cut into pieces of exactly `--rows` rows, the last padded with blank rows.
-  Every answer then depends on its own row alone: the incumbent answers a
-  position the same at every table and every step, two challengers that are
-  one network play the same games until a decision of theirs differs, and
-  answering from CUDA graphs (`--graphs`), leaving rows with one move unasked
+  On the card every answer then depends on its own row alone (at one size
+  the kernels are always the same, and no row's arithmetic reads another's
+  or depends on where it sits): the incumbent answers a position the same
+  at every table and every step, two challengers that are one network play
+  the same games until a decision of theirs differs, and answering from
+  CUDA graphs (`--graphs`), leaving rows with one move unasked
   (`--skip-forced`) and asking a reach's tile with the reach
   (`--preview-reach`) change no answer at all. Its games are not the old
-  duel's, so a series measured this way is compared only with itself.
+  duel's, so a series measured this way is compared only with itself. On
+  the processor, in float32, a row's answer can depend on where it sits in
+  the batch, so there the switches can turn a near tie.
 
     python -m neural.ruler challenger.pt incumbent.pt --graphs --games 1000 --seed 9100000
     python -m neural.ruler a.pt incumbent.pt --also b.pt --questions fixed --graphs \\
@@ -139,11 +143,14 @@ class FixedRows:
     question is cut into pieces of `rows` rows, the last padded as a CUDA
     graph's is (`play_graphs.Graphed`), with planes of nought and every move
     open, and the answers' first rows kept. No row of these networks reads
-    another's, so a row's answer is then the same whatever else is asked
-    with it and however many: the kernels are always the ones chosen for
-    `rows`. The forward answers a tensor or a tuple of them, one row each for
-    each row asked, as every deciding forward of a player of Mortal's moves
-    does."""
+    another's, and on the card the kernels chosen for `rows` work a row out
+    the same wherever it sits, so a row's answer is then the same whatever
+    else is asked with it and however many: on the desktop's card, 256 rows
+    of either network shuffled, or half of them asked beside other rows,
+    moved no bit of any answer, where the same rows asked at another size
+    moved every one. The forward answers a tensor or a tuple of them, one
+    row each for each row asked, as every deciding forward of a player of
+    Mortal's moves does."""
 
     def __init__(self, forward, rows: int) -> None:
         if type(rows) is not int or rows <= 0:
@@ -186,14 +193,16 @@ class ExactGraphs:
 
     A graph replays the kernels the forward chose eagerly at its size, on
     the same inputs, so its answer is the eager answer bit for bit (see
-    `play_graphs.Graphed`), and a question the old duel asked about a
-    handful of rows costs one launch instead of a thousand small ones: the
+    `play_graphs.Graphed`): for published Mortal and fusion-long's 910 on
+    the desktop's card, at every size from one row to 512, no bit of any
+    answer moved. A question the old duel asked about a few hundred rows
+    or fewer then costs one launch instead of a thousand small ones: the
     last steps of every table, and a challenger's quarter of a seating's
     rows, are such questions. A size asked only once or twice is not worth
-    recording, and a big question keeps the card busy for longer than its
-    launching takes."""
+    recording, and a bigger question keeps the card busy for longer than
+    its launching takes, as the trainers' graphs stop at 512 rows too."""
 
-    def __init__(self, forward, module: nn.Module, largest: int = 192, after: int = 3) -> None:
+    def __init__(self, forward, module: nn.Module, largest: int = 512, after: int = 3) -> None:
         self.eager = forward
         self.graphed = play_graphs.Graphed(forward, module, tuple(range(1, largest + 1)))
         self.largest = largest
@@ -208,7 +217,7 @@ class ExactGraphs:
         return self.graphed(planes, mask)
 
 
-def ask_from_exact_graphs(player, device: str, largest: int = 192, after: int = 3):
+def ask_from_exact_graphs(player, device: str, largest: int = 512, after: int = 3):
     """`player`, on the card in bfloat16, answering the questions it is
     asked often from graphs at their own sizes (see `ExactGraphs`): a
     joined player's deciding forward, or a Mortal's or one of ours's in

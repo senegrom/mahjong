@@ -251,11 +251,10 @@ def read(rule: Design, by_seed: dict[int, list[float]]) -> tuple[list[Look], str
 
 
 def load_folder(folder: Path) -> dict[int, dict]:
-    """The reports in a folder, one a seed: every `*.json` but the design."""
+    """The reports in a folder, one a seed, each `seed-<seed>.json` as the
+    cloud keeps them (see `modal_app.ruler`)."""
     reports = {}
-    for path in sorted(Path(folder).glob("*.json")):
-        if path.name == "design.json":
-            continue
+    for path in sorted(Path(folder).glob("seed-*.json")):
         report = json.loads(path.read_text(encoding="utf-8"))
         if int(report["seed"]) in reports:
             raise ValueError(f"two reports for seed {report['seed']} in {folder}")

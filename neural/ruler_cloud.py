@@ -11,11 +11,18 @@ stopped and run again: the calls it spawned are in `calls.txt`, and the
 reports are kept on the volume (`rulers/<tag>/`, see `modal_app.ruler`) and
 mirrored locally.
 
-    python -m neural.ruler_cloud series <tag> <challenger> <incumbent> [--also <second>]
-        [--expected 0.006] [--questions fixed --graphs --skip-forced --preview-reach]
-        [--run fusion-long] [--local rulers]
-    python -m neural.ruler_cloud looks <tag> [--against <tag>] [--local rulers]
-    python -m neural.ruler_cloud timing <challenger> <incumbent> [--run fusion-long] [--seed 9100000]
+    python -m neural.ruler_cloud series <tag> <challenger> <incumbent> --local <folder>
+        [--also <second>] [--expected 0.006] [--graphs]
+        [--questions fixed --graphs --skip-forced --preview-reach] [--run fusion-long]
+    python -m neural.ruler_cloud looks <tag> --local <folder> [--against <tag>]
+    python -m neural.ruler_cloud keep <tag> <call file> --local <folder>
+    python -m neural.ruler_cloud timing <challenger> <incumbent> --local <folder>
+        [--run fusion-long] [--seed 9100000]
+
+`keep` saves the finished calls of a ruler measured the old way
+(`modal-duel-many.py`, which writes a seed and a call id a line) as a
+series' reports, so a new series can be read against it deal by deal after
+Modal has let its calls go.
 
 Checkpoints are named as `modal_app` names them: within `--run`, or by their
 path from the volume's root (`zoo/mortal_298k`). Run with the Modal client's
@@ -23,21 +30,33 @@ Python from the repository root; it needs nothing but the client.
 
 `timing` plays one call of 1,000 deals three ways on the same seed and says
 how they compare: the old duel (`neural.duel`, its four tables one after
-another), the ruler asking as the old duel asked (`--questions seating`), and
-the ruler asking in fixed rows with every switch that then changes no answer.
-What it should print, with the old duel's figures from the published rulers
-(about 21 minutes a 4,000-game call on an L40S) and the rest estimated from
-the desktop (see docs/RULER.md):
+another), the ruler asking as the old duel asked with graphs at the sizes
+asked (`--questions seating --graphs`), and the ruler asking in fixed rows
+with every switch, none of which then changes an answer. It prints a block
+for each, then the verdict; for 910 against published Mortal on seed
+9,100,000 it should read about so:
 
-    old duel             placement 2.4110 +- 0.0170 over 1000 deals; play 1260 s ...
-    ruler, seating       placement 2.4110 ...; the same placements on 1000 of 1000 deals
-    ruler, fixed 256     placement 2.4... ...; other games, as expected: ...
-    the seating ruler plays the old duel's games bit for bit, x.xx as fast
+    old duel             placement 2.4110 +- 0.0170 over 1000 deals; play about 1250 s, ...
+                         engine ..., follow ..., encode ..., challengers ..., incumbent ..., other ...
+    ruler, seating       placement 2.4110 +- 0.0170 over 1000 deals; play ...
+                         ...
+                         the same placements as the old duel on 1000 of 1000 deals; x.xx times as fast
+    ruler, fixed 256     placement 2.4... over 1000 deals; play ...
+                         ...
+                         the same placements as the old duel on many of the 1000 deals, not all; ...
+    the seating ruler plays the old duel's games bit for bit, x.xx times as fast: keep it
 
-The seating ruler must place exactly as the old duel on every deal; if it
-does not, it has changed games and must not be used for a series measured
-the old way. The roadmap keeps the port only if it is at least 1.5 times as
-fast.
+The old duel's 2.4110 is the published ruler's first seed, read again if
+nothing in the engine or the image has changed since 14 October; its play
+time is most of the 21 minutes a published call took. The seating ruler
+must place exactly as the old duel on every deal, or it has changed games
+and must not continue a series measured the old way; the roadmap keeps the
+port only if it is at least 1.5 times as fast. On the desktop, at 8 deals a
+seating, the seating ruler with graphs was 7.3 times as fast and the fixed
+one 6.9, but there small questions are nearly all of the work, and at 1,000
+deals the encoder, the same in every way, weighs far more: expect less, and
+read the parts to see where the rest goes. The fixed ruler plays other
+games, so its placement differs within its error.
 """
 
 from __future__ import annotations
@@ -62,6 +81,10 @@ RESPAWNS = 2
 #: The players and the asking a series keeps from its first call to its last.
 SERIES = ("challenger", "also", "incumbent", "games", "questions", "rows", "graphs", "skip_forced",
           "preview_reach", "run")
+#: Named every time rather than taken for granted: a series' folder holds
+#: its registration, and one written into the checkout by accident would be
+#: lost with it.
+LOCAL = "the folder the series' folders are kept in, outside the checkout"
 
 
 def say(*words) -> None:
@@ -243,6 +266,28 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
             time.sleep(poll)
 
 
+def keep_calls(modal, series: Series, lines: list[str]) -> tuple[int, list[str]]:
+    """Keeps the reports of finished calls, a `seed<TAB>call id` line each,
+    as `modal-duel-many.py` writes them, as the series' own: the old
+    rulers' results otherwise last only as long as Modal keeps their calls,
+    about a fortnight. Answers how many it kept, and the seeds it could
+    not, with why."""
+    series.folder.mkdir(parents=True, exist_ok=True)
+    have = series.reports()
+    kept, missing = 0, []
+    for line in lines:
+        parts = line.split()
+        if len(parts) != 2 or int(parts[0]) in have:
+            continue
+        state, what = outcome(modal, parts[1])
+        if state == "done":
+            series.keep(what)
+            kept += 1
+        else:
+            missing.append(f"seed {parts[0]}: {state}{f' ({what})' if what else ''}")
+    return kept, missing
+
+
 def names_of(series: Series) -> tuple[str, str]:
     """The two players a series' difference is between, as its reports
     name them: two challengers, or a challenger and its incumbent."""
@@ -380,11 +425,11 @@ def main() -> None:
     play.add_argument("--skip-forced", action="store_true")
     play.add_argument("--preview-reach", action="store_true")
     play.add_argument("--run", default="w1012-run")
-    play.add_argument("--local", type=Path, default=Path("rulers"))
+    play.add_argument("--local", type=Path, required=True, help=LOCAL)
     read = commands.add_parser("looks", help="mirror a series' reports and read its looks")
     read.add_argument("tag")
     read.add_argument("--against", default=None, help="a second series of single rulers on the same seeds")
-    read.add_argument("--local", type=Path, default=Path("rulers"))
+    read.add_argument("--local", type=Path, required=True, help=LOCAL)
     clock = commands.add_parser("timing", help="the old duel against the ruler, one call each")
     clock.add_argument("challenger")
     clock.add_argument("incumbent")
@@ -392,7 +437,11 @@ def main() -> None:
     clock.add_argument("--seed", type=int, default=looks.FIRST_SEED)
     clock.add_argument("--games", type=int, default=1000)
     clock.add_argument("--rows", type=int, default=256)
-    clock.add_argument("--local", type=Path, default=Path("rulers") / "timing")
+    clock.add_argument("--local", type=Path, required=True, help="where the three reports are kept")
+    hold = commands.add_parser("keep", help="keep an old ruler's finished calls as a series' reports")
+    hold.add_argument("tag")
+    hold.add_argument("calls", type=Path, help="its call file, a seed and a call id a line")
+    hold.add_argument("--local", type=Path, required=True, help=LOCAL)
     args = parser.parse_args()
 
     import modal
@@ -403,6 +452,12 @@ def main() -> None:
             print(line)
         return
     series = Series(args.local / args.tag)
+    if args.command == "keep":
+        kept, missing = keep_calls(modal, series, args.calls.read_text(encoding="utf-8").splitlines())
+        say(f"{series.tag}: kept {kept} reports, {len(series.reports())} in all")
+        for line in missing:
+            print(f"  not kept: {line}")
+        sys.exit(1 if missing else 0)
     if args.command == "looks":
         say(f"{mirror(modal, series)} new reports from the volume")
         for line in reading(modal, series, Series(args.local / args.against) if args.against else None):
