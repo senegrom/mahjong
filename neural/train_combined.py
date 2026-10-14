@@ -427,8 +427,9 @@ def main() -> None:
     # it climbs while the policy's entropy is under the target and sinks
     # back while it is over. Self-play here was measured to buy reward by
     # getting louder: 30 generations cut entropy by 29% and lost 0.0075.
-    if args.entropy_target > 0 and args.entropy <= 0:
-        raise SystemExit("--entropy-target needs a positive --entropy to fall back to")
+    # Its options were refused before anything was built where they leave
+    # it nothing to fall back to or no room to rise (see
+    # `validate_training_options`).
     base_log = math.log(args.entropy) if args.entropy > 0 else float("-inf")
     floor = {"log_coef": float(entropy_log_coef) if entropy_log_coef is not None else base_log}
     ceiling_log = math.log(max(args.entropy_max, args.entropy)) if args.entropy > 0 else base_log

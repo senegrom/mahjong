@@ -96,7 +96,12 @@ def validate_training_options(args) -> None:
     # from --entropy towards --entropy-max by --entropy-rate an update. With
     # a ceiling no higher than where it starts, or a rate of nought, it never
     # moves, and the run trains without the floor it asked for, unannounced.
+    # Without a positive --entropy it has no bonus to start from or fall back
+    # to, which the trainer refused only once the model was built and the
+    # leash's reference written.
     if getattr(args, 'entropy_target', 0.0) > 0:
+        if args.entropy <= 0:
+            raise ValueError('entropy must be positive for the entropy floor to fall back to')
         if args.entropy_max <= args.entropy:
             raise ValueError('entropy_max must be above entropy for the entropy floor to rise')
         if args.entropy_rate == 0:

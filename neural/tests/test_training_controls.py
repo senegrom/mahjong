@@ -75,7 +75,9 @@ class ControlTests(unittest.TestCase):
         # bonus NaN and stopped the trainer at its first step, after the
         # model was built and a whole round played; an infinite target, a
         # negative rate, a ceiling at or below --entropy or a rate of nought
-        # changed or disabled the floor without a word.
+        # changed or disabled the floor without a word; and a target without
+        # a positive --entropy to fall back to was refused only once the
+        # model was built.
         target=['--entropy-target','0.5']
         cases=[(['--entropy-target','nan'],'entropy_target'),(['--entropy-target','inf'],'entropy_target'),
                (['--entropy-target','-1'],'entropy_target'),
@@ -85,7 +87,8 @@ class ControlTests(unittest.TestCase):
                (target+['--entropy-rate','-0.01'],'entropy_rate'),
                (target+['--entropy','0.01','--entropy-max','0.005'],'entropy_max'),
                (target+['--entropy','0.01','--entropy-max','0.01'],'entropy_max'),
-               (target+['--entropy-rate','0'],'entropy_rate')]
+               (target+['--entropy-rate','0'],'entropy_rate'),
+               (target+['--entropy','0'],'entropy must be positive')]
         for flags,name in cases:
             with self.subTest(flags=flags),tempfile.TemporaryDirectory() as folder:
                 out=Path(folder)/'run'

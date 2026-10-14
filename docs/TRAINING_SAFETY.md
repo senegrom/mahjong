@@ -193,8 +193,8 @@ python -m neural.train --rounds 1 --games 1 --channels 8 --blocks 1 \
 A smoke configuration checks correctness, not playing strength; choose
 production settings by held-out comparisons. Nonfinite learning rates and
 weights, an entropy floor whose options are nonfinite, negative or leave it
-no room to rise, and invalid clipping or precision settings are refused
-before a learner is built.
+nothing to fall back to or no room to rise, and invalid clipping or
+precision settings are refused before a learner is built.
 
 `--baseline-batch` bounds the rows of each value-baseline forward. Without it
 the forward takes `--batch` rows, capped at the rollout's size; the final
