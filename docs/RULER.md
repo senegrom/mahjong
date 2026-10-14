@@ -272,7 +272,9 @@ for each, always in that order: placement, play time and its parts, how many
 deals each ruler placed as the old duel did, and how much faster it was; then
 the verdict. The old duel should read 2.4110 +- 0.0183, as the published
 ruler's first seed did if nothing in the engine or the image has changed
-since 14 October.
+since 14 October. The calls are written down as they are spawned: if Modal
+refuses a launch partway, as at the spend limit, the same command run again
+later spawns only the rest.
 
 A seating ruler must place exactly as the old duel on all 1,000 deals, or it
 has changed games and must not continue the published series. Without
