@@ -68,8 +68,9 @@ runtime; the page then fetches, verifies and stores the network in an
 installation-scoped v2 cache and tells the worker it is saved. A player who
 once asked for Trained offline has each later version's runtime and network
 saved by the running page while the update waits, or by the update's own page
-after it starts. A new version never plays the previous network. Normal
-waiting-worker activation is retained: there is no forced mid-match upgrade.
+after it starts. A new version never plays a network it does not list, even
+one an earlier version left saved. Normal waiting-worker activation is
+retained: there is no forced mid-match upgrade.
 
 Only the active worker prunes: at activation and after its page has saved its
 network. Every model its build lists, and the current and previous model
@@ -110,7 +111,7 @@ by an install and `pip check`; the next rebuild runs them for real.
 The manual reduced-runtime workflow builds the pinned release from source with
 the reviewed `reduced-ops.config`; dispatched with another release, it builds
 that one and moves the pin in the same commit. It restores the loader's memory
-hooks and runs the web suites against the published network, then pushes the
+hooks and runs the web suites against the default network, then pushes the
 tested tree to an `automation/reduced-runtime-*` branch and links a compare
 page from the job summary: GitHub Actions may not open pull requests in this
 repository, and one opened with the workflow token would start no checks. Open
