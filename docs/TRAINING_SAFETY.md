@@ -109,8 +109,6 @@ can now learn different corrections for different tiles.
 table, so an illegal later row cannot leave earlier games advanced without
 their training records. An illegal action raises `ValueError` rather than
 becoming a pass or the first legal move; finished rows are ignored.
-`strict=False` opts into the old lenient behaviour, and no trainer or
-evaluator uses it.
 
 `neural.policy_inference` fixes the precision every player that chooses moves
 at a table acts at: a 46-action policy on CUDA runs under bfloat16 autocast,

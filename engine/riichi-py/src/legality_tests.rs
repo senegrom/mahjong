@@ -20,8 +20,8 @@ fn serial_masks(seats: &[Seat]) -> Vec<bool> {
     mask
 }
 
-/// The strict check as the arena made it before, stopping at the first
-/// illegal game, with the message it raised.
+/// The check as the arena made it before, stopping at the first illegal
+/// game, with the message it raised.
 fn serial_first_illegal(seats: &[Seat], actions: &[usize]) -> Option<String> {
     for (game, (seat, index)) in seats.iter().zip(actions).enumerate() {
         let Some(wind) = seat.pending() else {
@@ -118,14 +118,14 @@ fn masks_and_refusals_match_the_serial_loops_over_whole_games() {
                 assert_eq!(first_illegal(&seats, actions), expected);
                 if let Some(message) = expected {
                     let before = positions(&seats);
-                    assert_eq!(step_all(&mut seats, actions, true), Err(message));
+                    assert_eq!(step_all(&mut seats, actions), Err(message));
                     assert_eq!(positions(&seats), before);
                     refused += 1;
                 }
             }
         }
 
-        assert_eq!(step_all(&mut seats, &legal, true), Ok(()));
+        assert_eq!(step_all(&mut seats, &legal), Ok(()));
     }
     assert!(refused > steps / 6, "the illegal batches were exercised");
     // Claims are checked against the calls offered, not the moves, so the
@@ -133,19 +133,4 @@ fn masks_and_refusals_match_the_serial_loops_over_whole_games() {
     assert!(claims > steps / 10, "claim windows were compared too");
     legal_masks(&seats, &mut mask);
     assert!(mask.iter().all(|flag| !flag), "finished games owe nothing");
-}
-
-#[test]
-fn lenient_steps_play_illegal_indices_as_before() {
-    // Without `strict`, an illegal index still moves its game, as the
-    // first legal move or a pass, and nothing is refused.
-    let mut rng = Rng::from_seed(81);
-    let mut seats = tables(8, 900);
-    let mut steps = 0;
-    while seats.iter().any(|seat| !seat.finished) {
-        steps += 1;
-        assert!(steps < 8000, "the games should finish");
-        let actions: Vec<usize> = (0..seats.len()).map(|_| rng.below(ACTIONS)).collect();
-        assert_eq!(step_all(&mut seats, &actions, false), Ok(()));
-    }
 }

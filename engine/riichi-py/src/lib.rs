@@ -80,6 +80,11 @@ struct Seat {
     /// The mjai events of this game not yet handed to Python, as JSON
     /// lines, each written under the seating its hand was dealt with.
     events: Vec<String>,
+    /// Whether those events are written at all. Only a follower reads
+    /// them, and until one takes them they are held, some seventy kilobytes
+    /// a game, so a table nobody follows stops writing them (see
+    /// `Arena::forget_events`).
+    recording: bool,
     /// How many of the current hand's log entries have been written out.
     logged: usize,
     /// Whether start_game and end_game have been written.
@@ -109,6 +114,7 @@ impl Seat {
             bots,
             teacher: Bot::new(seed ^ 0x7EAC_4E12),
             events: Vec::new(),
+            recording: true,
             logged: 0,
             started: false,
             ended: false,
@@ -203,6 +209,9 @@ impl Seat {
     /// because the mjai player numbers are the seating and the seating
     /// changes with the deal.
     fn flush_events(&mut self) {
+        if !self.recording {
+            return;
+        }
         if !self.started {
             let names = std::array::from_fn(|player| format!("player {player}"));
             self.events
@@ -220,14 +229,25 @@ impl Seat {
     /// lines: start_game first, then every event of every hand under the
     /// seating it was dealt with, end_game last. What a player state on
     /// the Python side follows to describe the game the way Mortal's own
-    /// bot sees it.
+    /// bot sees it. Nothing once the game has stopped recording.
     fn take_events(&mut self) -> Vec<String> {
+        if !self.recording {
+            return Vec::new();
+        }
         self.flush_events();
         if self.finished && !self.ended {
             self.events.push(mjai::Event::EndGame.to_json([0, 1, 2, 3]));
             self.ended = true;
         }
         std::mem::take(&mut self.events)
+    }
+
+    /// Stops writing the game's mjai events and drops those not yet handed
+    /// over, for good: a log taken up again partway would leave out what
+    /// was played meanwhile, which no follower can make sense of.
+    fn forget_events(&mut self) {
+        self.recording = false;
+        self.events = Vec::new();
     }
 
     fn next_hand(&mut self) {
@@ -251,19 +271,17 @@ impl Seat {
         self.logged = 0;
     }
 
-    /// Applies one decision from the seat that owed it.
+    /// Applies one decision from the seat that owed it. The arena has
+    /// already refused any batch with an index that names no legal move,
+    /// before any game moved (see `step_all`), so this one names one.
     fn step(&mut self, index: usize) {
         self.endings.clear();
         if self.finished {
             return;
         }
         if let Some(seat) = self.asking.pop_front() {
-            // An index naming no call was refused by the arena in strict
-            // mode before any table moved; what reaches here is either
-            // legal or deliberately lenient, and is answered with a pass.
-            let call = encoding::decode_call(&self.hand, seat, index)
-                .or_else(|| encoding::decode_call(&self.hand, seat, PASS))
-                .unwrap_or(Call::Pass);
+            let call =
+                encoding::decode_call(&self.hand, seat, index).expect("checked by first_illegal");
             self.answers.push((seat, call));
             if self.asking.is_empty() {
                 let answers = std::mem::take(&mut self.answers);
@@ -275,15 +293,8 @@ impl Seat {
             return;
         }
         if matches!(self.hand.phase, Phase::Act) {
-            let action = encoding::decode_action(&self.hand, index).unwrap_or_else(|| {
-                // A policy that names an illegal action still has to move, so
-                // the first legal one is taken. The mask makes this rare.
-                self.hand
-                    .legal_actions()
-                    .into_iter()
-                    .next()
-                    .expect("a player always has something to do")
-            });
+            let action =
+                encoding::decode_action(&self.hand, index).expect("checked by first_illegal");
             self.hand.act(action).expect("the action was legal");
             self.settle();
         }
@@ -329,6 +340,36 @@ fn legal_masks(seats: &[Seat], mask: &mut [bool]) {
         });
 }
 
+/// One row of `width` float32 numbers per game, as the bytes Python reads
+/// with `numpy.frombuffer`: what `fill` writes for the seat owing the
+/// game's decision, and zeros where the game owes none. Each row is encoded
+/// into one row of scratch and copied into the bytes object as it is made,
+/// so the arena keeps no buffer of every game's rows between calls. One row
+/// of scratch serves every game because each encoder clears the row it is
+/// given before writing to it.
+fn per_game<'py>(
+    py: Python<'py>,
+    seats: &[Seat],
+    width: usize,
+    fill: fn(&Hand, Wind, &mut [f32]),
+) -> PyResult<Bound<'py, PyBytes>> {
+    const FLOAT: usize = std::mem::size_of::<f32>();
+    let mut row = vec![0.0; width];
+    PyBytes::new_with(py, seats.len() * width * FLOAT, |bytes| {
+        for (seat, out) in seats.iter().zip(bytes.chunks_exact_mut(width * FLOAT)) {
+            // The bytes start as zeros, which is what a game owing nothing
+            // is given.
+            if let Some(wind) = seat.pending() {
+                fill(&seat.hand, wind, &mut row);
+                for (value, out) in row.iter().zip(out.chunks_exact_mut(FLOAT)) {
+                    out.copy_from_slice(&value.to_ne_bytes());
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
 /// Why `actions` cannot be applied, if they cannot: the first game, in game
 /// order, whose pending decision is not a legal move. Checked across the
 /// cores; `find_map_first` still names the game a loop from the first
@@ -350,17 +391,15 @@ fn first_illegal(seats: &[Seat], actions: &[usize]) -> Option<String> {
         })
 }
 
-/// Applies one action per game, the games spread across the cores. In
-/// `strict` mode the whole batch is checked first and nothing moves if any
-/// of it is illegal: an invalid later row must not leave earlier games
-/// advanced with no corresponding training data. Otherwise an illegal
-/// index is answered with the first legal move, or a pass.
-fn step_all(seats: &mut [Seat], actions: &[usize], strict: bool) -> Result<(), String> {
+/// Applies one action per game, the games spread across the cores. The
+/// whole batch is checked first and nothing moves if any of it is illegal:
+/// an invalid later row must not leave earlier games advanced with no
+/// corresponding training data. An illegal index is refused rather than
+/// replaced by a legal move, so the move a record keeps is the move played.
+fn step_all(seats: &mut [Seat], actions: &[usize]) -> Result<(), String> {
     use rayon::prelude::*;
-    if strict {
-        if let Some(error) = first_illegal(seats, actions) {
-            return Err(error);
-        }
+    if let Some(error) = first_illegal(seats, actions) {
+        return Err(error);
     }
     // Every game is its own table, hand and generator, and stepping one
     // means running the heuristic players round to the next decision the
@@ -407,12 +446,7 @@ fn places_by_table(
 #[pyclass]
 pub struct Arena {
     seats: Vec<Seat>,
-    observations: Vec<f32>,
-    /// What each deciding seat cannot see, filled in only when asked for.
-    oracle: Vec<f32>,
     mask: Vec<bool>,
-    /// What the opponents are holding, filled in only when asked for.
-    hands: Vec<f32>,
 }
 
 #[pymethods]
@@ -441,10 +475,7 @@ impl Arena {
                 .enumerate()
                 .map(|(index, places)| Seat::new(seed.wrapping_add(index as u64), places))
                 .collect(),
-            observations: vec![0.0; games * OBSERVATION],
-            oracle: vec![0.0; games * ORACLE],
             mask: vec![false; games * ACTIONS],
-            hands: vec![0.0; games * HANDS],
         })
     }
 
@@ -468,30 +499,16 @@ impl Arena {
     }
 
     /// One observation per game, for the seat owing a decision, as float32.
-    fn observations<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        for (index, seat) in self.seats.iter().enumerate() {
-            let slice = &mut self.observations[index * OBSERVATION..(index + 1) * OBSERVATION];
-            match seat.pending() {
-                Some(wind) => encoding::observe(&seat.hand, wind, slice),
-                None => slice.fill(0.0),
-            }
-        }
-        PyBytes::new(py, bytemuck_cast(&self.observations))
+    fn observations<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        per_game(py, &self.seats, OBSERVATION, encoding::observe)
     }
 
     /// What each deciding seat cannot see, as float32 planes for the
     /// oracle critic: [`ORACLE_PLANES`] planes of thirty-four per game,
     /// zeros for a game that owes no decision. Only training asks for it;
     /// the network is never shown it when choosing a move.
-    fn oracle<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        for (index, seat) in self.seats.iter().enumerate() {
-            let slice = &mut self.oracle[index * ORACLE..(index + 1) * ORACLE];
-            match seat.pending() {
-                Some(wind) => encoding::oracle(&seat.hand, wind, slice),
-                None => slice.fill(0.0),
-            }
-        }
-        PyBytes::new(py, bytemuck_cast(&self.oracle))
+    fn oracle<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        per_game(py, &self.seats, ORACLE, encoding::oracle)
     }
 
     /// What the opponents are actually holding, one answer per game, as
@@ -500,15 +517,8 @@ impl Arena {
     ///
     /// This is the label for the head that reads a table. It is only ever
     /// used to teach: the network is never shown it when choosing a move.
-    fn opponent_hands<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        for (index, seat) in self.seats.iter().enumerate() {
-            let slice = &mut self.hands[index * HANDS..(index + 1) * HANDS];
-            match seat.pending() {
-                Some(wind) => encoding::opponent_hands(&seat.hand, wind, slice),
-                None => slice.fill(0.0),
-            }
-        }
-        PyBytes::new(py, bytemuck_cast(&self.hands))
+    fn opponent_hands<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        per_game(py, &self.seats, HANDS, encoding::opponent_hands)
     }
 
     /// One legality mask per game, as bytes of 0 and 1.
@@ -542,10 +552,9 @@ impl Arena {
     }
 
     /// Applies one action per game. Games that owe no decision ignore theirs.
-    /// With `strict`, an illegal index anywhere refuses the whole batch
-    /// before any game moves; see `step_all`.
-    #[pyo3(signature = (actions, strict=true))]
-    fn step(&mut self, py: Python<'_>, actions: Vec<usize>, strict: bool) -> PyResult<()> {
+    /// An illegal index anywhere refuses the whole batch before any game
+    /// moves; see `step_all`.
+    fn step(&mut self, py: Python<'_>, actions: Vec<usize>) -> PyResult<()> {
         if actions.len() != self.seats.len() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "expected {} actions, got {}",
@@ -563,7 +572,7 @@ impl Arena {
         // the same arena meanwhile gets PyO3's "already borrowed" error,
         // never a game in the middle of a move.
         let seats = &mut self.seats;
-        py.detach(|| step_all(seats, &actions, strict))
+        py.detach(|| step_all(seats, &actions))
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
@@ -572,6 +581,16 @@ impl Arena {
     /// costs one call a step rather than one a game.
     fn mjai_all(&mut self) -> Vec<Vec<String>> {
         self.seats.iter_mut().map(Seat::take_events).collect()
+    }
+
+    /// Stops writing every game's mjai events and drops those held, for a
+    /// table nobody follows. The arena holds each game's events until
+    /// `mjai_all` hands them over, which at such a table is never: every
+    /// game's whole log, some seventy kilobytes, until the arena is
+    /// dropped. Once stopped it stays stopped (see `Seat::forget_events`),
+    /// and `mjai_all` hands back nothing.
+    fn forget_events(&mut self) {
+        self.seats.iter_mut().for_each(Seat::forget_events);
     }
 
     /// Whether every game has finished.
@@ -609,21 +628,25 @@ impl Arena {
     /// a hand was made in. A later hand ended on the same step was dealt
     /// and played out by native bots alone, so nothing waits on it.
     fn hand_result<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        let mut values: Vec<i32> = Vec::with_capacity(self.seats.len() * 4);
-        for seat in &self.seats {
-            values.extend_from_slice(&seat.endings.first().copied().unwrap_or_default());
-        }
-        PyBytes::new(py, cast_i32(&values))
+        let bytes: Vec<u8> = self
+            .seats
+            .iter()
+            .flat_map(|seat| seat.endings.first().copied().unwrap_or_default())
+            .flat_map(i32::to_ne_bytes)
+            .collect();
+        PyBytes::new(py, &bytes)
     }
 
     /// The final scores of every game, four per game, as int32 by player.
     /// These already carry the winner bonus.
     fn final_scores<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        let mut values: Vec<i32> = Vec::with_capacity(self.seats.len() * 4);
-        for seat in &self.seats {
-            values.extend_from_slice(&seat.table.final_scores());
-        }
-        PyBytes::new(py, cast_i32(&values))
+        let bytes: Vec<u8> = self
+            .seats
+            .iter()
+            .flat_map(|seat| seat.table.final_scores())
+            .flat_map(i32::to_ne_bytes)
+            .collect();
+        PyBytes::new(py, &bytes)
     }
 
     /// Which player holds each seat, four per game, so a game's rewards can
@@ -663,19 +686,6 @@ impl Arena {
     }
 }
 
-fn bytemuck_cast(values: &[f32]) -> &[u8] {
-    // Safe: f32 has no padding and any bit pattern is a valid u8.
-    unsafe {
-        std::slice::from_raw_parts(values.as_ptr() as *const u8, std::mem::size_of_val(values))
-    }
-}
-
-fn cast_i32(values: &[i32]) -> &[u8] {
-    unsafe {
-        std::slice::from_raw_parts(values.as_ptr() as *const u8, std::mem::size_of_val(values))
-    }
-}
-
 /// The riichi rules engine, as a batched environment.
 #[pymodule(gil_used = true)]
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -696,7 +706,6 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
         "PLACEMENT_VALUE",
         riichi_core::encoding::PLACEMENT_VALUE.to_vec(),
     )?;
-    module.add("HANDS", HANDS)?;
     module.add("PASS", PASS)?;
     Ok(())
 }

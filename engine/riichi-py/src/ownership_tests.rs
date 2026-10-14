@@ -108,6 +108,43 @@ fn each_step_reports_the_hands_it_ended() {
     }
 }
 
+/// A game nobody follows drops the events it holds and writes no more, not
+/// even the end of the game, and plays and reports every hand exactly as a
+/// game that keeps its log. It forgets once its first hand is over, so that
+/// it has a hand's events to drop.
+#[test]
+fn a_game_that_forgets_its_events_holds_none_to_the_end() {
+    let mut kept = Seat::new(11, &[1, 2, 3]);
+    let mut forgot = Seat::new(11, &[1, 2, 3]);
+    let mut steps = 0;
+    while !kept.finished {
+        steps += 1;
+        assert!(steps < 8000);
+        let action = kept.teacher_choice().expect("an outside decision");
+        assert_eq!(forgot.teacher_choice(), Some(action));
+        kept.step(action);
+        forgot.step(action);
+        assert_eq!(forgot.endings, kept.endings);
+        if forgot.recording && forgot.hands_done > 0 {
+            // Written when the hand ended and held since, nobody having
+            // asked for them.
+            assert!(!forgot.events.is_empty());
+            forgot.forget_events();
+        }
+        if !forgot.recording {
+            assert!(forgot.events.is_empty());
+        }
+    }
+    assert!(!forgot.recording, "the game forgot partway");
+    assert!(forgot.finished);
+    assert_eq!(forgot.hands_done, kept.hands_done);
+    assert_eq!(forgot.table.final_scores(), kept.table.final_scores());
+    assert!(forgot.take_events().is_empty());
+    let log = kept.take_events();
+    assert!(log[0].contains("\"type\":\"start_game\""));
+    assert!(log.last().unwrap().contains("\"type\":\"end_game\""));
+}
+
 #[test]
 fn each_table_can_seat_the_bots_in_places_of_its_own() {
     let uniform = places_by_table(3, vec![1, 2], None).expect("the same places everywhere");
