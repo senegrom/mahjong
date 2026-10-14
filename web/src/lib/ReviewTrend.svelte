@@ -37,7 +37,7 @@
 
 <div class="trend" data-trend>
   <p class="label">Matched Trained AI</p>
-  <p class="value">{figure.share == null ? '—' : percent(figure.share)}{#if !complete && figure.share != null}<span class="so-far"> so far</span>{/if}</p>
+  <p class="value">{figure.share == null ? '—' : percent(figure.share)}{#if !complete && figure.share != null}{' '}<span class="so-far">so far</span>{/if}</p>
   <p class="count">{figure.matched} of {figure.decisions} decision{figure.decisions === 1 ? '' : 's'}{complete ? '' : ' in the hands reviewed'}. Moves with only one choice are left out.</p>
   {#if change !== null}
     <p class="change">{change === 0 ? 'The same as' : `${change > 0 ? '+' : '−'}${Math.abs(change)} points against`} your {earlier.length === 1 ? 'previous game' : `previous ${earlier.length} games`} ({percent(earlierShare)})</p>

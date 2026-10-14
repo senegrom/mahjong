@@ -60,8 +60,7 @@ test('a review under way leads with the flagged decisions found so far, and hide
   assert.match(html, /Reviewing, 1 of 2/);
   assert.match(html, /2 decisions, not reviewed yet/);
   // So far, and not yet in the trend.
-  assert.match(html, />50%/);
-  assert.match(html, /> so far</);
+  assert.match(html.replace(/<[^>]*>/g, ''), /50% so far/, 'a space between the figure and its note');
 });
 
 test('a flagged riichi tile says it is judged as the tile once riichi was declared', () => {
