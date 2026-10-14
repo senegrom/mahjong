@@ -598,6 +598,30 @@ class TimingTests(unittest.TestCase):
                                     "2.00 times as fast: keep it")
         self.assertEqual(again, lines)
 
+    def test_a_launch_refused_partway_keeps_the_calls_before_it(self):
+        """As at the spend limit: the calls already spawned are kept and
+        waited for when the command is run again, and only the rest are
+        spawned then."""
+        modal = None
+
+        def answer(name, arguments):
+            plain = name == "ruler" and arguments["questions"] == "seating" and not arguments.get("graphs")
+            if plain:
+                modal.refusals = 1  # the next launch, the seating ruler with graphs
+            return self.report([2.0, 3.0], 1000.0 if name == "duel" else 500.0 if plain else 400.0)
+
+        modal = Modal(answer)
+        arguments = ("history/gen-00910", "zoo/mortal_298k", "fusion-long", 9_100_000, 2, 256)
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "the 2 calls spawned before it are kept"):
+                ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            kept = json.loads((Path(folder) / "timing-calls.json").read_text())
+            lines = ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+        self.assertEqual(list(kept["calls"]), ["old duel", "ruler, seating"])
+        self.assertEqual(len(modal.spawned), 4)
+        self.assertEqual(lines[-1], "the seating ruler with graphs plays the old duel's games bit for bit, "
+                                    "2.50 times as fast: keep it")
+
     def test_changed_games_are_laid_to_the_arena_or_to_the_graphs(self):
         old = self.report([2.0, 3.0], 1000.0)
         same, other = [2.0, 3.0], [3.0, 2.0]

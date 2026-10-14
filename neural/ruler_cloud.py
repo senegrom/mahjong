@@ -629,7 +629,8 @@ def verdict(reports: dict[str, dict]) -> list[str]:
             if report is not None and report["by_deal"] == old["by_deal"]]
     timed = [(speed, name) for speed, name in kept if not math.isnan(speed)]
     if timed:
-        speed, name = max(timed)
+        # As fast either way, the ruler without graphs, which has less to go wrong.
+        speed, name = max(timed, key=lambda item: (item[0], item[1] == SEATING))
         which = "the seating ruler " + ("with graphs" if name == GRAPHED else "without graphs")
         if speed >= 1.5:
             lines.append(f"{which} plays the old duel's games bit for bit, {speed:.2f} times as fast: keep it")
@@ -671,7 +672,13 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
         spawner = modal.Function.from_name(APP, function)
         if options:
             spawner = spawner.with_options(**options)
-        saved["calls"][name] = spawner.spawn(timing=True, **common, **asked).object_id
+        try:
+            call = spawner.spawn(timing=True, **common, **asked)
+        except unasked(modal) as error:
+            raise SystemExit(f"Modal could not be asked, or refused a launch for now ({type(error).__name__}): "
+                             f"the {len(saved['calls'])} calls spawned before it are kept in {kept}; "
+                             "run the same command again later to spawn the rest") from None
+        saved["calls"][name] = call.object_id
         kept.write_text(json.dumps(saved, indent=1) + "\n", encoding="utf-8")
         say(f"spawned {name} as {saved['calls'][name]}")
     reports = wait_for(modal, saved["calls"], poll)
