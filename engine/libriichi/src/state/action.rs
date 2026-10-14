@@ -11,7 +11,9 @@ use serde::Serialize;
 
 // Every field was individually marked `#[pyo3(get)]`; `get_all` is the same
 // thing said once, and it can be turned off with the rest of PyO3.
-#[cfg_attr(feature = "pymod", pyclass(get_all))]
+// `from_py_object` keeps it extractable by value as before: PyO3 0.28
+// deprecated deriving that for a Clone pyclass unless it asks for it.
+#[cfg_attr(feature = "pymod", pyclass(get_all, from_py_object))]
 #[derive(Debug, Default, Clone, Copy, Serialize)]
 pub struct ActionCandidate {
     pub can_discard: bool,

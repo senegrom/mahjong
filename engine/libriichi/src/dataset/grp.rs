@@ -17,7 +17,9 @@ use rayon::prelude::*;
 use serde_json as json;
 use tinyvec::array_vec;
 
-#[pyclass]
+// Extractable by value as before: PyO3 0.28 deprecated deriving that for a
+// Clone pyclass unless it asks for it.
+#[pyclass(from_py_object)]
 #[derive(Clone, Default)]
 pub struct Grp {
     // [grand_kyoku, honba, kyotaku, [score[i] / 10000]] where i is player_id
@@ -57,16 +59,6 @@ impl Grp {
 }
 
 impl Grp {
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.feature.len_of(Axis(0))
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     pub fn load_gz_log_files<V, S>(gzip_filenames: V) -> Result<Vec<Self>>
     where
         V: IntoParallelIterator<Item = S>,

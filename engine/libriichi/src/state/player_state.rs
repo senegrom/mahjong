@@ -6,10 +6,14 @@ use crate::must_tile;
 use crate::tile::Tile;
 use std::iter;
 
+// Only the mjai JSON entry points below and their Python wrappers use
+// `Result` and `json`, so these imports share the entry points' gate.
+#[cfg(any(feature = "pymod", test))]
 use anyhow::Result;
 use derivative::Derivative;
 #[cfg(feature = "pymod")]
 use pyo3::prelude::*;
+#[cfg(any(feature = "pymod", test))]
 use serde_json as json;
 use tinyvec::{ArrayVec, TinyVec};
 
@@ -19,7 +23,9 @@ use tinyvec::{ArrayVec, TinyVec};
 /// mjai event, along with some helper functions to build an actual agent.
 /// Notably, `PlayerState` encodes observation features into numpy arrays which
 /// serve as inputs for deep learning model.
-#[cfg_attr(feature = "pymod", pyclass)]
+// Extractable by value as before: PyO3 0.28 deprecated deriving that for a
+// Clone pyclass unless it asks for it.
+#[cfg_attr(feature = "pymod", pyclass(from_py_object))]
 #[derive(Clone, Derivative)]
 #[derivative(Default)]
 pub struct PlayerState {
@@ -183,13 +189,18 @@ impl PlayerState {
         }
     }
 
+    // These two read mjai JSON for Python's `update` and `validate_reaction`,
+    // and the state tests feed their lines through the first. A plain build
+    // such as wasm leaves them out rather than warn that they are never used.
     /// Returns an `ActionCandidate`.
+    #[cfg(any(feature = "pymod", test))]
     pub(super) fn update_json(&mut self, mjai_json: &str) -> Result<ActionCandidate> {
         let event = json::from_str(mjai_json)?;
         self.update(&event)
     }
 
     /// Raises an exception if the action is not valid.
+    #[cfg(feature = "pymod")]
     pub(super) fn validate_reaction_json(&self, mjai_json: &str) -> Result<()> {
         let action = json::from_str(mjai_json)?;
         self.validate_reaction(&action)

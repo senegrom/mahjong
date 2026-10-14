@@ -10,11 +10,9 @@
 //! This module is not part of Mortal; it was added for the mahjong project
 //! that vendors this crate, and is licensed as the rest of it.
 
-use crate::consts::obs_shape;
 use crate::mjai::Event;
 use crate::py_helper::add_submodule;
-use crate::state::{ActionCandidate, PlayerState};
-use crate::tile::Tile;
+use crate::state::PlayerState;
 
 use anyhow::{Context, Result};
 use half::f16;
@@ -25,11 +23,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-/// One game: the four players' states and what each may do.
+/// One game: the four players' states.
 struct Table {
     states: [PlayerState; 4],
-    cans: [ActionCandidate; 4],
-    oya: u8,
     /// Players told of their own reach ahead of the table (see `tell`),
     /// whose copy of it from the table is therefore to be skipped.
     told_reach: [bool; 4],
@@ -39,8 +35,6 @@ impl Table {
     fn new() -> Self {
         Self {
             states: std::array::from_fn(|player| PlayerState::new(player as u8)),
-            cans: [ActionCandidate::default(); 4],
-            oya: 0,
             told_reach: [false; 4],
         }
     }
@@ -49,9 +43,6 @@ impl Table {
         for line in lines {
             let event: Event =
                 serde_json::from_str(line).with_context(|| format!("bad mjai line: {line}"))?;
-            if let Event::StartKyoku { oya, .. } = &event {
-                self.oya = *oya;
-            }
             let already_told = match &event {
                 Event::Reach { actor } => {
                     let actor = *actor as usize;
@@ -61,13 +52,11 @@ impl Table {
                 }
                 _ => None,
             };
-            for (player, (state, cans)) in
-                self.states.iter_mut().zip(self.cans.iter_mut()).enumerate()
-            {
+            for (player, state) in self.states.iter_mut().enumerate() {
                 if already_told == Some(player) {
                     continue;
                 }
-                *cans = state
+                state
                     .update(&event)
                     .with_context(|| format!("player {} rejected: {line}", state.player_id()))?;
             }
@@ -120,15 +109,6 @@ impl Follower {
         }
     }
 
-    fn __len__(&self) -> usize {
-        self.tables.len()
-    }
-
-    /// The observation's shape, `(planes, 34)`.
-    fn shape(&self) -> (usize, usize) {
-        obs_shape(self.version)
-    }
-
     /// Feeds every game its new events, one list of JSON lines per game in
     /// the order they happened. An empty list is a game with nothing new.
     /// Games are read in parallel.
@@ -150,11 +130,6 @@ impl Follower {
         Ok(())
     }
 
-    /// Whether `player` in `game` may act after what it was last fed.
-    fn can_act(&self, game: usize, player: usize) -> bool {
-        self.tables[game].cans[player].can_act()
-    }
-
     /// Tells one player about an event ahead of the table. A Mortal that
     /// decides to declare riichi is asked, in a second step, which tile to
     /// throw with it, and answers that from a state in which the reach is
@@ -172,17 +147,10 @@ impl Follower {
         if matches!(&event, Event::Reach { actor } if *actor as usize == player) {
             table.told_reach[player] = true;
         }
-        table.cans[player] = table.states[player]
+        table.states[player]
             .update(&event)
             .with_context(|| format!("player {player} rejected: {line}"))?;
         Ok(())
-    }
-
-    /// The dealer's player number in each game's current hand, which is
-    /// what turns a seat into a player: the player at seat `s` is
-    /// `(oya + s) % 4`.
-    fn dealers(&self) -> Vec<u8> {
-        self.tables.iter().map(|table| table.oya).collect()
     }
 
     /// The observations of the players asked for, as `(game, player)`
@@ -265,325 +233,6 @@ impl Follower {
     }
 }
 
-/// Many imagined continuations of one real table, each carrying its own
-/// copy of a player's state.
-///
-/// A search deals worlds it cannot see and plays them forward, and wants
-/// Mortal's view of every position it reaches. Replaying each from the deal
-/// would cost more than the search, and is unnecessary: a continuation
-/// starts from a position the follower already holds, so the state is
-/// cloned and only the events the continuation invented are applied to the
-/// copy. Nothing here touches the real table.
-#[pyclass]
-pub struct Imagined {
-    states: Vec<PlayerState>,
-    version: u32,
-}
-
-#[pymethods]
-impl Imagined {
-    /// One state per slot, each copied from the real player named by its
-    /// `(game, player)` pair. The same real player may be named by any
-    /// number of slots; each gets its own copy.
-    #[staticmethod]
-    #[pyo3(signature = (follower, who, version = 4))]
-    fn from_follower(
-        follower: &Follower,
-        who: Vec<(usize, usize)>,
-        version: u32,
-    ) -> PyResult<Self> {
-        let mut states = Vec::with_capacity(who.len());
-        for (game, player) in who {
-            if game >= follower.tables.len() || player >= 4 {
-                return Err(PyValueError::new_err(format!(
-                    "no player {player} in game {game}"
-                )));
-            }
-            states.push(follower.tables[game].states[player].clone());
-        }
-        Ok(Self { states, version })
-    }
-
-    fn __len__(&self) -> usize {
-        self.states.len()
-    }
-
-    /// The observation's shape, `(planes, 34)`.
-    fn shape(&self) -> (usize, usize) {
-        obs_shape(self.version)
-    }
-
-    /// Feeds each slot the events its own continuation invented, one list
-    /// of JSON lines per slot in the order they happened. Slots are read in
-    /// parallel; a slot whose line its state refuses is reported by index,
-    /// because a search that has drifted from the rules must be found, not
-    /// quietly valued.
-    fn feed(&mut self, py: Python<'_>, lines: Vec<Vec<String>>) -> PyResult<()> {
-        if lines.len() != self.states.len() {
-            return Err(PyValueError::new_err(format!(
-                "{} lists of events for {} slots",
-                lines.len(),
-                self.states.len()
-            )));
-        }
-        let states = &mut self.states;
-        py.detach(|| {
-            states
-                .par_iter_mut()
-                .zip(lines.par_iter())
-                .enumerate()
-                .try_for_each(|(slot, (state, lines))| -> Result<()> {
-                    for line in lines {
-                        let event: Event = serde_json::from_str(line)
-                            .with_context(|| format!("slot {slot}: bad mjai line: {line}"))?;
-                        state
-                            .update(&event)
-                            .with_context(|| format!("slot {slot} rejected: {line}"))?;
-                    }
-                    Ok(())
-                })
-        })?;
-        Ok(())
-    }
-
-    /// Feeds the named slots, each its own list of lines, leaving the rest
-    /// as they are: a lookahead asks one seat at a time and tells only the
-    /// slots that have moved.
-    fn feed_some(
-        &mut self,
-        py: Python<'_>,
-        which: Vec<usize>,
-        lines: Vec<Vec<String>>,
-    ) -> PyResult<()> {
-        if which.len() != lines.len() {
-            return Err(PyValueError::new_err(format!(
-                "{} lists of events for {} slots",
-                lines.len(),
-                which.len()
-            )));
-        }
-        for &slot in &which {
-            if slot >= self.states.len() {
-                return Err(PyValueError::new_err(format!("no slot {slot}")));
-            }
-        }
-        // Distinct slots, so they can be fed in parallel without aliasing:
-        // every state is visited once, and only the named ones are fed.
-        let mut given: Vec<Option<usize>> = vec![None; self.states.len()];
-        for (at, &slot) in which.iter().enumerate() {
-            if given[slot].is_some() {
-                return Err(PyValueError::new_err(format!("slot {slot} named twice")));
-            }
-            given[slot] = Some(at);
-        }
-        let states = &mut self.states;
-        py.detach(|| {
-            states
-                .par_iter_mut()
-                .enumerate()
-                .try_for_each(|(slot, state)| -> Result<()> {
-                    let Some(at) = given[slot] else {
-                        return Ok(());
-                    };
-                    for line in &lines[at] {
-                        let event: Event = serde_json::from_str(line)
-                            .with_context(|| format!("slot {slot}: bad mjai line: {line}"))?;
-                        state
-                            .update(&event)
-                            .with_context(|| format!("slot {slot} rejected: {line}"))?;
-                    }
-                    Ok(())
-                })
-        })?;
-        Ok(())
-    }
-
-    /// Gives the named slots the concealed tiles their imagined worlds
-    /// dealt them, as mjai tile names: a search keeps a copy of every
-    /// seat's state per world, and the seats it imagined hold the world's
-    /// tiles, not the real seat's. See `PlayerState::replace_concealed`.
-    fn replace_concealed(&mut self, which: Vec<usize>, hands: Vec<Vec<String>>) -> PyResult<()> {
-        if which.len() != hands.len() {
-            return Err(PyValueError::new_err(format!(
-                "{} hands for {} slots",
-                hands.len(),
-                which.len()
-            )));
-        }
-        for (&slot, hand) in which.iter().zip(&hands) {
-            let Some(state) = self.states.get_mut(slot) else {
-                return Err(PyValueError::new_err(format!("no slot {slot}")));
-            };
-            let mut counts = [0u8; 34];
-            for name in hand {
-                let tile: Tile = name
-                    .parse()
-                    .map_err(|_| PyValueError::new_err(format!("slot {slot}: bad tile {name}")))?;
-                counts[tile.deaka().as_usize()] += 1;
-            }
-            state
-                .replace_concealed(&counts)
-                .map_err(|error| PyValueError::new_err(format!("slot {slot}: {error}")))?;
-        }
-        Ok(())
-    }
-
-    /// Reset only the newly sampled opponents, not the observer's own state.
-    fn reset_search_private(&mut self, which: Vec<usize>, furiten: Vec<bool>) -> PyResult<()> {
-        if which.len() != furiten.len() || which.iter().any(|&slot| slot >= self.states.len()) {
-            return Err(PyValueError::new_err(
-                "invalid sampled private-state metadata",
-            ));
-        }
-        for (slot, value) in which.into_iter().zip(furiten) {
-            self.states[slot].reset_search_private(value);
-        }
-        Ok(())
-    }
-
-    /// Match derived private fields and action features to the sampled engine.
-    fn synchronize_search_decisions(
-        &mut self,
-        which: Vec<usize>,
-        masks: Vec<Vec<bool>>,
-        furiten: Vec<bool>,
-        drawn: Vec<Option<String>>,
-    ) -> PyResult<()> {
-        if [masks.len(), furiten.len(), drawn.len()]
-            .iter()
-            .any(|&n| n != which.len())
-        {
-            return Err(PyValueError::new_err(
-                "search decision metadata lengths disagree",
-            ));
-        }
-        // Validate and stage all copies before mutating any caller-visible state.
-        let mut staged = Vec::with_capacity(which.len());
-        let mut seen = std::collections::HashSet::new();
-        for (at, &slot) in which.iter().enumerate() {
-            if !seen.insert(slot) {
-                return Err(PyValueError::new_err("duplicate search slot"));
-            }
-            let mut state = self
-                .states
-                .get(slot)
-                .ok_or_else(|| PyValueError::new_err("unknown search slot"))?
-                .clone();
-            let tile = drawn[at]
-                .as_ref()
-                .map(|name| name.parse::<Tile>())
-                .transpose()
-                .map_err(|_| PyValueError::new_err("invalid sampled drawn tile"))?;
-            state
-                .synchronize_search_decision(&masks[at], furiten[at], tile)
-                .map_err(|error| PyValueError::new_err(error.to_string()))?;
-            staged.push((slot, state));
-        }
-        for (slot, state) in staged {
-            self.states[slot] = state;
-        }
-        Ok(())
-    }
-
-    /// Copies of the named slots, as a new set: what a question asked
-    /// ahead of the table -- which tile a reach throws -- is put to, so the
-    /// slot itself is not told a reach the search may decide against.
-    fn clone_some(&self, which: Vec<usize>) -> PyResult<Self> {
-        let mut states = Vec::with_capacity(which.len());
-        for slot in which {
-            let Some(state) = self.states.get(slot) else {
-                return Err(PyValueError::new_err(format!("no slot {slot}")));
-            };
-            states.push(state.clone());
-        }
-        Ok(Self {
-            states,
-            version: self.version,
-        })
-    }
-
-    /// The named slots' observations, in the order named, kept sparse in
-    /// the same layout [`Follower::encode`] uses.
-    #[allow(clippy::type_complexity)]
-    fn encode_some<'py>(
-        &self,
-        py: Python<'py>,
-        which: Vec<usize>,
-    ) -> PyResult<(
-        Bound<'py, PyArray1<i32>>,
-        Bound<'py, PyArray1<u16>>,
-        Bound<'py, PyArray1<f32>>,
-        Bound<'py, PyArray2<bool>>,
-    )> {
-        for &slot in &which {
-            if slot >= self.states.len() {
-                return Err(PyValueError::new_err(format!("no slot {slot}")));
-            }
-        }
-        let version = self.version;
-        let states = &self.states;
-        let rows: Vec<Sparse> = py.detach(|| {
-            which
-                .par_iter()
-                .map(|&slot| {
-                    let (obs, mask) = states[slot].encode_obs(version, false);
-                    let mut indices = Vec::with_capacity(2048);
-                    let mut values = Vec::with_capacity(2048);
-                    for (index, &value) in obs.iter().enumerate() {
-                        if value != 0. {
-                            indices.push(index as u16);
-                            values.push(value);
-                        }
-                    }
-                    Sparse {
-                        indices,
-                        values,
-                        mask: mask.to_vec(),
-                    }
-                })
-                .collect()
-        });
-        pack(py, rows)
-    }
-
-    /// Every slot's observation, in slot order, kept sparse in the same
-    /// layout [`Follower::encode`] uses.
-    #[allow(clippy::type_complexity)]
-    fn encode<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> PyResult<(
-        Bound<'py, PyArray1<i32>>,
-        Bound<'py, PyArray1<u16>>,
-        Bound<'py, PyArray1<f32>>,
-        Bound<'py, PyArray2<bool>>,
-    )> {
-        let version = self.version;
-        let rows: Vec<Sparse> = py.detach(|| {
-            self.states
-                .par_iter()
-                .map(|state| {
-                    let (obs, mask) = state.encode_obs(version, false);
-                    let mut indices = Vec::with_capacity(2048);
-                    let mut values = Vec::with_capacity(2048);
-                    for (index, &value) in obs.iter().enumerate() {
-                        if value != 0. {
-                            indices.push(index as u16);
-                            values.push(value);
-                        }
-                    }
-                    Sparse {
-                        indices,
-                        values,
-                        mask: mask.to_vec(),
-                    }
-                })
-                .collect()
-        });
-        pack(py, rows)
-    }
-}
-
 /// The sparse batch as Python reads it: `indptr` of length rows plus one,
 /// the flat `indices` and `values` between consecutive entries, and the
 /// rows' masks, dense.
@@ -627,6 +276,5 @@ pub(crate) fn register_module(
 ) -> PyResult<()> {
     let m = PyModule::new(py, "follow")?;
     m.add_class::<Follower>()?;
-    m.add_class::<Imagined>()?;
     add_submodule(py, prefix, super_mod, &m)
 }
