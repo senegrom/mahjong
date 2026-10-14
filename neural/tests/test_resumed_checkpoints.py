@@ -130,6 +130,16 @@ class Recorded(torch.optim.AdamW):
         Recorded.built.append(self)
 
 
+class Fused(Recorded):
+    """AdamW, kept as `Recorded` keeps it, with the kernel every trainer
+    builds on the card, fused, here on the processor, which runs it too:
+    the kernel fusion-long's checkpoints were saved by and its relaunch
+    restores them into."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **{**kwargs, "fused": True})
+
+
 def held_by(optimiser) -> tuple[list[dict], list]:
     """Every group's settings, and every parameter's state in order, copied."""
     groups = [{key: value for key, value in group.items() if key != "params"}
@@ -288,16 +298,31 @@ class ResumeTests(unittest.TestCase):
         played is what the code before `ppo_loop.restore_optimiser`
         restored: every setting of every group as the checkpoint saved it
         but the rates, which are the watcher's, and every moment and step
-        count as saved. The checkpoints the run writes on the card are
-        fused and decay as the code builds them, so restoring the kernel
-        and the decay from the code changes nothing there either."""
+        count as saved.
+
+        Once with the processor's kernel and once with the card's, fused,
+        which wrote fusion-long's checkpoints and is what its relaunch
+        builds: there the helper also places each step count where a fused
+        update reads it, which loading such a checkpoint has done already.
+        The checkpoints the run writes decay as the code builds them, so
+        restoring the kernel and the decay from the code changes nothing
+        with either."""
+        for kernel in (Recorded, Fused):
+            with self.subTest(fused=kernel is Fused):
+                self.relaunch(kernel)
+
+    def relaunch(self, kernel: type[Recorded]) -> None:
+        """fusion-long relaunched as its watcher relaunches it (see the
+        test above), its optimisers, the run's and the relaunch's, built by
+        `kernel`."""
         app = controller()
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             volume = root / "volume"
             torch.manual_seed(9)
             # The run as this trainer leaves it, and the others it seats.
-            run(train_combined, root / "start", flags(train_combined, root, resume=False))
+            with patch.object(torch.optim, "AdamW", kernel):
+                run(train_combined, root / "start", flags(train_combined, root, resume=False))
             (volume / "fusion-long").mkdir(parents=True)
             (root / "start" / "latest.pt").replace(volume / "fusion-long" / "latest.pt")
             (volume / "zoo").mkdir()
@@ -327,7 +352,7 @@ class ResumeTests(unittest.TestCase):
                 # One generation, of whole minibatches of the fake round.
                 argv[argv.index("--rounds") + 1] = "1"
                 argv[argv.index("--batch") + 1] = "4"
-                with patch.object(sys, "argv", argv), patch.object(torch.optim, "AdamW", Recorded), \
+                with patch.object(sys, "argv", argv), patch.object(torch.optim, "AdamW", kernel), \
                         patch.object(torch, "compile", lambda forward, **_options: forward), \
                         compiler_settings_kept(), \
                         faked(train_combined, lambda: taken.append(held_by(Recorded.built[-1])),
@@ -351,6 +376,7 @@ class ResumeTests(unittest.TestCase):
         rates = (LIVE["lr"], LIVE["lr_ours"], LIVE["lr_mortal"])
         self.assertEqual(groups, [{**group, "lr": rate} for group, rate in zip(saved[0], rates)])
         self.assertEqual([group["weight_decay"] for group in groups], [1e-4, 1e-4, 0.01])
+        self.assertEqual([group["fused"] for group in groups], [kernel is Fused] * 3)
         self.assertSameStates(states, saved[1])
 
 
