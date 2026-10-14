@@ -172,7 +172,7 @@
   <div class="buttons">
     {#if finalHand}<span class="final-caption">Final hand</span>
     {:else}<button disabled={busy} class="primary" onclick={onnext}>Next hand</button>{/if}
-    {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{finalHand ? 'Review final hand' : 'View table / my hand'}</button>{/if}
+    {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{#if finalHand}Review <span class="qualifier">final</span> hand{:else}View table / my hand{/if}</button>{/if}
     {#if onlog}<button class="quiet" onclick={onlog} title="The hand as an mjai event log, which replayers and other riichi programs read">Save <span class="qualifier">{finalHand ? 'final' : 'this'}</span> hand</button>{/if}
     <!-- At the end the standings offer the whole game, its review and its
          file, close and all. On a phone this sheet covers them, so it offers
@@ -305,11 +305,12 @@
     .buttons .primary { flex: 1 1 145px; }
     @keyframes result-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
   }
-  /* On a phone the saves read "Save hand" and "Save game", and the game's
-     review "Review game": the full labels take a fourth row of buttons over
-     the result, and how soon depends on the phone's fonts, so the short ones
-     start well before the narrowest screens. */
-  @media (max-width: 420px) {
+  /* On a phone the final hand's buttons read "Review hand", "Save hand",
+     "Review game" and "Save game", and the other hands' saves "Save hand"
+     and "Save game". The full labels take a third row of buttons over the
+     result even on the largest phones, and a fourth on the narrowest, as the
+     phone's fonts allow, so the short ones start above the largest phones. */
+  @media (max-width: 480px) {
     .buttons button { padding-inline: 12px; }
     .qualifier, .so-far, .whole { display: none; }
   }

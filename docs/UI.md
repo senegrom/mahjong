@@ -168,9 +168,13 @@ AI, and leads with the few where the player's move departed furthest from its
 choice. The hand review reviews one hand and is gone at the next deal; this one
 is rebuilt for the whole game. On a phone the final hand's result is a sheet
 over the standings, so the sheet offers the review too, as it offers the
-game's file (**Review game** and **Save game** on the narrowest screens), and
-steps aside for it as it does for the hand's review: **Back to the standings**
-then lands on the standings, with focus on their own **Review whole game**.
+game's file, and steps aside for it as it does for the hand's review: **Back
+to the standings** then lands on the standings, with focus on their own
+**Review whole game**. Up to 480 pixels wide the sheet's buttons take their
+short labels, **Review hand**, **Save hand**, **Review game** and **Save
+game**. Measured in Chromium, they then take two rows over the result from
+360 pixels up with Windows' fonts and from 390 with one as wide as Verdana,
+and three on narrower screens.
 
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the

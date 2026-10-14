@@ -266,7 +266,9 @@ test("the final result offers the whole game's review, which the standings it co
   // Shown on a phone only, beside the game's file, and "Review game" where
   // the labels are short.
   assert.match(final, /<button class="quiet whole-game[^"]*" data-review-game[^>]*>Review <span class="whole[^"]*">whole<\/span> game<\/button>/);
-  assert.ok(final.indexOf('Review final hand') < final.indexOf('data-review-game'), "the hand's review stays first");
+  // The hand's review stays first, "Review hand" where the labels are short.
+  assert.match(final, /<button class="quiet[^"]*">(<!--[^>]*-->)?Review <span class="qualifier[^"]*">final<\/span> hand(<!--[^>]*-->)?<\/button>/);
+  assert.ok(final.indexOf('>Review <span class="qualifier') < final.indexOf('data-review-game'), "the hand's review stays first");
   // Not before the last hand, and not in Watch, which reviews no game.
   assert.doesNotMatch(await sheet(draw, { onreview() {}, ongamereview: () => true }), /data-review-game/);
   assert.doesNotMatch(await sheet(draw, { finalHand: true, onreview() {}, ongame() {} }), /data-review-game/);
