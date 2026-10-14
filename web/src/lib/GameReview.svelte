@@ -28,11 +28,35 @@
   let everyFlag = $state(false);
   let heading = $state(null);
   let list = $state(null);
+  let controls = $state(null);
+  let handList = $state(null);
+  let flagsHeading = $state(null);
 
   $effect(() => {
     const owner = review;
     owner.onChange = () => { version++; };
     return () => { owner.onChange = () => {}; };
+  });
+
+  // The review's buttons change under the player's hand: Continue becomes
+  // Stop and Stop Continue, a slow device's hold offers the next hand, and a
+  // hand's own button goes once that hand is under review. Focus that would
+  // drop to the page goes where the button was instead: to the controls the
+  // review has now, or to the list of hands; and when nothing is left to
+  // press, to the flagged decisions.
+  let focusWas = null;
+  $effect.pre(() => {
+    void status;
+    const active = document.activeElement;
+    focusWas = controls?.contains(active) ? 'controls' : handList?.contains(active) ? 'hands' : null;
+  });
+  $effect(() => {
+    void status;
+    const was = focusWas;
+    focusWas = null;
+    const active = document.activeElement;
+    if (!was || (active && active !== document.body && active.isConnected)) return;
+    (was === 'hands' ? handList?.querySelector('summary') : controls?.querySelector('button') ?? flagsHeading)?.focus();
   });
 
   // Opening the review asks for it, once Trained AI can be reached; after
@@ -92,9 +116,13 @@
   let detail = $derived(status.complete || !total ? ''
     : `${done} of ${total} decisions${status.estimate ? ` · the rest would take about ${duration(status.estimate)}` : ''}${status.busy && download ? ` · ${download}` : ''}`);
 
+  // Back to the decision opened. Wider gaps found by the review meanwhile can
+  // have moved it out of the leading few, so then every flag is shown, and
+  // the player comes back to it all the same.
   async function closeDecision() {
     const opener = opened && key(opened);
     opened = null;
+    if (opener && !shown.some(decision => key(decision) === opener)) everyFlag = true;
     await tick();
     list?.querySelector(`[data-open="${opener}"]`)?.focus();
   }
@@ -119,7 +147,7 @@
       <p class="headline" role="status">{headline}</p>
       {#if detail}<p class="detail">{detail}</p>{/if}
       {#if status.busy || (done && !status.complete)}<progress max={total} value={done} aria-label="Decisions reviewed"></progress>{/if}
-      <div class="controls">
+      <div class="controls" bind:this={controls}>
         {#if status.busy}
           <button class="app-control" data-stop-review onclick={() => review.stop()}>Stop</button>
         {:else if !status.complete && trainedAvailable}
@@ -138,7 +166,7 @@
       <ReviewTrend {figure} complete={status.complete} games={trend} current={review.id} />
     {/if}
 
-    <h3>Where you departed most from Trained AI</h3>
+    <h3 tabindex="-1" bind:this={flagsHeading}>Where you departed most from Trained AI</h3>
     {#if shown.length}
       <ol class="flagged" bind:this={list}>
         {#each shown as decision (key(decision))}
@@ -161,12 +189,12 @@
       <p class="empty">{reviewed ? 'None in the hands reviewed so far.' : 'They appear here as each hand is reviewed.'}</p>
     {/if}
 
-    <details class="hands" open={status.slow && !status.complete}>
+    <details class="hands" open={status.slow && !status.complete} bind:this={handList}>
       <summary>Hands · {reviewed} of {status.hands.length} reviewed</summary>
       <ol>
         {#each status.hands as hand (hand.index)}
           <li>
-            <span class="name">{hand.name}{hand.counters ? ` · ${hand.counters} honba` : ''}</span>
+            <span class="name">{hand.name}</span>
             <span class="outcome">{hand.outcome}{hand.change ? ` · you ${hand.change > 0 ? '+' : '−'}${Math.abs(hand.change).toLocaleString()}` : ''}</span>
             <span class="state">{handState(hand)}</span>
             {#if hand.status === 'waiting' && hand.frames.length && trainedAvailable}
@@ -184,8 +212,8 @@
   .game-review { display: grid; gap: 12px; min-width: 0; padding: 14px; border-radius: 14px; background: rgba(0, 0, 0, .28); border: 1px solid rgba(216, 161, 42, .4); }
   header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
   h2 { margin: 0; font-size: 1.15rem; font-weight: 600; }
-  h2:focus { outline: none; }
-  h2:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  h2:focus, h3:focus { outline: none; }
+  h2:focus-visible, h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   h3 { margin: 6px 0 0; font-size: 1rem; font-weight: 600; }
   p { margin: 0; }
   .intro { font-size: .84rem; opacity: .85; max-width: 70ch; }
@@ -215,6 +243,6 @@
   /* Where the game's bar stays at the top of the screen (AppSettings), a
      heading scrolled to must land below it, not under it. */
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
-    h2 { scroll-margin-top: 72px; }
+    h2, h3 { scroll-margin-top: 72px; }
   }
 </style>

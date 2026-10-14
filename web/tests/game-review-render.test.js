@@ -63,6 +63,14 @@ test('a review under way leads with the flagged decisions found so far, and hide
   assert.match(html.replace(/<[^>]*>/g, ''), /50% so far/, 'a space between the figure and its note');
 });
 
+test('a repeated hand goes by its name with its honba wherever the review names it', () => {
+  const repeat = hand(1, { name: 'East 1 · 1 honba', counters: 1, status: 'done', decisions: [decision({ hand: 1 })] });
+  const html = page({ review: review({ hands: [hand(0), repeat, hand(2)] }) });
+  assert.match(html, /East 1 · 1 honba · your decision 1/);
+  assert.match(html, /aria-label="Replay and choose again: East 1 · 1 honba, your decision 1"/);
+  assert.match(html, /<span class="name[^"]*">East 1 · 1 honba<\/span>/, 'the list of hands does not add the honba again');
+});
+
 test('a flagged riichi tile says it is judged as the tile once riichi was declared', () => {
   const riichi = decision({ played_kind: 'riichi', advised_kind: 'riichi', played: 'declares riichi on the 7 characters',
     judgement: { stage: 'tile', played: 0.01, preferred: 0.9, gap: 0.89, flagged: true } });

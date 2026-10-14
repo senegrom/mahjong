@@ -183,7 +183,13 @@ try {
     await page.waitForSelector('[data-game-review]');
     await page.waitForFunction(() => document.activeElement?.id === 'game-review-title'); // The review takes focus.
     assert.equal(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none', 'the table steps aside');
+    // Waiting on Stop: when the review ends, the button goes, and focus moves
+    // on to the flagged decisions rather than to the page.
+    await page.waitForSelector('[data-game-review] [data-stop-review]');
+    await page.focus('[data-game-review] [data-stop-review]');
     await reviewed(page);
+    await page.waitForFunction(() => document.activeElement?.matches('[data-game-review] h3'), { timeout: 5000 });
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Where you departed most from Trained AI');
 
     // Every batch, in the order the review asks: a hand at a time, eight
     // decisions a group, forced moves unasked, then each group's declarations.
@@ -372,6 +378,30 @@ try {
     assert.notEqual(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none');
     const { _storage, ...kept } = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
     assert.deepEqual(kept, snapshot, 'the save is unchanged');
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("the review's own buttons hand focus on as they change, by keyboard", async () => {
+    const page = await openPage(1100, 900);
+    await page.click('.standings [data-review-game]');
+    const focused = selector => page.waitForFunction(selector => document.activeElement?.matches(selector), { timeout: 15000 }, selector);
+    // Stop becomes Continue, and Continue Stop, under the player's hand.
+    await page.waitForSelector('[data-game-review] [data-stop-review]');
+    await page.focus('[data-game-review] [data-stop-review]');
+    await page.keyboard.press('Enter');
+    await focused('[data-game-review] [data-continue]');
+    await page.keyboard.press('Enter');
+    await focused('[data-game-review] [data-stop-review]');
+    await page.keyboard.press('Enter');
+    await focused('[data-game-review] [data-continue]');
+    // A hand reviewed on its own loses its button once it is under review;
+    // focus stays with the list of hands.
+    await page.focus('[data-game-review] .hands summary');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-game-review] [data-review-hand]');
+    await page.focus('[data-game-review] [data-review-hand]');
+    await page.keyboard.press('Enter');
+    await focused('[data-game-review] .hands summary');
     assert.deepEqual(page.errors, []);
   });
 

@@ -191,8 +191,9 @@ otherwise the move itself is compared, the declaration carrying its
 declaration weight. Flagged decisions are ranked by the gap between the two
 weights, widest first, and equal gaps in the order they were played. The first
 five are listed, the rest behind **Show all**. The list says where each one was
-and the weights of the player's move and of Trained AI's own choice, but not
-what that choice was.
+(the hand, with its honba where the hand repeats one, so no two hands share a
+name, and the player's decision number) and the weights of the player's move
+and of Trained AI's own choice, but not what that choice was.
 
 **Replay and choose again.** A flagged decision opens at the position it was
 made from: the table as it stood, the player's hand, and what happened since
@@ -231,7 +232,11 @@ with its progress and an estimate of the time left, goes on while its screen
 is closed, and stops at **Stop** or when the player leaves Play. A device that
 takes over half a second a position holds after each hand and offers the next
 hand or the rest of the game; any hand can also be reviewed alone from the
-list of hands. The review needs the network: while it cannot be reached the
+list of hands. These buttons replace one another as the review goes, so focus
+is handed on rather than dropped: from **Stop** to **Continue the review** and
+back, from a hand's own button to the list of hands once that hand is under
+review, and to the flagged decisions when nothing is left to press. The
+review needs the network: while it cannot be reached the
 screen says so and waits.
 
 ## Verification

@@ -91,6 +91,16 @@ test('a finished match replays hand by hand, with the table at every decision an
   assert.throws(() => scanMatch(Game, { ...game, commands: game.commands.slice(0, -1) }), /could not be replayed/);
 });
 
+test('every hand of a game has a name of its own, a repeated hand told apart by its honba', () => {
+  assert.equal(handName({ round: 'east', kyoku: 1, counters: 0 }), 'East 1');
+  assert.equal(handName({ round: 'south', kyoku: 3, counters: 2 }), 'South 3 · 2 honba');
+  // A game in which East 2 comes back, with one honba and then two.
+  const names = scanMatch(Game, finishedGame(5)).map(hand => hand.name);
+  const bare = names.map(name => name.replace(/ · \d+ honba$/, ''));
+  assert.ok(new Set(bare).size < bare.length, `a round and number come back: ${names.join(', ')}`);
+  assert.equal(new Set(names).size, names.length, names.join(', '));
+});
+
 test('a decision is flagged only where the player had under 5% and the network at least 60%, riichi in two stages', () => {
   const row = values => ({ agreed: false, forced: false, played_kind: 'discard', advised_kind: 'discard',
     played_weight: 0.01, preferred_weight: 0.8, played_conditional_weight: null, preferred_conditional_weight: null, ...values });

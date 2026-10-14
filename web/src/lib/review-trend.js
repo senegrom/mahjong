@@ -31,15 +31,9 @@ export function recordTrend(storage, game) {
   return games;
 }
 
-/** The share of matched decisions over the last `TREND_WINDOW` games, and over
- * the ones before them where there are as many, decision-weighted, so a short
- * game counts for what it held. */
-export function trendSummary(games) {
-  const share = list => {
-    const decisions = list.reduce((sum, game) => sum + game.decisions, 0);
-    return decisions ? list.reduce((sum, game) => sum + game.matched, 0) / decisions : null;
-  };
-  const recent = games.slice(-TREND_WINDOW), earlier = games.slice(-2 * TREND_WINDOW, -TREND_WINDOW);
-  return { games: games.length, recent: share(recent), recentGames: recent.length,
-    earlier: earlier.length === TREND_WINDOW ? share(earlier) : null };
+/** The share of decisions matched over these games, decision-weighted, so a
+ * short game counts for what it held; null for no decisions at all. */
+export function matchedShare(games) {
+  const decisions = games.reduce((sum, game) => sum + game.decisions, 0);
+  return decisions ? games.reduce((sum, game) => sum + game.matched, 0) / decisions : null;
 }

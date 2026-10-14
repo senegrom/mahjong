@@ -1,5 +1,5 @@
 <script>
-  import { TREND_WINDOW } from './review-trend.js';
+  import { TREND_WINDOW, matchedShare } from './review-trend.js';
 
   /**
    * How much of this game matched Trained AI, against the games reviewed
@@ -14,14 +14,10 @@
   const WIDTH = 240, HEIGHT = 56, MARGIN = 7;
 
   const percent = share => `${Math.round(share * 100)}%`;
-  const shareOf = list => {
-    const decisions = list.reduce((sum, game) => sum + game.decisions, 0);
-    return decisions ? list.reduce((sum, game) => sum + game.matched, 0) / decisions : null;
-  };
   const when = at => new Date(at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
   let earlier = $derived(games.filter(game => game.id !== current).slice(-TREND_WINDOW));
-  let earlierShare = $derived(shareOf(earlier));
+  let earlierShare = $derived(matchedShare(earlier));
   let change = $derived(complete && figure.share != null && earlierShare != null
     ? Math.round(figure.share * 100) - Math.round(earlierShare * 100) : null);
   let shown = $derived(games.slice(-SHOWN));

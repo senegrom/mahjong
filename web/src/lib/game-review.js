@@ -31,8 +31,10 @@ export const BATCH = 8;
  * of 150 to 200 decisions takes 75 to 100 seconds. */
 export const SLOW_MS = 500;
 
-/** "East 1" or "South 3". */
-export const handName = view => `${SEAT_NAMES[view.round] ?? view.round} ${view.kyoku}`;
+/** "East 1" or "South 3", and "East 1 · 1 honba" for a hand that repeats one:
+ * a round and number come back only with another honba, so every hand of a
+ * game has a name of its own. */
+export const handName = view => `${SEAT_NAMES[view.round] ?? view.round} ${view.kyoku}${view.counters ? ` · ${view.counters} honba` : ''}`;
 
 /** Every hand of a finished match, replayed from its first deal: the table at
  * each of the player's decisions, what they chose there, and what happened

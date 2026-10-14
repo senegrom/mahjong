@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TREND_GAMES, TREND_KEY, TREND_WINDOW, readTrend, recordTrend, trendSummary } from '../src/lib/review-trend.js';
+import { TREND_GAMES, TREND_KEY, matchedShare, readTrend, recordTrend } from '../src/lib/review-trend.js';
 
 const storage = (initial = {}) => {
   const values = new Map(Object.entries(initial));
@@ -37,13 +37,8 @@ test('each reviewed game is entered once, the newest last, and only the last fif
   assert.deepEqual(recordTrend(refusing, { id: 'bad' }), []);
 });
 
-test('the trend averages the last ten games by decision, beside the ten before them', () => {
-  assert.deepEqual(trendSummary([]), { games: 0, recent: null, recentGames: 0, earlier: null });
-  // A short game counts for the decisions it held.
-  const two = trendSummary([game('a', 10, 20), game('b', 90, 100)]);
-  assert.equal(two.recent, 100 / 120);
-  assert.equal(two.earlier, null, 'no earlier window without ten games in it');
-  const games = [...Array.from({ length: TREND_WINDOW }, (_, i) => game(`old${i}`, 50)),
-    ...Array.from({ length: TREND_WINDOW }, (_, i) => game(`new${i}`, 70))];
-  assert.deepEqual(trendSummary(games), { games: 2 * TREND_WINDOW, recent: 0.7, recentGames: TREND_WINDOW, earlier: 0.5 });
+test('games are averaged by decision, so a short game counts for what it held', () => {
+  assert.equal(matchedShare([]), null);
+  assert.equal(matchedShare([game('a', 10, 20), game('b', 90, 100)]), 100 / 120);
+  assert.equal(matchedShare([game('a', 0, 4)]), 0);
 });
