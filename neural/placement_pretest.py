@@ -88,7 +88,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--value-warm-up-lr", type=float, default=1e-4,
                         help="the critic's rate as the fork's warm-up teaches it")
     parser.add_argument("--probes", type=int, default=20000, help="hesitant positions to read flips on")
-    parser.add_argument("--probe-games", type=int, default=256, help="games a greedy round of the probes plays")
+    parser.add_argument("--probe-games", type=int, default=1024,
+                        help="games a greedy round of the probes plays at once: a step's cost hardly "
+                        "grows with its rows, so large tables are what make the probes cheap")
     parser.add_argument("--probe-rounds", type=int, default=16, help="the most greedy rounds played for probes")
     parser.add_argument("--probe-opponent", type=Path, default=None,
                         help="the published Mortal the probes' greedy rounds seat three of; the first "
@@ -378,7 +380,10 @@ def probes(net, args, device: str) -> tuple[Planes, torch.Tensor, int]:
         raise SystemExit("name the published Mortal the probes are played against (--probe-opponent)")
     mortal = zoo.play_in_bfloat16(zoo.load_player(opponent, device), device)
     amp = args.amp and device == "cuda"
-    learner = Hesitation(net, device, amp, args.top)
+    # Asked as the trainer's player is asked, its weights cast to bfloat16
+    # once rather than at every step (see `policy_inference.precast`).
+    player = policy_inference.precast(copy.deepcopy(net)).requires_grad_(False) if amp else net
+    learner = Hesitation(player, device, amp, args.top)
     played = 0
     for index in range(args.probe_rounds):
         if learner.count >= args.probes:
@@ -389,6 +394,7 @@ def probes(net, args, device: str) -> tuple[Planes, torch.Tensor, int]:
     planes = Planes.cat(learner.planes)
     masks = torch.from_numpy(np.concatenate(learner.masks)) if learner.masks else torch.zeros(0, 46, dtype=torch.bool)
     keep = min(len(planes), args.probes)
+    del player, learner, mortal
     return planes.slice(0, keep), masks[:keep], played
 
 

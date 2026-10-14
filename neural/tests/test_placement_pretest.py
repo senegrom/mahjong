@@ -54,6 +54,55 @@ class Measures(unittest.TestCase):
         self.assertEqual(nothing["cosine"]["why"], "today's return agrees no better than chance")
 
 
+class Gradients(unittest.TestCase):
+    """The halves' gradients read agreement where there is some and none
+    where there is none: advantages that favour the same moves everywhere
+    give two halves of the decisions steps that point the same way, and the
+    same advantages shuffled among the decisions give steps that do not."""
+
+    def test_a_planted_signal_agrees_with_itself_and_its_shuffle_does_not(self):
+        from types import SimpleNamespace
+
+        from neural import combined
+        from neural.observe import PLANES, POSITIONS, Planes
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            root = Path(folder)
+            torch.manual_seed(17)
+            options = flags(train_combined, root, resume=False)
+            net = combined.build(options[1], options[3], "cpu").eval()
+        rng = np.random.default_rng(3)
+        n, per_row = 768, 300
+        indices = np.sort(rng.choice(PLANES * POSITIONS, size=(n, per_row)), axis=1).astype(np.uint16)
+        planes = Planes(np.arange(n + 1, dtype=np.int64) * per_row, indices.reshape(-1),
+                        rng.random(n * per_row).astype(np.float16))
+        legal = torch.ones(n, 46, dtype=torch.bool)
+        with torch.no_grad():
+            logits = net.everything(planes.dense("cpu"), legal)[0]
+        actions = torch.distributions.Categorical(logits=logits).sample()
+        rollout = SimpleNamespace(observations=planes, legal=legal, actions=actions, decisions=n)
+        favoured = (actions < 23).float()
+        signal = (favoured - favoured.mean()) / favoured.std()
+        shuffled = signal[torch.from_numpy(rng.permutation(n))]
+        half = torch.from_numpy(rng.permutation(n) < n // 2)
+        weights = torch.stack([signal, signal * half, shuffled, shuffled * half])
+        sums, how = placement_pretest.head_gradients(
+            net, rollout, weights, SimpleNamespace(amp=False, chunk=128), "cpu")
+        self.assertIn(how, ("batched", "one at a time"))
+
+        def agreement(whole, first):
+            return placement_pretest.cosine(sums[first], sums[whole] - sums[first])
+
+        planted, chance = agreement(0, 1), agreement(2, 3)
+        self.assertGreater(planted, 0.3)
+        self.assertLess(abs(chance), planted / 3)
+        # The sums are linear in the weights: one call of each half alone
+        # gives the halves the whole's sum splits into.
+        alone, _how = placement_pretest.head_gradients(
+            net, rollout, torch.stack([signal * ~half]), SimpleNamespace(amp=False, chunk=128), "cpu")
+        torch.testing.assert_close(alone[0], sums[0] - sums[1], rtol=1e-4, atol=1e-6)
+
+
 class SmallRun(unittest.TestCase):
     """The whole pre-test on tiny networks and a few games: it plays, fits
     U, pays three ways, teaches the critics, takes the gradients and reads

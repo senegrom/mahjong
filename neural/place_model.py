@@ -216,13 +216,27 @@ class PlaceModel(nn.Module):
         return cls.from_state(torch.load(Path(path), map_location="cpu", weights_only=True))
 
 
+def centred(answers: np.ndarray) -> np.ndarray:
+    """U's answers for the four views of each scoreboard, four rows a hand
+    in player order as `Boundaries` and `expected_at_starts` lay them out,
+    less their mean. The four bonuses of a game always add up to nought,
+    so their expectations do too; U reads each view apart and need not
+    know it, and taking out the mean only brings its answers closer."""
+    answers = np.asarray(answers, dtype=np.float64)
+    if answers.size % 4:
+        raise ValueError("U's answers come four to a scoreboard")
+    grouped = answers.reshape(-1, 4)
+    return (grouped - grouped.mean(axis=1, keepdims=True)).reshape(answers.shape)
+
+
 def expected_at_starts(ledger: Ledger, model: PlaceModel) -> np.ndarray:
-    """U at the start of every hand of the round from each player's view:
-    (hands, 4), a row of `ledger.starts` and a column a player."""
+    """U at the start of every hand of the round from each player's view,
+    the four views centred (see `centred`): (hands, 4), a row of
+    `ledger.starts` and a column a player."""
     hands = len(ledger.starts)
     rows = np.repeat(np.arange(hands), 4)
     players = np.tile(np.arange(4), hands)
-    return model.expected(inputs(ledger, model.members, rows, players)).reshape(hands, 4)
+    return centred(model.expected(inputs(ledger, model.members, rows, players)).reshape(hands, 4))
 
 
 def bonuses(ledger: Ledger) -> np.ndarray:
@@ -511,8 +525,9 @@ def calibration(
 def cross_fitted(table: Boundaries, members: Sequence[str], folds: int = 8, seed: int = 0,
                  device: str = "cpu", **options) -> tuple[np.ndarray, np.ndarray]:
     """U's answer for every row of `table` from a model fitted without that
-    row's game, `folds` models in all, and each row's fold. Every game is
-    held out once, so the whole table can be read for calibration."""
+    row's game, `folds` models in all, the four views of each scoreboard
+    centred (see `centred`), and each row's fold. Every game is held out
+    once, so the whole table can be read for calibration."""
     fold = game_folds(table.games, folds, seed)
     answers = np.empty(len(table), dtype=np.float64)
     for which in range(folds):
@@ -521,7 +536,7 @@ def cross_fitted(table: Boundaries, members: Sequence[str], folds: int = 8, seed
             continue
         model = fit(table.take(~held), members, seed=seed + which, device=device, **options)
         answers[held] = model.expected(table.x[held])
-    return answers, fold
+    return centred(answers), fold
 
 
 class PlacementRun:
@@ -612,7 +627,8 @@ class PlacementRun:
         kept_out = table.take(held)
         old = cross_entropy(self.reward.model.cpu(), kept_out)
         new = cross_entropy(model, kept_out)
-        report = calibration(model.expected(kept_out.x), kept_out.bonus, kept_out.stages, kept_out.games)
+        report = calibration(centred(model.expected(kept_out.x)), kept_out.bonus, kept_out.stages,
+                             kept_out.games)
         adopted = new <= old
         summary = {
             "generation": generation + 1,
@@ -670,7 +686,7 @@ def main() -> None:
     else:
         model = PlaceModel.load(args.model)
         table = Boundaries.cat([Boundaries.of(ledger, model.members, tag) for tag, ledger in enumerate(ledgers)])
-        report = calibration(model.expected(table.x), table.bonus, table.stages, table.games)
+        report = calibration(centred(model.expected(table.x)), table.bonus, table.stages, table.games)
     print(json.dumps(report, indent=1))
 
 
