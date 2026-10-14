@@ -237,7 +237,7 @@ class Graphed:
         self.places = []
 
 
-def graphed(player, device: str | torch.device, amp: bool):
+def graphed(player, device: str | torch.device, amp: bool, rows: tuple[int, ...] = ROWS):
     """`player`, the forward it decides with answered from CUDA graphs
     (see `Graphed`) when it plays on the card in bfloat16: a joined
     player's (`Combined.deciding`), or a seated Mortal's or one of ours's
@@ -247,7 +247,9 @@ def graphed(player, device: str | torch.device, amp: bool):
     `policy_inference.autocast`); one asked in float32 is left as it is,
     as are one of ours over the engine's seventy-eight moves and the
     heuristic player, which has no network. For a player whose forward
-    runs eagerly: a compiled one is not recorded.
+    runs eagerly: a compiled one is not recorded. `rows` are the sizes
+    recorded; a ruler that asks every question at one size records that
+    one (see `neural.ruler`).
 
     Every size is recorded here, before play begins and while nothing else
     uses the card, so that no graph is recorded beside the learning (see
@@ -255,9 +257,9 @@ def graphed(player, device: str | torch.device, amp: bool):
     if torch.device(device).type != "cuda" or not amp:
         return player
     if hasattr(player, "deciding"):
-        player.deciding = forward = Graphed(player.decision, player)
+        player.deciding = forward = Graphed(player.decision, player, rows)
     elif isinstance(getattr(player, "net", None), nn.Module) and hasattr(player, "forward"):
-        player.forward = forward = Graphed(player.forward, player.net)
+        player.forward = forward = Graphed(player.forward, player.net, rows)
     else:
         return player
     forward.prepare(device)
