@@ -399,9 +399,13 @@ class Observer:
         self.arena = arena
         self.follower = Follower(games, VERSION)
 
-    def advance(self) -> None:
-        """Reads whatever happened since last time."""
-        self.follower.feed(self.arena.mjai_all())
+    def advance(self, starts=None) -> None:
+        """Reads whatever happened since last time, and hands the lines to
+        `starts` as well when given (see `scoreboard.HandStarts`)."""
+        lines = self.arena.mjai_all()
+        if starts is not None:
+            starts.read(lines)
+        self.follower.feed(lines)
 
 
 @functools.cache
@@ -448,15 +452,20 @@ class Views:
 
     ENGINE_PLANES = riichi_py.PLANES
 
-    def __init__(self, arena, games: int, kinds: set[str] | None = None) -> None:
+    def __init__(self, arena, games: int, kinds: set[str] | None = None, starts=None) -> None:
         self.arena = arena
         self.games = games
         kinds = set(kinds or {"mortal"})
         self.observer = Observer(arena, games) if "mortal" in kinds else None
-        if self.observer is None:
-            # Only the follower reads the arena's mjai log, and until it is
-            # read the arena holds every game's: some seventy kilobytes a
-            # game, tens of megabytes over an evaluation of an old network.
+        # Where each hand begins, read from the same events when a round
+        # keeps a ledger (see `scoreboard.HandStarts`); None otherwise.
+        self.starts = starts
+        if self.observer is None and starts is None:
+            # Only the follower and a round's ledger read the arena's mjai
+            # log, and until it is read the arena holds every game's: some
+            # seventy kilobytes a game, tens of megabytes over an evaluation
+            # of an old network. A ledger of a table nobody follows reads it
+            # every step (see `advance`), so it is never held for long.
             arena.forget_events()
         self._engine: np.ndarray | None = None
         # The step's encodings of deciding players, each one call of the
@@ -467,7 +476,11 @@ class Views:
         # Fed only once nothing is being encoded from it (see `prepare`).
         self.wait()
         if self.observer is not None:
-            self.observer.advance()
+            self.observer.advance(self.starts)
+        elif self.starts is not None:
+            # Nobody follows a table of the engine's planes, so its events
+            # are read here alone.
+            self.starts.read(self.arena.mjai_all())
         self._engine = None
         self._step = []
 

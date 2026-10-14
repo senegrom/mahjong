@@ -27,6 +27,7 @@ from . import zoo
 from .behavior import validate_exploration
 from .observe import Planes, Views
 from .outcomes import placement_rewards, placements, require_finished, validate_budget, win_shares
+from .scoreboard import HandStarts, Ledger
 
 POSITIONS = riichi_py.POSITIONS
 ACTIONS = riichi_py.ACTIONS
@@ -60,6 +61,16 @@ PLACEMENT_VALUE = tuple(riichi_py.PLACEMENT_VALUE)
 # something to learn from long before the game ends — but it means
 # training and evaluation are not measuring the same thing: `neural.duel`
 # and `measure` report placement alone.
+#
+# The placement reward (`settle_placement`, `train_combined --reward
+# placement`) measures what evaluation measures instead, hand by hand:
+#
+#     z = U(the next hand's starting scoreboard)  +  alpha x (points) / 4000
+#
+# where U is the expected final placement bonus read from the scoreboard
+# alone (see `place_model`), and after a game's last hand the bonus itself.
+# A decision is then credited with its own hand and none of the hands not
+# yet dealt.
 
 
 class Abandoned(RuntimeError):
@@ -192,6 +203,11 @@ class Batch:
     #: deciding, in the same order, when it was asked to keep them (see
     #: `combined.Combined.keep_phi`); None otherwise.
     phi: torch.Tensor | None = None
+    #: Which game, hand and player each decision belongs to, and the
+    #: scoreboard every hand began at, when the round was asked to keep
+    #: them (`play`'s `ledger`); None otherwise. What the placement reward
+    #: is settled from (see `settle_placement`).
+    ledger: Ledger | None = None
 
 
 def gather(blocks: list[np.ndarray] | list[torch.Tensor]) -> torch.Tensor:
@@ -232,6 +248,7 @@ def play(
     preview_reach: bool = False,
     own_draws: bool = False,
     abandon=None,
+    ledger: bool = False,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -281,6 +298,13 @@ def play(
     stops the round at the start of the next step once it is set, with
     `Abandoned`: a trainer whose learning failed need not wait for the
     round being played beside it to finish.
+
+    `ledger` keeps which game, hand and player each decision belongs to,
+    the scoreboard each hand began at, read from the start_kyoku events on
+    their way to the follower, and who sat where (`Batch.ledger`, see
+    `scoreboard.Ledger`): what the placement reward is settled from (see
+    `settle_placement`). It reads the events and nothing more, so the round
+    and its returns are the same with it or without it.
     """
     require_training_engine()
     validate_budget(games, max_steps)
@@ -349,7 +373,13 @@ def play(
     table_bots = [np.nonzero(row)[0].tolist() for row in np.isin(owner, club)] if club else None
     arena = riichi_py.Arena(games=games, seed=seed, bot_places=[], table_bots=table_bots)
     kinds = {net.kind} | {other.kind for other in opponents or [] if other.kind != "club"}
-    views = Views(arena, games, kinds)
+    # Where every hand began, and which hand, game and player each decision
+    # belongs to, a block a step, when the round keeps a ledger.
+    begun = HandStarts(games) if ledger else None
+    in_games: list[np.ndarray] = []
+    in_hands: list[np.ndarray] = []
+    by_players: list[np.ndarray] = []
+    views = Views(arena, games, kinds) if begun is None else Views(arena, games, kinds, starts=begun)
 
     # One block per step, holding the live games' rows in the order the
     # decisions are numbered below: a round is a few hundred blocks rather
@@ -602,6 +632,14 @@ def play(
             rewards.append(0.0)
             pending[game][person].append(step_index)
             everything[game][person].append(step_index)
+        if begun is not None:
+            # The same decisions in the same order, a block a step: the hand
+            # each game is in is the last one begun, the follower having
+            # read everything up to this step's decisions.
+            rows = index[np.asarray(record_slots, dtype=np.int64)]
+            in_games.append(rows.astype(np.int32))
+            in_hands.append(begun.current(rows).astype(np.int32))
+            by_players.append(players[rows, seats[rows]].astype(np.int8))
         timing["other"] += clock() - began
         began = clock()
 
@@ -655,6 +693,23 @@ def play(
     # The placement, which is what the game is actually for, reaches every
     # decision that player made.
     final_scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4)
+    record = None
+    if begun is not None:
+        # Kept before the placement is added: each decision's own hand's
+        # points, the term the placement reward weighs by alpha.
+        members = (tuple(member.name for member in population.members) if population is not None
+                   else tuple(f"opponent {which}" for which in range(len(opponents or []))))
+        record = Ledger.of_round(
+            begun,
+            games=np.concatenate(in_games) if in_games else np.zeros(0, dtype=np.int32),
+            hands=np.concatenate(in_hands) if in_hands else np.zeros(0, dtype=np.int32),
+            players=np.concatenate(by_players) if by_players else np.zeros(0, dtype=np.int8),
+            points=np.asarray(rewards, dtype=np.float64),
+            owners=owner.copy(),
+            members=members,
+            final_scores=final_scores.copy(),
+        )
+        record.check(arena.hands_done())
     bonuses = placement_rewards(final_scores, PLACEMENT_VALUE)
     for game in range(games):
         for person in range(4):
@@ -700,7 +755,24 @@ def play(
         decisions=decisions,
         final_scores=final_scores.copy(),
         timing=timing,
+        ledger=record,
     )
+
+
+def settle_placement(batch: Batch, reward) -> None:
+    """Pays the round's decisions the placement reward instead of the
+    default one: `batch.returns` becomes `reward.returns(batch.ledger)` (see
+    `place_model.PlacementReward`), from the ledger the round kept.
+
+    A trainer settles a round this way once it has it, with the reward as
+    it stands then, so the scoreboard model a round is paid by does not
+    depend on how the round was played beside the learning; everything else
+    the round recorded stays as it was."""
+    if batch.ledger is None:
+        raise ValueError("the round kept no ledger; play it with ledger=True to settle it by placement")
+    if len(batch.ledger) != batch.decisions:
+        raise ValueError(f"the ledger holds {len(batch.ledger)} decisions and the round {batch.decisions}")
+    batch.returns = torch.from_numpy(reward.returns(batch.ledger))
 
 
 @torch.no_grad()
