@@ -203,11 +203,11 @@ seeds at a time and the next only if the rule says to go on, and can be
 stopped and run again.
 
 A series stops on the comparison it was registered with, so a series that
-compares two generations names both when it is registered. Every generation
-is far ahead of published Mortal (910 crossed the bound at the first look, z
-+5.95): a series of one challenger against Mortal stops after five seeds, and
-two such series read against each other afterwards never get past their
-first look. There are two ways to name the second.
+compares two generations names both when it is registered. The generations
+measured lately are all far ahead of published Mortal (910 crossed the bound
+at the first look, z +5.95): a series of one of them against Mortal stops
+after five seeds, and two such series read against each other afterwards
+never get past their first look. There are two ways to name the second.
 
 With `--also`, both challengers are played in every call, against the same
 incumbent on the same deals, and the rule reads the first against the

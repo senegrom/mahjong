@@ -21,11 +21,12 @@ The rule stops a series on the comparison it was registered with:
   bit, so that only the new challenger is paid for;
 - with neither, the challenger against the incumbent.
 
-Every generation is far ahead of published Mortal (910 crossed the bound at
-the first look, z +5.95), so a series of one challenger against it stops
-after five seeds, and two such series read against each other afterwards
-(`looks --against`) never get past their first look. Two generations are
-compared by a series registered with `--also` or `--against`.
+The generations measured lately are all far ahead of published Mortal (910
+crossed the bound at the first look, z +5.95), so a series of one of them
+against it stops after five seeds, and two such series read against each
+other afterwards (`looks --against`) never get past their first look. Two
+generations are compared by a series registered with `--also` or
+`--against`.
 
     python -m neural.ruler_cloud series <tag> <challenger> <incumbent> --local <folder>
         [--also <second> | --against <tag>] [--expected 0.006] [--graphs]
