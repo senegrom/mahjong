@@ -457,8 +457,7 @@
       try {
         matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch,
           onComplete: review => { reviewTrend = recordTrend(storage, { ...review.summary, at: Date.now() }); } });
-      }
-      catch (error) {
+      } catch (error) {
         notice = `The game could not be replayed for review: ${error?.message ?? error}. Your saved match is unchanged.`;
         return;
       }

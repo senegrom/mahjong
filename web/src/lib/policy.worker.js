@@ -83,8 +83,9 @@ async function infer({ id, url, runtimeBase, scope, planes, mask, count, details
     const model = await load({ url, runtimeBase, scope, memoryLimitMiB }, note);
     self.postMessage({ id, progress: 'network ready', ready: true });
     // A review sends several positions at once, their planes and masks laid
-    // end to end: the graph takes a batch, and a batch of eight costs about
-    // half as much a position as one at a time.
+    // end to end, and the graph takes them as one batch. Natively eight cost
+    // about half as much a position as one at a time; in this one-thread
+    // runtime about the same, so a batch saves messages and costs nothing.
     const batch = count ?? 1;
     input = new ort.Tensor('float32', planes, [batch, planes.length / batch / POSITIONS, POSITIONS]);
     // The fused network's head reads the legality mask, so the graph takes it
