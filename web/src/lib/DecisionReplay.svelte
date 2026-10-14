@@ -24,6 +24,8 @@
   let everyMove = $state(false);
   let heading = $state(null);
   let answerHeading = $state(null);
+  let handElement = $state(null);
+  let nextButton = $state(null);
 
   let frame = $derived(hand.frames[step]);
   let atDecision = $derived(step === decision.index);
@@ -34,6 +36,14 @@
   let offered = $derived(frame.view.phase === 'call' ? frame.view.pending_discard : null);
   let discarder = $derived(NAMES[frame.view.pending_from] ?? 'An opponent');
   let earlier = $derived(hand.decisions?.[step] ?? null);
+  // What the player did at an earlier step, and whether Trained AI agreed:
+  // shown under the hand, and said with the step, so stepping through the
+  // hand by ear tells the moves as well as where it is. A move with no
+  // alternative was never put to Trained AI.
+  let earlierMove = $derived(atDecision ? ''
+    : `Your move: ${frame.choices.find(choice => sameMove(choice, frame.played.kind, frame.played.tile))?.label ?? frame.played.kind}.`);
+  let earlierVerdict = $derived(!earlier || atDecision ? '' : earlier.forced ? 'It was the only move.'
+    : earlier.agreed ? 'Trained AI chose the same.' : 'Trained AI chose differently.');
   let shownDora = $derived(hints ? frame.view.dora_types ?? [] : []);
   let stage = $derived(decision.judgement?.stage);
   // The tile thrown at an earlier step, or chosen again at the decision, is
@@ -78,8 +88,18 @@
     return `${value} from waiting`;
   }
 
-  function goTo(next) {
+  // A step to either end of the hand disables the button pressed, which would
+  // drop focus to the page. It is handed on instead: at the deal to Next,
+  // which goes on from there, and at the decision to the hand, where the
+  // choice is made. In between every button stays, and focus with it.
+  async function goTo(next) {
     step = Math.max(0, Math.min(decision.index, next));
+    await tick();
+    if (step > 0 && !atDecision) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected && !active.matches(':disabled')) return;
+    if (atDecision) handElement?.focus({ preventScroll: true });
+    else nextButton?.focus();
   }
 
   async function choose(choice) {
@@ -97,10 +117,16 @@
     answerHeading?.focus({ preventScroll: true });
   }
 
-  function again() {
+  // The answer goes, and the button pressed with it. The hand takes focus, as
+  // it does in play when a turn comes, and says what to do through its
+  // description, the prompt; it is brought into view to be chosen from.
+  async function again() {
     retried = null;
     revealed = false;
     everyMove = false;
+    await tick();
+    handElement?.focus({ preventScroll: true });
+    handElement?.scrollIntoView({ block: 'nearest' });
   }
 
   // A riichi has two weights, as ReviewPreference shows them: the
@@ -125,9 +151,9 @@
   <div class="steps" role="group" aria-label="Replay of the hand">
     <button class="app-control" onclick={() => goTo(0)} disabled={step === 0}>From the deal</button>
     <button class="app-control" onclick={() => goTo(step - 1)} disabled={step === 0} aria-label="Previous decision">Previous</button>
-    <button class="app-control" onclick={() => goTo(step + 1)} disabled={atDecision} aria-label="Next decision">Next</button>
+    <button class="app-control" onclick={() => goTo(step + 1)} disabled={atDecision} aria-label="Next decision" bind:this={nextButton}>Next</button>
     <button class="app-control" onclick={() => goTo(decision.index)} disabled={atDecision}>This decision</button>
-    <p class="where" role="status">Your decision {step + 1} of {decision.index + 1}{atDecision ? ', the one flagged' : ''}</p>
+    <p class="where" role="status"><span data-step>Your decision {step + 1} of {decision.index + 1}{atDecision ? ', the one flagged' : ''}</span>{#if earlierMove}<span class="visually-hidden">. {earlierMove} {earlierVerdict}</span>{/if}</p>
   </div>
 
   <MatchTable view={frame.view} {hints} thinking={false} pendingOpponent={null} />
@@ -143,7 +169,7 @@
     {discardChoices} confirmDiscards={false} picked={null} selected={thrown}
     canDiscard={tile => discardChoices.some(choice => choice.tile === tile)}
     selectTile={tile => { const choice = discardChoices.find(entry => entry.tile === tile); if (choice) void choose(choice); }}
-    syncHandFocus={() => {}} />
+    syncHandFocus={() => {}} bind:handElement />
 
   {#if offered}
     <p class="offered"><Tile tile={offered} size="small" dora={shownDora.includes(offered)} />
@@ -151,10 +177,7 @@
   {/if}
 
   {#if !atDecision}
-    <p id="hand-help" class="prompt">
-      Your move: {frame.choices.find(choice => sameMove(choice, frame.played.kind, frame.played.tile))?.label ?? frame.played.kind}.
-      {#if earlier}{earlier.agreed ? 'Trained AI chose the same.' : 'Trained AI chose differently.'}{/if}
-    </p>
+    <p id="hand-help" class="prompt">{earlierMove} {earlierVerdict}</p>
   {:else if choosing}
     <p id="hand-help" class="prompt">What would you play here? Choose again before you see Trained AI's answer{discardChoices.length ? ': select a tile to discard' : ''}{discardChoices.length && otherChoices.length ? ', or a move below' : ''}.</p>
     {#if otherChoices.length}
@@ -277,6 +300,6 @@
   @media (max-width: 400px) { meter { width: 56px; } }
   /* Below the game's bar where it stays at the top of the screen (AppSettings). */
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
-    h3, h4 { scroll-margin-top: 72px; }
+    h3, h4, .decision :global(.hand) { scroll-margin-top: 72px; }
   }
 </style>

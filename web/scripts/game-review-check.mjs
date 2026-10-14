@@ -3,9 +3,12 @@
  * A finished match is restored from its save and reviewed hand by hand by the
  * shipped network. Every batch the page sends is captured with the worker's
  * answer, and the flags, their order and the agreement figure are worked out
- * again here from those answers alone. The leading decision is then replayed
- * from the deal, chosen again, and Trained AI's answer read back; the saved
- * match must be exactly as it was, and the game must enter the trend once.
+ * again here from those answers alone. A flagged decision is then replayed
+ * from the deal by keyboard, chosen again, and Trained AI's answer read back;
+ * the saved match must be exactly as it was, and the game must enter the
+ * trend once. On a phone, where the final result covers the standings, the
+ * review must be reachable from the result itself and come back to the
+ * standings.
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -18,6 +21,7 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { BATCH, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, scanMatch } from '../src/lib/game-review.js';
 import { TREND_KEY } from '../src/lib/review-trend.js';
+import { MANIFEST } from '../src/lib/model-manifest.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { runtimeDirectory } from './copy-runtime.mjs';
 
@@ -25,6 +29,7 @@ await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', 
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
 assert.ok(existsSync(resolve(dist, `${await runtimeDirectory()}ort-wasm-simd-threaded.wasm`)), 'build the site first: npm run build');
 const MORTAL_REACH = 37;
+const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
 
 /** A whole game against Beginner players, by a player who takes every win,
  * declares every riichi and otherwise throws the tile just drawn: plenty for
@@ -102,13 +107,31 @@ let browser;
 const percent = weight => weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
 const shot = (page, name) => page.screenshot({ path: resolve(output, `${name}.png`), fullPage: true });
 const overflow = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1);
+/** Whether a tap at the middle of the element would reach it, rather than
+ * whatever lies over it. */
+const tappable = (page, selector) => page.$eval(selector, element => {
+  const box = element.getBoundingClientRect();
+  const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+  return box.width > 0 && Boolean(hit) && (hit === element || element.contains(hit));
+});
 
-async function openPage(width, height) {
+/** The page with the finished match restored. `touch` makes it a phone, set
+ * before the page loads since turning touch on reloads it; without `network`
+ * the page finds Trained AI out of reach and never downloads it. */
+async function openPage(width, height, { touch = false, network = true } = {}) {
   const page = await (await cases.openContext(browser)).newPage();
   page.errors = [];
   page.on('pageerror', error => page.errors.push(error.message));
-  await page.setViewport({ width, height });
+  await page.setViewport({ width, height, isMobile: touch, hasTouch: touch });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  if (!network) {
+    await page.setRequestInterception(true);
+    page.on('request', request => {
+      const answer = request.url() === networkUrl
+        ? request.respond({ status: 404, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' }) : request.continue();
+      void answer.catch(() => {}); // A context can close while a request is pending.
+    });
+  }
   await page.evaluateOnNewDocument((saveKey, settingsKey, saved) => {
     if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(saved));
     if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify({ version: 2, difficulty: 'beginner', hints: true }));
@@ -221,26 +244,65 @@ try {
     assert.deepEqual({ ...trend.games[0], at: 0 }, { id: `${snapshot.seed}:${snapshot.commands.length}`, at: 0,
       matched, decisions: counted.length, flagged: flagged.length });
 
-    // The leading decision, opened where it was made.
-    const lead = flagged[0], [hand, index] = lead.key.split(':').map(Number), frames = hands[hand].frames;
+    // The highest-ranked flagged decision with two of the player's decisions
+    // before it in its hand, so there is a hand to step through, opened
+    // where it was made.
+    const lead = flagged.find(verdict => Number(verdict.key.split(':')[1]) >= 2);
+    assert.ok(lead, 'a flagged decision late enough in its hand to replay');
+    const [hand, index] = lead.key.split(':').map(Number), frames = hands[hand].frames;
+    if (!shown.some(item => item.key === lead.key)) {
+      await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent)).click());
+    }
     await page.click(`[data-game-review] [data-open="${lead.key}"]`);
     await page.waitForSelector('[data-decision]');
-    const status = () => page.$eval('[data-decision] .where', el => el.textContent);
+    assert.equal(await page.$eval('#decision-title', el => el.textContent), `${hands[hand].name}, your decision ${index + 1}`);
+    const status = () => page.$eval('[data-decision] .where [data-step]', el => el.textContent);
     assert.equal(await status(), `Your decision ${index + 1} of ${index + 1}, the one flagged`);
     assert.equal(await page.$('[data-answer]'), null, "the answer waits for the player's choice");
     const wall = () => page.$eval('[data-decision] .wall strong', el => Number(el.textContent));
     assert.equal(await wall(), frames[index].view.wall, 'the table as it was at the decision');
-    // Replayed from the deal, a decision of the player's at a time.
-    if (index > 0) {
-      await page.evaluate(() => [...document.querySelectorAll('[data-decision] .steps button')].find(b => b.textContent === 'From the deal').click());
-      assert.equal(await status(), `Your decision 1 of ${index + 1}`);
-      assert.equal(await wall(), frames[0].view.wall);
-      assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /Your move: /);
-      await page.click('[data-decision] [aria-label="Next decision"]');
-      assert.equal(await status(), `Your decision 2 of ${index + 1}${index === 1 ? ', the one flagged' : ''}`);
-      assert.equal(await wall(), frames[1].view.wall);
-      if (index > 1) await page.evaluate(() => [...document.querySelectorAll('[data-decision] .steps button')].find(b => b.textContent === 'This decision').click());
-    }
+
+    // Replayed from the deal by keyboard, a decision of the player's at a
+    // time. A step that disables the button pressed hands focus on, never to
+    // the page: at the deal to Next, at the decision to the hand.
+    const press = async label => {
+      await page.evaluate(text => [...document.querySelectorAll('[data-decision] .steps button')].find(b => b.textContent === text).focus(), label);
+      await page.keyboard.press('Enter');
+    };
+    const focusOn = target => page.waitForFunction(target => {
+      const active = document.activeElement;
+      return target === 'hand' ? active?.matches('[data-decision] .hand') : active?.getAttribute('aria-label') === target;
+    }, { timeout: 5000 }, target);
+    await press('Previous');
+    assert.equal(await status(), `Your decision ${index} of ${index + 1}`);
+    await focusOn('Previous decision');
+    await press('From the deal');
+    assert.equal(await status(), `Your decision 1 of ${index + 1}`);
+    assert.equal(await wall(), frames[0].view.wall);
+    await focusOn('Next decision');
+    const said = await page.$eval('[data-decision] #hand-help', el => el.textContent.trim());
+    assert.match(said, /^Your move: .+\. (Trained AI chose (the same|differently)|It was the only move)\.$/);
+    // The step says the move made there as well as where it is, so stepping
+    // by ear tells the hand too.
+    assert.equal(await page.$eval('[data-decision] .where', el => el.textContent), `Your decision 1 of ${index + 1}. ${said}`);
+    await page.keyboard.press('Enter');
+    assert.equal(await status(), `Your decision 2 of ${index + 1}`);
+    assert.equal(await wall(), frames[1].view.wall);
+    await focusOn('Next decision');
+    await press('Previous');
+    assert.equal(await status(), `Your decision 1 of ${index + 1}`);
+    await focusOn('Next decision');
+    await press('This decision');
+    assert.equal(await status(), `Your decision ${index + 1} of ${index + 1}, the one flagged`);
+    await focusOn('hand');
+    // The hand says what to do through its description, the prompt.
+    assert.match(await page.$eval('[data-decision] .hand', el => document.getElementById(el.getAttribute('aria-describedby')).textContent),
+      /^What would you play here\? Choose again before you see/);
+    await press('Previous');
+    await focusOn('Previous decision');
+    await press('Next');
+    assert.equal(await status(), `Your decision ${index + 1} of ${index + 1}, the one flagged`);
+    await focusOn('hand');
     assert.equal(await page.$('[data-answer]'), null);
     // Chosen again: another move than the game's, a discard where there is
     // one, otherwise a move that names no tile, such as a pass.
@@ -271,10 +333,14 @@ try {
       assert.ok(await page.$('[data-answer] .numbers'), 'a turn compares what each move leaves');
     }
     await shot(page, 'game-review-answer');
-    // Again from the same position, then back to the list where it was opened.
-    await page.click('[data-answer] [data-again]');
+    // Again from the same position, by keyboard: the answer goes with the
+    // button pressed, and the hand takes focus to be chosen from again.
+    await page.focus('[data-answer] [data-again]');
+    await page.keyboard.press('Enter');
     assert.equal(await page.$('[data-answer]'), null);
+    await focusOn('hand');
     assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /Choose again before you see/);
+    // Then back to the list where it was opened.
     await page.click('[data-decision] [data-back]');
     // Focus returns to the decision opened.
     await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, lead.key);
@@ -302,11 +368,38 @@ try {
     // Back to the standings, as they were; the saved match is untouched.
     await page.evaluate(() => scrollTo(0, 0));
     await page.click('[data-game-review] [data-close-review]');
-    await page.waitForFunction(() => !document.querySelector('[data-game-review]') && document.activeElement?.matches('[data-review-game]'));
+    await page.waitForFunction(() => !document.querySelector('[data-game-review]') && document.activeElement?.matches('.standings [data-review-game]'));
     assert.notEqual(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none');
     const { _storage, ...kept } = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
     assert.deepEqual(kept, snapshot, 'the save is unchanged');
     assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check('on a phone the final result, which covers the standings, opens the review, and the review comes back to the standings', async () => {
+    for (const [width, height] of [[390, 844], [320, 568]]) {
+      // Only the way in and out is looked at here, so Trained AI is out of
+      // reach and the review only waits for it.
+      const page = await openPage(width, height, { touch: true, network: false });
+      const sheet = '.screen [data-review-game]', standing = '.standings [data-review-game]';
+      assert.equal(await page.$eval('.screen', el => getComputedStyle(el).position), 'fixed', 'the result is a sheet over the standings');
+      assert.equal(await page.$eval(sheet, el => el.innerText.trim()), 'Review game', 'the short label, beside Save hand and Save game');
+      assert.ok(await tappable(page, sheet), `the result's own button can be tapped at ${width}x${height}`);
+      await page.tap(sheet);
+      await page.waitForSelector('[data-game-review]');
+      await page.waitForFunction(() => document.activeElement?.id === 'game-review-title');
+      await page.tap('[data-game-review] [data-close-review]');
+      // The sheet stepped aside, as for the final hand's review, so the
+      // standings are what the review comes back to, with focus on their
+      // own button, in view and free to tap.
+      await page.waitForFunction(selector => !document.querySelector('[data-game-review]') && document.activeElement?.matches(selector), {}, standing);
+      assert.equal(await page.$eval('.screen', el => getComputedStyle(el).display), 'none');
+      assert.match(await page.$eval('.result-chip', el => el.textContent), /^Show result/);
+      assert.ok(await tappable(page, standing), `the standings' button can be tapped at ${width}x${height}`);
+      await shot(page, `game-review-phone-standings-${width}x${height}`);
+      await page.tap(standing);
+      await page.waitForSelector('[data-game-review]');
+      assert.deepEqual(page.errors, []);
+    }
   });
 } finally {
   await browser?.close();

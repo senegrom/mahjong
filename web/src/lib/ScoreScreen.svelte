@@ -12,6 +12,9 @@
     reviewed = false,
     onlog,
     ongame,
+    // Opens the review of the whole game from the final hand, and says
+    // whether it opened.
+    ongamereview,
     finalHand = false,
     dora = [],
     bets = 0,
@@ -52,6 +55,13 @@
   function reviewTable() {
     onreview?.();
     minimized = true;
+  }
+
+  // The whole game's review comes back to the standings, so on a phone this
+  // sheet steps aside for it as it does for the hand's review: the standings
+  // are then in view, and not under the sheet.
+  function reviewGame() {
+    if (ongamereview?.()) minimized = true;
   }
 </script>
 
@@ -164,8 +174,10 @@
     {:else}<button disabled={busy} class="primary" onclick={onnext}>Next hand</button>{/if}
     {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{finalHand ? 'Review final hand' : 'View table / my hand'}</button>{/if}
     {#if onlog}<button class="quiet" onclick={onlog} title="The hand as an mjai event log, which replayers and other riichi programs read">Save <span class="qualifier">{finalHand ? 'final' : 'this'}</span> hand</button>{/if}
-    <!-- At the end the standings offer the whole game, close and all. On a
-         phone this sheet covers them, so it offers the whole game there too. -->
+    <!-- At the end the standings offer the whole game, its review and its
+         file, close and all. On a phone this sheet covers them, so it offers
+         both there too. -->
+    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={reviewGame}>Review <span class="whole">whole</span> game</button>{/if}
     {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={ongame} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
     {:else if ongame}<button class="quiet" data-save-game onclick={ongame} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
   </div>
@@ -237,7 +249,8 @@
   .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
   .buttons button { min-width: 0; max-width: 100%; min-height: 44px; padding: 8px 18px; border: 1px solid var(--button-accent); border-radius: 999px; background: var(--button-accent); color: var(--button-text); font-weight: 650; cursor: pointer; }
   .buttons button.quiet { border-color: rgba(255,255,255,.25); background: transparent; color: inherit; font-weight: 500; }
-  /* Beside the standings, which offer the same file, it is not repeated. */
+  /* Beside the standings, which offer the same review and file, they are not
+     repeated. */
   .buttons .whole-game { display: none; }
 
   @media (max-width: 760px) {
@@ -292,10 +305,10 @@
     .buttons .primary { flex: 1 1 145px; }
     @keyframes result-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
   }
-  /* On a phone the two saves share a row as "Save hand" and "Save game":
-     the full labels take a fourth row of buttons over the result, and how
-     soon depends on the phone's fonts, so the short ones start well before
-     the narrowest screens. */
+  /* On a phone the saves read "Save hand" and "Save game", and the game's
+     review "Review game": the full labels take a fourth row of buttons over
+     the result, and how soon depends on the phone's fonts, so the short ones
+     start well before the narrowest screens. */
   @media (max-width: 420px) {
     .buttons button { padding-inline: 12px; }
     .qualifier, .so-far, .whole { display: none; }

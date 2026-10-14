@@ -450,25 +450,33 @@
   }
 
   // The finished match is replayed from its saved commands on an engine of
-  // the review's own, so the match and its save are left as they are.
+  // the review's own, so the match and its save are left as they are. Says
+  // whether the review is open.
   function openGameReview() {
-    if (!session?.over || session.closed) return;
+    if (!session?.over || session.closed) return false;
     if (!matchReview) {
       try {
         matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch,
           onComplete: review => { reviewTrend = recordTrend(storage, { ...review.summary, at: Date.now() }); } });
       } catch (error) {
         notice = `The game could not be replayed for review: ${error?.message ?? error}. Your saved match is unchanged.`;
-        return;
+        return false;
       }
     }
     reviewingGame = true;
+    return true;
   }
 
+  // Back to the standings' own button, wherever the review was opened from:
+  // on a phone the result sheet that offered it has stepped aside for them.
+  // It is brought to the middle of the screen, clear of the bar at the top
+  // and the result's chip at the bottom.
   async function closeGameReview() {
     reviewingGame = false;
     await tick();
-    document.querySelector('[data-review-game]')?.focus();
+    const button = document.querySelector('.standings [data-review-game]');
+    button?.focus({ preventScroll: true });
+    button?.scrollIntoView({ block: 'center' });
   }
 
   function dropGameReview() {
@@ -551,7 +559,8 @@
           {#if view.phase === 'over' && view.outcome}
             <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
               bets={view.riichi_sticks ?? 0} onnext={nextHand}
-              onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} finalHand={Boolean(standings)} />
+              onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} ongamereview={openGameReview}
+              finalHand={Boolean(standings)} />
             {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}

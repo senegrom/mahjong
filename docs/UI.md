@@ -166,7 +166,11 @@ including riichi payments, against the hand's total.
 match is reloaded, puts every decision the player made in every hand to Trained
 AI, and leads with the few where the player's move departed furthest from its
 choice. The hand review reviews one hand and is gone at the next deal; this one
-is rebuilt for the whole game.
+is rebuilt for the whole game. On a phone the final hand's result is a sheet
+over the standings, so the sheet offers the review too, as it offers the
+game's file (**Review game** and **Save game** on the narrowest screens), and
+steps aside for it as it does for the hand's review: **Back to the standings**
+then lands on the standings, with focus on their own **Review whole game**.
 
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the
@@ -194,7 +198,12 @@ what that choice was.
 made from: the table as it stood, the player's hand, and what happened since
 their previous decision. **From the deal**, **Previous** and **Next** step
 through the hand a decision of the player's at a time, saying whether each
-earlier move matched Trained AI. At the flagged decision the player chooses
+earlier move matched Trained AI; the step's status says the move as well, so a
+screen reader hears it with each step. A step that disables the button pressed
+hands keyboard focus on rather than dropping it: at the deal to **Next**, and
+at the decision to the hand, whose description asks for the choice, as play
+gives the hand focus when a turn comes. **Choose again** does the same, since
+the answer it closes held the button. At the flagged decision the player chooses
 again, a tile from the hand or a move below it, before anything is revealed,
 or asks for **Trained AI's answer** outright. The answer lists the weight of
 every move, the riichi discards under their declaration, marking Trained AI's
@@ -231,7 +240,7 @@ screen says so and waits.
 and Tile rendering, riichi waits, disabled-tile navigation, consecutive keyboard
 turns, saved-state migration, ura-dora indicators with hints off, final-hand
 review, the whole-game review with the shipped network (its batches, flags,
-replay, retry and trend), history and export, and settlements that balance
-event by event.
+replay, retry, keyboard focus and trend, and its way in and out on a phone),
+history and export, and settlements that balance event by event.
 Its browser checks run in Chromium, including narrow portrait and landscape
 sizes; they are not physical-iPhone or Safari testing.
