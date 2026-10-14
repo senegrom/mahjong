@@ -1,4 +1,7 @@
-"""A fused belief head must alter tile distributions, not their common offset."""
+"""A belief head saved with one constant an opponent loads as the tile-wise
+head with the same probabilities, and its optimiser's moments follow it.
+test_fusion_heads checks that the head can change a distribution, and
+what trains it."""
 from types import SimpleNamespace
 import unittest
 
@@ -8,25 +11,6 @@ from neural.combined import Fuse, migrate_belief_optimizer
 
 
 class FusionBeliefTests(unittest.TestCase):
-    def test_tile_distribution_changes_and_receives_gradients(self):
-        torch.manual_seed(9)
-        head=Fuse(8, phi=16, width=8)
-        phi=torch.randn(4,16,requires_grad=True)
-        guessed=torch.randn(4,3,34)
-        initial=head.read_hands(phi,guessed)
-        torch.testing.assert_close(initial,guessed)
-        optimiser=torch.optim.AdamW(head.parameters(),lr=.01)
-        wanted=torch.randint(34,(4,3))
-        loss=torch.nn.functional.cross_entropy(initial.reshape(-1,34),wanted.reshape(-1))
-        loss.backward()
-        self.assertGreater(head.hands_out.weight.grad.abs().max().item(),1e-6)
-        self.assertIsNone(phi.grad)
-        optimiser.step();optimiser.zero_grad()
-        changed=head.read_hands(phi,guessed)
-        self.assertGreater((changed.softmax(2)-guessed.softmax(2)).abs().max().item(),1e-5)
-        torch.nn.functional.cross_entropy(changed.reshape(-1,34),wanted.reshape(-1)).backward()
-        self.assertGreater(head.hands_fix[0].weight.grad.abs().max().item(),1e-6)
-
     def test_legacy_model_preserves_probabilities_and_adam_moments_migrate(self):
         torch.manual_seed(7)
         head=Fuse(8,phi=16,width=8)

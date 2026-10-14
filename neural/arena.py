@@ -28,20 +28,14 @@ import json
 import statistics
 from pathlib import Path
 
-import numpy as np
 import torch
 
-from .outcomes import placements as tied_placements, win_shares
+from .outcomes import paired_summary, placements, win_shares
 
 from . import zoo
 from .selfplay import evaluate_games
 
 SEATS = 4
-
-
-def placements(scores: np.ndarray, seat: int) -> np.ndarray:
-    """Where the player in `seat` finished each game, from 1 to 4."""
-    return tied_placements(scores)[:, seat]
 
 
 @torch.no_grad()
@@ -57,7 +51,7 @@ def duplicate(net, games: int, seed: int, device: str = "cuda", max_steps: int =
             place=seat,
             max_steps=max_steps,
         )
-        got = placements(scores, seat)
+        got = placements(scores)[:, seat]
         per_seat.append(
             {
                 "seat": seat,
@@ -87,8 +81,7 @@ def duplicate(net, games: int, seed: int, device: str = "cuda", max_steps: int =
     # So each deal gives one figure: the four placements it produced,
     # averaged. Those figures are independent across deals, and their spread
     # is the error on the mean.
-    per_deal = np.stack([row.pop("placements") for row in per_seat]).mean(axis=0)
-    error = float(per_deal.std(ddof=1) / (len(per_deal) ** 0.5)) if len(per_deal) > 1 else 0.0
+    per_deal, error = paired_summary([row.pop("placements") for row in per_seat])
 
     return {
         "games_per_seat": games,

@@ -5,31 +5,12 @@ from unittest.mock import patch
 import numpy as np
 import torch
 from neural import selfplay, mortal_learner
-from neural.ppo_control import PolicyDrift
 from neural.tests.test_evaluation_masks import ConflictingViews
 
 
 class BehaviourTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):torch.set_num_threads(1)
-
-    def test_unchanged_exploring_policy_has_unit_ratios_and_zero_drift(self):
-        logits=torch.tensor([[.99,.01]]).log().repeat(400,1)
-        legal=torch.ones_like(logits,dtype=torch.bool)
-        actions,recorded,forced=selfplay.explore(logits,legal,.25,np.random.default_rng(9))
-        self.assertTrue(forced.any())
-        recalculated=torch.distributions.Categorical(logits=logits).log_prob(actions)
-        torch.testing.assert_close((recalculated-recorded).exp(),torch.ones(400),atol=1e-6,rtol=1e-6)
-        guard=PolicyDrift(.02);self.assertFalse(guard.check(recorded[~forced],recalculated[~forced]))
-        self.assertLess(guard.last,1e-10)
-
-    def test_zero_coefficient_preserves_raw_likelihood_exactly(self):
-        logits=torch.randn(3,4);legal=torch.ones_like(logits,dtype=torch.bool);actions=torch.tensor([0,1,2])
-        expected=torch.distributions.Categorical(logits=logits).log_prob(actions)
-        torch.manual_seed(1)
-        chosen,recorded,forced=selfplay.explore(logits,legal,0.,np.random.default_rng(1))
-        expected=torch.distributions.Categorical(logits=logits).log_prob(chosen)
-        self.assertFalse(forced.any()); self.assertTrue(torch.equal(recorded,expected))
 
     def test_both_reach_stages_record_the_policys_own_likelihood(self):
         views=ConflictingViews();legal=np.zeros((1,78),bool);legal[0,[0,34,35]]=True

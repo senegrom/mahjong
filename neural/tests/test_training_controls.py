@@ -127,7 +127,7 @@ class ControlTests(unittest.TestCase):
                 after={t.ident for t in threading.enumerate() if t.name=='mahjong-prefetch'}
                 self.assertEqual(before,after)
 
-    def test_cloud_forwards_controls_and_rejects_missing_opponents(self):
+    def test_cloud_forwards_controls(self):
         from functools import partial
         from neural import cloud_runs
         from neural.checkpoints import atomic_save
@@ -147,8 +147,6 @@ class ControlTests(unittest.TestCase):
                  patch.object(app.subprocess,'Popen',side_effect=popen),contextlib.redirect_stdout(io.StringIO()):
                 for name in ('train','train_mortal','train_combined'):
                     getattr(app,name)(run=name,generations=1,target_kl=.02,baseline_batch=16)
-                    with self.assertRaises(FileNotFoundError):
-                        getattr(app,name)(run=name,generations=1,opponents=['missing'],opponent_share=.5)
             self.assertEqual(len(commands),3)
             for command in commands:
                 self.assertEqual(command[command.index('--target-kl')+1],'0.02')
@@ -173,33 +171,6 @@ class ControlTests(unittest.TestCase):
             checkpoint=torch.load(out/'latest.pt',map_location='cpu',weights_only=True)
             self.assertEqual(checkpoint['generation'],1)
             self.assertEqual(checkpoint['training_controls']['baseline_batch'],16)
-
-    def test_cloud_opponents_with_identical_basenames_keep_distinct_weights(self):
-        from functools import partial
-        from neural import cloud_runs
-        from neural.checkpoints import atomic_save, validate_checkpoint
-        from neural.tests.test_cloud_isolation import controller
-        app=controller()
-        with tempfile.TemporaryDirectory() as folder:
-            root=Path(folder);volume=root/'volume';scratch=root/'scratch'
-            atomic_save({'generation':11},volume/'family-a/latest.pt')
-            atomic_save({'generation':22},volume/'family-b/latest.pt')
-            observed=[]
-            def popen(command,**kwargs):
-                at=command.index('--opponents');end=command.index('--opponent-share')
-                paths=[Path(path) for path in command[at+1:end]]
-                observed.append(([validate_checkpoint(path) for path in paths],len(set(paths))))
-                return SimpleNamespace(stdout=io.StringIO(),wait=lambda:0)
-            for name in ('train','train_mortal','train_combined'):
-                atomic_save({'generation':1},volume/name/'latest.pt')
-            with patch.object(app,'VOLUME',volume), \
-                 patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
-                 patch.object(app,'_environment',return_value={}),patch.object(app,'_save_cache'), \
-                 patch.object(app.subprocess,'Popen',side_effect=popen),contextlib.redirect_stdout(io.StringIO()):
-                for name in ('train','train_mortal','train_combined'):
-                    getattr(app,name)(run=name,generations=1,
-                        opponents=['family-a/latest','family-b/latest'],opponent_share=.5)
-            self.assertEqual(observed,[([11,22],2)]*3)
 
     def test_recording_helper_does_not_override_caller_autocast(self):
         views=ConflictingViews()

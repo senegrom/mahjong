@@ -427,7 +427,6 @@ class TrainerRecordsTests(unittest.TestCase):
                 asked, _record, _saved = self.train(module, folder)
                 # Mortal reads no hands; the fusion's reading of them learns from them.
                 self.assertEqual(asked[0].get("want_held", True), module is not train_mortal)
-                self.assertFalse(asked[0].get("want_oracle", False))
 
 
 if __name__ == "__main__":

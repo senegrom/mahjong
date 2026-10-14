@@ -324,16 +324,14 @@ class ChoiceTests(unittest.TestCase):
                     return values, own
 
                 old_views, new_views = Telling(), Telling()
-                old_stats, new_stats = {}, {}
                 want = zoo.choose_in_mortal_space(
                     lambda who, fresh, allowed: row_values(who, fresh), old_views, rows, players, legal,
-                    old_stats, skip_forced=skip_forced)
-                got = zoo.choose_in_mortal_space(ask, new_views, rows, players, legal, new_stats,
+                    skip_forced=skip_forced)
+                got = zoo.choose_in_mortal_space(ask, new_views, rows, players, legal,
                                                  skip_forced=skip_forced, preview_reach=True)
                 with self.subTest(trial=trial, skip_forced=skip_forced):
                     np.testing.assert_array_equal(got, want)
                     self.assertEqual(new_views.told, [])
-                    self.assertEqual(new_stats, old_stats)
                     self.assertLessEqual(len(questions), 1)
                     for who, fresh, allowed, ahead in questions:
                         self.assertFalse(fresh)

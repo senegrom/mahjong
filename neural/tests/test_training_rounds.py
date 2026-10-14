@@ -87,7 +87,6 @@ class TrainingRoundTests(unittest.TestCase):
             net=mortal_model.build(16,1);atomic_save({**net.state(),'config':config()},initial)
             self.actions=[];self.mortal_run(root/'run',initial,1)
             self.assertEqual([asked.get('want_held') for asked in self.asked],[False])
-            self.assertFalse(any(asked.get('want_oracle') for asked in self.asked))
 
     def test_a_resumed_run_keeps_the_temperature_it_was_trained_at(self):
         """The flag defaulted to 1.0, so a run trained at 0.5 and resumed

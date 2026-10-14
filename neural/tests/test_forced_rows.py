@@ -25,7 +25,7 @@ from neural.tests.test_bfloat16_players import checkpoints
 from neural.tests.test_step_planes import deciding
 
 
-def choose_by_asking_every_row(ask, views, rows, players, legal, stats=None):
+def choose_by_asking_every_row(ask, views, rows, players, legal):
     """`zoo.choose_in_mortal_space` as it was before it left the rows with
     one move open unasked, kept as the reference."""
     who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
@@ -33,14 +33,9 @@ def choose_by_asking_every_row(ask, views, rows, players, legal, stats=None):
     allowed = zoo.translatable(legal)
     orphan = ~allowed.any(axis=1)
     allowed[orphan, zoo.MORTAL_PASS] = True
-    values, own = ask(who, False, allowed)
+    values, _own = ask(who, False, allowed)
     ranked = np.where(allowed, values, -np.inf)
     best = ranked.argmax(axis=1)
-    if stats is not None:
-        stats["orphans"] = stats.get("orphans", 0) + int(orphan.sum())
-        stats["fallbacks"] = stats.get("fallbacks", 0) + int(
-            ((np.where(own, values, -np.inf).argmax(axis=1) != best) & ~orphan).sum()
-        )
     choice = zoo.first_meaning(best, legal)
     choice = np.where(orphan | (choice < 0), legal.argmax(axis=1), choice)
     second = np.nonzero((best == zoo.MORTAL_RIICHI) & ~orphan)[0]
@@ -108,7 +103,7 @@ class ForcedRowsTests(unittest.TestCase):
         """Without the switch nothing changes: the same questions, about
         the same rows in the same order with the same moves allowed, so the
         values every row is scored with are what they were, and so are the
-        choices, the reaches told and the counts."""
+        choices and the reaches told."""
         rng = np.random.default_rng(23)
         questions = 0
         for trial in range(300):
@@ -122,12 +117,10 @@ class ForcedRowsTests(unittest.TestCase):
                 return ask
 
             old_views, new_views = Telling(), Telling()
-            old_stats, new_stats = {}, {}
-            want = choose_by_asking_every_row(asking("old"), old_views, rows, players, legal, old_stats)
-            got = zoo.choose_in_mortal_space(asking("new"), new_views, rows, players, legal, new_stats)
+            want = choose_by_asking_every_row(asking("old"), old_views, rows, players, legal)
+            got = zoo.choose_in_mortal_space(asking("new"), new_views, rows, players, legal)
             np.testing.assert_array_equal(got, want, err_msg=f"trial {trial}")
             self.assertEqual(new_views.told, old_views.told)
-            self.assertEqual(new_stats, old_stats)
             self.assertEqual(len(asked["new"]), len(asked["old"]))
             for (who, fresh, allowed), (want_who, want_fresh, want_allowed) in zip(asked["new"], asked["old"]):
                 self.assertEqual((who, fresh), (want_who, want_fresh))
@@ -147,14 +140,11 @@ class ForcedRowsTests(unittest.TestCase):
                 return row_values(who, fresh)
 
             old_views, new_views = Telling(), Telling()
-            old_stats, new_stats = {}, {}
             want = choose_by_asking_every_row(lambda who, fresh, allowed: row_values(who, fresh),
-                                              old_views, rows, players, legal, old_stats)
-            got = zoo.choose_in_mortal_space(ask, new_views, rows, players, legal, new_stats,
-                                             skip_forced=True)
+                                              old_views, rows, players, legal)
+            got = zoo.choose_in_mortal_space(ask, new_views, rows, players, legal, skip_forced=True)
             np.testing.assert_array_equal(got, want, err_msg=f"trial {trial}")
             self.assertEqual(new_views.told, old_views.told)
-            self.assertEqual(new_stats["orphans"], old_stats["orphans"])
             # Only rows with a choice to make were asked, at either step.
             for allowed in asked:
                 self.assertTrue((allowed.sum(axis=1) > 1).all())
@@ -201,7 +191,6 @@ class SeatedMortalTests(unittest.TestCase):
         tables = [riichi_py.Arena(games=games, seed=20261005) for _ in range(2)]
         views = [Views(table, games) for table in tables]
         counts = {"rows": 0, "asked": 0, "reaches": 0, "tiles asked": 0}
-        old_stats, new_stats = {}, {}
         # Mortal's move for each of ours.
         mortal_of = np.isfinite(zoo.PRIORITY).argmax(axis=0)
 
@@ -232,10 +221,9 @@ class SeatedMortalTests(unittest.TestCase):
             teacher = np.frombuffer(tables[0].teacher(), dtype=np.uint8)
             for view in views:
                 view.prepare(live, players)
-            want = choose_by_asking_every_row(steered(0, teacher), views[0], live, players,
-                                              legal, old_stats)
+            want = choose_by_asking_every_row(steered(0, teacher), views[0], live, players, legal)
             got = zoo.choose_in_mortal_space(steered(1, teacher), views[1], live, players,
-                                             legal, new_stats, skip_forced=True)
+                                             legal, skip_forced=True)
             np.testing.assert_array_equal(got, want)
             counts["rows"] += len(live)
             counts["reaches"] += int(((got >= zoo.RIICHI_DISCARD) & (got < zoo.TSUMO)).sum())
@@ -250,8 +238,6 @@ class SeatedMortalTests(unittest.TestCase):
         self.assertGreater(counts["rows"] - counts["asked"], counts["rows"] // 20, counts)
         self.assertGreater(counts["reaches"], counts["tiles asked"], counts)
         self.assertGreater(counts["tiles asked"], 0, counts)
-        self.assertEqual(new_stats.get("orphans", 0), old_stats.get("orphans", 0))
-        self.assertLessEqual(new_stats.get("fallbacks", 0), old_stats.get("fallbacks", 0))
 
 
 class SwitchTests(unittest.TestCase):

@@ -27,7 +27,7 @@ import torch
 
 from . import play_graphs, population, zoo
 from .checkpoints import atomic_save
-from .observe import DevicePlanes, Planes, pad_rows, resident
+from .observe import DevicePlanes, Planes, pad_rows, resident, step_spare_bytes
 from .prefetch import Prefetcher
 from .training_batches import validate_learning
 from .training_safety import (
@@ -203,9 +203,9 @@ def baseline(
 
 def step_spare() -> int:
     """What the learning step needs free on the card beside a round's
-    planes or vectors kept there, in bytes: sixteen gigabytes, or
-    `RESIDENT_SPARE_GB` (see `observe.resident`)."""
-    return int(float(os.environ.get("RESIDENT_SPARE_GB", "16")) * (1 << 30))
+    planes or vectors kept there, in bytes: the figure `observe.resident`
+    keeps free too (see `observe.step_spare_bytes`)."""
+    return step_spare_bytes()
 
 
 def kept_on_card(
