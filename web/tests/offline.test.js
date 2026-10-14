@@ -88,11 +88,26 @@ function trickle(body, clock, signal, every = 10000) {
     },
   }));
 }
+/** The worker's SHA-256, worked out at once. WebCrypto's digest finishes on the
+ * thread pool, in real time, while the test clock moves on every ten turns: on
+ * a busy machine a minute of test time could pass before a download's next
+ * read, and a healthy transfer was then declared stalled. Worked out here, the
+ * same digest settles in a microtask, so every wait in the worker is on the
+ * test's clock. */
+const workerCrypto = {
+  getRandomValues: array => webcrypto.getRandomValues(array),
+  subtle: { async digest(algorithm, data) {
+    assert.equal(algorithm?.name ?? algorithm, 'SHA-256');
+    const bytes = ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data);
+    const hash = createHash('sha256').update(bytes).digest();
+    return hash.buffer.slice(hash.byteOffset, hash.byteOffset + hash.byteLength);
+  } },
+};
 function worker({ files = bodies, caches = storage(), config = manifest(files), network, remote = 'weights', clock } = {}) {
   const events = {}, counts = new Map();
   const self = { registration: { scope: base }, clients: { async claim() {} }, addEventListener: (type, fn) => events[type] = fn };
   vm.runInNewContext(template.replace('/* OFFLINE_CONFIG */ null', JSON.stringify(config)), {
-    self, URL, Request, Response, Map, Set, caches, crypto: webcrypto, AbortController, DOMException,
+    self, URL, Request, Response, Map, Set, caches, crypto: workerCrypto, AbortController, DOMException,
     AbortSignal: clock?.AbortSignal ?? AbortSignal,
     setTimeout: clock?.setTimeout ?? setTimeout, clearTimeout: clock?.clearTimeout ?? clearTimeout,
     fetch: async (url, init) => {
