@@ -158,6 +158,10 @@ class ResumeTests(unittest.TestCase):
     def tearDownClass(cls):
         torch.set_num_threads(cls.threads)
 
+    def tearDown(self):
+        # Every optimiser a test built, and the network it steps, let go.
+        Recorded.built.clear()
+
     def assertSameStates(self, got: list, want: list) -> None:
         self.assertEqual(len(got), len(want))
         self.assertGreater(sum(state is not None for state in want), 0)
