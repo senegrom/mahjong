@@ -442,6 +442,25 @@ fn places_by_table(
     Ok(tables)
 }
 
+/// The seed each of `games` tables is dealt from: `seed` plus the table's
+/// index, or `seeds` table by table. A list lets one arena deal the same
+/// hands at several tables, as a duel's four seatings of one deal are, where
+/// a single seed deals every table a game of its own.
+fn seeds_by_table(games: usize, seed: u64, seeds: Option<Vec<u64>>) -> Result<Vec<u64>, String> {
+    match seeds {
+        None => Ok((0..games)
+            .map(|index| seed.wrapping_add(index as u64))
+            .collect()),
+        // A seed and a list would leave it unclear which deals the tables.
+        Some(_) if seed != 0 => Err("name the seed or a seed for every table, not both".into()),
+        Some(seeds) if seeds.len() != games => Err(format!(
+            "seeds names {} tables for {games} games",
+            seeds.len()
+        )),
+        Some(seeds) => Ok(seeds),
+    }
+}
+
 /// Many games of riichi, advancing together.
 #[pyclass]
 pub struct Arena {
@@ -451,7 +470,7 @@ pub struct Arena {
 
 #[pymethods]
 impl Arena {
-    /// Starts `games` games, each seeded from `seed`.
+    /// Starts `games` games, game `i` dealt from the seed `seed + i`.
     ///
     /// `bot_places` names the places at every table that the built-in
     /// heuristic player takes; their decisions never reach Python. Leave it
@@ -459,21 +478,30 @@ impl Arena {
     /// against the benchmark. `table_bots` names them table by table
     /// instead, one list a game, for self-play that seats the heuristic
     /// player at some tables and not others.
+    ///
+    /// `seeds` names each game's seed instead, one a game, in place of
+    /// `seed`: a table dealt from `seed + i` this way plays exactly the game
+    /// the arena of `seed` deals at its table `i`, and several tables may
+    /// share a seed, so one arena can play the same deals at several
+    /// seatings at once (see `neural.ruler`).
     #[new]
-    #[pyo3(signature = (games, seed = 0, bot_places = vec![], table_bots = None))]
+    #[pyo3(signature = (games, seed = 0, bot_places = vec![], table_bots = None, seeds = None))]
     fn new(
         games: usize,
         seed: u64,
         bot_places: Vec<usize>,
         table_bots: Option<Vec<Vec<usize>>>,
+        seeds: Option<Vec<u64>>,
     ) -> PyResult<Arena> {
         let places = places_by_table(games, bot_places, table_bots)
             .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        let seeds =
+            seeds_by_table(games, seed, seeds).map_err(pyo3::exceptions::PyValueError::new_err)?;
         Ok(Arena {
             seats: places
                 .iter()
-                .enumerate()
-                .map(|(index, places)| Seat::new(seed.wrapping_add(index as u64), places))
+                .zip(seeds)
+                .map(|(places, seed)| Seat::new(seed, places))
                 .collect(),
             mask: vec![false; games * ACTIONS],
         })
@@ -691,6 +719,11 @@ impl Arena {
 fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Arena>()?;
     module.add("TRAINING_API_VERSION", 2u32)?;
+    // Whether `Arena` takes a seed for every table (`seeds`). Its own number
+    // rather than a new training version: a training version that moved
+    // would reset every resumed run's benchmark history, for a change that
+    // deals no game differently.
+    module.add("ARENA_SEEDS_API_VERSION", 1u32)?;
     module.add("PLANES", PLANES)?;
     // Which encoding of those planes `observations` writes; a checkpoint of
     // the engine's kind records it and is refused where it differs.
@@ -714,3 +747,5 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
 mod legality_tests;
 #[cfg(test)]
 mod ownership_tests;
+#[cfg(test)]
+mod seeds_tests;
