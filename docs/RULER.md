@@ -214,7 +214,9 @@ incumbent on the same deals, and the rule reads the first against the
 second, deal by deal:
 
 ```sh
-python -m neural.ruler_cloud series g1010-g910 history/gen-01010 zoo/mortal_298k     --also history/gen-00910 --run fusion-long --expected 0.006     --questions fixed --graphs --skip-forced --preview-reach --local E:/tmp-claude/mahjong/rulers
+python -m neural.ruler_cloud series g1010-g910 history/gen-01010 zoo/mortal_298k \
+    --also history/gen-00910 --run fusion-long --expected 0.006 \
+    --questions fixed --graphs --skip-forced --preview-reach --local E:/tmp-claude/mahjong/rulers
 ```
 
 With `--against`, one challenger is played and the rule reads it against the
@@ -226,8 +228,10 @@ its calls (about a fortnight: the ruler of 110, spawned on 29 September, was
 gone by 14 October):
 
 ```sh
-python -m neural.ruler_cloud keep g910 E:/tmp-claude/mahjong/modal-call-duelmany-fusionlong-g910-vs-mortal.txt     --local E:/tmp-claude/mahjong/rulers
-python -m neural.ruler_cloud series g1010-vs-g910 history/gen-01010 zoo/mortal_298k --against g910     --graphs --run fusion-long --local E:/tmp-claude/mahjong/rulers
+python -m neural.ruler_cloud keep g910 E:/tmp-claude/mahjong/modal-call-duelmany-fusionlong-g910-vs-mortal.txt \
+    --local E:/tmp-claude/mahjong/rulers
+python -m neural.ruler_cloud series g1010-vs-g910 history/gen-01010 zoo/mortal_298k --against g910 \
+    --graphs --run fusion-long --local E:/tmp-claude/mahjong/rulers
 ```
 
 The kept ruler must sit in the same `--local` folder and hold a report for
@@ -257,7 +261,8 @@ Before the port is trusted, one call of 1,000 deals on seed 9,100,000 is
 played four ways, 910 against published Mortal:
 
 ```sh
-python -m neural.ruler_cloud timing history/gen-00910 zoo/mortal_298k --run fusion-long     --local E:/tmp-claude/mahjong/rulers/timing
+python -m neural.ruler_cloud timing history/gen-00910 zoo/mortal_298k --run fusion-long \
+    --local E:/tmp-claude/mahjong/rulers/timing
 ```
 
 It spawns the old duel with `timing=True`, the ruler asked by seating without
