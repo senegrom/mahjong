@@ -243,6 +243,99 @@ class PlacementRuns(unittest.TestCase):
                         "--seat-share", "0.5")
 
 
+class CloudLaunches(unittest.TestCase):
+    """The cloud's side, run locally with Modal stood in for: a placement
+    launch stages U and names every option; a default launch names none;
+    the pre-test publishes what a fork starts from."""
+
+    def launch(self, app, volume: Path, scratch: Path, popen, function: str, **kwargs):
+        import functools
+
+        from neural import cloud_runs
+
+        with patch.object(app, "VOLUME", volume), \
+                patch.object(app, "workspace", functools.partial(cloud_runs.workspace, root=scratch)), \
+                patch.object(app, "_environment", return_value={}), patch.object(app, "_save_cache"), \
+                patch.object(app.subprocess, "Popen", side_effect=popen), \
+                contextlib.redirect_stdout(io.StringIO()):
+            return getattr(app, function)(**kwargs)
+
+    def test_a_placement_launch_stages_u_and_names_its_options(self):
+        import json
+
+        from neural.checkpoints import atomic_save
+        from neural.tests.test_cloud_isolation import controller
+
+        app = controller()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            root = Path(folder)
+            volume = root / "volume"
+            atomic_save({"generation": 7}, volume / "base" / "latest.pt")
+            write_u(volume / "base" / "u.pt")
+            commands = []
+
+            def popen(command, **_kwargs):
+                where = Path(command[command.index("--out") + 1])
+                commands.append((command, sorted(path.name for path in where.iterdir())))
+                atomic_save({"generation": 8}, where / "latest.pt")
+                record = json.dumps({"generation": 7, "checkpoint_generation": 8})
+                return SimpleNamespace(stdout=io.StringIO(record + "\n"), wait=lambda: 0)
+
+            self.launch(app, volume, root / "scratch", popen, "train_combined", run="fork",
+                        resume="base/latest", generations=1, reward="placement", alpha=0.05,
+                        place_model="base/u", value_warm_up=1, place_refit_every=50)
+            self.launch(app, volume, root / "scratch", popen, "train_combined", run="plain",
+                        resume="base/latest", generations=1)
+            with self.assertRaises(ValueError):
+                self.launch(app, volume, root / "scratch", popen, "train_combined", run="plain",
+                            resume="base/latest", generations=1, alpha=0.05)
+        (placed, files), (plain, _files) = commands
+        self.assertIn("place-model.pt", files)
+        at = placed.index("--reward")
+        self.assertEqual(placed[at:at + 4], ["--reward", "placement", "--alpha", "0.05"])
+        for flag, value in (("--place-refit-every", "50"), ("--value-warm-up", "1")):
+            self.assertEqual(placed[placed.index(flag) + 1], value)
+        self.assertTrue(placed[placed.index("--place-model") + 1].endswith("place-model.pt"))
+        for flag in ("--reward", "--alpha", "--place-model", "--value-warm-up", "--place-refit-every"):
+            self.assertNotIn(flag, plain)
+
+    def test_the_pretest_publishes_what_a_fork_starts_from(self):
+        import json
+
+        from neural.checkpoints import atomic_save
+        from neural.tests.test_cloud_isolation import child, controller
+
+        app = controller()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            root = Path(folder)
+            volume = root / "volume"
+            atomic_save({"generation": 1010}, volume / "fusion-long" / "latest.pt")
+            atomic_save({"generation": 30}, volume / "zoo" / "mortal_298k.pt")
+            asked = []
+
+            def popen(command, **_kwargs):
+                out = Path(command[command.index("--out") + 1])
+                asked.append(command)
+                out.mkdir(parents=True)
+                (out / "report.json").write_text('{"verdict": "go"}', encoding="utf-8")
+                (out / "ledger.npz").write_bytes(b"ledger")
+                write_u(out / "place-model.pt")
+                return child(stdout='{"phase": "play"}\nVERDICT {"verdict": {"verdict": "go"}}\n')
+
+            answer = self.launch(app, volume, root / "scratch", popen, "placement_pretest",
+                                 opponents=["zoo/mortal_298k", "club"], games=64, probes=100)
+            target = volume / "fusion-long" / "pretest-g1010"
+            self.assertTrue(answer.rstrip().endswith(f"wrote {target}"))
+            self.assertIn("VERDICT", answer)
+            self.assertEqual(json.loads((target / "report.json").read_text(encoding="utf-8")), {"verdict": "go"})
+            self.assertEqual(place_model.PlaceModel.load(target / "place-model.pt").fitted, {"made": "for a test"})
+            self.assertTrue((target / "ledger.npz").exists())
+        command, = asked
+        self.assertIn("neural.placement_pretest", command)
+        self.assertEqual(command[command.index("--seat-share") + 1], "0.5")
+        self.assertEqual(command[command.index("--games") + 1], "64")
+
+
 class Refits(unittest.TestCase):
     def ledger(self, rng, games: int):
         starts, finals = [], []
