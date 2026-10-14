@@ -201,6 +201,13 @@ def against(first: dict, second: dict) -> list[float]:
     return [b - a for a, b in zip(first["by_deal"], second["by_deal"], strict=True)]
 
 
+def against_each(reports: dict[int, dict], others: dict[int, dict]) -> dict[int, list[float]]:
+    """Two series of single rulers, a report a seed each, read deal by deal
+    (see `against`) on the seeds both hold: a look waits for a seed either
+    lacks."""
+    return {seed: against(report, others[seed]) for seed, report in reports.items() if seed in others}
+
+
 @dataclass
 class Look:
     """One look of a series: the seeds and deals it covers, the mean
@@ -305,8 +312,7 @@ def main() -> None:
         print(f"no design at {path}: reading by the usual rule, which was not registered for this series")
     reports = load_folder(args.folder)
     if args.against is not None:
-        others = load_folder(args.against)
-        by_seed = {seed: against(reports[seed], others[seed]) for seed in reports if seed in others}
+        by_seed = against_each(reports, load_folder(args.against))
         names = (str(args.folder), str(args.against))
     else:
         by_seed = {seed: differences(report) for seed, report in reports.items()}

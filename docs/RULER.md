@@ -162,6 +162,12 @@ in four, so the rule is written down before the first seed is spawned
   5% two-sided, as one look at 1.96 would be. The side z points to is the
   stronger. No crossing by the last look reads level.
 
+The difference is the one the series was registered with (see "Running one"):
+the first challenger's edge less the second's with `--also`, the challenger's
+edge less that of another series' challenger with `--against`, and the
+challenger's edge over the incumbent with neither. Once a second player is
+named, the incumbent never decides when a series stops.
+
 How often a difference between two rulers of one lineage is found, at the
 spread of the 810 and 910 pair (0.0153 a seed), and by which look:
 
@@ -188,53 +194,84 @@ The last stops after five seeds, a quarter of the ruler.
 
 Everything below needs the deployed app to hold `ruler` and `duel(timing=)`:
 deploy first. Run the launcher with the Modal client's Python from the
-repository root; it needs nothing but the client.
+repository root; it needs nothing but the client. A series spawns one look's
+seeds at a time and the next only if the rule says to go on, and can be
+stopped and run again.
 
-A paired series, read look by look; it spawns one look's seeds at a time and
-the next only if the rule says to go on, and can be stopped and run again:
+A series stops on the comparison it was registered with, so a series that
+compares two generations names both when it is registered. Every generation
+is far ahead of published Mortal (910 crossed the bound at the first look, z
++5.95): a series of one challenger against Mortal stops after five seeds, and
+two such series read against each other afterwards never get past their
+first look. There are two ways to name the second.
+
+With `--also`, both challengers are played in every call, against the same
+incumbent on the same deals, and the rule reads the first against the
+second, deal by deal:
 
 ```sh
-python -m neural.ruler_cloud series g1010-g910 history/gen-01010 zoo/mortal_298k \
-    --also history/gen-00910 --run fusion-long --expected 0.006 \
-    --questions fixed --graphs --skip-forced --preview-reach --local E:/tmp-claude/mahjong/rulers
+python -m neural.ruler_cloud series g1010-g910 history/gen-01010 zoo/mortal_298k     --also history/gen-00910 --run fusion-long --expected 0.006     --questions fixed --graphs --skip-forced --preview-reach --local E:/tmp-claude/mahjong/rulers
 ```
 
-A series asked by seating continues the published rulers, and can be read
-against one of them deal by deal. A ruler measured the old way is kept as a
-series from its call file first, while Modal still holds its calls (about a
-fortnight: the ruler of 110, spawned on 29 September, was gone by 14 October):
+With `--against`, one challenger is played and the rule reads it against the
+challenger of a published ruler, deal by deal on the same seeds. Asked by
+seating, a series plays the old duel's games, so the published ruler stands
+for the second arm and only the new challenger is paid for. The published
+ruler is kept as a series from its call file first, while Modal still holds
+its calls (about a fortnight: the ruler of 110, spawned on 29 September, was
+gone by 14 October):
 
 ```sh
-python -m neural.ruler_cloud keep g910 E:/tmp-claude/mahjong/modal-call-duelmany-fusionlong-g910-vs-mortal.txt \
-    --local E:/tmp-claude/mahjong/rulers
-python -m neural.ruler_cloud series g1010 history/gen-01010 zoo/mortal_298k --graphs --run fusion-long \
-    --local E:/tmp-claude/mahjong/rulers
-python -m neural.ruler_cloud looks g1010 --against g910 --local E:/tmp-claude/mahjong/rulers
+python -m neural.ruler_cloud keep g910 E:/tmp-claude/mahjong/modal-call-duelmany-fusionlong-g910-vs-mortal.txt     --local E:/tmp-claude/mahjong/rulers
+python -m neural.ruler_cloud series g1010-vs-g910 history/gen-01010 zoo/mortal_298k --against g910     --graphs --run fusion-long --local E:/tmp-claude/mahjong/rulers
 ```
+
+The kept ruler must sit in the same `--local` folder and hold a report for
+every seed the rule reads, of as many deals, against the same incumbent, and
+asked the same way: a ruler measured the old way counts as asked by seating.
+So `--against` a published ruler reads the usual 20 seeds; an effect of 0.006
+or less, read over 40, is measured with `--also`. A series that could not be
+read so is refused before anything is registered, as is one that asks with
+`--skip-forced` or `--preview-reach` by seating, where every call would fail.
 
 `looks <tag>` mirrors what the volume kept (`rulers/<tag>/seed-<seed>.json`)
-and prints the looks so far; `python -m neural.looks <folder>` reads a local
-folder of reports, the old duel's included.
+and prints the looks so far, by the comparison the series was registered
+with. `looks <tag> --against <other>` reads it against another series instead,
+and says so when its rule was registered for another comparison, since then
+its looks did not decide when it stopped. `python -m neural.looks <folder>`
+reads a local folder of reports, the old duel's included.
+
+At the spend limit Modal refuses a launch, which the launcher asks again
+later, or takes it and leaves the call in its queue with no container. A
+call in the queue is waiting, not playing: the launcher says when one starts
+waiting, again every hour it waits, and when it leaves the queue, and waits
+with it; it never spawns such a call again, since it has not failed.
 
 ## The timing check
 
 Before the port is trusted, one call of 1,000 deals on seed 9,100,000 is
-played three ways, 910 against published Mortal:
+played four ways, 910 against published Mortal:
 
 ```sh
-python -m neural.ruler_cloud timing history/gen-00910 zoo/mortal_298k --run fusion-long \
-    --local E:/tmp-claude/mahjong/rulers/timing
+python -m neural.ruler_cloud timing history/gen-00910 zoo/mortal_298k --run fusion-long     --local E:/tmp-claude/mahjong/rulers/timing
 ```
 
-It spawns the old duel with `timing=True`, the ruler asked by seating with
-graphs, and the ruler in fixed rows of 256 with every switch, waits for the
-three (about $2), keeps their reports and prints a block for each: placement,
-play time and its parts, how many deals each ruler placed as the old duel did,
-and how much faster it was; then the verdict. The old duel should read 2.4110,
-as the published ruler's first seed did if nothing in the engine or the image
-has changed since 14 October. The seating ruler must place exactly as the old
-duel on all 1,000 deals, or it has changed games and must not continue the
-published series; the roadmap keeps the port only if it is at least 1.5 times
+It spawns the old duel with `timing=True`, the ruler asked by seating without
+graphs and with them, and the ruler in fixed rows of 256 with every switch,
+and waits for the four (about $3). It keeps their reports and prints a block
+for each, always in that order: placement, play time and its parts, how many
+deals each ruler placed as the old duel did, and how much faster it was; then
+the verdict. The old duel should read 2.4110 +- 0.0183, as the published
+ruler's first seed did if nothing in the engine or the image has changed
+since 14 October.
+
+A seating ruler must place exactly as the old duel on all 1,000 deals, or it
+has changed games and must not continue the published series. Without
+graphs it asks the old duel's very batches, so one that changed games there
+did it by its arena or its weights cast once, and no seating ruler may
+continue the series; one that changed games only with graphs did it by its
+graphs, and the series is continued without `--graphs`. The roadmap keeps
+the port only if a seating ruler that kept the games is at least 1.5 times
 as fast. The fixed ruler plays other games, so its placement differs within
 its error. The parts say where the rest of the time goes: the encoder's work
 is the same in every way of playing, so a call whose old duel spends most of
