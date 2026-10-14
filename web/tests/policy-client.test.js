@@ -14,7 +14,7 @@ const policy = globals => loadModule('policy.js', {
   document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout,
   MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => MANIFEST, __RUNTIME_DIRECTORY__: 'ort/0123abcd/', navigator: { onLine: true },
   networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null, ...globals,
-}, ['chooseAction', 'analyzePolicy', 'modelIsAvailable', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
+}, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
 
 test('a page that plays another listed network probes and asks for that one alone', async t => {
   const older = NETWORKS.find(network => network.version === '0.1.410');
@@ -400,4 +400,38 @@ test('an answer proves the network is loaded, even from a worker that sends no n
   t.mock.timers.tick(20000);
   await missed;
   assert.equal(worker.terminated, true, 'the next decision is timed at once');
+});
+
+test('a review batch is one request, its positions end to end, answered position by position', async t => {
+  const workers = [];
+  class Worker {
+    constructor() { this.messages = []; this.transfers = []; workers.push(this); }
+    postMessage(message, transfer = []) { this.messages.push(message); this.transfers.push(transfer); }
+    terminate() {}
+    answer(message, payload) { this.onmessage({ data: { id: message.id, ...payload } }); }
+  }
+  const api = policy({ Worker });
+  t.after(() => api.resetPolicy());
+  assert.equal((await api.analyzeBatch([])).length, 0, 'nothing to ask, nothing asked');
+  assert.equal(workers.length, 0);
+  const positions = [0, 1, 2].map(n => ({ planes: Float32Array.from({ length: 34 }, () => n), mask: [1, n === 1 ? 0 : 1] }));
+  const answers = api.analyzeBatch(positions);
+  positions[0].planes.fill(9); // The caller's arrays are not what is sent.
+  await setImmediate();
+  const [worker] = workers, [message] = worker.messages;
+  assert.equal(message.count, 3);
+  assert.equal(message.details, true);
+  assert.equal(message.url, NETWORK_URL);
+  assert.deepEqual(Array.from(message.planes), [0, 1, 2].flatMap(n => Array(34).fill(n)));
+  assert.deepEqual([...message.mask], [1, 1, 1, 0, 1, 1]);
+  assert.ok(worker.transfers[0].includes(message.planes.buffer), 'the planes are moved, not copied');
+  const analyses = [{ action: 0, weights: [0.6, 0.4] }, { action: 0, weights: [1, 0] }, { action: 1, weights: [0.3, 0.7] }];
+  worker.answer(message, { analyses });
+  assert.deepEqual(await answers, analyses);
+  // A single decision still goes alone, without a count.
+  const single = api.analyzePolicy(new Float32Array(34), [1, 1]);
+  await setImmediate();
+  assert.equal('count' in worker.messages[1], false);
+  worker.answer(worker.messages[1], { analysis: analyses[0] });
+  assert.deepEqual(await single, analyses[0]);
 });
