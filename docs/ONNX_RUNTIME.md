@@ -89,7 +89,7 @@ includes real inference, legacy preference migration, saved-state, memory,
 worker, offline, and browser layout checks. Optional external model/checkpoint
 fixtures remain explicitly identified by their individual tests.
 
-The memory regression loads the published network through the reduced runtime
+The memory regression loads the default network through the reduced runtime
 three times over. It needs a local copy named by `MAHJONG_NETWORK`, which
 `node scripts/prepare-test-network.mjs <path>` fetches and verifies against the
 manifest. CI always supplies it and fails without it; a local run without it
@@ -118,7 +118,7 @@ the pull request from that link and merge only after its checks pass. The
 workflow never pushes main.
 
 `neural.export` refuses a network that needs an operator the reduced runtime
-lacks, and the memory regression loads the published network through that
+lacks, and the memory regression loads the default network through that
 runtime, so a missing kernel fails before release.
 
 See [historical evidence](HISTORY.md) for superseded size measurements and
