@@ -24,7 +24,7 @@
 //! - [`game`] the turn state machine of a hand
 //! - [`table`] the full game: rounds, the deal moving on, and uma
 //! - [`bot`] the heuristic opponent and benchmark
-//! - [`encoding`] how a position is shown to a network
+//! - [`encoding`] the action space, and the planes older networks read
 //! - [`mjai`] the event log other riichi programs read
 //! - [`review`] judging a decision after the hand is over
 //!

@@ -956,7 +956,7 @@ impl Game {
         } else {
             riichi_core::TileSet::new()
         };
-        let seen = review::visible_to(&self.hand, self.seat);
+        let seen = self.hand.seen_by(self.seat);
         TableView {
             round: wind_name(self.hand.round).to_string(),
             kyoku: self.hand.kyoku,
@@ -1074,7 +1074,7 @@ impl Game {
         player.hand.remove(tile);
         let waits = player.waits();
         // The discard stays visible, so it still counts among seen copies.
-        let seen = review::visible_to(&self.hand, self.seat);
+        let seen = self.hand.seen_by(self.seat);
         let hint = DiscardHint {
             shanten: riichi_core::shanten::shanten(&player.hand, player.melds.len()),
             waits: waits.tiles().map(|tile| tile.to_string()).collect(),

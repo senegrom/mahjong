@@ -10,6 +10,10 @@
 //! riichi-cli duel  --games 200              one style against three others
 //! ```
 //!
+//! An unknown command exits with code 1, and a flag whose number is missing
+//! or does not parse with code 2, before anything is played: CI's gates read
+//! only the exit code.
+//!
 //! The fuzzer is the point of this crate: it plays only actions the engine
 //! offered, and checks after every one that the table's points add up, that
 //! no tile has appeared or vanished, and that no hand holds a fifth copy of
@@ -20,7 +24,7 @@ mod dump;
 
 use std::collections::BTreeMap;
 use std::env;
-use std::process::ExitCode;
+use std::process::{self, ExitCode};
 
 use riichi_core::bot::{Bot, Style};
 use riichi_core::game::{Action, Call, Hand, Outcome, Phase};
@@ -30,6 +34,10 @@ use riichi_core::table::Table;
 use riichi_core::tile::{Tile, COPIES, SET_SIZE};
 use riichi_core::wall::DEAD_WALL;
 use riichi_core::{TileSet, Wind};
+
+/// What `help` prints, and what a mistyped command line is answered with.
+const USAGE: &str = "usage: riichi-cli <arena|fuzz|hand|log|dump|duel> [--games N] [--seed N]
+  duel also takes [--dora-worth N] [--defender-dora N]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -79,17 +87,39 @@ fn main() -> ExitCode {
             duel::duel(games, seed, challenger, defender);
             ExitCode::SUCCESS
         }
-        _ => {
-            println!("usage: riichi-cli <arena|fuzz|hand|log|dump|duel> [--games N] [--seed N]");
-            println!("  duel also takes [--dora-worth N] [--defender-dora N]");
+        "help" | "--help" | "-h" => {
+            println!("{USAGE}");
             ExitCode::SUCCESS
+        }
+        _ => {
+            // The CI gates read only the exit code, so a mistyped command
+            // has to fail them rather than pass without playing a game.
+            eprintln!("riichi-cli: unknown command {command:?}");
+            eprintln!("{USAGE}");
+            ExitCode::FAILURE
         }
     }
 }
 
+/// The number given after the flag `name`, or nothing when the flag is not
+/// there.
+///
+/// A flag with no number after it, or with one that does not parse, ends
+/// the program with exit code 2, the code for a mistyped command line.
+/// Falling back to the default instead let `--games 5e3` play a hundred
+/// games and pass, so a gate could test far less than it says.
 fn value(args: &[String], name: &str) -> Option<usize> {
     let index = args.iter().position(|arg| arg == name)?;
-    args.get(index + 1)?.parse().ok()
+    let given = args.get(index + 1);
+    if let Some(number) = given.and_then(|text| text.parse().ok()) {
+        return Some(number);
+    }
+    match given {
+        Some(text) => eprintln!("riichi-cli: {name} takes a whole number, not {text:?}"),
+        None => eprintln!("riichi-cli: {name} takes a whole number, and none was given"),
+    }
+    eprintln!("{USAGE}");
+    process::exit(2);
 }
 
 /// Writes games as mjai event logs, one JSON object per line, which is
@@ -115,33 +145,7 @@ fn write_log(games: usize, seed: u64) {
         while !table.finished {
             let seating = table.seating();
             let mut hand = table.deal(&mut rng);
-            while !matches!(hand.phase, Phase::Over) {
-                match hand.phase {
-                    Phase::Draw => {
-                        let _ = hand.draw();
-                    }
-                    Phase::Act => {
-                        let seat = hand.turn;
-                        let action = bots[table.player_at(seat)].act(&hand);
-                        hand.act(action).expect("the bot chose a legal action");
-                    }
-                    Phase::CallWindow => {
-                        let answers: Vec<(Wind, Call)> = hand
-                            .legal_calls()
-                            .iter()
-                            .map(|(seat, calls)| {
-                                (
-                                    *seat,
-                                    bots[table.player_at(*seat)].call(&hand, *seat, calls),
-                                )
-                            })
-                            .collect();
-                        hand.resolve_calls(&answers)
-                            .expect("the calls were offered");
-                    }
-                    Phase::Over => break,
-                }
-            }
+            play_hand(&mut hand, &table, &mut bots);
             for event in &hand.log {
                 println!("{}", event.to_json(seating));
             }
@@ -378,6 +382,9 @@ fn check_invariants(hand: &Hand, game: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Plays a dealt hand to its end with the heuristic bots, which are indexed
+/// by player rather than by seat, so each keeps its own seed and style as
+/// the seats move round. The arena, the logs and the duel all play this way.
 fn play_hand(hand: &mut Hand, table: &Table, bots: &mut [Bot]) {
     let mut guard = 0;
     while !matches!(hand.phase, Phase::Over) {

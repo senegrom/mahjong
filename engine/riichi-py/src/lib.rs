@@ -12,6 +12,12 @@
 //! Observations come back as bytes, to be read with `numpy.frombuffer`, so
 //! nothing is copied through Python objects.
 //!
+//! What a network reads depends on its kind. The networks trained now read
+//! Mortal's planes, which `libriichi`'s Follower encodes from the mjai
+//! events `mjai_all` hands over (see `neural/observe.py`). The engine's own
+//! planes, `observations`, are kept for the older checkpoints of the
+//! engine's kind, which play like this:
+//!
 //! ```python
 //! import numpy as np, riichi_py
 //!
@@ -23,6 +29,10 @@
 //!     mask = np.frombuffer(arena.legal_mask(), dtype=bool).reshape(-1, riichi_py.ACTIONS)
 //!     arena.step(policy(obs, mask))
 //! ```
+//!
+//! Either kind answers through `legal_mask` and `step`, in the engine's own
+//! action space, and `oracle` and `opponent_hands` are training labels
+//! whichever planes a network reads.
 
 use std::collections::VecDeque;
 

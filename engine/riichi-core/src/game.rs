@@ -1176,9 +1176,10 @@ impl Hand {
     /// indicators that have been turned.
     ///
     /// What is left, [`Hand::unseen_by`], is what the other hands and the
-    /// rest of the wall hold between them. The heuristic player counts its
-    /// acceptance against it and the observation shows it to a network, so
-    /// both ask this one question.
+    /// rest of the wall hold between them. The heuristic player and the
+    /// review count acceptance against it, the page counts how many of each
+    /// wait could still come, and the observation shows it to a network, so
+    /// they all ask this one question.
     pub fn seen_by(&self, seat: Wind) -> TileSet {
         let mut seen = self.players[seat.index()].hand;
         for player in &self.players {

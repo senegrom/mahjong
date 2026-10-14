@@ -335,8 +335,9 @@ fn discarded_tile(action: &Action) -> Option<Tile> {
     }
 }
 
-/// The seats that have declared riichi and are therefore waiting.
-fn threats(hand: &Hand, seat: Wind) -> Vec<Wind> {
+/// The seats other than `seat` that have declared riichi and are therefore
+/// waiting. The review reads a discard's danger against the same seats.
+pub(crate) fn threats(hand: &Hand, seat: Wind) -> Vec<Wind> {
     Wind::ALL
         .into_iter()
         .filter(|other| *other != seat && hand.players[other.index()].has_riichi())

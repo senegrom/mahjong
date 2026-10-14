@@ -8,13 +8,13 @@
 //! the advice and see exactly what they are trading away.
 //!
 //! The adviser is the heuristic bot, which is always available and instant.
-//! A trained network can be asked the same question through
-//! [`crate::encoding`], and the two answers together are more informative
+//! The app can also ask a trained network the same question, on Mortal's
+//! planes, through riichi-wasm's `review_observation_mortal` and the page's
+//! `review-policy.js`, and the two answers together are more informative
 //! than either alone, because they disagree in interesting places.
 
-use crate::bot::Bot;
+use crate::bot::{self, Bot};
 use crate::game::{Action, Hand};
-use crate::hand::TileSet;
 use crate::shanten;
 use crate::tile::Tile;
 use crate::Wind;
@@ -124,20 +124,6 @@ fn discarded(action: Action) -> Option<Tile> {
     }
 }
 
-/// Everything a seat can see: their own tiles, every discard on the table,
-/// the called sets and the dora indicators.
-///
-/// This is what is left of a tile somebody might be waiting for, so it
-/// answers both "how many of these could still come" for the acceptance
-/// count and "how thin is this wait" for the player.
-pub fn visible_to(hand: &Hand, seat: Wind) -> TileSet {
-    // One answer, shared with the heuristic player and the observation,
-    // which ask the same question. A tile claimed for a
-    // set stays in the pond it came from and is counted with the set, so
-    // counting both made a wait look a tile thinner than it is.
-    hand.seen_by(seat)
-}
-
 /// How many times over a tile is dora, which is none for most tiles and
 /// more than one when several indicators point at the same kind.
 fn dora_worth(hand: &Hand, tile: Tile) -> u8 {
@@ -150,10 +136,7 @@ fn dora_worth(hand: &Hand, tile: Tile) -> u8 {
 
 /// How exposed a tile is against everyone who has declared riichi.
 fn danger_of(hand: &Hand, seat: Wind, tile: Tile) -> Danger {
-    let declared: Vec<Wind> = Wind::ALL
-        .into_iter()
-        .filter(|other| *other != seat && hand.players[other.index()].has_riichi())
-        .collect();
+    let declared = bot::threats(hand, seat);
     if declared.is_empty() {
         return Danger::Quiet;
     }
@@ -188,7 +171,9 @@ fn after(hand: &Hand, seat: Wind, action: Action) -> (i32, u32) {
         // A win ends the hand, so there is nothing left to judge.
         Action::Tsumo => return (shanten::COMPLETE, 0),
     }
-    let seen = visible_to(hand, seat);
+    // What is left of each tile is what could still come, counted as the
+    // heuristic player and the observation count it.
+    let seen = hand.seen_by(seat);
     let distance = shanten::shanten(&left, called);
     let acceptance: u32 = shanten::acceptance(&left, called, &seen)
         .into_iter()
@@ -249,6 +234,7 @@ pub fn judge(hand: &Hand, played: Action, adviser: &mut Bot) -> Note {
 mod tests {
     use super::*;
     use crate::game::Phase;
+    use crate::hand::TileSet;
     use crate::rng::Rng;
     use crate::table::Table;
 
@@ -348,16 +334,22 @@ mod tests {
     }
 
     /// With somebody waiting on a declared riichi, a tile that is already
-    /// through cannot deal in and a fresh one can. The review has to say so
-    /// when the two are otherwise the same choice.
+    /// through cannot deal in and a fresh one can. Throwing the fresh one
+    /// when the safe one was there is named as a defence note.
     #[test]
     fn throwing_into_a_riichi_is_named_as_the_reason() {
-        let mut hand =
-            crate::game::Hand::deal(&mut Rng::from_seed(31337), Wind::East, 1, 0, 0, [30000; 4]);
+        // A deal whose indicator is a suited tile, so neither honour below
+        // is dora or pointed at, and only the riichi separates the two.
+        let mut hand = (0..)
+            .map(|seed| {
+                crate::game::Hand::deal(&mut Rng::from_seed(seed), Wind::East, 1, 0, 0, [30000; 4])
+            })
+            .find(|hand| !hand.wall.dora_indicators()[0].is_honour())
+            .expect("some deal turns a suited tile");
 
         // South declares, and their own discards are safe against them.
-        let through: Tile = "9m".parse().unwrap();
-        let fresh: Tile = "5p".parse().unwrap();
+        let through: Tile = "4z".parse().unwrap();
+        let fresh: Tile = "3z".parse().unwrap();
         {
             let south = &mut hand.players[Wind::South.index()];
             south.riichi = crate::score::Riichi::Declared;
@@ -371,8 +363,10 @@ mod tests {
             });
         }
 
-        // East holds two tiles that are equally useless to the hand, so the
-        // only thing separating them is whether they can deal in.
+        // East holds two isolated honours, alike in shape: whichever stays
+        // waits for its pair. South has thrown one North, so one fewer is
+        // left to pair it with, and letting the North go is the wider
+        // choice as well as the safe one. The adviser throws it.
         {
             let east = &mut hand.players[Wind::East.index()];
             east.hand = TileSet::new();
@@ -399,15 +393,20 @@ mod tests {
             "a tile nobody has seen might"
         );
 
-        // Playing the live tile when the safe one was there is a defence
-        // note, whichever of them the adviser happens to prefer.
+        // The safe tile was also the wider choice, by the copy South threw,
+        // and the note names the danger ahead of the acceptance.
         let mut adviser = Bot::new(9);
         let note = judge(&hand, Action::Discard(fresh), &mut adviser);
-        if discarded(note.advised) == Some(through) {
-            assert_eq!(note.reason, Reason::Defence, "{note:?}");
-            assert_eq!(note.danger_played, Danger::Live);
-            assert_eq!(note.danger_advised, Danger::Safe);
-        }
+        assert_eq!(discarded(note.advised), Some(through), "{note:?}");
+        assert_eq!(note.reason, Reason::Defence, "{note:?}");
+        assert_eq!(note.danger_played, Danger::Live);
+        assert_eq!(note.danger_advised, Danger::Safe);
+        assert_eq!(note.shanten_played, note.shanten_advised, "{note:?}");
+        assert_eq!(
+            note.acceptance_advised,
+            note.acceptance_played + 1,
+            "{note:?}"
+        );
 
         // And with nobody waiting, neither tile is dangerous at all.
         hand.players[Wind::South.index()].riichi = crate::score::Riichi::None;
