@@ -268,8 +268,6 @@ def ask_in_fixed_rows(player, device: str, rows: int, graphs: bool = False):
 def seat(
     path: Path | str,
     device: str,
-    channels: int | None = None,
-    blocks: int | None = None,
     questions: str = "seating",
     rows: int = ROWS,
     graphs: bool = False,
@@ -288,7 +286,7 @@ def seat(
     validate_questions(questions, rows, graphs, skip_forced, preview_reach)
     if str(path) == zoo.CLUB:
         raise ValueError("the heuristic player plays inside the arena and cannot be seated at a ruler")
-    player = zoo.load_player(path, device, channels, blocks)
+    player = zoo.load_player(path, device)
     player.eval()
     # A Mortal of the zoo, or one of ours in its moves, holds its network
     # as `net`; a joined player, or one of ours in our moves, is one.
@@ -577,12 +575,6 @@ def main() -> None:
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
-    # The width and depth a network of ours is rebuilt at only where its
-    # checkpoint does not say, as the oldest do not (see `zoo.load_player`).
-    parser.add_argument("--channels", type=int, default=320)
-    parser.add_argument("--blocks", type=int, default=20)
-    parser.add_argument("--incumbent-channels", type=int, default=192)
-    parser.add_argument("--incumbent-blocks", type=int, default=10)
     args = parser.parse_args()
     validate_questions(args.questions, args.rows, args.graphs, args.skip_forced, args.preview_reach)
 
@@ -592,8 +584,8 @@ def main() -> None:
     options = {name: getattr(args, name) for name in ("questions", "rows", "graphs", "skip_forced", "preview_reach")}
     began = time.perf_counter()
     paths = [args.challenger] + ([args.also] if args.also is not None else [])
-    challengers = [seat(path, args.device, args.channels, args.blocks, **options) for path in paths]
-    incumbent = seat(args.incumbent, args.device, args.incumbent_channels, args.incumbent_blocks, **options)
+    challengers = [seat(path, args.device, **options) for path in paths]
+    incumbent = seat(args.incumbent, args.device, **options)
     loaded = time.perf_counter() - began
     timing = {} if args.timing else None
     result = ruler(challengers, incumbent, args.games, args.seed, device=args.device, max_steps=args.max_steps,

@@ -1057,10 +1057,6 @@ def ruler(
     skip_forced: bool = False,
     preview_reach: bool = False,
     timing: bool = True,
-    channels: int = 320,
-    blocks: int = 24,
-    incumbent_channels: int = 192,
-    incumbent_blocks: int = 10,
     run: str = DEFAULT_RUN,
 ) -> str:
     """A duel played the faster way, with a second challenger if `also`
@@ -1102,12 +1098,10 @@ def ruler(
             + f"against {incumbent}.pt generation {generations[incumbent]}",
             flush=True,
         )
+        # Each checkpoint says its own shape (see `model.shape_of`).
         command = [
             sys.executable, "-m", "neural.ruler", str(files[0]), str(files[1]),
             "--games", str(games), "--seed", str(seed), "--questions", questions,
-            "--channels", str(channels), "--blocks", str(blocks),
-            "--incumbent-channels", str(incumbent_channels),
-            "--incumbent-blocks", str(incumbent_blocks),
         ]
         if also:
             command += ["--also", str(files[2])]
