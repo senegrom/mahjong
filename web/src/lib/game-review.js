@@ -20,12 +20,15 @@ export const FLAG_PLAYED_BELOW = 0.05;
 export const FLAG_PREFERRED_FROM = 0.6;
 /** How many of the flagged decisions the review leads with. */
 export const LEADING = 5;
-/** Positions asked in one forward pass. Eight cost about half as much a
- * position as one at a time, natively and in the browser alike. */
+/** Positions asked in one forward pass. Natively eight cost about half as
+ * much a position as one at a time (35 ms against 66); in the browser's
+ * single-threaded runtime they cost about the same (157 ms against 163, in
+ * Chromium on 14 October 2026), with identical answers, so a batch saves
+ * messages there and costs nothing. */
 export const BATCH = 8;
 /** A device slower than this a position reviews a hand at a time unless the
- * player asks for the rest of the game: at half a second, a game's 150 to
- * 200 decisions take a minute and a half or more. */
+ * player asks for the rest of the game: at half a second a position, a game
+ * of 150 to 200 decisions takes 75 to 100 seconds. */
 export const SLOW_MS = 500;
 
 /** "East 1" or "South 3". */
@@ -33,8 +36,9 @@ export const handName = view => `${SEAT_NAMES[view.round] ?? view.round} ${view.
 
 /** Every hand of a finished match, replayed from its first deal: the table at
  * each of the player's decisions, what they chose there, and what happened
- * between; how the hand ended; and which saved command closed it. Throws when
- * the replay does not end exactly where the match did. */
+ * between; how the hand ended and what it changed for the player; and which
+ * saved command closed it. Throws when the replay does not end exactly where
+ * the match did. */
 export function scanMatch(Game, snapshot) {
   const match = new MatchSession(Game, snapshot.seed, snapshot.opponents);
   try {
@@ -47,8 +51,8 @@ export function scanMatch(Game, snapshot) {
           played: { kind: command.kind, tile: command.tile ?? null } });
         lines = [];
       } else if (command.type === 'next') {
-        const view = match.view;
-        Object.assign(hand, { end: at, outcome: view.outcome?.line ?? '', change: view.outcome?.changes?.[0] ?? 0, closing: lines, last: view });
+        const { outcome } = match.view;
+        Object.assign(hand, { end: at, outcome: outcome?.line ?? '', change: outcome?.changes?.[0] ?? 0 });
         hands.push(hand);
         hand = null;
         lines = [];
@@ -119,13 +123,15 @@ export function agreement(decisions) {
  * reviews the hands queued, in order, a forward pass at a time; a slow device
  * holds after each hand unless the player has asked for the whole game.
  * `analyzeBatch(positions, signal)` asks the network; `onChange` hears every
- * change. */
-export class GameReview {
-  constructor(Game, snapshot, { analyzeBatch, onChange = () => {}, now = () => performance.now() } = {}) {
+ * change, and `onComplete` hears once that every hand is reviewed, whether or
+ * not anyone is looking. */
+export class MatchReview {
+  constructor(Game, snapshot, { analyzeBatch, onChange = () => {}, onComplete = () => {}, now = () => performance.now() } = {}) {
     this.Game = Game;
     this.snapshot = snapshot;
     this.analyzeBatch = analyzeBatch;
     this.onChange = onChange;
+    this.onComplete = onComplete;
     this.now = now;
     this.hands = scanMatch(Game, snapshot).map(hand => ({ ...hand, status: 'waiting', decisions: null }));
     this.queue = [];
@@ -135,6 +141,10 @@ export class GameReview {
     // Whether the player asked for the whole game on a slow device.
     this.patient = false;
     this.closed = false;
+    // Whether anything was ever asked for, and whether the finished review
+    // has been reported complete.
+    this.requested = false;
+    this.recorded = false;
     this.positionMs = null;
     this.asked = 0;
     this.replay = null;
@@ -152,6 +162,11 @@ export class GameReview {
   /** How long the rest would take at the speed seen so far, in seconds. */
   get estimate() { return this.positionMs == null ? null : Math.ceil(this.remaining * this.positionMs / 1000); }
   get slow() { return this.positionMs != null && this.positionMs > SLOW_MS; }
+  /** What the trend keeps of a finished review. */
+  get summary() {
+    const { matched, decisions } = agreement(this.decisions);
+    return { id: this.id, matched, decisions, flagged: rankDecisions(this.decisions).length };
+  }
 
   notify() { if (!this.closed) this.onChange(this); }
 
@@ -160,6 +175,7 @@ export class GameReview {
    * player's word that a slow device should go on to the end. */
   review(indices = this.hands.map(hand => hand.index), { patient = false } = {}) {
     if (this.closed) return;
+    this.requested = true;
     const wanted = indices.filter(index => this.hands[index] && this.hands[index].status !== 'done' && index !== this.current);
     this.queue = [...wanted, ...this.queue.filter(index => !wanted.includes(index))];
     this.patient ||= patient;
@@ -204,6 +220,10 @@ export class GameReview {
           break;
         } finally {
           this.current = null;
+        }
+        if (this.complete && !this.recorded) {
+          this.recorded = true;
+          this.onComplete(this);
         }
         // A slow device holds after each hand: the player chooses whether to
         // go on, one hand or the rest, knowing how long it would take.

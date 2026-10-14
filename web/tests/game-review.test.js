@@ -4,12 +4,11 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { BATCH, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, GameReview, LEADING, SLOW_MS, agreement, handName, judgement,
+import { BATCH, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, MatchReview, SLOW_MS, agreement, handName, judgement,
   rankDecisions, scanMatch } from '../src/lib/game-review.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
-const MORTAL_REACH = 37;
 
 /** A whole game, played to its standings by a player who takes every win,
  * declares every riichi and otherwise throws the tile just drawn. */
@@ -76,9 +75,14 @@ test('a finished match replays hand by hand, with the table at every decision an
       assert.ok(frame.choices.some(choice => choice.kind === command.kind && (choice.tile ?? null) === (command.tile ?? null)),
         'the move played was one of the choices shown');
     }
-    assert.equal(hand.last.phase, 'over');
-    assert.equal(hand.outcome, hand.last.outcome.line);
-    assert.equal(handName(hand.last), hand.name);
+    const ended = atHandEnd(game, hand.end);
+    try {
+      const view = ended.view;
+      assert.equal(view.phase, 'over');
+      assert.equal(hand.outcome, view.outcome.line);
+      assert.equal(hand.change, view.outcome.changes[0]);
+      assert.equal(handName(view), hand.name);
+    } finally { ended.dispose(); }
     start = hand.end + 1;
   }
   assert.ok(hands.some(hand => hand.frames.some(frame => frame.lines.length)), 'the history between decisions is kept');
@@ -120,7 +124,7 @@ test('flagged decisions rank by the gap, ties in the order played, and agreement
 
 test('the whole game is reviewed in batches, and judged as the hand review judges each hand', async () => {
   const sizes = [];
-  const review = new GameReview(Game, game, { analyzeBatch: network(sizes) });
+  const review = new MatchReview(Game, game, { analyzeBatch: network(sizes) });
   try {
     review.review();
     await settled(review);
@@ -155,7 +159,7 @@ test('the whole game is reviewed in batches, and judged as the hand review judge
 });
 
 test('a flagged turn carries the review numbers of every move that was open, the one played as its note gives them', async () => {
-  const review = new GameReview(Game, game, { analyzeBatch: network() });
+  const review = new MatchReview(Game, game, { analyzeBatch: network() });
   try {
     review.review([0]);
     await settled(review);
@@ -180,7 +184,7 @@ test('a flagged turn carries the review numbers of every move that was open, the
 });
 
 test('a hand asked for out of order is reviewed first, and an earlier one after it replays from the deal', async () => {
-  const review = new GameReview(Game, game, { analyzeBatch: network() });
+  const review = new MatchReview(Game, game, { analyzeBatch: network() });
   try {
     const last = review.hands.length - 1;
     review.review([last]);
@@ -204,7 +208,7 @@ test('a slow device holds after each hand until the player asks for the next one
     clock += positions.length * (SLOW_MS + 100);
     return network()(positions, signal);
   };
-  const review = new GameReview(Game, game, { analyzeBatch: slow, now: () => clock });
+  const review = new MatchReview(Game, game, { analyzeBatch: slow, now: () => clock });
   try {
     review.review();
     await settled(review);
@@ -234,7 +238,7 @@ test('stopping puts the hand being reviewed back, and a failure says what failed
     }
     return positions.map(position => decisive(position.mask));
   };
-  review = new GameReview(Game, game, { analyzeBatch: waiting });
+  review = new MatchReview(Game, game, { analyzeBatch: waiting });
   try {
     review.review();
     for (let turn = 0; turn < 1000 && review.current !== 1; turn++) await new Promise(resolve => setImmediate(resolve));
@@ -251,7 +255,7 @@ test('stopping puts the hand being reviewed back, and a failure says what failed
     if (fail) throw new Error('The trained opponent did not answer in time');
     return network()(positions, signal);
   };
-  const retried = new GameReview(Game, game, { analyzeBatch: flaky });
+  const retried = new MatchReview(Game, game, { analyzeBatch: flaky });
   try {
     retried.review();
     await settled(retried);
@@ -265,8 +269,25 @@ test('stopping puts the hand being reviewed back, and a failure says what failed
   } finally { retried.dispose(); }
 });
 
+test('a finished review is reported once, with what the trend keeps of it', async () => {
+  const reported = [];
+  const review = new MatchReview(Game, game, { analyzeBatch: network(), onComplete: done => reported.push(done.summary) });
+  try {
+    review.review([0, 1]);
+    await settled(review);
+    assert.deepEqual(reported, [], 'a part of the game is not the game');
+    review.review();
+    await settled(review);
+    review.review();
+    await settled(review);
+    const { matched, decisions } = agreement(review.decisions);
+    assert.deepEqual(reported, [{ id: `${game.seed}:${game.commands.length}`, matched, decisions,
+      flagged: rankDecisions(review.decisions).length }]);
+  } finally { review.dispose(); }
+});
+
 test('a closed review asks nothing more and frees its replay', async () => {
-  const review = new GameReview(Game, game, { analyzeBatch: network() });
+  const review = new MatchReview(Game, game, { analyzeBatch: network() });
   review.review();
   review.dispose();
   await settled(review);
@@ -275,5 +296,4 @@ test('a closed review asks nothing more and frees its replay', async () => {
   review.review();
   await settled(review);
   assert.equal(review.decisions.length, before);
-  assert.equal(MORTAL_REACH, 37);
 });

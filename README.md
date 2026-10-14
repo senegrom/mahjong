@@ -6,9 +6,10 @@ implements the EMA Riichi Competition Rules, 2025 edition, and is compiled
 for the browser and Python training tools.
 
 The app includes normal play, Agent watch, a physical-table editor, a guided
-physical game, hand review, learning aids, and mjai log export. All approved
-Classic, Matisse, Dalí, and Van Gogh artwork remains available. See the
-[mode guide](docs/AGENT_MODES.md) and [scoring guide](docs/GUIDED_SCORING.md).
+physical game, hand and whole-game review, learning aids, and mjai log
+export. All approved Classic, Matisse, Dalí, and Van Gogh artwork remains
+available. See the [mode guide](docs/AGENT_MODES.md) and
+[scoring guide](docs/GUIDED_SCORING.md).
 
 ## Run and verify
 
