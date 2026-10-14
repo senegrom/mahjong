@@ -147,7 +147,8 @@
             {#if decision.call_tile}<p class="context">Response to <Tile tile={decision.call_tile} size="tiny" dora={hints && (decision.dora_types ?? []).includes(decision.call_tile)} /> from {decision.call_from}</p>{/if}
             <p class="move">{#if decision.played_tile}<Tile tile={decision.played_tile} size="small" dora={hints && (decision.dora_types ?? []).includes(decision.played_tile)} />{/if}<span>You: {decision.played}</span></p>
             <p class="weight">Trained AI gave {decision.judgement.stage === 'tile' ? 'this tile, once riichi was declared,' : 'this move'} {percent(decision.judgement.played)}, and its own choice {percent(decision.judgement.preferred)}.</p>
-            <button class="app-control" data-open={key(decision)} onclick={() => { opened = decision; }}>Replay and choose again</button>
+            <button class="app-control" data-open={key(decision)} onclick={() => { opened = decision; }}
+              aria-label={`Replay and choose again: ${status.hands[decision.hand].name}, your decision ${decision.index + 1}`}>Replay and choose again</button>
           </li>
         {/each}
       </ol>
@@ -169,7 +170,8 @@
             <span class="outcome">{hand.outcome}{hand.change ? ` · you ${hand.change > 0 ? '+' : '−'}${Math.abs(hand.change).toLocaleString()}` : ''}</span>
             <span class="state">{handState(hand)}</span>
             {#if hand.status === 'waiting' && hand.frames.length && trainedAvailable}
-              <button class="app-control" data-review-hand={hand.index} onclick={() => review.review([hand.index])}>Review this hand</button>
+              <button class="app-control" data-review-hand={hand.index} onclick={() => review.review([hand.index])}
+                aria-label={`Review this hand: ${hand.name}`}>Review this hand</button>
             {/if}
           </li>
         {/each}

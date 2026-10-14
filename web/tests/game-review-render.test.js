@@ -54,7 +54,7 @@ test('a review under way leads with the flagged decisions found so far, and hide
   assert.match(html, /East 1 · your decision 1/);
   assert.match(html, /You: discards the 7 characters/);
   assert.match(html, /Trained AI gave this move 2\.0%, and its own choice 81\.0%\./);
-  assert.match(html, /Replay and choose again/);
+  assert.match(html, /aria-label="Replay and choose again: East 1, your decision 1"/, 'each button says which decision it opens');
   assert.doesNotMatch(html, /discards the 1 characters/, "Trained AI's own choice waits for a retry");
   assert.match(html, /1 of 2 matched/);
   assert.match(html, /Reviewing, 1 of 2/);
@@ -87,7 +87,7 @@ test('a slow device that held after a hand offers the next hand or the rest, wit
   assert.match(html, /data-next-hand/);
   assert.match(html, /Review the rest of the game/);
   assert.match(html, /<details class="hands[^"]*" open/, 'the hands are open to choose from');
-  assert.match(html, /data-review-hand="1"/);
+  assert.match(html, /data-review-hand="1"[^>]*aria-label="Review this hand: East 2"/);
 });
 
 test('without the network the review waits and says so, and is not offered hand by hand', () => {
