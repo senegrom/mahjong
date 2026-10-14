@@ -796,6 +796,7 @@ def train_combined(
     place_refit_rounds: int = 2,
     value_warm_up: int = 0,
     value_warm_up_lr: float = 1e-4,
+    seed: int | None = None,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -816,6 +817,13 @@ def train_combined(
     trainer's options of those names. None of them is passed on unless the
     reward is "placement", and any of them asked for without it is refused
     before anything is staged.
+
+    `seed`, when given, is the trainer's `--seed`, the base its deals come
+    from (a resumed run's draws go on from its checkpoint): a replication
+    of a recipe on other deals, any base at least a round's games from
+    another giving deals of their own. Left out, the trainer's own default
+    stands, as it always has; a run must be resumed with the seed it began
+    with.
 
     `reuse_phi` has a generation that holds Mortal still learn from
     Mortal's vectors as play worked them out, the trainer's `--reuse-phi`;
@@ -847,6 +855,11 @@ def train_combined(
                          "or compile_learning=True to compile the learning step alone")
     placement = placement_arguments(reward, alpha, place_model, place_refit_every, place_refit_rounds,
                                     value_warm_up, value_warm_up_lr)
+    seeded = []
+    if seed is not None:
+        if type(seed) is not int or not 0 <= seed < 1 << 63:
+            raise ValueError("seed must be a nonnegative integer")
+        seeded = ["--seed", str(seed)]
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
     validate_cloud_request(generations, opponents, opponent_share, seat_share)
@@ -896,7 +909,7 @@ def train_combined(
             command.append("--play-graphs")
         if fixed:
             command += ["--fixed", *fixed]
-        command += placement
+        command += placement + seeded
         if source.exists():
             _carry(run, source, where, leashed=True)
             command += ["--resume", str(where / "latest.pt")]

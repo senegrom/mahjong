@@ -283,7 +283,7 @@ class CloudLaunches(unittest.TestCase):
 
             self.launch(app, volume, root / "scratch", popen, "train_combined", run="fork",
                         resume="base/latest", generations=1, reward="placement", alpha=0.05,
-                        place_model="base/u", value_warm_up=1, place_refit_every=50)
+                        place_model="base/u", value_warm_up=1, place_refit_every=50, seed=21_260_908)
             self.launch(app, volume, root / "scratch", popen, "train_combined", run="plain",
                         resume="base/latest", generations=1)
             with self.assertRaises(ValueError):
@@ -296,7 +296,8 @@ class CloudLaunches(unittest.TestCase):
         for flag, value in (("--place-refit-every", "50"), ("--value-warm-up", "1")):
             self.assertEqual(placed[placed.index(flag) + 1], value)
         self.assertTrue(placed[placed.index("--place-model") + 1].endswith("place-model.pt"))
-        for flag in ("--reward", "--alpha", "--place-model", "--value-warm-up", "--place-refit-every"):
+        self.assertEqual(placed[placed.index("--seed") + 1], "21260908")
+        for flag in ("--reward", "--alpha", "--place-model", "--value-warm-up", "--place-refit-every", "--seed"):
             self.assertNotIn(flag, plain)
 
     def test_the_pretest_publishes_what_a_fork_starts_from(self):
