@@ -275,4 +275,8 @@
   .numbers td { padding: 2px 10px 2px 0; }
   .worse { color: var(--warning-text); }
   @media (max-width: 400px) { meter { width: 56px; } }
+  /* Below the game's bar where it stays at the top of the screen (AppSettings). */
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    h3, h4 { scroll-margin-top: 72px; }
+  }
 </style>

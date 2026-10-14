@@ -209,7 +209,9 @@ try {
       key: item.dataset.flagged, weight: item.querySelector('.weight').textContent })));
     assert.deepEqual(shown.map(item => item.key), flagged.slice(0, LEADING).map(verdict => verdict.key), 'flagged and ranked by the gap');
     shown.forEach((item, index) => {
-      assert.ok(item.weight.endsWith(` ${percent(flagged[index].playedWeight)}.`), `${item.weight} for ${flagged[index].key}`);
+      const { stage, playedWeight, preferred } = flagged[index];
+      assert.equal(item.weight, `Trained AI gave ${stage === 'tile' ? 'this tile, once riichi was declared,' : 'this move'} `
+        + `${percent(playedWeight)}, and its own choice ${percent(preferred)}.`);
     });
     await shot(page, 'game-review-list');
 
@@ -277,17 +279,28 @@ try {
     // Focus returns to the decision opened.
     await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, lead.key);
 
-    // On a phone, the list and a decision fit the screen.
-    await page.setViewport({ width: 360, height: 780, hasTouch: true });
+    // On a phone, the list and a decision fit the screen. Only the size
+    // changes: emulating touch would reload the page, and the review with it.
+    await page.setViewport({ width: 360, height: 780 });
+    assert.ok(await page.$('[data-game-review] [data-flagged]'), 'the review is still open');
     assert.ok(await overflow(page), 'the list fits a phone');
     await shot(page, 'game-review-phone');
     await page.click(`[data-game-review] [data-open="${lead.key}"]`);
     await page.waitForSelector('[data-decision]');
     assert.ok(await overflow(page), 'the replayed table fits a phone');
+    // The decision's heading is brought to the top of the screen, below the
+    // game's bar, which stays there on a phone.
+    await page.waitForFunction(() => {
+      const bar = document.querySelector('header.bar').getBoundingClientRect();
+      const heading = document.querySelector('#decision-title').getBoundingClientRect();
+      return heading.top >= bar.bottom && heading.bottom <= innerHeight;
+    });
     await shot(page, 'game-review-phone-decision');
     await page.click('[data-decision] [data-back]');
+    await page.waitForSelector('[data-game-review] [data-flagged]');
 
     // Back to the standings, as they were; the saved match is untouched.
+    await page.evaluate(() => scrollTo(0, 0));
     await page.click('[data-game-review] [data-close-review]');
     await page.waitForFunction(() => !document.querySelector('[data-game-review]') && document.activeElement?.matches('[data-review-game]'));
     assert.notEqual(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none');

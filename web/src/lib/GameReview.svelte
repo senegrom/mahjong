@@ -146,7 +146,7 @@
             <p class="where">{status.hands[decision.hand].name} · your decision {decision.index + 1}</p>
             {#if decision.call_tile}<p class="context">Response to <Tile tile={decision.call_tile} size="tiny" dora={hints && (decision.dora_types ?? []).includes(decision.call_tile)} /> from {decision.call_from}</p>{/if}
             <p class="move">{#if decision.played_tile}<Tile tile={decision.played_tile} size="small" dora={hints && (decision.dora_types ?? []).includes(decision.played_tile)} />{/if}<span>You: {decision.played}</span></p>
-            <p class="weight">Trained AI gave {decision.judgement.stage === 'tile' ? 'this tile, once riichi was declared,' : 'this move'} {percent(decision.judgement.played)}.</p>
+            <p class="weight">Trained AI gave {decision.judgement.stage === 'tile' ? 'this tile, once riichi was declared,' : 'this move'} {percent(decision.judgement.played)}, and its own choice {percent(decision.judgement.preferred)}.</p>
             <button class="app-control" data-open={key(decision)} onclick={() => { opened = decision; }}>Replay and choose again</button>
           </li>
         {/each}
@@ -210,4 +210,9 @@
   .outcome { flex: 1 1 14em; min-width: 0; opacity: .85; }
   .state { font-size: .78rem; opacity: .8; }
   @media (max-width: 760px) { .game-review { padding: 10px; } }
+  /* Where the game's bar stays at the top of the screen (AppSettings), a
+     heading scrolled to must land below it, not under it. */
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    h2 { scroll-margin-top: 72px; }
+  }
 </style>

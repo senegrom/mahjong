@@ -53,7 +53,7 @@ test('a review under way leads with the flagged decisions found so far, and hide
   assert.match(html, /data-stop-review/);
   assert.match(html, /East 1 · your decision 1/);
   assert.match(html, /You: discards the 7 characters/);
-  assert.match(html, /Trained AI gave this move 2\.0%/);
+  assert.match(html, /Trained AI gave this move 2\.0%, and its own choice 81\.0%\./);
   assert.match(html, /Replay and choose again/);
   assert.doesNotMatch(html, /discards the 1 characters/, "Trained AI's own choice waits for a retry");
   assert.match(html, /1 of 2 matched/);
@@ -67,7 +67,7 @@ test('a flagged riichi tile says it is judged as the tile once riichi was declar
   const riichi = decision({ played_kind: 'riichi', advised_kind: 'riichi', played: 'declares riichi on the 7 characters',
     judgement: { stage: 'tile', played: 0.01, preferred: 0.9, gap: 0.89, flagged: true } });
   const html = page({ review: review({ hands: [hand(0, { status: 'done', decisions: [riichi] }), hand(1), hand(2)] }) });
-  assert.match(html, /Trained AI gave this tile, once riichi was declared, 1\.0%/);
+  assert.match(html, /Trained AI gave this tile, once riichi was declared, 1\.0%, and its own choice 90\.0%\./);
 });
 
 test('a finished review with nothing flagged says so, and offers no more work', () => {
