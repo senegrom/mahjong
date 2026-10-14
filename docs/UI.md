@@ -187,7 +187,8 @@ otherwise the move itself is compared, the declaration carrying its
 declaration weight. Flagged decisions are ranked by the gap between the two
 weights, widest first, and equal gaps in the order they were played. The first
 five are listed, the rest behind **Show all**. The list says where each one was
-and the weight the player's move had, but not Trained AI's choice.
+and the weights of the player's move and of Trained AI's own choice, but not
+what that choice was.
 
 **Replay and choose again.** A flagged decision opens at the position it was
 made from: the table as it stood, the player's hand, and what happened since
