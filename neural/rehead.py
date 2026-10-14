@@ -36,7 +36,7 @@ import numpy as np
 import torch
 
 from .checkpoints import atomic_save
-from .auxiliary_training import validate_auxiliary_options, require_supervised_rows
+from .auxiliary_training import validate_auxiliary_options, require_supervised_rows, soft_cross_entropy
 from .training_batches import require_updates
 from torch import nn
 
@@ -77,7 +77,6 @@ def student_from(teacher: PolicyValueNet, device: str) -> PolicyValueNet:
         if not name.startswith(("policy_tiles.", "policy_pooled."))
     }
     missing, unexpected = student.load_state_dict(kept, strict=False)
-    unexpected = [name for name in unexpected]
     if unexpected:
         raise SystemExit(f"the teacher has weights the student cannot take: {unexpected[:4]}")
     if any(not name.startswith(("policy_tiles.", "policy_pooled.")) for name in missing):
@@ -88,7 +87,6 @@ def student_from(teacher: PolicyValueNet, device: str) -> PolicyValueNet:
 @torch.no_grad()
 def collect(
     teacher: PolicyValueNet,
-    student: PolicyValueNet,
     games: int,
     seed: int,
     device: str,
@@ -223,7 +221,7 @@ def main() -> None:
     for round_index in range(args.rounds):
         began = time.time()
         planes, masks, targets, declared = collect(
-            teacher, student, args.games, args.seed + round_index * 977, device, args.temperature
+            teacher, args.games, args.seed + round_index * 977, device, args.temperature
         )
         played = time.time() - began
         require_supervised_rows(int(len(masks)))
@@ -243,12 +241,7 @@ def main() -> None:
                     planes.rows(picks.cpu().numpy()).dense(device), legal[picks]
                 )
                 weight = wanted[picks]
-                # A masked logit is negative infinity and carries no weight;
-                # zero times that is not zero, so take the log only where
-                # the teacher put something.
-                log_odds = torch.log_softmax(logits.float(), dim=1)
-                log_odds = torch.where(weight > 0, log_odds, torch.zeros_like(log_odds))
-                loss = -(weight * log_odds).sum(dim=1).mean()
+                loss = soft_cross_entropy(logits, weight)
                 if not torch.isfinite(loss):
                     raise FloatingPointError("Nonfinite auxiliary loss; no optimizer step was applied")
                 optimiser.zero_grad(set_to_none=True)

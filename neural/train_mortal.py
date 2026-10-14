@@ -17,14 +17,13 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
-import json
 import time
 from pathlib import Path
 
 import torch
 from torch import nn
 
-from . import mortal_learner, play_graphs, ppo_loop, selfplay
+from . import mortal_learner, ppo_loop, selfplay
 from .observe import pad_rows
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
 from .training_batches import require_trainable_round, require_updates
@@ -90,16 +89,6 @@ def parse_args() -> argparse.Namespace:
         help="run the pass over the round as well and record how far play's values are from "
         "it (baseline_difference, its largest, and baseline_difference_mean)",
     )
-    parser.add_argument(
-        "--play-graphs", action="store_true",
-        help="answer play's small questions, of the learner with --amp and of the seated "
-        "--opponents, from CUDA graphs recorded once for each of a few sizes of batch, a "
-        "question padded to the next of them, rather than launching a forward's thousand "
-        "kernels one by one each time; a batch above 512 rows is asked eagerly as before. A "
-        "graph answers what the forward answers eagerly at the padded size, bit for bit; that "
-        "can differ from its answer at the size asked in the last bits of bfloat16. Off by "
-        "default; not with --compile",
-    )
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260907)
@@ -113,12 +102,7 @@ def parse_args() -> argparse.Namespace:
         "learning was bound by them rather than by the data",
     )
     add_training_controls(parser)
-    args = parser.parse_args()
-    if args.compile and args.play_graphs:
-        # The compiled deciding forward and seated others are what the
-        # graphs would have to record.
-        parser.error("--play-graphs records play's eager forwards, which --compile replaces")
-    return args
+    return parser.parse_args()
 
 
 def main() -> None:
@@ -161,14 +145,11 @@ def main() -> None:
     optimiser = torch.optim.AdamW(
         net.parameters(), lr=args.lr, weight_decay=0.01, fused=device == "cuda"
     )
-    if optimiser_state is not None:
-        try:
-            optimiser.load_state_dict(optimiser_state)
-            for group in optimiser.param_groups:
-                group["lr"] = args.lr
-            print("restored AdamW state", flush=True)
-        except (ValueError, RuntimeError) as error:
-            print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
+    ppo_loop.restore_optimiser(optimiser, optimiser_state)
+    # Nothing reads the checkpoint from here on but its config, kept above:
+    # its weights and Adam's moments are in the learner and the optimiser
+    # now, and kept they stayed on the host for the whole run.
+    payload = optimiser_state = None
 
     # The learning step's forward with the minibatch's fixed shape, and
     # the deciding forward with the batch's size left symbolic, since it
@@ -176,24 +157,14 @@ def main() -> None:
     learn = torch.compile(net.policy) if args.compile else net.policy
     if args.compile:
         net.inference = torch.compile(net.policy, dynamic=True)
-    if args.play_graphs:
-        # Small questions from CUDA graphs, every one recorded now, when play
-        # asks in bfloat16 (--amp); they read the weights where the optimiser
-        # moves them (see `play_graphs`).
-        play_graphs.graphed(net, device, amp=amp_enabled)
 
     # Who else sits at the tables, as a roster with roles and shares, made
     # the way train_combined makes it.
     roster, seated = ppo_loop.seat_others(args, device)
-    # Play's forwards that answer from graphs, the learner's and the seated
-    # others', for the record.
-    graphed = play_graphs.graphs_of([net, *seated])
     print(
         f"device {device} | Mortal {config['resnet']['conv_channels']}x{config['resnet']['num_blocks']} "
         f"| {sum(p.numel() for p in net.parameters()) / 1e6:.2f}M parameters "
-        f"| temperature {net.temperature}"
-        + (f" | {len(graphed)} players' small questions from graphs: "
-           f"{json.dumps(play_graphs.accounts(graphed))}" if graphed else ""),
+        f"| temperature {net.temperature}",
         flush=True,
     )
 
@@ -317,10 +288,6 @@ def main() -> None:
             # player, never summed: gaining on its own past while losing
             # to published Mortal is specialisation, and an average hides it.
             matchups=getattr(batch, "matchups", None),
-            # With --play-graphs, how many graphs play holds by now, the
-            # seconds this process has spent recording them, and the card
-            # memory they hold.
-            **(play_graphs.accounts(graphed) if args.play_graphs else {}),
             peak_rss_gb=peak_rss_gb(),
             peak_gpu_gb=peak_gpu_gb(),
         )

@@ -110,8 +110,7 @@ class RuntimeContractTests(unittest.TestCase):
         validate_training_options(self.options())
         for fields in ({"games": 0}, {"epochs": True}, {"rounds": -1},
                        {"opponent_share": float("nan")}, {"opponent_share": .2},
-                       {"fixed": []}, {"fixed": ["not-a-mode"]},
-                       {"freeze_policy": True, "freeze_aux": True}):
+                       {"fixed": []}, {"fixed": ["not-a-mode"]}):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 validate_training_options(self.options(**fields))
         with tempfile.TemporaryDirectory() as directory:

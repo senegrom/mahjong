@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+
+import torch
+
 from .training_batches import validate_learning
 
 
@@ -29,3 +32,19 @@ def require_supervised_rows(rows: int) -> None:
     """Auxiliary loops can use partial batches, but must have at least two rows."""
     if type(rows) is not int or rows < 2:
         raise ValueError("At least two training rows are required; no learned checkpoint will be saved")
+
+
+def soft_cross_entropy(logits: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    """The cross-entropy of `logits`, in float32 whatever they came in,
+    against a teacher's distribution over the same moves, `weight`,
+    averaged over the rows: the teacher's whole distribution taught rather
+    than its choice alone, since what it was unsure of is worth as much as
+    what it was sure of.
+
+    A move the mask rules out has a logit of negative infinity and no
+    weight from the teacher, and nought times negative infinity is not
+    nought but NaN, which is how imitation read NaN on its first run: the
+    log is taken only where the teacher put weight."""
+    log_odds = torch.log_softmax(logits.float(), dim=1)
+    log_odds = torch.where(weight > 0, log_odds, torch.zeros_like(log_odds))
+    return -(weight * log_odds).sum(dim=1).mean()

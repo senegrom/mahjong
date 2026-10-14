@@ -83,6 +83,13 @@ block of 2**32 consecutive seeds, starting at
 of them. Keep the same base seed and the checkpoint's absolute generation
 when resuming; the blocks then never overlap an earlier round's.
 
+A resumed optimiser takes Adam's moments and step counts from its
+checkpoint, and with them the settings no trainer gives, such as the betas
+and epsilon. Every trainer sets each group's learning rate from the command
+line, and its weight decay and fused kernel as its own code builds them
+(`ppo_loop.restore_optimiser`), so a change to either in the code reaches a
+resumed run as it reaches a fresh one.
+
 ## Fusion belief compatibility
 
 The fusion correction projects Mortal features into independent logits for
@@ -192,8 +199,9 @@ python -m neural.train --rounds 1 --games 1 --channels 8 --blocks 1 \
 
 A smoke configuration checks correctness, not playing strength; choose
 production settings by held-out comparisons. Nonfinite learning rates and
-weights and invalid clipping or precision settings are refused before a
-learner is built.
+weights, an entropy floor whose options are nonfinite, negative or leave it
+nothing to fall back to or no room to rise, and invalid clipping or
+precision settings are refused before a learner is built.
 
 `--baseline-batch` bounds the rows of each value-baseline forward. Without it
 the forward takes `--batch` rows, capped at the rollout's size; the final

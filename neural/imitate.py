@@ -32,13 +32,13 @@ import numpy as np
 import torch
 
 from .checkpoints import atomic_save
-from .auxiliary_training import validate_auxiliary_options, require_supervised_rows
+from .auxiliary_training import validate_auxiliary_options, require_supervised_rows, soft_cross_entropy
 from .training_batches import require_updates
 from torch import nn
 
 import riichi_py
 
-from . import selfplay, zoo
+from . import ppo_loop, selfplay, zoo
 from .model import (
     DEFAULT_BLOCKS,
     DEFAULT_CHANNELS,
@@ -79,8 +79,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="a checkpoint to learn from instead of the heuristic player",
     )
-    parser.add_argument("--teacher-channels", type=int, default=192)
-    parser.add_argument("--teacher-blocks", type=int, default=10)
     parser.add_argument(
         "--temperature",
         type=float,
@@ -265,7 +263,7 @@ def main() -> None:
 
     if args.resume is not None:
         payload = torch.load(args.resume, map_location=device, weights_only=True)
-        net = PolicyValueNet(**shape_of(payload, args.channels, args.blocks)).to(device)
+        net = PolicyValueNet(**shape_of(payload)).to(device)
         load_weights(net, payload["model"])
         print(
             f"student resumed from {args.resume} at generation "
@@ -288,9 +286,7 @@ def main() -> None:
     if args.teacher is not None:
         # Whatever the checkpoint holds: one of ours, or a joined player,
         # whose fusion head and Mortal are the point of naming it.
-        teacher = zoo.load_player(
-            args.teacher, device, args.teacher_channels, args.teacher_blocks
-        )
+        teacher = zoo.load_player(args.teacher, device)
         if not all(callable(getattr(teacher, name, None)) for name in ("forward", "parameters")):
             raise SystemExit(
                 f"{args.teacher} is not a teacher this can ask for a whole "
@@ -348,32 +344,13 @@ def main() -> None:
                 if odds is None:
                     loss = nn.functional.cross_entropy(logits, targets[picks])
                 else:
-                    # The teacher's whole distribution, not just its choice:
-                    # what it was unsure of is worth as much as what it was
-                    # sure of.
-                    #
-                    # An illegal move has a masked logit of negative
-                    # infinity and no weight from the teacher, and zero
-                    # times negative infinity is not zero, it is NaN, which
-                    # is how this read NaN on its first run. Take the log
-                    # only where the teacher put weight.
-                    weight = odds[picks]
-                    log_odds = torch.log_softmax(logits, dim=1)
-                    log_odds = torch.where(weight > 0, log_odds, torch.zeros_like(log_odds))
-                    loss = -(weight * log_odds).sum(dim=1).mean()
+                    loss = soft_cross_entropy(logits, odds[picks])
 
                 # And what the other three were holding, which is exact and
                 # costs nothing to know here.
-                wanted = held[picks]
-                holding = wanted.sum(dim=2) > 0
-                log_guess = torch.log_softmax(guessed, dim=2)
-                reading = -(wanted * log_guess).sum(dim=2)
-                loss = loss + (reading * holding).sum() / holding.sum().clamp(min=1)
-                with torch.no_grad():
-                    overlap = torch.minimum(log_guess.exp(), wanted).sum(dim=2)
-                    total_covered += float(
-                        ((overlap * holding).sum() / holding.sum().clamp(min=1)) * picks.numel()
-                    )
+                reading, covered = ppo_loop.hands_loss_of(guessed, held[picks])
+                loss = loss + reading
+                total_covered += float(covered * picks.numel())
                 if not torch.isfinite(loss):
                     raise FloatingPointError("Nonfinite auxiliary loss; no optimizer step was applied")
                 optimiser.zero_grad(set_to_none=True)

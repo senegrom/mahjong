@@ -38,7 +38,7 @@ from torch import nn
 
 from libriichi.consts import ACTION_SPACE
 
-from . import mortal_model, zoo
+from . import mortal_model, policy_inference, zoo
 from .observe import Planes, Views
 
 
@@ -190,10 +190,11 @@ def decide_in_mortal_space(
         # Precision is owned by the caller, matching the later PPO forward.
         logits, value, phi = scored(score(planes.dense(device), mask))
         logits = logits.float()
-    distribution = torch.distributions.Categorical(logits=logits)
     if greedy:
         picked = logits.argmax(dim=1)
-        log_prob = distribution.log_prob(picked)
+        # Built here alone: validating a distribution reads the card back,
+        # and drawing a move builds one of its own (`selfplay.explore`).
+        log_prob = torch.distributions.Categorical(logits=logits).log_prob(picked)
     else:
         # Now and then a legal move at random instead of the policy's, and
         # record the policy's likelihood and a forced-row flag. Forced
@@ -422,8 +423,16 @@ class MortalLearner(nn.Module):
     def choose(
         self, views: Views, rows: np.ndarray, players: np.ndarray, legal: np.ndarray
     ) -> np.ndarray:
-        """Its best move per row, in our action space, as a zoo player."""
-        choice, _records = self.decide(views, rows, players, legal, greedy=True)
+        """Its best move per row, in our action space, as a zoo player: at
+        the precision every player at a table chooses at (see
+        `policy_inference`), as the joined player and the zoo's Mortal do.
+        `decide` leaves precision to its caller, and measuring the learner
+        against the heuristic players called it bare, so train_mortal chose
+        its best checkpoint by a float32 policy while its self-play, and
+        every table the checkpoint is later seated at, play in bfloat16 on
+        the card, and a near tie could turn between the two."""
+        with policy_inference.autocast(self.device, self.actions):
+            choice, _records = self.decide(views, rows, players, legal, greedy=True)
         return choice
 
 
@@ -439,9 +448,7 @@ def load(path: Path | str, device: str, temperature: float | None = None) -> tup
     another: every logit is a Q value over it, so a different one is a
     different policy."""
     state = torch.load(path, map_location="cpu", weights_only=False)
-    net = mortal_model.build(**mortal_model.shape_of(state))
-    net.brain.load_state_dict(state["mortal"])
-    net.dqn.load_state_dict(state["current_dqn"])
+    net = mortal_model.from_state(state)
     if temperature is None:
         saved = state.get("temperature")
         temperature = 1.0 if saved is None else float(saved)

@@ -122,6 +122,49 @@ def seat_others(args, device: str) -> tuple[population.Population, list]:
     return roster, seated
 
 
+#: What a trainer's own code says of each group of its optimiser, whatever
+#: the checkpoint it resumes from was saved with: the rate its command line
+#: gives, the weight decay it builds the group with, and whether the update
+#: runs fused, as it does on the card.
+OWN_SETTINGS = ("lr", "weight_decay", "fused")
+
+
+def restore_optimiser(optimiser: torch.optim.Optimizer, saved: dict | None, migrate=None) -> None:
+    """Restores into `optimiser`, just built by a trainer, the optimiser state
+    a checkpoint saved, `saved`, when there is one. Adam's moments and step
+    counts come from the checkpoint, as do the settings no trainer gives,
+    the betas and epsilon among them; `OWN_SETTINGS` stay as the trainer
+    built each group. `migrate(saved)`, when given, first fits a state of an
+    older layout to this one (see `combined.migrate_belief_optimizer`).
+
+    `Optimizer.load_state_dict` takes every setting from the saved groups.
+    train.py set its rate, weight decay and kernel again afterwards, and the
+    Mortal-space trainers their rates alone, so a change to the weight decay
+    in their code would have reached a resumed run of one trainer and never
+    of the other two. A state whose groups do not fit this optimiser, by
+    number or by size, is not restored, and the optimiser starts afresh,
+    which is said."""
+    if saved is None:
+        return
+    own = [{name: group[name] for name in OWN_SETTINGS} for group in optimiser.param_groups]
+    try:
+        optimiser.load_state_dict(saved if migrate is None else migrate(saved))
+    except (ValueError, RuntimeError) as error:
+        print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
+        return
+    for group, settings in zip(optimiser.param_groups, own):
+        group.update(settings)
+        if group["fused"] or group["capturable"]:
+            # Loading keeps a step count where the saved group's kernel kept
+            # it, on the host for one that was not fused; a fused or
+            # capturable update reads it on the parameter's own device.
+            for parameter in group["params"]:
+                state = optimiser.state.get(parameter, {})
+                if torch.is_tensor(state.get("step")):
+                    state["step"] = state["step"].to(dtype=torch.float32, device=parameter.device)
+    print("restored AdamW state", flush=True)
+
+
 @dataclass
 class Round:
     """A round of self-play where the learning step can read it: the small

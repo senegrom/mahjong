@@ -306,7 +306,7 @@ def main() -> None:
         entropy_log_coef = payload.get("entropy_log_coef")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.ours is not None and args.mortal is not None:
-        net, _config = combined.build(args.ours, args.mortal, device)
+        net = combined.build(args.ours, args.mortal, device)
         print(f"joined {args.ours} and {args.mortal}", flush=True)
     else:
         raise SystemExit("give --ours and --mortal to start, or --resume")
@@ -321,7 +321,9 @@ def main() -> None:
         if not kept.exists():
             atomic_save(net.state(), kept)
             print(f"kept the starting policy at {kept}", flush=True)
-        reference, _reference_state = combined.load(kept, device)
+        # The network alone: the checkpoint it was read from is a copy of
+        # every weight, and kept it stayed on the host for the whole run.
+        reference = combined.load(kept, device)[0]
         reference.eval()
         reference.requires_grad_(False)
         print(f"leashed to {kept} at {args.leash} a nat", flush=True)
@@ -343,14 +345,14 @@ def main() -> None:
         weight_decay=1e-4,
         fused=device == "cuda",
     )
-    if optimiser_state is not None:
-        try:
-            optimiser.load_state_dict(combined.migrate_belief_optimizer(optimiser_state, optimiser, net))
-            for group, lr in zip(optimiser.param_groups, (args.lr, args.lr_ours, args.lr_mortal)):
-                group["lr"] = lr
-            print("restored AdamW state", flush=True)
-        except (ValueError, RuntimeError) as error:
-            print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
+    ppo_loop.restore_optimiser(
+        optimiser, optimiser_state,
+        migrate=lambda saved: combined.migrate_belief_optimizer(saved, optimiser, net),
+    )
+    # Nothing reads the checkpoint from here on: its weights and Adam's
+    # moments are in the network and the optimiser now, and kept they were a
+    # third of a gigabyte of the host's memory held through every generation.
+    payload = optimiser_state = None
 
     # The joined player as it plays: a copy whose convolutions and linear
     # layers hold their weights in bfloat16, refreshed from the learner
@@ -425,8 +427,9 @@ def main() -> None:
     # it climbs while the policy's entropy is under the target and sinks
     # back while it is over. Self-play here was measured to buy reward by
     # getting louder: 30 generations cut entropy by 29% and lost 0.0075.
-    if args.entropy_target > 0 and args.entropy <= 0:
-        raise SystemExit("--entropy-target needs a positive --entropy to fall back to")
+    # Its options were refused before anything was built where they leave
+    # it nothing to fall back to or no room to rise (see
+    # `validate_training_options`).
     base_log = math.log(args.entropy) if args.entropy > 0 else float("-inf")
     floor = {"log_coef": float(entropy_log_coef) if entropy_log_coef is not None else base_log}
     ceiling_log = math.log(max(args.entropy_max, args.entropy)) if args.entropy > 0 else base_log

@@ -82,21 +82,6 @@ def parse_args() -> argparse.Namespace:
         "update, for those heads only; about one pass over a round",
     )
     parser.add_argument(
-        "--freeze-aux",
-        action="store_true",
-        help="train only the policy tower and its heads, by the policy loss "
-        "alone: no value, table reading, critic, oracle or replay pass. For "
-        "finding whether the PPO step by itself flattens the policy",
-    )
-    parser.add_argument(
-        "--freeze-policy",
-        action="store_true",
-        help="train only the value heads and the head that reads the table; "
-        "the policy tower and its heads keep their weights. For a night when "
-        "the evaluator is worth improving and the policy is not to be "
-        "trusted to improve itself",
-    )
-    parser.add_argument(
         "--distil-weight",
         type=float,
         default=1.0,
@@ -165,10 +150,9 @@ def main() -> None:
         # larger than the model itself and should not transiently occupy the
         # card twice while loading.
         resume_payload = torch.load(args.resume, map_location="cpu", weights_only=True)
-        # The checkpoint says what shape it is; the flags stand in only
-        # where it is silent.
-        shape = shape_of(resume_payload, args.channels, args.blocks)
-        net = PolicyValueNet(**shape).to(device)
+        # The checkpoint says what shape it is; --channels and --blocks
+        # shape only a fresh network.
+        net = PolicyValueNet(**shape_of(resume_payload)).to(device)
         load_weights(net, resume_payload["model"])
         start = int(resume_payload.get("generation", 0))
         benchmark = ppo_loop.Benchmark(*benchmark_history(resume_payload))
@@ -186,19 +170,6 @@ def main() -> None:
     if net.kind != "mortal":
         raise SystemExit("training needs a network that sees Mortal's planes")
 
-    if args.freeze_policy:
-        for name, parameter in net.named_parameters():
-            if not name.startswith(("critic", "oracle_", "belief_", "hands.", "value.")):
-                parameter.requires_grad_(False)
-        print("policy frozen: training the value heads and the reading of the table", flush=True)
-    if args.freeze_aux:
-        for name, parameter in net.named_parameters():
-            if name.startswith(("critic", "oracle_", "belief_", "hands.", "value.")):
-                parameter.requires_grad_(False)
-        args.value_weight = 0.0
-        args.hands_weight = 0.0
-        args.replay_steps = 0
-        print("auxiliaries frozen: training the policy by the policy loss alone", flush=True)
     trainable = [parameter for parameter in net.parameters() if parameter.requires_grad]
     # PyTorch's fused CUDA AdamW performs the same update in far fewer kernel
     # launches. On CPU the ordinary implementation remains the right path.
@@ -208,21 +179,9 @@ def main() -> None:
         weight_decay=1e-4,
         fused=device == "cuda",
     )
-    if resume_payload is not None and "optimizer" in resume_payload:
-        try:
-            optimiser.load_state_dict(resume_payload["optimizer"])
-            # A checkpoint carries the moments, not command-line policy.
-            # Explicit options on a resumed run still win.
-            for group in optimiser.param_groups:
-                group["lr"] = args.lr
-                group["weight_decay"] = 1e-4
-                group["fused"] = device == "cuda"
-            print("restored AdamW state", flush=True)
-        except (ValueError, RuntimeError) as error:
-            # Freezing a different set of heads changes the parameter groups;
-            # weights still resume safely, but those experiments need fresh
-            # optimiser state.
-            print(f"could not restore AdamW state ({error}); starting it fresh", flush=True)
+    ppo_loop.restore_optimiser(
+        optimiser, None if resume_payload is None else resume_payload.get("optimizer")
+    )
 
     # The full on-policy pass needs every head. Baseline evaluation and replay
     # do not: using `with_oracle` for them calculated policy logits and/or the
@@ -292,6 +251,10 @@ def main() -> None:
             )
         if "replay_rng_state" in resume_payload:
             replay_rng.bit_generator.state = resume_payload["replay_rng_state"]
+    # Nothing reads the checkpoint from here on: its weights and Adam's
+    # moments are in the network and the optimiser now, and kept it stayed
+    # on the host for the whole run.
+    resume_payload = None
 
     def checkpoint_payload(generation: int) -> dict:
         # Adam's moments are deliberately part of the checkpoint: restarting

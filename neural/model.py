@@ -372,15 +372,25 @@ def require_engine_observation(payload: dict, planes: int) -> None:
         )
 
 
-def shape_of(payload: dict, channels: int | None = None, blocks: int | None = None) -> dict:
-    """The shape a checkpoint was trained at, from what it says and, for
-    checkpoints from before it said, from the weights themselves. Given
-    `channels` or `blocks` they stand in where the checkpoint is silent.
+#: What every checkpoint of ours says of its shape (see `payload_fields`),
+#: since the lineage that sees Mortal's planes began on 7 September 2026.
+SHAPE_FIELDS = ("channels", "blocks", "attention")
+
+
+def shape_of(payload: dict) -> dict:
+    """The shape a checkpoint was trained at, as it says (`SHAPE_FIELDS`),
+    with the planes and the moves read from the weights where it predates
+    saying those.
 
     Loading and resuming build our networks from checkpoints through here,
     so this is also where one of the engine's kind trained on another
     encoding of its planes is refused (`require_engine_observation`);
-    `combined.load` asks the same of the half inside a fusion."""
+    `combined.load` asks the same of the half inside a fusion. A checkpoint
+    from before its shape was recorded is such a one, and is refused for
+    it; any other that does not say its shape is refused by what it leaves
+    out. The width and depth it was once let fall back on, from the command
+    line or from the weights, could take effect for no checkpoint that
+    loads."""
     weights = payload["model"]
     planes = payload.get("planes")
     if planes is None:
@@ -390,16 +400,11 @@ def shape_of(payload: dict, channels: int | None = None, blocks: int | None = No
         seen = int(weights["stem.0.weight"].shape[1])
         planes = MORTAL_PLANES if seen == MORTAL_PLANES else ENGINE_PLANES
     require_engine_observation(payload, int(planes))
-    attention = payload.get("attention")
-    if attention is None:
-        attention = any(key.startswith("tower.0.attention.") for key in weights)
-    found_channels = payload.get("channels")
-    if found_channels is None:
-        found_channels = channels or int(weights["stem.0.weight"].shape[0])
-    found_blocks = payload.get("blocks")
-    if found_blocks is None:
-        found_blocks = blocks or (
-            1 + max(int(key.split(".")[1]) for key in weights if key.startswith("tower."))
+    missing = [name for name in SHAPE_FIELDS if payload.get(name) is None]
+    if missing:
+        raise ValueError(
+            f"the checkpoint does not say its {' or '.join(missing)}, which every checkpoint of "
+            "ours records (`payload_fields`), so it cannot be rebuilt at the shape it was trained at"
         )
     found_actions = payload.get("actions")
     if found_actions is None:
@@ -409,19 +414,17 @@ def shape_of(payload: dict, channels: int | None = None, blocks: int | None = No
         rest = int(weights["policy_pooled.2.weight"].shape[0])
         found_actions = per_tile * POSITIONS + rest
     return {
-        "channels": int(found_channels),
-        "blocks": int(found_blocks),
+        "channels": int(payload["channels"]),
+        "blocks": int(payload["blocks"]),
         "planes": int(planes),
-        "attention": bool(attention),
+        "attention": bool(payload["attention"]),
         "actions": int(found_actions),
     }
 
 
-def from_payload(
-    payload: dict, device: str = "cuda", channels: int | None = None, blocks: int | None = None
-) -> PolicyValueNet:
+def from_payload(payload: dict, device: str = "cuda") -> PolicyValueNet:
     """A network of the shape a checkpoint was trained at, with its weights."""
-    shape = shape_of(payload, channels, blocks)
+    shape = shape_of(payload)
     net = PolicyValueNet(**shape).to(device)
     load_weights(net, payload["model"])
     return net

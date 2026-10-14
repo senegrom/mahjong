@@ -156,18 +156,10 @@ def main() -> None:
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
-    # The width and depth a network of ours is rebuilt at only where its
-    # checkpoint does not say, as the oldest do not (see `zoo.load_player`).
-    parser.add_argument("--channels", type=int, default=320)
-    parser.add_argument("--blocks", type=int, default=20)
-    parser.add_argument("--incumbent-channels", type=int, default=192)
-    parser.add_argument("--incumbent-blocks", type=int, default=10)
     args = parser.parse_args()
 
-    challenger = zoo.load_player(args.challenger, args.device, args.channels, args.blocks)
-    incumbent = zoo.load_player(
-        args.incumbent, args.device, args.incumbent_channels, args.incumbent_blocks
-    )
+    challenger = zoo.load_player(args.challenger, args.device)
+    incumbent = zoo.load_player(args.incumbent, args.device)
     result = duel(challenger, incumbent, args.games, args.seed, device=args.device, max_steps=args.max_steps)
     result["challenger"] = str(args.challenger)
     result["incumbent"] = str(args.incumbent)

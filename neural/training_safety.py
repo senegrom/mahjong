@@ -73,8 +73,6 @@ def validate_training_options(args) -> None:
         raise ValueError("seat_share requires at least one opponent checkpoint")
     if by_player > 0 and share > 0:
         raise ValueError("seat others by game (opponent_share) or by player (seat_share), not both")
-    if getattr(args, "freeze_policy", False) and getattr(args, "freeze_aux", False):
-        raise ValueError("freeze_policy and freeze_aux cannot both be enabled")
     fixed = getattr(args, "fixed", None)
     if fixed is not None:
         if not fixed:
@@ -90,10 +88,24 @@ def validate_training_options(args) -> None:
         if value is not None and (not math.isfinite(value) or value <= 0):
             raise ValueError(f'{name} must be finite and positive')
     for name in ('target_kl', 'entropy', 'value_weight', 'hands_weight', 'distil_weight',
-                 'leash'):
+                 'leash', 'entropy_target', 'entropy_max', 'entropy_rate'):
         value = getattr(args, name, 0.0)
         if not math.isfinite(value) or value < 0:
             raise ValueError(f'{name} must be finite and nonnegative')
+    # The entropy floor (train_combined's --entropy-target) raises the bonus
+    # from --entropy towards --entropy-max by --entropy-rate an update. With
+    # a ceiling no higher than where it starts, or a rate of nought, it never
+    # moves, and the run trains without the floor it asked for, unannounced.
+    # Without a positive --entropy it has no bonus to start from or fall back
+    # to, which the trainer refused only once the model was built and the
+    # leash's reference written.
+    if getattr(args, 'entropy_target', 0.0) > 0:
+        if args.entropy <= 0:
+            raise ValueError('entropy must be positive for the entropy floor to fall back to')
+        if args.entropy_max <= args.entropy:
+            raise ValueError('entropy_max must be above entropy for the entropy floor to rise')
+        if args.entropy_rate == 0:
+            raise ValueError('entropy_rate must be positive for the entropy floor to rise')
     clip = getattr(args, 'clip', 0.2)
     if not math.isfinite(clip) or not 0 < clip < 1:
         raise ValueError('clip must be finite and between zero and one')
