@@ -47,7 +47,9 @@ from neural.checkpoints import (
     copy_checkpoint, publish_training_snapshot, staging_file, validate_checkpoint,
 )
 from neural.cloud_runs import workspace, validate_run, managed_process
-from neural.cloud_requests import round_arguments, validate_cloud_request, stage_opponents
+from neural.cloud_requests import (
+    placement_arguments, round_arguments, validate_cloud_request, stage_opponents,
+)
 
 HERE = Path(__file__).parent.parent
 
@@ -787,6 +789,13 @@ def train_combined(
     preview_reach: bool = False,
     play_ahead: bool = False,
     play_graphs: bool = False,
+    reward: str = "hybrid",
+    alpha: float = 0.0,
+    place_model: str = "",
+    place_refit_every: int = 0,
+    place_refit_rounds: int = 2,
+    value_warm_up: int = 0,
+    value_warm_up_lr: float = 1e-4,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -796,6 +805,17 @@ def train_combined(
     `latest.pt` (see `_resume_source`). `until`, `skip_forced`,
     `baseline_from_play`, `check_baseline` and `preview_reach` are as for
     `train_mortal`.
+
+    `reward` "placement" pays the placement reward credited hand by hand
+    (see `neural/place_model.py`) at `alpha`, the trainer's `--reward
+    placement --alpha`; `place_model` names the U a run starting the reward
+    settles by, a file on the volume such as
+    `fusion-long/pretest-g1010/place-model`, staged into the workspace; a
+    resumed run settles by the U its checkpoint carries. `place_refit_every`,
+    `place_refit_rounds`, `value_warm_up` and `value_warm_up_lr` are the
+    trainer's options of those names. None of them is passed on unless the
+    reward is "placement", and any of them asked for without it is refused
+    before anything is staged.
 
     `reuse_phi` has a generation that holds Mortal still learn from
     Mortal's vectors as play worked them out, the trainer's `--reuse-phi`;
@@ -825,6 +845,8 @@ def train_combined(
     if play_graphs and compile and not compile_learning:
         raise ValueError("play_graphs records play's eager forwards: pass compile=False, "
                          "or compile_learning=True to compile the learning step alone")
+    placement = placement_arguments(reward, alpha, place_model, place_refit_every, place_refit_rounds,
+                                    value_warm_up, value_warm_up_lr)
     # Named after the run: a container that has already trained another
     # must not leave its log where this one will append to it.
     validate_cloud_request(generations, opponents, opponent_share, seat_share)
@@ -833,6 +855,13 @@ def train_combined(
     with workspace(run) as where:
         volume.reload()
         source = _resume_source(run, resume)
+        if place_model:
+            # U, as the trainer reads it, beside the checkpoint it starts from.
+            found = _checkpoint(run, place_model)
+            if not found.exists():
+                raise FileNotFoundError(f"no place model at {found}")
+            copy_checkpoint(found, where / "place-model.pt")
+            placement += ["--place-model", str(where / "place-model.pt")]
         command = [
             sys.executable, "-m", "neural.train_combined", *rounds,
             "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
@@ -867,6 +896,7 @@ def train_combined(
             command.append("--play-graphs")
         if fixed:
             command += ["--fixed", *fixed]
+        command += placement
         if source.exists():
             _carry(run, source, where, leashed=True)
             command += ["--resume", str(where / "latest.pt")]
@@ -891,6 +921,71 @@ def train_combined(
         )
         command += controls
         return _run_trainer(command, where, run, called)
+
+
+@app.function(
+    # The round, its planes and Mortal's vector of every decision are held
+    # at once, as a trainer's are: a trainer's card and memory.
+    gpu=["H100", "A100-80GB"],
+    cpu=TRAINER_CPUS,
+    memory=98304,
+    timeout=4 * 60 * 60,
+    volumes={str(VOLUME): volume},
+    max_containers=1,
+)
+def placement_pretest(
+    checkpoint: str = "latest",
+    run: str = "fusion-long",
+    games: int = 4096,
+    opponents: list[str] | None = None,
+    seat_share: float = 0.5,
+    probes: int = 20000,
+    seed: int = 9_700_000,
+    alphas: list[float] | None = None,
+    lr: float = 2e-6,
+    name: str = "",
+) -> str:
+    """The placement reward's pre-test (see `neural/placement_pretest.py`) on
+    a checkpoint of `run`, with `opponents` seated by player at `seat_share`
+    as the run seats them: one round of `games`, U fitted and checked on it,
+    and the split-half agreement of one update for today's return and the
+    placement reward at each of `alphas` (0 and 0.05 when not given), read
+    on `probes` hesitant positions at `lr`, the head's rate the fork would
+    train at.
+
+    Its report, the round's ledger and U fitted on the whole round go to
+    the run's directory under `name`, `pretest-g<generation>` when it is
+    empty; a fork starts from that U (`train_combined`'s `place_model`).
+    The answer is the child's output, ending with its verdict."""
+    validate_cloud_request(1, opponents, 0.0, seat_share)
+    if name:
+        validate_run(name)
+    with workspace(f"{run}-pretest") as where:
+        volume.reload()
+        source = _checkpoint(run, checkpoint)
+        if not source.exists():
+            raise FileNotFoundError(f"no checkpoint at {source}")
+        local = where / "checkpoint.pt"
+        generation = copy_checkpoint(source, local)
+        print(f"pre-test of {source}, generation {generation}", flush=True)
+        out = where / "out"
+        command = [
+            sys.executable, "-m", "neural.placement_pretest", str(local),
+            "--games", str(games), "--probes", str(probes), "--seed", str(seed), "--lr", str(lr),
+            "--amp", "--out", str(out),
+            *stage_opponents(where, opponents, 0.0, lambda found: _checkpoint(run, found),
+                             seat_share=seat_share),
+        ]
+        if alphas:
+            command += ["--alphas", *(str(float(alpha)) for alpha in alphas)]
+        answer = _run_child(command, tail=6000)
+        target = VOLUME / run / (name or f"pretest-g{generation}")
+        target.mkdir(parents=True, exist_ok=True)
+        for kept in ("report.json", "ledger.npz"):
+            shutil.copyfile(out / kept, target / kept)
+        copy_checkpoint(out / "place-model.pt", target / "place-model.pt")
+        volume.commit()
+        return answer + f"\nwrote {target}"
 
 
 @app.function(

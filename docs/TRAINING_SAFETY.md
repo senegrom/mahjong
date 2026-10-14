@@ -144,6 +144,139 @@ native bots whose actions and claims the arena settles itself; if a
 `riichi_py` build ever hands one of their decisions to Python,
 `evaluate_games` stops and asks for a rebuild.
 
+## The placement reward, credited hand by hand
+
+By default every decision is paid its hand's points over 4,000 plus the
+game's placement bonus (1.5, 0.5, -0.5 or -1.5), credited to every decision
+of the game. `train_combined --reward placement` pays instead
+
+    U(the next hand's starting scoreboard) + alpha x (the hand's points) / 4,000
+
+and, for a decision in a game's last hand, the bonus itself plus the same
+points term. U is the expected final bonus read from the scoreboard alone
+(`neural/place_model.py`): a small network over the stage (East 1 to South
+4), the counters, the riichi sticks on the table, where the dealer sits, the
+four raw scores and the gaps to the other three, in seat order from the
+player's own, and which kind of player holds each seat (the learner or a
+named member of the run's roster). It answers the four places' chances,
+fitted to where players finished with tied places as shared labels, so its
+expected bonus is the one `outcomes.placement_rewards` pays. EMA carries
+nothing from one hand to the next but the scores, the counters, the sticks
+and the dealer, so cutting the return at a hand's start loses nothing about
+the future; summed over a game, the hands' changes in U add up to the bonus
+less U at East 1 (`place_model.hand_credits`, tested). At `--alpha 0` the
+reward is placement alone, what the ruler counts; at 0.05 points only break
+ties, since even a 60,000-point swing is then worth less than one place.
+
+The scoreboard comes from the start_kyoku events the arena already hands
+the follower (`scoreboard.HandStarts`, read in `observe.Views.advance`),
+with raw scores, so a score below zero survives where Mortal's planes clamp
+it. A round played with `selfplay.play(..., ledger=True)` carries a
+`scoreboard.Ledger`: every decision's game, hand and player and its own
+hand's points, every hand's start, who sat where and the final scores. A
+ledger whose hands do not match the engine's own count of finished hands
+is refused (`Ledger.check`), because a start read late or missed would pay
+a decision another hand's boundary. A round settles by placement in
+`selfplay.settle_placement`, which replaces the returns and nothing else.
+
+**The default does not change.** A round asked for no ledger plays and pays
+exactly as before: `neural/tests/test_placement_reward.py` pins today's
+returns, moves and final scores at three fixed seeds to digests taken at
+7a0c405, before the change, over the learner alone, a learner seated by
+player beside an other and the Club, and a table Mortal's engine follows;
+the engine deals from its seed and the returns are sums of integers, so
+the digests hold on every machine. Keeping a ledger changes no field of a
+round. With none of its options, `train_combined` keeps no ledger, builds
+the same optimiser and writes the same checkpoint keys and log records.
+
+Options (all refused, before anything is built, without `--reward
+placement`; the cloud's `train_combined` passes none of them on unless
+`reward="placement"`, see `cloud_requests.placement_arguments`):
+
+- `--alpha A`: the points' weight, finite and nonnegative.
+- `--place-model PATH`: the U a run starting the reward settles by
+  (`python -m neural.place_model fit ledger.npz ... --out u.pt`, or the
+  pre-test's `place-model.pt`). A resumed run settles by the U its
+  checkpoint carries and says that it does not read the file, so a
+  relaunch with the same command line cannot undo a refit.
+- `--value-warm-up N` and `--value-warm-up-lr R` (1e-4): the reward's
+  first N generations teach the critic alone, our value head and the
+  head's correction from Mortal's vector, in an AdamW of their own at R,
+  with everything else held still and the PPO epochs skipped. Both parts
+  read features held back from them, so no policy can move: every other
+  weight, the main optimiser's moments and every move's probability are
+  bit for bit the same after such a generation
+  (`neural/tests/test_placement_training.py`). The count is kept in the
+  checkpoint, so a relaunch does not warm up again.
+- `--place-refit-every K` and `--place-refit-rounds M` (2): every K
+  generations of the reward, U is fitted again on the run's last M rounds,
+  an eighth of their games held out, and kept only if it reads those games
+  at least as well as the U it would replace; the log's
+  `place_model_refit` says how it read and whether it was kept.
+
+A checkpoint of a placement run carries `reward` (kind, alpha, the
+generation the reward began, the warm-up generations had, the last refits)
+and `place_model`. Resuming one without `--reward placement`, or at another
+alpha, is refused: start a new run to change either. U must know every
+member the run seats (`--opponents`), or the run is refused before it
+plays. A placement run's records add `reward`, `alpha`, `value_warm_up`,
+and the return's variance and the critic's error over the East round's
+decisions and the South's apart (`return_variance_east`,
+`value_error_south`, ...).
+
+### The pre-test and its kill rules
+
+`python -m neural.placement_pretest` (on Modal: `placement_pretest`) plays
+one round of a checkpoint at its run's tables, keeping the ledger, and
+writes `report.json`, `ledger.npz` and `place-model.pt` (U fitted on the
+whole round, which a fork starts from). It reads:
+
+1. **U's calibration**, every game held out once (`--folds`): the mean U
+   against the mean bonus by stage (with U's explained share beside the
+   boundary judge's 0.04 to 0.77), by tenth of U's answers, and by tenth
+   within each stage. **Kill** when some tenth at some stage misses by
+   more than 0.03 beyond two of that cell's standard errors, counted over
+   games. The rule as first written, any miss over 0.03, cannot be applied
+   to a few thousand games: the error of a tenth at East 1 is about as
+   large as the threshold, and noise alone would fail it. The literal
+   count is reported beside it (`cells_missing_literally`).
+2. **The split-half agreement of one update**, for today's return and the
+   placement reward at each `--alphas` (0 and 0.05), each game paid by a U
+   that never saw it, each decision's baseline from a copy of the critic
+   taught the other half of the games' returns as the warm-up would teach
+   it. The games are split into halves three ways; each half's PPO
+   gradient over the fusion head at the generation's first step is
+   compared with the other's (the cosine), and each half's gradient, taken
+   as a generation's step (`--lr` times the generation's optimiser steps)
+   preconditioned by the checkpoint's AdamW second moments, is applied to
+   the head and read on about 20,000 positions where the checkpoint's top
+   move is under 0.8, from greedy rounds against three published Mortals
+   (the flips: the overlap of the two halves' changed best moves). Both
+   are read again with the advantages shuffled among the decisions, which
+   is chance; agreement is the reading above chance. **Kill** when alpha
+   0's agreement is under 1.5 times today's on both measures; go when it
+   is at least that on both; when the two disagree the verdict says so and
+   the owner decides. A measure with fewer than 20 flips in a half is
+   unread, and the verdict then rests on the other.
+
+### The fork's stop rules
+
+A fork from fusion-long's newest checkpoint, at alpha 0 and alpha 0.05,
+trains with fusion-long's recipe at its rates before generation 873 (2e-6,
+8e-7, 6e-7), after one warm-up generation, refitting U every 50:
+
+- **At +50:** stop when the fork's placement against published Mortal in
+  the log's `matchups` is more than 0.006 worse than fusion-long's plateau
+  (2.463 to 2.467), that is above 2.473. Run
+  `E:/tmp-claude/mahjong/compare-810/probe3.py` and
+  `feature-probes/probe_alllast.py` on it: at level scores the turn-one 7m
+  should drift towards 1m, far behind it should keep 7m, and South 4
+  riichi should stop being 100% where dama already moves the place.
+- **At +100:** a ruler on seed 9,100,000 (20 x 1,000), paired with 810, 910
+  and 1010 on the same deals. At or below the plateau's mean: stop.
+  +0.006 or more above it: replicate with two more training seeds. In
+  between: continue to +200 and rule again.
+
 ## Replay validation and completed learning rounds
 
 Sparse planes require native int64 offsets, uint16 columns, native floating
