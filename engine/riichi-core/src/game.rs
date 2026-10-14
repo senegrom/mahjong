@@ -56,18 +56,15 @@ pub struct Player {
     pub ippatsu: bool,
     /// Points.
     pub score: i32,
-    /// Furiten because a wait sits among the player's own discards.
+    /// Permanent furiten (EMA section 3.3.9): a wait sits among the
+    /// player's own discards, or the player passed a winning tile after
+    /// declaring riichi. A player who has not declared leaves it by
+    /// changing their wait; after riichi it lasts to the end of the hand.
     pub furiten: bool,
     /// Furiten until the next draw or claim, after passing a winning tile.
     pub temporary_furiten: bool,
     /// Where the riichi declaration falls in the hand's order of discards.
     pub riichi_order: Option<u32>,
-    /// Who fed this player the last of three called dragon sets, and so
-    /// answers for a Big Three Dragons (EMA section 3.3.7); see
-    /// [`Player::liability`].
-    pub liable_for_dragons: Option<Wind>,
-    /// Who fed this player the last of four called wind sets.
-    pub liable_for_winds: Option<Wind>,
 }
 
 impl Player {
@@ -83,8 +80,6 @@ impl Player {
             furiten: false,
             temporary_furiten: false,
             riichi_order: None,
-            liable_for_dragons: None,
-            liable_for_winds: None,
         }
     }
 
@@ -117,6 +112,9 @@ impl Player {
     }
 
     /// Whether the hand is waiting (EMA section 3.3.8).
+    ///
+    /// A hand whose only candidate is a fifth copy is noten, which is why
+    /// this asks for the waits rather than the shanten number alone.
     pub fn is_tenpai(&self) -> bool {
         !self.waits().is_empty()
     }
@@ -276,7 +274,7 @@ pub struct Hand {
     pub wall: Wall,
     /// The four players, indexed by seat.
     pub players: [Player; 4],
-    /// The dealer's seat, always East within a hand.
+    /// The round wind: East in the east round, South in the south round.
     pub round: Wind,
     /// Which hand of the round this is, counting from one. The log records
     /// it, and the observation shows it, since how many hands are left
@@ -457,8 +455,7 @@ impl Hand {
         // (EMA 2025 section 3.3.10, changed from four in the 2016 edition).
         // The cheap check first: a hand can only be waiting after a discard
         // if the whole hand is at most tenpai already.
-        if !player.has_riichi()
-            && player.is_concealed()
+        if player.is_concealed()
             && self.wall.remaining() >= 1
             && player.score >= 1000
             && shanten::shanten(&player.hand, player.melds.len()) <= shanten::TENPAI
@@ -1153,7 +1150,6 @@ impl Hand {
             },
             Call::Ron | Call::Pass => unreachable!("handled before"),
         });
-        self.note_liability(seat);
         if matches!(call, Call::Kan) {
             self.finish_quad_draw();
         } else {
@@ -1163,32 +1159,16 @@ impl Hand {
         }
     }
 
-    /// Notices when a claim hands a player the last of the three dragon
-    /// sets or four wind sets, which makes the feeder answer for the yakuman
-    /// (EMA section 3.3.7). Only a triplet or quad just claimed can be that
-    /// set and name its feeder ([`Player::liability`]); once named, a later
-    /// call cannot move the liability, and a set completed by the player's
-    /// own concealed quad names nobody however many calls follow.
-    fn note_liability(&mut self, seat: Wind) {
-        let (dragons, winds) = self.players[seat.index()].liability();
-        let player = self.player_mut(seat);
-        if player.liable_for_dragons.is_none() {
-            player.liable_for_dragons = dragons;
-        }
-        if player.liable_for_winds.is_none() {
-            player.liable_for_winds = winds;
-        }
-    }
-
     /// Who, if anyone, answers for this player's winning hand.
     ///
-    /// A feeder is only recorded once the third dragon set or the fourth
-    /// wind set stands among the player's sets, and sets are never taken
-    /// back, so a hand with a feeder recorded is always the Big Three
+    /// [`Player::liability`] names a feeder only once the third dragon set
+    /// or the fourth wind set stands among the player's sets. Sets are
+    /// never taken back or reordered, so a later call never moves the
+    /// liability, and a hand with a feeder named is always the Big Three
     /// Dragons or Big Four Winds that feeder answers for.
     fn liable_for(&self, seat: Wind) -> Option<Wind> {
-        let player = &self.players[seat.index()];
-        player.liable_for_dragons.or(player.liable_for_winds)
+        let (dragons, winds) = self.players[seat.index()].liability();
+        dragons.or(winds)
     }
 
     /// Everything `seat` can see of the tiles: their own hand and sets,
@@ -1526,10 +1506,8 @@ mod tests {
     fn a_quad_turns_its_indicator_before_the_replacement_is_drawn() {
         let mut hand = fresh();
         let tile: Tile = "5s".parse().unwrap();
-        hand.players[0].hand = "123m456m789m99p".parse().unwrap();
-        hand.players[0].hand.counts_mut()[tile.idx()] = 4;
-        // Thirteen tiles plus the four of the quad is more than a hand, so
-        // trim the pair back to what a quad-holding hand really has.
+        // Three sequences, a 9 circles and all four 5 bamboo, the last of
+        // them just drawn: fourteen tiles, as at any turn.
         hand.players[0].hand = "123m456m789m9p".parse().unwrap();
         for _ in 0..4 {
             hand.players[0].hand.add(tile);
@@ -1752,35 +1730,6 @@ mod tests {
         );
     }
 
-    /// EMA 2025 section 3.3.9: a player whose wait sits among their own
-    /// discards may not win by discard.
-    #[test]
-    fn furiten_bars_a_win_by_discard() {
-        let mut hand = fresh();
-        hand.players[1].hand = "123m456m789m11s34p".parse().unwrap();
-        hand.players[1].discards.push(Discard {
-            tile: "2p".parse().unwrap(),
-            order: 0,
-            drawn: true,
-            riichi: false,
-            claimed: false,
-        });
-        hand.players[1].refresh_furiten();
-        assert!(hand.players[1].is_furiten());
-
-        hand.players[0].hand = "2p".parse().unwrap();
-        hand.turn = Wind::East;
-        hand.phase = Phase::Act;
-        hand.drawn = None;
-        hand.discard("2p".parse().unwrap(), false);
-        let calls = hand.legal_calls();
-        let south = calls.iter().find(|(seat, _)| *seat == Wind::South);
-        assert!(
-            south.is_none() || !south.unwrap().1.contains(&Call::Ron),
-            "a furiten player must not be offered the win"
-        );
-    }
-
     /// EMA 2025 sections 3.3.11 and 3.3.12, which differ on exactly one
     /// word: a player may win by self-draw "with the tile just drawn... A
     /// furiten player may still call tsumo", but may win by discard only
@@ -1792,7 +1741,8 @@ mod tests {
         let tile: Tile = "2p".parse().unwrap();
 
         // The same furiten hand is set up twice, so the only thing that
-        // differs between the two halves is how the tile arrives.
+        // differs between the two halves is how the tile arrives. South is
+        // furiten on a wait among their own discards (EMA section 3.3.9).
         let furiten_south = |hand: &mut Hand| {
             hand.players[1].hand = waiting.parse().unwrap();
             hand.players[1].discards.push(Discard {
@@ -1863,20 +1813,48 @@ mod tests {
 
     /// EMA 2025 section 3.4.1: the last discard may be claimed for a win
     /// only, not for a set.
+    ///
+    /// South holds a pair of the 5 characters East throws, and the 1 and 9
+    /// circles to discard after claiming it, so while tiles remain South is
+    /// offered the triplet. Thrown as the last discard, the same tile is
+    /// offered to nobody and the hand ends in a draw. A hand of the pair
+    /// alone would be offered nothing either way, since a claim must leave
+    /// a tile to discard, and so could not tell the rule from its absence.
     #[test]
     fn the_last_discard_is_only_open_to_a_win() {
-        let mut hand = fresh();
-        while hand.wall.draw().is_some() {}
-        hand.players[1].hand = "55m".parse().unwrap();
-        hand.players[0].hand = "5m".parse().unwrap();
-        hand.turn = Wind::East;
-        hand.phase = Phase::Act;
-        hand.drawn = None;
-        hand.discard("5m".parse().unwrap(), false);
-        for (_, calls) in hand.legal_calls() {
-            assert!(!calls.contains(&Call::Pon));
-            assert!(!calls.contains(&Call::Kan));
-        }
+        let five: Tile = "5m".parse().unwrap();
+        let east_throws_the_five = |wall_empty: bool| -> Hand {
+            let mut hand = fresh();
+            if wall_empty {
+                while hand.wall.draw().is_some() {}
+            }
+            hand.players[1].hand = "55m19p".parse().unwrap();
+            hand.players[0].hand = "5m".parse().unwrap();
+            hand.turn = Wind::East;
+            hand.phase = Phase::Act;
+            hand.drawn = None;
+            hand.discard(five, false);
+            hand
+        };
+
+        let hand = east_throws_the_five(false);
+        assert_eq!(
+            hand.legal_calls(),
+            vec![(Wind::South, vec![Call::Pon, Call::Pass])],
+            "with tiles left South may claim the triplet, and nobody else may claim"
+        );
+
+        let hand = east_throws_the_five(true);
+        assert!(
+            hand.legal_calls().is_empty(),
+            "the last discard is offered for no set: {:?}",
+            hand.legal_calls()
+        );
+        assert!(
+            matches!(hand.outcome, Some(Outcome::ExhaustiveDraw { .. })),
+            "so the hand ends in a draw: {:?}",
+            hand.outcome
+        );
     }
 
     /// EMA 2025 section 3.4.2: the noten penalty totals 3,000 points.
@@ -2171,8 +2149,8 @@ mod tests {
         hand.discard("7z".parse().unwrap(), false);
         hand.resolve_calls(&[(Wind::South, Call::Pon)]).unwrap();
         assert_eq!(
-            hand.players[1].liable_for_dragons,
-            Some(Wind::West),
+            hand.players[1].liability(),
+            (Some(Wind::West), None),
             "West fed the third dragon set"
         );
 
@@ -2233,7 +2211,7 @@ mod tests {
                 hand.act(Action::Discard(discarded.parse().unwrap()))
                     .unwrap();
             }
-            assert_eq!(hand.players[0].liable_for_dragons, Some(Wind::South));
+            assert_eq!(hand.players[0].liability(), (Some(Wind::South), None));
 
             if self_draw {
                 hand.turn = Wind::East;
@@ -2294,7 +2272,7 @@ mod tests {
             hand.drawn = None;
             hand.discard(tile("7z"), false);
             hand.resolve_calls(&[(Wind::South, Call::Pon)]).unwrap();
-            assert_eq!(hand.players[1].liable_for_dragons, Some(Wind::West));
+            assert_eq!(hand.players[1].liability(), (Some(Wind::West), None));
 
             // South throws 5s and waits on 1m-4m.
             hand.players[1].hand = "23m99p".parse().unwrap();
@@ -2345,7 +2323,7 @@ mod tests {
         hand.just_claimed = None;
         hand.act(Action::ConcealedKan(tile("7z"))).unwrap();
         assert_eq!(hand.players[1].melds.len(), 3);
-        assert_eq!(hand.players[1].liable_for_dragons, None);
+        assert_eq!(hand.players[1].liability(), (None, None));
 
         // South throws what the quad drew and later takes East's 4m for 2-3-4m.
         hand.players[1].hand = "23m9p5s".parse().unwrap();
@@ -2359,7 +2337,8 @@ mod tests {
             .unwrap();
         assert_eq!(hand.players[1].melds.len(), 4);
         assert_eq!(
-            hand.players[1].liable_for_dragons, None,
+            hand.players[1].liability(),
+            (None, None),
             "a sequence claimed after the last dragon set names nobody"
         );
 
@@ -2392,7 +2371,7 @@ mod tests {
         hand.drawn = None;
         hand.discard(tile("4z"), false);
         hand.resolve_calls(&[(Wind::South, Call::Pon)]).unwrap();
-        assert_eq!(hand.players[1].liable_for_winds, Some(Wind::West));
+        assert_eq!(hand.players[1].liability(), (None, Some(Wind::West)));
 
         // South throws 5s, later draws the last south wind and extends.
         hand.players[1].hand = "2z9p".parse().unwrap();
@@ -2404,7 +2383,7 @@ mod tests {
         if hand.phase == Phase::CallWindow {
             hand.resolve_calls(&[]).unwrap();
         }
-        assert_eq!(hand.players[1].liable_for_winds, Some(Wind::West));
+        assert_eq!(hand.players[1].liability(), (None, Some(Wind::West)));
 
         hand.players[1].hand = "99p".parse().unwrap();
         hand.turn = Wind::South;

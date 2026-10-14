@@ -289,7 +289,7 @@ fn replay_games(seeds: impl Iterator<Item = u64>) -> usize {
     hands_checked
 }
 
-/// Two hundred games, every hand rebuilt from its own log.
+/// Fifty games, over two hundred hands, every hand rebuilt from its own log.
 #[test]
 fn the_log_rebuilds_every_hand_it_records() {
     let checked = replay_games(0..50);

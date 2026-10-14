@@ -194,13 +194,6 @@ fn settle(ending: Ending, input: Input) -> Result<Settlement, String> {
 
     let (mut hand, _) = p.build_selected(false)?;
     hand.bets_this_hand = riichi_before.map(u32::from);
-    // Melds retain chronological call order and source, so the engine's
-    // own reading of them restores the responsibility flags Hand records as
-    // those calls happen: concealed quads count among the called sets, and
-    // only a claimed set that completes them names its feeder.
-    for player in &mut hand.players {
-        (player.liable_for_dragons, player.liable_for_winds) = player.liability();
-    }
 
     let reveal_ura = !draw && winners.iter().any(|i| riichi_before[*i]);
     if input.ura.len() != if reveal_ura { p.indicators.len() } else { 0 } {

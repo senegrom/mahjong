@@ -25,10 +25,9 @@ pub const UMA: [i32; 4] = [15_000, 5_000, -5_000, -15_000];
 pub struct Table {
     /// Points, by player, in seating order around the table.
     pub scores: [i32; 4],
-    /// Which player is currently East.
+    /// Which player is currently East. Player 0 is East when the game
+    /// begins, and so marks the round.
     pub dealer: usize,
-    /// Which player was East when the game began, i.e. who marks the round.
-    pub first_dealer: usize,
     /// The round wind: east, then south.
     pub round: Wind,
     /// Counters on the table (EMA section 3.4.4).
@@ -47,7 +46,6 @@ impl Table {
         Table {
             scores: [STARTING_SCORE; 4],
             dealer: 0,
-            first_dealer: 0,
             round: Wind::East,
             counters: 0,
             riichi_sticks: 0,
@@ -67,9 +65,11 @@ impl Table {
     }
 
     /// Which hand of the round this is, counting from one. Counters do not
-    /// advance it: a repeated East 1 is still East 1.
+    /// advance it: a repeated East 1 is still East 1. Player 0 began as
+    /// East, so the dealer's number is how many times the deal has passed
+    /// in this round.
     pub fn kyoku(&self) -> u8 {
-        ((self.dealer + 4 - self.first_dealer) % 4) as u8 + 1
+        self.dealer as u8 + 1
     }
 
     /// Which player number sits in each seat, indexed by seat, which is what
@@ -135,8 +135,8 @@ impl Table {
         if !dealer_keeps {
             self.dealer = (self.dealer + 1) % 4;
             // The round turns over when the deal comes back to the player who
-            // began the game as East (EMA section 3.5).
-            if self.dealer == self.first_dealer {
+            // began the game as East, player 0 (EMA section 3.5).
+            if self.dealer == 0 {
                 match self.round {
                     Wind::East => self.round = Wind::South,
                     _ => self.finished = true,
@@ -269,10 +269,8 @@ mod tests {
         table.counters = 3;
         let mut rng = Rng::from_seed(2);
         let mut hand = table.deal(&mut rng);
-        hand.outcome = Some(Outcome::ExhaustiveDraw {
-            tenpai: vec![Wind::South],
-        });
-        // Stand in a win by South rather than a draw.
+        // A win with no winners listed stands in for a win by South: all
+        // that counts here is that East is not among them.
         hand.outcome = Some(Outcome::Win {
             winners: Vec::new(),
             discarder: None,

@@ -123,14 +123,6 @@ pub fn waits(hand: &TileSet, called: usize, visible: &TileSet) -> TileSet {
     result
 }
 
-/// Whether the hand is waiting, i.e. tenpai (EMA section 3.3.8).
-///
-/// A hand whose only candidate is a fifth copy is noten, which is why this
-/// asks for the waits rather than the shanten number alone.
-pub fn is_tenpai(hand: &TileSet, called: usize, visible: &TileSet) -> bool {
-    !waits(hand, called, visible).is_empty()
-}
-
 /// The tiles that would reduce the hand's shanten, with the resulting count.
 ///
 /// This is the acceptance ("ukeire") list the efficiency aids and the
@@ -559,7 +551,6 @@ mod tests {
         assert_eq!(concealed.len(), 13);
         let waits_now = waits(&concealed, 0, &concealed);
         assert!(waits_now.is_empty(), "found waits {waits_now}");
-        assert!(!is_tenpai(&concealed, 0, &concealed));
         // Shape alone would call it tenpai; the fourth-copy rule is what
         // makes the difference.
         assert_eq!(standard(&concealed, 0), TENPAI);

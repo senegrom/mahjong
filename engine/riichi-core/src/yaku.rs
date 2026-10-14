@@ -388,10 +388,11 @@ pub fn structural(analysis: &Analysis) -> Vec<Yaku> {
 
     // Outside hands: every set and the pair reach a terminal or honour, and
     // at least one set is a sequence. Junchan bars honours; chanta requires
-    // them (EMA 2025 sections 4.2.2 and 4.2.3).
+    // them (EMA 2025 sections 4.2.2 and 4.2.3). Every sequence holds a tile
+    // from 2 to 8, so an outside hand is never all terminals and honours.
     let pair_th = analysis.pair.is_terminal_or_honour();
     let every_group_th = groups.iter().all(|g| g.has_terminal_or_honour());
-    if pair_th && every_group_th && !sequences.is_empty() && !all_th {
+    if pair_th && every_group_th && !sequences.is_empty() {
         if honours {
             found.push(Yaku::Chanta);
         } else {
