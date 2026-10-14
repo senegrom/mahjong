@@ -38,12 +38,20 @@ class Modal:
         self.results: dict[str, object] = {}
         self.files: dict[str, bytes] = {}
         self.uploaded: dict[str, str] = {}
+        self.options: dict[str, dict] = {}
         self.exception = SimpleNamespace(NotFoundError=NotFound, ResourceExhaustedError=Refused)
         self.Function = SimpleNamespace(from_name=self.function)
         self.FunctionCall = SimpleNamespace(from_id=self.call)
         self.Volume = SimpleNamespace(from_name=lambda name: self)
 
     def function(self, app, name):
+        options = {}
+
+        def with_options(**chosen):
+            options.update(chosen)
+            self.options[name] = dict(options)
+            return function
+
         def spawn(**arguments):
             if self.refusals:
                 self.refusals -= 1
@@ -61,7 +69,8 @@ class Modal:
                     self.files[f"rulers/{arguments['tag']}/seed-{arguments['seed']}.json"] = text.encode()
             return SimpleNamespace(object_id=call_id)
 
-        return SimpleNamespace(spawn=spawn)
+        function = SimpleNamespace(spawn=spawn, with_options=with_options)
+        return function
 
     def call(self, call_id):
         def get(timeout=None):
@@ -248,6 +257,8 @@ class TimingTests(unittest.TestCase):
             again = ruler_cloud.timing(modal, Path(folder), "x", "y", "z", 1, 1, 1, poll=0)
         self.assertEqual(len(modal.spawned), 3)
         self.assertEqual(set(kept), {"old duel", "ruler, seating", "ruler, fixed 256"})
+        # The old duel with the room the published rulers' launcher gives it.
+        self.assertEqual(modal.options, {"duel": {"memory": 49152}})
         fixed = next(arguments for name, arguments in modal.spawned if arguments.get("questions") == "fixed")
         self.assertTrue(fixed["graphs"] and fixed["skip_forced"] and fixed["preview_reach"])
         # Asked by seating with every switch that keeps the old duel's games.

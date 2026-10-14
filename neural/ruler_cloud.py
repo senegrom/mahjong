@@ -387,7 +387,9 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
     kept = folder / "timing-calls.json"
     call_ids = json.loads(kept.read_text(encoding="utf-8")) if kept.exists() else {}
     if not call_ids:
-        duel = modal.Function.from_name(APP, "duel")
+        # 48 GiB, as the published rulers' launcher asks: a fusion's duel died
+        # of signal 9 at the function's own 32 once in twenty calls.
+        duel = modal.Function.from_name(APP, "duel").with_options(memory=49152)
         ruler = modal.Function.from_name(APP, "ruler")
         common = dict(challenger=challenger, incumbent=incumbent, games=games, seed=seed, run=run)
         call_ids = {

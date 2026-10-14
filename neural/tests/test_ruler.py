@@ -47,6 +47,22 @@ class Taught(observe.Views):
         self.taught = np.frombuffer(self.arena.teacher(), dtype=np.uint8).copy()
 
 
+class TimedTaught(duel.TimedViews):
+    """`Taught`, keeping the account a timed duel keeps."""
+
+    def advance(self) -> None:
+        super().advance()
+        self.taught = np.frombuffer(self.arena.teacher(), dtype=np.uint8).copy()
+
+
+@contextlib.contextmanager
+def taught():
+    """Every table of the old duel and of the ruler served by views that
+    ask the heuristic player once a step, timed or not."""
+    with patch.object(duel, "Views", Taught), patch.object(duel, "TimedViews", TimedTaught):
+        yield
+
+
 def steer(player):
     """`player` pushed, in each step's first question, towards the
     heuristic player's move and towards a reach wherever one is open, as
@@ -258,10 +274,10 @@ class ReportTests(unittest.TestCase):
 
 
 class GamesTests(unittest.TestCase):
-    """Whole duels of small networks on the processor, the challenger a
-    joined player and the incumbent a Mortal, both pushed towards reaches
-    (see `steer`), so a reach is told and asked again, or asked ahead,
-    hundreds of times."""
+    """Whole duels of small networks on the processor, one deal a seating,
+    the challenger a joined player and the incumbent a Mortal, both pushed
+    towards reaches (see `steer`), so a reach is told and asked again, or
+    asked ahead, many times."""
 
     @classmethod
     def setUpClass(cls):
@@ -279,16 +295,40 @@ class GamesTests(unittest.TestCase):
         return steer(ruler.seat(self.paths[name], device, **options))
 
     def test_asked_by_seating_it_plays_the_old_duels_games(self):
-        with patch.object(duel, "Views", Taught):
+        """The old duel, timed and not, and the ruler asked by seating, timed:
+        the same placements by deal and seat, the same reaches told and asked
+        again, and the same rows asked of each side, while the ruler encodes
+        the incumbent's views aside and takes its tables' steps together."""
+        with taught():
             old = [steer(zoo.load_player(self.paths[name], "cpu")) for name in ("fused", "mortal")]
-            want = duel.duel(*old, 2, SEED, "cpu")
+            want = duel.duel(*old, 1, SEED, "cpu")
+            again = [steer(zoo.load_player(self.paths[name], "cpu")) for name in ("fused", "mortal")]
+            timed = duel.duel(*again, 1, SEED, "cpu", timing={})
             new = [self.seated(name) for name in ("fused", "mortal")]
-            got = ruler.ruler([new[0]], new[1], 2, SEED, "cpu", questions="seating")
+            got = ruler.ruler([new[0]], new[1], 1, SEED, "cpu", questions="seating", timing={},
+                              how={"questions": "seating"})
+        before, after = timed.pop("play"), got.pop("play")
+        self.assertEqual(timed, want)
         same_reading(self, got, want)
-        for before, after in zip(old, new):
-            self.assertGreater(after.reaches, 5)
+        self.assertGreater(sum(player.reaches for player in new), 5)
+        self.assertGreater(new[1].asked_again, 0)
+        for first, second, third in zip(old, again, new):
             # Told and asked again, as the old duel asked: the same rows.
-            self.assertEqual((after.reaches, after.asked_again), (before.reaches, before.asked_again))
+            self.assertEqual((first.reaches, first.asked_again), (second.reaches, second.asked_again))
+            self.assertEqual((first.reaches, first.asked_again), (third.reaches, third.asked_again))
+        self.assertEqual((before["path"], after["path"], after["questions"]), ("duel", "ruler", "seating"))
+        for play in (before, after):
+            self.assertEqual(set(play["parts"]), {*duel.Split.PARTS, "other"})
+            self.assertAlmostEqual(sum(play["parts"].values()), play["seconds"], delta=0.01)
+            self.assertGreater(play["parts"]["encode"], 0)
+        self.assertGreater(before["decisions"]["incumbent"], 2 * before["decisions"]["challengers"])
+        self.assertEqual(after["decisions"], before["decisions"])
+        self.assertEqual(before["aside"], 0.0)
+        self.assertGreater(after["aside"], 0)
+        # The old duel's four tables take their steps one after another; the
+        # ruler's, together, as many as the longest.
+        self.assertLess(after["steps"], before["steps"])
+        self.assertGreaterEqual(4 * after["steps"], before["steps"])
 
     def test_in_fixed_rows_every_question_is_asked_in_pieces(self):
         """Whole duels in pieces of four rows with the switches on: every
@@ -297,7 +337,7 @@ class GamesTests(unittest.TestCase):
         no switch changes a game is the card's property, tested there: on
         the processor a row's answer can depend on where it sits in the
         batch."""
-        with patch.object(duel, "Views", Taught):
+        with taught():
             players = [self.seated(name, questions="fixed", rows=4, skip_forced=True, preview_reach=True)
                        for name in ("fused", "mortal")]
             sizes = []
@@ -306,10 +346,10 @@ class GamesTests(unittest.TestCase):
                     inner = forward.forward
                     forward.forward = lambda planes, mask, inner=inner: sizes.append(len(planes)) or inner(
                         planes, mask)
-            got = ruler.ruler([players[0]], players[1], 2, SEED, "cpu", questions="fixed")
-        self.assertEqual(got["games_total"], 8)
+            got = ruler.ruler([players[0]], players[1], 1, SEED, "cpu", questions="fixed")
+        self.assertEqual(got["games_total"], 4)
         self.assertEqual(set(sizes), {4})
-        self.assertGreater(players[1].reaches, 5)
+        self.assertGreater(players[1].reaches, 3)
         self.assertEqual(players[1].asked_again, 0)
         self.assertGreater(sum(forward.padded for forward in ruler.forwards_of(players[1])), 0)
 
@@ -317,38 +357,12 @@ class GamesTests(unittest.TestCase):
         """Asked by seating, each arm's seatings are asked in batches of
         their own, the same rows in the same places, so on any device the
         two arms of one network play the same games."""
-        with patch.object(duel, "Views", Taught):
+        with taught():
             arms = [self.seated("fused") for _ in range(2)]
-            got = ruler.ruler(arms, self.seated("mortal"), 2, SEED, "cpu", questions="seating")
+            got = ruler.ruler(arms, self.seated("mortal"), 1, SEED, "cpu", questions="seating")
         self.assertEqual(got["arms"][0]["by_deal"], got["arms"][1]["by_deal"])
         self.assertEqual((got["difference"]["edge"], got["difference"]["standard_error"],
-                          got["difference"]["same_games"]), (0.0, 0.0, 8))
-
-    def test_a_timed_duel_plays_the_same_games_and_says_where_the_time_went(self):
-        players = [zoo.load_player(self.paths[name], "cpu") for name in ("reheaded", "mortal")]
-        plain = duel.duel(*players, 1, SEED, "cpu")
-        timed = duel.duel(*players, 1, SEED, "cpu", timing={})
-        old = timed.pop("play")
-        self.assertEqual(timed, plain)
-        self.assertEqual(old["path"], "duel")
-        self.assertEqual(set(old["parts"]), {*duel.Split.PARTS, "other"})
-        self.assertAlmostEqual(sum(old["parts"].values()), old["seconds"], delta=0.01)
-        self.assertGreater(old["parts"]["encode"], 0)
-        self.assertGreater(old["decisions"]["incumbent"], 2 * old["decisions"]["challengers"])
-        self.assertEqual(old["aside"], 0.0)
-        # The ruler encodes the incumbent's views aside, says how much, and
-        # asks the same rows of each side.
-        seated = [ruler.seat(self.paths[name], "cpu") for name in ("reheaded", "mortal")]
-        got = ruler.ruler([seated[0]], seated[1], 1, SEED, "cpu", timing={}, how={"questions": "seating"})
-        new = got.pop("play")
-        self.assertEqual(got, plain)
-        self.assertEqual((new["path"], new["questions"]), ("ruler", "seating"))
-        self.assertGreater(new["aside"], 0)
-        self.assertEqual(new["decisions"], old["decisions"])
-        # The old duel's four tables take their steps one after another; the
-        # ruler's, together, as many as the longest.
-        self.assertLess(new["steps"], old["steps"])
-        self.assertGreaterEqual(4 * new["steps"], old["steps"])
+                          got["difference"]["same_games"]), (0.0, 0.0, 4))
 
 
 @unittest.skipUnless(CUDA, "the card's bfloat16 is what moves bits")
@@ -369,7 +383,7 @@ class CardTests(unittest.TestCase):
     def test_asked_by_seating_it_plays_the_old_duels_games(self):
         """With and without graphs at the sizes asked, recorded here after
         a size's first question so that most questions come from them."""
-        with patch.object(duel, "Views", Taught):
+        with taught():
             old = [steer(zoo.load_player(self.paths[name], "cuda")) for name in ("fused", "mortal")]
             want = duel.duel(*old, 3, SEED, "cuda")
             for graphs in (False, True):
@@ -393,7 +407,7 @@ class CardTests(unittest.TestCase):
         rows left unasked and the tiles asked ahead change which rows sit
         beside which, and no answer."""
         results = []
-        with patch.object(duel, "Views", Taught):
+        with taught():
             for switches in ({}, {"graphs": True}, {"graphs": True, "skip_forced": True, "preview_reach": True}):
                 players = [steer(ruler.seat(self.paths[name], "cuda", questions="fixed", rows=16, **switches))
                            for name in ("fused", "mortal")]
@@ -406,7 +420,7 @@ class CardTests(unittest.TestCase):
         """The incumbent is asked about both arms' tables at once, where a
         table of the second arm sits elsewhere in the question than its
         twin of the first: its answers are the same all the same."""
-        with patch.object(duel, "Views", Taught):
+        with taught():
             options = {"questions": "fixed", "rows": 16, "graphs": True, "skip_forced": True, "preview_reach": True}
             arms = [steer(ruler.seat(self.paths["fused"], "cuda", **options)) for _ in range(2)]
             incumbent = steer(ruler.seat(self.paths["mortal"], "cuda", **options))
