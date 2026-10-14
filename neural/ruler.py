@@ -194,8 +194,8 @@ class ExactGraphs:
     A graph replays the kernels the forward chose eagerly at its size, on
     the same inputs, so its answer is the eager answer bit for bit (see
     `play_graphs.Graphed`): for published Mortal and fusion-long's 910 on
-    the desktop's card, at every size from one row to 512, no bit of any
-    answer moved. A question the old duel asked about a few hundred rows
+    the desktop's card, at fourteen sizes from one row to 512, no bit of
+    any answer moved. A question the old duel asked about a few hundred rows
     or fewer then costs one launch instead of a thousand small ones: the
     last steps of every table, and a challenger's quarter of a seating's
     rows, are such questions. A size asked only once or twice is not worth

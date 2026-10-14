@@ -77,7 +77,11 @@ fusion-long's 810, while at one size, the rows shuffled or put beside other
 rows, nothing moved. On the processor, in float32, shuffling alone moved two
 or three rows of 64, so the fixed rows' guarantee is the card's. A graph
 recorded at the very size asked answered every row bit for bit as the eager
-forward, for published Mortal and 910, at every size tried from 1 to 512.
+forward, for published Mortal and 910, at each of the fourteen sizes tried
+from 1 to 512. At 1,000 deals a network may record a graph for most sizes up
+to 512 as its tables finish, each in about a tenth of a second on the desktop
+(14 in 1.2 s); the timing check says how many the L40S recorded and in how
+long.
 
 The arena and its follower take about 0.1-0.4 MB of host memory a table and
 do not grow over a game (600 tables played to the end: 1.43-1.44 GB

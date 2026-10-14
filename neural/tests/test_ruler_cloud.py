@@ -537,7 +537,8 @@ class TimingTests(unittest.TestCase):
     def test_the_four_ways_are_compared_with_the_old_duel_in_one_order(self):
         old = [2.0, 3.0, 2.5, 2.5]
         answers = {"duel": self.report(old, 1200.0), "seating": self.report(old, 900.0),
-                   "graphs": self.report(old, 600.0), "fixed": self.report([2.0, 3.0, 3.0, 2.0], 400.0)}
+                   "graphs": self.report(old, 600.0, graphs=412, graph_seconds=38.4, from_graphs=9876),
+                   "fixed": self.report([2.0, 3.0, 3.0, 2.0], 400.0)}
 
         def way(name, arguments):
             if name == "duel":
@@ -590,6 +591,9 @@ class TimingTests(unittest.TestCase):
         self.assertIn("the same placements as the old duel on 4 of 4 deals; 1.33 times as fast", text)
         self.assertIn("the same placements as the old duel on 4 of 4 deals; 2.00 times as fast", text)
         self.assertIn("the same placements as the old duel on 2 of 4 deals; 3.00 times as fast", text)
+        # How many graphs the seating ruler recorded as it played, and in how long.
+        self.assertEqual(text.count("graphs recorded"), 1)
+        self.assertIn("412 graphs recorded in 38 s, 9876 questions answered from them", text)
         self.assertEqual(lines[-1], "the seating ruler with graphs plays the old duel's games bit for bit, "
                                     "2.00 times as fast: keep it")
         self.assertEqual(again, lines)

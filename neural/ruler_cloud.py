@@ -67,6 +67,7 @@ read about so:
                              the same placements as the old duel on 1000 of 1000 deals; x.xx times as fast
     ruler, seating, graphs   placement 2.4110 +- 0.0183 over 1000 deals; play ...
                              ...
+                             ... graphs recorded in ... s, ... questions answered from them
                              the same placements as the old duel on 1000 of 1000 deals; x.xx times as fast
     ruler, fixed 256         placement 2.4... over 1000 deals; play ...
                              ...
@@ -590,6 +591,11 @@ def compare(reports: dict[str, dict]) -> list[str]:
         if parts:
             lines.append(" " * 25 + ", ".join(f"{part} {seconds:.0f}" for part, seconds in parts.items())
                          + f"; encoded aside {play.get('aside', 0):.0f}")
+        if "graphs" in play:
+            # Recorded while playing, at each size asked often, so inside the
+            # play's own time: at 1,000 deals perhaps hundreds a network.
+            lines.append(" " * 25 + f"{play['graphs']} graphs recorded in {play.get('graph_seconds', 0):.0f} s, "
+                         f"{play.get('from_graphs', 0)} questions answered from them")
         if name != OLD:
             same = sum(1 for a, b in zip(old["by_deal"], report["by_deal"]) if a == b)
             lines.append(" " * 25 + f"the same placements as the old duel on {same} of {n} deals; "
