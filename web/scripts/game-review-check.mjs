@@ -391,6 +391,33 @@ try {
     await page.click('[data-decision] [data-back]');
     await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, wide.key);
 
+    // An answer to another's discard leaves no tile in the hand to throw.
+    // The hand still takes focus there, and its description, the prompt,
+    // sends the player to the moves below it, which Tab reaches next.
+    const response = flagged.find(verdict => {
+      const [at, number] = verdict.key.split(':').map(Number);
+      return facts[at][number].note.call_tile;
+    });
+    assert.ok(response, 'a flagged answer to a discard');
+    if (!await page.$(`[data-game-review] [data-open="${response.key}"]`)) {
+      await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent)).click());
+    }
+    await page.click(`[data-game-review] [data-open="${response.key}"]`);
+    await page.waitForSelector('[data-decision] [data-retry]');
+    assert.equal(await page.$$eval('[data-decision] .hand button:not(:disabled)', buttons => buttons.length), 0, 'no tile to throw');
+    assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /Trained AI's answer: choose a move below\.$/);
+    await page.focus('[data-decision] .hand');
+    await page.keyboard.press('Tab');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-retry]'), { timeout: 5000 });
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
+    await page.focus('[data-answer] [data-again]');
+    await page.keyboard.press('Enter');
+    await focusOn('hand');
+    assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /: choose a move below\.$/);
+    await page.click('[data-decision] [data-back]');
+    await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, response.key);
+
     // On a phone, the list and a decision fit the screen. Only the size
     // changes: emulating touch would reload the page, and the review with it.
     await page.setViewport({ width: 360, height: 780 });

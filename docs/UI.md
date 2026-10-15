@@ -210,7 +210,9 @@ at the decision to the hand, whose description asks for the choice, as play
 gives the hand focus when a turn comes. **Choose again** does the same, since
 the answer it closes held the button. At the flagged decision the player chooses
 again, a tile from the hand or a move below it, before anything is revealed,
-or asks for **Trained AI's answer** outright. The answer lists the weight of
+or asks for **Trained AI's answer** outright. An answer to another's discard
+leaves no tile to throw, so there the description sends the player to the
+moves below the hand, which **Tab** reaches next. The answer lists the weight of
 every move, the riichi discards under their declaration, marking Trained AI's
 choice, the move made in the game and the new one. It leads with the five
 heaviest moves and those it marks; **Show every move** shows the rest and

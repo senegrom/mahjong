@@ -32,6 +32,11 @@
   let choosing = $derived(atDecision && !revealed);
   let discardChoices = $derived(choosing ? frame.choices.filter(choice => choice.kind === 'discard') : []);
   let otherChoices = $derived(frame.choices.filter(choice => choice.kind !== 'discard'));
+  // Where the choice is made. The hand takes focus at the decision and this
+  // prompt describes it, but an answer to another's discard leaves no tile to
+  // throw, so the prompt then sends the player to the moves below it.
+  let choiceHelp = $derived(discardChoices.length ? `: select a tile to discard${otherChoices.length ? ', or a move below' : ''}`
+    : otherChoices.length ? ': choose a move below' : '');
   let robbing = $derived(Boolean(quadOnOffer(frame.view)));
   let offered = $derived(frame.view.phase === 'call' ? frame.view.pending_discard : null);
   let discarder = $derived(NAMES[frame.view.pending_from] ?? 'An opponent');
@@ -180,7 +185,7 @@
   {#if !atDecision}
     <p id="hand-help" class="prompt">{earlierMove} {earlierVerdict}</p>
   {:else if choosing}
-    <p id="hand-help" class="prompt">What would you play here? Choose again before you see Trained AI's answer{discardChoices.length ? ': select a tile to discard' : ''}{discardChoices.length && otherChoices.length ? ', or a move below' : ''}.</p>
+    <p id="hand-help" class="prompt">What would you play here? Choose again before you see Trained AI's answer{choiceHelp}.</p>
     {#if otherChoices.length}
       <div class="moves">
         {#each otherChoices as choice, index (index)}
