@@ -7,7 +7,9 @@
  * from the deal by keyboard, chosen again, and Trained AI's answer read back,
  * with keyboard focus checked after every button the replay offers; the saved
  * match must be exactly as it was, and the game must enter the trend once,
- * under the version of Trained AI that judged it. On a phone, where the final
+ * under the version of Trained AI that judged it. A flagged answer to another's
+ * discard, from a game whose player calls everything, is chosen again from the
+ * moves its prompt points to, by keyboard. On a phone, where the final
  * result covers the standings, the review must be reachable from the result
  * itself by touch and come back to the standings; held sideways, from the
  * standings beside the result.
@@ -35,15 +37,17 @@ const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
 
 /** A whole game against Beginner players, by a player who takes every win,
  * declares every riichi and otherwise throws the tile just drawn: plenty for
- * Trained AI to disagree with. */
-function finishedGame(seed) {
+ * Trained AI to disagree with. With `calls` the player also calls every pon
+ * and chii offered, where Trained AI mostly passes. */
+function finishedGame(seed, { calls = false } = {}) {
   const match = new MatchSession(Game, seed, 'beginner');
   try {
     match.advance(false);
     for (let step = 0; step < 5000 && !match.over; step++) {
       if (match.engine.hand_is_over()) { match.apply({ type: 'next' }); match.advance(false); continue; }
       const choices = match.choices, drawn = match.view.seats[0].drawn;
-      const choice = choices.find(c => ['ron', 'tsumo', 'riichi'].includes(c.kind)) ?? choices.find(c => c.kind === 'pass')
+      const choice = choices.find(c => ['ron', 'tsumo', 'riichi'].includes(c.kind))
+        ?? (calls ? choices.find(c => ['pon', 'chii'].includes(c.kind)) : undefined) ?? choices.find(c => c.kind === 'pass')
         ?? choices.find(c => c.kind === 'discard' && c.tile === drawn) ?? choices.find(c => c.kind === 'discard') ?? choices[0];
       match.apply({ type: 'choose', kind: choice.kind, tile: choice.tile ?? null }); match.advance(false);
     }
@@ -51,7 +55,7 @@ function finishedGame(seed) {
     return match.snapshot();
   } finally { match.dispose(); }
 }
-const snapshot = finishedGame(5);
+const snapshot = finishedGame(5), callingGame = finishedGame(5, { calls: true });
 const hands = scanMatch(Game, snapshot);
 // What the engine says about every decision, read off a replay at each
 // hand's end: its legal moves, both of Mortal's masks, and how each of
@@ -117,10 +121,11 @@ const tappable = (page, selector) => page.$eval(selector, element => {
   return box.width > 0 && Boolean(hit) && (hit === element || element.contains(hit));
 });
 
-/** The page with the finished match restored. `touch` makes it a phone, set
- * before the page loads since turning touch on reloads it; without `network`
- * the page finds Trained AI out of reach and never downloads it. */
-async function openPage(width, height, { touch = false, network = true } = {}) {
+/** The page with a finished match restored, the tile-throwing game unless
+ * another is `saved`. `touch` makes it a phone, set before the page loads
+ * since turning touch on reloads it; without `network` the page finds
+ * Trained AI out of reach and never downloads it. */
+async function openPage(width, height, { touch = false, network = true, saved = snapshot } = {}) {
   const page = await (await cases.openContext(browser)).newPage();
   page.errors = [];
   page.on('pageerror', error => page.errors.push(error.message));
@@ -153,7 +158,7 @@ async function openPage(width, height, { touch = false, network = true } = {}) {
         super.postMessage(data, ...rest);
       }
     };
-  }, SAVE_KEY, SETTINGS_KEY, snapshot);
+  }, SAVE_KEY, SETTINGS_KEY, saved);
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.standings [data-review-game]');
   return page;
@@ -391,33 +396,6 @@ try {
     await page.click('[data-decision] [data-back]');
     await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, wide.key);
 
-    // An answer to another's discard leaves no tile in the hand to throw.
-    // The hand still takes focus there, and its description, the prompt,
-    // sends the player to the moves below it, which Tab reaches next.
-    const response = flagged.find(verdict => {
-      const [at, number] = verdict.key.split(':').map(Number);
-      return facts[at][number].note.call_tile;
-    });
-    assert.ok(response, 'a flagged answer to a discard');
-    if (!await page.$(`[data-game-review] [data-open="${response.key}"]`)) {
-      await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent)).click());
-    }
-    await page.click(`[data-game-review] [data-open="${response.key}"]`);
-    await page.waitForSelector('[data-decision] [data-retry]');
-    assert.equal(await page.$$eval('[data-decision] .hand button:not(:disabled)', buttons => buttons.length), 0, 'no tile to throw');
-    assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /Trained AI's answer: choose a move below\.$/);
-    await page.focus('[data-decision] .hand');
-    await page.keyboard.press('Tab');
-    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-retry]'), { timeout: 5000 });
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
-    await page.focus('[data-answer] [data-again]');
-    await page.keyboard.press('Enter');
-    await focusOn('hand');
-    assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /: choose a move below\.$/);
-    await page.click('[data-decision] [data-back]');
-    await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, response.key);
-
     // On a phone, the list and a decision fit the screen. Only the size
     // changes: emulating touch would reload the page, and the review with it.
     await page.setViewport({ width: 360, height: 780 });
@@ -469,6 +447,39 @@ try {
     await page.focus('[data-game-review] [data-review-hand]');
     await page.keyboard.press('Enter');
     await focused('[data-game-review] .hands summary');
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("an answer to another's discard is chosen again from the moves the hand's prompt points to, by keyboard", async () => {
+    // The tile-throwing player passes every call, and Trained AI seldom
+    // gives a pass under 5%, so this game's player calls everything instead.
+    const page = await openPage(1100, 900, { saved: callingGame });
+    await page.click('.standings [data-review-game]');
+    await page.waitForSelector('[data-game-review]');
+    await reviewed(page);
+    await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent))?.click());
+    const key = await page.$$eval('[data-game-review] [data-flagged]', items =>
+      items.find(item => /^Response to/.test(item.querySelector('.context')?.textContent.trim() ?? ''))?.dataset.flagged);
+    assert.ok(key, 'a flagged answer to a discard');
+    await page.click(`[data-game-review] [data-open="${key}"]`);
+    await page.waitForSelector('[data-decision] [data-retry]');
+    // No tile in the hand can be thrown, so the hand's description, the
+    // prompt, sends the player to the moves below it, which Tab reaches next.
+    assert.equal(await page.$$eval('[data-decision] .hand button:not(:disabled)', buttons => buttons.length), 0, 'no tile to throw');
+    const prompt = () => page.$eval('[data-decision] .hand', el => document.getElementById(el.getAttribute('aria-describedby')).textContent);
+    assert.match(await prompt(), /^What would you play here\? Choose again before you see Trained AI's answer: choose a move below\.$/);
+    await page.focus('[data-decision] .hand');
+    await page.keyboard.press('Tab');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-retry]'), { timeout: 5000 });
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
+    assert.match(await page.$eval('[data-answer] .verdicts li', el => el.textContent.trim()), /^This time: /);
+    // Choose again gives the hand focus, as at a turn, and its prompt says
+    // again where the choice is.
+    await page.focus('[data-answer] [data-again]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] .hand'), { timeout: 5000 });
+    assert.match(await prompt(), /: choose a move below\.$/);
     assert.deepEqual(page.errors, []);
   });
 
