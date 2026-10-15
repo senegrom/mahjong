@@ -4,11 +4,13 @@
  * shipped network. Every batch the page sends is captured with the worker's
  * answer, and the flags, their order and the agreement figure are worked out
  * again here from those answers alone. A flagged decision is then replayed
- * from the deal by keyboard, chosen again, and Trained AI's answer read back;
- * the saved match must be exactly as it was, and the game must enter the
- * trend once. On a phone, where the final result covers the standings, the
- * review must be reachable from the result itself and come back to the
- * standings.
+ * from the deal by keyboard, chosen again, and Trained AI's answer read back,
+ * with keyboard focus checked after every button the replay offers; the saved
+ * match must be exactly as it was, and the game must enter the trend once,
+ * under the version of Trained AI that judged it. On a phone, where the final
+ * result covers the standings, the review must be reachable from the result
+ * itself by touch and come back to the standings; held sideways, from the
+ * standings beside the result.
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -244,11 +246,13 @@ try {
     });
     await shot(page, 'game-review-list');
 
-    // The game enters the trend once, with the figure shown.
+    // The game enters the trend once, with the figure shown and the version
+    // of Trained AI that judged it: the default, as no other was picked.
     const trend = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), TREND_KEY);
     assert.equal(trend.games.length, 1);
-    assert.deepEqual({ ...trend.games[0], at: 0 }, { id: `${snapshot.seed}:${snapshot.commands.length}`, at: 0,
-      matched, decisions: counted.length, flagged: flagged.length });
+    assert.deepEqual({ ...trend.games[0], at: 0 }, { id: `${snapshot.seed}:${snapshot.commands.length}`, network: MANIFEST.version,
+      at: 0, matched, decisions: counted.length, flagged: flagged.length });
+    assert.equal(await page.$eval('[data-trend] .label', el => el.textContent), `Matched Trained AI ${MANIFEST.version}`);
 
     // The highest-ranked flagged decision with two of the player's decisions
     // before it in its hand, so there is a hand to step through, opened

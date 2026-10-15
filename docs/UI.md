@@ -227,7 +227,14 @@ the last 50 games; a browser that keeps nothing still reviews, without a
 trend). The figure is shown against the decision-weighted average of up to ten
 earlier games, with a line of the last twelve and a table of the same. The
 change is stated, not coloured: matching Trained AI is not the same as playing
-well, since the network has habits of its own.
+well, since the network has habits of its own. The review is judged by the
+version of Trained AI the page plays, which the player can pick in the game
+settings, and the review and the trend name it. Another version judges
+differently, so each game is kept with the version that judged it, a game
+judged again by another version is kept beside its first entry, and the
+figure, the line and the table take only the games of the version playing
+now; a note counts the others, which come back when their version is picked
+again.
 
 **Speed.** Measured on 14 October 2026 in Chromium 155 on the desktop, through
 the page's own worker on one thread, a position took a median 163 ms one at a

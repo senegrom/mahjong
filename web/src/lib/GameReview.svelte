@@ -5,6 +5,7 @@
   import ReviewTrend from './ReviewTrend.svelte';
   import { FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, agreement, rankDecisions } from './game-review.js';
   import { waitingNote } from './ui.js';
+  import { trainedName } from './trained-network.js';
 
   /**
    * The whole game, looked at again once it is over: every decision the player
@@ -139,7 +140,7 @@
   {#if opened && openedHand}
     {#key key(opened)}<DecisionReplay hand={openedHand} decision={opened} {hints} onback={closeDecision} />{/key}
   {:else}
-    <p class="intro">Trained AI is asked about every decision you made, hand by hand. A decision is flagged when your move had
+    <p class="intro">{trainedName('Trained AI')} is asked about every decision you made, hand by hand. A decision is flagged when your move had
       under {Math.round(FLAG_PLAYED_BELOW * 100)}% of Trained AI's weight while its own choice had {Math.round(FLAG_PREFERRED_FROM * 100)}% or more.
       Matching Trained AI is not the same as playing well: it has habits of its own.</p>
 

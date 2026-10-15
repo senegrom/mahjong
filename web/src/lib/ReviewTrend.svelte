@@ -1,12 +1,15 @@
 <script>
-  import { TREND_WINDOW, matchedShare } from './review-trend.js';
+  import { TREND_WINDOW, judgedBy, matchedShare } from './review-trend.js';
+  import { playedNetwork, trainedName } from './trained-network.js';
 
   /**
    * How much of this game matched Trained AI, against the games reviewed
    * before it in this browser: the figure, its change from the earlier games'
    * average, and the last dozen games as a line, with a table of the same.
    * Matching Trained AI is not the same as playing well, so the change is
-   * stated, not coloured as good or bad.
+   * stated, not coloured as good or bad. Another version of Trained AI judges
+   * differently, so only the games judged by the version this page plays are
+   * compared and shown; the rest wait for that version to be picked again.
    */
   let { figure, complete = false, games = [], current = '' } = $props();
   const SHOWN = 12;
@@ -16,11 +19,13 @@
   const percent = share => `${Math.round(share * 100)}%`;
   const when = at => new Date(at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-  let earlier = $derived(games.filter(game => game.id !== current).slice(-TREND_WINDOW));
+  let judged = $derived(judgedBy(games, playedNetwork().version));
+  let elsewhere = $derived(games.length - judged.length);
+  let earlier = $derived(judged.filter(game => game.id !== current).slice(-TREND_WINDOW));
   let earlierShare = $derived(matchedShare(earlier));
   let change = $derived(complete && figure.share != null && earlierShare != null
     ? Math.round(figure.share * 100) - Math.round(earlierShare * 100) : null);
-  let shown = $derived(games.slice(-SHOWN));
+  let shown = $derived(judged.slice(-SHOWN));
   let points = $derived(shown.map((game, index) => ({
     game,
     x: shown.length === 1 ? WIDTH / 2 : MARGIN + index * (WIDTH - 2 * MARGIN) / (shown.length - 1),
@@ -32,13 +37,16 @@
 </script>
 
 <div class="trend" data-trend>
-  <p class="label">Matched Trained AI</p>
+  <p class="label">Matched {trainedName('Trained AI')}</p>
   <p class="value">{figure.share == null ? '—' : percent(figure.share)}{#if !complete && figure.share != null}{' '}<span class="so-far">so far</span>{/if}</p>
   <p class="count">{figure.matched} of {figure.decisions} decision{figure.decisions === 1 ? '' : 's'}{complete ? '' : ' in the hands reviewed'}. Moves with only one choice are left out.</p>
   {#if change !== null}
     <p class="change">{change === 0 ? 'The same as' : `${change > 0 ? '+' : '−'}${Math.abs(change)} points against`} your {earlier.length === 1 ? 'previous game' : `previous ${earlier.length} games`} ({percent(earlierShare)})</p>
   {:else if !complete && earlier.length}
     <p class="change">This game joins your trend once every hand is reviewed.</p>
+  {/if}
+  {#if elsewhere}
+    <p class="change">Not counted here: {elsewhere} game{elsewhere === 1 ? '' : 's'} judged by another version of Trained AI.</p>
   {/if}
   {#if points.length >= 2}
     <svg class="line" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label={summary}>

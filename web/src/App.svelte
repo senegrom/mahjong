@@ -451,13 +451,16 @@
 
   // The finished match is replayed from its saved commands on an engine of
   // the review's own, so the match and its save are left as they are. Says
-  // whether the review is open.
+  // whether the review is open. The network this page plays judges it, and
+  // the trend keeps which version that was.
   function openGameReview() {
     if (!session?.over || session.closed) return false;
     if (!matchReview) {
       try {
         matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch,
-          onComplete: review => { reviewTrend = recordTrend(storage, { ...review.summary, at: Date.now() }); } });
+          onComplete: review => {
+            reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
+          } });
       } catch (error) {
         notice = `The game could not be replayed for review: ${error?.message ?? error}. Your saved match is unchanged.`;
         return false;

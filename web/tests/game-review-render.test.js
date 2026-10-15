@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { TREND_WINDOW } from '../src/lib/review-trend.js';
+import { playedNetwork, trainedName } from '../src/lib/trained-network.js';
 
 // Render the production components, substituting only the artwork URL and,
 // where a test does not open one, the decision replay.
@@ -47,6 +48,7 @@ test('a review under way leads with the flagged decisions found so far, and hide
   const html = page({ review: review({ busy: true, estimate: 95,
     hands: [done, hand(1, { status: 'reviewing', done: 1 }), hand(2)] }) });
   assert.match(html, /Your game, looked at again/);
+  assert.ok(html.includes(`${trainedName('Trained AI')} is asked about every decision you made`), 'it names the version that judges');
   assert.match(html, /under 5% of Trained AI's weight while its own choice had 60% or more/);
   assert.match(html, /role="status"[^>]*>Trained AI is reviewing East 2\./);
   assert.match(html, /3 of 6 decisions · the rest would take about 2 minutes/);
@@ -105,11 +107,13 @@ test('without the network the review waits and says so, and is not offered hand 
 });
 
 test('the trend tile states the change against earlier games without judging it, with a table of the games', () => {
-  const games = Array.from({ length: 4 }, (_, index) => ({ id: `g${index}`, at: Date.UTC(2026, 9, 10 + index, 12), matched: 60, decisions: 100 }));
+  const network = playedNetwork().version;
+  const games = Array.from({ length: 4 }, (_, index) => ({ id: `g${index}`, network, at: Date.UTC(2026, 9, 10 + index, 12), matched: 60, decisions: 100 }));
   const figure = { matched: 65, decisions: 100, share: 0.65 };
   const html = render(ReviewTrend, { props: { figure, complete: true, current: 'g3',
     games: [...games.slice(0, 3), { ...games[3], matched: 65 }] } }).body;
-  assert.match(html, /Matched Trained AI/);
+  assert.match(html, new RegExp(`>Matched ${trainedName('Trained AI').replaceAll('.', '\\.')}<`), 'it names the version that judged');
+  assert.doesNotMatch(html, /Not counted here/);
   assert.match(html, />65%</);
   assert.match(html, /65 of 100 decisions\. Moves with only one choice are left out\./);
   assert.match(html, /\+5 points against your previous 3 games \(60%\)/);
@@ -127,4 +131,22 @@ test('the trend tile states the change against earlier games without judging it,
   const first = render(ReviewTrend, { props: { figure, complete: true, current: 'g0', games: [{ ...games[0], matched: 65 }] } }).body;
   assert.doesNotMatch(first, /points against|<svg/);
   assert.equal(TREND_WINDOW, 10);
+});
+
+test('the trend compares and shows only the games judged by the version of Trained AI this page plays', () => {
+  const network = playedNetwork().version, other = `${network}-other`;
+  const at = index => Date.UTC(2026, 9, 10 + index, 12);
+  const games = [
+    { id: 'g0', network, at: at(0), matched: 60, decisions: 100 },
+    // Another version judged these, one of them the same game again.
+    { id: 'g1', network: other, at: at(1), matched: 20, decisions: 100 },
+    { id: 'g0', network: other, at: at(2), matched: 25, decisions: 100 },
+    { id: 'g3', network, at: at(3), matched: 70, decisions: 100 },
+  ];
+  const html = render(ReviewTrend, { props: { figure: { matched: 70, decisions: 100, share: 0.7 }, complete: true, current: 'g3', games } }).body;
+  assert.match(html, /\+10 points against your previous game \(60%\)/, 'only the same version is compared');
+  assert.match(html, /aria-label="Matched Trained AI in your last 2 reviewed games, on a scale of 0 to 100%: from 60% to 70%"/);
+  assert.equal((html.match(/<tr/g) ?? []).length, 3, 'a row for each of its games and the header');
+  assert.match(html, /Not counted here: 2 games judged by another version of Trained AI\./);
+  assert.doesNotMatch(html, /20%|25%/);
 });
