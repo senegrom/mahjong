@@ -74,13 +74,13 @@ test('the boat is registered and preloaded once, completing the characters suit 
   assert.deepEqual([...VAN_GOGH_APPROVED, ...manifest.remaining].sort(), [...TILE_TYPES].sort());
 });
 
-test('the red sail appears in the gallery and in the fourteen-tile example hand', () => {
+test('the red sail appears in the gallery without extending the fourteen-tile example hand', () => {
   const html = read('web/public/tiles/van-gogh/preview.html').toString();
   assert.match(html, /Red Sail C · One character/);
   const rack = html.match(/<div class="rack"[^>]*>(.*?)<\/div>/s)?.[1];
   assert.ok(rack);
   assert.equal((rack.match(/<img\b/g) ?? []).length, 14);
-  assert.equal((rack.match(/approved\/Man1\.svg/g) ?? []).length, 1);
+  assert.match(html, /<img src="approved\/Man1\.svg" alt="One character"/);
 });
 
 test('--only=1m reproduces the approved boat exactly without rewriting other artwork', () => {

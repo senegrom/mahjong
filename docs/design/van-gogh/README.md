@@ -2,7 +2,7 @@
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. That restoration left the other tiles unchanged. Eight disks now uses Lemons by the Sea. Earlier sections below describe the design history.
 
-**Current set:** 31 painted faces and 3 unpainted identities showing their names. Green Dragon at the Vineyard C is active for green dragon (6z). Lemons by the Sea is active for 8 disks; both the disks and bamboo suits are complete. Poppy Field with smaller 萬 for 9 characters and all prior selections remain unchanged. Earlier sections retain historical counts.
+**Current set:** 32 painted faces and 2 unpainted identities showing their names: South and West winds. The Red Sail C is active for 1 character (1m / 一萬), completing the characters suit. All three numbered suits are now complete. Green Dragon at the Vineyard C and all prior artwork are unchanged. Earlier sections retain historical counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -244,3 +244,10 @@ The original 1448 × 1086 board is cropped at **(979, 122) to 450 × 600, exactl
 `docs/design/van-gogh/green-dragon-vineyard.json` records selection, crop and image checksums. The untouched board, full selected panel and lossless 3:4 crop are preserved in `Van_Gogh_Green_Dragon_Vineyard_C_Approved.zip`, supplied in chat. The repository SVG embeds the game-sized image, not the full-resolution original.
 
 Run `node web/scripts/export-van-gogh-tiles.mjs --only=6z` to reproduce this face, registry, manifest and gallery without rewriting other artwork. This addition brings the set to **31 painted faces and 3 named fallbacks**. Every prior painting, proportion fit and manifest entry, the fourteen-tile sample hand and gameplay remain unchanged.
+
+
+## The Red Sail C — 1 character
+
+Carl selected the third boat painting, preserving the small 一萬 on its cream hull, and requested GitHub deployment. The complete 1086 × 1448 portrait is exactly 3:4; it is uniformly downsampled to a 300 × 400 quality-60 AVIF game export with no crop, stretching, repainting or recolouring. The source SVG embeds the approved game raster in the shared study box. The runtime changes only that image box to zero bleed, with no stretching and the normal 26-unit rounded-corner clip. The game export is not the full-resolution PNG. The untouched original is supplied in `Van_Gogh_1_Characters_Red_Sail_Approved.zip`; its hash and processing details are recorded in `docs/design/van-gogh/one-characters-red-sail.json`.
+
+Regenerate only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=1m`. Regression tests pin the source and embedded-raster hashes, check the full-frame geometry, verify registration and hidden-tile privacy, and ensure selective exports are repeatable without changing other artwork. All 31 previous faces remain byte-for-byte unchanged.

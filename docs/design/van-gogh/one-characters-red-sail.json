@@ -1,0 +1,37 @@
+{
+  "tile": "1m",
+  "name": "Man1",
+  "label": "One character",
+  "candidate": "Red Sail C",
+  "title": "The Red Sail",
+  "approvalDate": "2026-10-15",
+  "approval": "Carl selected the third option, the red-sail boat, and explicitly requested GitHub deployment as 1 characters (1m / 一萬). The sower and window alternatives are not selected.",
+  "source": "docs/design/van-gogh/studies/26-one-characters-red-sail-c-approved.svg",
+  "sourceSha256": "7f82fc7cc6ca21f37cba9ccfe5f0292e836eb1f584d5aa7097feaf14ca7ddcf9",
+  "originalFilename": "crimson_sail_in_a_mediterranean_harbour.png",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalSha256": "81570fc132f12f48fceb262ecc0f7e6a4f1e9109198d38281a149dea0a8e4d2a",
+  "originalBackup": "Van_Gogh_1_Characters_Red_Sail_Approved.zip supplied in chat; the untouched PNG is not the game-sized source SVG.",
+  "processing": "Use the complete 1086 x 1448 RGB canvas (exactly 3:4). Uniformly downsample with Pillow LANCZOS to 300 x 400 and encode AVIF at quality 60, speed 6. No crop, stretch, repainting, recolouring, lettering changes or additions. The SVG uses the existing rounded-corner clip with zero image bleed, preserving the full composition apart from normal corner clipping.",
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterBytes": 36049,
+  "rasterSha256": "0a6b2b96aaebe241576e94d6cb1d80acf5fc862a6b7a33f8a5323b2c4bbbcc70",
+  "fit": {
+    "painting": [
+      1086,
+      1448
+    ],
+    "stretch": 0,
+    "anchor": 0.5,
+    "bleedPixels": 0
+  },
+  "runtimeSvg": "web/public/tiles/van-gogh/approved/Man1.svg",
+  "runtimeSvgSha256": "85a214007ce059ed61aa47f2257db9ce2c6499ed58c95954d926d88fd2dbcfea"
+}
