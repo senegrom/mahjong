@@ -253,7 +253,13 @@ whole round, which a fork starts from). It reads:
    games. The rule as first written, any miss over 0.03, cannot be applied
    to a few thousand games: the error of a tenth at East 1 is about as
    large as the threshold, and noise alone would fail it. The literal
-   count is reported beside it (`cells_missing_literally`).
+   count is reported beside it (`cells_missing_literally`, also on the
+   last line's VERDICT), and the owner decides if the two disagree. Also
+   **kill** when a member of the roster never sat (`unseen`), since U
+   then reads its seats through weights no game taught. A seed whose round
+   leaves a member out of its pool (the Club sits out about one round in
+   four) is refused before anything is loaded; 9,700,000, the default,
+   seats everyone.
 2. **The split-half agreement of one update**, for today's return and the
    placement reward at each `--alphas` (0 and 0.05), each game paid by a U
    that never saw it, each decision's baseline from a copy of the critic

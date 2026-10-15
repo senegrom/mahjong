@@ -12,7 +12,10 @@ tables, keeping the round's ledger, and then:
    calibration by stage and by tenth of its answers beside the boundary
    judge's curve. The first kill rule: U is refused when its mean answer
    misses the mean bonus by more than 0.03 in some tenth at some stage, by
-   more than that cell's noise (see `place_model.calibration`).
+   more than that cell's noise (see `place_model.calibration`), or when a
+   member of the roster never sat, whose seats U would then read through
+   weights no game taught. A seed whose round leaves a member out of its
+   pool is refused before anything is loaded.
 2. Pays the round three ways: today's return, and the placement reward at
    each of `--alphas`, each game paid by a U that never saw it.
 3. Teaches a copy of the critic each return as the fork's warm-up
