@@ -706,7 +706,7 @@ def play(
         begun.read(arena.mjai_all())
         # Kept before the placement is added: each decision's own hand's
         # points, the term the placement reward weighs by alpha.
-        members =(tuple(member.name for member in population.members) if population is not None
+        members = (tuple(member.name for member in population.members) if population is not None
                    else tuple(f"opponent {which}" for which in range(len(opponents or []))))
         record = Ledger.of_round(
             begun,

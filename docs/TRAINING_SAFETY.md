@@ -272,12 +272,14 @@ whole round, which a fork starts from). It reads:
    the head and read on about 20,000 positions where the checkpoint's top
    move is under 0.8, from greedy rounds against three published Mortals
    (the flips: the overlap of the two halves' changed best moves). Both
-   are read again with the advantages shuffled among the decisions, which
-   is chance; agreement is the reading above chance. **Kill** when alpha
-   0's agreement is under 1.5 times today's on both measures; go when it
-   is at least that on both; when the two disagree the verdict says so and
-   the owner decides. A measure with fewer than 20 flips in a half is
-   unread, and the verdict then rests on the other.
+   are read again with each half's advantages shuffled among its own
+   decisions, which is chance: a half keeps the advantages it had and
+   loses only which move each went with. Agreement is the reading above
+   chance. A measure fails when alpha 0's agreement is under 1.5 times
+   today's, or when neither return agrees better than chance. **Kill**
+   when both measures fail; go when both pass; when the two disagree the
+   verdict says so and the owner decides. A measure with fewer than 20
+   flips in a half is unread, and the verdict then rests on the other.
 
 ### The fork's stop rules
 

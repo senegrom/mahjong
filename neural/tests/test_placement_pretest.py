@@ -51,7 +51,23 @@ class Measures(unittest.TestCase):
         self.assertIsNone(unread["flips"]["passed"])
         nothing = verdict(self.arms((-0.01, 0.0), (0.01, 0.05)), "today", "alpha 0")
         self.assertEqual(nothing["verdict"], "go")
-        self.assertEqual(nothing["cosine"]["why"], "today's return agrees no better than chance")
+        self.assertEqual(nothing["cosine"]["why"], "today's return agrees no better than chance, and this one does")
+        neither = verdict(self.arms((-0.01, 0.0), (-0.02, 0.0)), "today", "alpha 0")
+        self.assertEqual(neither["verdict"], "kill")
+        self.assertEqual(neither["cosine"]["why"], "neither return agrees better than chance")
+
+    def test_the_null_keeps_each_halfs_own_advantages(self):
+        """Each half of a split keeps exactly the advantages it had, dealt
+        out again among its own decisions: none crosses to the other half,
+        so each half's sum is the real one's."""
+        rng = np.random.default_rng(9)
+        values = torch.arange(40, dtype=torch.float32)
+        split = torch.from_numpy(rng.permutation(40) < 17)
+        shuffled = placement_pretest.shuffled_within(values, split, rng)
+        for side in (split, ~split):
+            self.assertEqual(sorted(shuffled[side].tolist()), sorted(values[side].tolist()))
+        self.assertFalse(torch.equal(shuffled, values))
+        self.assertTrue(torch.equal(values, torch.arange(40, dtype=torch.float32)))
 
 
 class Gradients(unittest.TestCase):

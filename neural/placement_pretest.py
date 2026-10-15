@@ -31,10 +31,10 @@ tables, keeping the round's ledger, and then:
    checkpoint hesitates over (top move under `--top`), taken from a greedy
    round against three published Mortals: which of their best moves flip,
    and how far the two halves' flips coincide. Both are measured again with
-   the advantages shuffled among the decisions, which is what chance
-   agreement reads. The second kill rule: the placement reward at alpha 0
-   must agree with itself, above chance, at least 1.5 times as well as
-   today's return does.
+   each half's advantages shuffled among its own decisions, which is what
+   chance agreement reads. The second kill rule: the placement reward at
+   alpha 0 must agree with itself, above chance, at least 1.5 times as well
+   as today's return does.
 
 Everything goes to `--out`: report.json, the round's ledger.npz, and
 place-model.pt, U fitted on every game of the round, which a fork starts
@@ -458,6 +458,24 @@ def stepped_logits(net, step: torch.Tensor, parts, args, device: str) -> torch.T
 # --------------------------------------------------------------- agreement
 
 
+def shuffled_within(values: torch.Tensor, split: torch.Tensor, rng) -> torch.Tensor:
+    """The null's advantages for one split: each half's own advantages
+    dealt out again at random among that half's decisions, so a half keeps
+    exactly the advantages it had and loses only which move each went with.
+
+    A shuffle over the whole round would also change each half's sum of
+    advantages, and with it any part of the halves' gradients that comes
+    from that sum rather than from the moves. Within a half that part is
+    the same in the null as in the real split, and taking the null away
+    removes it."""
+    out = values.clone()
+    for side in (split, ~split):
+        where = torch.nonzero(side).squeeze(1)
+        order = torch.from_numpy(rng.permutation(len(where))).to(values.device)
+        out[where] = values[where[order]]
+    return out
+
+
 def cosine(one: torch.Tensor, two: torch.Tensor) -> float:
     """In double precision: two halves' gradients agree by a few hundredths
     at most, and over a million single-precision products the sum's own
@@ -501,7 +519,8 @@ def agreement_verdict(arms: dict, today: str, chosen: str, needed: float = NEEDE
         if baseline <= 0:
             ratio = math.inf if signal > 0 else None
             passed = signal > 0
-            why = "today's return agrees no better than chance"
+            why = ("today's return agrees no better than chance, and this one does" if passed
+                   else "neither return agrees better than chance")
         else:
             ratio = signal / baseline
             passed = ratio >= needed
@@ -594,22 +613,23 @@ def main(argv=None) -> dict:
     pooled = phi = own = None
     lap("critics")
 
-    # Three random splits of the games into halves; the shuffled advantages
-    # the null reads, one shuffle an arm over the whole round. Each arm's
-    # gradients come as sums over the whole round and over each split's
-    # first half, the second half being the whole less the first.
+    # Three random splits of the games into halves. Each arm's gradients come
+    # as sums over the whole round and over each split's first half, the
+    # second half being the whole less the first; the null's, a split at a
+    # time, as each half's sum apart (see `shuffled_within`).
     splits = [torch.from_numpy(rng.permutation(args.games) < args.games // 2).to(device)[games]
               for _ in range(args.splits)]
     sizes = [(int(split.sum()), int((~split).sum())) for split in splits]
     vectors, layout = [], []
     for name, advantage in advantages.items():
-        shuffled = advantage[torch.from_numpy(rng.permutation(len(advantage))).to(device)]
-        for kind, values in (("real", advantage), ("null", shuffled)):
-            vectors.append(values)
-            layout.append((name, kind, None))
-            for which, split in enumerate(splits):
-                vectors.append(values * split)
-                layout.append((name, kind, which))
+        vectors.append(advantage)
+        layout.append((name, "real", None))
+        for which, split in enumerate(splits):
+            vectors.append(advantage * split)
+            layout.append((name, "real", which))
+            shuffled = shuffled_within(advantage, split, rng)
+            vectors += [shuffled * split, shuffled * ~split]
+            layout += [(name, "null", which), (name, "null second", which)]
     sums, how = head_gradients(net, rollout, torch.stack(vectors), args, device)
     vectors = None
     lap("gradients")
@@ -628,9 +648,12 @@ def main(argv=None) -> dict:
     lap("probes")
 
     def halves(name: str, kind: str, which: int) -> tuple[torch.Tensor, torch.Tensor]:
-        whole_sum = sums[layout.index((name, kind, None))]
         first = sums[layout.index((name, kind, which))]
-        return first / sizes[which][0], (whole_sum - first) / sizes[which][1]
+        if kind == "null":
+            second = sums[layout.index((name, "null second", which))]
+        else:
+            second = sums[layout.index((name, kind, None))] - first
+        return first / sizes[which][0], second / sizes[which][1]
 
     def read(step: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
         moved = step * scale / denominator if denominator is not None else step * scale
