@@ -103,6 +103,26 @@ class Gradients(unittest.TestCase):
         torch.testing.assert_close(alone[0], sums[0] - sums[1], rtol=1e-4, atol=1e-6)
 
 
+class Seeds(unittest.TestCase):
+    def test_a_seed_that_sits_a_member_out_is_refused_first(self):
+        """The Club is in about three rounds' pools in four, drawn from the
+        round's seed; 4321's round leaves it out, so U could not learn its
+        seats, and the pre-test refuses before it loads anything (the
+        checkpoint named does not exist)."""
+        from neural.population import Population
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            out = Path(folder) / "out"
+            seated = [str(Path(folder) / "zoo--mortal_298k.pt"), "club"]
+            self.assertEqual(placement_pretest.absent_from(Population.from_paths(seated), 4321), ["club"])
+            self.assertEqual(placement_pretest.absent_from(Population.from_paths(seated), 4323), [])
+            with self.assertRaisesRegex(SystemExit, r"leaves \['club'\] out"):
+                placement_pretest.main([str(Path(folder) / "missing.pt"), "--opponents", *seated,
+                                        "--seat-share", "0.5", "--seed", "4321", "--device", "cpu",
+                                        "--out", str(out)])
+            self.assertFalse(out.exists())
+
+
 class SmallRun(unittest.TestCase):
     """The whole pre-test on tiny networks and a few games: it plays, fits
     U, pays three ways, teaches the critics, takes the gradients and reads
@@ -119,9 +139,11 @@ class SmallRun(unittest.TestCase):
                 run(train_combined, root / "run", flags(train_combined, root, resume=False))
                 opponent = mortal_checkpoint(root / "zoo--mortal_298k.pt")
                 out = root / "out"
+                # A seed whose round keeps the Club in its pool (see
+                # `test_a_seed_that_sits_a_member_out_is_refused_first`).
                 report = placement_pretest.main([
                     str(root / "run" / "latest.pt"), "--opponents", str(opponent), "club",
-                    "--seat-share", "0.5", "--games", "6", "--seed", "4321", "--folds", "2",
+                    "--seat-share", "0.5", "--games", "6", "--seed", "4323", "--folds", "2",
                     "--splits", "2", "--batch", "64", "--chunk", "64", "--epochs", "1",
                     "--probes", "40", "--probe-games", "3", "--probe-rounds", "3", "--device", "cpu",
                     "--out", str(out),
@@ -146,6 +168,9 @@ class SmallRun(unittest.TestCase):
                 self.assertEqual(len(arm["agreement"]["cosine"]["null"]), 2)
                 self.assertIn("all", arm["advantage_variance"])
         self.assertIn("East 1", {row["stage"] for row in report["u"]["by_stage"]})
+        self.assertEqual(model.fitted["unseen"], report["u"]["unseen"])
+        if report["u"]["unseen"]:
+            self.assertEqual(report["verdict"]["verdict"], "kill")
 
 
 if __name__ == "__main__":

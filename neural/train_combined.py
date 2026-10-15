@@ -339,8 +339,12 @@ def parse_args() -> argparse.Namespace:
         "last --place-refit-rounds rounds, keeping the new one only if it reads an eighth of "
         "their games, held out, at least as well; nought never",
     )
-    parser.add_argument("--place-refit-rounds", type=int, default=2,
-                        help="how many of the run's last rounds a refit of U reads")
+    parser.add_argument(
+        "--place-refit-rounds", type=int, default=4,
+        help="how many of the run's last rounds a refit of U reads. The Club sits out about one "
+        "round in four, and a refit on rounds that seated none of some kind of player keeps "
+        "the U it has: two rounds both lack the Club one time in sixteen, four one in 256",
+    )
     parser.add_argument(
         "--value-warm-up", type=int, default=0,
         help="with --reward placement, the first this many generations of the reward teach the "

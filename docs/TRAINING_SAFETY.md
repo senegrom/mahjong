@@ -178,8 +178,14 @@ it. A round played with `selfplay.play(..., ledger=True)` carries a
 hand's points, every hand's start, who sat where and the final scores. A
 ledger whose hands do not match the engine's own count of finished hands
 is refused (`Ledger.check`), because a start read late or missed would pay
-a decision another hand's boundary. A round settles by placement in
-`selfplay.settle_placement`, which replaces the returns and nothing else.
+a decision another hand's boundary. Two things keep every start read: a
+table nobody follows, which otherwise stops writing its log
+(`Arena.forget_events`), keeps writing it for a ledger, which reads it
+every step; and once the round is over the ledger reads what the last step
+wrote, since native bots can deal and play out a game's last hand on it
+without asking anyone, and a relaunch would replay that round and be
+refused again. A round settles by placement in `selfplay.settle_placement`,
+which replaces the returns and nothing else.
 
 **The default does not change.** A round asked for no ledger plays and pays
 exactly as before: `neural/tests/test_placement_reward.py` pins today's
@@ -210,11 +216,17 @@ placement`; the cloud's `train_combined` passes none of them on unless
   bit for bit the same after such a generation
   (`neural/tests/test_placement_training.py`). The count is kept in the
   checkpoint, so a relaunch does not warm up again.
-- `--place-refit-every K` and `--place-refit-rounds M` (2): every K
+- `--place-refit-every K` and `--place-refit-rounds M` (4): every K
   generations of the reward, U is fitted again on the run's last M rounds,
   an eighth of their games held out, and kept only if it reads those games
   at least as well as the U it would replace; the log's
-  `place_model_refit` says how it read and whether it was kept.
+  `place_model_refit` says how it read and whether it was kept. Rounds
+  that seated none of some kind of player U reads are not fitted on, and
+  U is kept: a U fitted on them would read that kind through weights no
+  game taught. The Club sits out about one round in four, so two rounds
+  both lack it one time in sixteen and four rounds one time in 256.
+  Likewise a run starting the reward refuses a U fitted on rounds that
+  seated none of a member it seats (`fitted["unseen"]`).
 
 A checkpoint of a placement run carries `reward` (kind, alpha, the
 generation the reward began, the warm-up generations had, the last refits)

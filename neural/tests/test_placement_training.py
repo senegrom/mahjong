@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -150,11 +151,33 @@ class PlacementRuns(unittest.TestCase):
         return run(self.root / "run", [*flags(train_combined, self.root, resume=True), *options], asked)
 
     def test_a_default_run_keeps_no_ledger_and_carries_nothing_new(self):
-        self.assertEqual(len(self.asked), 1)
-        self.assertNotIn("ledger", self.asked[0])
-        self.assertNotIn("reward", self.start)
-        self.assertNotIn("place_model", self.start)
-        self.assertEqual(len(self.start["optimizer_state"]["param_groups"]), 3)
+        """With none of the new options, starting or resumed, the trainer
+        reaches none of the placement reward's code: it asks play for no
+        ledger, settles no round, writes no new key to its checkpoints and
+        no new field to its records, and builds the optimiser it always did,
+        three groups at the rates its command line gives. Bit for bit
+        against the trainer before the change, see TRAINING_SAFETY.md."""
+        refused = AssertionError("a run paid the default reward reached the placement reward's code")
+        with patch.object(train_combined.selfplay, "settle_placement", side_effect=refused), \
+                patch.object(train_combined.place_model.PlacementRun, "begin", side_effect=refused), \
+                patch.object(train_combined.place_model, "PlacementReward", side_effect=refused):
+            self.resume(asked=self.asked)
+        resumed = saved(self.root / "run" / "latest.pt")
+        self.assertEqual(len(self.asked), 2)
+        for options in self.asked:
+            self.assertNotIn("ledger", options)
+        for payload in (self.start, resumed):
+            self.assertFalse({"reward", "place_model"} & set(payload))
+            groups = payload["optimizer_state"]["param_groups"]
+            self.assertEqual([(group["lr"], group["weight_decay"]) for group in groups],
+                             [(1e-4, 1e-4), (4e-5, 1e-4), (3e-5, 0.01)])
+        records = [json.loads(line) for line in
+                   (self.root / "run" / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(records), 2)
+        placement = {"reward", "alpha", "value_warm_up", "place_model_refit", "return_variance_east",
+                     "return_variance_south", "value_error_east", "value_error_south"}
+        for record in records:
+            self.assertFalse(placement & set(record), record)
 
     def test_the_warm_up_moves_the_critic_and_nothing_else(self):
         """A warm-up generation, resumed from a default run's checkpoint as
@@ -261,8 +284,6 @@ class CloudLaunches(unittest.TestCase):
             return getattr(app, function)(**kwargs)
 
     def test_a_placement_launch_stages_u_and_names_its_options(self):
-        import json
-
         from neural.checkpoints import atomic_save
         from neural.tests.test_cloud_isolation import controller
 
@@ -301,8 +322,6 @@ class CloudLaunches(unittest.TestCase):
             self.assertNotIn(flag, plain)
 
     def test_the_pretest_publishes_what_a_fork_starts_from(self):
-        import json
-
         from neural.checkpoints import atomic_save
         from neural.tests.test_cloud_isolation import child, controller
 
@@ -375,6 +394,39 @@ class Refits(unittest.TestCase):
             worse = placing.refit(15)
         self.assertFalse(worse["adopted"])
         self.assertIs(placing.reward, kept)
+
+    def test_a_refit_on_rounds_that_seated_no_member_keeps_u(self):
+        """The Club sits out about one round in four. U knows it, and rounds
+        that seated it nowhere are not fitted on at all: U is kept."""
+        args = SimpleNamespace(alpha=0.0, place_model=None, value_warm_up=0, place_refit_every=2,
+                               place_refit_rounds=2)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            args.place_model = write_u(Path(folder) / "u.pt", members=("club",))
+            placing = place_model.PlacementRun.begin(args, {}, 0, ["club"])
+        kept = placing.reward
+        rng = np.random.default_rng(4)
+        for generation in (0, 1):
+            placing.remember(self.ledger(rng, 40), generation)
+        refused = AssertionError("rounds without the Club were fitted on")
+        with patch.object(place_model, "fit", side_effect=refused):
+            report = placing.refit(1)
+        self.assertFalse(report["adopted"])
+        self.assertIn("seated no ['club']", report["why"])
+        self.assertIs(placing.reward, kept)
+        self.assertEqual(placing.fields()["reward"]["refits"][-1], report)
+
+    def test_a_run_refuses_a_u_that_never_saw_a_member_it_seats(self):
+        args = SimpleNamespace(alpha=0.0, place_model=None, value_warm_up=0, place_refit_every=0,
+                               place_refit_rounds=4)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            model = place_model.PlaceModel(("club",), hidden=8)
+            model.fitted = {"unseen": ["club"]}
+            args.place_model = Path(folder) / "u.pt"
+            model.save(args.place_model)
+            with self.assertRaisesRegex(SystemExit, r"seated no \['club'\]"):
+                place_model.PlacementRun.begin(args, {}, 0, ["club"])
+            # A run that seats no Club takes it.
+            self.assertIsNotNone(place_model.PlacementRun.begin(args, {}, 0, []))
 
 
 if __name__ == "__main__":

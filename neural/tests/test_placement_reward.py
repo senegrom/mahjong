@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -19,7 +20,7 @@ import torch
 import riichi_py
 
 from neural import place_model, scoreboard, selfplay, zoo
-from neural.observe import Planes
+from neural.observe import Planes, Views
 from neural.outcomes import placement_rewards
 from neural.population import Member, Population
 
@@ -216,6 +217,43 @@ class DefaultRoundsUnchanged(unittest.TestCase):
         self.assertEqual(loaded.members, ("zoo/mortal_298k", "club"))
 
 
+class EveryEventRead(unittest.TestCase):
+    """A ledger reads every start_kyoku the arena writes: at a table nobody
+    follows, which otherwise stops writing its log, and on the step that
+    ends the round, after which the loop reads nothing."""
+
+    def test_a_ledger_keeps_a_table_nobody_follows_writing(self):
+        for starts, written in ((None, False), (scoreboard.HandStarts(2), True)):
+            with self.subTest(ledger=starts is not None):
+                arena = riichi_py.Arena(games=2, seed=99)
+                views = Views(arena, 2, {"engine"}, starts=starts)
+                self.assertIsNone(views.observer)
+                held = arena.mjai_all()
+                self.assertEqual([bool(lines) for lines in held], [written] * 2)
+                if written:
+                    self.assertTrue(all(any(line.startswith(scoreboard.START) for line in lines)
+                                        for lines in held))
+
+    def test_the_round_reads_what_its_last_step_wrote(self):
+        """Once a round that keeps a ledger is over, its arena holds nothing
+        unread, so a hand dealt and played out by native bots on the last
+        step would be in the ledger too."""
+        made = []
+        native = riichi_py.Arena
+
+        def build(*args, **kwargs):
+            made.append(native(*args, **kwargs))
+            return made[-1]
+
+        for name in ("alone", "followed"):
+            with self.subTest(round=name), patch.object(selfplay.riichi_py, "Arena", side_effect=build):
+                batch = rounds()[name](ledger=True)
+                arena = made[-1]
+                self.assertTrue(arena.all_finished())
+                self.assertEqual(sum(len(lines) for lines in arena.mjai_all()), 0)
+                np.testing.assert_array_equal(batch.ledger.count, arena.hands_done())
+
+
 class ScoreboardRefusals(unittest.TestCase):
     def test_a_negative_score_is_kept_as_the_table_holds_it(self):
         begun = scoreboard.HandStarts(1)
@@ -282,6 +320,20 @@ class PlaceModelReads(unittest.TestCase):
         self.assertEqual(seats.argmax(axis=1).tolist(), [1, 0, 2, 0])
         with self.assertRaisesRegex(ValueError, "not fitted"):
             place_model.inputs(ledger, ("club",), np.array([0]), np.array([0]))
+
+    def test_a_member_who_never_sat_is_named(self):
+        """Two games, published Mortal in one of them and the Club in
+        neither: U fitted on them reads the Club's seats through weights no
+        game taught, and says so."""
+        members = ("zoo/mortal_298k", "club")
+        ledger = ledger_of([[(0, 1, 0, 0, 0, 30000, 30000, 30000, 30000)]] * 2, [(0, 0, 0, 0.0)],
+                           [[1, 2, 3, 4], [4, 3, 2, 1]], owners=[[-1, 0, -1, -1], [-1, -1, -1, -1]],
+                           members=members)
+        table = place_model.Boundaries.of(ledger, members)
+        self.assertEqual(place_model.unseen(table, members), ["club"])
+        self.assertEqual(place_model.unseen(table, ("zoo/mortal_298k",)), [])
+        model = place_model.fit(table, members, hidden=8, epochs=1)
+        self.assertEqual(model.fitted["unseen"], ["club"])
 
     def test_a_model_round_trips_and_rides_in_a_checkpoint(self):
         model = place_model.PlaceModel(("club",), hidden=8)

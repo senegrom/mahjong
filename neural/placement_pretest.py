@@ -154,15 +154,25 @@ def play_round(net, args, roster, seated, device: str) -> selfplay.Batch:
 # ---------------------------------------------------------------------- U
 
 
+def absent_from(roster: Population, seed: int) -> list[str]:
+    """The members the round of `seed` leaves out of its pool (see
+    `Population.for_round`): U fitted on that round would never see them
+    seated, and a fork that seats them refuses such a U."""
+    return [member.name for member in roster.for_round(seed).members if member.weight <= 0]
+
+
 def fit_u(ledger, members, args, device: str) -> tuple[dict, np.ndarray, place_model.PlaceModel]:
     """U's calibration on games it never saw, U at every hand's start from
     every player's view by a model that never saw that hand's game, and U
-    fitted on the whole round, which a fork starts from."""
+    fitted on the whole round, which a fork starts from. The first kill
+    rule fails when U misses beyond noise, or when some member never sat,
+    since U then reads that member's seats through weights no game taught."""
     table = place_model.Boundaries.of(ledger, members)
     answers, _fold = place_model.cross_fitted(table, members, folds=args.folds, seed=args.seed % 997,
                                               device=device)
     report = place_model.calibration(answers, table.bonus, table.stages, table.games)
-    report["kill"] = not report["passed"]
+    report["unseen"] = place_model.unseen(table, members)
+    report["kill"] = not report["passed"] or bool(report["unseen"])
     whole = place_model.fit(table, members, seed=args.seed % 997, device=device)
     whole.fitted["calibration"] = {key: report[key] for key in (
         "passed", "rows", "games", "cells_missing_beyond_noise", "largest_miss")}
@@ -512,6 +522,12 @@ def agreement_verdict(arms: dict, today: str, chosen: str, needed: float = NEEDE
 
 def main(argv=None) -> dict:
     args = parse_args(argv)
+    # Refused before anything is loaded or played: a round whose seed sits
+    # a member out cannot fit the U a fork that seats it starts from.
+    absent = absent_from(Population.from_paths(args.opponents), args.seed)
+    if absent:
+        raise SystemExit(f"the round of seed {args.seed} leaves {absent} out of its pool, so U would "
+                         "never see them seated; choose a --seed whose round seats every member")
     device = args.device
     args.out.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(args.seed)
@@ -649,7 +665,9 @@ def main(argv=None) -> dict:
     verdict = agreement_verdict(arms, "today", arm_name(args.alphas[0]))
     if u_report["kill"]:
         verdict["verdict"] = "kill"
-        verdict["why"] = "U misses the bonus beyond noise in some tenth at some stage"
+        verdict["why"] = ("U misses the bonus beyond noise in some tenth at some stage"
+                          if not u_report["passed"] else
+                          f"U never saw {u_report['unseen']} seated, whom a fork would seat")
     report = {
         "checkpoint": str(args.checkpoint),
         "generation": generation,
@@ -673,8 +691,12 @@ def main(argv=None) -> dict:
     }
     (args.out / "report.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
     # One line, last, for whoever reads the call's answer.
+    # The literal reading of U's rule beside the one applied: tenths whose
+    # gap is over 0.03 whatever their noise (see `place_model.calibration`).
     print("VERDICT " + json.dumps({"verdict": verdict, "u_passed": u_report["passed"],
-                                   "u_largest_miss": u_report["largest_miss"]}), flush=True)
+                                   "u_largest_miss": u_report["largest_miss"],
+                                   "u_cells_missing_literally": u_report["cells_missing_literally"],
+                                   "u_unseen": u_report["unseen"]}), flush=True)
     return report
 
 

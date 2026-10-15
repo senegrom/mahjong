@@ -343,6 +343,16 @@ class Boundaries:
         return Boundaries(self.x[mask], self.labels[mask], self.games[mask], self.stages[mask], self.bonus[mask])
 
 
+def unseen(table: Boundaries, members: Sequence[str]) -> list[str]:
+    """The kinds of player, of the learner and `members`, that hold no seat
+    in `table`, which was read with `members` (see `inputs`). U fitted on
+    such a table reads them through weights no game taught: the Club sits
+    out about one round in four, so two rounds can both lack it."""
+    count = 1 + len(members)
+    held = table.x[:, BASE:].reshape(len(table), 4, count).sum(axis=(0, 1))
+    return [name for name, seats in zip((LEARNER, *members), held) if not seats]
+
+
 def game_folds(games: np.ndarray, folds: int, seed: int = 0) -> np.ndarray:
     """A fold, 0 to `folds` - 1, for every row, every row of a game in the
     same fold: drawn per game from `seed`, so a held-out game is held out
@@ -423,8 +433,10 @@ def fit(
                 break
     model.load_state_dict(best_state)
     model = model.cpu().eval()
+    # Who never sat in the games it saw, which a run that seats them
+    # refuses (see `PlacementRun.begin`).
     model.fitted = {"games": int(len(np.unique(table.games))), "rows": int(len(table)),
-                    "validation_cross_entropy": round(best, 5)}
+                    "validation_cross_entropy": round(best, 5), "unseen": unseen(table, members)}
     return model
 
 
@@ -553,7 +565,7 @@ class PlacementRun:
     put back the U a refit replaced."""
 
     def __init__(self, model: PlaceModel, alpha: float, since: int, warm_up: int, warmed: int = 0,
-                 refit_every: int = 0, refit_rounds: int = 2, refits: Sequence[dict] = ()) -> None:
+                 refit_every: int = 0, refit_rounds: int = 4, refits: Sequence[dict] = ()) -> None:
         from collections import deque
 
         self.reward = PlacementReward(model, alpha)
@@ -597,6 +609,15 @@ class PlacementRun:
         if strangers:
             raise SystemExit(f"U was fitted without {strangers}, whom this run seats; refit it on "
                              "rounds that seated them")
+        if record is None or record.get("kind") != "placement":
+            # Named but never seated in the games U was fitted on: it would
+            # read their seats through weights nothing taught. A resumed run
+            # is not asked again, since a refit keeps only a U that saw
+            # everyone (see `refit`).
+            untaught = [name for name in members if name in model.fitted.get("unseen", ())]
+            if untaught:
+                raise SystemExit(f"U was fitted on rounds that seated no {untaught}, whom this run "
+                                 "seats; fit it on rounds that seated them")
         return run
 
     @property
@@ -618,9 +639,19 @@ class PlacementRun:
     def refit(self, generation: int, device: str = "cpu", seed: int = 0) -> dict:
         """Fits U again on the rounds remembered, an eighth of their games
         held out, and keeps the new one only where it reads those games at
-        least as well as the one it would replace. Answers what the log
+        least as well as the one it would replace. Rounds that seated none
+        of some kind of player U reads are not fitted on at all: a U fitted
+        on them would read that kind through weights nothing taught, and
+        reading those same rounds would not show it. Answers what the log
         says of it."""
         table = Boundaries.cat(list(self.recent))
+        missing = unseen(table, self.reward.model.members)
+        if missing:
+            summary = {"generation": generation + 1, "rounds": len(self.recent),
+                       "games": int(len(np.unique(table.games))), "adopted": False,
+                       "why": f"the rounds remembered seated no {missing}; U is kept as it was"}
+            self.refits.append(summary)
+            return summary
         held = game_folds(table.games, 8, seed + generation) == 0
         model = fit(table.take(~held), self.reward.model.members, hidden=self.reward.model.hidden,
                     seed=seed + generation, device=device)
@@ -678,6 +709,9 @@ def main() -> None:
         table = Boundaries.cat([Boundaries.of(ledger, members, tag) for tag, ledger in enumerate(ledgers)])
         answers, _fold = cross_fitted(table, members, args.folds, args.seed, hidden=args.hidden)
         report = calibration(answers, table.bonus, table.stages, table.games)
+        # A run that seats a member none of these rounds seated refuses
+        # this U (see `PlacementRun.begin`).
+        report["unseen"] = unseen(table, members)
         model = fit(table, members, hidden=args.hidden, seed=args.seed)
         model.fitted["calibration"] = {key: report[key] for key in (
             "passed", "rows", "games", "cells_missing_beyond_noise", "largest_miss")}

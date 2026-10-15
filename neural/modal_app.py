@@ -793,7 +793,7 @@ def train_combined(
     alpha: float = 0.0,
     place_model: str = "",
     place_refit_every: int = 0,
-    place_refit_rounds: int = 2,
+    place_refit_rounds: int = 4,
     value_warm_up: int = 0,
     value_warm_up_lr: float = 1e-4,
     seed: int | None = None,

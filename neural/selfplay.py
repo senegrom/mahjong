@@ -695,9 +695,18 @@ def play(
     final_scores = np.frombuffer(arena.final_scores(), dtype=np.int32).reshape(games, 4)
     record = None
     if begun is not None:
+        # The events of the step that ended the round are still unread: the
+        # loop stops before the next step's `views.advance`. They usually
+        # hold only the last hands' ends, but a step can deal a game's last
+        # hand and see native bots play it out without asking anyone here,
+        # and that hand's start would then be missing from the ledger, which
+        # `Ledger.check` refuses; a relaunch would replay the same round and
+        # be refused again. Nothing follows the table any more, so they are
+        # read here alone.
+        begun.read(arena.mjai_all())
         # Kept before the placement is added: each decision's own hand's
         # points, the term the placement reward weighs by alpha.
-        members = (tuple(member.name for member in population.members) if population is not None
+        members =(tuple(member.name for member in population.members) if population is not None
                    else tuple(f"opponent {which}" for which in range(len(opponents or []))))
         record = Ledger.of_round(
             begun,

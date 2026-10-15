@@ -24,7 +24,7 @@ def round_arguments(generations: int, until: int) -> list[str]:
 
 
 def placement_arguments(reward: str = "hybrid", alpha: float = 0.0, place_model: str = "",
-                        refit_every: int = 0, refit_rounds: int = 2, warm_up: int = 0,
+                        refit_every: int = 0, refit_rounds: int = 4, warm_up: int = 0,
                         warm_up_lr: float = 1e-4) -> list[str]:
     """`train_combined`'s placement reward options as a launch asks for them,
     checked before anything is staged: nothing at all for the default
