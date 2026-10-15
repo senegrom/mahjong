@@ -65,9 +65,10 @@
   let ordered = $derived([...decision.weighted]
     .sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1) || (a.index ?? 99) - (b.index ?? 99)));
   // The leading moves and every move the player or the network picked; the
-  // rest wait behind a button.
+  // rest wait behind a button. The button stays once they are shown, to hide
+  // them again, so the focus on it stays too rather than dropping to the page.
   let rows = $derived(groupPolicyChoices(everyMove ? ordered : ordered.filter((choice, index) => index < 5 || marked(choice))));
-  let hidden = $derived(everyMove ? 0 : ordered.filter((choice, index) => index >= 5 && !marked(choice)).length);
+  let extra = $derived(ordered.filter((choice, index) => index >= 5 && !marked(choice)).length);
 
   // The moves the numbers compare, each once: the game's, the new one, the network's.
   let compared = $derived([
@@ -220,7 +221,7 @@
           {/if}
         {/each}
       </div>
-      {#if hidden}<button class="app-control quiet" onclick={() => everyMove = true}>Show every move ({hidden} more)</button>{/if}
+      {#if extra}<button class="app-control quiet" data-every-move onclick={() => { everyMove = !everyMove; }}>{everyMove ? 'Show the leading moves' : `Show every move (${extra} more)`}</button>{/if}
 
       {#if compared.length > 1 && measured}
         <table class="numbers">

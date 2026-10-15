@@ -346,10 +346,46 @@ try {
     assert.equal(await page.$('[data-answer]'), null);
     await focusOn('hand');
     assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /Choose again before you see/);
+    // The answer outright, by keyboard: the button goes, and the answer's
+    // heading takes focus.
+    await page.focus('[data-decision] [data-reveal]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
+    assert.equal(await page.$('[data-decision] [data-reveal]'), null);
     // Then back to the list where it was opened.
     await page.click('[data-decision] [data-back]');
     // Focus returns to the decision opened.
     await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, lead.key);
+
+    // The answer leads with five moves and those it marks. A decision with
+    // more hides the rest behind a button that stays to hide them again, so
+    // focus stays on it both ways.
+    const wide = flagged.find(verdict => {
+      const [at, number] = verdict.key.split(':').map(Number);
+      return facts[at][number].choices.length >= 8;
+    });
+    assert.ok(wide, 'a flagged decision with more moves than the answer leads with');
+    if (!await page.$(`[data-game-review] [data-open="${wide.key}"]`)) {
+      await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent)).click());
+    }
+    await page.click(`[data-game-review] [data-open="${wide.key}"]`);
+    await page.waitForSelector('[data-decision] [data-reveal]');
+    await page.focus('[data-decision] [data-reveal]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
+    const rows = () => page.$$eval('[data-answer] .row', items => items.length);
+    const leading = await rows();
+    await page.focus('[data-answer] [data-every-move]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-answer] [data-every-move]')
+      && document.activeElement.textContent === 'Show the leading moves', { timeout: 5000 });
+    assert.ok(await rows() > leading, 'every move is shown');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-answer] [data-every-move]')
+      && /^Show every move \(\d+ more\)$/.test(document.activeElement.textContent), { timeout: 5000 });
+    assert.equal(await rows(), leading);
+    await page.click('[data-decision] [data-back]');
+    await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, wide.key);
 
     // On a phone, the list and a decision fit the screen. Only the size
     // changes: emulating touch would reload the page, and the review with it.
@@ -406,11 +442,29 @@ try {
   });
 
   await cases.check('on a phone the final result, which covers the standings, opens the review, and the review comes back to the standings', async () => {
-    for (const [width, height] of [[390, 844], [320, 568]]) {
+    for (const [width, height] of [[390, 844], [320, 568], [844, 390]]) {
       // Only the way in and out is looked at here, so Trained AI is out of
       // reach and the review only waits for it.
       const page = await openPage(width, height, { touch: true, network: false });
       const sheet = '.screen [data-review-game]', standing = '.standings [data-review-game]';
+      if (width > height) {
+        // Held sideways, the result sits beside the standings rather than
+        // over them, so it does not repeat their button, and theirs can be
+        // tapped once scrolled to.
+        assert.notEqual(await page.$eval('.screen', el => getComputedStyle(el).position), 'fixed');
+        assert.equal(await page.$eval(sheet, el => getComputedStyle(el).display), 'none');
+        await page.$eval(standing, el => el.scrollIntoView({ block: 'center' }));
+        assert.ok(await tappable(page, standing), `the standings' button can be tapped at ${width}x${height}`);
+        await page.tap(standing);
+        await page.waitForSelector('[data-game-review]');
+        await page.waitForFunction(() => document.activeElement?.id === 'game-review-title');
+        await page.tap('[data-game-review] [data-close-review]');
+        await page.waitForFunction(selector => !document.querySelector('[data-game-review]') && document.activeElement?.matches(selector), {}, standing);
+        assert.ok(await tappable(page, standing), `the standings' button is in view again at ${width}x${height}`);
+        await shot(page, `game-review-phone-standings-${width}x${height}`);
+        assert.deepEqual(page.errors, []);
+        continue;
+      }
       assert.equal(await page.$eval('.screen', el => getComputedStyle(el).position), 'fixed', 'the result is a sheet over the standings');
       assert.equal(await page.$eval(sheet, el => el.innerText.trim()), 'Review game', 'the short label, beside Save hand and Save game');
       assert.ok(await tappable(page, sheet), `the result's own button can be tapped at ${width}x${height}`);

@@ -212,7 +212,9 @@ the answer it closes held the button. At the flagged decision the player chooses
 again, a tile from the hand or a move below it, before anything is revealed,
 or asks for **Trained AI's answer** outright. The answer lists the weight of
 every move, the riichi discards under their declaration, marking Trained AI's
-choice, the move made in the game and the new one. For a turn, a table sets
+choice, the move made in the game and the new one. It leads with the five
+heaviest moves and those it marks; **Show every move** shows the rest and
+stays, as **Show the leading moves**, so focus stays on it. For a turn, a table sets
 out what each of those moves leaves, counted as the hand review counts it:
 the hand left, the unseen tiles that improve it, whether the tile could deal
 into a declared riichi, and its worth as dora (the engine's `review_measure`).
