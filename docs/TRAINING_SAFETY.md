@@ -160,7 +160,9 @@ four raw scores and the gaps to the other three, in seat order from the
 player's own, and which kind of player holds each seat (the learner or a
 named member of the run's roster). It answers the four places' chances,
 fitted to where players finished with tied places as shared labels, so its
-expected bonus is the one `outcomes.placement_rewards` pays. EMA carries
+expected bonus is the one `outcomes.placement_rewards` pays; its answers
+for the four views of one scoreboard are centred, since a game's four
+bonuses always add up to nought (`place_model.centred`). EMA carries
 nothing from one hand to the next but the scores, the counters, the sticks
 and the dealer, so cutting the return at a hand's start loses nothing about
 the future; summed over a game, the hands' changes in U add up to the bonus
