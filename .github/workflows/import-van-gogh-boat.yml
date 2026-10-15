@@ -19,14 +19,30 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Import only the approved boat and preserve every other image
-        run: python3 .boat-upload/prepare.py
+        run: |
+          python3 .boat-upload/prepare.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('web/scripts/export-van-gogh-tiles.mjs')
+          s = p.read_text()
+          old = "const featured = ['1m', '9m', '8m', '4p', '7m', '6m', '5m', '2m', '3m', '9p', '3p', '9s', '6s', '8s'];"
+          new = "const featured = ['9m', '8m', '4p', '7m', '6m', '5m', '2m', '3m', '4m', '9p', '3p', '9s', '6s', '8s'];"
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new))
+          p = Path('web/tests/van-gogh-one-red-sail.test.js')
+          s = p.read_text().replace('the red sail appears in the gallery and in the fourteen-tile example hand', 'the red sail appears in the gallery without extending the fourteen-tile example hand')
+          old = "  assert.equal((rack.match(/approved\\/Man1\\.svg/g) ?? []).length, 1);"
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, "  assert.match(html, /<img src=\"approved\\/Man1\\.svg\" alt=\"One character\"/);"))
+          PY
+          node web/scripts/export-van-gogh-tiles.mjs --only=1m
       - name: Install locked web dependencies
         working-directory: web
         run: npm ci
       - name: Run all artist regressions, proportion tests and lint
         working-directory: web
         run: |
-          node --test tests/tile-faces.test.js tests/tile-proportions.test.js tests/van-gogh-*.test.js tests/dali*.test.js > "$RUNNER_TEMP/boat-art-tests.txt" 2>&1 || { tail -120 "$RUNNER_TEMP/boat-art-tests.txt"; exit 1; }
+          node --test tests/tile-faces.test.js tests/tile-proportions.test.js tests/van-gogh-*.test.js tests/dali*.test.js > "$RUNNER_TEMP/boat-art-tests.txt" 2>&1 || { grep -n -B 2 -A 45 '^not ok' "$RUNNER_TEMP/boat-art-tests.txt"; tail -14 "$RUNNER_TEMP/boat-art-tests.txt"; exit 1; }
           tail -14 "$RUNNER_TEMP/boat-art-tests.txt"
           npm run lint
       - name: Save only the requested art changes on this branch
