@@ -536,9 +536,10 @@ class TimingTests(unittest.TestCase):
 
     def test_the_four_ways_are_compared_with_the_old_duel_in_one_order(self):
         old = [2.0, 3.0, 2.5, 2.5]
-        answers = {"duel": self.report(old, 1200.0), "seating": self.report(old, 900.0),
-                   "graphs": self.report(old, 600.0, graphs=412, graph_seconds=38.4, from_graphs=9876),
-                   "fixed": self.report([2.0, 3.0, 3.0, 2.0], 400.0)}
+        answers = {"duel": self.report(old, 1200.0), "seating": self.report(old, 900.0, loading=21.6),
+                   "graphs": self.report(old, 600.0, loading=22.4, graphs=412, graph_seconds=38.4,
+                                         from_graphs=9876),
+                   "fixed": self.report([2.0, 3.0, 3.0, 2.0], 400.0, loading=25.0)}
 
         def way(name, arguments):
             if name == "duel":
@@ -587,6 +588,9 @@ class TimingTests(unittest.TestCase):
         heads = [line.split(" placement ")[0].strip() for line in lines if " placement " in line]
         self.assertEqual(heads, ["old duel", "ruler, seating", "ruler, seating, graphs", "ruler, fixed 256"])
         self.assertIn("placement 2.5000 +- 0.0183 over 4 deals", lines[0])
+        # A ruler's loading is said; the old duel does not time its own.
+        self.assertIn("deals; play 1200 s, 1000 decisions a second", lines[0])
+        self.assertIn("deals; play 900 s, loading 22 s, 1000 decisions a second", lines[2])
         text = "\n".join(lines)
         self.assertIn("the same placements as the old duel on 4 of 4 deals; 1.33 times as fast", text)
         self.assertIn("the same placements as the old duel on 4 of 4 deals; 2.00 times as fast", text)

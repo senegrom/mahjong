@@ -585,8 +585,12 @@ def compare(reports: dict[str, dict]) -> list[str]:
         report = reports[name]
         play = report.get("play", {})
         n = len(report["by_deal"])
+        # A ruler times its loading, graphs recorded before the first move
+        # included; the old duel does not, so none is said for it rather
+        # than nought.
+        loading = f", loading {play['loading']:.0f} s" if "loading" in play else ""
         lines.append(f"{name:<24} placement {report['placement']:.4f} +- {report['standard_error']:.4f} over {n} "
-                     f"deals; play {play.get('seconds', math.nan):.0f} s, loading {play.get('loading', 0):.0f} s, "
+                     f"deals; play {play.get('seconds', math.nan):.0f} s{loading}, "
                      f"{play.get('decisions_per_second') or 0:.0f} decisions a second")
         parts = play.get("parts", {})
         if parts:
