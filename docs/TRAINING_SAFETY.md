@@ -297,7 +297,10 @@ trains with fusion-long's recipe at its rates before generation 873 (2e-6,
 - **At +100:** a ruler on seed 9,100,000 (20 x 1,000), paired with 810, 910
   and 1010 on the same deals. At or below the plateau's mean: stop.
   +0.006 or more above it: replicate with two more training seeds. In
-  between: continue to +200 and rule again.
+  between: continue to +200 and rule again. A registered series of
+  `docs/RULER.md` plays the published rulers' seeds, so it pairs with
+  them deal by deal; register its rule before its first seed, as that
+  document says, for an effect of 0.006 or less.
 
 ## Replay validation and completed learning rounds
 
