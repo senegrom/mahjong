@@ -61,6 +61,20 @@ export function winValue(win) {
   return dealer ? `${each.toLocaleString()} / ${dealer.toLocaleString()}` : `${each.toLocaleString()} all`;
 }
 
+/** A change of points as a score sheet writes it: "+8,000", "-2,000", and
+ * "0" for none. */
+export function signed(value) {
+  if (value === 0) return '0';
+  return value > 0 ? `+${value.toLocaleString()}` : value.toLocaleString();
+}
+
+/** A weight or a chance from 0 to 1 as a percentage to one decimal place.
+ * Anything above nothing but under 0.1% is written "<0.1%", so that it does
+ * not read as 0.0%. */
+export function percent(weight) {
+  return weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
+}
+
 export function callTiles(choice, pending) {
   if (choice.kind === 'chii' && /^[1-7][mps]$/.test(choice.tile ?? '')) {
     return [0, 1, 2].map((offset) => `${Number(choice.tile[0]) + offset}${choice.tile[1]}`);

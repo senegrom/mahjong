@@ -2,7 +2,7 @@
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
   import { tilesFor, noteFor, isCircumstance } from './yaku.js';
-  import { winValue } from './ui.js';
+  import { signed, winValue } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
 
   let {
@@ -45,11 +45,6 @@
       node.focus({ preventScroll: true });
     });
     return { destroy: () => cancelAnimationFrame(id) };
-  }
-
-  function signed(value) {
-    if (value === 0) return '0';
-    return value > 0 ? `+${value.toLocaleString()}` : value.toLocaleString();
   }
 
   function reviewTable() {

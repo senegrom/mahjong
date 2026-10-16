@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
-import { callLabel, quadOnOffer, winValue } from '../src/lib/ui.js';
+import { callLabel, percent, quadOnOffer, signed, winValue } from '../src/lib/ui.js';
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
 test('a win is headlined by what it is worth: a ron by its total, a self-draw by its shares', () => {
@@ -15,6 +15,15 @@ test('a win is headlined by what it is worth: a ron by its total, a self-draw by
   assert.equal(winValue(win('discard', 8000, 0, 0)), '8,000');
   // A counter adds 100 to every share of a self-draw.
   assert.equal(winValue(win('self-draw', 2300, 1100, 600)), '600 / 1,100');
+});
+
+test('the result sheet, the standings and the advisers share one way of writing their figures', () => {
+  assert.equal(signed(8000), '+8,000');
+  assert.equal(signed(-2000), '-2,000');
+  assert.equal(signed(0), '0', 'no change has no sign');
+  assert.equal(percent(0.8), '80.0%');
+  assert.equal(percent(0), '0.0%');
+  assert.equal(percent(0.0004), '<0.1%', 'a weight too small to show is not shown as none');
 });
 
 test('a call window offers a quad to be robbed only where the seat offering it holds that quad', () => {

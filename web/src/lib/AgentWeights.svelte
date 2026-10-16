@@ -3,8 +3,8 @@
   import { agentName } from './agents.js';
   import { likeliest } from './beliefs.js';
   import { groupPolicyChoices } from './action-weights.js';
+  import { percent } from './ui.js';
   let { analysis = null, onchoose = null, disabled = false, dora = [] } = $props();
-  const percent = weight => weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
   // A signed estimate of the model's mixed training target, not a place gain.
   const worth = value => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(2)}`;
   // A share of a hand, read as copies: a guess of .15 against thirteen tiles

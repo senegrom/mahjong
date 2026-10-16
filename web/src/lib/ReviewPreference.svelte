@@ -1,8 +1,8 @@
 <script>
+  import { percent } from './ui.js';
   // Presentation only. The selected move and both distributions come from
   // reviewWithStrong's existing one- or two-stage policy evaluation.
   let { note } = $props();
-  const percent = weight => weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
 </script>
 
 {#snippet preference(weight, kind, conditional)}

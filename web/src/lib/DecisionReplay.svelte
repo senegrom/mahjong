@@ -5,7 +5,7 @@
   import PlayerHand from './app/PlayerHand.svelte';
   import { groupPolicyChoices } from './action-weights.js';
   import { sameMove } from './game-review.js';
-  import { callLabel, quadOnOffer } from './ui.js';
+  import { callLabel, percent, quadOnOffer } from './ui.js';
   import { tileWords, SEAT_NAMES as NAMES } from './tiles.js';
 
   /**
@@ -61,7 +61,6 @@
     return index >= 0 ? index : null;
   });
 
-  const percent = weight => weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
   let advised = $derived({ kind: decision.advised_kind, tile: decision.advised_tile ?? null });
   let played = $derived({ kind: decision.played_kind, tile: decision.played_tile ?? null });
   const labelOf = move => decision.weighted.find(choice => sameMove(choice, move.kind, move.tile))?.label ?? '';
