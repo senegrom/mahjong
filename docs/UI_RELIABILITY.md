@@ -75,15 +75,16 @@ cache reloads the current match. Browsers without usable storage/Web Locks may
 play without shared persistence and show a warning rather than use a racy fallback.
 
 Saves written between 5 and 10 September 2026 are no longer resumed: those
-without a format or of formats 2 to 4, and the first ones, kept under
+without a format or of formats 2 to 4, and the first ones, saved under
 `riichi.match.v1`. Restoring one says when it was saved and that this version
-cannot resume a match that old. The record is kept until New game replaces it.
-The first key is read only when there is no current save, so that the page can
-say this, and is never written or deleted. A save of format 5 or later replays
-its recorded commands, and any rules or replay divergence is still rejected
-without overwriting the original record. `web/tests/review2-engine.test.js`
-checks the refusal on the real engine, and `web/scripts/cleanup-check.mjs`
-checks what the page says and that it keeps both records.
+cannot resume a match that old, and the page keeps the record. New game
+replaces one under the current key. The first key is read only while there is
+no current save, so that the page can say this, and nothing writes or deletes
+it. A save of format 5 or later replays its recorded commands, and any rules or
+replay divergence is still rejected without overwriting the original record.
+`web/tests/review2-engine.test.js` checks the refusal on the real engine, and
+`web/scripts/cleanup-check.mjs` checks what the page says and that it keeps
+both records.
 
 A submitted human call remains pending until every other eligible claimant has
 answered, including competing ron claims. Pending calls replay exactly and can
