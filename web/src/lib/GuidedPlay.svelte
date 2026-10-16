@@ -3,7 +3,7 @@
   import { PhysicalAnalysis, settle_physical } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
   import { PhysicalStore } from './physical-store.js';
-  import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, setTiles } from './guided-game.js';
+  import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, viewMelds } from './guided-game.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
   import { waitingNote } from './ui.js';
   import TileEntry from './TileEntry.svelte';
@@ -119,7 +119,6 @@
     if (window.confirm(`Finish this hand: ${result}?`)) act({ type: 'finish', result,
       kind: resultKind === 'Exhaustive draw' ? 'draw' : resultKind === 'Other hand end' ? 'manual' : resultKind.toLowerCase(), winner: resultSeat });
   }
-  const viewMelds = player => player.melds.map(m => ({ kind: m.kind, tiles: setTiles(m), from: ['self', 'right', 'across', 'left'][m.from] }));
   onDestroy(() => { closed = true; request?.abort(); loadedStore?.close(); });
 </script>
 

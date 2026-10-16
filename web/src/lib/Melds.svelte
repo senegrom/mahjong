@@ -1,6 +1,6 @@
 <script>
   import Tile from './Tile.svelte';
-  import { meldTiles, meldWords } from './ui.js';
+  import { meldLayout, meldWords } from './ui.js';
 
   /**
    * Called sets, shown to the right of a player's tiles. The claimed tile is
@@ -10,13 +10,6 @@
    */
   let { melds = [], size = 'small', dora = [], shape = null } = $props();
 
-  function rotatedIndex(meld) {
-    if (meld.kind === 'concealed-kan') return -1;
-    if (meld.from === 'left') return 0;
-    if (meld.from === 'across') return 1;
-    return meld.tiles.length - 1;
-  }
-
   function facedown(meld, index) {
     return meld.kind === 'concealed-kan' && (index === 1 || index === 2);
   }
@@ -24,12 +17,13 @@
 
 <div class="melds">
   {#each melds as meld, meldIndex (meldIndex)}
+    {@const layout = meldLayout(meld)}
     <div class="meld" role="group" aria-label={meldWords(meld)}>
-      {#each meldTiles(meld) as tile, index (index)}
+      {#each layout.tiles as tile, index (index)}
         <Tile
           {tile}
           {size}
-          rotated={index === rotatedIndex(meld)}
+          rotated={index === layout.turned}
           facedown={facedown(meld, index)}
           dora={!facedown(meld, index) && dora.includes(tile)}
           inShape={Boolean(shape?.has(`meld:${meldIndex}:${index}`))}

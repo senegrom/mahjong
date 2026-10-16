@@ -1,4 +1,4 @@
-import { TILE_TYPES, WINDS } from './tiles.js';
+import { TILE_TYPES, WINDS, runTiles } from './tiles.js';
 
 export const PHYSICAL_KEY = 'riichi.physical.v1';
 
@@ -136,7 +136,7 @@ export function recordChoice(position, choice, choices) {
     const discard = p.players[p.turn].discards.reduce((last, entry) => !last || entry.order > last.order ? entry : last, null);
     if (!discard || discard.tile !== offered || discard.claimed) throw new Error('This discard is no longer available');
     const tiles = choice.kind === 'chii'
-      ? [0, 1, 2].map(offset => `${Number(choice.tile[0]) + offset}${choice.tile[1]}`)
+      ? runTiles(choice.tile)
       : Array(choice.kind === 'kan' ? 4 : 3).fill(offered);
     if (!tiles.includes(offered)) throw new Error('The called set must include the offered tile');
     tiles.splice(tiles.indexOf(offered), 1);

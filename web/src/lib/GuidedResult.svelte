@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { settle_physical } from '../wasm/riichi.js';
   import { WINDS } from './tiles.js';
-  import { setTiles } from './guided-game.js';
+  import { viewMelds } from './guided-game.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
@@ -48,7 +48,6 @@
     catch (error) { failure = error.message ?? String(error); preview = null; }
   }
   const signed = value => `${value >= 0 ? '+' : ''}${value.toLocaleString()}`;
-  const viewMelds = player => player.melds.map(m => ({ kind: m.kind, tiles: setTiles(m), from: ['self', 'right', 'across', 'left'][m.from] }));
   // Which yaku the reader is asking about, and the tiles that make it.
   let asking = $state(null);
   let shape = $derived(asking ? new Set(tilesFor(asking.yaku, asking.win)) : null);

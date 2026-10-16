@@ -59,3 +59,9 @@ export function sequenceWords(name) {
   const rank = Number(name[0]);
   return `${rank}–${rank + 1}–${rank + 2} ${SUIT_WORDS[name[1]]}`;
 }
+
+/** The sequence that sequenceWords names, as tiles: `"5m"` becomes
+ * `["5m", "6m", "7m"]`. */
+export function runTiles(low) {
+  return [0, 1, 2].map(offset => `${Number(low[0]) + offset}${low[1]}`);
+}

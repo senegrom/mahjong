@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { emptyPosition, recordChoice, parsePhysical } from '../src/lib/physical-position.js';
-import { emptyGuided, guidedEvent, undoGuided, parseGuided, GUIDED_FORMAT, setTiles } from '../src/lib/guided-game.js';
+import { emptyGuided, guidedEvent, undoGuided, parseGuided, GUIDED_FORMAT, setTiles, viewMelds } from '../src/lib/guided-game.js';
 
 function pending(offered, seat = 1) {
   const position = emptyPosition();
@@ -43,6 +43,7 @@ for (const offered of ['1m', '2m', '3m']) {
     assert.equal(meld.claimed_tile, offered);
     assert.equal(meld.from, 3);
     assert.equal(setTiles(meld)[0], offered);
+    assert.deepEqual(viewMelds(restored.state.position.players[1]), [{ kind: 'chii', tiles: setTiles(meld), from: 'left' }]);
     assert.deepEqual(undoGuided(restored), queued);
     assert.equal(game.state.position.players[0].discards[0].claimed, false);
   });
@@ -75,4 +76,5 @@ test('extending a pon retains its original claimed tile and source', () => {
   const result = recordChoice(p, choice, [choice]);
   assert.deepEqual(result.players[0].melds[0], { kind: 'extended-kan', tile: '2m', from: 2, claimed_tile: '2m' });
   assert.deepEqual(setTiles(result.players[0].melds[0]), ['2m', '2m', '2m', '2m']);
+  assert.deepEqual(viewMelds(result.players[0]), [{ kind: 'extended-kan', tiles: ['2m', '2m', '2m', '2m'], from: 'across' }]);
 });

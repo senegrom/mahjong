@@ -1,4 +1,4 @@
-import { TILE_TYPES, sequenceWords, tileWords } from './tiles.js';
+import { TILE_TYPES, runTiles, sequenceWords, tileWords } from './tiles.js';
 
 /** What the table says while a Trained opponent waits for the network. The
  * opponent's worker reports its own loading; before that worker starts, the
@@ -76,9 +76,7 @@ export function percent(weight) {
 }
 
 export function callTiles(choice, pending) {
-  if (choice.kind === 'chii' && /^[1-7][mps]$/.test(choice.tile ?? '')) {
-    return [0, 1, 2].map((offset) => `${Number(choice.tile[0]) + offset}${choice.tile[1]}`);
-  }
+  if (choice.kind === 'chii' && /^[1-7][mps]$/.test(choice.tile ?? '')) return runTiles(choice.tile);
   if (choice.kind === 'pon' && pending) return [pending, pending, pending];
   if (choice.kind === 'kan' && pending) return Array(4).fill(pending);
   if (choice.kind === 'concealed-kan' || choice.kind === 'extended-kan') return Array(4).fill(choice.tile);
@@ -94,17 +92,22 @@ export function acceptsHandKey(event, hand) {
   return !button || button.classList.contains('tile');
 }
 
-/** Preserve meld shape, but move the tile actually claimed to its source-side
- * position. Concealed quads have no claimed tile; an added kan retains the pon's.
- */
-export function meldTiles(meld) {
+/** A called set as the table lays it out: its tiles, and `turned`, the slot
+ * of the tile turned sideways on the side of the player it came from, or -1
+ * for a concealed quad, which turns none. The tile actually claimed is moved
+ * into that slot; an added kan keeps its pon's. A set without its claimed
+ * tile, as the guided table passes its sets, keeps its order and is still
+ * turned on the side it came from. */
+export function meldLayout(meld) {
   const tiles = [...meld.tiles];
+  if (meld.kind === 'concealed-kan') return { tiles, turned: -1 };
+  const turned = meld.from === 'left' ? 0 : meld.from === 'across' ? 1 : tiles.length - 1;
   const source = tiles.indexOf(meld.claimed_tile);
-  if (meld.kind === 'concealed-kan' || source < 0) return tiles;
-  const target = meld.from === 'left' ? 0 : meld.from === 'across' ? 1 : tiles.length - 1;
-  tiles.splice(source, 1);
-  tiles.splice(target, 0, meld.claimed_tile);
-  return tiles;
+  if (source >= 0) {
+    tiles.splice(source, 1);
+    tiles.splice(turned, 0, meld.claimed_tile);
+  }
+  return { tiles, turned };
 }
 
 // The game's view names an open kan 'claimed-kan'; the physical and guided

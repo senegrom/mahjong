@@ -1,5 +1,5 @@
 import { emptyPosition, parsePhysical, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
-import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
+import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
 import { rememberEnding, applySettlement, validEndingState, verifySettlement } from './guided-settlement.js';
 
 export const GUIDED_KEY = 'riichi.guided.v1';
@@ -26,7 +26,7 @@ export function emptyGuided(agent = 'full') {
  * Older drafts without the optional metadata keep their previous ordering. */
 export function setTiles(meld) {
   const tiles = meld.kind === 'chii'
-    ? [0, 1, 2].map(n => `${Number(meld.tile[0]) + n}${meld.tile[1]}`)
+    ? runTiles(meld.tile)
     : Array(meld.kind.includes('kan') ? 4 : 3).fill(meld.tile);
   const claimed = tiles.indexOf(meld.claimed_tile);
   if (meld.kind === 'chii' && claimed > 0) {
@@ -34,6 +34,13 @@ export function setTiles(meld) {
     tiles.unshift(meld.claimed_tile);
   }
   return tiles;
+}
+
+/** A player's recorded sets as Melds shows them: their tiles in display
+ * order, and the side each came from rather than its count of seats from
+ * the player (0 self, 1 right, 2 across, 3 left). */
+export function viewMelds(player) {
+  return player.melds.map(meld => ({ kind: meld.kind, tiles: setTiles(meld), from: ['self', 'right', 'across', 'left'][meld.from] }));
 }
 
 /** Count only tiles actually seen, with claimed discards counted in their set. */
