@@ -1,17 +1,24 @@
 """Training the joined player: our network and a Mortal beneath one head.
 
-The same self-play loop as `train.py`, for `combined.Combined`. The head
-and our value head train every generation; of the two networks beneath,
-each generation draws at random which stays fixed, Mortal, ours, or
-neither, so that each is moved by the other's company without either
-being overwritten in one go. The policy gradient is PPO's clipped
-objective on the head's output, the baseline is our value head as it
-stood before the round, and the value head learns the return.
+The same self-play loop as `train.py`, for `combined.Combined`. Each
+generation draws what stays fixed, evenly, from `--fixed`, by default the
+six `Combined.MODES`: nothing, Mortal, ours, the head, or the head with
+either network beneath it. Held still by turns, each part is moved in the
+others' company without any being overwritten in one go. Three of the six
+hold the head still. Only the critic and the reading of the hands, both
+halves of each (`Combined.always_trained`), train whatever the draw.
+
+The policy gradient is PPO's clipped objective on the head's output. The
+baseline is the fusion's judge, our value head plus its correction from
+Mortal's vector (`Fuse.judge`), as it stands before the round is learned;
+the judge learns the return, and the reading what the opponents really
+held.
 
 The return is the default hybrid of every run so far unless `--reward
 placement` asks for the placement reward, credited hand by hand (see
 `place_model`), which a run starts from a U fitted on its own games and,
-with `--value-warm-up`, a generation or more that teach the critic alone.
+with `--value-warm-up`, a generation or more that teach the critic alone,
+holding everything else still, the reading of the hands included.
 
     python -m neural.train_combined --ours ours.pt --mortal mortal.pt --rounds 20 --out runs/joined
 """
@@ -46,9 +53,10 @@ from .training_state import (
 #: stops compiling it and runs the rest eagerly, unannounced. The learning
 #: step's forward is compiled anew for every pattern of what requires a
 #: gradient, which `Combined.set_mode` sets six ways (see
-#: `compile_per_mode`); with gradients and without, for the baseline pass;
-#: and with Mortal's vectors given and not (`--reuse-phi`): fourteen at
-#: most, against the compiler's eight. Thirty-two leaves room for a
+#: `compile_per_mode`) and `Combined.hold_all_but_value` a seventh, for the
+#: placement reward's warm-up; with gradients and without, for the baseline
+#: pass; and with Mortal's vectors given and not (`--reuse-phi`): sixteen
+#: at most, against the compiler's eight. Thirty-two leaves room for a
 #: variant nobody foresaw.
 RECOMPILE_LIMIT = 32
 
@@ -190,8 +198,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generations", type=int, default=200)
     parser.add_argument("--rounds", type=int, default=0)
     parser.add_argument("--games", type=int, default=128)
-    parser.add_argument("--lr", type=float, default=1e-4, help="for the head and the value head")
-    parser.add_argument("--lr-ours", type=float, default=4e-5, help="for our network beneath")
+    parser.add_argument("--lr", type=float, default=1e-4,
+                        help="for the head, the critic and the reading of the hands")
+    parser.add_argument("--lr-ours", type=float, default=4e-5,
+                        help="for our network beneath, but for its critic and its reading of the hands (--lr)")
     parser.add_argument("--lr-mortal", type=float, default=3e-5, help="for the Mortal beneath")
     parser.add_argument("--clip", type=float, default=0.2)
     parser.add_argument("--batch", type=int, default=2048)
@@ -214,7 +224,7 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="how much to weigh reading the opponents' hands, which is a "
         "free and dense label where the game's result is neither, and what "
-        "a search would deal the unseen tiles from",
+        "the site shows of the other hands",
     )
     parser.add_argument(
         "--leash",
@@ -696,8 +706,10 @@ def main() -> None:
                 batch.phi = None
             loaded = time.time() - loading
 
-            # The baseline: our value head as it stands before the round, from
-            # a pass over it or, asked to, from play (see `ppo_loop.baseline_of`).
+            # The baseline: the fusion's judge, our value head plus its
+            # correction from Mortal's vector (`Fuse.judge`), as it stands
+            # before the round is learned, from a pass over the round or,
+            # asked to, from play (see `ppo_loop.baseline_of`).
             rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
             # For a round played ahead, the probability the learner as it
             # stands gives each move made, which the drift guard counts from

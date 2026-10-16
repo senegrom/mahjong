@@ -1,16 +1,15 @@
 """Wandering off the policy, and telling the truth about having done so.
 
-The value head only ever sees positions the policy reached, and a search
-asks it what a move the policy would not have chosen is worth. Its error
-there is a bias that correlates with the move being considered, which no
-amount of averaging over imagined worlds can remove, because every world
-shares it. Forcing a legal move now and then is the direct attack: it shows
-the value head the positions the search will ask about.
+Forcing a legal move now and then shows the value head and the reader of
+the hands positions the policy alone would not reach (`selfplay.explore`).
 
-The trap is what gets written down. PPO divides by the probability the
-behaviour gave the action it took. Forcing a move and then recording the
-policy's own probability for it says the policy chose something it did not,
-and the ratio is then wrong on exactly the decisions this is for.
+The care is in what gets written down. Every move is recorded at the
+policy's own probability, a forced one included, and a forced row is
+flagged: the trainer keeps flagged rows out of the policy gradient, so PPO
+only ever divides by the probability of a move the policy drew itself.
+The first version recorded the mixture's probability instead, which put the
+ratio of a move the policy all but never plays far below the clip, where a
+bad one is never pushed down and a lucky one is pushed up.
 
     python -m unittest neural.tests.test_explore -v
 """

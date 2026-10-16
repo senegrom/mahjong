@@ -18,7 +18,7 @@ def require_training_engine() -> None:
     if getattr(riichi_py, "TRAINING_API_VERSION", 0) != TRAINING_API_VERSION:
         raise RuntimeError(
             "Rebuild and reinstall riichi_py: training requires API version 2 "
-            "(strict actions and independent environment/search RNG streams)"
+            "(strict actions: an illegal one is refused, not replaced)"
         )
 
 
