@@ -25,7 +25,7 @@
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
-  import { DEFAULT_OPPONENT, normalizeOpponents, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
+  import { DEFAULT_OPPONENT, normalizeOpponents, opponentPreset, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
   import { playNetwork } from './lib/trained-network.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
@@ -40,8 +40,10 @@
   const requested = new URLSearchParams(location.search).get('opponents');
   const requestedMode = new URLSearchParams(location.search).get('mode');
   let mode = $state(['watch', 'physical', 'guided'].includes(requestedMode) ? requestedMode : 'play');
-  let difficulty = $state(['beginner', 'club', 'neural'].includes(requested) ? requested : preferences.difficulty);
   let opponents = $state(normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty));
+  // The table as the settings name it: the one type when all three opponents
+  // match, otherwise 'custom'. It follows the opponents, so the two agree.
+  let difficulty = $derived(opponentPreset(opponents));
   // Replaced by the current table each time the dialog opens.
   let draftOpponents = $state(normalizeOpponents(DEFAULT_OPPONENT));
   let customDialog = $state(null);
@@ -140,7 +142,6 @@
     thinking = owner.thinking;
     failure = owner.failure;
     recovery = owner.needsRecovery;
-    difficulty = owner.difficulty;
     // Every move updates the view. A fresh copy of an unchanged table would
     // rerun the preferences effect each time, over other tabs' changes.
     if (!sameOpponents(opponents, owner.opponents)) opponents = [...owner.opponents];
