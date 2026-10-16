@@ -135,6 +135,7 @@ test('both discard marks combine with the riichi turn and the dora ring and foil
 test('the discard marks in Tile fall back to the values the theme gives them', async () => {
   // The tile-effects check renders Tile without app.css, so it sees these
   // fallbacks: they must be the theme's own values, or it checks another look.
+  const source = await readFile(new URL('../src/lib/Tile.svelte', import.meta.url), 'utf8');
   const theme = await readFile(new URL('../src/app.css', import.meta.url), 'utf8');
   const token = name => theme.match(new RegExp(`--${name}:\\s*([^;]+);`))[1].trim();
   const literal = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
