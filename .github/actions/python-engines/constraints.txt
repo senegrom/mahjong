@@ -4,9 +4,10 @@
 # Pages deploy, and for the neural workflow's trainer tests.
 # neural/modal_app.py copies this file into the training image and installs
 # with it, so a change here rebuilds that image at its next deploy. Every
-# package those installs resolve is pinned, here or in export-constraints.txt
-# (the export tools only CI installs), so a new PyPI release arrives only
-# through a reviewed Dependabot pull request. PyTorch itself is pinned in
+# package those installs resolve is pinned, here, in export-constraints.txt
+# (the export tools only CI installs) or, for the image's CUDA libraries and
+# triton, exactly by PyTorch's own release, so a new PyPI release arrives
+# only through a reviewed Dependabot pull request. PyTorch itself is pinned in
 # action.yml and modal_app.py: CI takes its CPU build from PyTorch's own index
 # without its dependencies, and the image takes its CUDA build from PyPI.
 filelock==3.32.5

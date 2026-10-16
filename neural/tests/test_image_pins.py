@@ -1,7 +1,8 @@
 """The Modal training image (`neural.modal_app.image`) is built with the
-tools CI tests: the Rust toolchain every workflow installs, PyTorch at the
-release CI's python-engines action installs, numpy, maturin and PyTorch's
-own dependencies at the pins of that action's constraints.txt, which is
+tools CI tests: the Rust toolchain of every workflow that builds the
+engines with the python-engines action, PyTorch at the release that action
+installs, numpy, maturin and PyTorch's own dependencies at the pins of
+that action's constraints.txt, which is
 copied into the image first, and both engines from their lockfiles. Modal
 keeps every layer it has built, so an image left to take whatever is newest
 kept the versions of its first build, and any rebuild took releases that no
@@ -151,8 +152,8 @@ class ImagePinTests(unittest.TestCase):
         """CI installs PyTorch without its dependencies and the image with
         constraints.txt, so each dependency PyTorch leaves open must be
         pinned there, and not only among the export tools, which the image
-        never reads. Those PyTorch pins exactly itself, its CUDA libraries,
-        are fixed by its release. Read from the PyTorch installed here,
+        never reads. The ones PyTorch pins exactly itself, its CUDA libraries
+        and triton, are fixed by its release. Read from the PyTorch installed here,
         which in CI is the release the action pins."""
         try:
             installed = importlib.metadata.version("torch")
