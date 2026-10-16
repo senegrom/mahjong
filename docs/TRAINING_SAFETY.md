@@ -174,7 +174,14 @@ rollouts remain dropped to preserve compiled fixed-shape minibatches.
 the existing `generation` field remains the zero-based iteration for log
 compatibility.
 
-Mortal-only checkpoints now snapshot PyTorch CPU and CUDA random streams
+Combined checkpoints include the freeze-mode generator, CPU Torch state and
+available CUDA states. Restore happens after model, optimizer and opponent
+construction. Legacy checkpoints advance the freeze schedule to their absolute
+generation using the supplied seed and mode list, but warn that their missing
+Torch stream cannot be reproduced. CPU tests compare uninterrupted training
+with serialized, resumed training, including AdamW state and resulting weights.
+
+Mortal-only checkpoints snapshot PyTorch CPU and CUDA random streams
 following measurement. Resume restores them after constructing all models,
 optimizers, compiler wrappers and opponents. Legacy missing-state resumes warn
 that exact historical sampling cannot be reconstructed. The deterministic CPU

@@ -82,15 +82,17 @@ Scoring
 - Han from yaku plus dora, kan dora and, for riichi hands only, ura dora.
 - Fu: 25 fixed for Seven Pairs; otherwise 20, plus 10 for a win by discard
   with a concealed hand, plus 2 for self-draw except with pinfu, plus set
-  values (2/4/8/16 melded, doubled concealed, doubled again for terminals and
-  honours), plus 2 for a dragon or seat or round wind pair (still 2 when the
-  pair is both seat and round wind, a 2025 change), plus 2 for an edge,
-  closed or pair wait, plus 2 for open pinfu. Round up to 10.
-- Base value fu × 2^(han + 2), capped at 2,000 (so 4 han 30 fu and 3 han 60
-  fu are mangan, a 2025 change). Limits: mangan 5 han, haneman 6 to 7, baiman
-  8 to 10, sanbaiman 11 or more, yakuman. Yakuman are not cumulative and
-  there is no counted yakuman. Payments round up to 100; the dealer receives
-  and pays double shares.
+  values (a melded triplet 2, or 4 of terminals or honours; a melded quad 8,
+  or 16 of terminals or honours; each doubled when concealed), plus 2 for a
+  dragon or seat or round wind pair (still 2 when the pair is both seat and
+  round wind, a 2025 change), plus 2 for an edge, closed or pair wait, plus
+  2 for open pinfu. Round up to 10.
+- Base value fu × 2^(han + 2), capped at 2,000, and any base value over 1,900
+  is paid as 2,000 (so 4 han 30 fu and 3 han 60 fu, 1,920 each, are mangan, a
+  2025 change). Limits: mangan 5 han, haneman 6 to 7, baiman 8 to 10,
+  sanbaiman 11 or more, yakuman. Yakuman are not cumulative and there is no
+  counted yakuman. Payments round up to 100; the dealer receives and pays
+  double shares.
 - The highest-scoring reading of a winning hand is chosen automatically.
 - Liability: the player who fed the third dragon set or fourth wind set pays
   the whole yakuman on self-draw and half on another player's discard;
@@ -104,7 +106,7 @@ Scoring
   concealed triplets, three quads, all triplets, little three dragons, all
   terminals and honours (2 han); twice pure double sequence (closed), half
   flush*, full outside hand* (3 han); blessing of man (5 han, combines with
-  nothing); full flush* (6 han); the thirteen yakuman of section 4.2.6 with
+  nothing); full flush* (6 han); the twelve yakuman of section 4.2.6 with
   their conditions (four concealed triplets by discard only on a pair wait,
   no concealed quad in nine gates, heaven or earth). Asterisks lose one han
   open.
@@ -147,8 +149,8 @@ easily got wrong: the dead wall's composition, all three quads and the
 replacement draw, liability for feeding a yakuman, furiten in each of its
 three forms, the concealed quad a riichi player may declare, robbing a quad,
 the noten penalty split, multiple winners, counters, dealer rotation, every
-row of the minipoint table, the base-value cap that makes four han thirty a
-mangan, and every yaku's han with its open-hand penalty.
+row of the minipoint table, the rounding of a base value over 1,900 that makes
+four han thirty a mangan, and every yaku's han with its open-hand penalty.
 
 ### 1.3 Rule variants
 
@@ -192,9 +194,12 @@ Design
 Testing (the engine is only as good as this)
 
 - Rules are tested by name, citing their sections. Scoring examples 1 to 5,
-  7 and 10 of section 4.3 are literal tests in `score.rs` and example 8 in
-  `agari.rs`; examples 6 and 9 have no test yet. The four invalid-quad
-  hands of section 6.7.1 are tests in `tests/riichi_quads.rs`, and
+  7 and 10 of section 4.3 are tests in `score.rs` on equivalent hands: other
+  tiles that score the same yaku, minipoints and payments. No test checks
+  example 8's value: `agari.rs` checks that a hand of its shape reads both
+  as seven pairs and as sets, and `score.rs` that the higher reading is
+  taken. Examples 6 and 9 have no test yet. The four invalid-quad hands of
+  section 6.7.1 are tests in `tests/riichi_quads.rs`, and
   `tests/every_yaku.rs` builds a hand for every yaku the rulebook lists.
 - Differential scoring: `engine/riichi-cli/differential.py` scores the hands
   `riichi-cli dump` writes again with the MIT-licensed `mahjong` Python

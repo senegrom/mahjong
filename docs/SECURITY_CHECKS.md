@@ -22,11 +22,11 @@ extension, checks its observation and legality buffers, and exercises a batch
 of legal moves. The Python binding requires Rust 1.83 or newer; CI uses Rust
 1.98.1.
 
-In `web/`, run `npm ci` and then `npm run verify`, the command CI runs: it
-audits npm dependencies at `--audit-level=low`, builds the WASM engine, lints,
-runs Svelte diagnostics (`npm run check`), builds the site and runs the unit,
-browser and icon checks. Generated WASM, third-party runtime files, build
-output and screenshots are not linted as handwritten application source.
+In `web/`, run `npm ci` and then `npm run verify`, the command CI runs; the
+[README](../README.md#run-and-verify) lists its steps. Its npm audit runs at
+`--audit-level=low`, so any advisory rated low or above fails it. Generated
+WASM, third-party runtime files, build output and screenshots are not linted
+as handwritten application source.
 
 ## Dependency and workflow policy
 
@@ -77,13 +77,6 @@ python -m neural.tests.export_worker_fixture /tmp/policy-worker-fixture
 node web/tests/policy-export-parity.mjs /tmp/policy-worker-fixture
 ```
 
-Combined checkpoints include the freeze-mode generator, CPU Torch state and
-available CUDA states. Restore happens after model, optimizer and opponent
-construction. Legacy checkpoints advance the freeze schedule to their absolute
-generation using the supplied seed and mode list, but warn that their missing
-Torch stream cannot be reproduced. CPU tests compare uninterrupted training
-with serialized, resumed training, including AdamW state and resulting weights.
-
 The browser export contract is Mortal version 4: 1,012 observation planes,
 34 tile positions and 46 actions, with named policy, value and hands outputs.
 Engine-plane students and mismatched action heads are rejected before touching
@@ -105,12 +98,13 @@ replacement, every non-finite head, legal masks, and real ONNX export/inference.
 
 ## Test-server regression coverage
 
-The tile-effect fixture server is a loopback-only test tool, not part of the
-published game. It reads files before sending success headers, uses explicit
-400/403/404/405/500 statuses, and constrains both lexical and symlink-resolved
-paths to the intended fixture root. Tests cover successful index/script/tile
-loads, missing files, malformed encoding, null bytes, traversal, escaping
-symlinks, HEAD requests and unsupported methods.
+The static fixture server that the browser checks share is a loopback-only
+test tool, not part of the published game. It reads files before sending
+success headers, uses explicit 400/403/404/405/500 statuses, and constrains
+both lexical and symlink-resolved paths to the intended fixture root. Tests
+cover successful index/script/tile loads, missing files, malformed encoding,
+null bytes, traversal, escaping symlinks, HEAD requests and unsupported
+methods.
 
 A successful CodeQL workflow means the scan ran; it does not by itself prove
 that every dashboard alert is closed. Review alert records separately rather
