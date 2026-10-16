@@ -169,13 +169,15 @@ AI, and leads with the few where the player's move departed furthest from its
 choice. The hand review reviews one hand and is gone at the next deal; this one
 is rebuilt for the whole game. On a phone the final hand's result is a sheet
 over the standings, so the sheet offers the review too, as it offers the
-game's file, and steps aside for it as it does for the hand's review: **Back
-to the standings** then lands on the standings, with focus on their own
-**Review whole game**. Up to 480 pixels wide the sheet's buttons take their
-short labels, **Review hand**, **Save hand**, **Review game** and **Save
-game**. Measured in Chromium, they then take two rows over the result from
-360 pixels up with Windows' fonts and from 390 with one as wide as Verdana,
-and three on narrower screens.
+game's file. The sheet steps aside whenever the review opens, as it does for
+the hand's review, whichever button opened it: its own, or the standings'
+own, which it covers but a keyboard or a screen reader can still reach. **Back
+to the standings** then lands on the standings, uncovered, with focus on their
+own **Review whole game**, and the result is a tap away on its chip. Up to 480
+pixels wide the sheet's buttons take their short labels, **Review hand**,
+**Save hand**, **Review game** and **Save game**. Measured in Chromium, they
+then take two rows over the result from 360 pixels up with Windows' fonts and
+from 390 with one as wide as Verdana, and three on narrower screens.
 
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the
@@ -195,10 +197,17 @@ declared, the tiles are compared by the discard weights given riichi;
 otherwise the move itself is compared, the declaration carrying its
 declaration weight. Flagged decisions are ranked by the gap between the two
 weights, widest first, and equal gaps in the order they were played. The first
-five are listed, the rest behind **Show all**. The list says where each one was
-(the hand, with its honba where the hand repeats one, so no two hands share a
-name, and the player's decision number) and the weights of the player's move
-and of Trained AI's own choice, but not what that choice was.
+five are listed, the rest behind **Show all**. The list says where each one
+was (the hand, with its honba where the hand repeats one, so no two hands
+share a name, and the player's decision number) and the weights of the
+player's move and of Trained AI's own choice, but not what that choice was.
+The list is ranked afresh as each hand is reviewed, and keyboard focus on a
+flagged decision stays on it however the list moves: should the hands reviewed
+since rank it out of the first five, every flagged decision is shown rather
+than its button being taken away, and a status line under the heading says
+where it now stands ("this one is now 7th of 9"), since a list should not be
+reshuffled under someone reading it without their being told. The line goes
+when focus moves on.
 
 **Replay and choose again.** A flagged decision opens at the position it was
 made from: the table as it stood, the player's hand, and what happened since
@@ -221,7 +230,11 @@ stays, as **Show the leading moves**, so focus stays on it. For a turn, a table 
 out what each of those moves leaves, counted as the hand review counts it:
 the hand left, the unseen tiles that improve it, whether the tile could deal
 into a declared riichi, and its worth as dora (the engine's `review_measure`).
-Nothing is played on from there, and the saved match is never touched.
+Nothing is played on from there, and the saved match is never touched. **Back
+to the list** returns focus to the decision opened, wherever the hands
+reviewed meanwhile have ranked it: if they have ranked it out of the first
+five, every flagged decision is shown, and the same status line says where it
+went.
 
 **Agreement and its trend.** The figure is the share of decisions with a
 choice where the player's move was Trained AI's. When every hand is reviewed,
@@ -261,7 +274,9 @@ screen says so and waits.
 and Tile rendering, riichi waits, disabled-tile navigation, consecutive keyboard
 turns, saved-state migration, ura-dora indicators with hints off, final-hand
 review, the whole-game review with the shipped network (its batches, flags,
-replay, retry, keyboard focus and trend, and its way in and out on a phone),
+replay, retry, keyboard focus, in the flagged list too as later hands rank it
+afresh, and trend, and its way in and out on a phone, by touch and by
+keyboard),
 history and export, and settlements that balance event by event.
 Its browser checks run in Chromium, including narrow portrait and landscape
 sizes; they are not physical-iPhone or Safari testing.

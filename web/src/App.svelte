@@ -566,7 +566,7 @@
             <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
               bets={view.riichi_sticks ?? 0} onnext={nextHand}
               onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} ongamereview={openGameReview}
-              finalHand={Boolean(standings)} />
+              gameReviewOpen={reviewingGame} finalHand={Boolean(standings)} />
             {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}

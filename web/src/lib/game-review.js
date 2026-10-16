@@ -113,6 +113,20 @@ export function rankDecisions(decisions) {
     .map(entry => entry.decision);
 }
 
+/** A place in the ranking as it is said: "1st", "2nd", "3rd", "11th", "22nd". */
+export function ordinal(number) {
+  const suffix = number % 100 >= 11 && number % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][number % 10] ?? 'th';
+  return `${number}${suffix}`;
+}
+
+/** What the flagged list says when the decision a player is on, or came back
+ * to, has been ranked lower by the hands reviewed since: where it is now, of
+ * how many, and whether every flagged decision had to be shown to keep it. */
+export function movedNote(rank, count, everyShown) {
+  return `Decisions reviewed since departed further from Trained AI: this one is now ${ordinal(rank + 1)} of ${count}`
+    + `${everyShown ? ', and every flagged decision is shown' : ''}.`;
+}
+
 /** How many of the player's real choices were the network's own. A forced
  * move, such as the discard after riichi, was no choice, and is left out. */
 export function agreement(decisions) {
