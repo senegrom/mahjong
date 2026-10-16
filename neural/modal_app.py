@@ -959,6 +959,7 @@ def duel(
     games: int = 1000,
     seed: int = 555_000,
     run: str = DEFAULT_RUN,
+    timing: bool = False,
 ) -> str:
     """Sits two checkpoints from the volume at the same table.
 
@@ -973,6 +974,8 @@ def duel(
     raises `FileNotFoundError`, and a table that exits with an error raises
     `CalledProcessError` carrying its output, so a caller pooling many duels
     counts that call as failed instead of reading an error as a report.
+    With `timing` the report says where the time went, as `play`; the
+    games are the same (see `neural.duel.Split`).
     """
     volume.reload()
     sources = [_checkpoint(run, name) for name in (challenger, incumbent)]
@@ -997,7 +1000,132 @@ def duel(
             sys.executable, "-m", "neural.duel", str(files[0]), str(files[1]),
             "--games", str(games), "--seed", str(seed),
         ]
+        if timing:
+            command.append("--timing")
         return _run_child(command)
+
+
+#: Where the rulers' reports are kept on the volume: a folder a series, named
+#: by its tag, holding one report a seed (`seed-<seed>.json`) and the rule
+#: it is read by (`design.json`, see `neural.looks`). A call's own answer
+#: lasts only as long as Modal keeps it: the rulers of fusion-long's 110,
+#: spawned on 29 September, could no longer be read on 14 October.
+RULERS = "rulers"
+
+
+def _ruler_folder(tag: str) -> Path:
+    """A series' folder on the volume, its tag checked as a run's name is."""
+    try:
+        validate_run(tag)
+    except ValueError:
+        raise ValueError("tag must be one nonempty folder name, without path separators") from None
+    return VOLUME / RULERS / tag
+
+
+def _keep(folder: Path, name: str, text: str) -> None:
+    """Writes `text` to `folder/name` on the volume whole or not at all, and
+    commits it."""
+    folder.mkdir(parents=True, exist_ok=True)
+    with staging_file(folder / name) as staged:
+        staged.write_text(text, encoding="utf-8")
+        os.replace(staged, folder / name)
+    volume.commit()
+
+
+@app.function(
+    gpu="L40S",
+    cpu=16.0,
+    # A table and its follower take a few tenths of a megabyte on the host
+    # (4,000 on the desktop: 0.4 GB more), so a paired call's 8,000 are not
+    # what needs room; a fusion's duel died of signal 9 at 32 GiB once in
+    # twenty calls, and its launcher asks 48 (see `duel`), so this asks
+    # more again for the second challenger.
+    memory=65536,
+    timeout=3 * 60 * 60,
+    volumes={str(VOLUME): volume},
+)
+def ruler(
+    challenger: str = "latest",
+    incumbent: str = "zoo/mortal_298k",
+    also: str = "",
+    games: int = 1000,
+    seed: int = 9_100_000,
+    tag: str = "",
+    questions: str = "seating",
+    rows: int = 256,
+    graphs: bool = False,
+    skip_forced: bool = False,
+    preview_reach: bool = False,
+    timing: bool = True,
+    run: str = DEFAULT_RUN,
+) -> str:
+    """A duel played the faster way, with a second challenger if `also`
+    names one (see `neural.ruler`): every table of the duel in one arena,
+    the second challenger on the same deals against the same incumbent.
+    `questions` "seating" plays the old duel's games bit for bit, `graphs`
+    answering the sizes asked often from a graph each at its own size;
+    "fixed" asks every question in pieces of `rows`, where `graphs`,
+    `skip_forced` and `preview_reach` change no answer.
+
+    The answer is the report, with the checkpoints named as the volume
+    names them. With a `tag` it is also kept on the volume, at
+    `rulers/<tag>/seed-<seed>.json`, so a series is read from there (see
+    `neural.looks`) rather than from the calls, whose answers Modal keeps
+    only for a while. Failures raise as `duel`'s do."""
+    if questions not in ("seating", "fixed"):
+        raise ValueError("questions must be seating or fixed")
+    if questions != "fixed" and (skip_forced or preview_reach):
+        raise ValueError("skip_forced and preview_reach change answers unless the questions are fixed")
+    folder = _ruler_folder(tag) if tag else None
+    volume.reload()
+    names = [challenger, incumbent, *([also] if also else [])]
+    sources = [_checkpoint(run, name) for name in names]
+    for source in sources:
+        if not source.exists():
+            raise FileNotFoundError(f"no checkpoint at {source}")
+    with workspace("ruler") as local:
+        files = []
+        for index, (name, source) in enumerate(zip(names, sources)):
+            # Two names may share a file name across runs, and one may be
+            # named twice, as a check of the pairing.
+            copied = local / f"{index}-{name.replace('/', '--')}.pt"
+            shutil.copyfile(source, copied)
+            files.append(copied)
+        generations = {name: _generation_or_zoo(file) for name, file in zip(names, files)}
+        print(
+            f"challenger {challenger}.pt generation {generations[challenger]} "
+            + (f"and {also}.pt generation {generations[also]} " if also else "")
+            + f"against {incumbent}.pt generation {generations[incumbent]}",
+            flush=True,
+        )
+        # Each checkpoint says its own shape (see `model.shape_of`).
+        command = [
+            sys.executable, "-m", "neural.ruler", str(files[0]), str(files[1]),
+            "--games", str(games), "--seed", str(seed), "--questions", questions,
+        ]
+        if also:
+            command += ["--also", str(files[2])]
+        if questions == "fixed":
+            command += ["--rows", str(rows)]
+        for flag, wanted in (("--graphs", graphs), ("--skip-forced", skip_forced),
+                             ("--preview-reach", preview_reach), ("--timing", timing)):
+            if wanted:
+                command.append(flag)
+        report = json.loads(_run_child(command))
+    # The checkpoints as the volume names them, not the container's copies.
+    if "arms" in report:
+        for arm, name in zip(report["arms"], (challenger, also)):
+            arm["challenger"] = name
+    else:
+        report["challenger"] = challenger
+    report["incumbent"] = incumbent
+    report["run"] = run
+    report["generations"] = generations
+    text = json.dumps(report, indent=1)
+    if folder is not None:
+        _keep(folder, f"seed-{seed}.json", text)
+        print(f"kept {RULERS}/{tag}/seed-{seed}.json", flush=True)
+    return text
 
 
 @app.function(
