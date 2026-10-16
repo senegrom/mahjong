@@ -96,7 +96,8 @@ class PlacementOptions(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             u = write_u(Path(folder) / "u.pt")
             for options in (["--alpha", "0.05"], ["--value-warm-up", "1"], ["--place-refit-every", "50"],
-                            ["--place-model", str(u)]):
+                            ["--place-model", str(u)], ["--place-refit-rounds", "2"],
+                            ["--value-warm-up-lr", "0.001"]):
                 with self.subTest(options=options), self.assertRaises(SystemExit):
                     self.parse(*options)
             for options in (["--reward", "placement", "--alpha", "-1"],

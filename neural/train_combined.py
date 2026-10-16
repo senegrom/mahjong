@@ -408,6 +408,10 @@ def check_placement_options(parser: argparse.ArgumentParser, args: argparse.Name
             ("--alpha", args.alpha), ("--place-model", args.place_model),
             ("--place-refit-every", args.place_refit_every), ("--value-warm-up", args.value_warm_up),
         ) if value]
+        # These two have defaults of their own, so only a value other than the
+        # default was asked for.
+        asked += [f"--{name.replace('_', '-')}" for name in ("place_refit_rounds", "value_warm_up_lr")
+                  if getattr(args, name) != parser.get_default(name)]
         if asked:
             parser.error(f"{', '.join(asked)} only with --reward placement")
     if args.place_model is not None and not args.place_model.is_file():
