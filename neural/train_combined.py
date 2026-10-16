@@ -53,9 +53,10 @@ from .training_state import (
 #: stops compiling it and runs the rest eagerly, unannounced. The learning
 #: step's forward is compiled anew for every pattern of what requires a
 #: gradient, which `Combined.set_mode` sets six ways (see
-#: `compile_per_mode`); with gradients and without, for the baseline pass;
-#: and with Mortal's vectors given and not (`--reuse-phi`): fourteen at
-#: most, against the compiler's eight. Thirty-two leaves room for a
+#: `compile_per_mode`) and `Combined.hold_all_but_value` a seventh, for the
+#: placement reward's warm-up; with gradients and without, for the baseline
+#: pass; and with Mortal's vectors given and not (`--reuse-phi`): sixteen
+#: at most, against the compiler's eight. Thirty-two leaves room for a
 #: variant nobody foresaw.
 RECOMPILE_LIMIT = 32
 
@@ -199,7 +200,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--games", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-4,
                         help="for the head, the critic and the reading of the hands")
-    parser.add_argument("--lr-ours", type=float, default=4e-5, help="for our network beneath")
+    parser.add_argument("--lr-ours", type=float, default=4e-5,
+                        help="for our network beneath, but for its critic and its reading of the hands (--lr)")
     parser.add_argument("--lr-mortal", type=float, default=3e-5, help="for the Mortal beneath")
     parser.add_argument("--clip", type=float, default=0.2)
     parser.add_argument("--batch", type=int, default=2048)
