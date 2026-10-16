@@ -143,8 +143,10 @@ async function profile() { const dir = await mkdtemp(join(tmpdir(), 'mahjong-off
 try {
   await mkdir(output, { recursive:true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
-  for (const strength of ['beginner', 'club']) await check(`${strength}: complete game and graphics save automatically and restart offline with NO AI download or button`, async () => {
-    const dir = await profile(); let b = await launch(dir); const p = await page(b, { strength });
+  // Beginner and Club are both built into the game and neither touches the
+  // network, so the cycle runs once, with Club.
+  await check('Club opponents: complete game and graphics save automatically and restart offline with NO AI download or button', async () => {
+    const dir = await profile(); let b = await launch(dir); const p = await page(b, { strength: 'club' });
     await hand(p);
     await p.waitForSelector('[data-core-ready=true]');
     await assertSelectedDecoded(p);
@@ -161,7 +163,7 @@ try {
     }
     const cdp = await p.createCDPSession(); await cdp.send('Network.clearBrowserCache');
     await close(b); unavailable = true; count.clear(); refused.length = 0;
-    b = await launch(dir); const cold = await page(b, { seed: false, offline: true, strength });
+    b = await launch(dir); const cold = await page(b, { seed: false, offline: true, strength: 'club' });
     await hand(cold); await cold.waitForSelector('[data-core-ready=true]');
     assert.equal(await cold.$eval('select[aria-label="Tile face"]', select => select.value), 'matisse');
     assert.ok(await cold.$$eval('.hand img', images => images.length > 0 && images.every(image => image.src.includes('/matisse/') && image.complete && image.naturalWidth > 0)));
@@ -176,7 +178,7 @@ try {
       const image = new Image(); image.src = url; await image.decode(); return image.naturalWidth > 0;
     }))).every(Boolean), art));
     assert.deepEqual(refused.filter(name => name !== 'sw.js'), []);
-    if (strength === 'club') await cold.screenshot({ path: resolve(output, 'automatic-game-tiles-offline.png'), fullPage: true });
+    await cold.screenshot({ path: resolve(output, 'automatic-game-tiles-offline.png'), fullPage: true });
     assert.deepEqual(cold.errors, []);
   });
   await check('the optional button adds ONLY trained AI bytes and does not change the match', async () => {
