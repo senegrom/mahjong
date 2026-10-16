@@ -244,6 +244,24 @@ class Combined(nn.Module):
     def mortal_trained(self) -> list[nn.Parameter]:
         return list(self.mortal.parameters())
 
+    def value_parts(self) -> list[nn.Parameter]:
+        """The critic alone, both halves: our value head and the head's
+        correction from Mortal's vector. Each reads features held back from
+        it (`backbones`, `Fuse.judge`), so moving these moves no policy and
+        no reading of the hands."""
+        return [*self.ours.value.parameters(), *self.fuse.value_fix.parameters()]
+
+    def hold_all_but_value(self) -> None:
+        """Holds everything still but the critic (see `value_parts`), as a
+        generation that only teaches the critic a new return does (see
+        `train_combined --value-warm-up`). The next `set_mode` frees the
+        rest again as its mode says."""
+        self.mode = "value"
+        for parameter in self.parameters():
+            parameter.requires_grad_(False)
+        for parameter in self.value_parts():
+            parameter.requires_grad_(True)
+
     def set_mode(self, mode: str) -> None:
         """What stays fixed this generation, named by its parts joined with
         a plus: `mortal`, `ours`, `head`, `mortal+head`, or `none`."""

@@ -23,6 +23,43 @@ def round_arguments(generations: int, until: int) -> list[str]:
     return ["--rounds", str(0 if until else generations), "--generations", str(until or 1000000)]
 
 
+def placement_arguments(reward: str = "hybrid", alpha: float = 0.0, place_model: str = "",
+                        refit_every: int = 0, refit_rounds: int = 4, warm_up: int = 0,
+                        warm_up_lr: float = 1e-4) -> list[str]:
+    """`train_combined`'s placement reward options as a launch asks for them,
+    checked before anything is staged: nothing at all for the default
+    reward, so a launch that asks for none of them runs the command line it
+    always did, and a refusal for any of them asked for without the
+    placement reward, which would otherwise train on a reward nobody asked
+    for. The place model's path is the caller's to add once it is staged."""
+    if reward not in ("hybrid", "placement"):
+        raise ValueError("reward must be 'hybrid' or 'placement'")
+    for name, value in (("alpha", alpha), ("warm_up_lr", warm_up_lr)):
+        if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"{name} must be finite and nonnegative")
+    if warm_up_lr <= 0:
+        raise ValueError("warm_up_lr must be positive")
+    for name, value in (("refit_every", refit_every), ("warm_up", warm_up)):
+        if type(value) is not int or value < 0:
+            raise ValueError(f"{name} must be a nonnegative integer")
+    if type(refit_rounds) is not int or refit_rounds < 1:
+        raise ValueError("refit_rounds must be a positive integer")
+    if not isinstance(place_model, str):
+        raise ValueError("place_model must name a file on the volume, or be empty")
+    if reward == "hybrid":
+        asked = [name for name, value in (("alpha", alpha), ("place_model", place_model),
+                                          ("refit_every", refit_every), ("warm_up", warm_up)) if value]
+        if asked:
+            raise ValueError(f"{', '.join(asked)} only with reward='placement'")
+        return []
+    arguments = ["--reward", "placement", "--alpha", repr(float(alpha))]
+    if refit_every:
+        arguments += ["--place-refit-every", str(refit_every), "--place-refit-rounds", str(refit_rounds)]
+    if warm_up:
+        arguments += ["--value-warm-up", str(warm_up), "--value-warm-up-lr", repr(float(warm_up_lr))]
+    return arguments
+
+
 def validate_cloud_request(generations: int, opponents: Sequence[str] | None,
                            opponent_share: float, seat_share: float = 0.0) -> None:
     """A cloud count is literal, unlike the CLI's zero-as-unspecified sentinel."""

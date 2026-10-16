@@ -8,6 +8,11 @@ being overwritten in one go. The policy gradient is PPO's clipped
 objective on the head's output, the baseline is our value head as it
 stood before the round, and the value head learns the return.
 
+The return is the default hybrid of every run so far unless `--reward
+placement` asks for the placement reward, credited hand by hand (see
+`place_model`), which a run starts from a U fitted on its own games and,
+with `--value-warm-up`, a generation or more that teach the critic alone.
+
     python -m neural.train_combined --ours ours.pt --mortal mortal.pt --rounds 20 --out runs/joined
 """
 
@@ -24,10 +29,11 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from . import combined, play_graphs, policy_inference, ppo_loop, selfplay
+from . import combined, place_model, play_graphs, policy_inference, ppo_loop, selfplay
 from .behavior import validate_exploration
 from .checkpoints import atomic_save
 from .observe import pad_rows
+from .population import Population
 from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
 from .training_batches import require_trainable_round, require_updates
 from .training_safety import TRAINING_API_VERSION, benchmark_history
@@ -102,6 +108,78 @@ def learning_forward(net: combined.Combined, args: argparse.Namespace):
         compile_per_mode()
         return torch.compile(net.everything, dynamic=False)
     return net.everything
+
+
+def optimiser_groups(net: combined.Combined, args) -> list[dict]:
+    """The joined player's optimiser's three groups, as every checkpoint of
+    this trainer saved its state in them: what the pre-test rebuilds to read
+    a checkpoint's moments (`placement_pretest`) as well as the trainer."""
+    return [
+        # The head and the two things that always train share a rate; what a
+        # generation holds still is decided by `set_mode`, not by leaving it
+        # out here.
+        {"params": net.head_trained() + net.always_trained(), "lr": args.lr},
+        {"params": net.ours_trained(), "lr": args.lr_ours},
+        {"params": net.mortal_trained(), "lr": args.lr_mortal, "weight_decay": 0.01},
+    ]
+
+
+def value_warm_up(net: combined.Combined, learn, rollout, held, optimiser, totals, args,
+                  dtype: torch.dtype, amp_enabled: bool, played_phi):
+    """One generation's epochs that teach the critic alone (`--value-warm-up`):
+    the value loss and nothing else, stepped by `optimiser`, which holds the
+    critic's parameters alone (`Combined.value_parts`), everything else
+    held still (`Combined.hold_all_but_value`). The critic reads features
+    held back from it, so its gradient reaches nothing that chooses a move:
+    the policy is the same after as before, bit for bit.
+
+    A new reward changes the return the critic is asked for, and with it
+    the baseline every advantage is measured from; at the run's own rates
+    the critic would take many generations to catch up, its advantages
+    wrong all the while. The policy's entropy and its drift are summed for
+    the record, though nothing moves either. Answers the steps taken and the
+    last minibatch's picks and planes, as the PPO epochs leave them."""
+    device = rollout.device
+    nothing = torch.zeros((), device=device)
+    steps = 0
+    picks = planes = None
+    for _epoch in range(args.epochs):
+        with closing(ppo_loop.minibatches(rollout, args.batch, dtype=dtype)) as minibatches:
+            for picks, planes in minibatches:
+                optimiser.zero_grad(set_to_none=True)
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                    if played_phi is None:
+                        logits, value, guessed = learn(planes, rollout.legal[picks])
+                    else:
+                        logits, value, guessed = learn(planes, rollout.legal[picks], played_phi[picks])
+                value_loss = nn.functional.mse_loss(value.float(), rollout.returns[picks])
+                (args.value_weight * value_loss).backward()
+                grad_norm = nn.utils.clip_grad_norm_(net.value_parts(), 1.0, error_if_nonfinite=True)
+                optimiser.step()
+                with torch.no_grad():
+                    distribution = torch.distributions.Categorical(logits=logits.float(), validate_args=False)
+                    moved = distribution.log_prob(rollout.actions[picks]) - rollout.old_log_probs[picks]
+                    hands_loss, covered = ppo_loop.hands_loss_of(guessed.float(), held[picks])
+                    totals.add(policy=nothing, value=value_loss.detach(), entropy=distribution.entropy().mean(),
+                               clipped=nothing, kl=-moved.mean(), grad=grad_norm, leash=nothing,
+                               hands=hands_loss, covered=covered)
+                steps += 1
+    return steps, picks, planes
+
+
+def placement_fields(place, ledger, returns: torch.Tensor, guess: torch.Tensor, warming: bool) -> dict:
+    """What a generation's record says of the placement reward: the alpha it
+    paid, whether it taught the critic alone, and the return's spread and
+    the critic's error over the East round's decisions and the South's
+    apart. An East decision's return carries less of the game's luck than
+    it did, which is where the reward should show first."""
+    stages = torch.from_numpy(ledger.stages[ledger.rows_of(ledger.games, ledger.hands)]).to(returns.device)
+    fields = {"reward": "placement", "alpha": place.reward.alpha, "value_warm_up": warming}
+    for name, rows in (("east", stages < 4), ("south", stages >= 4)):
+        if rows.any():
+            fields[f"return_variance_{name}"] = round(float(returns[rows].var(unbiased=False)), 4)
+            fields[f"value_error_{name}"] = round(float(((returns[rows] - guess[rows]) ** 2).mean()), 4)
+    return fields
 
 
 def parse_args() -> argparse.Namespace:
@@ -238,6 +316,43 @@ def parse_args() -> argparse.Namespace:
         "differ from its answer at the size asked in the last bits of bfloat16. Off by "
         "default; not with --compile",
     )
+    parser.add_argument(
+        "--reward", choices=("hybrid", "placement"), default="hybrid",
+        help="what a decision is paid. hybrid, as every run before: its hand's points over "
+        "4,000 plus the game's placement bonus. placement: U, the bonus the scoreboard promises "
+        "at the start of the next hand, plus --alpha times the hand's points over 4,000, and "
+        "the bonus itself after a game's last hand (see neural.place_model)",
+    )
+    parser.add_argument(
+        "--alpha", type=float, default=0.0,
+        help="with --reward placement, what the hand's points weigh: 0 pays placement alone, "
+        "0.05 lets points only break ties, sixty thousand of them being worth less than a place",
+    )
+    parser.add_argument(
+        "--place-model", type=Path, default=None,
+        help="the U a run starting --reward placement settles by (python -m neural.place_model "
+        "fit, or the pre-test's); a run that resumes settles by the one its checkpoint carries",
+    )
+    parser.add_argument(
+        "--place-refit-every", type=int, default=0,
+        help="with --reward placement, fit U again every this many generations, on the run's "
+        "last --place-refit-rounds rounds, keeping the new one only if it reads an eighth of "
+        "their games, held out, at least as well; nought never",
+    )
+    parser.add_argument(
+        "--place-refit-rounds", type=int, default=4,
+        help="how many of the run's last rounds a refit of U reads. The Club sits out about one "
+        "round in four, and a refit on rounds that seated none of some kind of player keeps "
+        "the U it has: two rounds both lack the Club one time in sixteen, four one in 256",
+    )
+    parser.add_argument(
+        "--value-warm-up", type=int, default=0,
+        help="with --reward placement, the first this many generations of the reward teach the "
+        "critic alone, at --value-warm-up-lr in an optimiser of its own, everything else held "
+        "still: the critic reads features held back from it, so no policy can move",
+    )
+    parser.add_argument("--value-warm-up-lr", type=float, default=1e-4,
+                        help="the critic's rate in a --value-warm-up generation")
     parser.add_argument("--measure-every", type=int, default=5)
     parser.add_argument("--measure-games", type=int, default=192)
     parser.add_argument("--seed", type=int, default=20260908)
@@ -270,7 +385,37 @@ def parse_args() -> argparse.Namespace:
         # have to record, and the compiler's own graphs are another matter.
         parser.error("--play-graphs records play's eager forwards; with it, compile the "
                      "learning step alone (--compile-learning)")
+    check_placement_options(parser, args)
     return args
+
+
+def check_placement_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Refuses the placement reward's options where they would be ignored
+    or make no sense, before anything is built: an option of the placement
+    reward given to a run paid the default one would leave it training on a
+    reward it was not asked for, unannounced."""
+    if not math.isfinite(args.alpha) or args.alpha < 0:
+        parser.error("--alpha must be finite and nonnegative")
+    for name in ("place_refit_every", "value_warm_up"):
+        if getattr(args, name) < 0:
+            parser.error(f"--{name.replace('_', '-')} must be nonnegative")
+    if args.place_refit_rounds < 1:
+        parser.error("--place-refit-rounds must be at least one")
+    if not math.isfinite(args.value_warm_up_lr) or args.value_warm_up_lr <= 0:
+        parser.error("--value-warm-up-lr must be finite and positive")
+    if args.reward == "hybrid":
+        asked = [flag for flag, value in (
+            ("--alpha", args.alpha), ("--place-model", args.place_model),
+            ("--place-refit-every", args.place_refit_every), ("--value-warm-up", args.value_warm_up),
+        ) if value]
+        # These two have defaults of their own, so only a value other than the
+        # default was asked for.
+        asked += [f"--{name.replace('_', '-')}" for name in ("place_refit_rounds", "value_warm_up_lr")
+                  if getattr(args, name) != parser.get_default(name)]
+        if asked:
+            parser.error(f"{', '.join(asked)} only with --reward placement")
+    if args.place_model is not None and not args.place_model.is_file():
+        parser.error(f"--place-model {args.place_model} does not exist")
 
 
 def main() -> None:
@@ -297,6 +442,9 @@ def main() -> None:
     optimiser_state = None
     random_state = None
     entropy_log_coef = None
+    # What the checkpoint says of the placement reward, when it was trained
+    # on it: its record and its U (see `place_model.PlacementRun`).
+    carried: dict = {}
     if args.resume is not None and args.resume.exists():
         net, payload = combined.load(args.resume, device)
         start = int(payload.get("generation", 0))
@@ -304,12 +452,26 @@ def main() -> None:
         optimiser_state = payload.get("optimizer_state")
         random_state = payload.get("random_state")
         entropy_log_coef = payload.get("entropy_log_coef")
+        carried = {name: payload[name] for name in ("reward", "place_model") if name in payload}
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.ours is not None and args.mortal is not None:
         net = combined.build(args.ours, args.mortal, device)
         print(f"joined {args.ours} and {args.mortal}", flush=True)
     else:
         raise SystemExit("give --ours and --mortal to start, or --resume")
+
+    # The placement reward, when asked for (see `place_model.PlacementRun`).
+    # A run trained on it is never resumed on the default reward by a
+    # command line that forgot to say so.
+    place = None
+    if args.reward == "placement":
+        place = place_model.PlacementRun.begin(
+            args, carried, start, [member.name for member in Population.from_paths(args.opponents).members])
+    elif carried.get("reward", {}).get("kind", "hybrid") != "hybrid":
+        raise SystemExit(
+            f"{args.resume} was trained on the {carried['reward']['kind']} reward at alpha "
+            f"{carried['reward'].get('alpha')}; resume it with --reward {carried['reward']['kind']} "
+            "--alpha as it was, or start a new run")
 
     # The policy the run began with, kept beside the checkpoints so every
     # block of it leashes to the same place. Written once, on the first
@@ -333,14 +495,7 @@ def main() -> None:
     # alone by it.
     net.set_mode("none")
     optimiser = torch.optim.AdamW(
-        [
-            # The head and the two things that always train share a rate;
-            # what a generation holds still is decided by `set_mode`, not by
-            # leaving it out here.
-            {"params": net.head_trained() + net.always_trained(), "lr": args.lr},
-            {"params": net.ours_trained(), "lr": args.lr_ours},
-            {"params": net.mortal_trained(), "lr": args.lr_mortal, "weight_decay": 0.01},
-        ],
+        optimiser_groups(net, args),
         lr=args.lr,
         weight_decay=1e-4,
         fused=device == "cuda",
@@ -414,6 +569,9 @@ def main() -> None:
             "optimizer_state": optimiser.state_dict(),
             "random_state": capture_random_state(drawer),
             "entropy_log_coef": floor["log_coef"],
+            # The placement reward's record and the U it settles by, in a run
+            # paid by it; a run paid the default carries nothing new.
+            **(place.fields() if place is not None else {}),
         }
 
     def measure(generation: int) -> dict:
@@ -439,7 +597,10 @@ def main() -> None:
 
     def play(player, generation: int, **options):
         """Round `generation`, played by `player`: see `selfplay.play`,
-        which `options` are handed on to."""
+        which `options` are handed on to. A round of a run paid the
+        placement reward keeps the ledger it is settled from."""
+        if place is not None:
+            options["ledger"] = True
         return selfplay.play(
             player,
             games=args.games,
@@ -459,6 +620,9 @@ def main() -> None:
     # With --play-ahead each round is played on a worker while the one
     # before it is learned, by the copy above (see `ppo_loop.PlayAhead`).
     ahead = ppo_loop.PlayAhead(net, actor, device, play) if args.play_ahead else None
+    # The critic's own optimiser for a --value-warm-up generation, made when
+    # the first such generation begins.
+    warm_optimiser = None
     try:
         for generation in range(start, end):
             began = time.time()
@@ -506,6 +670,14 @@ def main() -> None:
                     ahead.start(generation + 1,
                                 keep_phi=reusing and "mortal" in following.split("+"))
             require_trainable_round(batch.decisions, args.batch, args.epochs)
+            # A run paid the placement reward settles the round now, by the U
+            # it has as the round is learned, and keeps the round's hand
+            # starts for the next refit of U.
+            warming = False
+            if place is not None:
+                selfplay.settle_placement(batch, place.reward)
+                place.remember(batch.ledger, generation)
+                warming = place.warming
             loading = time.time()
             # Beside a round being played the planes stay on the host: the
             # card holds that round's work as well, and keeping a round on
@@ -578,7 +750,22 @@ def main() -> None:
                 else torch.zeros(batch.decisions, dtype=torch.bool, device=device)
             )
             steps = 0
-            for _epoch in range(args.epochs):
+            if warming:
+                # A generation that teaches the critic alone the placement
+                # reward's return, in an optimiser of its own and at a rate of
+                # its own, everything else held still (see `value_warm_up`);
+                # the PPO epochs below are not run.
+                net.hold_all_but_value()
+                if warm_optimiser is None:
+                    warm_optimiser = torch.optim.AdamW(
+                        net.value_parts(), lr=args.value_warm_up_lr, weight_decay=1e-4,
+                        fused=device == "cuda",
+                    )
+                steps, picks, planes = value_warm_up(
+                    net, learn, rollout, held, warm_optimiser, totals, args,
+                    planes_dtype, amp_enabled, played_phi,
+                )
+            for _epoch in range(0 if warming else args.epochs):
                 with closing(ppo_loop.minibatches(rollout, args.batch, dtype=planes_dtype)) as minibatches:
                     for picks, planes in minibatches:
                         optimiser.zero_grad(set_to_none=True)
@@ -712,9 +899,21 @@ def main() -> None:
                 net.train()
 
             require_updates(steps)
+            # What the log says of the placement reward, in a run paid by it:
+            # the warm-up counted once its generation has learned, and U
+            # fitted again when its time has come, before the checkpoint that
+            # carries it is saved.
+            placed = {}
+            if place is not None:
+                if warming:
+                    place.warmed += 1
+                placed = placement_fields(place, batch.ledger, rollout.returns, guess, warming)
+                if place.refit_due(generation):
+                    placed["place_model_refit"] = place.refit(generation, device, seed=args.seed)
             entry = ppo_loop.record(
                 generation, steps, drift, rows, rollout, batch,
                 {"began": began, "played": played, "loaded": loaded}, totals, spread,
+                **placed,
                 fixed=fixed,
                 head_shift=round(head_shift, 4),
                 on_fusion=round(weights[0], 4),
