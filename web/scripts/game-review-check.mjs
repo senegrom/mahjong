@@ -604,6 +604,11 @@ try {
       assert.match(await page.$eval('.result-chip', el => el.textContent), /^Show result/);
       assert.ok(await tappable(page, standing), `the standings' button can be tapped at ${width}x${height}`);
       await shot(page, `game-review-phone-standings-${width}x${height}`);
+      // The full-page screenshot can leave the page scrolled elsewhere: in
+      // Chrome 155 at 320x568 it put the button under the result's chip, and
+      // the tap showed the result instead. So it is brought back first.
+      await page.$eval(standing, el => el.scrollIntoView({ block: 'center' }));
+      assert.ok(await tappable(page, standing), `the standings' button can be tapped again at ${width}x${height}`);
       await page.tap(standing);
       await page.waitForSelector('[data-game-review]');
       assert.deepEqual(page.errors, []);
