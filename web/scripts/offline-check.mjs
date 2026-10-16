@@ -216,19 +216,24 @@ try {
     for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0);
     assert.deepEqual(p.errors, []);
   });
-  for (const asset of ['tiles/Chun.svg', dragonPath]) await check(`first play waits for selected artwork: ${asset}`, async () => {
+  // A first visit with Trained opponents also saves the network, which each
+  // run downloads whole from its bucket, so only one of the two cases has
+  // them; the other plays Club, which needs no network at all.
+  for (const [asset, strength] of [['tiles/Chun.svg', 'neural'], [dragonPath, 'club']]) await check(`first play waits for selected artwork: ${asset}`, async () => {
     holdPath = asset;
-    const b = await launch(await profile()), p = await page(b);
+    const b = await launch(await profile()), p = await page(b, { strength });
     await waitForHeldRequest(asset);
     assert.equal(await p.$('.hand'), null, 'No partially decoded selected face or missing foil artwork');
     releaseHeldResponses();
-    await hand(p); await ready(p);
+    await hand(p);
+    if (strength === 'neural') await ready(p);
+    else await p.waitForSelector('[data-core-ready=true]', { timeout: 120000 });
     await assertSelectedDecoded(p);
     await assertCoreCached(p);
     const faces = manifest.entries.filter(e => e.url.startsWith('tiles/') && e.url.endsWith('.svg'));
     assert.deepEqual(faces.map(face => face.url).sort(), [...TILE_IMAGE_URLS].sort());
     for (const face of faces) assert.ok(count.has(face.url), face.url);
-    assert.equal(count.get(modelPath), 1);
+    assert.equal(count.get(modelPath) ?? 0, strength === 'neural' ? 1 : 0);
     await p.screenshot({path:resolve(output, asset === dragonPath ? 'offline-first-foil.png' : 'offline-first-download.png'),fullPage:true});
     assert.deepEqual(p.errors, []);
   });
