@@ -240,3 +240,8 @@ web/test-results/
 
 # Temporary fixtures of the tile-effect and hot-reload browser checks
 web/.tile-effects-*/
+
+# Training runs started from the repository root: the documented
+# `--out runs/...` writes checkpoints, logs and a replay ring of several
+# gigabytes.
+/runs/
