@@ -64,6 +64,9 @@ updates:
   - package-ecosystem: pip
     # The exact CPU export and training tools CI installs: the browser worker
     # parity job, which every Pages deploy needs, and the trainer's tests.
+    # Both pin files here are read. constraints.txt also pins the Modal
+    # training image, so an update to it rebuilds that image at its next
+    # deploy; export-constraints.txt is CI's alone.
     directory: /.github/actions/python-engines
     schedule:
       interval: monthly

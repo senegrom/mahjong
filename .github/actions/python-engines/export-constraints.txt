@@ -1,0 +1,11 @@
+# Exact versions of the ONNX export tools and their dependencies, which only
+# CI installs (action.yml), beside the tools pinned in constraints.txt. The
+# Modal training image exports nothing and must not take them: onnx's protobuf
+# is newer than Modal's own client accepts, and in the container the image's
+# packages come before the client's.
+flatbuffers==25.12.19
+ml_dtypes==0.6.0
+onnx==1.23.0
+onnxruntime==1.30.0
+packaging==26.3
+protobuf==7.36.2
