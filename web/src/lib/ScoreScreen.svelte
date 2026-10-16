@@ -13,8 +13,7 @@
     reviewed = false,
     onlog,
     ongame,
-    // Opens the review of the whole game from the final hand, and says
-    // whether it opened.
+    // Opens the review of the whole game from the final hand.
     ongamereview,
     // Whether that review is open, from this sheet or from the standings.
     gameReviewOpen = false,
