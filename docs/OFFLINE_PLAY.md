@@ -84,11 +84,11 @@ nothing for two minutes. The 20-second deadline for a move starts only once the
 network is loaded. A Retry after a failed start tries offline saving again.
 
 The service worker saves the runtime (a few megabytes); the page saves the
-network itself (over 100 MB). A browser abandons a service-worker event that is
-still running after a few minutes (five in Chrome), and a half-received body is
-not kept, so on a slow link a worker could never finish the network. A page has
-no such deadline: a transfer that keeps receiving bytes may take up to three
-hours, and one that stalls for a minute fails and can be retried.
+network itself (over 100 MB), because a browser cuts a service worker's work
+short after a few minutes, too soon for the network on a slow link (see
+[cache lifetime and upgrades](ONNX_RUNTIME.md#cache-lifetime-and-upgrades)).
+A page has no such deadline: a transfer that keeps receiving bytes may take up
+to three hours, and one that stalls for a minute fails and can be retried.
 
 Cached availability does not need a successful online HEAD request. Reopening,
 reloading, retrying an AI worker or starting another match reads the downloaded
@@ -119,17 +119,14 @@ the update takes over.
 Updates wait until existing Mahjong windows close. An update installs with the
 game and graphics alone, never the network, and on a slow link it resumes over
 several attempts like a first install. When Trained AI was ever requested, the
-running version's page then saves the waiting update's runtime and network
-while you play, after its own network and never beside another network
-download; if that does not finish, the update's own page saves them after
-it starts, once per visit while connected, with the status panel showing
-progress. The update's network is the one its page will play for this
-player: the waiting worker reads the pick against its own list, and answers
-with its default when the player picked nothing or a version it no longer
-lists. A new version never plays a network it does not list: until the one
-it plays is saved, **Offline: game ready** is shown and Trained opponents
-need a connection. Check for **Offline: game + AI ready** after an update
-before flying. The previous network stays stored until the new one is
+update's runtime and network are saved while you play; if that does not
+finish, the update saves them itself once it starts, with the status panel
+showing progress (see [cache lifetime and
+upgrades](ONNX_RUNTIME.md#cache-lifetime-and-upgrades)). The update plays the
+network you picked while it still lists it, and its own default otherwise;
+until that network is saved, **Offline: game ready** is shown and Trained
+opponents need a connection. Check for **Offline: game + AI ready** after an
+update before flying. The previous network stays stored until the new one is
 saved. No downloaded model is replaced merely because a newer UI was published.
 
 The app requests persistent storage where supported, and reports whether the
@@ -143,9 +140,10 @@ When the browser reports too little free storage for the network, the page does
 not download it only to have it refused; the opponent's worker fetches it once
 for the session. When storage refuses a network the page has already verified,
 those bytes go to the worker instead of being downloaded again.
-These checks read the size and digest recorded when the network was verified
-and stored; they never read or hash the 116 MB again. The bytes handed to the
-runtime are hashed in full each time it loads them.
+These checks never read the 116 MB again: they read the size and digest
+recorded when the network was verified and stored. The network is checked in
+full again each time it is loaded to play (see [verification and
+memory](ONNX_RUNTIME.md#verification-and-memory)).
 
 ## Verification
 

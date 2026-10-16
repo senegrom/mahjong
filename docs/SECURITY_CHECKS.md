@@ -22,11 +22,10 @@ extension, checks its observation and legality buffers, and exercises a batch
 of legal moves. The Python binding requires Rust 1.83 or newer; CI uses Rust
 1.98.1.
 
-In `web/`, run `npm ci` and then `npm run verify`, the command CI runs: it
-audits npm dependencies at `--audit-level=low`, builds the WASM engine, lints,
-runs Svelte diagnostics (`npm run check`), builds the site and runs the unit,
-browser and icon checks. Generated WASM, third-party runtime files, build
-output and screenshots are not linted as handwritten application source.
+In `web/`, run `npm ci` and then `npm run verify`, the command CI runs; the
+[README](../README.md#run-and-verify) lists its steps. Its npm audit fails at
+`--audit-level=low`. Generated WASM, third-party runtime files, build output
+and screenshots are not linted as handwritten application source.
 
 ## Dependency and workflow policy
 
@@ -76,13 +75,6 @@ requires, exports tiny real networks and runs them through the production
 python -m neural.tests.export_worker_fixture /tmp/policy-worker-fixture
 node web/tests/policy-export-parity.mjs /tmp/policy-worker-fixture
 ```
-
-Combined checkpoints include the freeze-mode generator, CPU Torch state and
-available CUDA states. Restore happens after model, optimizer and opponent
-construction. Legacy checkpoints advance the freeze schedule to their absolute
-generation using the supplied seed and mode list, but warn that their missing
-Torch stream cannot be reproduced. CPU tests compare uninterrupted training
-with serialized, resumed training, including AdamW state and resulting weights.
 
 The browser export contract is Mortal version 4: 1,012 observation planes,
 34 tile positions and 46 actions, with named policy, value and hands outputs.

@@ -68,10 +68,15 @@ activation fetch the game alone. The worker saves the few megabytes of
 runtime; the page then fetches, verifies and stores the network in an
 installation-scoped v2 cache and tells the worker it is saved. A player who
 once asked for Trained offline has each later version's runtime and network
-saved by the running page while the update waits, or by the update's own page
-after it starts. A new version never plays a network it does not list, even
-one an earlier version left saved. Normal waiting-worker activation is
-retained: there is no forced mid-match upgrade.
+saved by the running page while the update waits, after the page's own
+network and never beside another network download, or else by the update's
+own page after it starts, once per visit while connected. The update's
+network is the one its page will play for this player: the waiting worker
+reads the pick against its own list, and answers with its default when the
+player picked nothing or a version it no longer lists. A new version never
+plays a network it does not list, even one an earlier version left saved.
+Normal waiting-worker activation is retained: there is no forced mid-match
+upgrade.
 
 Only the active worker prunes: at activation and after its page has saved its
 network. Every model its build lists, and the current and previous model
