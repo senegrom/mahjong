@@ -76,8 +76,8 @@ test('old compatible saves gain claimed-tile metadata without relaxing other sta
 test('sequence layout handles claims on every position and leaves concealed quads unrotated',()=>{
  for(const claimed of ['4m','5m','6m'])assert.equal(meldLayout({kind:'chii',from:'left',claimed_tile:claimed,tiles:['4m','5m','6m']}).tiles[0],claimed);
  assert.deepEqual(meldLayout({kind:'concealed-kan',from:'self',claimed_tile:null,tiles:['1p','1p','1p','1p']}),{tiles:['1p','1p','1p','1p'],turned:-1});
- // The turned tile is on the side the set came from, and a set recorded
- // without its claimed tile, as the guided table's are, is turned the same.
+ // The turned tile is on the side the set came from, and a set without its
+ // claimed tile, as the guided table passes its sets, is turned the same.
  assert.equal(meldLayout({kind:'pon',from:'across',claimed_tile:'7z',tiles:['7z','7z','7z']}).turned,1);
  assert.equal(meldLayout({kind:'claimed-kan',from:'right',claimed_tile:'2s',tiles:['2s','2s','2s','2s']}).turned,3);
  assert.deepEqual(meldLayout({kind:'chii',from:'left',tiles:['5m','4m','6m']}),{tiles:['5m','4m','6m'],turned:0});
