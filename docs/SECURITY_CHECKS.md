@@ -23,9 +23,10 @@ of legal moves. The Python binding requires Rust 1.83 or newer; CI uses Rust
 1.98.1.
 
 In `web/`, run `npm ci` and then `npm run verify`, the command CI runs; the
-[README](../README.md#run-and-verify) lists its steps. Its npm audit fails at
-`--audit-level=low`. Generated WASM, third-party runtime files, build output
-and screenshots are not linted as handwritten application source.
+[README](../README.md#run-and-verify) lists its steps. Its npm audit runs at
+`--audit-level=low`, so any advisory rated low or above fails it. Generated
+WASM, third-party runtime files, build output and screenshots are not linted
+as handwritten application source.
 
 ## Dependency and workflow policy
 
