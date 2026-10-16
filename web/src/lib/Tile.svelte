@@ -124,6 +124,25 @@
   let revealUrl = $derived(tileFace === 'van-gogh' ? null : tileFace === 'matisse' ? MATISSE_DRAGON_URL : dragonUrl);
 </script>
 
+<!-- The face is the same whether the tile is a button or a picture. -->
+{#snippet face()}
+  <span class="face" class:haku={whiteDragonDora} class:unpainted={Boolean(named)}>
+    {#if named}
+      <span class="name" aria-hidden="true"><b class="lead">{named.lead}</b><span class="rest">{named.rest}</span><b class="letters">{named.letters}</b></span>
+    {:else}
+      <img src={imageUrl} alt="" draggable="false" class:blank />
+    {/if}
+    {#if dora && !facedown}
+      {#key whiteDragonDora}
+        {#if whiteDragonDora && revealUrl}
+          <span class="haku-dragon-reveal" class:matisse={tileFace === 'matisse'} style:background-image={`url("${revealUrl}")`} aria-hidden="true"></span>
+        {/if}
+        <span class="foil" aria-hidden="true"></span>
+      {/key}
+    {/if}
+  </span>
+{/snippet}
+
 {#if onclick}
   <button
     class="tile {size}"
@@ -152,21 +171,7 @@
     aria-label={title || words}
     onclick={() => onclick(tile)}
   >
-    <span class="face" class:haku={whiteDragonDora} class:unpainted={Boolean(named)}>
-      {#if named}
-        <span class="name" aria-hidden="true"><b class="lead">{named.lead}</b><span class="rest">{named.rest}</span><b class="letters">{named.letters}</b></span>
-      {:else}
-        <img src={imageUrl} alt="" draggable="false" class:blank />
-      {/if}
-      {#if dora && !facedown}
-        {#key whiteDragonDora}
-          {#if whiteDragonDora && revealUrl}
-            <span class="haku-dragon-reveal" class:matisse={tileFace === 'matisse'} style:background-image={`url("${revealUrl}")`} aria-hidden="true"></span>
-          {/if}
-          <span class="foil" aria-hidden="true"></span>
-        {/key}
-      {/if}
-    </span>
+    {@render face()}
   </button>
 {:else}
   <span
@@ -186,21 +191,7 @@
     aria-label={title || words}
     title={title || words}
   >
-    <span class="face" class:haku={whiteDragonDora} class:unpainted={Boolean(named)}>
-      {#if named}
-        <span class="name" aria-hidden="true"><b class="lead">{named.lead}</b><span class="rest">{named.rest}</span><b class="letters">{named.letters}</b></span>
-      {:else}
-        <img src={imageUrl} alt="" draggable="false" class:blank />
-      {/if}
-      {#if dora && !facedown}
-        {#key whiteDragonDora}
-          {#if whiteDragonDora && revealUrl}
-            <span class="haku-dragon-reveal" class:matisse={tileFace === 'matisse'} style:background-image={`url("${revealUrl}")`} aria-hidden="true"></span>
-          {/if}
-          <span class="foil" aria-hidden="true"></span>
-        {/key}
-      {/if}
-    </span>
+    {@render face()}
   </span>
 {/if}
 
