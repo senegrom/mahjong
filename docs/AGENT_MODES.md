@@ -214,7 +214,11 @@ rotated together. Manual hand-end results remain explicitly manual. See
 **Undo last step** and resume work after reload. A new guided game requires
 confirmation and replaces only the guided save. Cross-window conflicts,
 unreadable records, and storage failures are handled explicitly as in the
-physical editor; a late analysis cannot modify a newer position.
+physical editor; a late analysis cannot modify a newer position. A guided
+game saved by the two-network builds of 9 and 10 September names an adviser
+this version does not have (quick or strong): it is no longer carried over
+to Trained, but opens as unreadable, is kept, and **New guided game**
+replaces it.
 
 ## Developer checks
 

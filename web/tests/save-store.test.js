@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MatchStore, SaveConflict, LEGACY_SAVE_KEY } from '../src/lib/save-store.js';
 import { MatchSession, SAVE_KEY } from '../src/lib/session.js';
-const snapshot = (moves = 0) => ({version:1,format:2,seed:11,difficulty:'club',commands:Array.from({length:moves},()=>({type:'choose',kind:'discard',tile:'1m'})),state:String(moves)});
+const snapshot = (moves = 0) => ({version:1,format:7,seed:11,difficulty:'club',commands:Array.from({length:moves},()=>({type:'choose',kind:'discard',tile:'1m'})),state:String(moves)});
 function environment() {
   const map = new Map(); let held = false;
   return { storage: {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)}, locks: {async request(name,options,fn){if(held)return fn(null);held=true;try{return await fn({name});}finally{held=false;}}} };
