@@ -23,11 +23,16 @@ table come back as they were, though the physical table's undo history
 starts afresh, and a watched game ends. One network plays
 in a page, so its opponents, advisers and offline status never mix two.
 A player who has never picked plays the default, and the next network
-published becomes theirs too; a pick, the default's version included, is
-kept until it is changed, and a version the site no longer lists plays
-the default. The pick is the settings record's `trainedNetwork` (record
-version 2), written only once a player picks; nothing else in the record
-changed, and nothing was reset for it.
+published becomes theirs too. Picking the default's version is no pick: it
+clears an earlier one, so that player also moves on with the default. Any
+other version is kept until it is changed, and a version the site no longer
+lists plays the default. The pick is the settings record's `trainedNetwork`
+(record version 2), written only when a player picks a version other than
+the default; nothing else in the record changed, and nothing was reset for
+it. On a phone, a Trained seat's badge says Trained alone: with the version
+it took a narrow seat's last header line to itself (the dealer's header ran
+to three lines at 320 px). The page's header shows the version, and a screen
+reader still hears it.
 
 Trained is offered once the network it plays is available, including after
 reconnect or download without reloading. A saved choice is not silently

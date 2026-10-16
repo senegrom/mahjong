@@ -2,7 +2,8 @@
  * service worker. A pick reloads the page, which then asks for that
  * network's address alone, names it wherever Trained plays or advises, and
  * is reported on by the worker; picking the default again brings the default
- * back, and a pick made in Agent watch reloads into Agent watch. The
+ * back and leaves no pick, and a pick made in Agent watch reloads into Agent
+ * watch. On a phone a seat's badge says Trained without the version. The
  * networks' host is unreachable for the whole browser and the page's own
  * requests for a network are answered here, so nothing downloads 116 MB:
  * what is checked is which address each page asks for. */
@@ -163,9 +164,33 @@ try {
     asked.length = 0;
     await pick(page, MANIFEST.version);
     await page.waitForSelector('.board');
-    assert.equal((await settings(page)).trainedNetwork, MANIFEST.version);
+    // Picking the default is no pick, so a newer default would replace it.
+    assert.equal(Object.hasOwn(await settings(page), 'trainedNetwork'), false, 'picking the default again leaves no pick');
     assert.deepEqual(await askedFor(page, asked, MANIFEST), [addressOf(MANIFEST)], 'back on the default, 410 is not asked for');
     assert.deepEqual(await named(page), playing(MANIFEST));
+    assert.deepEqual(page.problems, []);
+  });
+
+  await cases.check('on a phone each Trained seat badge says Trained in one line, and a screen reader still hears the version', async () => {
+    const page = await open([]);
+    await page.waitForSelector('.board');
+    const seen = {};
+    for (const width of [390, 360, 320]) {
+      await page.setViewport({ width, height: 800, isMobile: true, hasTouch: true });
+      await page.waitForFunction(() => getComputedStyle(document.querySelector('.score-short')).display !== 'none');
+      // The badge's text as laid out, one box a line. How many lines the whole
+      // header takes depends on the platform's fonts, so it is not asserted:
+      // with the version the badge took a header's last line to itself.
+      seen[width] = await page.$$eval('.opponent-type[data-controller="neural"]', found => found.map(badge => {
+        const range = document.createRange();
+        range.selectNodeContents(badge);
+        const lines = new Set([...range.getClientRects()].filter(box => box.width > 0).map(box => Math.round(box.top))).size;
+        return { shown: badge.innerText.trim(), label: badge.getAttribute('aria-label'), lines };
+      }));
+      await page.screenshot({ path: resolve(output, `network-picker-phone-${width}.png`) });
+    }
+    const badge = Array(3).fill({ shown: 'Trained', label: `Trained ${MANIFEST.version} opponent`, lines: 1 });
+    assert.deepEqual(seen, { 390: badge, 360: badge, 320: badge });
     assert.deepEqual(page.problems, []);
   });
 

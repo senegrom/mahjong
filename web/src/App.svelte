@@ -26,7 +26,7 @@
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
   import { DEFAULT_OPPONENT, normalizeOpponents, opponentPreset, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
-  import { playNetwork } from './lib/trained-network.js';
+  import { MANIFEST, playNetwork } from './lib/trained-network.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
   const touch = matchMedia('(pointer: coarse)').matches;
@@ -284,10 +284,12 @@
     // if it was, so picking it again brings it back.
     const offlineNote = navigator.onLine ? '' : ' Offline, it plays only if it was saved on this device.';
     if (!confirm(`Switch to Trained ${version}? The page reloads to load it${lost}.${offlineNote}`)) return false;
-    trainedNetwork = version;
+    // Picking the default is no pick, so the page moves on with the default
+    // when a newer network is published; another version stays picked.
+    trainedNetwork = version === MANIFEST.version ? undefined : version;
     storedSettings = writeSettings(storage, currentSettings(), storedSettings);
     // A pick that is not kept would be lost as the page reloads.
-    if (readSettings(storage, touch).trainedNetwork !== version) {
+    if (readSettings(storage, touch).trainedNetwork !== trainedNetwork) {
       trainedNetwork = preferences.trainedNetwork;
       storedSettings = writeSettings(storage, currentSettings(), storedSettings);
       notice = 'This browser is not keeping your settings, so another trained network cannot be loaded here.';

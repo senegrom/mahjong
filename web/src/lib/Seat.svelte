@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
 
   import { OPPONENT_LABELS, opponentName } from './opponents.js';
+  import { playedNetwork } from './trained-network.js';
   import { calledSet, seatAnnouncement } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
   import Discards from './Discards.svelte';
@@ -62,8 +63,12 @@
     <span class="score score-full">{seat.score.toLocaleString()}</span>
     <span class="score score-short" title={seat.score.toLocaleString()}>{shortScore(seat.score)}</span>
     {#if OPPONENT_LABELS[seat.controller]}
+      <!-- On a phone the version pushed a seat's header onto a third line: the
+        badge says Trained alone there, the page's header shows the version, and
+        a screen reader still hears it. -->
       <span class="opponent-type" data-controller={seat.controller} data-player={seat.player} role="img"
-        aria-label={`${opponentName(seat.controller)} opponent`}>{opponentName(seat.controller)}</span>
+        aria-label={`${opponentName(seat.controller)} opponent`}>{OPPONENT_LABELS[seat.controller]}{#if seat.controller === 'neural'}<span
+          class="opponent-version">{` ${playedNetwork().version}`}</span>{/if}</span>
     {/if}
     {#if seat.riichi}<span class="stick" title="declared riichi"></span>{/if}
     {#if announcement}
@@ -223,6 +228,7 @@
     .score-full { display: none; }
     .score-short { display: inline; }
     .dealer-badge { padding-inline: 4px; font-size: .5rem; }
+    .opponent-version { display: none; }
   }
   @media (min-width: 761px) {
     .seat { min-height: 150px; padding: 12px 14px; border-radius: 14px; }
