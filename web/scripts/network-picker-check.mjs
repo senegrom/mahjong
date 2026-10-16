@@ -2,7 +2,8 @@
  * service worker. A pick reloads the page, which then asks for that
  * network's address alone, names it wherever Trained plays or advises, and
  * is reported on by the worker; picking the default again brings the default
- * back, and a pick made in Agent watch reloads into Agent watch. The
+ * back and leaves no pick, and a pick made in Agent watch reloads into Agent
+ * watch. A phone's seats name Trained without its version. The
  * networks' host is unreachable for the whole browser and the page's own
  * requests for a network are answered here, so nothing downloads 116 MB:
  * what is checked is which address each page asks for. */
@@ -163,9 +164,24 @@ try {
     asked.length = 0;
     await pick(page, MANIFEST.version);
     await page.waitForSelector('.board');
-    assert.equal((await settings(page)).trainedNetwork, MANIFEST.version);
+    // Picking the default is no pick, so a newer default would replace it.
+    assert.equal(Object.hasOwn(await settings(page), 'trainedNetwork'), false, 'picking the default again leaves no pick');
     assert.deepEqual(await askedFor(page, asked, MANIFEST), [addressOf(MANIFEST)], 'back on the default, 410 is not asked for');
     assert.deepEqual(await named(page), playing(MANIFEST));
+    assert.deepEqual(page.problems, []);
+  });
+
+  await cases.check('on a phone each Trained seat says Trained on its first line, and a screen reader still hears the version', async () => {
+    const page = await open([]);
+    await page.waitForSelector('.board');
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.score-short')).display !== 'none');
+    const badges = await page.$$eval('.opponent-type[data-controller="neural"]', found => found.map(badge => {
+      const wind = badge.closest('header').querySelector('.wind').getBoundingClientRect(), box = badge.getBoundingClientRect();
+      return { shown: badge.innerText.trim(), label: badge.getAttribute('aria-label'), firstLine: box.top < wind.bottom && wind.top < box.bottom };
+    }));
+    await page.screenshot({ path: resolve(output, 'network-picker-phone.png') });
+    assert.deepEqual(badges, Array(3).fill({ shown: 'Trained', label: `Trained ${MANIFEST.version} opponent`, firstLine: true }));
     assert.deepEqual(page.problems, []);
   });
 

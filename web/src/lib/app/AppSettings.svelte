@@ -133,7 +133,7 @@
         {/each}
       </select>
     </label>
-    <p>Trained opponents and advisers play this network in every mode. Changing it reloads the page: your match is kept, and a watched game ends.</p>
+    <p>Trained opponents and advisers play this network in every mode. The default moves to each newer network as it is published; another version stays until you change it. Changing it reloads the page: your match is kept, and a watched game ends.</p>
   </div>
 </details>
 {#if mode === 'play' && onsavegame}
