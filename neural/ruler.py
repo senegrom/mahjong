@@ -48,13 +48,28 @@ turn on a bit (see `play_graphs`). So:
   the processor, in float32, a row's answer can depend on where it sits in
   the batch, so there the switches can turn a near tie.
 
+A challenger may average over the suits (`--average-suits first`, `second`
+or `both`): each question its plain answer hesitates over is asked of the
+game with characters and circles renamed too, and the mean of the two
+answers' logits is played (see `suits`). Its tables are followed a second
+time, renamed, and the questions asked again go to the network in a
+forward of their own, so its plain questions are asked as a plain
+player's are. A paired call of one checkpoint plain and averaging, asked
+in fixed rows on the card, plays each deal the same at both arms' tables
+until a decision of the averaging arm changes, which is what reads such a
+small effect.
+
     python -m neural.ruler challenger.pt incumbent.pt --graphs --games 1000 --seed 9100000
     python -m neural.ruler a.pt incumbent.pt --also b.pt --questions fixed --graphs \\
         --skip-forced --preview-reach --games 1000 --seed 9100000
+    python -m neural.ruler a.pt incumbent.pt --also a.pt --average-suits first --questions fixed \\
+        --graphs --skip-forced --preview-reach --games 1000 --seed 9100000
 
 The report is the duel's, with `play` saying how it played and where the
 time went (see `duel.Split`); with `--also`, one entry a challenger under
-`arms` and their `difference`, positive when the first is the stronger.
+`arms` and their `difference`, positive when the first is the stronger. A
+challenger that averages over the suits says under `suits` how many rows
+it was asked, how many it asked again, and how many the mean changed.
 """
 
 from __future__ import annotations
@@ -72,7 +87,7 @@ from torch import nn
 
 import riichi_py
 
-from . import play_graphs, zoo
+from . import play_graphs, suits, zoo
 from .duel import Split, play_record, verdict
 from .outcomes import paired_summary, placements, require_finished, validate_budget, win_shares
 from .training_safety import TRAINING_API_VERSION, require_training_engine
@@ -81,6 +96,8 @@ ACTIONS = riichi_py.ACTIONS
 SEATS = 4
 #: How the networks are asked; see the module's notes.
 QUESTIONS = ("seating", "fixed")
+#: Which challengers may average over the suits (`--average-suits`).
+AVERAGING = ("first", "second", "both")
 #: The one size every question is asked at with `--questions fixed`. About
 #: where a joined player's forward on the card stops being bound by its
 #: launching (see `play_graphs.ROWS`), so a step's thousands of rows are
@@ -273,6 +290,7 @@ def seat(
     graphs: bool = False,
     skip_forced: bool = False,
     preview_reach: bool = False,
+    average_suits: bool = False,
 ):
     """A player from a checkpoint, as a ruler seats it: asked only for
     moves, so with no gradients, its convolutions' and linear layers'
@@ -282,7 +300,9 @@ def seat(
     `ask_in_fixed_rows`) with the switches that then change no answer.
     Asked by seating, `graphs` answers the questions it is asked often
     from graphs at their own sizes, which changes no answer either (see
-    `ExactGraphs`)."""
+    `ExactGraphs`). With `average_suits`, the questions it hesitates over
+    are asked of the renamed game too, each forward as the others are,
+    and the mean of the two answers is played (see `suits.average`)."""
     validate_questions(questions, rows, graphs, skip_forced, preview_reach)
     if str(path) == zoo.CLUB:
         raise ValueError("the heuristic player plays inside the arena and cannot be seated at a ruler")
@@ -302,6 +322,8 @@ def seat(
             player.preview_reach = True
     elif graphs:
         ask_from_exact_graphs(player, device)
+    if average_suits:
+        suits.average(player)
     return player
 
 
@@ -315,6 +337,19 @@ def validate_questions(questions: str, rows: int, graphs: bool, skip_forced: boo
         # Each changes the batches a network is asked in, and with them the
         # last bits of answers, unless every batch has one size.
         raise ValueError("skip-forced and preview-reach change answers unless the questions are fixed")
+
+
+def renamed_tables(challengers: list, incumbent, layout: Layout) -> np.ndarray | None:
+    """The tables a ruler follows a second time with characters and circles
+    renamed: those of the challengers that average over the suits, or
+    every table if the incumbent does; None when no player does, and then
+    the views follow nothing more than they always did."""
+    if suits.averaging(incumbent) is not None:
+        return np.arange(layout.games)
+    averaging = np.array([suits.averaging(player) is not None for player in challengers])
+    if not averaging.any():
+        return None
+    return np.flatnonzero(averaging[layout.arm_of])
 
 
 def groups(rows: np.ndarray, block_of: np.ndarray, apart: bool) -> list[np.ndarray]:
@@ -347,8 +382,9 @@ def play(
     the challengers are asked first, then the incumbent, each about its own
     rows: in `questions` "seating", each seating's block apart, as the old
     duel's tables asked; in "fixed", all of them at once, the player cutting
-    them into pieces itself. With `timing`, a dict, adds where the time went
-    to it (see `duel.Split`)."""
+    them into pieces itself. A table at which a player that averages over
+    the suits sits is followed a second time, renamed (see `suits`). With
+    `timing`, a dict, adds where the time went to it (see `duel.Split`)."""
     require_training_engine()
     require_seeded_arena()
     validate_budget(deals, max_steps)
@@ -364,7 +400,8 @@ def play(
     apart = questions == "seating"
     clock = Split(timing)
     arena = riichi_py.Arena(games=games, seeds=layout.seeds(seed))
-    views = clock.views_for(arena, games, {player.kind for player in (*challengers, incumbent)})
+    views = clock.views_for(arena, games, {player.kind for player in (*challengers, incumbent)},
+                            renamed_tables(challengers, incumbent, layout))
     # Only a player that reads Mortal's planes is served the follower's
     # encodings; one of ours over the engine's planes reads the engine's.
     encoded = [player.kind == "mortal" for player in challengers]
@@ -528,14 +565,20 @@ def ruler(
 ) -> dict:
     """Plays a ruler and reports it: as `neural.duel` reports a duel for one
     challenger, and for two, an entry each under `arms` and their
-    `difference`. With `timing`, a dict, the report says how it played and
-    where the time went, as `play`, with `how` among it."""
+    `difference`; a challenger that averages over the suits says what that
+    did under `suits` (see `suits.Averaging`). With `timing`, a dict, the
+    report says how it played and where the time went, as `play`, with
+    `how` among it."""
     began = time.perf_counter()
     scores = play(challengers, incumbent, deals, seed, device=device, max_steps=max_steps,
                   questions=questions, timing=timing)
     seconds = time.perf_counter() - began
     layout = Layout(len(challengers), deals)
     arms = [arm_report(scores, layout, arm) for arm in range(layout.arms)]
+    for arm, player in zip(arms, challengers):
+        account = suits.averaging(player)
+        if account is not None:
+            arm["suits"] = account.report()
     result = {"training_api_version": TRAINING_API_VERSION, "seed": seed}
     if len(arms) == 1:
         result.update(arms[0])
@@ -570,6 +613,9 @@ def main() -> None:
                         help="with --questions fixed, leave rows with one move open unasked")
     parser.add_argument("--preview-reach", action="store_true",
                         help="with --questions fixed, ask a reach's tile in the question that chooses it")
+    parser.add_argument("--average-suits", choices=AVERAGING, default=None,
+                        help="the challengers that ask each question they hesitate over of the game with "
+                             "characters and circles renamed too, and play the mean of the two answers")
     parser.add_argument("--timing", action="store_true",
                         help="report how it played and where the time went, as `play`")
     parser.add_argument(
@@ -577,14 +623,20 @@ def main() -> None:
     )
     args = parser.parse_args()
     validate_questions(args.questions, args.rows, args.graphs, args.skip_forced, args.preview_reach)
+    if args.average_suits in ("second", "both") and args.also is None:
+        parser.error(f"--average-suits {args.average_suits} names a second challenger: name it with --also")
 
     how = {"questions": args.questions, "graphs": args.graphs}
     if args.questions == "fixed":
         how.update(rows=args.rows, skip_forced=args.skip_forced, preview_reach=args.preview_reach)
+    if args.average_suits:
+        how["average_suits"] = args.average_suits
     options = {name: getattr(args, name) for name in ("questions", "rows", "graphs", "skip_forced", "preview_reach")}
     began = time.perf_counter()
     paths = [args.challenger] + ([args.also] if args.also is not None else [])
-    challengers = [seat(path, args.device, **options) for path in paths]
+    averaging = [args.average_suits in (which, "both") for which in ("first", "second")]
+    challengers = [seat(path, args.device, **options, average_suits=averages)
+                   for path, averages in zip(paths, averaging)]
     incumbent = seat(args.incumbent, args.device, **options)
     loaded = time.perf_counter() - began
     timing = {} if args.timing else None

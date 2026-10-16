@@ -35,6 +35,8 @@ import libriichi
 import riichi_py
 from libriichi.follow import Follower
 
+from . import suits
+
 VERSION = 4
 PLANES, POSITIONS = libriichi.consts.obs_shape(VERSION)
 WIDTH = PLANES * POSITIONS
@@ -388,24 +390,50 @@ def pad_rows(tensor: torch.Tensor, rows: int, value: float | bool = 0) -> torch.
 
 class Observer:
     """Follows an arena's games through Mortal's engine, whose follower
-    encodes what the deciding players see.
+    encodes what the deciding players see; and, for the games `renamed`
+    names, follows them again with characters and circles renamed, for a
+    player that asks the renamed game too (see `suits`).
 
     Call `advance` once a step, after the arena has moved and before
     anyone is asked for a decision, so the follower has read everything up
     to the decision.
     """
 
-    def __init__(self, arena, games: int) -> None:
+    def __init__(self, arena, games: int, renamed=None) -> None:
         self.arena = arena
         self.follower = Follower(games, VERSION)
+        #: The renamed game's follower, or None; the arena's games it
+        #: follows, in order; and where each of the arena's games sits in
+        #: it, -1 for one it does not follow.
+        self.renamed = None
+        self.renamed_games: list[int] = []
+        self.renamed_at = np.full(games, -1, dtype=np.int64)
+        if renamed is not None:
+            chosen = np.unique(np.asarray(renamed, dtype=np.int64))
+            if len(chosen) and (chosen[0] < 0 or chosen[-1] >= games):
+                raise ValueError("the renamed games must be games of the arena")
+            self.renamed = Follower(len(chosen), VERSION)
+            self.renamed_games = chosen.tolist()
+            self.renamed_at[chosen] = np.arange(len(chosen))
 
     def advance(self, starts=None) -> None:
-        """Reads whatever happened since last time, and hands the lines to
-        `starts` as well when given (see `scoreboard.HandStarts`)."""
+        """Reads whatever happened since last time: both followers the same
+        events, the arena handing each game's only once; and hands the lines
+        to `starts` as well when given (see `scoreboard.HandStarts`)."""
         lines = self.arena.mjai_all()
         if starts is not None:
             starts.read(lines)
         self.follower.feed(lines)
+        if self.renamed is not None:
+            self.renamed.feed(suits.rename_games(lines, self.renamed_games))
+
+    def tell(self, game: int, player: int, line: str) -> None:
+        """Tells `player` in `game` an event ahead of the table, in the
+        renamed game too where that game is followed (see `Follower.tell`)."""
+        self.follower.tell(game, player, line)
+        at = int(self.renamed_at[game])
+        if at >= 0:
+            self.renamed.tell(at, player, suits.rename_line(line))
 
 
 @functools.cache
@@ -452,11 +480,13 @@ class Views:
 
     ENGINE_PLANES = riichi_py.PLANES
 
-    def __init__(self, arena, games: int, kinds: set[str] | None = None, starts=None) -> None:
+    def __init__(self, arena, games: int, kinds: set[str] | None = None, starts=None, renamed=None) -> None:
         self.arena = arena
         self.games = games
         kinds = set(kinds or {"mortal"})
-        self.observer = Observer(arena, games) if "mortal" in kinds else None
+        if renamed is not None and "mortal" not in kinds:
+            raise ValueError("only Mortal's planes are encoded from the renamed game")
+        self.observer = Observer(arena, games, renamed) if "mortal" in kinds else None
         # Where each hand begins, read from the same events when a round
         # keeps a ledger (see `scoreboard.HandStarts`); None otherwise.
         self.starts = starts
@@ -467,6 +497,10 @@ class Views:
             # of an old network. A ledger of a table nobody follows reads it
             # every step (see `advance`), so it is never held for long.
             arena.forget_events()
+        #: The renamed game's views of the games `renamed` names, for a
+        #: player that averages over the suits (see `suits.average`), or None.
+        self.renamed = (RenamedViews(self) if self.observer is not None and self.observer.renamed is not None
+                        else None)
         self._engine: np.ndarray | None = None
         # The step's encodings of deciding players, each one call of the
         # encoder's, made here or by a worker (see `prepare`).
@@ -525,20 +559,27 @@ class Views:
 
     def tell(self, game: int, player: int, line: str) -> None:
         """Tells `player` in `game` an event ahead of the table (see
-        `Follower.tell`), once nothing is being encoded from the follower."""
+        `Follower.tell`), and in its renamed game where that is followed,
+        once nothing is being encoded from the follower."""
         self.wait()
-        self.observer.follower.tell(game, player, line)
+        self.observer.tell(game, player, line)
 
     def _encode(
-        self, who: list[tuple[int, int]], after_reach: bool = False
+        self, who: list[tuple[int, int]], after_reach: bool = False, renamed: bool = False
     ) -> tuple[Planes, np.ndarray]:
         """The follower's encoding of those players now, trusted (see
         `Planes`), with the values halved by the encoder's own workers
         rather than here on one thread; with `after_reach`, as each would
-        stand having declared riichi."""
-        indptr, indices, values, masks = self.observer.follower.encode(
-            who, after_reach=after_reach, half=True
-        )
+        stand having declared riichi; with `renamed`, in their games with
+        characters and circles renamed, from the renamed game's follower."""
+        follower = self.observer.follower
+        if renamed:
+            at = self.observer.renamed_at
+            who = [(int(at[game]), player) for game, player in who]
+            if any(game < 0 for game, _player in who):
+                raise ValueError("the renamed game of a table these views do not follow renamed")
+            follower = self.observer.renamed
+        indptr, indices, values, masks = follower.encode(who, after_reach=after_reach, half=True)
         return (Planes.from_follower(indptr, indices, values, trusted=True),
                 np.asarray(masks, dtype=bool))
 
@@ -594,3 +635,29 @@ class Views:
         if kind == "engine":
             return torch.from_numpy(self.engine()[rows]).to(device)
         raise ValueError(f"no such kind of network: {kind}")
+
+
+class RenamedViews:
+    """The renamed game's views, served as `Views` serves the game's to a
+    player asking in Mortal's moves (`sparse_and_masks`), for one that
+    averages over the suits (see `suits.average`): of the players named by
+    their tables in the arena, each in its game with characters and circles
+    renamed. Every view is encoded when it is asked for, from the renamed
+    game's follower as it stands: only the questions a player hesitates
+    over come here, known once its plain question is answered, so nothing
+    can be prepared ahead, and a reach told to the game's follower has been
+    told to the renamed game's too (`Views.tell`). The worker that encodes
+    aside reads only the game's follower, so nothing here waits for it."""
+
+    def __init__(self, views: Views) -> None:
+        self.views = views
+
+    def sparse_and_masks(
+        self, rows: np.ndarray, players: np.ndarray, fresh: bool = False, after_reach: bool = False
+    ) -> tuple[Planes, np.ndarray]:
+        """Mortal's view of `players[i]` in the renamed game of table
+        `rows[i]`, sparse, with Mortal's own masks of the renamed game;
+        with `after_reach`, as each would stand having declared riichi.
+        Always fresh, so `fresh` changes nothing."""
+        who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
+        return self.views._encode(who, after_reach, renamed=True)

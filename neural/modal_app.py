@@ -1182,6 +1182,7 @@ def ruler(
     preview_reach: bool = False,
     timing: bool = True,
     run: str = DEFAULT_RUN,
+    average_suits: str = "",
 ) -> str:
     """A duel played the faster way, with a second challenger if `also`
     names one (see `neural.ruler`): every table of the duel in one arena,
@@ -1189,7 +1190,10 @@ def ruler(
     `questions` "seating" plays the old duel's games bit for bit, `graphs`
     answering the sizes asked often from a graph each at its own size;
     "fixed" asks every question in pieces of `rows`, where `graphs`,
-    `skip_forced` and `preview_reach` change no answer.
+    `skip_forced` and `preview_reach` change no answer. `average_suits`,
+    "first", "second" or "both", names the challengers that ask the
+    questions they hesitate over of the game with characters and circles
+    renamed too, and play the mean of the two answers (see `neural.suits`).
 
     The answer is the report, with the checkpoints named as the volume
     names them. With a `tag` it is also kept on the volume, at
@@ -1200,6 +1204,10 @@ def ruler(
         raise ValueError("questions must be seating or fixed")
     if questions != "fixed" and (skip_forced or preview_reach):
         raise ValueError("skip_forced and preview_reach change answers unless the questions are fixed")
+    if average_suits not in ("", "first", "second", "both"):
+        raise ValueError("average_suits must name the first challenger, the second or both")
+    if average_suits in ("second", "both") and not also:
+        raise ValueError("average_suits names a second challenger, and also names none")
     folder = _ruler_folder(tag) if tag else None
     volume.reload()
     names = [challenger, incumbent, *([also] if also else [])]
@@ -1231,6 +1239,8 @@ def ruler(
             command += ["--also", str(files[2])]
         if questions == "fixed":
             command += ["--rows", str(rows)]
+        if average_suits:
+            command += ["--average-suits", average_suits]
         for flag, wanted in (("--graphs", graphs), ("--skip-forced", skip_forced),
                              ("--preview-reach", preview_reach), ("--timing", timing)):
             if wanted:

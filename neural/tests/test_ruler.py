@@ -493,6 +493,22 @@ class CloudTests(unittest.TestCase):
             with self.subTest(**bad), self.assertRaises(ValueError):
                 app.ruler(challenger="x", **bad)
 
+    def test_a_challenger_that_averages_over_the_suits_is_named_to_the_child(self):
+        report = {"seed": 5, "arms": [{"challenger": "x", "by_deal": [2.4], "suits": {"again": 3}},
+                                      {"challenger": "y", "by_deal": [2.5]}]}
+        answer, calls, _texts = self.call(report, challenger="history/gen-00810", also="history/gen-00810",
+                                          seed=5, average_suits="first", questions="fixed", graphs=True)
+        (command,) = calls
+        self.assertEqual(command[command.index("--average-suits") + 1], "first")
+        self.assertEqual(json.loads(answer)["arms"][0]["suits"], {"again": 3})
+        # Asked for nothing of the kind, the child is told nothing of it.
+        _answer, calls, _texts = self.call({"seed": 5, "by_deal": [2.5]}, challenger="history/gen-00810", seed=5)
+        self.assertNotIn("--average-suits", calls[0])
+        app = controller()
+        for bad in ({"average_suits": "third"}, {"average_suits": "second"}, {"average_suits": "both"}):
+            with self.subTest(**bad), self.assertRaises(ValueError):
+                app.ruler(challenger="x", **bad)
+
     def test_a_failed_child_raises(self):
         with self.assertRaises(subprocess.CalledProcessError):
             self.call({}, code=1, challenger="history/gen-00910", tag="t")

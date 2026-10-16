@@ -54,8 +54,8 @@ class TimedViews(Views):
     playing thread's work rather than adding to it. What they encode is
     exactly what `Views` encodes."""
 
-    def __init__(self, arena, games: int, kinds: set[str] | None = None) -> None:
-        super().__init__(arena, games, kinds)
+    def __init__(self, arena, games: int, kinds: set[str] | None = None, renamed=None) -> None:
+        super().__init__(arena, games, kinds, renamed=renamed)
         self.here = 0.0
         self.aside = 0.0
         self._playing = threading.get_ident()
@@ -68,10 +68,10 @@ class TimedViews(Views):
             else:
                 self.aside += seconds
 
-    def _encode(self, who, after_reach: bool = False):
+    def _encode(self, who, after_reach: bool = False, renamed: bool = False):
         began = time.perf_counter()
         try:
-            return super()._encode(who, after_reach)
+            return super()._encode(who, after_reach, renamed)
         finally:
             self._count(time.perf_counter() - began)
 
@@ -122,11 +122,11 @@ class Split:
             if rows:
                 self.timing["decisions"][part] += rows
 
-    def views_for(self, arena, games: int, kinds: set[str]):
+    def views_for(self, arena, games: int, kinds: set[str], renamed=None):
         """The views a table timed this way is served from, and from now
-        on the ones whose encoding it counts: `Views` itself when nothing
-        is timed."""
-        self.views = (TimedViews if self.timing is not None else Views)(arena, games, kinds)
+        on the ones whose encoding it counts, the renamed game's included
+        (see `Views`): `Views` itself when nothing is timed."""
+        self.views = (TimedViews if self.timing is not None else Views)(arena, games, kinds, renamed)
         return self.views
 
 
