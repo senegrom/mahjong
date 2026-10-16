@@ -36,19 +36,20 @@ the exact CPU export and training tools CI installs, and at `/web/runtime`,
 the runtime rebuild's tools. `onnxruntime-web` gets a pull request of its own,
 which fails until the runtime is rebuilt at that release (see
 [ONNX_RUNTIME.md](ONNX_RUNTIME.md)).
-
-The Modal training image (`neural/modal_app.py`) is built with the same tools:
-Rust 1.98.1, PyTorch 2.8.0, the packages pinned in the action's
-`constraints.txt` (numpy, maturin and PyTorch's dependencies) and both engines
-from their lockfiles with `--locked`. An update to those pins changes the
-image only when the app is next deployed. The ONNX export tools, pinned in
-`export-constraints.txt` beside it, are CI's alone. CI installs PyTorch without
-its dependencies, so that only the pinned releases of them run, then fails on
-any unmet requirement (`pip check`) and on any package that arrived unpinned.
 The root Python binding uses PyO3
 0.29.2 and explicitly retains the previous GIL requirement. The vendored
 observation engine has its own dependency versions and must pass its own
 audit; a clean root audit makes no claim about that separate lockfile.
+
+The Modal training image (`neural/modal_app.py`) is built with the tools CI
+tests: Rust 1.98.1, PyTorch 2.8.0, the packages pinned in the python-engines
+action's `constraints.txt` (numpy, maturin and PyTorch's dependencies), and
+both engines from their lockfiles with `--locked`. An update to those pins
+reaches the image only when the app is next deployed. The ONNX export tools,
+pinned in `export-constraints.txt` beside it, are CI's alone. CI installs
+PyTorch without its dependencies, so that only their pinned releases run, then
+fails on any unmet requirement (`pip check`) and on any package that arrived
+unpinned.
 
 Actions are pinned to full upstream commit IDs. The JavaScript actions use
 Node 24 internally; the application build still uses Node 22. wasm-pack is
