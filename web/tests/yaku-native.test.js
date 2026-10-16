@@ -76,15 +76,15 @@ test('two dragon triplets retain unique render identities and individual highlig
   }
 });
 
-test('ambiguous tiles follow the selected score, not the first JavaScript decomposition', () => {
+test('ambiguous tiles follow the reading the scorer chose, not another way to split them', () => {
   const winner = win('111222333m456p5s', '5s');
   assert.equal(winner.scoring.sets.filter(g => g.kind === 'triplet').length, 3);
   assert.equal(selected(winner, 'Three Concealed Triplets').length, 9);
 });
 
 // Every yaku made of particular sets lights the sets the scorer scored, and
-// no other tile: South's standing tiles, the winning tile, South's called
-// sets, and the tiles that make the yaku.
+// no other tile: South's standing tiles, the winning tile, South's declared
+// or called sets, and the tiles that make the yaku.
 for (const [name, standing, winning, melds, made] of [
   ['Pure Double Sequence', '223344m678p11s55z', '5z', [], '223344m'],
   ['Mixed Triple Sequence', '345m345p345s11z99m', '9m', [], '345m345p345s'],
@@ -97,7 +97,7 @@ for (const [name, standing, winning, melds, made] of [
   ['Big Three Dragons', '555z666z777z12m55p', '3m', [], '555666777z'],
   ['Little Four Winds', '111z222z333z44z23m', '1m', [], '11122233344z'],
   ['Big Four Winds', '111z222z333z444z5m', '5m', [], '111222333444z'],
-]) test(`${name} lights the sets that make it${melds.length ? ', called ones included' : ''}`, () => {
+]) test(`${name} lights the sets that make it${melds.length ? ', declared or called ones included' : ''}`, () => {
   assert.deepEqual(selected(win(standing, winning, 'ron', melds), name).sort(), parseTiles(made).sort());
 });
 
