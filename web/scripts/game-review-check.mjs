@@ -505,6 +505,7 @@ try {
     assert.equal(await page.$eval('[data-game-review] [data-moved]', el => el.getAttribute('role')), 'status');
     assert.equal(await page.$eval('[data-game-review] [data-moved]', el => el.textContent),
       `Decisions reviewed since departed further from Trained AI: this one is now ${nth(rank + 1)} of ${keys.length}, and every flagged decision is shown.`);
+    await shot(page, 'game-review-moved');
     // Focus moving on clears the note, which spoke of the decision it left.
     await page.focus('[data-game-review] [data-every-flag]');
     await page.waitForFunction(() => document.querySelector('[data-game-review] [data-moved]')?.textContent === '', { timeout: 5000 });
