@@ -283,9 +283,25 @@ whole round, which a fork starts from). It reads:
 
 ### The fork's stop rules
 
-A fork from fusion-long's newest checkpoint, at alpha 0 and alpha 0.05,
-trains with fusion-long's recipe at its rates before generation 873 (2e-6,
-8e-7, 6e-7), after one warm-up generation, refitting U every 50:
+A fork from fusion-long's newest checkpoint trains with fusion-long's
+recipe at its rates before generation 873 (2e-6, 8e-7, 6e-7), after one
+warm-up generation, refitting U every 50. Since one place is worth 1 in the
+reward and a hand's points count alpha / 4,000 each, a place is worth
+4,000 / alpha points:
+
+| alpha | a place is worth | what it is |
+|---|---|---|
+| 0 | any number of points | placement alone, what the ruler counts |
+| 0.05 | 80,000 points | lexicographic: points only break ties |
+| 0.2 | 20,000 points | trained only if 0.4 passes its ruler at +100 |
+| 0.4 | 10,000 points | EMA's own rate, the uma's 15,000 / 5,000 / -5,000 / -15,000 |
+| about 1 | 4,000 points | today's return, for comparison |
+
+Alpha 0, 0.05 and 0.4 started together from 1010 on 16 October 2026. The
+trainers run one container at a time, and Modal pools a function's
+containers by the options a call is spawned with, so each fork is spawned
+with its run's name in its environment: a pool of its own, side by side
+with the others, while one run still never trains in two containers.
 
 - **At +50:** stop when the fork's placement against published Mortal in
   the log's `matchups` is more than 0.006 worse than fusion-long's plateau
@@ -300,7 +316,10 @@ trains with fusion-long's recipe at its rates before generation 873 (2e-6,
   between: continue to +200 and rule again. A registered series of
   `docs/RULER.md` plays the published rulers' seeds, so it pairs with
   them deal by deal; register its rule before its first seed, as that
-  document says, for an effect of 0.006 or less.
+  document says, for an effect of 0.006 or less. The forks' series are
+  `place-<arm>-g1110`, asked by seating without graphs (the same games as
+  the old duel, 2.15 times as fast) and read `--against g1010`, fusion-long's
+  ruler of 1010 kept as a series, by the usual rule of up to 20 seeds.
 
 ## Replay validation and completed learning rounds
 
