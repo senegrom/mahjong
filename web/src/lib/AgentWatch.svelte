@@ -179,7 +179,7 @@
     {#if standings}<Standings {standings} onagain={start} onsave={saveGame} playerLabel={positions[0]} />{/if}
     {#if view.phase === 'over' && view.outcome}
       <ScoreScreen outcome={view.outcome} seats={view.seats} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
-        bets={view.riichi_sticks ?? 0} playerLabel={positions[0]} onnext={() => watch.step()} ongame={saveGame} reviewed={true} />
+        bets={view.riichi_sticks ?? 0} playerLabel={positions[0]} onnext={() => watch.step()} ongame={saveGame} />
     {/if}
     <details><summary>Hand history · {log.length} events</summary>{#each log as line, index (index)}<p class="log-line">{line}</p>{/each}</details>
   {/if}

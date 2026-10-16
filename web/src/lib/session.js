@@ -105,7 +105,7 @@ export class MatchSession {
     if (!Number.isInteger(player)) return null;
     const seats = this.view.seats;
     const index = seats.findIndex(seat => seat.player === player);
-    return index > 0 ? { player, position: OPPONENT_POSITIONS[index - 1], seat: seats[index].seat } : null;
+    return index > 0 ? { player, position: OPPONENT_POSITIONS[index - 1] } : null;
   }
   get progressed() {
     const view = this.view;
