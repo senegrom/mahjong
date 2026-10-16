@@ -326,12 +326,19 @@ class PlaceModelReads(unittest.TestCase):
         neither: U fitted on them reads the Club's seats through weights no
         game taught, and says so."""
         members = ("zoo/mortal_298k", "club")
-        ledger = ledger_of([[(0, 1, 0, 0, 0, 30000, 30000, 30000, 30000)]] * 2, [(0, 0, 0, 0.0)],
-                           [[1, 2, 3, 4], [4, 3, 2, 1]], owners=[[-1, 0, -1, -1], [-1, -1, -1, -1]],
+        starts = [[(0, 1, 0, 0, 0, 30000, 30000, 30000, 30000)]] * 2
+        finals = [[1, 2, 3, 4], [4, 3, 2, 1]]
+        ledger = ledger_of(starts, [(0, 0, 0, 0.0)], finals, owners=[[-1, 0, -1, -1], [-1, -1, -1, -1]],
                            members=members)
         table = place_model.Boundaries.of(ledger, members)
         self.assertEqual(place_model.unseen(table, members), ["club"])
-        self.assertEqual(place_model.unseen(table, ("zoo/mortal_298k",)), [])
+        # With the Club seated in the second game, nobody is missing.
+        everyone = ledger_of(starts, [(0, 0, 0, 0.0)], finals, owners=[[-1, 0, -1, -1], [1, -1, -1, -1]],
+                             members=members)
+        self.assertEqual(place_model.unseen(place_model.Boundaries.of(everyone, members), members), [])
+        # A table's seats are read by the members it was read with, no others.
+        with self.assertRaisesRegex(ValueError, "name the members it was read with"):
+            place_model.unseen(table, ("zoo/mortal_298k",))
         model = place_model.fit(table, members, hidden=8, epochs=1)
         self.assertEqual(model.fitted["unseen"], ["club"])
 

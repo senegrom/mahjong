@@ -349,6 +349,11 @@ def unseen(table: Boundaries, members: Sequence[str]) -> list[str]:
     such a table reads them through weights no game taught: the Club sits
     out about one round in four, so two rounds can both lack it."""
     count = 1 + len(members)
+    if table.x.shape[1] != width(members):
+        # Its seats' columns are laid out for the members it was read with,
+        # and read by any others they would name the wrong players.
+        raise ValueError(f"the table was read with {(table.x.shape[1] - BASE) // 4 - 1} others, not the "
+                         f"{len(members)} named; name the members it was read with")
     held = table.x[:, BASE:].reshape(len(table), 4, count).sum(axis=(0, 1))
     return [name for name, seats in zip((LEARNER, *members), held) if not seats]
 
