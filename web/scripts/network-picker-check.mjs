@@ -3,7 +3,8 @@
  * network's address alone, names it wherever Trained plays or advises, and
  * is reported on by the worker; picking the default again brings the default
  * back and leaves no pick, and a pick made in Agent watch reloads into Agent
- * watch. A phone's seats name Trained without its version. The
+ * watch. On a phone a seat's badge says Trained without the version, which keeps
+ * every seat's header to two lines. The
  * networks' host is unreachable for the whole browser and the page's own
  * requests for a network are answered here, so nothing downloads 116 MB:
  * what is checked is which address each page asks for. */
@@ -171,17 +172,30 @@ try {
     assert.deepEqual(page.problems, []);
   });
 
-  await cases.check('on a phone each Trained seat says Trained on its first line, and a screen reader still hears the version', async () => {
+  await cases.check("on a phone each seat's header takes two lines at most, its badge says Trained, and a screen reader still hears the version", async () => {
     const page = await open([]);
     await page.waitForSelector('.board');
-    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
-    await page.waitForFunction(() => getComputedStyle(document.querySelector('.score-short')).display !== 'none');
-    const badges = await page.$$eval('.opponent-type[data-controller="neural"]', found => found.map(badge => {
-      const wind = badge.closest('header').querySelector('.wind').getBoundingClientRect(), box = badge.getBoundingClientRect();
-      return { shown: badge.innerText.trim(), label: badge.getAttribute('aria-label'), firstLine: box.top < wind.bottom && wind.top < box.bottom };
-    }));
-    await page.screenshot({ path: resolve(output, 'network-picker-phone.png') });
-    assert.deepEqual(badges, Array(3).fill({ shown: 'Trained', label: `Trained ${MANIFEST.version} opponent`, firstLine: true }));
+    const seen = {};
+    for (const width of [390, 360, 320]) {
+      await page.setViewport({ width, height: 800, isMobile: true, hasTouch: true });
+      await page.waitForFunction(() => getComputedStyle(document.querySelector('.score-short')).display !== 'none');
+      seen[width] = await page.$$eval('section.seat > header', headers => headers.map(header => {
+        // The header's lines as laid out: its visible parts, top to bottom, a
+        // new line wherever one starts below everything before it.
+        const boxes = [...header.children].map(part => part.getBoundingClientRect())
+          .filter(box => box.width > 1 && box.height > 1).sort((one, two) => one.top - two.top);
+        let lines = 0, bottom = -Infinity;
+        for (const box of boxes) {
+          if (box.top >= bottom - 1) lines += 1;
+          bottom = Math.max(bottom, box.bottom);
+        }
+        const badge = header.querySelector('.opponent-type[data-controller="neural"]');
+        return { twoLinesAtMost: lines <= 2 ? true : `${lines} lines`, shown: badge?.innerText.trim(), label: badge?.getAttribute('aria-label') };
+      }));
+      await page.screenshot({ path: resolve(output, `network-picker-phone-${width}.png`) });
+    }
+    const fits = Array(3).fill({ twoLinesAtMost: true, shown: 'Trained', label: `Trained ${MANIFEST.version} opponent` });
+    assert.deepEqual(seen, { 390: fits, 360: fits, 320: fits });
     assert.deepEqual(page.problems, []);
   });
 

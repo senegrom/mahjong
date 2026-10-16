@@ -63,11 +63,12 @@
     <span class="score score-full">{seat.score.toLocaleString()}</span>
     <span class="score score-short" title={seat.score.toLocaleString()}>{shortScore(seat.score)}</span>
     {#if OPPONENT_LABELS[seat.controller]}
-      <!-- A phone's seat has room for "Trained" alone: the version shows in the
-        game settings, and a screen reader still hears it. -->
+      <!-- On a phone the version pushed a seat's header onto a third line: the
+        badge says Trained alone there, the page's header shows the version, and
+        a screen reader still hears it. -->
       <span class="opponent-type" data-controller={seat.controller} data-player={seat.player} role="img"
         aria-label={`${opponentName(seat.controller)} opponent`}>{OPPONENT_LABELS[seat.controller]}{#if seat.controller === 'neural'}<span
-          class="opponent-version"> {playedNetwork().version}</span>{/if}</span>
+          class="opponent-version">{` ${playedNetwork().version}`}</span>{/if}</span>
     {/if}
     {#if seat.riichi}<span class="stick" title="declared riichi"></span>{/if}
     {#if announcement}
