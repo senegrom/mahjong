@@ -36,21 +36,6 @@ test('riichi waits stay on green dragon while unrelated North is drawn (seed 81)
   } finally { m.dispose(); }
 });
 
-test('old format-2 hints migrate without relaxing tile, score or action validation', () => {
-  const original=JSON.parse(readFileSync(new URL('./fixtures/pre-hint-format2.json',import.meta.url)));
-  assert.deepEqual(JSON.parse(original.state)[0].waits,['4z','6z']);
-  const m=MatchSession.restore(Game,JSON.stringify(original));
-  try {
-    assert.deepEqual(m.view.waits,['6z']);assert.equal(m.snapshot().format,7);
-    const restored=MatchSession.restore(Game,JSON.stringify(m.snapshot()));
-    assert.equal(restored.stateKey(),m.stateKey());restored.dispose();
-  } finally {m.dispose();}
-  for(const corrupt of [state=>state[0].seats[0].score++,state=>state[0].seats[0].hand[0]='9m',state=>state[1].pop()]) {
-    const state=JSON.parse(original.state);corrupt(state);
-    assert.throws(()=>MatchSession.restore(Game,JSON.stringify({...original,state:JSON.stringify(state)})));
-  }
-});
-
 for(const seed of [3,17,248])test(`exported settlement deltas balance event by event (seed ${seed})`,()=>{
   const m=make(seed);
   try {

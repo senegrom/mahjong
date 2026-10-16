@@ -64,12 +64,19 @@ test('Chii remembers the middle tile that was actually claimed',()=>{
  }finally{m.dispose();}
 });
 
-test('old compatible saves gain claimed-tile metadata without relaxing other state validation',()=>{
+test('a match saved between 5 and 10 September 2026 is refused, and says when it was saved',()=>{
  const m=make(1);try{
-  for(const tile of ['9s','3m','8s','7p'])step(m,{kind:'discard',tile});step(m,{kind:'chii',tile:'4m'});
-  const old=m.snapshot();delete old.format;old.state=JSON.stringify(JSON.parse(old.state),(k,v)=>k==='claimed_tile'?undefined:v);
-  const r=MatchSession.restore(Game,JSON.stringify(old));assert.equal(r.view.seats[0].melds[0].claimed_tile,'5m');r.dispose();
-  const bad=JSON.parse(old.state);bad[0].seats[0].score++;assert.throws(()=>MatchSession.restore(Game,JSON.stringify({...old,state:JSON.stringify(bad)})));
+  for(const tile of ['9s','3m','8s','7p'])step(m,{kind:'discard',tile});
+  const saved=m.snapshot();
+  // No format, then formats 2, 3 and 4: every save those builds wrote. Each
+  // is refused before a move is replayed, and the network is never asked.
+  for(const format of [undefined,2,3,4]){
+   const old={...saved,format};if(format===undefined)delete old.format;
+   assert.throws(()=>MatchSession.restore(Game,JSON.stringify(old),{ai(){throw new Error('Do not rerun past neural choices');}}),
+    /It was saved between 5 and 10 September 2026 by an earlier version of this site/,`format ${format}`);
+  }
+  // Format 5, written from the evening of 10 September, is still resumed.
+  const r=MatchSession.restore(Game,JSON.stringify({...saved,format:5}));assert.equal(r.stateKey(),m.stateKey());r.dispose();
  }finally{m.dispose();}
 });
 
@@ -81,16 +88,4 @@ test('sequence layout handles claims on every position and leaves concealed quad
  assert.equal(meldLayout({kind:'pon',from:'across',claimed_tile:'7z',tiles:['7z','7z','7z']}).turned,1);
  assert.equal(meldLayout({kind:'claimed-kan',from:'right',claimed_tile:'2s',tiles:['2s','2s','2s','2s']}).turned,3);
  assert.deepEqual(meldLayout({kind:'chii',from:'left',tiles:['5m','4m','6m']}),{tiles:['5m','4m','6m'],turned:0});
-});
-
-test('a legacy neural call save is refused rather than replayed in another numbering',()=>{
- const text=readFileSync(new URL('./fixtures/legacy-neural-call.json',import.meta.url),'utf8');
- const old=JSON.parse(text);assert.equal(old.format,undefined);
- assert.deepEqual(old.commands.map(c=>c.type),['opponent','choose']);
- // The trained opponent's answer was written down in our own seventy-eight
- // moves. It is Mortal's forty-six now, and the same number means a
- // different move, so the save is refused rather than replayed into a game
- // nobody played — and the network is never asked to rewrite the past.
- assert.throws(()=>MatchSession.restore(Game,text,{ai(){throw new Error('Do not rerun past neural choices');}}),
-  /Unsupported legacy opponent moves/);
 });

@@ -74,19 +74,16 @@ commands were already saved in their transaction. Returning from the back/forwar
 cache reloads the current match. Browsers without usable storage/Web Locks may
 play without shared persistence and show a warning rather than use a racy fallback.
 
-Compatible old records are read from `riichi.match.v1` and migrated to the new key
-without deleting the old copy. Old-version windows can no longer overwrite the
-new save. Additive claimed-tile metadata is migrated; other rules/replay divergence is
-still rejected without overwriting the original record.
-
-Saves from before format 5 that contain any trained-opponent move are refused
-(`Unsupported legacy opponent moves`): those moves are numbered in the engine's
-old seventy-eight actions, not Mortal's forty-six, and are not reinterpreted.
-This also covers the old implicit opponent passes after a human call: a neural
-save in which the player answered a discard always records that discard as an
-opponent move, so a migration for those passes could never run and was removed.
-`web/tests/review2-engine.test.js` checks on the real engine that such a save
-is refused rather than replayed in another numbering.
+Saves written between 5 and 10 September 2026 are no longer resumed: those
+without a format or of formats 2 to 4, and the first ones, kept under
+`riichi.match.v1`. Restoring one says when it was saved and that this version
+cannot resume a match that old. The record is kept until New game replaces it.
+The first key is read only when there is no current save, so that the page can
+say this, and is never written or deleted. A save of format 5 or later replays
+its recorded commands, and any rules or replay divergence is still rejected
+without overwriting the original record. `web/tests/review2-engine.test.js`
+checks the refusal on the real engine, and `web/scripts/cleanup-check.mjs`
+checks what the page says and that it keeps both records.
 
 A submitted human call remains pending until every other eligible claimant has
 answered, including competing ron claims. Pending calls replay exactly and can

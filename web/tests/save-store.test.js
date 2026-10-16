@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MatchStore, SaveConflict, LEGACY_SAVE_KEY } from '../src/lib/save-store.js';
-import { SAVE_KEY } from '../src/lib/session.js';
+import { MatchSession, SAVE_KEY } from '../src/lib/session.js';
 const snapshot = (moves = 0) => ({version:1,format:2,seed:11,difficulty:'club',commands:Array.from({length:moves},()=>({type:'choose',kind:'discard',tile:'1m'})),state:String(moves)});
 function environment() {
   const map = new Map(); let held = false;
@@ -28,12 +28,16 @@ test('no-op restoration does not rewrite records or increment their revision',as
  const before=env.storage.getItem(SAVE_KEY);const b=make(env);b.read();await b.run(()=>b.save(snapshot()));
  assert.equal(env.storage.getItem(SAVE_KEY),before);
 });
-test('legacy saves migrate without deleting the only old copy',async()=>{
- const env=environment();const legacy=JSON.stringify(snapshot());env.storage.setItem(LEGACY_SAVE_KEY,legacy);
- const a=make(env);assert.equal(a.read(),legacy);await a.run(()=>a.save(snapshot()));
- assert.equal(env.storage.getItem(LEGACY_SAVE_KEY),legacy);const fresh=env.storage.getItem(SAVE_KEY);
- env.storage.setItem(LEGACY_SAVE_KEY,'stale pre-upgrade pagehide');
- assert.equal(env.storage.getItem(SAVE_KEY),fresh);assert.equal(make(env).read(),fresh);
+test('a match under the first key is read only to be refused, and is never written or deleted',async()=>{
+ // The first saves, between 5 and 6 September 2026, had no format.
+ const env=environment();const first=JSON.stringify({version:1,seed:11,difficulty:'club',commands:[],state:'[]'});
+ env.storage.setItem(LEGACY_SAVE_KEY,first);
+ const a=make(env);assert.equal(a.read(),first);
+ assert.throws(()=>MatchSession.restore(null,first),/It was saved between 5 and 10 September 2026/);
+ await a.run(()=>a.save(snapshot()));assert.equal(JSON.parse(env.storage.getItem(SAVE_KEY)).seed,11);
+ env.storage.setItem(LEGACY_SAVE_KEY,'another window');
+ await a.run(()=>a.save(snapshot(1)));assert.equal(JSON.parse(env.storage.getItem(SAVE_KEY)).commands.length,1);
+ assert.equal(env.storage.getItem(LEGACY_SAVE_KEY),'another window');assert.equal(make(env).read(),env.storage.getItem(SAVE_KEY));
 });
 test('storage notifications invalidate a stale window before another move',async()=>{
  const env=environment();let conflicts=0;const a=make(env),b=make(env,{onConflict:()=>conflicts++});a.read();b.read();
