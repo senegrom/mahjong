@@ -194,9 +194,12 @@ Design
 Testing (the engine is only as good as this)
 
 - Rules are tested by name, citing their sections. Scoring examples 1 to 5,
-  7 and 10 of section 4.3 are literal tests in `score.rs` and example 8 in
-  `agari.rs`; examples 6 and 9 have no test yet. The four invalid-quad
-  hands of section 6.7.1 are tests in `tests/riichi_quads.rs`, and
+  7 and 10 of section 4.3 are tests in `score.rs` on equivalent hands: other
+  tiles that score the same yaku, minipoints and payments. No test checks
+  example 8's value: `agari.rs` checks that a hand of its shape reads both
+  as seven pairs and as sets, and `score.rs` that the higher reading is
+  taken. Examples 6 and 9 have no test yet. The four invalid-quad hands of
+  section 6.7.1 are tests in `tests/riichi_quads.rs`, and
   `tests/every_yaku.rs` builds a hand for every yaku the rulebook lists.
 - Differential scoring: `engine/riichi-cli/differential.py` scores the hands
   `riichi-cli dump` writes again with the MIT-licensed `mahjong` Python
