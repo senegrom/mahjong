@@ -47,8 +47,9 @@ test('a review under way leads with the flagged decisions found so far, and hide
   assert.match(html, /1 of 2 matched/);
   assert.match(html, /Reviewing, 1 of 2/);
   assert.match(html, /2 decisions, not reviewed yet/);
-  // So far, and not yet in the trend.
-  assert.match(html.replace(/<[^>]*>/g, ''), /50% so far/, 'a space between the figure and its note');
+  // So far, and not yet in the trend. The note is an element of its own, so
+  // the space is looked for past any tags rather than by stripping them.
+  assert.match(html, /50%(?:<[^>]*>)*\s+(?:<[^>]*>)*so far/, 'a space between the figure and its note');
 });
 
 test('a repeated hand goes by its name with its honba wherever the review names it', () => {
