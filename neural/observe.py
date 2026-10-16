@@ -473,9 +473,12 @@ class Views:
 
     A network of the current lineage sees Mortal's planes; an older one
     sees the engine's. A table may seat both, as a duel between lineages
-    does, so this serves either by the network's `kind`. Call `advance`
-    once a step, after the arena has been asked who owes a decision and
-    before anyone is asked for one.
+    does, so this serves either by the network's `kind`. The games
+    `renamed` names are followed a second time with characters and circles
+    renamed, and `renamed` serves their views, for a player that averages
+    over the suits (see `suits`). Call `advance` once a step, after the
+    arena has been asked who owes a decision and before anyone is asked
+    for one.
     """
 
     ENGINE_PLANES = riichi_py.PLANES

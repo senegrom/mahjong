@@ -1,9 +1,10 @@
 # The ruler
 
 How one network is measured against another: what a ruler is, the faster way
-of playing it, two challengers on the same deals, and the rule a series is
-read by, so that a clear difference stops early and a small one is given the
-seeds it needs.
+of playing it, two challengers on the same deals, a challenger that averages
+its moves over characters and circles, and the rule a series is read by, so
+that a clear difference stops early and a small one is given the seeds it
+needs.
 
 ## What a ruler is
 
@@ -145,6 +146,77 @@ games the same to the end in fixed rows and 11 of 32 asked by seating, too
 few deals to say how much that adds. Two challengers that are one network play
 every game the same and differ by exactly nought, which is the check that the
 pairing is sound.
+
+## Averaging over the suits
+
+Under our rules characters and circles are interchangeable: there are no red
+fives, and All Green, the one yaku that names a suit, names bamboo. Renaming
+every 1m-9m as 1p-9p and back turns a game into another game just as likely,
+so a player's best move in one is the renamed best move in the other. A
+network has learned that only so far: g810 picks another best move in the two
+namings of 4% of its decisions. `--average-suits` has a challenger ask each
+question it hesitates over (its plain answer's top weight below 0.9) of the
+renamed game too, and play the mean of the two answers' logits (`neural.suits`
+says why that average and that gate).
+
+The second view is libriichi's own encoding of the renamed game, not the
+game's planes permuted: the efficiency lookahead breaks ties by tile index,
+characters before circles, so the two differ in about half the questions. A
+second follower follows the averaging challenger's tables with every event
+renamed and is told every reach the first is told, so a reach's tile is asked
+of the renamed game as well. The renaming gives, to the bit, the planes Mortal's
+own augmentation gives at every decision of a game (`test_suits`). The renamed
+questions go to the network in a forward of their own, after the plain ones, so
+the plain questions are asked exactly as a plain player's are; nothing else
+changes, and without the option nothing at all.
+
+The screen of 15 October measured it on 14,269 of g810's real questions: at
+the ruler's table the mean changed g810's move in 1.93% of its decisions with
+two or more moves (95% 1.64-2.23%), 3.2 a game; 17.7% of questions were asked
+again. Published Mortal, its values averaged over both namings, preferred the
+new move in 52% of the changes against a matched placebo's 45%, so the gain is
+likely small: about +0.003 to +0.005 placement. Put to the same stored
+questions on the desktop's card, the option made exactly the screen's changes,
+155 of 155 at the ruler's table and 101 of 101 at the Club table.
+
+A paired call of one checkpoint averaging and plain, asked in fixed rows on
+the card, plays each deal the same at both arms' tables until a decision of
+the averaging arm changes, and its plain arm plays exactly the games of a call
+with two plain arms. On the desktop at 16 deals a seating (810 against
+published Mortal, every switch on), the averaging arm asked 19% of its rows
+again, the mean changed 185 of its 10,987 rows (2.9 a game), 26 of the 64
+games ended with the same scores at both arms' tables, and the call took 99 s
+where two plain arms took 77 s: the questions asked again are a fifth of the
+arm's rows but, at so few tables, nearly a whole padded piece a step. At 1,000
+deals the averaging arm should cost a fifth to a third more than a plain one.
+Each arm that averages says under `suits` how many rows it was asked, how many
+of them it asked again, and how many moves the mean changed.
+
+The browser does not average yet: that needs a second encoder state in the
+site's worker, a later step.
+
+### The series: 810 averaging against 810 plain
+
+Deploy first: the app must hold `ruler(average_suits=)`, and Modal must take
+launches. Then, with the Modal client's Python from the repository root:
+
+```sh
+python -m neural.ruler_cloud series g810-suits history/gen-00810 zoo/mortal_298k \
+    --also history/gen-00810 --average-suits first --run fusion-long --expected 0.004 \
+    --questions fixed --graphs --skip-forced --preview-reach --local E:/tmp-claude/mahjong/rulers
+```
+
+Every call plays 810 averaging (the first challenger) and 810 plain (the
+second) against published Mortal on the same 1,000 deals, so the series reads
+the edge averaging gives, deal by deal, positive when it helps. An expected
+effect of 0.004 registers the small-effect rule: ten seeds a look, four looks,
+forty seeds from 9,100,000. The 16 deals on the desktop put the spread of the
+paired difference roughly where it is for 810 and 910 (0.46 a deal against
+0.48), so by the table under "Reading a series" the rule finds +0.004 about a
+third of the time and +0.006 about three times in five: a level reading would
+not rule a gain of that size out. A series registered with `--average-suits`
+keeps it; `looks g810-suits` reads it later, and names the first arm "averaged
+over the suits".
 
 ## Reading a series: `neural.looks`
 
