@@ -3,14 +3,16 @@
 The same self-play loop as `train.py`, for `combined.Combined`. Each
 generation draws what stays fixed, evenly, from `--fixed`, by default the
 six `Combined.MODES`: nothing, Mortal, ours, the head, or the head with
-either network beneath it, so that each part is moved in the others'
-company without any being overwritten in one go. Three of the six hold
-the head still. Only the critic and the reading of the hands, both halves
-of each (`Combined.always_trained`), train whatever the draw. The policy
-gradient is PPO's clipped objective on the head's output; the baseline is
-the fusion's judge, our value head plus its correction from Mortal's
-vector (`Fuse.judge`), as it stands before the round is learned; the
-judge learns the return, and the reading what the opponents really held.
+either network beneath it. Held still by turns, each part is moved in the
+others' company without any being overwritten in one go. Three of the six
+hold the head still. Only the critic and the reading of the hands, both
+halves of each (`Combined.always_trained`), train whatever the draw.
+
+The policy gradient is PPO's clipped objective on the head's output. The
+baseline is the fusion's judge, our value head plus its correction from
+Mortal's vector (`Fuse.judge`), as it stands before the round is learned;
+the judge learns the return, and the reading what the opponents really
+held.
 
 The return is the default hybrid of every run so far unless `--reward
 placement` asks for the placement reward, credited hand by hand (see
