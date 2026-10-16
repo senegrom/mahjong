@@ -1,6 +1,6 @@
 # What this repository's builds, tests and tools write, and local files that
-# never belong in it. A rule without a leading slash matches at any depth, so
-# a generic directory name here would hide a source directory of that name.
+# never belong in it. A bare name such as `target/` matches at any depth, so a
+# generic directory name here would hide every source directory of that name.
 
 # Cargo's output, for the root workspace and for engine/libriichi, which is a
 # workspace of its own: unanchored so that it matches both.
