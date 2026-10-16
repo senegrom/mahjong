@@ -85,8 +85,8 @@ old seventy-eight actions, not Mortal's forty-six, and are not reinterpreted.
 This also covers the old implicit opponent passes after a human call: a neural
 save in which the player answered a discard always records that discard as an
 opponent move, so a migration for those passes could never run and was removed.
-`web/tests/legacy-pass-migration.test.js` checks that old-schema actions stay
-rejected.
+`web/tests/review2-engine.test.js` checks on the real engine that such a save
+is refused rather than replayed in another numbering.
 
 A submitted human call remains pending until every other eligible claimant has
 answered, including competing ron claims. Pending calls replay exactly and can
