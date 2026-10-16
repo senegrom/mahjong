@@ -1,15 +1,15 @@
 """Two players' last layers joined by a third: a fusion head.
 
 Mortal ends in its encoder's vector of 1024 (M2) and the Q values over its
-forty-six moves that a linear head reads from it (M1). Our network, re-headed
-into the same forty-six moves (`neural.rehead`; `build` refuses any other),
-ends in its tower's features, per tile and pooled over the line (Z2), and
-the logits its policy heads read from them (Z1). Both see the same planes.
-The head, F, joins them in three layers. F2 reads Mortal's vector and our
-per-tile features together. F1 reads the fusion's own logits over the same
-moves from F2. F0, what is played, weighs F1, M1 and Z1 move by move, adds
-a bias and a correction read from all three and the legality mask, and
-masks what the rules forbid.
+forty-six moves that a linear head reads from it (M1). Our network,
+re-headed into the same forty-six moves (`neural.rehead`; `build` refuses
+any other), ends in its tower's features, per tile and pooled over the
+line (Z2), and the logits its policy heads read from them (Z1). Both see
+the same planes. The head, F, joins them in three layers. F2 reads
+Mortal's vector and our per-tile features together. F1 is the fusion's
+own logits over the same moves, read from F2. F0, what is played, weighs
+F1, M1 and Z1 move by move, adds a bias and a correction read from all
+three and the legality mask, and masks what the rules forbid.
 
 The joined player is born as Mortal. F0's weights start at 0.05 on F1, 1.0
 on M1 and 0.02 on Z1, and F1's last layers, the bias and the correction
