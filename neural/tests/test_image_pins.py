@@ -94,14 +94,17 @@ class ImagePinTests(unittest.TestCase):
     def setUpClass(cls):
         cls.steps = image_steps()
 
-    def test_rust_is_the_toolchain_every_workflow_installs(self):
+    def test_rust_is_the_toolchain_ci_builds_the_engines_with(self):
         """rustup installed `stable`, whichever release that was on the day
-        the layer was built."""
+        the layer was built. The workflows that build the Python engines
+        with the python-engines action install one toolchain in every job,
+        and the image must install the same."""
         toolchains = set()
         for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
             text = workflow.read_text(encoding="utf-8")
-            toolchains |= {found.strip("'\"") for found in
-                           re.findall(r"^\s*toolchain:\s*(\S+)", text, re.MULTILINE)}
+            if "./.github/actions/python-engines" in text:
+                toolchains |= {found.strip("'\"") for found in
+                               re.findall(r"^\s*toolchain:\s*(\S+)", text, re.MULTILINE)}
         self.assertEqual(len(toolchains), 1, f"the workflows install {sorted(toolchains)}")
         installs = [re.search(r"--default-toolchain\s+(\S+)", command)
                     for command in shell_commands(self.steps) if "rustup" in command]
