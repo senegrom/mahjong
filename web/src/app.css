@@ -29,7 +29,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
+  :root {
     --felt: #235240;
     --felt-dark: #1a3f31;
     --felt-deep: #122c22;

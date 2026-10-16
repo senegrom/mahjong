@@ -1,5 +1,6 @@
 <script>
-  import { placeLabel } from './ui.js';
+  import { placeLabel, signed } from './ui.js';
+  import { SEAT_NAMES as NAMES } from './tiles.js';
   /**
    * Where everybody finished. A game is played for placement rather than
    * points, so the places lead and the arithmetic follows: what was on the
@@ -10,13 +11,6 @@
    * person playing, or in Watch the agent being followed.
    */
   let { standings = [], onagain, onsave, onreview, playerLabel = 'You' } = $props();
-
-  const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
-
-  function signed(value) {
-    if (value === 0) return '0';
-    return value > 0 ? `+${value.toLocaleString()}` : value.toLocaleString();
-  }
 
   let yours = $derived(standings.find((row) => row.you));
 </script>

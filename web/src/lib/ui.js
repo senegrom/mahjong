@@ -1,4 +1,4 @@
-import { sequenceWords, tileWords } from './tiles.js';
+import { TILE_TYPES, runTiles, sequenceWords, tileWords } from './tiles.js';
 
 /** What the table says while a Trained opponent waits for the network. The
  * opponent's worker reports its own loading; before that worker starts, the
@@ -61,10 +61,22 @@ export function winValue(win) {
   return dealer ? `${each.toLocaleString()} / ${dealer.toLocaleString()}` : `${each.toLocaleString()} all`;
 }
 
+/** A change of points as a score sheet writes it: "+8,000", "-2,000", and
+ * "0" for none. */
+export function signed(value) {
+  if (value === 0) return '0';
+  return value > 0 ? `+${value.toLocaleString()}` : value.toLocaleString();
+}
+
+/** A weight or a chance from 0 to 1 as a percentage to one decimal place.
+ * Anything above nothing but under 0.1% is written "<0.1%", so that it does
+ * not read as 0.0%. */
+export function percent(weight) {
+  return weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
+}
+
 export function callTiles(choice, pending) {
-  if (choice.kind === 'chii' && /^[1-7][mps]$/.test(choice.tile ?? '')) {
-    return [0, 1, 2].map((offset) => `${Number(choice.tile[0]) + offset}${choice.tile[1]}`);
-  }
+  if (choice.kind === 'chii' && /^[1-7][mps]$/.test(choice.tile ?? '')) return runTiles(choice.tile);
   if (choice.kind === 'pon' && pending) return [pending, pending, pending];
   if (choice.kind === 'kan' && pending) return Array(4).fill(pending);
   if (choice.kind === 'concealed-kan' || choice.kind === 'extended-kan') return Array(4).fill(choice.tile);
@@ -80,17 +92,22 @@ export function acceptsHandKey(event, hand) {
   return !button || button.classList.contains('tile');
 }
 
-/** Preserve meld shape, but move the tile actually claimed to its source-side
- * position. Concealed quads have no claimed tile; an added kan retains the pon's.
- */
-export function meldTiles(meld) {
+/** A called set as the table lays it out: its tiles, and `turned`, the slot
+ * of the tile turned sideways on the side of the player it came from, or -1
+ * for a concealed quad, which turns none. The tile actually claimed is moved
+ * into that slot; an added kan keeps its pon's. A set without its claimed
+ * tile, as the guided table passes its sets, keeps its order and is still
+ * turned on the side it came from. */
+export function meldLayout(meld) {
   const tiles = [...meld.tiles];
+  if (meld.kind === 'concealed-kan') return { tiles, turned: -1 };
+  const turned = meld.from === 'left' ? 0 : meld.from === 'across' ? 1 : tiles.length - 1;
   const source = tiles.indexOf(meld.claimed_tile);
-  if (meld.kind === 'concealed-kan' || source < 0) return tiles;
-  const target = meld.from === 'left' ? 0 : meld.from === 'across' ? 1 : tiles.length - 1;
-  tiles.splice(source, 1);
-  tiles.splice(target, 0, meld.claimed_tile);
-  return tiles;
+  if (source >= 0) {
+    tiles.splice(source, 1);
+    tiles.splice(turned, 0, meld.claimed_tile);
+  }
+  return { tiles, turned };
 }
 
 // The game's view names an open kan 'claimed-kan'; the physical and guided
@@ -143,17 +160,12 @@ export function analyzeDiscards(engine, choices = []) {
   return hints;
 }
 
-const ALL_TILES = [
-  ...['m', 'p', 's'].flatMap(suit => Array.from({ length: 9 }, (_, i) => `${i + 1}${suit}`)),
-  ...Array.from({ length: 7 }, (_, i) => `${i + 1}z`),
-];
-
 /** Copies of every tile kind nobody can currently see from the human seat.
  * This is the same public information used for wait width: own concealed
  * tiles, unclaimed discards, all called sets and the exposed dora indicators.
  */
 export function unseenTileCounts(view) {
-  const left = new Map(ALL_TILES.map(tile => [tile, 4]));
+  const left = new Map(TILE_TYPES.map(tile => [tile, 4]));
   const see = tile => {
     if (!left.has(tile)) return;
     left.set(tile, Math.max(0, left.get(tile) - 1));

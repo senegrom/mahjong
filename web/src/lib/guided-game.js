@@ -1,9 +1,8 @@
-import { TILES, emptyPosition, parsePhysical, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
-import { tileWords } from './tiles.js';
+import { emptyPosition, parsePhysical, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
 import { rememberEnding, applySettlement, validEndingState, verifySettlement } from './guided-settlement.js';
 
 export const GUIDED_KEY = 'riichi.guided.v1';
-const WINDS = ['East', 'South', 'West', 'North'];
 const STAGES = ['setup', 'hand', 'dora', 'turn', 'decision', 'responses', 'claim-response', 'kan-response', 'indicator', 'over'];
 const AGENTS = ['beginner', 'club', 'full'];
 // Saved games from the two-network builds name an adviser this one no longer
@@ -27,7 +26,7 @@ export function emptyGuided(agent = 'full') {
  * Older drafts without the optional metadata keep their previous ordering. */
 export function setTiles(meld) {
   const tiles = meld.kind === 'chii'
-    ? [0, 1, 2].map(n => `${Number(meld.tile[0]) + n}${meld.tile[1]}`)
+    ? runTiles(meld.tile)
     : Array(meld.kind.includes('kan') ? 4 : 3).fill(meld.tile);
   const claimed = tiles.indexOf(meld.claimed_tile);
   if (meld.kind === 'chii' && claimed > 0) {
@@ -37,9 +36,16 @@ export function setTiles(meld) {
   return tiles;
 }
 
+/** A player's recorded sets as Melds shows them: their tiles in display
+ * order, and the side each came from rather than its count of seats from
+ * the player (0 self, 1 right, 2 across, 3 left). */
+export function viewMelds(player) {
+  return player.melds.map(meld => ({ kind: meld.kind, tiles: setTiles(meld), from: ['self', 'right', 'across', 'left'][meld.from] }));
+}
+
 /** Count only tiles actually seen, with claimed discards counted in their set. */
 export function visibleCounts(position) {
-  const counts = new Map(TILES.map(tile => [tile, 0]));
+  const counts = new Map(TILE_TYPES.map(tile => [tile, 0]));
   const add = tile => {
     if (!counts.has(tile)) throw new Error('Choose a valid tile');
     const count = counts.get(tile) + 1;
@@ -78,7 +84,7 @@ function requireStage(state, ...stages) {
 }
 
 function requireTile(tile) {
-  if (!TILES.includes(tile)) throw new Error('Choose a tile');
+  if (!TILE_TYPES.includes(tile)) throw new Error('Choose a tile');
 }
 
 function startTurn(state, seat, needsDraw = true, replacement = false) {

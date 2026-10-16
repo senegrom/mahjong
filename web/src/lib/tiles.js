@@ -1,5 +1,9 @@
 /** Naming tiles the way a person says them, in one place. */
 
+/** The winds in turn order, as the physical and guided tables number seats
+ * and rounds: WINDS[1] is "South". */
+export const WINDS = Object.freeze(['East', 'South', 'West', 'North']);
+/** The same winds by the engine's names for them: SEAT_NAMES.south is "South". */
 export const SEAT_NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
 const SUIT_WORDS = { m: 'characters', p: 'circles', s: 'bamboo' };
@@ -19,10 +23,12 @@ const HONOUR_SHORTHAND = ['E', 'S', 'W', 'N', 'Wh', 'G', 'R'];
 const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
 const HONOUR_FILES = ['Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun'];
 
-export const TILE_TYPES = [
+// Every table, adviser and face set reads this one list, so it is frozen:
+// no reader can reorder or extend it under the others.
+export const TILE_TYPES = Object.freeze([
   ...['m', 'p', 's'].flatMap(suit => Array.from({ length: 9 }, (_, index) => `${index + 1}${suit}`)),
   ...Array.from({ length: 7 }, (_, index) => `${index + 1}z`),
-];
+]);
 
 export function tileFile(name) {
   if (!name) return 'Back';
@@ -52,4 +58,10 @@ export function sequenceWords(name) {
   if (!/^[1-7][mps]$/.test(name ?? '')) return 'sequence';
   const rank = Number(name[0]);
   return `${rank}–${rank + 1}–${rank + 2} ${SUIT_WORDS[name[1]]}`;
+}
+
+/** The sequence that sequenceWords names, as tiles: `"5m"` becomes
+ * `["5m", "6m", "7m"]`. */
+export function runTiles(low) {
+  return [0, 1, 2].map(offset => `${Number(low[0]) + offset}${low[1]}`);
 }

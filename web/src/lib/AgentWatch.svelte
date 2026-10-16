@@ -2,7 +2,8 @@
   import { onDestroy } from 'svelte';
   import { Game } from '../wasm/riichi.js';
   import { chooseAction } from './policy.js';
-  import { AGENTS, WINDS, agentName, evaluateAgent, isTrained } from './agents.js';
+  import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
+  import { SEAT_NAMES } from './tiles.js';
   import { WatchSession } from './watch-session.js';
   import AgentWeights from './AgentWeights.svelte';
   import Tile from './Tile.svelte';
@@ -145,7 +146,7 @@
     <div class="watch-table">
       {#each view.seats as seat, index (index)}
         <section class:followed={index === 0} class:turn={seat.turn}>
-          <header><strong>{index === 0 ? 'Following' : positions[index]} · {WINDS[['east','south','west','north'].indexOf(seat.seat)]}</strong><span>{agentName(watch.lineup[index])} · {seat.score.toLocaleString()}{seat.riichi ? ' · Riichi' : ''}</span></header>
+          <header><strong>{index === 0 ? 'Following' : positions[index]} · {SEAT_NAMES[seat.seat]}</strong><span>{agentName(watch.lineup[index])} · {seat.score.toLocaleString()}{seat.riichi ? ' · Riichi' : ''}</span></header>
           {#if index === 0}
             <div class="tiles hand" role="group" aria-label="Followed agent hand">
               {#each [...seat.hand, ...(seat.drawn ? [seat.drawn] : [])] as tile, slot (slot)}
@@ -179,7 +180,7 @@
     {#if standings}<Standings {standings} onagain={start} onsave={saveGame} playerLabel={positions[0]} />{/if}
     {#if view.phase === 'over' && view.outcome}
       <ScoreScreen outcome={view.outcome} seats={view.seats} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
-        bets={view.riichi_sticks ?? 0} playerLabel={positions[0]} onnext={() => watch.step()} ongame={saveGame} reviewed={true} />
+        bets={view.riichi_sticks ?? 0} playerLabel={positions[0]} onnext={() => watch.step()} ongame={saveGame} />
     {/if}
     <details><summary>Hand history · {log.length} events</summary>{#each log as line, index (index)}<p class="log-line">{line}</p>{/each}</details>
   {/if}

@@ -3,16 +3,15 @@
 
   import { OPPONENT_LABELS, opponentName } from './opponents.js';
   import { calledSet, seatAnnouncement } from './ui.js';
+  import { SEAT_NAMES as NAMES } from './tiles.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
 
   /**
-   * One opponent, placed around the table. `side` is where they sit from the
-   * player's chair, which decides whether their tiles run across or down.
+   * One opponent at the table. Where they sit is MatchTable's to lay out:
+   * it places each seat in a wrapper named for its side.
    */
-  let { seat, side = 'across', dealer = false, dora = [], thinking = false } = $props();
-
-  const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
+  let { seat, dealer = false, dora = [], thinking = false } = $props();
 
   // How long a call is said for: long enough to read from across the
   // table, gone well before the next one is made.
@@ -56,7 +55,7 @@
   const shortScore = score => `${(score / 1000).toFixed(1)}k`;
 </script>
 
-<section class="seat {side}" class:turn={seat.turn} class:thinking aria-label="{NAMES[seat.seat]} seat">
+<section class="seat" class:turn={seat.turn} class:thinking aria-label="{NAMES[seat.seat]} seat">
   <header>
     <span class="wind">{NAMES[seat.seat]}</span>
     {#if dealer}<span class="dealer-badge">Dealer</span>{/if}

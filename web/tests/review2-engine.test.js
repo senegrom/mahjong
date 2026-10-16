@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import init, {Game} from '../src/wasm/riichi.js';
 import {MatchSession} from '../src/lib/session.js';
-import {meldTiles,placeLabel} from '../src/lib/ui.js';
+import {meldLayout,placeLabel} from '../src/lib/ui.js';
 await init({module_or_path:readFileSync(new URL('../src/wasm/riichi_bg.wasm',import.meta.url))});
 function make(seed,mode='club'){const m=new MatchSession(Game,seed,mode);m.advance(false);return m;}
 function step(m,c){m.apply({type:'choose',kind:c.kind,tile:c.tile});m.advance(false);}
@@ -59,7 +59,7 @@ test('Chii remembers the middle tile that was actually claimed',()=>{
  const m=make(1);try{
   for(const tile of ['9s','3m','8s','7p'])step(m,{kind:'discard',tile});
   assert.equal(m.view.pending_discard,'5m');step(m,{kind:'chii',tile:'4m'});
-  const meld=m.view.seats[0].melds[0];assert.equal(meld.claimed_tile,'5m');assert.deepEqual(meldTiles(meld),['5m','4m','6m']);
+  const meld=m.view.seats[0].melds[0];assert.equal(meld.claimed_tile,'5m');assert.deepEqual(meldLayout(meld),{tiles:['5m','4m','6m'],turned:0});
   const r=MatchSession.restore(Game,JSON.stringify(m.snapshot()));assert.deepEqual(r.view.seats[0].melds,m.view.seats[0].melds);r.dispose();
  }finally{m.dispose();}
 });
@@ -74,8 +74,13 @@ test('old compatible saves gain claimed-tile metadata without relaxing other sta
 });
 
 test('sequence layout handles claims on every position and leaves concealed quads unrotated',()=>{
- for(const claimed of ['4m','5m','6m'])assert.equal(meldTiles({kind:'chii',from:'left',claimed_tile:claimed,tiles:['4m','5m','6m']})[0],claimed);
- assert.deepEqual(meldTiles({kind:'concealed-kan',from:'self',claimed_tile:null,tiles:['1p','1p','1p','1p']}),['1p','1p','1p','1p']);
+ for(const claimed of ['4m','5m','6m'])assert.equal(meldLayout({kind:'chii',from:'left',claimed_tile:claimed,tiles:['4m','5m','6m']}).tiles[0],claimed);
+ assert.deepEqual(meldLayout({kind:'concealed-kan',from:'self',claimed_tile:null,tiles:['1p','1p','1p','1p']}),{tiles:['1p','1p','1p','1p'],turned:-1});
+ // The turned tile is on the side the set came from, and a set without its
+ // claimed tile, as the guided table passes its sets, is turned the same.
+ assert.equal(meldLayout({kind:'pon',from:'across',claimed_tile:'7z',tiles:['7z','7z','7z']}).turned,1);
+ assert.equal(meldLayout({kind:'claimed-kan',from:'right',claimed_tile:'2s',tiles:['2s','2s','2s','2s']}).turned,3);
+ assert.deepEqual(meldLayout({kind:'chii',from:'left',tiles:['5m','4m','6m']}),{tiles:['5m','4m','6m'],turned:0});
 });
 
 test('a legacy neural call save is refused rather than replayed in another numbering',()=>{

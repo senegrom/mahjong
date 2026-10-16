@@ -14,7 +14,6 @@ const VERSION = 1;
 const SETTINGS_VERSION = 2;
 const MAX_COMMANDS = 20000;
 const MAX_SAVE_BYTES = 2_000_000;
-const DIFFICULTIES = OPPONENT_TYPES;
 const PLAYER_ACTIONS = ['discard', 'riichi', 'tsumo', 'concealed-kan', 'extended-kan', 'ron', 'pon', 'kan', 'chii', 'pass'];
 
 function require(condition, message) {
@@ -50,7 +49,7 @@ export function readSettings(storage, touch = false) {
     if (value.version === 1) return defaults;
     if (['club', 'strong'].includes(value.reviewAdviser)) defaults.reviewAdviser = value.reviewAdviser;
     if (NETWORKS.some(network => network.version === value.trainedNetwork)) defaults.trainedNetwork = value.trainedNetwork;
-    if (DIFFICULTIES.includes(value.difficulty)) defaults.difficulty = value.difficulty;
+    if (OPPONENT_TYPES.includes(value.difficulty)) defaults.difficulty = value.difficulty;
     if (Array.isArray(value.opponents)) {
       // Only a complete valid table replaces the legacy single-tier setting.
       const opponents = normalizeOpponents(value.opponents);
@@ -106,7 +105,7 @@ export class MatchSession {
     if (!Number.isInteger(player)) return null;
     const seats = this.view.seats;
     const index = seats.findIndex(seat => seat.player === player);
-    return index > 0 ? { player, position: OPPONENT_POSITIONS[index - 1], seat: seats[index].seat } : null;
+    return index > 0 ? { player, position: OPPONENT_POSITIONS[index - 1] } : null;
   }
   get progressed() {
     const view = this.view;

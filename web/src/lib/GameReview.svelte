@@ -4,7 +4,7 @@
   import DecisionReplay from './DecisionReplay.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
   import { FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, agreement, rankDecisions } from './game-review.js';
-  import { waitingNote } from './ui.js';
+  import { percent, waitingNote } from './ui.js';
   import { trainedName } from './trained-network.js';
 
   /**
@@ -83,7 +83,6 @@
     heading?.scrollIntoView({ block: 'start' });
   });
 
-  const percent = weight => weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
   const key = decision => `${decision.hand}:${decision.index}`;
 
   function duration(seconds) {

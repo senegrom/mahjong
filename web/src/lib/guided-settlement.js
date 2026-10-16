@@ -1,8 +1,9 @@
-import { TILES, parsePhysical } from './physical-position.js';
+import { parsePhysical } from './physical-position.js';
+import { TILE_TYPES } from './tiles.js';
 
 const seat = n => Number.isInteger(n) && n >= 0 && n < 4;
 const vector = a => Array.isArray(a) && a.length === 4 && a.every(Number.isSafeInteger);
-const tiles = a => Array.isArray(a) && a.length <= 18 && a.every(t => TILES.includes(t));
+const tiles = a => Array.isArray(a) && a.length <= 18 && a.every(t => TILE_TYPES.includes(t));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const sum = a => a.reduce((total, n) => total + n, 0);
 const seats = a => Array.isArray(a) && a.length <= 4 && a.every(seat) && new Set(a).size === a.length;
@@ -31,7 +32,7 @@ function validSettlement(result, ending) {
     && seats(result.winners.map(w => w.seat)) && seats(result.tenpai)
     && (result.refunded_riichi == null || seat(result.refunded_riichi))
     && (result.hand_deltas == null || vector(result.hand_deltas))
-    && result.winners.every(w => TILES.includes(w.winning_tile) && tiles(w.hand)
+    && result.winners.every(w => TILE_TYPES.includes(w.winning_tile) && tiles(w.hand)
       && Number.isInteger(w.han) && w.han >= 0 && Number.isInteger(w.fu) && w.fu >= 0
       && Number.isInteger(w.dora) && w.dora >= 0 && Number.isInteger(w.ura_dora) && w.ura_dora >= 0
       && (w.limit == null || ['mangan', 'haneman', 'baiman', 'sanbaiman', 'yakuman'].includes(w.limit))
@@ -108,7 +109,7 @@ export function verifySettlement(state, score) {
   for (const win of legacy.winners) {
     delete win.scoring;
     for (const yaku of win.yaku) { delete yaku.id; delete yaku.tile; }
-    win.hand = [...win.hand, win.winning_tile].sort((a, b) => TILES.indexOf(a) - TILES.indexOf(b));
+    win.hand = [...win.hand, win.winning_tile].sort((a, b) => TILE_TYPES.indexOf(a) - TILE_TYPES.indexOf(b));
   }
   if (!matches(legacy)) return false;
   state.settlement.winners = structuredClone(actual.winners);
