@@ -13,9 +13,11 @@ player already knows those, so the network is first taught to imitate it,
 and self-play then has somewhere to improve from rather than somewhere to
 begin.
 
-This uses no human data and no outside model. The teacher is the same
-handful of rules that ships with the game, and it is a floor, not a
-ceiling: the point of the self-play that follows is to pass it.
+Without `--teacher` this uses no human data and no outside model. The
+teacher is then the same handful of rules that ships with the game, and it
+is a floor, not a ceiling: the point of the self-play that follows is to
+pass it. A `--teacher` checkpoint can be a joined player, which has a
+Mortal inside it, and Mortal first learned from human games.
 
 Usage:
   python -m neural.imitate --rounds 200 --games 64 --out E:/tmp-claude/mahjong/clone

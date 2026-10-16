@@ -1,4 +1,4 @@
-"""The network: one policy and one value head over a riichi position.
+"""The network: a residual tower over a riichi position, and five heads.
 
 A position arrives as planes over the 34 tile kinds, so the natural shape is
 a one-dimensional residual tower along those 34 positions. Neighbouring
@@ -18,10 +18,19 @@ by maximum, and gates the channels by what it finds. A convolution of width
 three needs many blocks to learn that a dora turned and a discard on the
 far side of the board are the same fact; the pooling says so in one.
 
-Two heads:
+Five heads:
 
 - **policy** over the flat action space, masked to what the rules allow;
-- **value**, the seat's expected result from here, in the reward's units.
+- **value**, the seat's expected result from here, in the reward's units;
+- **hands**, what each opponent is holding, a distribution over the 34
+  kinds for each;
+- **oracle_value** and **critic**, two more estimates of the value, the
+  oracle's also seeing what the seat cannot.
+
+The last three each have a small tower of their own and read the main
+tower's features without training them. Policy, value and hands are what
+`export.py` puts in the browser's graph; the oracle and the critic train
+in `train.py` alone, and nothing at play time calls them.
 """
 
 from __future__ import annotations
@@ -224,8 +233,9 @@ class PolicyValueNet(nn.Module):
             nn.Linear(256, 1),
         )
 
-        # The critic: the value the search reads and the baseline the policy
-        # gradient is measured against, on a tower of its own. The value
+        # The critic: a baseline the policy gradient can be measured
+        # against, on a tower of its own; `train.py` takes whichever of the
+        # value, the oracle and the critic predicts a round best. The value
         # head above shares the policy's tower, and training that tower on
         # a ring of old rounds for the value's sake drifted the features
         # the policy reads from, however hard the policy's output was held:

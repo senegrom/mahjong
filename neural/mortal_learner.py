@@ -198,9 +198,10 @@ def decide_in_mortal_space(
     else:
         # Now and then a legal move at random instead of the policy's, and
         # record the policy's likelihood and a forced-row flag. Forced
-        # rows are auxiliary-only in PPO. See `selfplay.explore`:
-        # the point is to show the value head the positions a search will
-        # ask it about, which are exactly the ones the policy avoids.
+        # rows are auxiliary-only in PPO. See `selfplay.explore`: the
+        # point is to show the heads that are not the policy, the value and
+        # the reading of the hands, positions the policy alone would not
+        # reach.
         from .selfplay import explore
 
         picked, log_prob, was_forced = explore(

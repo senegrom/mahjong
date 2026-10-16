@@ -318,7 +318,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("destination", type=Path)
-    parser.add_argument("--float32", action="store_true", help="For measuring, not the reduced browser runtime")
+    parser.add_argument("--float32", action="store_true", help="Keep float32 weights rather than int8 (required for a fusion)")
     parser.add_argument("--allow-any-operator", action="store_true", help="Export while widening the runtime's operator list")
     args = parser.parse_args()
     net, payload = load_network(args.checkpoint)

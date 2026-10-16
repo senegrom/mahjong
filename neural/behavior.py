@@ -1,6 +1,7 @@
 """Validate exploration settings shared by collection and the combined trainer.
 
-Forced rows are auxiliary-only, following the current main-branch policy.
+Forced rows are auxiliary-only: the policy gradient leaves them out, and
+the other heads learn from them (see `selfplay.explore`).
 """
 from __future__ import annotations
 

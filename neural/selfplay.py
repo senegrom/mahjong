@@ -35,7 +35,8 @@ OPPONENTS = riichi_py.OPPONENTS
 ORACLE_PLANES = riichi_py.ORACLE_PLANES
 
 # What a hand moved, brought to about the size of the placement term below
-# so neither drowns the other. A big hand is worth a few tenths.
+# so neither drowns the other. A non-dealer's mangan, 8,000 points, is
+# worth 2.0: as much as two places.
 HAND_SCALE = 1.0 / 4000.0
 
 # What the game itself was worth, by the place it ended in. This is the
@@ -104,14 +105,12 @@ def explore(
     """A move from the policy, or now and then a legal one at random, and
     the probability the *behaviour* gave whatever came out.
 
-    Why this exists. The value head only ever sees positions the policy
-    actually reached, and a search asks it what a move the policy would not
-    have chosen is worth. Those positions are off the distribution it was
-    trained on, its error there is not noise but a bias that correlates
-    with the move being considered, and averaging over more imagined worlds
-    cannot remove it because every world shares it. Widening where
-    self-play goes is the direct attack: the value head is shown the
-    positions the search will ask about.
+    Why this exists. The value head and the reader of the hands learn only
+    from the positions self-play reaches, which the policy's own choices
+    decide. A legal move taken at random now and then shows both positions
+    the policy alone would not reach. Neither is a policy, so both learn
+    from those rows as from any other, while the policy gradient leaves
+    them out (see below).
 
     Why the probability recorded is the policy's own and not the mixture's.
     The first version wrote down the mixture's, (1 - epsilon) pi(a) +

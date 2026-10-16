@@ -5,8 +5,11 @@ or-later, the licence this project shares), kept to the version-four
 shapes the public third-party checkpoint uses: a residual tower with
 channel attention over the thousand and twelve planes, batch-normalised
 and Mish-activated, flattened to a vector of 1024, and a duelling Q head
-over Mortal's forty-six actions. Nothing here is trained by this project;
-it is the other player in the zoo, and a teacher.
+over Mortal's forty-six actions. A published Mortal is a player the zoo
+can seat. This project also trains these classes: `train_mortal`
+fine-tunes a Mortal on our rules (`mortal_learner`), and the joined player
+trains one beneath its head (`combined`), each saved in Mortal's own
+layout (`Mortal.state`).
 
 The public weights are not part of the repository. `load` reads a
 checkpoint file of the kind Mortal writes, with its config inside.

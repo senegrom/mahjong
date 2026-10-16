@@ -1,4 +1,4 @@
-"""Entry and update contracts for imitation, re-heading and legacy distillation."""
+"""Entry and update contracts for imitation and re-heading."""
 from __future__ import annotations
 
 import math
