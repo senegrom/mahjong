@@ -105,12 +105,13 @@ replacement, every non-finite head, legal masks, and real ONNX export/inference.
 
 ## Test-server regression coverage
 
-The tile-effect fixture server is a loopback-only test tool, not part of the
-published game. It reads files before sending success headers, uses explicit
-400/403/404/405/500 statuses, and constrains both lexical and symlink-resolved
-paths to the intended fixture root. Tests cover successful index/script/tile
-loads, missing files, malformed encoding, null bytes, traversal, escaping
-symlinks, HEAD requests and unsupported methods.
+The static fixture server that the browser checks share is a loopback-only
+test tool, not part of the published game. It reads files before sending
+success headers, uses explicit 400/403/404/405/500 statuses, and constrains
+both lexical and symlink-resolved paths to the intended fixture root. Tests
+cover successful index/script/tile loads, missing files, malformed encoding,
+null bytes, traversal, escaping symlinks, HEAD requests and unsupported
+methods.
 
 A successful CodeQL workflow means the scan ran; it does not by itself prove
 that every dashboard alert is closed. Review alert records separately rather

@@ -19,9 +19,7 @@ unless `--version` names another. It expects an export `neural.export` has
 already checked; uploading proves nothing about parity or playing strength.
 
 No ONNX model is served from `web/public`. Both packaging and offline inventory
-creation reject unexpected local ONNX files, including nested files. There is
-no empty `MODEL_FILES` registry or `models.sha256` ledger masquerading as a
-model verification step.
+creation reject unexpected local ONNX files, including nested files.
 
 The packaged runtime is listed in `model-package.js`: the reduced WASM,
 patched JavaScript loader, and shared memory-budget module. `copy-runtime.mjs`

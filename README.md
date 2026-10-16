@@ -28,7 +28,7 @@ npm run verify              # the complete web verification command used by CI
 `verify` audits dependencies, builds WebAssembly, runs JavaScript lint and
 Svelte diagnostics, builds production assets, and runs unit, browser, offline,
 and icon checks. Set `CHROME_BIN` when Chrome is not at the test scripts'
-standard Linux paths. No separate dev server is required. `test:unit` and
+standard locations. No separate dev server is required. `test:unit` and
 `test:browser` are useful after a build.
 
 From the repository root, `./check.sh` runs engine formatting, lint, tests,

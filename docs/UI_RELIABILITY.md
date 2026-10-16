@@ -64,7 +64,7 @@ Pages publication needs three CI jobs to pass: the rules engine, the web app
 and the browser worker parity check. Browser viewport emulation is not a
 physical iPhone/Safari test.
 
-## Second-review corrections
+## Saves across windows, legacy records and calls
 
 Saved-match commands run inside a same-origin Web Lock. Each write compares the
 exact revision originally read, so a stale window cannot take over merely by
