@@ -72,12 +72,14 @@ test('one declaration row has separate conditional discards; neither distributio
 });
 
 test('a lower joint probability cannot override the policy\'s two-stage choice', async () => {
-  const e = engine(), a = analyzer([
-    { action: 37, weights: weights({ 37: .4, 2: .35, 1: .25 }) },
-    { action: 1, weights: weights({ 0: .4, 1: .6 }) },
-  ]);
+  const first = { action: 37, weights: weights({ 37: .4, 2: .35, 1: .25 }) };
+  const second = { action: 1, weights: weights({ 0: .4, 1: .6 }) };
+  // Ranked by joint probability, the riichi and its tile would lose to the
+  // likeliest plain discard.
+  const plain = Math.max(...first.weights.filter((_, action) => action !== MORTAL_REACH));
+  assert.ok(first.weights[MORTAL_REACH] * second.weights[second.action] < plain);
+  const e = engine(), a = analyzer([first, second]);
   const result = await evaluator(a.analyze)(e, 'full');
-  assert.ok(.4 * .6 < .35);
   assert.strictEqual(result.choice, choices[4], 'do not replace the chosen riichi with the 35% plain discard');
   groupPolicyChoices(result.choices);
   assert.strictEqual(result.choice, choices[4]);
