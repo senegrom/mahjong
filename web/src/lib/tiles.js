@@ -1,7 +1,7 @@
 /** Naming tiles the way a person says them, in one place. */
 
-/** The seat winds in turn order, as the physical and guided tables number
- * their seats: WINDS[1] is "South". */
+/** The winds in turn order, as the physical and guided tables number seats
+ * and rounds: WINDS[1] is "South". */
 export const WINDS = Object.freeze(['East', 'South', 'West', 'North']);
 /** The same winds by the engine's names for them: SEAT_NAMES.south is "South". */
 export const SEAT_NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
