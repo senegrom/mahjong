@@ -19,8 +19,8 @@ Build the training extension with `cargo build --locked -p riichi-py` and run
 `python3 engine/riichi-py/smoke-test.py`, as CI does on Linux; the script also
 finds the library under its Windows and macOS names. This loads the real
 extension, checks its observation and legality buffers, and exercises a batch
-of legal moves. The Python binding requires Rust 1.83 or newer; CI uses Rust
-1.98.1.
+of legal moves. The Python binding requires Rust 1.83 or newer; CI and the
+Modal training image use Rust 1.98.1.
 
 In `web/`, run `npm ci` and then `npm run verify`, the command CI runs; the
 [README](../README.md#run-and-verify) lists its steps. Its npm audit runs at
@@ -40,6 +40,16 @@ The root Python binding uses PyO3
 0.29.2 and explicitly retains the previous GIL requirement. The vendored
 observation engine has its own dependency versions and must pass its own
 audit; a clean root audit makes no claim about that separate lockfile.
+
+The Modal training image (`neural/modal_app.py`) is built with the tools CI
+tests: Rust 1.98.1, PyTorch 2.8.0, the packages pinned in the python-engines
+action's `constraints.txt` (numpy, maturin and PyTorch's dependencies), and
+both engines from their lockfiles with `--locked`. An update to those pins
+reaches the image only when the app is next deployed. The ONNX export tools,
+pinned in `export-constraints.txt` beside it, are CI's alone. CI installs
+PyTorch without its dependencies, so that only their pinned releases run, then
+fails on any unmet requirement (`pip check`) and on any package that arrived
+unpinned.
 
 Actions are pinned to full upstream commit IDs. The JavaScript actions use
 Node 24 internally; the application build still uses Node 22. wasm-pack is
@@ -62,7 +72,7 @@ deployment dependency.
 
 Install the pinned CPU training and export tools and both native Python
 engines as `.github/actions/python-engines/action.yml` does for CI (the pins
-are in `constraints.txt` beside it), then run:
+are in `constraints.txt` and `export-constraints.txt` beside it), then run:
 
 ```sh
 python -m unittest discover -s neural/tests -v
