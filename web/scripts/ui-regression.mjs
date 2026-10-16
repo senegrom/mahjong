@@ -349,8 +349,10 @@ try {
     await Promise.all([a.evaluate(()=>document.querySelector('.hand button:not(:disabled)').click()),b.evaluate(()=>document.querySelector('.hand button:not(:disabled)')?.click())]);
     // A loaded machine can take far longer than a moment to grant the save
     // lock, so each tab has until a deadline to settle: stopped by the
-    // conflict, or offering its next move once its own has been saved.
-    const settled=page=>page.waitForFunction(()=>document.querySelector('.save-conflict, .screen, .hand button:not(:disabled), .call-options button:not(:disabled)'),{timeout:30000});
+    // conflict, or offering its next move once its own has been saved. The
+    // wait watches the page for changes, which a tab behind the other still
+    // makes, rather than animation frames, which it may not get.
+    const settled=page=>page.waitForFunction(()=>document.querySelector('.save-conflict, .screen, .hand button:not(:disabled), .call-options button:not(:disabled)'),{polling:'mutation',timeout:30000});
     await Promise.all([settled(a),settled(b)]);
     assert.equal((await saved(a)).commands.length,1);
     assert.equal((await a.$('.save-conflict')?1:0)+(await b.$('.save-conflict')?1:0),1);
