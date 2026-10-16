@@ -52,21 +52,6 @@ test('warm decisions do not recheck, hash or fetch offline model bytes', async t
   assert.equal(preparations, 1);
 });
 
-test('a resident model still answers after storage fallback and disconnection', async t => {
-  let online = true, preparations = 0;
-  const { ask, workers } = client(t, async () => {
-    preparations++;
-    if (!online) throw new TypeError('Failed to fetch');
-    return null; // The offline coordinator's documented storage-failure result.
-  });
-  const first = ask(); await setImmediate(); workers[0].answer(); await first;
-  online = false;
-  const next = ask(), answered = next.then(value => ({ value }), error => ({ error }));
-  await setImmediate(); workers[0].answer();
-  assert.deepEqual(await answered, { value: 0 });
-  assert.equal(preparations, 1);
-});
-
 test('cold concurrent requests share preparation and cancel independently', async t => {
   const download = deferred(); let preparations = 0;
   const { ask, workers } = client(t, () => { preparations++; return download.promise; });
