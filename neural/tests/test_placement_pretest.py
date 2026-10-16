@@ -113,10 +113,15 @@ class Gradients(unittest.TestCase):
         self.assertGreater(planted, 0.3)
         self.assertLess(abs(chance), planted / 3)
         # The sums are linear in the weights: one call of each half alone
-        # gives the halves the whole's sum splits into.
+        # gives the halves the whole's sum splits into. Read over the whole
+        # vector, not element by element: on the processor with twelve
+        # threads the same call gave one element 0.6% apart from one run to
+        # the next, where the vector as a whole stayed within 0.013%; a
+        # half split wrongly would be wrong by a good part of its length.
         alone, _how = placement_pretest.head_gradients(
             net, rollout, torch.stack([signal * ~half]), SimpleNamespace(amp=False, chunk=128), "cpu")
-        torch.testing.assert_close(alone[0], sums[0] - sums[1], rtol=1e-4, atol=1e-6)
+        split = sums[0] - sums[1]
+        self.assertLess(float((alone[0] - split).norm() / alone[0].norm()), 1e-3)
 
 
 class Seeds(unittest.TestCase):
