@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { existsSync, readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { TILE_TYPES, tileFile, tileShorthand, tileWords } from '../src/lib/tiles.js';
 import { MATISSE_DRAGON_URL, TILE_FACE_CONTEXT, TILE_FACE_OPTIONS, TILE_IMAGE_URLS, tileImage } from '../src/lib/tile-faces.js';
@@ -11,6 +9,7 @@ import { DALI_APPROVED } from '../src/lib/dali-faces.js';
 import { MATISSE_APPROVED } from '../src/lib/matisse-faces.js';
 import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { readSettings } from '../src/lib/session.js';
+import { componentLoader } from './fixtures/load-component.js';
 
 const publicRoot = new URL('../public/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', publicRoot), 'utf8'));
@@ -204,19 +203,8 @@ test('tile face survives preference restoration and retired or invalid settings 
   assert.equal(read({ version: 3, tileFace: 'dali' }).tileFace, 'classic');
 });
 
-test('the real Tile component respects the selected face and hidden state', async t => {
-  const source = new URL('../src/lib/Tile.svelte', import.meta.url);
-  const directory = mkdtempSync(fileURLToPath(new URL('../.tile-effects-unit-', import.meta.url)));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const compiled = compile(readFileSync(source, 'utf8'), { filename: fileURLToPath(source), generate: 'server' });
-  const code = compiled.js.code.replace(/from (["'])(\.[^'"]+)\1/g, (_match, _quote, specifier) => {
-    const url = new URL(specifier, source).href;
-    return `from ${JSON.stringify(specifier.endsWith('.webp')
-      ? `data:text/javascript,${encodeURIComponent(`export default ${JSON.stringify(url)}`)}` : url)}`;
-  });
-  const output = `${directory}/Tile.mjs`;
-  writeFileSync(output, code);
-  const { default: Tile } = await import(pathToFileURL(output).href);
+test('the real Tile component respects the selected face and hidden state', async () => {
+  const Tile = await componentLoader()('Tile.svelte');
   for (const interactive of [false, true]) {
     const show = (tile, face, props = {}) => render(Tile, {
       props: { tile, ...(interactive ? { onclick() {} } : {}), ...props },

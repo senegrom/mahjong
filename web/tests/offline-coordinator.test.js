@@ -1,17 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { setImmediate } from 'node:timers/promises';
 import { MessageChannel } from 'node:worker_threads';
-import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
+import { componentLoader } from './fixtures/load-component.js';
 import { loadModule } from './fixtures/load-module.js';
 
 // The offline panel itself, to read what a state says to the player.
-const source = await readFile(new URL('../src/lib/app/OfflineStatus.svelte', import.meta.url), 'utf8');
-const code = compile(source, { generate: 'server' }).js.code.replace(/from (['"])([^'"]+)\1/g,
-  (_, _quote, name) => `from ${JSON.stringify(import.meta.resolve(name))}`);
-const { default: Status } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const Status = await componentLoader()('app/OfflineStatus.svelte');
 const panel = offline => render(Status, { props: { offline, downloadAi: () => {} } }).body;
 
 const NETWORK = { url: 'https://model.invalid/g1', version: '0.1.1', sha256: '1'.repeat(64), bytes: 116 };

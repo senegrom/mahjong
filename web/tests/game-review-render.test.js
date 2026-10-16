@@ -1,31 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { TREND_WINDOW } from '../src/lib/review-trend.js';
 import { playedNetwork, trainedName } from '../src/lib/trained-network.js';
+import { componentLoader } from './fixtures/load-component.js';
 
-// Render the production components, substituting only the artwork URL and,
-// where a test does not open one, the decision replay.
-async function component(name, imports = {}) {
-  const file = new URL(`../src/lib/${name}.svelte`, import.meta.url);
-  const source = await readFile(file, 'utf8');
-  const { js, warnings } = compile(source, { filename: file.pathname, generate: 'server' });
-  assert.deepEqual(warnings, []);
-  const code = js.code
-    .replace(/import dragonUrl from '[^']+';/, "const dragonUrl = 'white-dragon.webp';")
-    .replace(/from (['"])([^'"]+)\1/g, (_, _quote, path) =>
-      `from ${JSON.stringify(imports[path] ?? (path.startsWith('.') ? new URL(path, file).href : import.meta.resolve(path)))}`);
-  return `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
-}
-const tile = await component('Tile');
-const trend = await component('ReviewTrend');
-const replay = 'data:text/javascript,export default function DecisionReplay() {}';
-const { default: GameReview } = await import(await component('GameReview', {
-  './Tile.svelte': tile, './ReviewTrend.svelte': trend, './DecisionReplay.svelte': replay,
-}));
-const { default: ReviewTrend } = await import(trend);
+// Render the production components, substituting only the decision replay,
+// which no test here opens.
+const component = componentLoader({
+  'DecisionReplay.svelte': 'data:text/javascript,export default function DecisionReplay() {}',
+});
+const GameReview = await component('GameReview.svelte');
+const ReviewTrend = await component('ReviewTrend.svelte');
 
 const frame = { view: {}, choices: [], lines: [], command: 0, played: { kind: 'discard', tile: '7m' } };
 const decision = (values = {}) => ({

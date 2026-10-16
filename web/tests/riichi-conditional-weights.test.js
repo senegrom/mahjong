@@ -37,7 +37,11 @@ test('real WASM live riichi weights retain both stages and the original selected
     close(group.choices.find(c => c.index === alternative.index).conditionalWeight, .25);
     close(group.choices.reduce((sum, choice) => sum + choice.conditionalWeight, 0), 1);
     close(groupPolicyChoices(result.choices).reduce((sum, row) => sum + (row.weight ?? row.choice?.weight ?? 0), 0), 1);
-    assert.ok(.55 * .75 < .45, 'joint ranking would wrongly replace the selected riichi');
+    // Ranked by joint probability, the riichi and its tile would lose to the
+    // plain discard the fixture also offers.
+    const plain = Math.max(...first.weights.filter((_, action) => action !== MORTAL_REACH));
+    assert.ok(first.weights[MORTAL_REACH] * second.weights[second.action] < plain,
+      'joint ranking would wrongly replace the selected riichi');
     assert.deepEqual(match.snapshot(), original, 'analysis cannot mutate the real game');
   } finally { match.dispose(); }
 });

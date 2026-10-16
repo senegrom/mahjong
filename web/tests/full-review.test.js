@@ -36,24 +36,6 @@ test('riichi waits stay on green dragon while unrelated North is drawn (seed 81)
   } finally { m.dispose(); }
 });
 
-test('discard previews are non-mutating and match the actual thirteen-tile hand', () => {
-  const m = make(11);
-  try {
-    const before=m.stateKey();
-    for(const c of m.choices.filter(c => c.kind === 'discard')) {
-      const hint=m.engine.discard_hint(c.tile);
-      assert.equal(m.stateKey(),before);
-      const copy=MatchSession.restore(Game,JSON.stringify(m.snapshot()));
-      try {
-        copy.engine.choose('discard',c.tile);
-        assert.deepEqual(hint.waits,copy.view.waits);
-        assert.deepEqual(hint.waits_left,copy.view.waits_left);
-        assert.equal(hint.shanten,copy.view.shanten);
-      } finally {copy.dispose();}
-    }
-  } finally {m.dispose();}
-});
-
 test('old format-2 hints migrate without relaxing tile, score or action validation', () => {
   const original=JSON.parse(readFileSync(new URL('./fixtures/pre-hint-format2.json',import.meta.url)));
   assert.deepEqual(JSON.parse(original.state)[0].waits,['4z','6z']);

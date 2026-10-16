@@ -1,7 +1,7 @@
 /** Review a restored hand with the actual production UI and trained worker. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,13 +10,9 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
-import { runtimeDirectory } from './copy-runtime.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
-// The network comes from its bucket, so what the page needs on disk is the
-// runtime that runs it; the network itself is fetched when it is asked for.
-const trainedShipped = existsSync(resolve(dist, `${await runtimeDirectory()}ort-wasm-simd-threaded.wasm`));
 const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
 const match = new MatchSession(Game, 1, 'club');
 let snapshot, notes, first, choices, translations, reachTranslations;
@@ -137,30 +133,28 @@ try {
     assert.equal(await page.$eval(select, el => el.value), 'club');
     assert.match(await page.$eval('.review .summary', el => el.textContent), /matched Club/);
     if (notes.some(note => !note.agreed)) assert.ok(await page.$('.review .numbers'));
-    if (trainedShipped) {
-      await page.waitForFunction(() => !document.querySelector('select[aria-label="Review adviser"] option[value="strong"]').disabled);
-      await page.select(select, 'strong');
-      await page.waitForSelector('.review .retry', { timeout: 90000 });
-      assert.match(await page.$eval('.review [role="alert"]', el => el.textContent), /Review connection interrupted/);
-      await page.click('.review .retry');
-      await strongResults(page);
-      await page.screenshot({ path: resolve(output, 'adviser-review-desktop.png'), fullPage: true });
-      await page.select(select, 'club');
-      await page.waitForFunction(() => document.querySelector('.review .summary')?.textContent.includes('matched Club'));
-      assert.equal(await page.$('.policy-preference'), null);
-      await page.select(select, 'strong');
-      await strongResults(page); // No additional worker requests for a cached hand.
-      const preferences = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SETTINGS_KEY);
-      assert.equal(preferences.reviewAdviser, 'strong'); assert.equal(preferences.difficulty, 'club');
-      assert.equal(Object.hasOwn(preferences, 'trainedModel'), false, 'retired network preferences are no longer persisted');
-      await page.setViewport({ width: 360, height: 800, hasTouch: true });
-      await page.reload({ waitUntil: 'networkidle0' });
-      await openReview(page);
-      assert.equal(await page.$eval(select, el => el.value), 'strong');
-      await strongResults(page);
-      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
-      await page.screenshot({ path: resolve(output, 'adviser-review-mobile.png'), fullPage: true });
-    } else assert.equal(await page.$eval(`${select} option[value="strong"]`, el => el.disabled), true);
+    await page.waitForFunction(() => !document.querySelector('select[aria-label="Review adviser"] option[value="strong"]').disabled);
+    await page.select(select, 'strong');
+    await page.waitForSelector('.review .retry', { timeout: 90000 });
+    assert.match(await page.$eval('.review [role="alert"]', el => el.textContent), /Review connection interrupted/);
+    await page.click('.review .retry');
+    await strongResults(page);
+    await page.screenshot({ path: resolve(output, 'adviser-review-desktop.png'), fullPage: true });
+    await page.select(select, 'club');
+    await page.waitForFunction(() => document.querySelector('.review .summary')?.textContent.includes('matched Club'));
+    assert.equal(await page.$('.policy-preference'), null);
+    await page.select(select, 'strong');
+    await strongResults(page); // No additional worker requests for a cached hand.
+    const preferences = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SETTINGS_KEY);
+    assert.equal(preferences.reviewAdviser, 'strong'); assert.equal(preferences.difficulty, 'club');
+    assert.equal(Object.hasOwn(preferences, 'trainedModel'), false, 'retired network preferences are no longer persisted');
+    await page.setViewport({ width: 360, height: 800, hasTouch: true });
+    await page.reload({ waitUntil: 'networkidle0' });
+    await openReview(page);
+    assert.equal(await page.$eval(select, el => el.value), 'strong');
+    await strongResults(page);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
+    await page.screenshot({ path: resolve(output, 'adviser-review-mobile.png'), fullPage: true });
     assert.deepEqual(errors, []);
   });
 } finally {

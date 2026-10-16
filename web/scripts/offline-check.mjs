@@ -143,8 +143,10 @@ async function profile() { const dir = await mkdtemp(join(tmpdir(), 'mahjong-off
 try {
   await mkdir(output, { recursive:true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
-  for (const strength of ['beginner', 'club']) await check(`${strength}: complete game and graphics save automatically and restart offline with NO AI download or button`, async () => {
-    const dir = await profile(); let b = await launch(dir); const p = await page(b, { strength });
+  // Beginner and Club are both built into the game and neither touches the
+  // network, so the cycle runs once, with Club.
+  await check('Club opponents: complete game and graphics save automatically and restart offline with NO AI download or button', async () => {
+    const dir = await profile(); let b = await launch(dir); const p = await page(b, { strength: 'club' });
     await hand(p);
     await p.waitForSelector('[data-core-ready=true]');
     await assertSelectedDecoded(p);
@@ -161,7 +163,7 @@ try {
     }
     const cdp = await p.createCDPSession(); await cdp.send('Network.clearBrowserCache');
     await close(b); unavailable = true; count.clear(); refused.length = 0;
-    b = await launch(dir); const cold = await page(b, { seed: false, offline: true, strength });
+    b = await launch(dir); const cold = await page(b, { seed: false, offline: true, strength: 'club' });
     await hand(cold); await cold.waitForSelector('[data-core-ready=true]');
     assert.equal(await cold.$eval('select[aria-label="Tile face"]', select => select.value), 'matisse');
     assert.ok(await cold.$$eval('.hand img', images => images.length > 0 && images.every(image => image.src.includes('/matisse/') && image.complete && image.naturalWidth > 0)));
@@ -176,7 +178,7 @@ try {
       const image = new Image(); image.src = url; await image.decode(); return image.naturalWidth > 0;
     }))).every(Boolean), art));
     assert.deepEqual(refused.filter(name => name !== 'sw.js'), []);
-    if (strength === 'club') await cold.screenshot({ path: resolve(output, 'automatic-game-tiles-offline.png'), fullPage: true });
+    await cold.screenshot({ path: resolve(output, 'automatic-game-tiles-offline.png'), fullPage: true });
     assert.deepEqual(cold.errors, []);
   });
   await check('the optional button adds ONLY trained AI bytes and does not change the match', async () => {
@@ -216,19 +218,24 @@ try {
     for (const entry of manifest.entries.filter(e => e.group === 'ai')) assert.equal(count.get(entry.url) ?? 0, 0);
     assert.deepEqual(p.errors, []);
   });
-  for (const asset of ['tiles/Chun.svg', dragonPath]) await check(`first play waits for selected artwork: ${asset}`, async () => {
+  // A first visit with Trained opponents also saves the network, which each
+  // run downloads whole from its bucket, so only one of the two cases has
+  // them; the other plays Club, which needs no network at all.
+  for (const [asset, strength] of [['tiles/Chun.svg', 'neural'], [dragonPath, 'club']]) await check(`first play waits for selected artwork: ${asset}`, async () => {
     holdPath = asset;
-    const b = await launch(await profile()), p = await page(b);
+    const b = await launch(await profile()), p = await page(b, { strength });
     await waitForHeldRequest(asset);
     assert.equal(await p.$('.hand'), null, 'No partially decoded selected face or missing foil artwork');
     releaseHeldResponses();
-    await hand(p); await ready(p);
+    await hand(p);
+    if (strength === 'neural') await ready(p);
+    else await p.waitForSelector('[data-core-ready=true]', { timeout: 120000 });
     await assertSelectedDecoded(p);
     await assertCoreCached(p);
     const faces = manifest.entries.filter(e => e.url.startsWith('tiles/') && e.url.endsWith('.svg'));
     assert.deepEqual(faces.map(face => face.url).sort(), [...TILE_IMAGE_URLS].sort());
     for (const face of faces) assert.ok(count.has(face.url), face.url);
-    assert.equal(count.get(modelPath), 1);
+    assert.equal(count.get(modelPath) ?? 0, strength === 'neural' ? 1 : 0);
     await p.screenshot({path:resolve(output, asset === dragonPath ? 'offline-first-foil.png' : 'offline-first-download.png'),fullPage:true});
     assert.deepEqual(p.errors, []);
   });

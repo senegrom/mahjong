@@ -74,32 +74,32 @@ try {
   const base = `http://127.0.0.1:${server.address().port}/mahjong/`;
   browser = await launchChrome();
 
-  // Old preference IDs are migration inputs, not picks of a listed network.
-  for (const storedModel of ['full', 'quick', 'strong']) {
-    await check(`${storedModel} preference uses only the shipped trained network and preserves replay`, async () => {
-      const context = await openContext(browser), before = downloads.length;
-      const remote = [];
-      const stopObserving = await observeNetworkRequests(context, request => {
-        if (request.url === networkUrl && request.method === 'GET') remote.push(request.url);
-      });
-      const page = await open(context, base, storedModel);
-      assert.equal(await page.$('select[aria-label="Trained opponent"]'), null,
-        'The retired network selector must not come back');
-      // A retired preference is no pick of a network: the default plays.
-      assert.equal(await page.$eval('select[aria-label="Trained network"]', el => el.value), MANIFEST.version);
-      await play(page, 12);
-      const fetched = downloads.slice(before);
-      await stopObserving();
-      assert.deepEqual(remote, [networkUrl], 'The actual model must be fetched exactly once');
-      assert.deepEqual(fetched, [], 'No retired same-origin model may be requested');
-      assert.deepEqual(page.errors, []);
-      const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
-      assert.ok(saved.commands.filter(command => command.type === 'opponent').length >= 2,
-        'The trained worker must complete real decisions, not only download');
-      const restored = MatchSession.restore(Game, JSON.stringify(saved));
-      try { assert.equal(restored.stateKey(), saved.state); } finally { restored.dispose(); }
+  // An old build's network preference is a migration input, not a pick of a
+  // listed network. Reading the settings drops every retired ID alike
+  // (session.test.js), so the page is played under one of them: each run
+  // downloads the whole network from its bucket.
+  await check('a retired network preference uses only the default trained network and preserves replay', async () => {
+    const context = await openContext(browser);
+    const remote = [];
+    const stopObserving = await observeNetworkRequests(context, request => {
+      if (request.url === networkUrl && request.method === 'GET') remote.push(request.url);
     });
-  }
+    const page = await open(context, base, 'quick');
+    assert.equal(await page.$('select[aria-label="Trained opponent"]'), null,
+      'The retired network selector must not come back');
+    // A retired preference is no pick of a network: the default plays.
+    assert.equal(await page.$eval('select[aria-label="Trained network"]', el => el.value), MANIFEST.version);
+    await play(page, 12);
+    await stopObserving();
+    assert.deepEqual(remote, [networkUrl], 'The actual model must be fetched exactly once');
+    assert.deepEqual(downloads, [], 'No retired same-origin model may be requested');
+    assert.deepEqual(page.errors, []);
+    const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
+    assert.ok(saved.commands.filter(command => command.type === 'opponent').length >= 2,
+      'The trained worker must complete real decisions, not only download');
+    const restored = MatchSession.restore(Game, JSON.stringify(saved));
+    try { assert.equal(restored.stateKey(), saved.state); } finally { restored.dispose(); }
+  });
 } finally {
   await browser?.close();
   if (server.listening) await new Promise(done => server.close(done));

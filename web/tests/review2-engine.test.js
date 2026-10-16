@@ -24,8 +24,7 @@ test('shared neural call asks the other player after human Pass and can be resto
   // Mortal's low chi claims the lowest tile of the sequence, which is the
   // one our own numbering calls high.
   const mask=m.engine.opponent_mask_mortal();assert.ok(mask[38],'The 2-3-4 characters Chii remains offered to South');
-  const action=38;
-  assert.ok(action>=0);m.apply({type:'opponent',action});m.advance(false);
+  m.apply({type:'opponent',action:38});m.advance(false);
   const events=m.engine.log().split('\n').map(JSON.parse);assert.ok(events.some(e=>e.type==='chi'&&e.pai==='2m'));
  } finally {m.dispose();restored?.dispose();}
 });
