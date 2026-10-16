@@ -53,25 +53,41 @@ from neural.cloud_requests import (
 
 HERE = Path(__file__).parent.parent
 
+# The image is built with the tools CI tests, never with whatever is newest:
+# Modal keeps every layer it has built, so open pins held the versions of the
+# first build until some rebuild took releases no test had run. The toolchain
+# is the one the workflows install. numpy, maturin and PyTorch's own
+# dependencies are at the pins of CI's constraints.txt, which Dependabot keeps
+# current for both, so a change there rebuilds this image at its next deploy.
+# PyTorch is pinned here and in that action, which takes its CPU build.
+RUST_TOOLCHAIN = "1.98.1"
+TORCH = "torch==2.8.0"
+PINS = HERE / ".github" / "actions" / "python-engines" / "constraints.txt"
+
 # Debian with a Rust toolchain, because the engines are compiled and the
 # wheels have to be built for the container's own libc.
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("curl", "build-essential", "pkg-config", "git")
     .run_commands(
-        "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable --profile minimal"
+        "curl https://sh.rustup.rs -sSf | sh -s -- -y "
+        f"--default-toolchain {RUST_TOOLCHAIN} --profile minimal"
     )
     .env({"PATH": "/root/.cargo/bin:/usr/local/bin:/usr/bin:/bin"})
-    .pip_install("torch==2.8.0", "numpy>=2.0", "maturin>=1.7")
+    .add_local_file(PINS, "/src/constraints.txt", copy=True)
+    .pip_install(TORCH, "numpy", "maturin", extra_options="-c /src/constraints.txt")
     # The sources the wheels are built from, and the training package itself.
     .add_local_dir(HERE / "engine", "/src/engine", copy=True, ignore=["**/target", "**/pkg"])
     .add_local_file(HERE / "Cargo.toml", "/src/Cargo.toml", copy=True)
     .add_local_file(HERE / "Cargo.lock", "/src/Cargo.lock", copy=True)
     .run_commands(
-        "cd /src/engine/riichi-py && maturin build --release --out /src/wheels",
+        # --locked, as CI builds them: a lockfile that no longer matches its
+        # Cargo.toml fails the build instead of being re-resolved to newer
+        # crates.
+        "cd /src/engine/riichi-py && maturin build --release --locked --out /src/wheels",
         # Mortal's engine, its own workspace and its own PyO3; see
         # engine/libriichi/NOTICE.md.
-        "cd /src/engine/libriichi && maturin build --release --out /src/wheels",
+        "cd /src/engine/libriichi && maturin build --release --locked --out /src/wheels",
         "pip install /src/wheels/*.whl",
     )
     # The training code last, so editing it does not rebuild the engines.
