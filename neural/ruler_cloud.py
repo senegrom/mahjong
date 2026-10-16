@@ -132,9 +132,6 @@ SERIES = (*CALLED, "also", "against")
 #: call that asks for none of it is made as before, which an app deployed
 #: before it existed still takes.
 OPTIONAL = ("average_suits",)
-#: What a challenger that averages over the suits is called after its
-#: checkpoint where a series names its players.
-AVERAGED = " averaged over the suits"
 #: A tag names a folder here and on the volume, so it is held to what
 #: `modal_app.ruler` takes for one (see `cloud_runs.validate_run`), before
 #: any folder is made.
@@ -383,7 +380,7 @@ def challenger_name(settings: dict, which: str) -> str:
     the series names its players: the checkpoint, said to average over the
     suits when it does, so one checkpoint played both ways reads as two."""
     name = settings["challenger" if which == "first" else "also"]
-    return name + (AVERAGED if settings.get("average_suits") in (which, "both") else "")
+    return name + (looks.AVERAGED if settings.get("average_suits") in (which, "both") else "")
 
 
 def compared(series: Series, settings: dict) -> tuple[str, str]:
@@ -467,9 +464,9 @@ def names_of(series: Series) -> tuple[str, str]:
     sample = next(iter(series.reports().values()), {})
     arms = sample.get("arms")
     if arms:
-        return (checkpoint_name(arms[0].get("challenger", "the first")) + (AVERAGED if "suits" in arms[0] else ""),
-                checkpoint_name(arms[1].get("challenger", "the second")) + (AVERAGED if "suits" in arms[1] else ""))
-    return (checkpoint_name(sample.get("challenger", "the challenger")) + (AVERAGED if "suits" in sample else ""),
+        return (checkpoint_name(arms[0].get("challenger", "the first")) + looks.averaged(arms[0]),
+                checkpoint_name(arms[1].get("challenger", "the second")) + looks.averaged(arms[1]))
+    return (checkpoint_name(sample.get("challenger", "the challenger")) + looks.averaged(sample),
             checkpoint_name(sample.get("incumbent", "the incumbent")))
 
 

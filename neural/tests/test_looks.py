@@ -190,6 +190,19 @@ class CommandLineTests(unittest.TestCase):
             self.assertEqual(answer["state"], "first")
             self.assertEqual(answer["design"]["per_look"], 1)
 
+    def test_one_checkpoint_averaging_over_the_suits_and_plain_reads_as_two(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            looks.Design(first_seed=7, step=1, per_look=1, looks=2).save(root / "design.json")
+            for seed in (7, 8):
+                kept = paired(seed, [2.0] * 30, [3.0] * 29 + [2.9])
+                for arm in kept["arms"]:
+                    arm["challenger"] = "history/gen-00810"
+                kept["arms"][0]["suits"] = {"gate": 0.9, "asked": 100, "again": 18, "changed": 2}
+                (root / f"seed-{seed}.json").write_text(json.dumps(kept))
+            text = self.run_main(root)
+            self.assertIn("stopped at look 1: history/gen-00810 averaged over the suits is the stronger", text)
+
     def test_two_series_of_single_rulers_are_read_deal_by_deal(self):
         with tempfile.TemporaryDirectory() as folder:
             first, second = Path(folder) / "910", Path(folder) / "810"

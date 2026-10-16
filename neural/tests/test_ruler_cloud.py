@@ -552,6 +552,31 @@ class CommandLineTests(unittest.TestCase):
                     self.assertIn("is not a tag", err)
             self.assertEqual(list(Path(folder).iterdir()), [])
 
+    def test_a_series_holds_averaging_over_the_suits_only_when_it_is_asked_for(self):
+        def answer(name, arguments):
+            report = paired_report(arguments["seed"], 0.3)
+            for arm in report["arms"]:
+                arm["challenger"] = arguments["challenger"]
+            if arguments.get("average_suits"):
+                report["arms"][0]["suits"] = {"gate": 0.9, "asked": 10, "again": 2, "changed": 1}
+            return report
+
+        for averaging in ([], ["--average-suits", "first"]):
+            modal = Modal(answer)
+            with self.subTest(averaging=averaging), tempfile.TemporaryDirectory() as folder, \
+                    patch.object(ruler_cloud.time, "sleep"):
+                code, _err = self.run_main("series", "g810-suits", "history/gen-00810", "zoo/mortal_298k",
+                                           "--also", "history/gen-00810", *averaging, "--local", folder, modal=modal)
+                settings = json.loads((Path(folder) / "g810-suits" / "series.json").read_text(encoding="utf-8"))
+                self.assertEqual(code, 0)
+                self.assertEqual(len(modal.spawned), 5)
+                if averaging:
+                    self.assertEqual(settings["average_suits"], "first")
+                    self.assertTrue(all(arguments["average_suits"] == "first" for _name, arguments in modal.spawned))
+                else:
+                    self.assertNotIn("average_suits", settings)
+                    self.assertTrue(all("average_suits" not in arguments for _name, arguments in modal.spawned))
+
     def test_a_second_challenger_that_averages_must_be_named(self):
         with tempfile.TemporaryDirectory() as folder:
             for which in ("second", "both"):

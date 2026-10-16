@@ -42,8 +42,9 @@ of the 156 changes the mean makes when every question is asked twice; no
 decision the plain view made with 0.99 or more changed. The renamed
 questions are put to the network in a forward of their own, after the
 plain one, so the plain questions are asked in the very batches a plain
-player is asked in, and on the card a table of each plays the same game
-until a decision of the averaging player changes.
+player is asked in; asked in fixed rows on the card (see `neural.ruler`),
+a table of each then plays the same game until a decision of the
+averaging player changes.
 
 It is off unless asked for: only a ruler seats a player that averages
 (`neural.ruler --average-suits`), so self-play, training and the watcher's

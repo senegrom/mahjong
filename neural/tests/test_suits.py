@@ -2,12 +2,13 @@
 inverse on tiles, on Mortal's moves and on mjai lines, and renames a whole
 game exactly as Mortal's own augmentation does. The second follower, fed
 every event renamed and told every reach the first is told, encodes each
-position as the renamed game replayed from its start, with the game's
-state the game's own renamed. A player that averages asks only the
-questions it hesitates over of the renamed game, in a question of their
-own, and where its two views disagree it plays the mean of the two. With
-the option off a ruler follows nothing more, and a player that averages
-but never hesitates plays the plain player's games."""
+position as the renamed game replayed from its start encodes it, and
+everything but the efficiency lookahead as the game's own planes renamed.
+A player that averages asks only the questions it hesitates over of the
+renamed game, in a question of their own, and where its two views
+disagree it plays the mean of the two. With the option off a ruler
+follows nothing more, and a player that averages but never hesitates
+plays the plain player's games."""
 
 import contextlib
 import io
@@ -15,6 +16,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -173,7 +175,6 @@ class RenamedFollowerTests(unittest.TestCase):
     def setUpClass(cls):
         arena = Logged(riichi_py.Arena(games=2, seed=SEED + 2), 2)
         views = observe.Views(arena, 2, renamed=[1])
-        cls.views = views
         cls.asked: list[dict] = []
         cls.told = 0
         cls.refused = None
@@ -271,8 +272,7 @@ class Asked:
 
 class AveragingTests(unittest.TestCase):
     def setUp(self):
-        self.views = type("Views", (), {})()
-        self.views.renamed = object()
+        self.views = SimpleNamespace(renamed=object())
 
     def allowed(self, rows: int) -> np.ndarray:
         allowed = np.random.default_rng(rows).random((rows, 46)) < 0.4
@@ -323,7 +323,7 @@ class AveragingTests(unittest.TestCase):
     def test_a_confident_player_never_asks_the_renamed_game(self):
         asked = Asked(None)
         account = suits.Averaging(gate=0.0)
-        views = type("Views", (), {"renamed": None})()
+        views = SimpleNamespace(renamed=None)
         values, _own = suits.averaged(asked, account)(views, [(0, 0), (1, 1)], False, self.allowed(2))
         self.assertEqual(len(asked.calls), 1)
         self.assertEqual((account.asked, account.again, account.changed), (2, 0, 0))
@@ -394,27 +394,31 @@ class Stop(Exception):
     """Ends a ruler once its views are made."""
 
 
+class CountedTells:
+    """A follower, counting what it is told."""
+
+    def __init__(self, follower) -> None:
+        self.follower = follower
+        self.told = 0
+
+    def tell(self, *told):
+        self.told += 1
+        return self.follower.tell(*told)
+
+    def __getattr__(self, name):
+        return getattr(self.follower, name)
+
+
 class Recorded(Taught):
-    """`Taught` views that keep themselves, and count what their renamed
-    game's follower is told."""
+    """`Taught` views that keep themselves, their renamed game's follower
+    counting what it is told."""
 
     made: list = []
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.renamed_told = 0
         if self.observer.renamed is not None:
-            follower = self.observer.renamed
-
-            class Counting:
-                def tell(inner, *told):
-                    self.renamed_told += 1
-                    return follower.tell(*told)
-
-                def __getattr__(inner, name):
-                    return getattr(follower, name)
-
-            self.observer.renamed = Counting()
+            self.observer.renamed = CountedTells(self.observer.renamed)
         Recorded.made.append(self)
 
 
@@ -484,7 +488,7 @@ class RulerTests(unittest.TestCase):
             got = ruler.ruler(arms, incumbent, 1, SEED, "cpu")
         (views,) = made
         self.assertEqual(views.observer.renamed_games, list(range(8)))
-        self.assertGreater(views.renamed_told, 0)
+        self.assertGreater(views.observer.renamed.told, 0)
         hesitant, never, plain = got["arms"]
         self.assertGreater(hesitant["suits"]["again"], hesitant["suits"]["asked"] // 2)
         self.assertGreater(hesitant["suits"]["changed"], 0)
