@@ -21,8 +21,8 @@
 </script>
 
 <div class="board">
-  <div class="place across"><Seat seat={across} side="across" dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player} /></div>
-  <div class="place left"><Seat seat={left} side="left" dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player} /></div>
+  <div class="place across"><Seat seat={across} dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player} /></div>
+  <div class="place left"><Seat seat={left} dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player} /></div>
   <div class="centre" role="group" aria-label="the table">
     <div class="round-details">
       <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>Round</span></div>
@@ -49,7 +49,7 @@
       Discards
     </button>
   </div>
-  <div class="place right"><Seat seat={right} side="right" dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player} /></div>
+  <div class="place right"><Seat seat={right} dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player} /></div>
 </div>
 
 <dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="{uid}-title">

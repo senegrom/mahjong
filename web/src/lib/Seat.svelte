@@ -7,10 +7,10 @@
   import Melds from './Melds.svelte';
 
   /**
-   * One opponent, placed around the table. `side` is where they sit from the
-   * player's chair, which decides whether their tiles run across or down.
+   * One opponent at the table. Where they sit is MatchTable's to lay out:
+   * it places each seat in a wrapper named for its side.
    */
-  let { seat, side = 'across', dealer = false, dora = [], thinking = false } = $props();
+  let { seat, dealer = false, dora = [], thinking = false } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
@@ -56,7 +56,7 @@
   const shortScore = score => `${(score / 1000).toFixed(1)}k`;
 </script>
 
-<section class="seat {side}" class:turn={seat.turn} class:thinking aria-label="{NAMES[seat.seat]} seat">
+<section class="seat" class:turn={seat.turn} class:thinking aria-label="{NAMES[seat.seat]} seat">
   <header>
     <span class="wind">{NAMES[seat.seat]}</span>
     {#if dealer}<span class="dealer-badge">Dealer</span>{/if}
