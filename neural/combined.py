@@ -1,21 +1,33 @@
 """Two players' last layers joined by a third: a fusion head.
 
 Mortal ends in its encoder's vector of 1024 (M2) and the Q values over its
-forty-six actions that a linear head reads from it (M1). Our network ends
-in its tower's features, pooled over the line and per tile (A2), and the
-seventy-eight masked logits its heads read from them (A1). Both see the
-same planes. This puts one more layer, F, over all four: a small network
-that reads M2, M1, A2 and A1 together, with M1 also mapped onto our
-actions through the zoo's translation so that F sees Mortal's value of
-the very move it is choosing between, and both players' legality masks.
+forty-six moves that a linear head reads from it (M1). Our network, re-headed
+into the same forty-six moves (`neural.rehead`; `build` refuses any other),
+ends in its tower's features, per tile and pooled over the line (Z2), and
+the logits its policy heads read from them (Z1). Both see the same planes.
+The head, F, joins them in three layers. F2 reads Mortal's vector and our
+per-tile features together. F1 reads the fusion's own logits over the same
+moves from F2. F0, what is played, weighs F1, M1 and Z1 move by move, adds
+a bias and a correction read from all three and the legality mask, and
+masks what the rules forbid.
 
-F's output is added to A1, and its last layers start at zero, so on the
-first day the joined player plays exactly as our network does and learns
-from there how much of Mortal to mix in, and where. The networks beneath
-it train too, by the same self-play loop: each generation draws at random
-which of the two stays fixed, Mortal, ours, or neither, while F and our
-value head, the baseline, train every generation. A checkpoint carries
-everything, so it loads wherever a player of ours does.
+The joined player is born as Mortal. F0's weights start at 0.05 on F1, 1.0
+on M1 and 0.02 on Z1, and F1's last layers, the bias and the correction
+start at zero, so on the first day its logits are Mortal's values, with
+ours only loud enough to order what those leave tied. From there it learns
+how much of each answer to use, and where. It judges a position and reads
+the opponents' hands as our network does, plus a correction from Mortal's
+vector that also starts at zero (`Fuse.judge`, `Fuse.read_hands`).
+
+The networks beneath train too, by the same self-play loop
+(`train_combined`). Each generation draws what stays fixed from
+`train_combined --fixed`, by default the six `Combined.MODES`: nothing,
+Mortal, ours, the head, or the head with either network beneath it. Three
+of the six hold the head still. Only the critic and the reading of the
+hands (`Combined.always_trained`) train whatever the draw, and a
+generation that teaches the critic alone (`Combined.hold_all_but_value`)
+holds even the reading still. A checkpoint carries everything, so it
+loads wherever a player of ours does.
 """
 
 from __future__ import annotations
@@ -214,11 +226,12 @@ class Combined(nn.Module):
     def always_trained(self) -> list[nn.Parameter]:
         """The critic and the reading of the hands, both halves of each.
 
-        The critic is the baseline the advantages are measured against and
-        the value a search would judge a leaf by; the reading is what a
-        search would deal the unseen tiles from. Neither is a policy, so
-        holding the policy still is no reason to stop either learning, and
-        both train every generation whatever else is held."""
+        The critic is the baseline the advantages are measured against; the
+        reading is what the site shows of the opponents' hands. Neither is
+        a policy, so holding the policy still is no reason to stop either
+        learning, and both train whatever `set_mode` holds. Only a
+        generation that teaches the critic alone (`hold_all_but_value`)
+        holds the reading still as well."""
         parts = [
             self.ours.value,
             self.ours.belief_stem,
@@ -264,7 +277,8 @@ class Combined(nn.Module):
 
     def set_mode(self, mode: str) -> None:
         """What stays fixed this generation, named by its parts joined with
-        a plus: `mortal`, `ours`, `head`, `mortal+head`, or `none`."""
+        a plus: `mortal`, `ours`, `head`, `mortal+head`, `ours+head`, or
+        `none`."""
         held = set() if mode == "none" else set(mode.split("+"))
         if not held <= set(self.PARTS):
             raise ValueError(f"no such mode: {mode}")
@@ -454,8 +468,9 @@ class Combined(nn.Module):
 
 
 def build(ours_path: Path | str, mortal_path: Path | str, device: str) -> Combined:
-    """A joined player over the two checkpoints named, F starting at zero,
-    with Mortal's config, which its checkpoints carry, as `mortal_config`."""
+    """A joined player over the two checkpoints named, born as Mortal (see
+    the module's notes), with Mortal's config, which its checkpoints carry,
+    as `mortal_config`."""
     payload = torch.load(ours_path, map_location="cpu", weights_only=True)
     ours = from_payload(payload, device)
     if not ours.speaks_mortal:
