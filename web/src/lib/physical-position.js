@@ -1,7 +1,6 @@
-import { TILE_TYPES } from './tiles.js';
+import { TILE_TYPES, WINDS } from './tiles.js';
 
 export const PHYSICAL_KEY = 'riichi.physical.v1';
-export const TILES = Object.freeze([...TILE_TYPES]);
 
 export function parseTiles(text) {
   const compact = text.replace(/[\s,]+/g, '');
@@ -9,7 +8,7 @@ export function parseTiles(text) {
   const groups = compact.match(/[1-9]+[mpsz]/g);
   if (!groups || groups.join('') !== compact) throw new Error('Use tile notation such as 123m456p789s11z');
   const tiles = groups.flatMap(group => [...group.slice(0, -1)].map(rank => `${rank}${group.at(-1)}`));
-  if (tiles.some(tile => !TILES.includes(tile))) throw new Error('Honours are 1z to 7z');
+  if (tiles.some(tile => !TILE_TYPES.includes(tile))) throw new Error('Honours are 1z to 7z');
   return tiles;
 }
 
@@ -27,28 +26,26 @@ export function parsePhysical(text) {
     const p = value?.position;
     const number = value => value == null || Number.isFinite(value);
     const flag = value => value == null || typeof value === 'boolean';
-    const optionalTile = value => value == null || TILES.includes(value);
+    const optionalTile = value => value == null || TILE_TYPES.includes(value);
     // This is a draft, possibly incomplete. Rust validates the full state
     // before it can ever reach the policy or produce a legal action.
     if (value?.version === 1 && p && JSON.stringify(p).length < 100_000
-      && Array.isArray(p.players) && p.players.length === 4 && Array.isArray(p.indicators) && p.indicators.every(tile => TILES.includes(tile))
+      && Array.isArray(p.players) && p.players.length === 4 && Array.isArray(p.indicators) && p.indicators.every(tile => TILE_TYPES.includes(tile))
       && ['act', 'call', 'draw', 'over'].includes(p.phase)
       && ['', 'discard', 'extended-kan', 'concealed-kan'].includes(p.pending_kind ?? '')
       && ['round', 'kyoku', 'counters', 'riichi_sticks', 'wall'].every(key => number(p[key]))
       && ['drawn', 'pending', 'just_claimed'].every(key => optionalTile(p[key]))
       && flag(p.first_turns) && flag(p.after_quad)
       && p.players.every(player => player && Array.isArray(player.hand) && Array.isArray(player.melds)
-        && Array.isArray(player.discards) && player.hand.every(tile => TILES.includes(tile))
+        && Array.isArray(player.discards) && player.hand.every(tile => TILE_TYPES.includes(tile))
         && number(player.score) && ['none', 'riichi', 'double'].includes(player.riichi) && flag(player.ippatsu) && flag(player.furiten)
-        && player.melds.every(m => m && TILES.includes(m.tile) && number(m.from) && optionalTile(m.claimed_tile)
+        && player.melds.every(m => m && TILE_TYPES.includes(m.tile) && number(m.from) && optionalTile(m.claimed_tile)
           && ['chii', 'pon', 'kan', 'extended-kan', 'concealed-kan'].includes(m.kind))
-        && player.discards.every(d => d && TILES.includes(d.tile) && number(d.order) && flag(d.drawn) && flag(d.riichi) && flag(d.claimed)))
+        && player.discards.every(d => d && TILE_TYPES.includes(d.tile) && number(d.order) && flag(d.drawn) && flag(d.riichi) && flag(d.claimed)))
       && Number.isInteger(p.seat) && p.seat >= 0 && p.seat < 4 && Number.isInteger(p.turn) && p.turn >= 0 && p.turn < 4) return p;
   } catch { /* An unreadable draft must not stop the normal game. */ }
   return null;
 }
-
-const SEATS = ['East', 'South', 'West', 'North'];
 
 /** The first number a draft still lacks, as a sentence, or null when it has
  * them all. A number field the person has emptied is null in the draft, and
@@ -58,9 +55,9 @@ export function missingNumber(position) {
     ['riichi_sticks', 'the riichi sticks'], ['round', 'the round wind']];
   for (const [key, name] of fields) if (!Number.isInteger(position?.[key])) return `Enter ${name}`;
   for (const [index, player] of (position?.players ?? []).entries()) {
-    if (!Number.isInteger(player?.score)) return `Enter ${SEATS[index]}'s points`;
-    if ((player.melds ?? []).some(m => !Number.isInteger(m?.from))) return `Choose who supplied each of ${SEATS[index]}'s called sets`;
-    if ((player.discards ?? []).some(d => !Number.isInteger(d?.order))) return `Give each of ${SEATS[index]}'s discards an order number`;
+    if (!Number.isInteger(player?.score)) return `Enter ${WINDS[index]}'s points`;
+    if ((player.melds ?? []).some(m => !Number.isInteger(m?.from))) return `Choose who supplied each of ${WINDS[index]}'s called sets`;
+    if ((player.discards ?? []).some(d => !Number.isInteger(d?.order))) return `Give each of ${WINDS[index]}'s discards an order number`;
   }
   return null;
 }
@@ -72,7 +69,7 @@ function remove(hand, tile, required = true) {
 }
 
 export function recordDraw(position, seat, tile) {
-  if (!TILES.includes(tile)) throw new Error('Choose the tile drawn at the physical table');
+  if (!TILE_TYPES.includes(tile)) throw new Error('Choose the tile drawn at the physical table');
   if (position.wall <= 0) throw new Error('The live wall is empty');
   const p = structuredClone(position);
   const player = p.players[seat];
@@ -90,7 +87,7 @@ export function recordDraw(position, seat, tile) {
 }
 
 export function recordDiscard(position, seat, tile, riichi = false) {
-  if (!TILES.includes(tile)) throw new Error('Choose the tile discarded at the physical table');
+  if (!TILE_TYPES.includes(tile)) throw new Error('Choose the tile discarded at the physical table');
   const p = structuredClone(position);
   const player = p.players[seat];
   const known = player.hand.length > 0;

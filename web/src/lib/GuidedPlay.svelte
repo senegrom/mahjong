@@ -1,11 +1,10 @@
 <script>
   import { onMount, onDestroy, untrack } from 'svelte';
   import { PhysicalAnalysis, settle_physical } from '../wasm/riichi.js';
-  import { AGENTS, WINDS, agentName, evaluateAgent, isTrained } from './agents.js';
-  import { TILES } from './physical-position.js';
+  import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
   import { PhysicalStore } from './physical-store.js';
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, setTiles } from './guided-game.js';
-  import { tileWords } from './tiles.js';
+  import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
   import { waitingNote } from './ui.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
@@ -22,7 +21,7 @@
   let mine = $derived(position.players[position.seat]);
   let dora = $derived(hints ? doraTiles(position) : []);
   let counts = $derived(visibleCounts(position));
-  let hand = $derived([...mine.hand].sort((a, b) => TILES.indexOf(a) - TILES.indexOf(b)));
+  let hand = $derived([...mine.hand].sort((a, b) => TILE_TYPES.indexOf(a) - TILE_TYPES.indexOf(b)));
   let loaded = $state(false), unreadable = $state(false), conflict = $state(''), warning = $state('');
   let failure = $state(''), busy = $state(false), analysis = $state(null);
   let discardRiichi = $state(false), discardDrawn = $state(false);
@@ -198,7 +197,7 @@
         {#if !state.claim || state.claim.kind === 'chii'}<details><summary>{state.claim ? 'Record a simultaneous opponent pon or kan' : 'Record an opponent’s chii, pon or kan'}</summary><div class="fields">
           <label>Who called?<select aria-label="Who called?" bind:value={caller}><option value={-1}>Choose opponent</option>{#each candidates as candidate (candidate.seat)}<option value={candidate.seat}>{candidate.name}</option>{/each}</select></label>
           <label>Call<select aria-label="Opponent call" bind:value={callKind}><option value="pon">Pon</option><option value="chii" disabled={Boolean(state.claim)}>Chii</option><option value="kan">Open kan</option></select></label>
-          {#if callKind === 'chii'}<label>Lowest tile in sequence<select aria-label="Lowest tile in sequence" bind:value={callTile}><option value="">Choose tile</option>{#each TILES.filter(t => /^[1-7][mps]$/.test(t)) as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
+          {#if callKind === 'chii'}<label>Lowest tile in sequence<select aria-label="Lowest tile in sequence" bind:value={callTile}><option value="">Choose tile</option>{#each TILE_TYPES.filter(t => /^[1-7][mps]$/.test(t)) as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
         </div><button disabled={caller === -1 || (callKind === 'chii' && (!callTile || Boolean(state.claim)))} onclick={() => act({ type: 'call', seat: caller, kind: callKind, tile: callTile })}>Record opponent call</button></details>{/if}
       {:else if state.stage === 'kan-response'}
         <p class="eyebrow">Kan response</p><h3>Did anyone win by robbing the kan?</h3>

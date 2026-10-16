@@ -1,9 +1,8 @@
-import { TILES, emptyPosition, parsePhysical, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
-import { tileWords } from './tiles.js';
+import { emptyPosition, parsePhysical, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
 import { rememberEnding, applySettlement, validEndingState, verifySettlement } from './guided-settlement.js';
 
 export const GUIDED_KEY = 'riichi.guided.v1';
-const WINDS = ['East', 'South', 'West', 'North'];
 const STAGES = ['setup', 'hand', 'dora', 'turn', 'decision', 'responses', 'claim-response', 'kan-response', 'indicator', 'over'];
 const AGENTS = ['beginner', 'club', 'full'];
 // Saved games from the two-network builds name an adviser this one no longer
@@ -39,7 +38,7 @@ export function setTiles(meld) {
 
 /** Count only tiles actually seen, with claimed discards counted in their set. */
 export function visibleCounts(position) {
-  const counts = new Map(TILES.map(tile => [tile, 0]));
+  const counts = new Map(TILE_TYPES.map(tile => [tile, 0]));
   const add = tile => {
     if (!counts.has(tile)) throw new Error('Choose a valid tile');
     const count = counts.get(tile) + 1;
@@ -78,7 +77,7 @@ function requireStage(state, ...stages) {
 }
 
 function requireTile(tile) {
-  if (!TILES.includes(tile)) throw new Error('Choose a tile');
+  if (!TILE_TYPES.includes(tile)) throw new Error('Choose a tile');
 }
 
 function startTurn(state, seat, needsDraw = true, replacement = false) {

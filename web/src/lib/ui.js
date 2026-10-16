@@ -1,4 +1,4 @@
-import { sequenceWords, tileWords } from './tiles.js';
+import { TILE_TYPES, sequenceWords, tileWords } from './tiles.js';
 
 /** What the table says while a Trained opponent waits for the network. The
  * opponent's worker reports its own loading; before that worker starts, the
@@ -143,17 +143,12 @@ export function analyzeDiscards(engine, choices = []) {
   return hints;
 }
 
-const ALL_TILES = [
-  ...['m', 'p', 's'].flatMap(suit => Array.from({ length: 9 }, (_, i) => `${i + 1}${suit}`)),
-  ...Array.from({ length: 7 }, (_, i) => `${i + 1}z`),
-];
-
 /** Copies of every tile kind nobody can currently see from the human seat.
  * This is the same public information used for wait width: own concealed
  * tiles, unclaimed discards, all called sets and the exposed dora indicators.
  */
 export function unseenTileCounts(view) {
-  const left = new Map(ALL_TILES.map(tile => [tile, 4]));
+  const left = new Map(TILE_TYPES.map(tile => [tile, 4]));
   const see = tile => {
     if (!left.has(tile)) return;
     left.set(tile, Math.max(0, left.get(tile) - 1));

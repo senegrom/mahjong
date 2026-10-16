@@ -3,6 +3,7 @@
   import Melds from './Melds.svelte';
   import { tilesFor, noteFor, isCircumstance } from './yaku.js';
   import { winValue } from './ui.js';
+  import { SEAT_NAMES as NAMES } from './tiles.js';
 
   let {
     outcome,
@@ -25,7 +26,6 @@
     playerLabel = 'You',
   } = $props();
 
-  const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
   let minimized = $state(false);
   // Which yaku the reader is asking about, and the tiles that make it. A
   // yaku about how the hand was won lights nothing, and says why instead.

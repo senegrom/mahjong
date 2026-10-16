@@ -1,5 +1,9 @@
 /** Naming tiles the way a person says them, in one place. */
 
+/** The seat winds in turn order, as the physical and guided tables number
+ * their seats: WINDS[1] is "South". */
+export const WINDS = Object.freeze(['East', 'South', 'West', 'North']);
+/** The same winds by the engine's names for them: SEAT_NAMES.south is "South". */
 export const SEAT_NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
 const SUIT_WORDS = { m: 'characters', p: 'circles', s: 'bamboo' };
@@ -19,10 +23,12 @@ const HONOUR_SHORTHAND = ['E', 'S', 'W', 'N', 'Wh', 'G', 'R'];
 const SUIT_FILES = { m: 'Man', p: 'Pin', s: 'Sou' };
 const HONOUR_FILES = ['Ton', 'Nan', 'Shaa', 'Pei', 'Haku', 'Hatsu', 'Chun'];
 
-export const TILE_TYPES = [
+// Every table, adviser and face set reads this one list, so it is frozen:
+// no reader can reorder or extend it under the others.
+export const TILE_TYPES = Object.freeze([
   ...['m', 'p', 's'].flatMap(suit => Array.from({ length: 9 }, (_, index) => `${index + 1}${suit}`)),
   ...Array.from({ length: 7 }, (_, index) => `${index + 1}z`),
-];
+]);
 
 export function tileFile(name) {
   if (!name) return 'Back';

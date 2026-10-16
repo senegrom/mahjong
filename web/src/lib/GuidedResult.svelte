@@ -1,7 +1,7 @@
 <script>
   import { untrack } from 'svelte';
   import { settle_physical } from '../wasm/riichi.js';
-  import { WINDS } from './agents.js';
+  import { WINDS } from './tiles.js';
   import { setTiles } from './guided-game.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';

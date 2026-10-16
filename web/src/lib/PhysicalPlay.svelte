@@ -1,10 +1,10 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { PhysicalAnalysis } from '../wasm/riichi.js';
-  import { AGENTS, WINDS, agentName, evaluateAgent, isTrained } from './agents.js';
-  import { TILES, emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+  import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
+  import { emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
-  import { tileWords } from './tiles.js';
+  import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import AgentWeights from './AgentWeights.svelte';
@@ -188,10 +188,10 @@
       </select></label>
       {#if position.phase === 'call'}
         <label>Offered by<select value={position.turn} onchange={event => edit(p => { p.turn = Number(event.currentTarget.value); })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
-        <label>Pending tile<select value={position.pending ?? ''} onchange={event => edit(p => { p.pending = event.currentTarget.value || null; })}><option value="">Choose tile</option>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
+        <label>Pending tile<select value={position.pending ?? ''} onchange={event => edit(p => { p.pending = event.currentTarget.value || null; })}><option value="">Choose tile</option>{#each TILE_TYPES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
       {:else if position.phase === 'act'}
         <label>Drawn tile · already in hand<select value={position.drawn ?? ''} aria-label="Drawn tile" onchange={event => edit(p => { p.drawn = event.currentTarget.value || null; if (p.drawn) p.just_claimed = null; })}><option value="">No draw · after calling a set</option>{#each [...new Set(position.players[position.seat].hand)] as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
-        {#if !position.drawn}<label>Tile just claimed<select value={position.just_claimed ?? ''} onchange={event => edit(p => { p.just_claimed = event.currentTarget.value || null; })}><option value="">Choose tile</option>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
+        {#if !position.drawn}<label>Tile just claimed<select value={position.just_claimed ?? ''} onchange={event => edit(p => { p.just_claimed = event.currentTarget.value || null; })}><option value="">Choose tile</option>{#each TILE_TYPES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
       {/if}
     </div>
     <div class="flags"><label><input type="checkbox" checked={position.first_turns} onchange={event => edit(p => { p.first_turns = event.currentTarget.checked; })} /> First turns unbroken</label><label><input type="checkbox" checked={position.after_quad} onchange={event => edit(p => { p.after_quad = event.currentTarget.checked; })} /> Replacement draw after kan</label></div>
@@ -218,7 +218,7 @@
                 <label>Set<select value={meld.kind} aria-label="Set kind" onchange={event => edit(p => { const set = p.players[index].melds[slot]; set.kind = event.currentTarget.value; if (set.kind === 'chii') set.from = 3; else if (set.kind === 'concealed-kan') set.from = 0; else if (set.from === 0) set.from = 3; })}>
                   <option value="chii">Chii</option><option value="pon">Pon</option><option value="kan">Open kan</option><option value="extended-kan">Added kan</option><option value="concealed-kan">Concealed kan</option>
                 </select></label>
-                <label>{meld.kind === 'chii' ? 'Lowest tile' : 'Tile'}<select value={meld.tile} onchange={event => edit(p => { p.players[index].melds[slot].tile = event.currentTarget.value; })}>{#each TILES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
+                <label>{meld.kind === 'chii' ? 'Lowest tile' : 'Tile'}<select value={meld.tile} onchange={event => edit(p => { p.players[index].melds[slot].tile = event.currentTarget.value; })}>{#each TILE_TYPES as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>
                 <label>From<select value={meld.from} onchange={event => edit(p => { p.players[index].melds[slot].from = Number(event.currentTarget.value); })}><option value={3}>Left</option><option value={2}>Opposite</option><option value={1}>Right</option><option value={0}>Self</option></select></label>
                 <button onclick={() => edit(p => { p.players[index].melds.splice(slot, 1); })} aria-label={`Remove ${WINDS[index]} set ${slot + 1}`}>Remove</button>
               </div>

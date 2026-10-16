@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { settle_physical } from '../src/wasm/riichi.js';
-import { emptyPosition, parseTiles, TILES } from '../src/lib/physical-position.js';
+import { emptyPosition, parseTiles } from '../src/lib/physical-position.js';
+import { TILE_TYPES } from '../src/lib/tiles.js';
 import { emptyGuided, guidedEvent, parseGuided, GUIDED_FORMAT, undoGuided } from '../src/lib/guided-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -229,7 +230,7 @@ test('real scorer migrates old saved winning tiles and attribution without payin
   const old = structuredClone(paid);
   for (const winner of old.state.settlement.winners) {
     winner.hand.push(winner.winning_tile);
-    winner.hand.sort((a, b) => TILES.indexOf(a) - TILES.indexOf(b));
+    winner.hand.sort((a, b) => TILE_TYPES.indexOf(a) - TILE_TYPES.indexOf(b));
     delete winner.scoring;
     for (const yaku of winner.yaku) { delete yaku.id; delete yaku.tile; }
   }

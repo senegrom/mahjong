@@ -3,6 +3,7 @@
 
   import { OPPONENT_LABELS, opponentName } from './opponents.js';
   import { calledSet, seatAnnouncement } from './ui.js';
+  import { SEAT_NAMES as NAMES } from './tiles.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
 
@@ -11,8 +12,6 @@
    * it places each seat in a wrapper named for its side.
    */
   let { seat, dealer = false, dora = [], thinking = false } = $props();
-
-  const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
   // How long a call is said for: long enough to read from across the
   // table, gone well before the next one is made.
