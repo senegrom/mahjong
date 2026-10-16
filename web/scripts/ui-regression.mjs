@@ -347,7 +347,11 @@ try {
   await check('simultaneous tab moves have one writer, not two accepted saves',async()=>{
     const a=await open(initial);const b=await open(initial,{sharedContext:a.browserContext()});
     await Promise.all([a.evaluate(()=>document.querySelector('.hand button:not(:disabled)').click()),b.evaluate(()=>document.querySelector('.hand button:not(:disabled)')?.click())]);
-    await new Promise(resolve=>setTimeout(resolve,150));
+    // A loaded machine can take far longer than a moment to grant the save
+    // lock, so each tab has until a deadline to settle: stopped by the
+    // conflict, or offering its next move once its own has been saved.
+    const settled=page=>page.waitForFunction(()=>document.querySelector('.save-conflict, .screen, .hand button:not(:disabled), .call-options button:not(:disabled)'),{timeout:30000});
+    await Promise.all([settled(a),settled(b)]);
     assert.equal((await saved(a)).commands.length,1);
     assert.equal((await a.$('.save-conflict')?1:0)+(await b.$('.save-conflict')?1:0),1);
     noErrors(a);noErrors(b);
