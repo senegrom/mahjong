@@ -1,44 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { MANIFEST } from '../src/lib/model-manifest.js';
+import { componentLoader, moduleUrl, svelteModule } from './fixtures/load-component.js';
 
-// Compile the production presentation components. Only Tile's artwork and the
-// agent-name import (which otherwise initializes the browser worker) are stood
-// in for; grouping, numeric formatting, branches, labels and buttons are real.
-// The stand-in names a Trained agent as agents.js does, with the network the
-// page plays.
-const uri = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
+// Render the production presentation components. Only Tile, for its artwork,
+// and the agent-name import (which otherwise initializes the browser worker)
+// are stood in for; grouping, numeric formatting, branches, labels and
+// buttons are real. The stand-in names a Trained agent as agents.js does,
+// with the network the page plays.
 const network = new URL('../src/lib/trained-network.js', import.meta.url).href;
-const agents = uri(`import { trainedName } from ${JSON.stringify(network)};
+const component = componentLoader({
+  'Tile.svelte': await svelteModule('<script>let { tile } = $props();</script><span data-tile={tile}></span>'),
+  'agents.js': moduleUrl(`import { trainedName } from ${JSON.stringify(network)};
 export const AGENTS = { full: 'Trained', club: 'Club', beginner: 'Beginner' };
-export const agentName = agent => agent === 'full' ? trainedName() : AGENTS[agent];`);
-const loaded = new Map();
-async function component(name) {
-  if (!loaded.has(name)) loaded.set(name, (async () => {
-    const file = new URL(`../src/lib/${name}`, import.meta.url);
-    const source = await readFile(file, 'utf8');
-    let server;
-    for (const generate of ['client', 'server']) {
-      const result = compile(source, { filename: fileURLToPath(file), generate });
-      assert.deepEqual(result.warnings.map(({ code, message }) => ({ code, message })), []);
-      if (generate === 'server') server = result.js.code;
-    }
-    const tile = compile('<script>let { tile } = $props();</script><span data-tile={tile}></span>', { generate: 'server' }).js.code;
-    const absolute = code => code.replace(/from (['"])(svelte[^'"]*)\1/g, (_, _quote, specifier) => `from ${JSON.stringify(import.meta.resolve(specifier))}`);
-    for (const specifier of new Set([...server.matchAll(/from (['"])([^'"]+)\1/g)].map(match => match[2]))) {
-      const target = specifier === './Tile.svelte' ? uri(absolute(tile))
-        : specifier === './agents.js' ? agents
-        : specifier.startsWith('.') ? new URL(specifier, file).href : import.meta.resolve(specifier);
-      server = server.replaceAll(`'${specifier}'`, JSON.stringify(target)).replaceAll(`"${specifier}"`, JSON.stringify(target));
-    }
-    return (await import(uri(server))).default;
-  })());
-  return loaded.get(name);
-}
+export const agentName = agent => agent === 'full' ? trainedName() : AGENTS[agent];`),
+});
 const html = async (name, props) => render(await component(name), { props }).body;
 const discard = { kind: 'discard', tile: '3m', label: 'Discard 3m', weight: .2 };
 const reachA = { kind: 'riichi', tile: '1m', label: 'Riichi 1m', weight: .8, conditionalWeight: .25 };

@@ -1,29 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { readBeliefs } from '../src/lib/beliefs.js';
+import { componentLoader } from './fixtures/load-component.js';
 
-// Render the production components, substituting only the artwork URL and the
-// browser-only policy worker (SSR never executes the analysis effect).
-async function component(name, imports = {}) {
-  const file = new URL(`../src/lib/${name}.svelte`, import.meta.url);
-  const source = await readFile(file, 'utf8');
-  const { js, warnings } = compile(source, { filename: file.pathname, generate: 'server' });
-  assert.deepEqual(warnings, []);
-  const code = js.code
-    .replace(/import dragonUrl from '[^']+';/, "const dragonUrl = 'white-dragon.webp';")
-    .replace(/from (['"])([^'"]+)\1/g, (_, _quote, path) =>
-      `from ${JSON.stringify(imports[path] ?? (path.startsWith('.') ? new URL(path, file).href : import.meta.resolve(path)))}`);
-  return `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
-}
-const tile = await component('Tile');
-const preference = await component('ReviewPreference');
-const policy = 'data:text/javascript,export const analyzePolicy = () => { throw new Error("unexpected SSR inference"); };';
-const { default: Review } = await import(await component('Review', {
-  './Tile.svelte': tile, './ReviewPreference.svelte': preference, './policy.js': policy,
-}));
+// Render the production components, substituting only the browser-only
+// policy worker (SSR never executes the analysis effect).
+const Review = await componentLoader({
+  'policy.js': 'data:text/javascript,export const analyzePolicy = () => { throw new Error("unexpected SSR inference"); };',
+})('Review.svelte');
 const review = notes => render(Review, { props: { notes } }).body;
 
 test('a missed ron shows the offered tile and responder advice without invented discard metrics', () => {
@@ -94,7 +79,7 @@ test('a chosen Club review says nothing about the network', () => {
 
 test('the belief panel names honours as the page names tiles, and marks their dora', async () => {
   const agents = 'data:text/javascript,export const AGENTS = { full: "Trained" }; export const agentName = agent => AGENTS[agent];';
-  const { default: AgentWeights } = await import(await component('AgentWeights', { './Tile.svelte': tile, './agents.js': agents }));
+  const AgentWeights = await componentLoader({ 'agents.js': agents })('AgentWeights.svelte');
   // The belief head in Mortal's order: index 31 is its P, the white dragon.
   const hands = new Float32Array(3 * 34).fill(-5);
   hands[31] = 5; hands[27] = 4;

@@ -1,31 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { compile, parse } from 'svelte/compiler';
+import { parse } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { meldWords } from '../src/lib/ui.js';
 import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
+import { componentLoader } from './fixtures/load-component.js';
 
-// Server-render the production components, compiling the components they
-// nest in the same way. Only artwork URLs are substituted.
-const compiled = new Map();
-function load(file) {
-  if (!compiled.has(file.href)) compiled.set(file.href, (async () => {
-    const source = await readFile(file, 'utf8');
-    const { js, warnings } = compile(source, { filename: fileURLToPath(file), generate: 'server' });
-    assert.deepEqual(warnings.map(({ code, message }) => ({ code, message })), []);
-    let code = js.code.replace(/import (\w+) from '[^']+\.webp';/g, "const $1 = 'artwork.webp';");
-    for (const specifier of new Set([...code.matchAll(/from (['"])([^'"]+)\1/g)].map(match => match[2]))) {
-      const target = !specifier.startsWith('.') ? import.meta.resolve(specifier)
-        : specifier.endsWith('.svelte') ? await load(new URL(specifier, file)) : new URL(specifier, file).href;
-      code = code.replaceAll(`'${specifier}'`, JSON.stringify(target)).replaceAll(`"${specifier}"`, JSON.stringify(target));
-    }
-    return `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
-  })());
-  return compiled.get(file.href);
-}
-const component = async path => (await import(await load(new URL(`../src/lib/${path}`, import.meta.url)))).default;
+// Server-render the production components and the components they nest.
+const component = componentLoader();
 const html = async (path, props) => render(await component(path), { props }).body;
 const seat = (wind, player, extra = {}) => ({ seat: wind, player, hand_size: 13, melds: [], discards: [], score: 25000,
   riichi: false, turn: false, controller: player ? 'club' : undefined, ...extra });

@@ -1,19 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
+import { componentLoader } from './fixtures/load-component.js';
 
-// Render the actual component. Node cannot import a .webp, so substitute only
-// its URL; presentation and reactive prop logic remain the production code.
-const file = new URL('../src/lib/Tile.svelte', import.meta.url);
-const source = await readFile(file, 'utf8');
-const compiled = compile(source, { filename: file.pathname, generate: 'server' });
-const js = compiled.js.code
-  .replace(/import dragonUrl from '[^']+';/, "const dragonUrl = 'white-dragon.webp';")
-  .replace(/from (['"])([^'"]+)\1/g, (_, _quote, name) =>
-    `from ${JSON.stringify(name.startsWith('.') ? new URL(name, file).href : import.meta.resolve(name))}`);
-const { default: Tile } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+// Render the actual component: its presentation and reactive prop logic are
+// the production code, and only its artwork is given as an address.
+const Tile = await componentLoader()('Tile.svelte');
 const tile = (props) => render(Tile, { props }).body;
 
 test('hidden dora cannot leak its identity through the ring or foil', () => {

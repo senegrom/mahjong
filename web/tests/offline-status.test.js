@@ -1,16 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
+import { componentLoader } from './fixtures/load-component.js';
 
 // Render the production settings and its actual offline readiness text.
 // App owns the engine/browser lifecycle outside this presentation boundary.
-const source = await readFile(new URL('../src/lib/app/OfflineStatus.svelte', import.meta.url), 'utf8');
-const code = compile(source,
-  { generate: 'server' }).js.code.replace(/from (['"])([^'"]+)\1/g,
-  (_, _quote, name) => `from ${JSON.stringify(import.meta.resolve(name))}`);
-const { default: Status } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const Status = await componentLoader()('app/OfflineStatus.svelte');
 const cached = { coreReady: true, aiReady: true, hasModel: true, phase: 'ready', progress: 0 };
 const show = (change = {}) => render(Status, { props: { offline: { ...cached, ...change }, downloadAi: () => {} } }).body;
 
