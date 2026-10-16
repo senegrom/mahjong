@@ -176,8 +176,9 @@ two or more moves (95% 1.64-2.23%), 3.2 a game; 17.7% of questions were asked
 again. Published Mortal, its values averaged over both namings, preferred the
 new move in 52% of the changes against a matched placebo's 45%, so the gain is
 likely small: about +0.003 to +0.005 placement. Put to the same stored
-questions on the desktop's card, the option made exactly the screen's changes,
-155 of 155 at the ruler's table and 101 of 101 at the Club table.
+questions on the desktop's card in float32, as the screen asked them, the
+option made exactly the screen's changes, 155 of 155 at the ruler's table and
+101 of 101 at the Club table, and asked 17.7% of the questions again.
 
 A paired call of one checkpoint averaging and plain, asked in fixed rows on
 the card, plays each deal the same at both arms' tables until a decision of
