@@ -46,7 +46,10 @@ setting the record does not hold takes the default. Where the network cannot be 
 too little memory, a failed download), every mode keeps a way on with Club:
 the recovery choices in Play, **Review with Club**, **Use Club as adviser** in
 a guided game and **Watch with Club instead**. The hand review shows Club's
-review, and says why, while the network cannot be reached at all.
+review, and says why, while the network cannot be reached at all. The
+whole-game review has no Club stand-in, since it ranks moves by the network's
+weights, which Club does not have: it says it is waiting for the network and
+starts once it can be reached ([UI](UI.md#whole-game-review)).
 
 Trained weights are normalized preferences over legal network actions, not
 win probabilities. Built-in agents mark the selected move instead of displaying

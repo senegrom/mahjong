@@ -2,10 +2,11 @@
  * The trained opponent, kept off the main thread.
  *
  * The page holds the rules and the table; this worker holds only the policy.
- * It is sent one position at a time, as the planes the engine produced and
- * the mask of what the rules allow, and answers with the entry of the action
- * space it would choose. Nothing about the rules lives here: an illegal
- * answer is impossible because the mask decides what may be picked.
+ * It is sent a position, as the planes the engine produced and the mask of
+ * what the rules allow, or a review's batch of them, and answers with the
+ * entry of the action space it would choose. Nothing about the rules lives
+ * here: an illegal answer is impossible because the mask decides what may be
+ * picked.
  */
 // The plain WebAssembly build: the WebGPU one carries a runtime many
 // times larger, for a network this small to gain nothing from.
@@ -72,7 +73,7 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
   return session;
 }
 
-async function infer({ id, url, runtimeBase, scope, planes, mask, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
+async function infer({ id, url, runtimeBase, scope, planes, mask, count, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
   let input, output, allowed;
   try {
     // Each note is also a sign of life. The page times a decision only once
@@ -81,13 +82,26 @@ async function infer({ id, url, runtimeBase, scope, planes, mask, details, memor
     note('loading the network');
     const model = await load({ url, runtimeBase, scope, memoryLimitMiB }, note);
     self.postMessage({ id, progress: 'network ready', ready: true });
-    input = new ort.Tensor('float32', planes, [1, planes.length / POSITIONS, POSITIONS]);
+    // A review sends several positions at once, their planes and masks laid
+    // end to end, and the graph takes them as one batch. Natively eight cost
+    // about half as much a position as one at a time; in this one-thread
+    // runtime about the same, so a batch saves messages and costs nothing.
+    const batch = count ?? 1;
+    input = new ort.Tensor('float32', planes, [batch, planes.length / batch / POSITIONS, POSITIONS]);
     // The fused network's head reads the legality mask, so the graph takes it
     // too. An older single-input network is still served the planes alone.
     allowed = model.inputNames.includes('legal')
-      ? new ort.Tensor('float32', Float32Array.from(mask, can => (can ? 1 : 0)), [1, mask.length])
+      ? new ort.Tensor('float32', Float32Array.from(mask, can => (can ? 1 : 0)), [batch, mask.length / batch])
       : null;
     output = await model.run(allowed ? { planes: input, legal: allowed } : { planes: input });
+    if (count != null) {
+      // Each position's best legal move and weights, which is all a review
+      // reads; the value and the belief are left in the tensors.
+      const width = mask.length / count;
+      self.postMessage({ id, analyses: Array.from({ length: count }, (_, index) => policyWeights(
+        output.policy.data.slice(index * width, (index + 1) * width), mask.slice(index * width, (index + 1) * width))) });
+      return;
+    }
     // Its action is the legal entry the policy rates highest: opponents play
     // their best move.
     const analysis = policyWeights(output.policy.data, mask);

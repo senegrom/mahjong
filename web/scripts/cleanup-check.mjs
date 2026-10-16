@@ -92,7 +92,7 @@ try {
       await page.setViewport({ width, height: 1000 });
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const size = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: innerWidth,
-        seats: [...document.querySelectorAll('main > .board > .place')].map(el => ({ left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right })) }));
+        seats: [...document.querySelectorAll('main > .match-view > .board > .place')].map(el => ({ left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right })) }));
       assert.ok(size.scroll <= size.width, `${width}px viewport overflows to ${size.scroll}px`);
       assert.equal(size.seats.length, 3);
       assert.ok(size.seats.every(seat => seat.left >= -1 && seat.right <= width + 1), JSON.stringify(size));
@@ -150,7 +150,7 @@ try {
     const saved = await savedMatch(page);
     for (const index of [3, 4]) {
       await page.click(`.game-modes button:nth-child(${index})`);
-      await page.waitForFunction(() => !document.querySelector('main > .board'));
+      await page.waitForFunction(() => !document.querySelector('main > .match-view > .board'));
       await page.click('.game-modes button:first-child');
       assert.equal(await savedMatch(page), saved);
       await page.focus('.hand');

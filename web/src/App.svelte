@@ -12,10 +12,13 @@
   import ScoreScreen from './lib/ScoreScreen.svelte';
   import Standings from './lib/Standings.svelte';
   import Review from './lib/Review.svelte';
+  import GameReview from './lib/GameReview.svelte';
+  import { MatchReview } from './lib/game-review.js';
+  import { readTrend, recordTrend } from './lib/review-trend.js';
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
-  import { chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
+  import { analyzeBatch, chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
   import { acceptsHandKey, moveHandFocus, waitingNote } from './lib/ui.js';
@@ -79,6 +82,12 @@
   let handElement = $state(null);
   let callElement = $state(null);
   let settingsOpen = $state(false);
+  // The whole-game review of the finished match, kept while that match is,
+  // and whether its screen is open. It reviews on while the screen is shut.
+  let matchReview = $state.raw(null);
+  let reviewingGame = $state(false);
+  // The reviewed games this browser keeps, which a finished review joins.
+  let reviewTrend = $state.raw(readTrend(storage));
 
   let me = $derived(view?.seats[0]);
   let handTiles = $derived(me ? [...me.hand, ...(me.drawn ? [me.drawn] : [])] : []);
@@ -154,6 +163,7 @@
     customDialog?.close();
     selected = null;
     picked = null;
+    dropGameReview();
   }
 
   const matchStore = new MatchStore(storage, navigator.locks, {
@@ -215,7 +225,7 @@
     // Completed actions are already saved inside their writer transaction.
     // Never write an old snapshot during pagehide. A cached page must restore
     // the current record rather than resume a stale engine on Back navigation.
-    const leave = () => { startup.abort(); faceLoad?.abort(); session?.dispose(); resetPolicy(); matchStore.close(); };
+    const leave = () => { startup.abort(); faceLoad?.abort(); matchReview?.dispose(); session?.dispose(); resetPolicy(); matchStore.close(); };
     const returnToPage = (event) => { if (event.persisted) location.reload(); };
     const storageChanged = (event) => { if (playStarted) matchStore.changed(event); };
     window.addEventListener('pagehide', leave);
@@ -231,6 +241,7 @@
       window.removeEventListener('pageshow', returnToPage);
       window.removeEventListener('storage', storageChanged);
       matchStore.close();
+      matchReview?.dispose();
       session?.dispose();
       reportProgress(null);
       resetPolicy();
@@ -293,6 +304,7 @@
   function start(strength = opponents) {
     if (saveConflict) return;
     session?.dispose();
+    dropGameReview();
     matchStore.newMatch();
     picked = null;
     selected = null;
@@ -437,6 +449,48 @@
     catch { notice = 'The review could not be built. Your match is unchanged.'; }
   }
 
+  // The finished match is replayed from its saved commands on an engine of
+  // the review's own, so the match and its save are left as they are. Says
+  // whether the review is open. The network this page plays judges it, and
+  // the trend keeps which version that was.
+  function openGameReview() {
+    if (!session?.over || session.closed) return false;
+    if (!matchReview) {
+      try {
+        matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch,
+          onComplete: review => {
+            reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
+          } });
+      } catch (error) {
+        notice = `The game could not be replayed for review: ${error?.message ?? error}. Your saved match is unchanged.`;
+        return false;
+      }
+    }
+    reviewingGame = true;
+    return true;
+  }
+
+  // Back to the standings' own button, wherever the review was opened from:
+  // on a phone the result sheet that offered it has stepped aside for them.
+  // It is brought to the middle of the screen, clear of the bar at the top
+  // and the result's chip at the bottom.
+  async function closeGameReview() {
+    reviewingGame = false;
+    await tick();
+    const button = document.querySelector('.standings [data-review-game]');
+    button?.focus({ preventScroll: true });
+    button?.scrollIntoView({ block: 'center' });
+  }
+
+  function dropGameReview() {
+    matchReview?.dispose();
+    matchReview = null;
+    reviewingGame = false;
+  }
+
+  // Watch, Guided and Physical play ask the same network, and go first.
+  $effect(() => { if (mode !== 'play') untrack(() => matchReview?.stop()); });
+
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -488,42 +542,52 @@
   {:else if ready && mode === 'physical'}
     <PhysicalPlay {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
-    <MatchTable {view} {hints} {thinking} {pendingOpponent} />
+    {#if reviewingGame && matchReview}
+      <GameReview review={matchReview} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} />
+    {/if}
+    <!-- Hidden rather than closed while the review is open, so the result
+         and the standings come back as they were left. -->
+    <div class="match-view" class:away={reviewingGame && matchReview}>
+      <MatchTable {view} {hints} {thinking} {pendingOpponent} />
 
-    <div class="play-area" class:ended={view.phase === 'over' || Boolean(standings)}>
-      <PlayerHand {view} engine={session?.engine} closed={session?.closed ?? false}
-        {hints} {busy} blocked={Boolean(failure || saveConflict)} {discardChoices} {confirmDiscards} {picked} {selected}
-        {canDiscard} {selectTile} {syncHandFocus} bind:handElement />
+      <div class="play-area" class:ended={view.phase === 'over' || Boolean(standings)}>
+        <PlayerHand {view} engine={session?.engine} closed={session?.closed ?? false}
+          {hints} {busy} blocked={Boolean(failure || saveConflict)} {discardChoices} {confirmDiscards} {picked} {selected}
+          {canDiscard} {selectTile} {syncHandFocus} bind:handElement />
 
-      <section class="controls" aria-label="your choices" bind:this={callElement}>
-        {#if standings}
-          <Standings {standings} onagain={() => start()} onsave={saveGame} />
-        {/if}
-        {#if view.phase === 'over' && view.outcome}
-          <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
-            bets={view.riichi_sticks ?? 0} onnext={nextHand}
-            onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} finalHand={Boolean(standings)} />
-          {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} />{/if}
-        {:else}
-          <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
-            loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
-            {selectedTile} {callChoices} {choose} {discard} oncancel={() => selected = null} />
-        {/if}
-      </section>
+        <section class="controls" aria-label="your choices" bind:this={callElement}>
+          {#if standings}
+            <Standings {standings} onagain={() => start()} onsave={saveGame} onreview={openGameReview} />
+          {/if}
+          {#if view.phase === 'over' && view.outcome}
+            <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
+              bets={view.riichi_sticks ?? 0} onnext={nextHand}
+              onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} ongamereview={openGameReview}
+              finalHand={Boolean(standings)} />
+            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} />{/if}
+          {:else}
+            <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
+              loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
+              {selectedTile} {callChoices} {choose} {discard} oncancel={() => selected = null} />
+          {/if}
+        </section>
+      </div>
+
+      <details class="history">
+        <summary>Hand history · {log.length} event{log.length === 1 ? '' : 's'}</summary>
+        <section class="log" aria-label="what happened, oldest first">
+          {#each log as line, index (index)}<p>{line}</p>{/each}
+        </section>
+      </details>
     </div>
-
-    <details class="history">
-      <summary>Hand history · {log.length} event{log.length === 1 ? '' : 's'}</summary>
-      <section class="log" aria-label="what happened, oldest first">
-        {#each log as line, index (index)}<p>{line}</p>{/each}
-      </section>
-    </details>
 
   {/if}
 </main>
 
 <style>
   .recovery-note { opacity: .85; }
+  .match-view { display: contents; }
+  .match-view.away { display: none; }
   .save-conflict { padding: 12px; border: 1px solid var(--gold); border-radius: 8px; background: var(--felt-deep); }
   .save-conflict p { margin: 0 0 8px; }
   .save-conflict button { min-height: 44px; padding: 8px 14px; }
@@ -545,7 +609,7 @@
   }
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     main { max-width: none; grid-template-columns: minmax(270px, .85fr) minmax(340px, 1.15fr); align-items: start; }
-    .notice, .failure, .save-conflict, .loading, .history { grid-column: 1 / -1; }
+    .notice, .failure, .save-conflict, .loading, .history, main > :global(.game-review) { grid-column: 1 / -1; }
     .play-area { grid-column: 2; grid-row: auto; position: sticky; top: 8px; bottom: auto; }
     .controls { font-size: .8rem; }
   }

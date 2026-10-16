@@ -160,11 +160,107 @@ remains the cumulative change for the score screen. The native log replay test
 reconciles every settlement against the preceding balance and sums all events,
 including riichi payments, against the hand's total.
 
+## Whole-game review
+
+**Review whole game** on the final standings, there again after a finished
+match is reloaded, puts every decision the player made in every hand to Trained
+AI, and leads with the few where the player's move departed furthest from its
+choice. The hand review reviews one hand and is gone at the next deal; this one
+is rebuilt for the whole game. On a phone the final hand's result is a sheet
+over the standings, so the sheet offers the review too, as it offers the
+game's file, and steps aside for it as it does for the hand's review: **Back
+to the standings** then lands on the standings, with focus on their own
+**Review whole game**. Up to 480 pixels wide the sheet's buttons take their
+short labels, **Review hand**, **Save hand**, **Review game** and **Save
+game**. Measured in Chromium, they then take two rows over the result from
+360 pixels up with Windows' fonts and from 390 with one as wide as Verdana,
+and three on narrower screens.
+
+**How it is built.** Nothing is added to the saved match, and its format is
+unchanged. The finished match is replayed from its saved commands, from the
+first deal, on an engine of the review's own; the replay must end exactly where
+the match did, or the review refuses to start. At the end of each hand the
+review asks the questions the hand review asks (`review-policy.js`), eight
+positions a forward pass: Mortal's planes for each decision as it was made,
+then, where the network declares riichi, which tile it would discard. A move
+with one legal choice, such as the discard after riichi, is not asked and is
+left out of every figure.
+
+**How decisions are ranked.** A decision is flagged when the player's move had
+under 5% of Trained AI's weight while its own choice had 60% or more, so a
+network that is not decisive flags nothing. Riichi is judged in two stages, as
+the weights are shown everywhere: when the player and the network both
+declared, the tiles are compared by the discard weights given riichi;
+otherwise the move itself is compared, the declaration carrying its
+declaration weight. Flagged decisions are ranked by the gap between the two
+weights, widest first, and equal gaps in the order they were played. The first
+five are listed, the rest behind **Show all**. The list says where each one was
+(the hand, with its honba where the hand repeats one, so no two hands share a
+name, and the player's decision number) and the weights of the player's move
+and of Trained AI's own choice, but not what that choice was.
+
+**Replay and choose again.** A flagged decision opens at the position it was
+made from: the table as it stood, the player's hand, and what happened since
+their previous decision. **From the deal**, **Previous** and **Next** step
+through the hand a decision of the player's at a time, saying whether each
+earlier move matched Trained AI; the step's status says the move as well, so a
+screen reader hears it with each step. A step that disables the button pressed
+hands keyboard focus on rather than dropping it: at the deal to **Next**, and
+at the decision to the hand, whose description asks for the choice, as play
+gives the hand focus when a turn comes. **Choose again** does the same, since
+the answer it closes held the button. At the flagged decision the player chooses
+again, a tile from the hand or a move below it, before anything is revealed,
+or asks for **Trained AI's answer** outright. An answer to another's discard
+leaves no tile to throw, so there the description sends the player to the
+moves below the hand, which **Tab** reaches next. The answer lists the weight of
+every move, the riichi discards under their declaration, marking Trained AI's
+choice, the move made in the game and the new one. It leads with the five
+heaviest moves and those it marks; **Show every move** shows the rest and
+stays, as **Show the leading moves**, so focus stays on it. For a turn, a table sets
+out what each of those moves leaves, counted as the hand review counts it:
+the hand left, the unseen tiles that improve it, whether the tile could deal
+into a declared riichi, and its worth as dora (the engine's `review_measure`).
+Nothing is played on from there, and the saved match is never touched.
+
+**Agreement and its trend.** The figure is the share of decisions with a
+choice where the player's move was Trained AI's. When every hand is reviewed,
+the game enters a trend kept in this browser only (`riichi.review-trend.v1`,
+the last 50 games; a browser that keeps nothing still reviews, without a
+trend). The figure is shown against the decision-weighted average of up to ten
+earlier games, with a line of the last twelve and a table of the same. The
+change is stated, not coloured: matching Trained AI is not the same as playing
+well, since the network has habits of its own. The review is judged by the
+version of Trained AI the page plays, which the player can pick in the game
+settings, and the review and the trend name it. Another version judges
+differently, so each game is kept with the version that judged it, a game
+judged again by another version is kept beside its first entry, and the
+figure, the line and the table take only the games of the version playing
+now; a note counts the others, which come back when their version is picked
+again.
+
+**Speed.** Measured on 14 October 2026 in Chromium 155 on the desktop, through
+the page's own worker on one thread, a position took a median 163 ms one at a
+time and 157 ms in batches of eight, with identical weights; natively the same
+batch nearly halves the cost. A game of 150 to 200 decisions takes about half
+a minute there; phones were not measured. The review runs in the background
+with its progress and an estimate of the time left, goes on while its screen
+is closed, and stops at **Stop** or when the player leaves Play. A device that
+takes over half a second a position holds after each hand and offers the next
+hand or the rest of the game; any hand can also be reviewed alone from the
+list of hands. These buttons replace one another as the review goes, so focus
+is handed on rather than dropped: from **Stop** to **Continue the review** and
+back, from a hand's own button to the list of hands once that hand is under
+review, and to the flagged decisions when nothing is left to press. The
+review needs the network: while it cannot be reached the
+screen says so and waits.
+
 ## Verification
 
 `npm run verify` in `web/` covers these behaviours: real-WASM discard previews
 and Tile rendering, riichi waits, disabled-tile navigation, consecutive keyboard
 turns, saved-state migration, ura-dora indicators with hints off, final-hand
-review, history and export, and settlements that balance event by event.
+review, the whole-game review with the shipped network (its batches, flags,
+replay, retry, keyboard focus and trend, and its way in and out on a phone),
+history and export, and settlements that balance event by event.
 Its browser checks run in Chromium, including narrow portrait and landscape
 sizes; they are not physical-iPhone or Safari testing.

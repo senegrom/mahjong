@@ -87,7 +87,7 @@ function ensureWorker() {
   stillLoading(current);
   current.onmessage = ({ data }) => {
     if (worker !== current) return;
-    const { id, action, analysis, error, progress, ready, memory } = data;
+    const { id, action, analysis, analyses, error, progress, ready, memory } = data;
     const pending = waiting.get(id);
     // Initialization and memory failures poison ORT inside this worker. All
     // modes need a fresh runtime on retry, including after a cancelled call.
@@ -127,7 +127,7 @@ function ensureWorker() {
     // An answer, from any request, means the network ran: it is loaded
     // whether or not the worker said so first.
     if (!loaded) networkLoaded();
-    pending?.resolve(analysis ?? action);
+    pending?.resolve(analyses ?? analysis ?? action);
   };
   current.onerror = (event) => {
     if (worker === current) resetPolicy(new Error(event.message || 'The opponent worker failed'));
@@ -163,7 +163,20 @@ export function analyzePolicy(planes, mask, signal) {
   return requestPolicy(planes, mask, DECISION_MS, signal, true);
 }
 
-async function requestPolicy(planes, mask, timeout, signal, details) {
+/** The best legal move and weights of several positions, asked in one
+ * forward pass, in the order given: what a whole-game review asks of the
+ * network. Each position is `{ planes, mask }`. The deadline grows with the
+ * batch, since a slow phone takes a good part of a second a position. */
+export function analyzeBatch(positions, signal) {
+  if (!positions.length) return Promise.resolve([]);
+  const width = positions[0].planes.length;
+  const planes = new Float32Array(positions.length * width);
+  positions.forEach((position, index) => planes.set(position.planes, index * width));
+  const mask = positions.flatMap(position => Array.from(position.mask));
+  return requestPolicy(planes, mask, DECISION_MS * Math.ceil(positions.length / 4), signal, true, positions.length);
+}
+
+async function requestPolicy(planes, mask, timeout, signal, details, count) {
   // Prepare once before any deadline starts. Cache eviction or a failed
   // persistence retry must not gate a network already resident in ORT.
   if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
@@ -212,6 +225,7 @@ async function requestPolicy(planes, mask, timeout, signal, details) {
       const target = ensureWorker();
       const message = { id, url: networkUrl(playedNetwork()), runtimeBase: runtimeBase(),
         scope: new URL('./', document.baseURI).href, planes: copy, mask, details, memoryLimitMiB };
+      if (count) message.count = count;
       const transfer = [copy.buffer];
       // A fresh worker is handed bytes storage refused rather than fetch them.
       if (unstored && !loaded) {

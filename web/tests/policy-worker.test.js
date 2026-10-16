@@ -12,12 +12,12 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, runError = false, memoryFailure = null } = {}) {
+function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, runError = false, memoryFailure = null, policy = null } = {}) {
   const loads = [], releases = [], runs = [], tensors = [], messages = [], scopes = [];
   let live = 0, active = 0;
   const memoryBudget = new MemoryBudget();
   class Tensor {
-    constructor(_type, data) { this.data = data; this.disposed = false; tensors.push(this); }
+    constructor(_type, data, dims) { this.data = data; this.dims = dims; this.disposed = false; tensors.push(this); }
     dispose() { assert.equal(this.disposed, false); this.disposed = true; }
   }
   const ort = {
@@ -37,7 +37,7 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
           active--;
           if (runError) { memoryBudget.failure = memoryFailure; throw new RangeError('Out of memory'); }
           return {
-            policy: new Tensor('float32', invalidOutput ? [NaN, 2] : [1, 3]),
+            policy: new Tensor('float32', policy ? policy(given) : invalidOutput ? [NaN, 2] : [1, 3]),
             value: new Tensor('float32', [0.25]),
             hands: new Tensor('float32', new Float32Array(102)),
           };
@@ -163,4 +163,28 @@ test('bytes the page could not store load the network without downloading it aga
   assert.deepEqual(h.scopes, [], 'nothing is fetched');
   assert.equal(h.messages.find(message => message.analysis)?.id, 1);
   assert.equal(h.messages.some(message => message.error), false);
+});
+
+test('a review batch is one forward pass, each position answered with its own best legal move', async () => {
+  // Three positions of two moves each, laid end to end.
+  const logits = [0, 2, 5, 9, 3, 1];
+  const h = harness({ takesMask: true, policy: given => {
+    // The module runs in its own context: its arrays are copied out to compare.
+    assert.deepEqual([...given.planes.dims], [3, 2, 34]);
+    assert.deepEqual([...given.legal.dims], [3, 2]);
+    assert.deepEqual(Array.from(given.legal.data), [1, 1, 1, 0, 1, 1]);
+    return Float32Array.from(logits);
+  } });
+  await h.send(1, MODEL, { planes: new Float32Array(3 * 2 * 34), mask: [1, 1, 1, 0, 1, 1], count: 3 });
+  assert.deepEqual(h.runs, [MODEL], 'one pass for the batch');
+  const answer = h.messages.find(message => message.analyses);
+  assert.equal(answer.id, 1);
+  assert.equal('action' in answer, false);
+  const analyses = [...answer.analyses].map(({ action, weights }) => ({ action, weights: [...weights] }));
+  assert.deepEqual(analyses.map(analysis => analysis.action), [1, 0, 0]);
+  // The second position's better logit is a move its mask does not allow.
+  assert.deepEqual(analyses[1].weights, [1, 0]);
+  assert.deepEqual(analyses, [policyWeights(logits.slice(0, 2), [1, 1]), policyWeights(logits.slice(2, 4), [1, 0]),
+    policyWeights(logits.slice(4), [1, 1])]);
+  assert.ok(h.tensors.every(tensor => tensor.disposed), 'all input and output tensors must be disposed');
 });

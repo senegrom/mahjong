@@ -416,6 +416,20 @@ pub struct NoteView {
     pub reason: String,
 }
 
+/// The numbers a note gives the move played, for any one turn move.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct MeasureView {
+    /// Distance after the move, where zero is waiting and minus one is
+    /// complete.
+    pub shanten: i32,
+    /// Unseen tiles that would improve the hand after the move.
+    pub acceptance: u32,
+    /// How exposed the tile was: `quiet`, `safe` or `live`.
+    pub danger: String,
+    /// How many han the tile was worth as dora.
+    pub dora: u8,
+}
+
 /// One thing the player may do.
 #[derive(Serialize)]
 pub struct ActionView {
@@ -1185,23 +1199,11 @@ impl Game {
 
     /// Takes the player's choice, named as `choices` returned it.
     pub fn choose(&mut self, kind: &str, tile: Option<String>) -> Result<(), JsValue> {
-        let tile = match tile {
-            Some(text) => Some(
-                text.parse::<Tile>()
-                    .map_err(|error| JsValue::from_str(&format!("not a tile: {error}")))?,
-            ),
-            None => None,
-        };
+        let tile = tile_named(tile)?;
         match self.hand.phase {
             Phase::Act if self.hand.turn == self.seat => {
-                let action = match (kind, tile) {
-                    ("discard", Some(tile)) => Action::Discard(tile),
-                    ("riichi", Some(tile)) => Action::Riichi(tile),
-                    ("tsumo", _) => Action::Tsumo,
-                    ("concealed-kan", Some(tile)) => Action::ConcealedKan(tile),
-                    ("extended-kan", Some(tile)) => Action::ExtendedKan(tile),
-                    _ => return Err(JsValue::from_str("that is not an action")),
-                };
+                let action = action_named(kind, tile)
+                    .ok_or_else(|| JsValue::from_str("that is not an action"))?;
                 if !self.hand.legal_actions().contains(&action) {
                     return Err(JsValue::from_str("that action is not legal now"));
                 }
@@ -1399,6 +1401,56 @@ impl Game {
             .get(index)
             .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
         analysis::choices_value(&decision.position, decision.seat)
+    }
+
+    /// The numbers a note gives the move played, for any turn move the
+    /// player could have made at a recorded decision: how far the hand was
+    /// left from complete, how many unseen tiles would improve it, whether
+    /// the tile could deal into a declared riichi, and what it was worth as
+    /// dora. A whole-game review shows them beside the trained network's
+    /// choice. A response to a discard has none, as its note has none, so
+    /// it answers null.
+    pub fn review_measure(
+        &self,
+        index: usize,
+        kind: &str,
+        tile: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        let action = action_named(kind, tile_named(tile)?)
+            .ok_or_else(|| JsValue::from_str("that is not an action"))?;
+        match self.measure_at(index, action).map_err(JsValue::from_str)? {
+            Some(measure) => serde_wasm_bindgen::to_value(&measure)
+                .map_err(|error| JsValue::from_str(&error.to_string())),
+            None => Ok(JsValue::NULL),
+        }
+    }
+
+    /// What `review_measure` answers, before it is handed to the page.
+    fn measure_at(
+        &self,
+        index: usize,
+        action: Action,
+    ) -> Result<Option<MeasureView>, &'static str> {
+        let decision = self
+            .decisions
+            .get(index)
+            .ok_or("No recorded decision at this index")?;
+        if matches!(decision.played, ReviewedMove::Call(_)) {
+            return Ok(None);
+        }
+        if !decision.position.legal_actions().contains(&action) {
+            return Err("that move was not open at this decision");
+        }
+        // The judge measures the move it is given as the one played; the
+        // adviser's own move, which it measures as well, is not wanted here.
+        let mut adviser = Bot::with_style(0x5eed_5eed, Style::club());
+        let note = review::judge(&decision.position, action, &mut adviser);
+        Ok(Some(MeasureView {
+            shanten: note.shanten_played,
+            acceptance: note.acceptance_played,
+            danger: danger_name(note.danger_played).to_string(),
+            dora: note.dora_played,
+        }))
     }
 
     /// The hand as an mjai event log, one JSON object per line.
@@ -2063,6 +2115,27 @@ fn danger_name(danger: review::Danger) -> &'static str {
     }
 }
 
+/// A tile the page named, if it named one.
+fn tile_named(tile: Option<String>) -> Result<Option<Tile>, JsValue> {
+    tile.map(|text| {
+        text.parse::<Tile>()
+            .map_err(|error| JsValue::from_str(&format!("not a tile: {error}")))
+    })
+    .transpose()
+}
+
+/// The turn move a page names as `choices` named it, if it names one.
+fn action_named(kind: &str, tile: Option<Tile>) -> Option<Action> {
+    match (kind, tile) {
+        ("discard", Some(tile)) => Some(Action::Discard(tile)),
+        ("riichi", Some(tile)) => Some(Action::Riichi(tile)),
+        ("tsumo", _) => Some(Action::Tsumo),
+        ("concealed-kan", Some(tile)) => Some(Action::ConcealedKan(tile)),
+        ("extended-kan", Some(tile)) => Some(Action::ExtendedKan(tile)),
+        _ => None,
+    }
+}
+
 /// The tile an action puts down, if it puts one down.
 fn action_tile(action: Action) -> Option<Tile> {
     match action {
@@ -2625,6 +2698,66 @@ mod ui_review_tests {
             "West pons it"
         );
         assert_eq!(game.log, ["West calls a triplet"]);
+    }
+
+    /// A whole-game review asks for the numbers of moves the player did not
+    /// make. The move they made gets its note's own numbers, every other
+    /// move open at the turn gets its own, a response to a discard has none,
+    /// and a move that was not open is refused.
+    #[test]
+    fn a_recorded_turn_measures_every_move_that_was_open() {
+        for seed in [5.0, 31.0, 81.0] {
+            let mut game = Game::new(seed, Some("club".into()));
+            // The player throws their first legal tile and passes every call.
+            for _ in 0..400 {
+                game.play_on().unwrap();
+                match game.hand.phase {
+                    Phase::Act => {
+                        let tile = game
+                            .hand
+                            .legal_actions()
+                            .into_iter()
+                            .find_map(|action| match action {
+                                Action::Discard(tile) => Some(tile),
+                                _ => None,
+                            })
+                            .expect("a player always has a tile they may discard");
+                        game.choose("discard", Some(tile.to_string())).unwrap();
+                    }
+                    Phase::CallWindow => game.choose("pass", None).unwrap(),
+                    _ => break,
+                }
+            }
+            let notes = game.review_notes();
+            assert!(notes.len() > 3, "seed {seed}: {} decisions", notes.len());
+            for (index, (note, decision)) in notes.iter().zip(&game.decisions).enumerate() {
+                let ReviewedMove::Action(played) = decision.played else {
+                    assert_eq!(game.measure_at(index, Action::Tsumo), Ok(None));
+                    continue;
+                };
+                let measure = game.measure_at(index, played).unwrap().unwrap();
+                assert_eq!(Some(measure.shanten), note.shanten_played);
+                assert_eq!(Some(measure.acceptance), note.acceptance_played);
+                assert_eq!(measure.danger, note.danger_played);
+                assert_eq!(measure.dora, note.dora_played);
+                for action in decision.position.legal_actions() {
+                    assert!(game.measure_at(index, action).unwrap().is_some());
+                }
+                let held = &decision.position.players[decision.seat.index()].hand;
+                let absent = Tile::all()
+                    .into_iter()
+                    .find(|tile| held.count(*tile) == 0)
+                    .expect("a hand never holds every kind");
+                assert_eq!(
+                    game.measure_at(index, Action::Discard(absent)),
+                    Err("that move was not open at this decision")
+                );
+            }
+            assert_eq!(
+                game.measure_at(notes.len(), Action::Tsumo),
+                Err("No recorded decision at this index")
+            );
+        }
     }
 }
 

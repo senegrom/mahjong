@@ -260,6 +260,20 @@ test('Watch calls its first seat the followed agent, and its draw keeps the riic
   assert.match(await sheet(ended([], 'Exhaustive draw')), /<th scope="row"[^>]*>You<\/th>/);
 });
 
+test("the final result offers the whole game's review, which the standings it covers on a phone offer too", async () => {
+  const draw = ended([], 'Exhaustive draw');
+  const final = await sheet(draw, { finalHand: true, onreview() {}, onlog() {}, ongame() {}, ongamereview: () => true });
+  // Shown on a phone only, beside the game's file, and "Review game" where
+  // the labels are short.
+  assert.match(final, /<button class="quiet whole-game[^"]*" data-review-game[^>]*>Review <span class="whole[^"]*">whole<\/span> game<\/button>/);
+  // The hand's review stays first, "Review hand" where the labels are short.
+  assert.match(final, /<button class="quiet[^"]*">(<!--[^>]*-->)?Review <span class="qualifier[^"]*">final<\/span> hand(<!--[^>]*-->)?<\/button>/);
+  assert.ok(final.indexOf('>Review <span class="qualifier') < final.indexOf('data-review-game'), "the hand's review stays first");
+  // Not before the last hand, and not in Watch, which reviews no game.
+  assert.doesNotMatch(await sheet(draw, { onreview() {}, ongamereview: () => true }), /data-review-game/);
+  assert.doesNotMatch(await sheet(draw, { finalHand: true, onreview() {}, ongame() {} }), /data-review-game/);
+});
+
 test('a quad offered to be robbed is announced as a kan, not as a discard', async () => {
   const quad = { kind: 'extended-kan', tiles: ['1p', '1p', '1p', '1p'], from: 'left', claimed_tile: '1p' };
   const view = { phase: 'call', round: 'east', kyoku: 1, wall: 40, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],

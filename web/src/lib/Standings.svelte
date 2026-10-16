@@ -4,11 +4,12 @@
    * Where everybody finished. A game is played for placement rather than
    * points, so the places lead and the arithmetic follows: what was on the
    * table, the bonus the place earned or cost, and what the game came to.
-   * `onsave`, where given, saves the whole game as one mjai log.
+   * `onsave`, where given, saves the whole game as one mjai log, and
+   * `onreview` opens the review of every decision the player made in it.
    * `playerLabel` is what the row the engine marks as `you` is called: the
    * person playing, or in Watch the agent being followed.
    */
-  let { standings = [], onagain, onsave, playerLabel = 'You' } = $props();
+  let { standings = [], onagain, onsave, onreview, playerLabel = 'You' } = $props();
 
   const NAMES = { east: 'East', south: 'South', west: 'West', north: 'North' };
 
@@ -64,6 +65,7 @@
 
   <div class="buttons">
     <button class="primary" onclick={onagain}>Play again</button>
+    {#if onreview}<button class="quiet" data-review-game onclick={onreview}>Review whole game</button>{/if}
     {#if onsave}<button class="quiet" data-save-game onclick={onsave} title="Every hand of this game from East 1 as one mjai event log, which replayers and other riichi programs read">Save whole game</button>{/if}
   </div>
 </section>

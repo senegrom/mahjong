@@ -8,6 +8,9 @@
   import { OPPONENT_POSITIONS } from '../opponents.js';
 
   let { view, hints, thinking, pendingOpponent }: MatchTableProps = $props();
+  // A review replays a hand on a second table while the match's own stays
+  // on the page, so the dialog's title is named for its own table.
+  const uid = $props.id();
   let tableDialog = $state<HTMLDialogElement | null>(null);
   let shownDora = $derived(hints ? (view?.dora_types ?? []) : []);
   let right = $derived(view?.seats[1]);
@@ -49,8 +52,8 @@
   <div class="place right"><Seat seat={right} side="right" dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player} /></div>
 </div>
 
-<dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="table-dialog-title">
-  <header><h2 id="table-dialog-title">All discards and called sets</h2><button class="app-control" onclick={() => tableDialog?.close()}>Close</button></header>
+<dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="{uid}-title">
+  <header><h2 id="{uid}-title">All discards and called sets</h2><button class="app-control" onclick={() => tableDialog?.close()}>Close</button></header>
   <div class="inspection-grid">
     {#each view.seats as seat, index (index)}
       <section><h3>{index === 0 ? 'You' : OPPONENT_POSITIONS[index - 1]} · {NAMES[seat.seat]} · {seat.score.toLocaleString()}</h3>
