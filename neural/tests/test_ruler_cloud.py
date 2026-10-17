@@ -699,6 +699,28 @@ class CommandLineTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "g910-g810 plays two challengers"):
                 ruler_cloud.reading(Untouchable(), paired, single)
 
+    def test_a_series_of_two_challengers_only_the_volume_holds_is_refused_once_mirrored(self):
+        """Registered and played from another folder, it is known here only
+        once its reports are mirrored: read against it, or it against
+        another, it is refused then, before any report is compared, rather
+        than ending in a KeyError."""
+        refusals = {
+            ("g910", "g910-g810"): "g910 cannot be read against g910-g810: g910-g810 plays two challengers in "
+                                   "every call (--also), and a series is read against one of single rulers",
+            ("g910-g810", "g910"): "g910-g810 cannot be read against g910: g910-g810 plays two challengers in "
+                                   "every call (--also) and is read only as the first against the second",
+        }
+        for (tag, against), refusal in refusals.items():
+            with self.subTest(tag=tag, against=against), tempfile.TemporaryDirectory() as folder:
+                modal = Modal(lambda name, arguments: None)
+                modal.files["rulers/g910-g810/series.json"] = json.dumps(SETTINGS).encode()
+                single = ruler_cloud.Series(Path(folder) / "g910")
+                for seed in looks.design().seeds[:5]:
+                    single.keep(old_ruler(seed))
+                    modal.files[f"rulers/g910-g810/seed-{seed}.json"] = json.dumps(paired_report(seed, 0.3)).encode()
+                code, _err = self.run_main("looks", tag, "--against", against, "--local", folder, modal=modal)
+                self.assertIn(refusal, code)
+
     def test_a_comparison_that_could_not_be_read_is_refused_before_it_is_registered(self):
         with tempfile.TemporaryDirectory() as folder:
             kept = ruler_cloud.Series(Path(folder) / "g910")

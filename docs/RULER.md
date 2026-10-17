@@ -323,8 +323,10 @@ its looks did not decide when it stopped. Both must be series of single
 rulers: a series registered with `--also` holds each challenger's
 placements and none of its own, and is read only as its first challenger
 against its second (`looks <tag>`), so `--against` on either side of it is
-refused before anything is read. `python -m neural.looks <folder>` reads a
-local folder of reports, the old duel's included.
+refused. When the local folder holds that series, it is refused before
+anything is read; when only the volume does, once its reports are mirrored,
+before any is compared. `python -m neural.looks <folder>` reads a local
+folder of reports, the old duel's included.
 
 At the spend limit Modal refuses a launch, which the launcher asks again
 later, or takes it and leaves the call in its queue with no container. A
