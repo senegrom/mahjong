@@ -43,7 +43,9 @@ second plays as it always did.
 `keep` saves the finished calls of a ruler measured the old way
 (`modal-duel-many.py`, which writes a seed and a call id a line) as a
 series' reports, so a new series can be read against it deal by deal after
-Modal has let its calls go.
+Modal has let its calls go. `looks --against` reads one series of single
+rulers against another; a series registered with `--also` is read only as
+its first challenger against its second, and `--against` is refused for it.
 
 At the spend limit Modal refuses a launch, which is asked again later, or
 takes it and leaves the call in its queue with no container. A call in the
@@ -558,6 +560,30 @@ def against_problem(settings: dict, rule: looks.Design, other: Series) -> str | 
     return None
 
 
+def plays_two(series: Series) -> bool:
+    """Whether a series plays two challengers in every call: registered with
+    `--also`, or, never registered, holding a paired call's report."""
+    settings = series.settings()
+    if settings:
+        return bool(settings.get("also"))
+    return any("arms" in report for report in series.reports().values())
+
+
+def paired_problem(series: Series, against: Series) -> str | None:
+    """Why `series` cannot be read against `against`, if one of them plays
+    two challengers in every call: its reports hold each challenger's
+    placements and none of their own, and it is read only as its first
+    challenger against its second. Found from the local folders, before
+    the volume is asked or a report is read for the comparison."""
+    if plays_two(series):
+        return (f"{series.tag} plays two challengers in every call (--also) and is read only as the first "
+                f"against the second; read it with `looks {series.tag}`, without --against")
+    if plays_two(against):
+        return (f"{against.tag} plays two challengers in every call (--also), and a series is read against "
+                "one of single rulers, as a ruler kept with `keep` is")
+    return None
+
+
 def what_of(settings: dict) -> str:
     """What a series compares, in words, as its rule records it."""
     first = challenger_name(settings, "first")
@@ -576,7 +602,10 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     was registered with; with `against`, read instead against that series
     of single rulers on the same seeds, deal by deal (the first's edge less
     the second's), which is said when the rule was registered for another.
-    A folder with no registered rule is read by the usual one, and says so."""
+    A folder with no registered rule is read by the usual one, and says so.
+    A series of two challengers a call is read only by its own comparison:
+    read against another, or another against it, it is refused before
+    anything is mirrored or read (see `paired_problem`)."""
     path = series.folder / "design.json"
     lines = []
     if path.exists():
@@ -590,6 +619,9 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     elif against is not None and path.exists() and against.tag != registered:
         lines.append(f"read against {against.tag}, a comparison {series.tag}'s rule was not registered for: "
                      "its looks did not decide when the series stopped")
+    problem = paired_problem(series, against) if against is not None else None
+    if problem:
+        raise SystemExit(f"{series.tag} cannot be read against {against.tag}: {problem}")
     reports = series.reports()
     if against is not None:
         mirror(modal, against)
@@ -856,6 +888,11 @@ def main() -> None:
         problem = asking_problem(settings)
         if problem:
             parser.error(problem)
+    if args.command == "looks" and args.against:
+        # As `reading` refuses it, but before the series is mirrored.
+        problem = paired_problem(Series(args.local / args.tag), Series(args.local / args.against))
+        if problem:
+            raise SystemExit(f"{args.tag} cannot be read against {args.against}: {problem}")
 
     import modal
 

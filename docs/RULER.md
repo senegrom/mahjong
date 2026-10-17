@@ -319,8 +319,12 @@ read so is refused before anything is registered, as is one that asks with
 and prints the looks so far, by the comparison the series was registered
 with. `looks <tag> --against <other>` reads it against another series instead,
 and says so when its rule was registered for another comparison, since then
-its looks did not decide when it stopped. `python -m neural.looks <folder>`
-reads a local folder of reports, the old duel's included.
+its looks did not decide when it stopped. Both must be series of single
+rulers: a series registered with `--also` holds each challenger's
+placements and none of its own, and is read only as its first challenger
+against its second (`looks <tag>`), so `--against` on either side of it is
+refused before anything is read. `python -m neural.looks <folder>` reads a
+local folder of reports, the old duel's included.
 
 At the spend limit Modal refuses a launch, which the launcher asks again
 later, or takes it and leaves the call in its queue with no container. A

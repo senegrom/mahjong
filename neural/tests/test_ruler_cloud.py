@@ -8,11 +8,11 @@ second player is named; it spawns a failed seed again with its own seed,
 waits for a call in Modal's queue without taking it to be playing, gives a
 call Modal cannot be asked about an hour and then stops without spawning
 its seed again, keeps every report locally and reads what the volume kept;
-what it could not play
-or read is refused before anything is registered; and the timing says, in a
-fixed order, whether the ruler played the old duel's games, by its arena or
-by its graphs if not, and how much faster, and run again it spawns again
-only the ways whose call failed."""
+what it could not play or read is refused before anything is registered,
+and a series of two challengers is not read against another; and the
+timing says, in a fixed order, whether the ruler played the old duel's
+games, by its arena or by its graphs if not, and how much faster, and run
+again it spawns again only the ways whose call failed."""
 
 import contextlib
 import io
@@ -676,6 +676,28 @@ class CommandLineTests(unittest.TestCase):
                     self.assertEqual(code, 2)
                     self.assertIn("name it with --also", err)
             self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_a_series_of_two_challengers_is_not_read_against_another(self):
+        """Its reports hold each challenger's placements and none of their
+        own, so it is read only as its first challenger against its second:
+        read against another series, or another against it, it is refused
+        before the client is asked or a report is read, saying what to run."""
+        with tempfile.TemporaryDirectory() as folder:
+            paired = ruler_cloud.Series(Path(folder) / "g910-g810")
+            paired.register(dict(SETTINGS), looks.design())
+            single = ruler_cloud.Series(Path(folder) / "g910")
+            for seed in looks.design().seeds[:5]:
+                paired.keep(paired_report(seed, 0.3))
+                single.keep(old_ruler(seed))
+            code, _err = self.run_main("looks", "g910-g810", "--against", "g910", "--local", folder)
+            self.assertIn("g910-g810 cannot be read against g910: g910-g810 plays two challengers", code)
+            self.assertIn("read it with `looks g910-g810`, without --against", code)
+            code, _err = self.run_main("looks", "g910", "--against", "g910-g810", "--local", folder)
+            self.assertIn("g910 cannot be read against g910-g810: g910-g810 plays two challengers", code)
+            self.assertIn("one of single rulers", code)
+            # Asked directly, `reading` refuses it before it mirrors or reads anything.
+            with self.assertRaisesRegex(SystemExit, "g910-g810 plays two challengers"):
+                ruler_cloud.reading(Untouchable(), paired, single)
 
     def test_a_comparison_that_could_not_be_read_is_refused_before_it_is_registered(self):
         with tempfile.TemporaryDirectory() as folder:
