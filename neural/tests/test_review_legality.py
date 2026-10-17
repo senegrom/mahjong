@@ -9,7 +9,8 @@ import torch
 
 class Views:
     def __init__(self, *args):
-        self.observer=SimpleNamespace(follower=self)
+        # As observe.Observer: a reach told the observer reaches its follower.
+        self.observer=SimpleNamespace(follower=self,tell=self.tell)
         self.told=[]
     def advance(self): pass
     def prepare(self, *args): pass

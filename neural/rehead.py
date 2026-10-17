@@ -155,7 +155,9 @@ def collect(
             follower = views.observer.follower
             pairs = [(int(rows[i]), int(who[i])) for i in second]
             for game, player in pairs:
-                follower.tell(game, player, json.dumps({"type": "reach", "actor": player}))
+                # Told through the observer, so a renamed game it follows
+                # (`Observer.tell`) hears the reach too and stays in step.
+                views.observer.tell(game, player, json.dumps({"type": "reach", "actor": player}))
             indptr, indices, values, _after_masks = follower.encode(pairs)
             after = Planes.from_follower(indptr, indices, values)
             tiles = legal[rows][second, zoo.RIICHI_DISCARD : zoo.TSUMO]

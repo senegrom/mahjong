@@ -53,6 +53,9 @@ FIRST_SEED = 9_100_000
 STEP = 100_003
 #: An effect this small or smaller is looked for with ten seeds a look.
 SMALL_EFFECT = 0.006
+#: What follows the name of a challenger that averaged its moves over
+#: characters and circles, wherever a series names its players.
+AVERAGED = " averaged over the suits"
 
 
 def _density(x: float) -> float:
@@ -269,6 +272,13 @@ def load_folder(folder: Path) -> dict[int, dict]:
     return reports
 
 
+def averaged(report: dict) -> str:
+    """What a challenger's name is followed by when it averaged its moves
+    over characters and circles (its report says so under `suits`, see
+    `neural.suits`), so one checkpoint played both ways reads as two."""
+    return AVERAGED if "suits" in report else ""
+
+
 def describe(rule: Design, looks: list[Look], state: str, names: tuple[str, str]) -> str:
     """The looks as a table, and what they say, in words."""
     first, second = names
@@ -318,9 +328,11 @@ def main() -> None:
         by_seed = {seed: differences(report) for seed, report in reports.items()}
         sample = next(iter(reports.values()), {})
         if "arms" in sample:
-            names = tuple(arm.get("challenger", f"challenger {i + 1}") for i, arm in enumerate(sample["arms"][:2]))
+            names = tuple(arm.get("challenger", f"challenger {i + 1}") + averaged(arm)
+                          for i, arm in enumerate(sample["arms"][:2]))
         else:
-            names = (sample.get("challenger", "the challenger"), sample.get("incumbent", "the incumbent"))
+            names = (sample.get("challenger", "the challenger") + averaged(sample),
+                     sample.get("incumbent", "the incumbent"))
     looks, state = read(rule, by_seed)
     if args.json:
         print(json.dumps({"design": asdict(rule), "looks": [asdict(look) for look in looks], "state": state},

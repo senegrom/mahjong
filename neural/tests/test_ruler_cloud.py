@@ -188,6 +188,9 @@ class SeriesTests(unittest.TestCase):
                              {key: SETTINGS[key] for key in ruler_cloud.CALLED})
             self.assertEqual((arguments["also"], arguments["tag"]), ("history/gen-00810", "g910-g810"))
             self.assertNotIn("against", arguments)
+            # Asked for nothing of the kind, a call is made as an app deployed
+            # before averaging over the suits existed takes it.
+            self.assertNotIn("average_suits", arguments)
         self.assertEqual(sorted(series.reports()), seeds)
         self.assertIn("stopped at look 1: history/gen-00910 is the stronger", out)
         self.assertEqual(json.loads(modal.uploaded["rulers/g910-g810/series.json"]), SETTINGS)
@@ -272,6 +275,41 @@ class SeriesTests(unittest.TestCase):
         modal = Modal(lambda name, arguments: (_ for _ in ()).throw(RuntimeError("no card")))
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
             self.play(modal)
+
+    def test_a_checkpoint_against_itself_averaging_over_the_suits(self):
+        """Every call says which challenger averages, the looks name it apart
+        from the same checkpoint played plain, and the series keeps it: a
+        series registered with it is not resumed without it."""
+        settings = {**SETTINGS, "also": SETTINGS["challenger"], "average_suits": "first"}
+
+        def answer(name, arguments):
+            # Named as `modal_app.ruler` names them: the same checkpoint twice.
+            report = paired_report(arguments["seed"], 0.3)
+            for arm in report["arms"]:
+                arm["challenger"] = arguments["challenger"]
+            report["arms"][0]["suits"] = {"gate": 0.9, "asked": 10, "again": 2, "changed": 1}
+            return report
+
+        modal = Modal(answer)
+        series = ruler_cloud.Series(self.root / "g910-suits")
+        rule = series.register(dict(settings), looks.design(None, ruler_cloud.what_of(settings)))
+        ruler_cloud.upload(modal, series)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            state = ruler_cloud.run_series(modal, series, dict(settings), rule, poll=0)
+        self.assertEqual(state, "first")
+        self.assertEqual(len(modal.spawned), 5)
+        for _name, arguments in modal.spawned:
+            self.assertEqual((arguments["average_suits"], arguments["also"]), ("first", "history/gen-00910"))
+        averaged = "history/gen-00910 averaged over the suits"
+        self.assertIn(f"comparing: {averaged} against history/gen-00910 at zoo/mortal_298k's table", out.getvalue())
+        self.assertIn(f"stopped at look 1: {averaged} is the stronger", out.getvalue())
+        self.assertEqual(ruler_cloud.names_of(series), (averaged, "history/gen-00910"))
+        self.assertEqual(json.loads(modal.uploaded["rulers/g910-suits/series.json"])["average_suits"], "first")
+        plain = {name: value for name, value in settings.items() if name != "average_suits"}
+        with self.assertRaisesRegex(SystemExit, "average_suits"):
+            series.register(plain, rule)
+        self.assertIsNone(ruler_cloud.asking_problem(settings))
+        self.assertIn("--also", ruler_cloud.asking_problem({**settings, "also": "", "average_suits": "second"}))
 
     def test_a_registered_series_keeps_what_it_plays_and_its_rule(self):
         series = ruler_cloud.Series(self.root / "kept")
@@ -512,6 +550,41 @@ class CommandLineTests(unittest.TestCase):
                 with self.subTest(command=command):
                     code, err = self.run_main(*command, "--local", folder)
                     self.assertIn("is not a tag", err)
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_a_series_holds_averaging_over_the_suits_only_when_it_is_asked_for(self):
+        def answer(name, arguments):
+            report = paired_report(arguments["seed"], 0.3)
+            for arm in report["arms"]:
+                arm["challenger"] = arguments["challenger"]
+            if arguments.get("average_suits"):
+                report["arms"][0]["suits"] = {"gate": 0.9, "asked": 10, "again": 2, "changed": 1}
+            return report
+
+        for averaging in ([], ["--average-suits", "first"]):
+            modal = Modal(answer)
+            with self.subTest(averaging=averaging), tempfile.TemporaryDirectory() as folder, \
+                    patch.object(ruler_cloud.time, "sleep"):
+                code, _err = self.run_main("series", "g810-suits", "history/gen-00810", "zoo/mortal_298k",
+                                           "--also", "history/gen-00810", *averaging, "--local", folder, modal=modal)
+                settings = json.loads((Path(folder) / "g810-suits" / "series.json").read_text(encoding="utf-8"))
+                self.assertEqual(code, 0)
+                self.assertEqual(len(modal.spawned), 5)
+                if averaging:
+                    self.assertEqual(settings["average_suits"], "first")
+                    self.assertTrue(all(arguments["average_suits"] == "first" for _name, arguments in modal.spawned))
+                else:
+                    self.assertNotIn("average_suits", settings)
+                    self.assertTrue(all("average_suits" not in arguments for _name, arguments in modal.spawned))
+
+    def test_a_second_challenger_that_averages_must_be_named(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for which in ("second", "both"):
+                with self.subTest(which=which):
+                    code, err = self.run_main("series", "t", "history/gen-00810", "zoo/mortal_298k",
+                                              "--average-suits", which, "--local", folder)
+                    self.assertEqual(code, 2)
+                    self.assertIn("name it with --also", err)
             self.assertEqual(list(Path(folder).iterdir()), [])
 
     def test_a_comparison_that_could_not_be_read_is_refused_before_it_is_registered(self):

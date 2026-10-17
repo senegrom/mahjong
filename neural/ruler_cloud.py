@@ -26,11 +26,15 @@ crossed the bound at the first look, z +5.95), so a series of one of them
 against it stops after five seeds, and two such series read against each
 other afterwards (`looks --against`) never get past their first look. Two
 generations are compared by a series registered with `--also` or
-`--against`.
+`--against`. A checkpoint is compared with itself averaging over the suits
+(see `neural.suits`) by a series that names it again with `--also` and
+says `--average-suits first`: the first challenger averages and the
+second plays as it always did.
 
     python -m neural.ruler_cloud series <tag> <challenger> <incumbent> --local <folder>
         [--also <second> | --against <tag>] [--expected 0.006] [--graphs]
         [--questions fixed --graphs --skip-forced --preview-reach] [--run fusion-long]
+        [--average-suits first|second|both]
     python -m neural.ruler_cloud looks <tag> --local <folder> [--against <tag>]
     python -m neural.ruler_cloud keep <tag> <call file> --local <folder>
     python -m neural.ruler_cloud timing <challenger> <incumbent> --local <folder>
@@ -122,6 +126,12 @@ CALLED = ("challenger", "incumbent", "games", "questions", "rows", "graphs", "sk
 #: every call (`also`), and the series of single rulers it is read against
 #: (`against`).
 SERIES = (*CALLED, "also", "against")
+#: What a series holds, and its calls are told, only when it is asked for:
+#: the challengers that average over the suits (see `neural.suits`). A
+#: series registered before it existed is then resumed as it was, and a
+#: call that asks for none of it is made as before, which an app deployed
+#: before it existed still takes.
+OPTIONAL = ("average_suits",)
 #: A tag names a folder here and on the volume, so it is held to what
 #: `modal_app.ruler` takes for one (see `cloud_runs.validate_run`), before
 #: any folder is made.
@@ -316,6 +326,7 @@ class Heard:
 def spawn_seed(modal, series: Series, settings: dict, seed: int) -> str:
     ruler = modal.Function.from_name(APP, "ruler")
     arguments = {name: settings[name] for name in CALLED}
+    arguments.update({name: settings[name] for name in OPTIONAL if settings.get(name)})
     call = ruler.spawn(also=settings["also"] or "", seed=seed, tag=series.tag, **arguments)
     series.note(seed, call.object_id)
     say(f"{series.tag}: seed {seed} spawned as {call.object_id}")
@@ -364,13 +375,21 @@ def differences_of(series: Series, settings: dict) -> dict[int, list[float]]:
     return {seed: looks.differences(report) for seed, report in reports.items()}
 
 
+def challenger_name(settings: dict, which: str) -> str:
+    """The first or the second challenger of a series as it is named where
+    the series names its players: the checkpoint, said to average over the
+    suits when it does, so one checkpoint played both ways reads as two."""
+    name = settings["challenger" if which == "first" else "also"]
+    return name + (looks.AVERAGED if settings.get("average_suits") in (which, "both") else "")
+
+
 def compared(series: Series, settings: dict) -> tuple[str, str]:
     """The two players a series' rule reads against each other."""
     if settings.get("also"):
-        return settings["challenger"], settings["also"]
+        return challenger_name(settings, "first"), challenger_name(settings, "second")
     if settings.get("against"):
-        return settings["challenger"], names_of(series.beside(settings["against"]))[0]
-    return settings["challenger"], settings["incumbent"]
+        return challenger_name(settings, "first"), names_of(series.beside(settings["against"]))[0]
+    return challenger_name(settings, "first"), settings["incumbent"]
 
 
 def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: float = POLL) -> str:
@@ -445,9 +464,9 @@ def names_of(series: Series) -> tuple[str, str]:
     sample = next(iter(series.reports().values()), {})
     arms = sample.get("arms")
     if arms:
-        return (checkpoint_name(arms[0].get("challenger", "the first")),
-                checkpoint_name(arms[1].get("challenger", "the second")))
-    return (checkpoint_name(sample.get("challenger", "the challenger")),
+        return (checkpoint_name(arms[0].get("challenger", "the first")) + looks.averaged(arms[0]),
+                checkpoint_name(arms[1].get("challenger", "the second")) + looks.averaged(arms[1]))
+    return (checkpoint_name(sample.get("challenger", "the challenger")) + looks.averaged(sample),
             checkpoint_name(sample.get("incumbent", "the incumbent")))
 
 
@@ -463,6 +482,8 @@ def asking_problem(settings: dict) -> str | None:
         return "--rows must be a positive whole number"
     if settings["games"] <= 0:
         return "--games must be a positive whole number"
+    if settings.get("average_suits") in ("second", "both") and not settings["also"]:
+        return f"--average-suits {settings['average_suits']} names a second challenger: name it with --also"
     return None
 
 
@@ -499,13 +520,14 @@ def against_problem(settings: dict, rule: looks.Design, other: Series) -> str | 
 
 def what_of(settings: dict) -> str:
     """What a series compares, in words, as its rule records it."""
+    first = challenger_name(settings, "first")
     if settings["also"]:
-        pair = f"{settings['challenger']} against {settings['also']} at {settings['incumbent']}'s table"
+        pair = f"{first} against {challenger_name(settings, 'second')} at {settings['incumbent']}'s table"
     elif settings["against"]:
-        pair = (f"{settings['challenger']} against the challenger of {settings['against']}, deal by deal, "
+        pair = (f"{first} against the challenger of {settings['against']}, deal by deal, "
                 f"both at {settings['incumbent']}'s table")
     else:
-        pair = f"{settings['challenger']} against {settings['incumbent']}"
+        pair = f"{first} against {settings['incumbent']}"
     return f"{pair}, questions {settings['questions']}"
 
 
@@ -717,6 +739,9 @@ def main() -> None:
     play.add_argument("--graphs", action="store_true")
     play.add_argument("--skip-forced", action="store_true")
     play.add_argument("--preview-reach", action="store_true")
+    play.add_argument("--average-suits", choices=("first", "second", "both"), default="",
+                      help="the challengers that ask the questions they hesitate over of the game with "
+                           "characters and circles renamed too, and play the mean of the two answers")
     play.add_argument("--run", default="w1012-run")
     play.add_argument("--local", type=Path, required=True, help=LOCAL)
     read = commands.add_parser("looks", help="mirror a series' reports and read its looks")
@@ -746,6 +771,7 @@ def main() -> None:
                          "beginning with a letter or digit, as the volume takes")
     if args.command == "series":
         settings = {name: getattr(args, name) for name in SERIES}
+        settings.update({name: getattr(args, name) for name in OPTIONAL if getattr(args, name)})
         problem = asking_problem(settings)
         if problem:
             parser.error(problem)
