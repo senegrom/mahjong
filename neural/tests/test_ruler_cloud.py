@@ -46,11 +46,13 @@ class Modal:
     "unreachable", a poll Modal could not be asked about. Then it finishes
     with what `answer(function, arguments)` gives, a report or an exception
     it raises, and a ruler's report lands on the volume as `modal_app.ruler`
-    keeps it. The first `refusals` launches are refused."""
+    keeps it. The first `refusals` launches are refused, as is any launch
+    `refused(function, arguments)` says Modal refuses at that moment."""
 
-    def __init__(self, answer, refusals: int = 0, queue=()):
+    def __init__(self, answer, refusals: int = 0, queue=(), refused=None):
         self.answer = answer
         self.refusals = refusals
+        self.refused = refused or (lambda name, arguments: False)
         self.queue = queue if callable(queue) else (lambda name, arguments: queue)
         self.spawned: list[tuple[str, dict]] = []
         self.results: dict[str, object] = {}
@@ -79,6 +81,8 @@ class Modal:
         def spawn(**arguments):
             if self.refusals:
                 self.refusals -= 1
+                raise Refused("billing cycle spend limit")
+            if self.refused(name, arguments):
                 raise Refused("billing cycle spend limit")
             call_id = f"fc-{len(self.spawned)}"
             self.spawned.append((name, arguments))
@@ -324,6 +328,40 @@ class SeriesTests(unittest.TestCase):
         self.assertEqual([arguments["seed"] for _name, arguments in modal.spawned], looks.design().seeds[:5])
         self.assertEqual(series.calls()[lost], ["fc-2"])
 
+    def test_a_seed_left_unasked_while_a_launch_is_refused_starts_its_hour_again(self):
+        """Seed 2 could not be asked about once; then seed 0 failed, and Modal
+        refused to launch it again for three hours, so the seeds after it
+        went unasked; then seed 2 could not be asked about once more. Two
+        polls three hours apart are not an hour of polls Modal could not
+        answer, so the series goes on, and finishes once both have."""
+        order = looks.design().seeds
+        lost = []
+
+        def queue(name, arguments):
+            # Asked before `answer`: seed 0's first call plays a minute, then fails.
+            if arguments["seed"] == order[0] and not lost:
+                return ("running",)
+            return ("unreachable",) * 2 if arguments["seed"] == order[2] else ()
+
+        def answer(name, arguments):
+            if arguments["seed"] == order[0] and not lost:
+                lost.append(arguments["seed"])
+                raise RuntimeError("container lost")
+            return paired_report(arguments["seed"], 0.3)
+
+        with clock() as now:
+            start = now()
+            # Every launch after the look's first five, for three hours.
+            modal = Modal(answer, queue=queue,
+                          refused=lambda name, arguments: len(modal.spawned) >= 5 and now() < start + 3 * 3600)
+            series, state, out = self.play(modal, poll=60)
+            waited = now() - start
+        self.assertEqual(state, "first")
+        self.assertGreater(waited, 3 * 3600)
+        self.assertIn("refused a launch for now", out)
+        self.assertEqual(series.calls()[order[0]], ["fc-0", "fc-5"])
+        self.assertEqual(series.calls()[order[2]], ["fc-2"])
+
     def test_a_report_the_volume_kept_is_never_paid_for_again(self):
         """A launcher started again after Modal let a finished call's answer
         go: the report is on the volume, and the seed is not spawned again."""
@@ -543,24 +581,48 @@ class QueueTests(unittest.TestCase):
     def test_a_call_modal_cannot_be_asked_about_is_given_an_hour_in_a_row(self):
         """Such a poll is no news of the call: it neither ends a wait in the
         queue nor starts one, and any answer between two starts the hour
-        again."""
+        again. Asked every minute: fifty-eight minutes of no news, an answer,
+        then no news from the next poll on."""
         def get(timeout=None):
             raise Unreachable("no route to host")
 
         modal = SimpleNamespace(FunctionCall=SimpleNamespace(from_id=lambda call_id: SimpleNamespace(get=get)),
                                 exception=SimpleNamespace(ConnectionError=Unreachable))
         self.assertEqual(ruler_cloud.outcome(modal, "fc-1"), ("unknown", "Unreachable: no route to host"))
+        lost = {"call_id": "fc-1", "what": "Unreachable: no route to host"}
+        polls = [(0.0, "waiting"), *((60.0 * minute, "unknown") for minute in range(1, 59)), (3540.0, "waiting"),
+                 *((60.0 * minute, "unknown") for minute in range(60, 120))]
         heard = ruler_cloud.Heard()
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            for now, state in ((0.0, "waiting"), (600.0, "unknown"), (3500.0, "unknown"), (3540.0, "waiting"),
-                               (3600.0, "unknown"), (7140.0, "unknown")):
-                heard("seed 9100000", state, now=now, call_id="fc-1", what="Unreachable: no route to host")
+            for now, state in polls:
+                heard("seed 9100000", state, now=now, **lost)
             with self.assertRaises(SystemExit) as stop:
-                heard("seed 9100000", "unknown", now=7200.0, call_id="fc-1", what="Unreachable: no route to host")
+                heard("seed 9100000", "unknown", now=7200.0, **lost)
         self.assertEqual(len(out.getvalue().splitlines()), 1)
         self.assertIn("seed 9100000 waits in Modal's queue", out.getvalue())
         self.assertIn("seed 9100000: Modal could not be asked about its call fc-1 for 60 minutes, poll after poll "
                       "(Unreachable: no route to host)", str(stop.exception.code))
+
+    def test_a_call_not_asked_about_for_a_while_starts_its_hour_again(self):
+        """As the seeds after one whose launch Modal refuses go unasked: two
+        polls Modal could not answer, three hours apart, say nothing of the
+        hours between, so the hour starts again at the second. Polls ten
+        minutes apart, as Modal's slow answers might space them, still add
+        up to the hour."""
+        lost = {"call_id": "fc-2", "what": "Unreachable: no route to host"}
+        heard = ruler_cloud.Heard()
+        heard("seed 9300006", "unknown", now=0.0, **lost)
+        for minute in range(180, 240):
+            heard("seed 9300006", "unknown", now=60.0 * minute, **lost)
+        with self.assertRaises(SystemExit) as stop:
+            heard("seed 9300006", "unknown", now=60.0 * 240, **lost)
+        self.assertIn("seed 9300006: Modal could not be asked about its call fc-2 for 60 minutes, poll after poll",
+                      str(stop.exception.code))
+        slow = ruler_cloud.Heard()
+        for minute in range(0, 60, 10):
+            slow("seed 9300006", "unknown", now=60.0 * minute, **lost)
+        with self.assertRaisesRegex(SystemExit, "for 60 minutes"):
+            slow("seed 9300006", "unknown", now=3600.0, **lost)
 
 
 class KeepTests(unittest.TestCase):

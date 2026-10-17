@@ -53,9 +53,10 @@ queue is waiting, not playing: the launchers say when one starts waiting,
 again every hour it waits, and when it leaves the queue, and never spawn it
 again, since it has not failed. A call Modal cannot be asked about at all,
 poll after poll, may be playing or lost, and nothing says which: after an
-hour of nothing else a launcher stops, naming the call and the error. Run
-again, it asks about the call again, and never spawns it again while it
-may still be playing.
+hour of such polls, none more than a quarter of an hour after the one
+before, a launcher stops, naming the call and the error. Run again, it asks
+about the call again, and never spawns it again while it may still be
+playing.
 
 Checkpoints are named as `modal_app` names them: within `--run`, or by their
 path from the volume's root (`zoo/mortal_298k`). Run with the Modal client's
@@ -133,6 +134,12 @@ REMIND = 60 * 60
 #: launch and a call in Modal's queue are waited for however long the spend
 #: limit holds.
 PATIENCE = 60 * 60
+#: A call left unasked for longer than this, as the seeds after one whose
+#: launch Modal refuses are, starts its `PATIENCE` again at its next poll:
+#: what Modal could not answer before says nothing of the time between.
+#: Fifteen polls long, so that polls spaced out by Modal's slow answers
+#: still add up to the hour.
+LAPSE = 15 * 60
 #: How often a seed whose call failed is spawned again, with its own seed.
 RESPAWNS = 2
 #: What `modal_app.ruler` is told for every seed of a series.
@@ -325,15 +332,17 @@ class Heard:
     """What a launcher last heard of each of its calls, so it says when one
     starts waiting in Modal's queue, again every `REMIND` seconds it goes on
     waiting, and when it leaves the queue; and so it stops, saying which
-    call, why and `resume`, once Modal could not be asked about a call for
-    `PATIENCE` seconds in a row."""
+    call, why and `resume`, once Modal could not be asked about a call at
+    any poll for `PATIENCE` seconds, none of the polls more than `LAPSE`
+    after the one before."""
 
     def __init__(self, resume: str = "The call may still be playing: run the same command again "
                                      "to ask about it again.") -> None:
         # The state of each call, since when, and when it was last said.
         self.last: dict[str, tuple[str, float, float]] = {}
-        # Since when Modal could not be asked about each call, poll after poll.
-        self.unknown: dict[str, float] = {}
+        # Since when Modal could not be asked about each call, poll after
+        # poll, and when it was last asked.
+        self.unknown: dict[str, tuple[float, float]] = {}
         self.resume = resume
 
     def __call__(self, label: str, state: str, now: float | None = None, call_id: str = "",
@@ -344,7 +353,12 @@ class Heard:
         if state == "unknown":
             # No news of the call: what was last heard of it stands, so a wait
             # in the queue neither ends nor starts again here.
-            since = self.unknown.setdefault(label, now)
+            since, asked = self.unknown.get(label, (now, now))
+            if now - asked > LAPSE:
+                # Left unasked a while: the polls before say nothing of the
+                # time between, so the hour starts again here.
+                since = now
+            self.unknown[label] = (since, now)
             if now - since >= PATIENCE:
                 raise SystemExit(f"{label}: Modal could not be asked about its call {call_id} for "
                                  f"{(now - since) / 60:.0f} minutes, poll after poll ({what}). {self.resume}")

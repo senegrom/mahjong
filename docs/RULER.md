@@ -341,7 +341,11 @@ poll of it for an hour raises ConnectionError, ServiceError, InternalError
 or ResourceExhaustedError, the call may be playing or lost, and nothing says
 which, so the launcher stops and names the call and the error. Run the same
 command again to resume: the series asks about the call again, and never
-spawns its seed again while the call may still be playing.
+spawns its seed again while the call may still be playing. The hour is one
+of polls, a minute apart: a call left unasked for more than a quarter of an
+hour, as the seeds after one whose launch Modal refuses are, starts its hour
+again at its next poll, since what Modal could not answer before says
+nothing of the time between.
 
 ## The timing check
 
