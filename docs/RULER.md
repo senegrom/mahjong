@@ -363,13 +363,13 @@ refuses a launch partway, as at the spend limit, the same command run again
 later spawns only the rest.
 
 Each report is kept in the folder as its call finishes. A call that fails,
-as a fusion's old duel did once in twenty calls when it died of signal 9,
-stops the check with its reason. The same command run again spawns again
-only the ways whose call failed, says so, and waits for the others, whether
-they finished, wait in Modal's queue or still play; the failed calls are
-kept under `failed` in `timing-calls.json`. A call Modal cannot be asked
-about for an hour stops the check as it stops a series, and the same
-command run again asks about it again.
+as an old duel does when it dies of signal 9, stops the check with its
+reason. The same command run again spawns again only the ways whose call
+failed and says so; a call that finished, waits in Modal's queue or still
+plays is kept, and the failed calls are written down under `failed` in
+`timing-calls.json`. A call Modal cannot be asked about for an hour stops
+the check as it stops a series, and the same command run again asks about
+it again.
 
 A seating ruler must place exactly as the old duel on all 1,000 deals, or it
 has changed games and must not continue the published series. Without
