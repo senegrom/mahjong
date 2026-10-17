@@ -604,8 +604,8 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     the second's), which is said when the rule was registered for another.
     A folder with no registered rule is read by the usual one, and says so.
     A series of two challengers a call is read only by its own comparison:
-    read against another, or another against it, it is refused before
-    anything is mirrored or read (see `paired_problem`)."""
+    read against another, or another against it, it is refused before a
+    report is mirrored or read (see `paired_problem`)."""
     path = series.folder / "design.json"
     lines = []
     if path.exists():
@@ -759,7 +759,7 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
     the comparison. Run again, it spawns again exactly the ways whose call
     failed, and says so: a way whose report is kept has finished, whatever
     Modal still holds of its call, and a call that waits or plays is waited
-    for. The failed calls are kept under `failed`."""
+    for. The failed calls are written down under `failed`."""
     folder.mkdir(parents=True, exist_ok=True)
     kept = folder / "timing-calls.json"
     arguments = {"challenger": challenger, "incumbent": incumbent, "run": run, "seed": seed, "games": games,
