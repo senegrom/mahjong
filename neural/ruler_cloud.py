@@ -98,6 +98,10 @@ one 6.9, but there small questions are nearly all of the work, and at 1,000
 deals the encoder, the same in every way, weighs far more: expect less, and
 read the parts to see where the rest goes. The fixed ruler plays other
 games, so its placement differs within its error.
+
+Each report is kept in the folder as its call finishes. A call that fails
+stops the timing with its reason; the same command run again spawns again
+only the ways whose call failed, says so, and waits for the rest.
 """
 
 from __future__ import annotations
@@ -599,10 +603,11 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     return lines
 
 
-def wait_for(modal, call_ids: dict[str, str], poll: float = POLL) -> dict[str, dict]:
-    """The reports of the calls named, once all have finished; a failure
+def wait_for(modal, call_ids: dict[str, str], poll: float = POLL, keep=None) -> dict[str, dict]:
+    """The timing's reports of the calls named, once all have finished,
+    each handed to `keep(name, report)` as its call finishes. A failure
     ends the wait with its reason, as does a call Modal could not be asked
-    about for `PATIENCE` seconds in a row."""
+    about for `PATIENCE` seconds in a row, and says how the timing goes on."""
     done: dict[str, dict] = {}
     heard = Heard("The call may still be playing, so it is not spawned again: run the same command again "
                   "to wait for it again.")
@@ -614,9 +619,12 @@ def wait_for(modal, call_ids: dict[str, str], poll: float = POLL) -> dict[str, d
             heard(name, state, call_id=call_id, what=what)
             if state == "done":
                 done[name] = what
+                if keep is not None:
+                    keep(name, what)
                 say(f"{name} finished")
             elif state == "failed":
-                raise SystemExit(f"{name} ({call_id}) failed: {what}")
+                raise SystemExit(f"{name} ({call_id}) failed: {what}. Run the same command again to spawn it "
+                                 "again: the calls that finished are kept, and the others are waited for")
         if len(done) < len(call_ids):
             time.sleep(poll)
     return done
@@ -705,12 +713,21 @@ def verdict(reports: dict[str, dict]) -> list[str]:
     return lines
 
 
+def timing_file(folder: Path, name: str) -> Path:
+    """Where the timing keeps the report of one way of playing."""
+    return folder / f"timing-{name.replace(',', '').replace(' ', '-')}.json"
+
+
 def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed: int, games: int,
            rows: int, poll: float = POLL) -> list[str]:
     """Spawns the four timing calls, or those not spawned yet for these
     arguments (`folder/timing-calls.json`, written as each is spawned, so a
     launch refused partway loses none of the calls before it), waits for
-    them, keeps their reports in the folder and answers the comparison."""
+    them, keeps each report in the folder as its call finishes and answers
+    the comparison. Run again, it spawns again exactly the ways whose call
+    failed, and says so: a way whose report is kept has finished, whatever
+    Modal still holds of its call, and a call that waits or plays is waited
+    for. The failed calls are kept under `failed`."""
     folder.mkdir(parents=True, exist_ok=True)
     kept = folder / "timing-calls.json"
     arguments = {"challenger": challenger, "incumbent": incumbent, "run": run, "seed": seed, "games": games,
@@ -718,6 +735,31 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
     saved = json.loads(kept.read_text(encoding="utf-8")) if kept.exists() else {"arguments": arguments, "calls": {}}
     if saved["arguments"] != arguments:
         raise SystemExit(f"{kept} holds the calls spawned for {saved['arguments']}: name another folder")
+
+    def note() -> None:
+        kept.write_text(json.dumps(saved, indent=1) + "\n", encoding="utf-8")
+
+    def keep(name: str, report: dict) -> None:
+        timing_file(folder, name).write_text(json.dumps(report, indent=1), encoding="utf-8")
+
+    reports = {name: json.loads(timing_file(folder, name).read_text(encoding="utf-8"))
+               for name in saved["calls"] if timing_file(folder, name).exists()}
+    # The calls an earlier run spawned and left unfinished, each asked about
+    # once: a failure is known only by asking, and may have come after that
+    # run stopped. A failed call is set aside, and its way spawned below as
+    # one never spawned.
+    for name, call_id in list(saved["calls"].items()):
+        if name in reports:
+            continue
+        state, what = outcome(modal, call_id)
+        if state == "done":
+            keep(name, what)
+            reports[name] = what
+        elif state == "failed":
+            say(f"{name} ({call_id}) failed: {what}; spawning it again")
+            saved.setdefault("failed", {}).setdefault(name, []).append(call_id)
+            del saved["calls"][name]
+            note()
     common = dict(challenger=challenger, incumbent=incumbent, games=games, seed=seed, run=run)
     ways = {
         # 48 GiB, as the published rulers' launcher asks: a fusion's duel died
@@ -734,6 +776,9 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
     for name, (function, options, asked) in ways.items():
         if name in saved["calls"]:
             continue
+        # A report left from a call no longer written down would otherwise
+        # be read, run again, as this call's.
+        timing_file(folder, name).unlink(missing_ok=True)
         spawner = modal.Function.from_name(APP, function)
         if options:
             spawner = spawner.with_options(**options)
@@ -744,12 +789,10 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
                              f"the {len(saved['calls'])} calls spawned before it are kept in {kept}; "
                              "run the same command again later to spawn the rest") from None
         saved["calls"][name] = call.object_id
-        kept.write_text(json.dumps(saved, indent=1) + "\n", encoding="utf-8")
+        note()
         say(f"spawned {name} as {saved['calls'][name]}")
-    reports = wait_for(modal, saved["calls"], poll)
-    for name, report in reports.items():
-        (folder / f"timing-{name.replace(',', '').replace(' ', '-')}.json").write_text(
-            json.dumps(report, indent=1), encoding="utf-8")
+    unfinished = {name: call_id for name, call_id in saved["calls"].items() if name not in reports}
+    reports.update(wait_for(modal, unfinished, poll, keep))
     return compare(reports)
 
 

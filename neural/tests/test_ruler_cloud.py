@@ -11,7 +11,8 @@ its seed again, keeps every report locally and reads what the volume kept;
 what it could not play
 or read is refused before anything is registered; and the timing says, in a
 fixed order, whether the ruler played the old duel's games, by its arena or
-by its graphs if not, and how much faster."""
+by its graphs if not, and how much faster, and run again it spawns again
+only the ways whose call failed."""
 
 import contextlib
 import io
@@ -787,6 +788,49 @@ class TimingTests(unittest.TestCase):
         self.assertEqual(len(modal.spawned), 4)
         self.assertEqual(lines[-1], "the seating ruler with graphs plays the old duel's games bit for bit, "
                                     "2.50 times as fast: keep it")
+
+    def test_run_again_it_spawns_again_only_the_ways_whose_call_failed(self):
+        """As when a fusion's old duel died of signal 9: the check stops with
+        the reason and how to go on. Run again, it says it spawns the old
+        duel again and spawns none of the rulers, one finished, one waiting
+        in Modal's queue and one playing; run once more after Modal has let
+        every call's answer go, it reads the reports it kept and spawns
+        nothing."""
+        deaths = [RuntimeError("Runner terminated with signal 9")]
+
+        def answer(name, arguments):
+            if name == "duel" and deaths:
+                raise deaths.pop()
+            return self.report([2.0, 3.0], 1000.0 if name == "duel" else 500.0)
+
+        def queue(name, arguments):
+            if name == "duel" or arguments["questions"] == "fixed":
+                return ()
+            return ("running",) * 2 if arguments.get("graphs") else ("queued",) * 2
+
+        modal = Modal(answer, queue=queue)
+        arguments = ("history/gen-00910", "zoo/mortal_298k", "fusion-long", 9_100_000, 2, 256)
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()) as out:
+            with self.assertRaises(SystemExit) as stop:
+                ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            lines = ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            kept = json.loads((Path(folder) / "timing-calls.json").read_text())
+            for call_id in modal.results:
+                modal.results[call_id] = RuntimeError("OutputExpiredError")
+            again = ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+        self.assertIn("old duel (fc-0) failed: RuntimeError: Runner terminated with signal 9. Run the same command "
+                      "again to spawn it again", str(stop.exception.code))
+        self.assertIn("old duel (fc-0) failed: RuntimeError: Runner terminated with signal 9; spawning it again",
+                      out.getvalue())
+        self.assertIn("spawned old duel as fc-4", out.getvalue())
+        self.assertEqual([name for name, _arguments in modal.spawned], ["duel", "ruler", "ruler", "ruler", "duel"])
+        self.assertEqual(modal.options, {"duel": {"memory": 49152}})
+        self.assertEqual(kept["calls"], {"old duel": "fc-4", "ruler, seating": "fc-1", "ruler, seating, graphs": "fc-2",
+                                         "ruler, fixed 256": "fc-3"})
+        self.assertEqual(kept["failed"], {"old duel": ["fc-0"]})
+        self.assertEqual(lines[-1], "the seating ruler without graphs plays the old duel's games bit for bit, "
+                                    "2.00 times as fast: keep it")
+        self.assertEqual(again, lines)
 
     def test_changed_games_are_laid_to_the_arena_or_to_the_graphs(self):
         old = self.report([2.0, 3.0], 1000.0)
