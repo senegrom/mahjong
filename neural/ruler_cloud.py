@@ -49,7 +49,11 @@ At the spend limit Modal refuses a launch, which is asked again later, or
 takes it and leaves the call in its queue with no container. A call in the
 queue is waiting, not playing: the launchers say when one starts waiting,
 again every hour it waits, and when it leaves the queue, and never spawn it
-again, since it has not failed.
+again, since it has not failed. A call Modal cannot be asked about at all,
+poll after poll, may be playing or lost, and nothing says which: after an
+hour of nothing else a launcher stops, naming the call and the error. Run
+again, it asks about the call again, and never spawns it again while it
+may still be playing.
 
 Checkpoints are named as `modal_app` names them: within `--run`, or by their
 path from the volume's root (`zoo/mortal_298k`). Run with the Modal client's
@@ -117,6 +121,12 @@ RULERS = "rulers"
 POLL = 60
 #: How often a launcher says again that a call still waits in Modal's queue.
 REMIND = 60 * 60
+#: How long a launcher goes on asking about a call Modal cannot be asked
+#: about, poll after poll, before it stops rather than wait on it forever:
+#: such a call may be playing or lost, and nothing says which. A refused
+#: launch and a call in Modal's queue are waited for however long the spend
+#: limit holds.
+PATIENCE = 60 * 60
 #: How often a seed whose call failed is spawned again, with its own seed.
 RESPAWNS = 2
 #: What `modal_app.ruler` is told for every seed of a series.
@@ -264,12 +274,17 @@ def unasked(modal) -> tuple[type, ...]:
     return tuple(error for error in found if isinstance(error, type))
 
 
+def reason(error: BaseException) -> str:
+    """An error as a launcher says it: its kind and the end of its message."""
+    return f"{type(error).__name__}: {str(error)[-200:]}"
+
+
 def outcome(modal, call_id: str):
     """("done", report), ("waiting", None) while the call waits in Modal's
-    queue for a container, ("playing", None) once one has taken it up, or
-    ("failed", why). A call Modal could not be asked about, or whose state
-    its call graph does not say, is taken to be playing, as it was before
-    the queue could be told apart."""
+    queue for a container, ("playing", None) once one has taken it up,
+    ("unknown", why) when Modal could not be asked about it, or ("failed",
+    why). A call whose state its call graph does not say is taken to be
+    playing, as it was before the queue could be told apart."""
     call = modal.FunctionCall.from_id(call_id)
     try:
         answer = call.get(timeout=0)
@@ -278,10 +293,11 @@ def outcome(modal, call_id: str):
         if error.args:
             return "failed", str(error)[-200:]
         return ("waiting", None) if queued(call, call_id) else ("playing", None)
-    except unasked(modal):
-        return "playing", None
+    except unasked(modal) as error:
+        # Not a failure: the call may still be playing, and is asked about again.
+        return "unknown", reason(error)
     except Exception as error:  # noqa: BLE001 - whatever ended the call
-        return "failed", f"{type(error).__name__}: {str(error)[-200:]}"
+        return "failed", reason(error)
     report = json.loads(answer) if isinstance(answer, str) and answer.strip() else answer
     return ("done", report) if isinstance(report, dict) and report else ("failed", "an empty answer")
 
@@ -302,14 +318,32 @@ def queued(call, call_id: str) -> bool:
 class Heard:
     """What a launcher last heard of each of its calls, so it says when one
     starts waiting in Modal's queue, again every `REMIND` seconds it goes on
-    waiting, and when it leaves the queue."""
+    waiting, and when it leaves the queue; and so it stops, saying which
+    call, why and `resume`, once Modal could not be asked about a call for
+    `PATIENCE` seconds in a row."""
 
-    def __init__(self) -> None:
+    def __init__(self, resume: str = "The call may still be playing: run the same command again "
+                                     "to ask about it again.") -> None:
         # The state of each call, since when, and when it was last said.
         self.last: dict[str, tuple[str, float, float]] = {}
+        # Since when Modal could not be asked about each call, poll after poll.
+        self.unknown: dict[str, float] = {}
+        self.resume = resume
 
-    def __call__(self, label: str, state: str, now: float | None = None) -> None:
+    def __call__(self, label: str, state: str, now: float | None = None, call_id: str = "",
+                 what: object = None) -> None:
+        """Hears one poll of the call `label` names: its state, and with it
+        `what` the poll answered, the error when the state is "unknown"."""
         now = time.time() if now is None else now
+        if state == "unknown":
+            # No news of the call: what was last heard of it stands, so a wait
+            # in the queue neither ends nor starts again here.
+            since = self.unknown.setdefault(label, now)
+            if now - since >= PATIENCE:
+                raise SystemExit(f"{label}: Modal could not be asked about its call {call_id} for "
+                                 f"{(now - since) / 60:.0f} minutes, poll after poll ({what}). {self.resume}")
+            return
+        self.unknown.pop(label, None)
         before, since, said = self.last.get(label, ("", now, now))
         if state != before:
             self.last[label] = (state, now, now)
@@ -336,7 +370,8 @@ def spawn_seed(modal, series: Series, settings: dict, seed: int) -> str:
 def settle(modal, series: Series, settings: dict, seeds: list[int], heard: Heard | None = None) -> bool:
     """Spawns whatever of `seeds` has no call yet, keeps the reports of the
     calls that have finished, and spawns a failed seed again, at most
-    `RESPAWNS` times; a call that waits or plays is waited for. True once
+    `RESPAWNS` times; a call that waits or plays is waited for, as is one
+    Modal could not be asked about, up to `heard`'s patience. True once
     every one of `seeds` has a report."""
     heard = heard or Heard()
     # First what the volume kept: a launcher started again after Modal let a
@@ -353,7 +388,7 @@ def settle(modal, series: Series, settings: dict, seeds: list[int], heard: Heard
             spawn_seed(modal, series, settings, seed)
             continue
         state, what = outcome(modal, spawned[-1])
-        heard(f"{series.tag}: seed {seed}", state)
+        heard(f"{series.tag}: seed {seed}", state, call_id=spawned[-1], what=what)
         if state == "done":
             series.keep(what)
         elif state == "failed":
@@ -397,7 +432,8 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
     answers how it ended: "first", "second" or "level"."""
     order = rule.seeds
     names = compared(series, settings)
-    heard = Heard()
+    heard = Heard("The call may still be playing, so its seed is not spawned again: run the same command "
+                  "again to resume the series, which asks about the call again.")
     shown = 0
     while True:
         taken, state = looks.read(rule, differences_of(series, settings))
@@ -565,15 +601,17 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
 
 def wait_for(modal, call_ids: dict[str, str], poll: float = POLL) -> dict[str, dict]:
     """The reports of the calls named, once all have finished; a failure
-    ends the wait with its reason."""
+    ends the wait with its reason, as does a call Modal could not be asked
+    about for `PATIENCE` seconds in a row."""
     done: dict[str, dict] = {}
-    heard = Heard()
+    heard = Heard("The call may still be playing, so it is not spawned again: run the same command again "
+                  "to wait for it again.")
     while len(done) < len(call_ids):
         for name, call_id in call_ids.items():
             if name in done:
                 continue
             state, what = outcome(modal, call_id)
-            heard(name, state)
+            heard(name, state, call_id=call_id, what=what)
             if state == "done":
                 done[name] = what
                 say(f"{name} finished")

@@ -326,7 +326,16 @@ At the spend limit Modal refuses a launch, which the launcher asks again
 later, or takes it and leaves the call in its queue with no container. A
 call in the queue is waiting, not playing: the launcher says when one starts
 waiting, again every hour it waits, and when it leaves the queue, and waits
-with it; it never spawns such a call again, since it has not failed.
+with it; it never spawns such a call again, since it has not failed. Neither
+ends a series, however long the limit holds: it goes on by itself once the
+limit is raised.
+
+A call Modal cannot be asked about at all is another matter. When every
+poll of it for an hour raises ConnectionError, ServiceError, InternalError
+or ResourceExhaustedError, the call may be playing or lost, and nothing says
+which, so the launcher stops and names the call and the error. Run the same
+command again to resume: the series asks about the call again, and never
+spawns its seed again while the call may still be playing.
 
 ## The timing check
 
