@@ -135,9 +135,11 @@ test('flagged decisions rank by the gap, ties in the order played, and agreement
 test('a decision ranked lower by the hands reviewed since is told where it went, in places as they are said', () => {
   assert.deepEqual([1, 2, 3, 4, 10, 11, 12, 13, 21, 22, 23, 101, 111, 112].map(ordinal),
     ['1st', '2nd', '3rd', '4th', '10th', '11th', '12th', '13th', '21st', '22nd', '23rd', '101st', '111th', '112th']);
-  assert.equal(movedNote(6, 9, true),
-    'Decisions reviewed since departed further from Trained AI: this one is now 7th of 9, and every flagged decision is shown.');
-  assert.equal(movedNote(2, 6, false), 'Decisions reviewed since departed further from Trained AI: this one is now 3rd of 6.');
+  // The place only: how many are flagged grows with every hand reviewed, and
+  // a count said once would go stale while the place still held.
+  assert.equal(movedNote(6, true),
+    'Decisions reviewed since departed further from Trained AI: this one is now 7th, and every flagged decision is shown.');
+  assert.equal(movedNote(2, false), 'Decisions reviewed since departed further from Trained AI: this one is now 3rd.');
 });
 
 test('the whole game is reviewed in batches, and judged as the hand review judges each hand', async () => {
