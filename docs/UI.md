@@ -173,7 +173,10 @@ game's file. The sheet steps aside whenever the review opens, as it does for
 the hand's review, whichever button opened it: its own, or the standings'
 own, which it covers but a keyboard or a screen reader can still reach. **Back
 to the standings** then lands on the standings, uncovered, with focus on their
-own **Review whole game**, and the result is a tap away on its chip. Up to 480
+own **Review whole game**, and the result is a tap away on its chip, which a
+keyboard reaches after the standings' buttons. The chip goes as it brings the
+result back, so focus goes to the result, as when it first appeared, rather
+than to the page. Up to 480
 pixels wide the sheet's buttons take their short labels, **Review hand**,
 **Save hand**, **Review game** and **Save game**. Measured in Chromium, they
 then take two rows over the result from 360 pixels up with Windows' fonts and
@@ -202,12 +205,17 @@ was (the hand, with its honba where the hand repeats one, so no two hands
 share a name, and the player's decision number) and the weights of the
 player's move and of Trained AI's own choice, but not what that choice was.
 The list is ranked afresh as each hand is reviewed, and keyboard focus on a
-flagged decision stays on it however the list moves: should the hands reviewed
-since rank it out of the first five, every flagged decision is shown rather
-than its button being taken away, and a status line under the heading says
-where it now stands ("this one is now 7th of 9"), since a list should not be
-reshuffled under someone reading it without their being told. The line goes
-when focus moves on.
+flagged decision stays on it however the list moves, also while the player is
+in another window or tab, which takes focus from the page but leaves it on the
+decision for when the player comes back: should the hands reviewed since rank
+it out of the first five, every flagged decision is shown rather than its
+button being taken away, and a status line under the heading says where it now
+stands ("this one is now 7th"), since a list should not be reshuffled under
+someone reading it without their being told. The line says the place again
+whenever the place changes, but not how many are flagged: that grows with every
+hand reviewed while the place stays, so a count said once would go stale, and
+one kept current would be read out again at every hand. The line goes when
+focus moves on.
 
 **Replay and choose again.** A flagged decision opens at the position it was
 made from: the table as it stood, the player's hand, and what happened since
@@ -234,7 +242,9 @@ Nothing is played on from there, and the saved match is never touched. **Back
 to the list** returns focus to the decision opened, wherever the hands
 reviewed meanwhile have ranked it: if they have ranked it out of the first
 five, every flagged decision is shown, and the same status line says where it
-went.
+went. The line stays in the page, silent, while a decision is open: a screen
+reader hears a status only once it is in the accessibility tree, and the list
+comes back around the line in the same moment that it speaks.
 
 **Agreement and its trend.** The figure is the share of decisions with a
 choice where the player's move was Trained AI's. When every hand is reviewed,
@@ -259,11 +269,19 @@ review code with Trained 0.1.810 and these thresholds; on the four games also
 reviewed in the page, the two gave the same answers. Beginner matched Trained
 AI in 40.1% of its decisions and Club in 57.7%. An average of ten games, as the
 trend takes it, has a standard error of 1.5 points for either, so ten games
-tell the two apart by 8 standard errors. No flagged decision had every row of
-its table favouring the move made in the game, and 27% had a row for it and
-none against, so the thresholds stand. The table is more often silent: for 60%
-of the flags, and 82% of Club's, it gives no reason for Trained AI's choice,
-which the hand review would call a judgement, usually of what the hand is worth.
+tell the two apart by 8 standard errors. None of the 6,688 flagged decisions
+had every row of its table favouring the move made in the game, which puts that
+share under 0.045% (by the rule of three, at 95%), and 27% had a row for it and
+none against, so as the rule was registered the thresholds stand. The rule did
+not say how a row that ties should count. Counted with the move made, 54% of
+the flags (± 1.7 points) have every row for it or tied, and 74% of Club's; the
+least raise that brings that under half on the games used to choose it,
+flagging only moves given under 0.2% rather than 5%, leaves 47% (± 2.7) on the
+games held out, and Club's at 72%. The thresholds are unchanged until the owner
+decides which reading holds. The table is more often silent: for 60% of the
+flags, and 82% of Club's, it gives no reason for Trained AI's choice, which the
+hand review calls a judgement, a trade of speed against value or safety that
+its numbers do not capture.
 
 **Speed.** Measured on 14 October 2026 in Chromium 155 on the desktop, through
 the page's own worker on one thread, a position took a median 163 ms one at a
