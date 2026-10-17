@@ -252,6 +252,19 @@ figure, the line and the table take only the games of the version playing
 now; a note counts the others, which come back when their version is picked
 again.
 
+**Measured on played games.** On 16 October 2026, 50 games were played with
+the Beginner bot in the player's seat and 50 with the Club bot, each against
+three Trained players, the page's default table, and reviewed by the page's own
+review code with Trained 0.1.810 and these thresholds; on the four games also
+reviewed in the page, the two gave the same answers. Beginner matched Trained
+AI in 40.1% of its decisions and Club in 57.7%. An average of ten games, as the
+trend takes it, has a standard error of 1.5 points for either, so ten games
+tell the two apart by 8 standard errors. No flagged decision had every row of
+its table favouring the move made in the game, and 27% had a row for it and
+none against, so the thresholds stand. The table is more often silent: for 60%
+of the flags, and 82% of Club's, it gives no reason for Trained AI's choice,
+which the hand review would call a judgement, usually of what the hand is worth.
+
 **Speed.** Measured on 14 October 2026 in Chromium 155 on the desktop, through
 the page's own worker on one thread, a position took a median 163 ms one at a
 time and 157 ms in batches of eight, with identical weights; natively the same
