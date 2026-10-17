@@ -368,9 +368,11 @@ since 14 October. The calls are written down as they are spawned: if Modal
 refuses a launch partway, as at the spend limit, the same command run again
 later spawns only the rest.
 
-Each report is kept in the folder as its call finishes. A call that fails,
-as an old duel does when it dies of signal 9, stops the check with its
-reason. The same command run again spawns again only the ways whose call
+Each report is kept in the folder as its call finishes, written whole or
+not at all, so a kill mid-write leaves none cut short; one that cannot be
+read all the same is said, and its call asked about again. A call that
+fails, as an old duel does when it dies of signal 9, stops the check with
+its reason. The same command run again spawns again only the ways whose call
 failed and says so; a call that finished, waits in Modal's queue or still
 plays is kept, and the failed calls are written down under `failed` in
 `timing-calls.json`. A call Modal cannot be asked about for an hour stops

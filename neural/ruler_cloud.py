@@ -102,9 +102,10 @@ deals the encoder, the same in every way, weighs far more: expect less, and
 read the parts to see where the rest goes. The fixed ruler plays other
 games, so its placement differs within its error.
 
-Each report is kept in the folder as its call finishes. A call that fails
-stops the timing with its reason; the same command run again spawns again
-only the ways whose call failed, says so, and waits for the rest.
+Each report is kept in the folder, whole or not at all, as its call
+finishes. A call that fails stops the timing with its reason; the same
+command run again spawns again only the ways whose call failed, says so,
+and waits for the rest.
 """
 
 from __future__ import annotations
@@ -243,10 +244,16 @@ class Series:
 
     def keep(self, report: dict) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
-        path = self.folder / f"seed-{report['seed']}.json"
-        staged = path.with_suffix(".partial")
-        staged.write_text(json.dumps(report, indent=1), encoding="utf-8")
-        staged.replace(path)
+        write_whole(self.folder / f"seed-{report['seed']}.json", json.dumps(report, indent=1))
+
+
+def write_whole(path: Path, text: str) -> None:
+    """Writes `text` to `path` whole or not at all: staged beside it and put
+    in its place, so a kill mid-write leaves what was there before, and a
+    launcher run again never reads a file cut short."""
+    staged = path.with_suffix(".partial")
+    staged.write_text(text, encoding="utf-8")
+    staged.replace(path)
 
 
 def upload(modal, series: Series) -> None:
@@ -780,11 +787,13 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
     """Spawns the four timing calls, or those not spawned yet for these
     arguments (`folder/timing-calls.json`, written as each is spawned, so a
     launch refused partway loses none of the calls before it), waits for
-    them, keeps each report in the folder as its call finishes and answers
-    the comparison. Run again, it spawns again exactly the ways whose call
-    failed, and says so: a way whose report is kept has finished, whatever
-    Modal still holds of its call, and a call that waits or plays is waited
-    for. The failed calls are written down under `failed`."""
+    them, keeps each report in the folder, whole or not at all, as its call
+    finishes and answers the comparison. Run again, it spawns again exactly
+    the ways whose call failed, and says so: a way whose report is kept has
+    finished, whatever Modal still holds of its call, and a call that waits
+    or plays is waited for. The failed calls are written down under
+    `failed`. A kept report that cannot be read is said, and its call asked
+    about again."""
     folder.mkdir(parents=True, exist_ok=True)
     kept = folder / "timing-calls.json"
     arguments = {"challenger": challenger, "incumbent": incumbent, "run": run, "seed": seed, "games": games,
@@ -794,13 +803,26 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
         raise SystemExit(f"{kept} holds the calls spawned for {saved['arguments']}: name another folder")
 
     def note() -> None:
-        kept.write_text(json.dumps(saved, indent=1) + "\n", encoding="utf-8")
+        write_whole(kept, json.dumps(saved, indent=1) + "\n")
 
     def keep(name: str, report: dict) -> None:
-        timing_file(folder, name).write_text(json.dumps(report, indent=1), encoding="utf-8")
+        write_whole(timing_file(folder, name), json.dumps(report, indent=1))
 
-    reports = {name: json.loads(timing_file(folder, name).read_text(encoding="utf-8"))
-               for name in saved["calls"] if timing_file(folder, name).exists()}
+    def kept_report(name: str) -> dict | None:
+        """The report kept for a way of playing, if one can be read. One
+        cut short, as a report written in place could be, is said, and
+        its call is asked about below as if none were kept."""
+        path = timing_file(folder, name)
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as error:  # cut short, or not text at all
+            say(f"{name}: its report {path.name} could not be read ({reason(error)}); asking about its call again")
+            return None
+
+    found = {name: kept_report(name) for name in saved["calls"]}
+    reports = {name: report for name, report in found.items() if report is not None}
     # The calls an earlier run spawned and left unfinished, each asked about
     # once: a failure is known only by asking, and may have come after that
     # run stopped. A failed call is set aside, and its way spawned below as

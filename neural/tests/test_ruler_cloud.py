@@ -6,12 +6,13 @@ with (two challengers played in each call, or one read against another
 series deal by deal), never on the challenger against the incumbent once a
 second player is named; it spawns a failed seed again with its own seed,
 waits for a call in Modal's queue without taking it to be playing, gives a
-call Modal cannot be asked about an hour and then stops without spawning
-its seed again, keeps every report locally and reads what the volume kept;
-what it could not play or read is refused before anything is registered,
-and a series of two challengers is not read against another; and the
-timing says, in a fixed order, whether the ruler played the old duel's
-games, by its arena or by its graphs if not, and how much faster, and run
+call Modal cannot be asked about an hour of polls and then stops without
+spawning its seed again, keeps every report locally and reads what the
+volume kept; what it could not play or read is refused before anything is
+registered, and a series of two challengers is not read against another,
+even one only the volume holds; and the timing says, in a fixed order,
+whether the ruler played the old duel's games, by its arena or by its graphs
+if not, and how much faster, keeps each report whole or not at all, and run
 again it spawns again only the ways whose call failed."""
 
 import contextlib
@@ -937,6 +938,44 @@ class TimingTests(unittest.TestCase):
         self.assertEqual(lines[-1], "the seating ruler without graphs plays the old duel's games bit for bit, "
                                     "2.00 times as fast: keep it")
         self.assertEqual(again, lines)
+
+    def test_a_report_is_kept_whole_or_not_at_all(self):
+        """A kill while the old duel's report is written leaves no report cut
+        short in its place, and the same command run again keeps it whole
+        from its call. A report cut short all the same, as one written in
+        place could be, is said and its call asked about again, rather than
+        failing every run until it is deleted by hand."""
+        class Killed(BaseException):
+            """As the launcher killed mid-write."""
+
+        written = Path.write_text
+
+        def killed_mid_write(path, text, *args, **kwargs):
+            if path.name.startswith("timing-old-duel"):
+                written(path, text[: len(text) // 2], *args, **kwargs)
+                raise Killed()
+            return written(path, text, *args, **kwargs)
+
+        modal = Modal(lambda name, arguments: self.report([2.0, 3.0], 1000.0 if name == "duel" else 500.0))
+        arguments = ("history/gen-00910", "zoo/mortal_298k", "fusion-long", 9_100_000, 2, 256)
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()) as out:
+            report = Path(folder) / "timing-old-duel.json"
+            with patch.object(Path, "write_text", killed_mid_write), self.assertRaises(Killed):
+                ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            self.assertFalse(report.exists())
+            lines = ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            report.write_text(report.read_text(encoding="utf-8")[:50], encoding="utf-8")
+            again = ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            whole = json.loads(report.read_text(encoding="utf-8"))
+            files = sorted(path.name for path in Path(folder).iterdir())
+        self.assertEqual(len(modal.spawned), 4)
+        self.assertEqual(lines[-1], "the seating ruler without graphs plays the old duel's games bit for bit, "
+                                    "2.00 times as fast: keep it")
+        self.assertEqual(again, lines)
+        self.assertEqual(whole["by_deal"], [2.0, 3.0])
+        self.assertIn("old duel: its report timing-old-duel.json could not be read (JSONDecodeError", out.getvalue())
+        self.assertEqual(files, ["timing-calls.json", "timing-old-duel.json", "timing-ruler-fixed-256.json",
+                                 "timing-ruler-seating-graphs.json", "timing-ruler-seating.json"])
 
     def test_changed_games_are_laid_to_the_arena_or_to_the_graphs(self):
         old = self.report([2.0, 3.0], 1000.0)
