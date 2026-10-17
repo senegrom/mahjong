@@ -557,7 +557,11 @@ try {
     assert.equal(await focusedDecision(page), key);
     const now = await saysWhereItIs(page, key);
     assert.ok(now.count > keys.length, 'the list has grown since it said so');
-    assert.equal(now.note, `Decisions reviewed since departed further from Trained AI: this one is now ${nth(now.rank + 1)}, and every flagged decision is shown.`);
+    // The place, and no count. Should a later hand move it again before this
+    // is read, the line says the new place without repeating that every
+    // flagged decision is shown, which it said as the list grew.
+    assert.match(now.note, new RegExp(`^Decisions reviewed since departed further from Trained AI: this one is now ${nth(now.rank + 1)}`
+      + '(, and every flagged decision is shown)?\\.$'));
     // Focus moving on clears the note, which spoke of the decision it left.
     await page.focus('[data-game-review] [data-every-flag]');
     await page.waitForFunction(() => document.querySelector('[data-game-review] [data-moved]')?.textContent === '', { timeout: 5000 });
