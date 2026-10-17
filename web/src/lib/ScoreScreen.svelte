@@ -1,4 +1,5 @@
 <script>
+  import { tick } from 'svelte';
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
   import { tilesFor, noteFor, isCircumstance } from './yaku.js';
@@ -53,6 +54,15 @@
     minimized = true;
   }
 
+  // The chip goes as it brings the result back, so focus goes with it to the
+  // result, as when the result first appeared, rather than to the page.
+  let sheet = $state(null);
+  async function showResult() {
+    minimized = false;
+    await tick();
+    sheet?.focus({ preventScroll: true });
+  }
+
   // The whole game's review comes back to the standings, so on a phone this
   // sheet steps aside for it as it does for the hand's review, whichever
   // button opened it: its own, or the standings' own, which the sheet covers
@@ -62,10 +72,10 @@
 </script>
 
 {#if minimized}
-  <button class="result-chip" onclick={() => minimized = false}>Show result · {outcome.line}</button>
+  <button class="result-chip" onclick={showResult}>Show result · {outcome.line}</button>
 {/if}
 
-<section class="screen" class:minimized aria-label="how the hand ended" tabindex="-1" use:reveal>
+<section class="screen" class:minimized aria-label="how the hand ended" tabindex="-1" bind:this={sheet} use:reveal>
   <header class="result-header">
     <div class="result-title">
       <span class="eyebrow">Hand result</span>

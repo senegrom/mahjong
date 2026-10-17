@@ -91,6 +91,8 @@
   let reviewed = $derived(status.hands.filter(hand => hand.status === 'done').length);
   let download = $derived(waitingNote('', offline));
   let openedHand = $derived(opened ? status.hands[opened.hand] : null);
+  // A flagged decision is open for replay, in place of the list.
+  let replaying = $derived(Boolean(opened && openedHand));
 
   $effect(() => {
     heading?.focus({ preventScroll: true });
@@ -102,29 +104,33 @@
   // wherever it goes: once it leaves the leading few, every flag is shown and
   // stays shown, rather than the list taking it away. A list should not be
   // reshuffled under someone reading it without their being told, so the
-  // status then says where it is now.
+  // status then says where it is now. A place, once said, holds until the
+  // next change of place, which says it again.
   let heard = null;
   $effect(() => {
-    const at = focusedFlag === null ? -1 : rankOf(focusedFlag), count = flagged.length;
+    const at = focusedFlag === null ? -1 : rankOf(focusedFlag);
     untrack(() => {
       if (at >= 0 && heard?.key === focusedFlag && at > heard.rank) {
         const widened = at >= LEADING && !everyFlag;
         if (widened) everyFlag = true;
-        moved = movedNote(at, count, widened);
+        moved = movedNote(at, widened);
       }
       heard = at >= 0 ? { key: focusedFlag, rank: at } : null;
     });
   });
 
   // The note is about the decision the player was on, so it goes when focus
-  // moves to another or leaves the list.
+  // moves to another or leaves the list. A window or tab that loses focus
+  // sends a focusout too, but focus stays on the decision, which has it again
+  // when the window comes back, so its button is kept meanwhile. Focus that
+  // moves on has left the decision by the time its focusout is heard.
   function focusFlag(event) {
     const entry = event.target.closest('[data-flagged]')?.dataset.flagged ?? null;
     if (entry !== focusedFlag) moved = '';
     focusedFlag = entry;
   }
   function leaveFlags(event) {
-    if (list?.contains(event.relatedTarget)) return;
+    if (list?.contains(event.relatedTarget) || list?.contains(document.activeElement)) return;
     focusedFlag = null;
     moved = '';
   }
@@ -181,7 +187,7 @@
     if (widened) everyFlag = true;
     await tick();
     (list?.querySelector(`[data-open="${opener}"]`) ?? flagsHeading)?.focus();
-    if (at > was && was >= 0) moved = movedNote(at, flagged.length, widened);
+    if (at > was && was >= 0) moved = movedNote(at, widened);
   }
 </script>
 
@@ -193,7 +199,7 @@
     <button class="app-control" data-close-review onclick={onclose}>Back to the standings</button>
   </header>
 
-  {#if opened && openedHand}
+  {#if replaying}
     {#key key(opened)}<DecisionReplay hand={openedHand} decision={opened} {hints} onback={closeDecision} />{/key}
   {:else}
     <p class="intro">{trainedName('Trained AI')} is asked about every decision you made, hand by hand. A decision is flagged when your move had
@@ -224,9 +230,13 @@
     {/if}
 
     <h3 tabindex="-1" bind:this={flagsHeading}>Where you departed most from Trained AI</h3>
-    <!-- Always there, so a screen reader hears it when it speaks; out of the
-         layout while it is silent. -->
-    <p class="moved" class:visually-hidden={!moved} data-moved role="status">{moved}</p>
+  {/if}
+  <!-- Under the heading, and in the page while a decision is open as well: a
+       screen reader hears a status only once it is in the accessibility tree,
+       and Back to the list rebuilds the list around this line as it speaks.
+       Out of the layout while it is silent. -->
+  <p class="moved" class:visually-hidden={!moved} data-moved role="status">{moved}</p>
+  {#if !replaying}
     {#if shown.length}
       <ol class="flagged" bind:this={list} onfocusin={focusFlag} onfocusout={leaveFlags}>
         {#each shown as decision (key(decision))}

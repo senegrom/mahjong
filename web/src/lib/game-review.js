@@ -120,10 +120,13 @@ export function ordinal(number) {
 }
 
 /** What the flagged list says when the decision a player is on, or came back
- * to, has been ranked lower by the hands reviewed since: where it is now, of
- * how many, and whether every flagged decision had to be shown to keep it. */
-export function movedNote(rank, count, everyShown) {
-  return `Decisions reviewed since departed further from Trained AI: this one is now ${ordinal(rank + 1)} of ${count}`
+ * to, has been ranked lower by the hands reviewed since: where it is now, and
+ * whether every flagged decision had to be shown to keep it. Not how many are
+ * flagged: that grows with every hand reviewed while the place stays, so a
+ * count said once goes stale, and a status that kept it current would be read
+ * out again at every hand. */
+export function movedNote(rank, everyShown) {
+  return `Decisions reviewed since departed further from Trained AI: this one is now ${ordinal(rank + 1)}`
     + `${everyShown ? ', and every flagged decision is shown' : ''}.`;
 }
 
