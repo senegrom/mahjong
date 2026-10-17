@@ -124,18 +124,15 @@ export class MatchSession {
     require(typeof text === 'string' && text.length <= MAX_SAVE_BYTES, 'Saved match is too large');
     const saved = JSON.parse(text);
     const format = saved?.format ?? 0;
-    require(saved?.version === VERSION && [0, 2, 3, 4, 5, 6, 7].includes(format) && Array.isArray(saved.commands), 'Unsupported saved match');
+    // A save without a format, or of format 2, 3 or 4, was written between 5
+    // and 10 September 2026. Those are no longer replayed: the player is told
+    // why, and the page keeps the save until New game replaces it.
+    const retired = saved?.version === VERSION && [0, 2, 3, 4].includes(format);
+    require(!retired, 'It was saved between 5 and 10 September 2026 by an earlier version of this site, and this version cannot resume a match that old');
+    require(saved?.version === VERSION && [5, 6, 7].includes(format) && Array.isArray(saved.commands), 'Unsupported saved match');
     require(saved.commands.length <= MAX_COMMANDS && typeof saved.state === 'string', 'Invalid saved match');
-    require(format >= 4 || !saved.commands.some(command => command?.type === 'opponent-club'), 'Unsupported legacy controller change');
-    // Up to format 4 a trained opponent's move was recorded in our own
-    // seventy-eight actions. It is Mortal's forty-six now, and the two
-    // numberings mean different moves, so replaying an older one would play
-    // a different game rather than the one that was saved. A trained
-    // opponent's discard is such a move, so this also refuses every old
-    // save in which the player answered one.
-    require(format >= 5 || !saved.commands.some(command => command?.type === 'opponent'), 'Unsupported legacy opponent moves');
-    const opponents = format >= 4 ? normalizeOpponents(saved.opponents) : normalizeOpponents(saved.difficulty);
-    require(format < 4 || saved.difficulty === opponentPreset(opponents), 'Saved opponents disagree with their preset');
+    const opponents = normalizeOpponents(saved.opponents);
+    require(saved.difficulty === opponentPreset(opponents), 'Saved opponents disagree with their preset');
     const session = new MatchSession(Game, saved.seed, opponents, options);
     try {
       session.advance(false);
@@ -143,9 +140,9 @@ export class MatchSession {
         session.apply(command);
         session.advance(false);
       }
-      // Prior saves did not include the claimed tile in meld presentation.
-      // Compare every former field, then migrate only this additive metadata.
-      // Divergent rules/commands still fail closed and leave the save untouched.
+      // A save of format 5 or 6 is compared without what was added or
+      // repaired since it was written, and must agree on everything else.
+      // One that diverges fails closed, and the save is left untouched.
       const state = session.stateKey();
       const comparable = (value) => {
         if (format >= 7) return value;
@@ -179,22 +176,7 @@ export class MatchSession {
           delete win.scoring;
           for (const yaku of win.yaku ?? []) { delete yaku.id; delete yaku.tile; }
         }
-        if (format >= 4) return JSON.stringify(data);
-        // Only new identity/controller metadata is ignored for old saves. The
-        // original uniform controllers are replayed, never inferred from UI.
-        for (const seat of data[0].seats ?? []) { delete seat.player; delete seat.controller; }
-        if (saved.format === 3) return JSON.stringify(data);
-        // These derived hints were incorrect on 14-tile hands. They are not
-        // authoritative game state; every tile, score, phase and legal choice
-        // must still agree exactly with the replayed record.
-        delete data[0].waits;
-        delete data[0].waits_left;
-        for (const win of data[0].outcome?.wins ?? []) {
-          delete win.dora_indicators;
-          delete win.ura_indicators;
-          delete win.ura_dora;
-        }
-        return JSON.stringify(data, (key, field) => saved.format === undefined && key === 'claimed_tile' ? undefined : field);
+        return JSON.stringify(data);
       };
       require(comparable(state) === comparable(saved.state), 'The saved match does not match this engine version');
       return session;

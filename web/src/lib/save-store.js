@@ -4,6 +4,10 @@
  * merely being the next process to acquire the lock.
  */
 import { SAVE_KEY } from './session.js';
+// The key the first saves were written under, between 5 and 6 September
+// 2026. Nothing writes or deletes it now. It is read only when there is no
+// current save, so that restoring the match it holds can say why it cannot
+// be resumed, and a new match is saved under the current key.
 export const LEGACY_SAVE_KEY = 'riichi.match.v1';
 const LOCK = 'riichi.saved-match.writer';
 
@@ -17,7 +21,6 @@ export class MatchStore {
     this.onWarning = onWarning;
     this.id = id;
     this.expected = null;
-    this.legacy = null;
     this.opened = false;
     this.closed = false;
     this.writing = false;
@@ -30,9 +33,8 @@ export class MatchStore {
   read() {
     try {
       this.expected = this.storage?.getItem(SAVE_KEY) ?? null;
-      this.legacy = this.expected === null ? this.storage?.getItem(LEGACY_SAVE_KEY) ?? null : null;
       this.opened = true;
-      const text = this.expected ?? this.legacy;
+      const text = this.expected ?? this.storage?.getItem(LEGACY_SAVE_KEY) ?? null;
       try { this.matchId = JSON.parse(text)?._storage?.matchId ?? null; } catch { /* Restore reports corrupt records. */ }
       if (this.disabled) this.warn();
       return text;
@@ -60,8 +62,6 @@ export class MatchStore {
     if (this.disabled) return;
     try {
       if (this.storage.getItem(SAVE_KEY) !== this.expected) this.conflict();
-      // Before migration, an old-version window may still advance the old copy.
-      if (this.expected === null && this.storage.getItem(LEGACY_SAVE_KEY) !== this.legacy) this.conflict();
     } catch (error) {
       if (error instanceof SaveConflict) throw error;
       this.disabled = true;
@@ -113,7 +113,6 @@ export class MatchStore {
       const text = JSON.stringify({ ...snapshot, _storage: { matchId, revision } });
       this.storage.setItem(SAVE_KEY, text);
       this.expected = text;
-      this.legacy = null;
       this.matchId = matchId;
       this.newIdentity = false;
       this.onWarning('');
@@ -129,7 +128,7 @@ export class MatchStore {
 
   changed(event) {
     if (!this.opened || this.closed || this.disabled || (event.storageArea && event.storageArea !== this.storage)) return;
-    if (event.key === SAVE_KEY || event.key === null || (this.expected === null && event.key === LEGACY_SAVE_KEY)) {
+    if (event.key === SAVE_KEY || event.key === null) {
       try { this.assertCurrent(); } catch (error) { if (!(error instanceof SaveConflict)) throw error; }
     }
   }

@@ -354,17 +354,17 @@ test('a new guided game is advised by the trained network unless it keeps an adv
   assert.equal(parseGuided(GUIDED_FORMAT.encode(club)).state.agent, 'club');
 });
 
-test('a guide saved with one of the retired trained networks reopens on the trained adviser', () => {
+test('a guide saved with an adviser this site no longer has is not opened', () => {
   const base = emptyGuided();
-  const saved = agent => GUIDED_FORMAT.encode({ state: { ...base.state, agent },
-    past: [{ state: { ...base.state, agent }, logLength: 0 }], log: [] });
+  const saved = (agent, earlier = agent) => GUIDED_FORMAT.encode({ state: { ...base.state, agent },
+    past: [{ state: { ...base.state, agent: earlier }, logLength: 0 }], log: [] });
   assert.equal(parseGuided(saved('club')).state.agent, 'club');
-  for (const retired of ['quick', 'strong']) {
-    const loaded = parseGuided(saved(retired));
-    assert.equal(loaded.state.agent, 'full');
-    assert.equal(loaded.past[0].state.agent, 'full', 'undo steps must name an adviser this build has');
+  // The two trained advisers of 9 and 10 September 2026, now or in an undo
+  // step, read like any other adviser the site does not have.
+  for (const retired of ['quick', 'strong', 'nonsense']) {
+    assert.equal(parseGuided(saved(retired)), null, retired);
+    assert.equal(parseGuided(saved('full', retired)), null, `${retired} in an undo step`);
   }
-  assert.equal(parseGuided(saved('nonsense')), null);
 });
 
 test('unreadable guides are rejected and dora cycles use winds and dragons separately', () => {

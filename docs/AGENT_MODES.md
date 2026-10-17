@@ -100,14 +100,13 @@ redealing or discarding already submitted claims. **Use Club for all Trained
 opponents** changes every remaining Trained player to Club, never a Beginner.
 Fallback decisions are recorded and replayed exactly like other match commands.
 
-Saves record the three assignments from format 4 on. Older saves replay their
-original uniform opponent type, ignoring only the identity metadata added since,
-but one from before format 5 that holds a trained opponent's move is refused:
-see [UI reliability](UI_RELIABILITY.md). Tile, phase, score and legal-choice
-validation is unchanged, and new saves also validate each controller's identity.
+Saves record the three assignments, and a restore checks each controller's
+identity as well as every tile, phase, score and legal choice. A save from
+before format 5, written between 5 and 10 September 2026, is no longer
+resumed: see [UI reliability](UI_RELIABILITY.md).
 
 `npm run verify` covers all 27 combinations, mixed simultaneous wins,
-pending-claim recovery, complete matches, legacy restoration, cancellation,
+pending-claim recovery, complete matches, cancellation,
 mobile layouts, and two Trained players sharing one load of the published model
 (the browser check counts its downloads). These test controller routing, not
 neural strength, in Chromium at desktop and six portrait and landscape sizes,
@@ -215,7 +214,11 @@ rotated together. Manual hand-end results remain explicitly manual. See
 **Undo last step** and resume work after reload. A new guided game requires
 confirmation and replaces only the guided save. Cross-window conflicts,
 unreadable records, and storage failures are handled explicitly as in the
-physical editor; a late analysis cannot modify a newer position.
+physical editor; a late analysis cannot modify a newer position. A guided
+game saved by the two-network builds of 9 and 10 September names an adviser
+this version does not have (quick or strong): it is no longer carried over
+to Trained, but opens as unreadable, is kept, and **New guided game**
+replaces it.
 
 ## Developer checks
 

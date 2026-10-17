@@ -138,17 +138,18 @@ format it was saved in. A win names its ura indicators both as
 `uradora_markers`, the original protocol's name, and as `ura_markers`, which
 Mortal and its log validator read.
 
-Matches are saved in format 7. An older save is replayed from its recorded
-legal commands and checked against all authoritative state; only what was added
-or repaired since (derived waits, result indicators, claimed tiles, player
-identities, score attribution, a win's value as numbers and the words for a
-robbed quad) is left out of that comparison. Before format 7 a declared quad
-left the turn's drawn tile held apart while the quad could be robbed and after
-it was, even where the quad had taken that tile. So at a call or a result an
-older save's concealed tiles are compared as one set, without a tile whose four
-copies are all in a quad, and its waits are left out. An
-incompatible or corrupt save fails closed rather than being silently replaced;
-[UI reliability](UI_RELIABILITY.md) lists the saves refused outright.
+Matches are saved in format 7. A save of format 5 or 6 is replayed from its
+recorded legal commands and checked against all authoritative state; only what
+was added or repaired since (score attribution, a win's value as numbers and
+the words for a robbed quad) is left out of that comparison. Before format 7 a
+declared quad left the turn's drawn tile held apart while the quad could be
+robbed and after it was, even where the quad had taken that tile. So at a call
+or a result an older save's concealed tiles are compared as one set, without a
+tile whose four copies are all in a quad, and its waits are left out. An
+incompatible or corrupt save fails closed rather than being silently replaced.
+A save from before format 5, written between 5 and 10 September 2026, is no
+longer resumed; [UI reliability](UI_RELIABILITY.md) says what the page tells
+its player.
 
 ### MJAI accounting
 

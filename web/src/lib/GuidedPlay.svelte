@@ -126,7 +126,7 @@
   <header class="guided-heading"><h2>Agent guided physical game</h2><div class="buttons"><button onclick={undo} disabled={blocked || !game.past.length}>Undo last step</button><button onclick={restart} disabled={!loaded || Boolean(conflict)}>New guided game</button></div></header>
   {#if !loaded}<p role="status">Loading your guided game…</p>{/if}
   {#if conflict}<p role="alert">{conflict} <button onclick={load}>Reload saved game</button></p>{/if}
-  {#if unreadable}<p role="alert">The saved guided game could not be read. It has been preserved. Choose New guided game to replace it.</p>{/if}
+  {#if unreadable}<p role="alert">The saved guided game could not be read: it is damaged, or was saved by an earlier version of this site. It has been preserved. Choose New guided game to replace it.</p>{/if}
   {#if warning}<p role="status">{warning}</p>{/if}
   <fieldset class="guided-controls" disabled={blocked}>
     <div class="guide-meta">

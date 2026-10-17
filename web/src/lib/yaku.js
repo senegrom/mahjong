@@ -1,9 +1,11 @@
 /** What each yaku is, and which tiles in a winning hand make it.
  *
- * The engine scores a hand and says which yaku it found and what each was
- * worth; it does not say which tiles made them. A person reading the result
- * wants exactly that, so the shapes are found again here from the hand the
- * engine reported, under the EMA 2025 names the engine prints.
+ * The engine scores a hand and reports the reading it scored, `scoring`:
+ * the sets and the pair, with where each of their tiles is shown. A person
+ * reading the result wants to see which of them made each yaku, so each yaku
+ * here picks its sets from that reading, under the EMA 2025 names the engine
+ * prints. Seven Pairs and Thirteen Orphans come without a reading and need
+ * none, since every yaku they can hold lights the whole hand or nothing.
  *
  * A yaku about *how* a hand was won rather than what it holds -- a riichi, a
  * win off the last tile -- has no shape to point at, and says so by naming
@@ -53,8 +55,6 @@ export const YAKU_NOTES = Object.freeze({
   'Big Three Dragons': 'A triplet of each of the three dragons.',
   'Little Four Winds': 'Three wind triplets and a pair of the fourth wind.',
   'Big Four Winds': 'A triplet of each of the four winds.',
-  'Dora': 'Bonus tiles the indicators point to. They add han but are not a yaku on their own.',
-  'Ura-dora': 'The bonus tiles under the indicators, revealed only to a riichi winner.',
 });
 
 const DRAGONS = ['5z', '6z', '7z'];
@@ -76,118 +76,28 @@ function concealed(win) {
   return places;
 }
 
-/** The called sets, each as its tiles and where they are shown. */
+/** The tiles of the called sets, with where each is shown. */
 function called(win) {
-  return (win.melds ?? []).map((meld, index) => ({
-    kind: meld.kind ?? 'pon',
-    tiles: (meld.tiles ?? []).map((tile, slot) => ({ tile, at: AT_MELD(index, slot) })),
-  }));
+  return (win.melds ?? []).flatMap((meld, index) =>
+    (meld.tiles ?? []).map((tile, slot) => ({ tile, at: AT_MELD(index, slot) })));
 }
 
-function setOfMeld(meld) {
-  const tiles = meld.tiles.map(place => place.tile);
-  const run = tiles.length === 3 && new Set(tiles).size === 3;
-  return {
-    kind: run ? 'run' : meld.kind.includes('kan') ? 'quad' : 'triplet',
-    concealed: meld.kind === 'concealed-kan',
-    tiles: meld.tiles,
-    faces: run ? [...tiles].sort((a, b) => rank(a) - rank(b)) : [tiles[0], tiles[0], tiles[0]],
-  };
-}
-
-/** Every way the concealed tiles split into sets and one pair.
- *
- * Fourteen tiles split only a handful of ways, and which one a yaku means
- * matters: two identical sequences are a double sequence only under the
- * reading that makes them sequences at all.
- */
-function splittings(places) {
-  const byTile = new Map();
-  for (const place of places) {
-    if (!byTile.has(place.tile)) byTile.set(place.tile, []);
-    byTile.get(place.tile).push(place);
-  }
-  const left = new Map([...byTile].map(([tile, list]) => [tile, list.length]));
-  const found = [];
-  const take = (tile, count) => {
-    const list = byTile.get(tile);
-    const from = list.length - left.get(tile);
-    left.set(tile, left.get(tile) - count);
-    return list.slice(from, from + count);
-  };
-  const give = (tile, count) => left.set(tile, (left.get(tile) ?? 0) + count);
-  const order = [...byTile.keys()].sort();
-  const first = () => order.find(tile => (left.get(tile) ?? 0) > 0) ?? null;
-
-  const walk = (sets, pair) => {
-    if (found.length >= 32) return;
-    const tile = first();
-    if (tile === null) {
-      if (pair) found.push({ sets: [...sets], pair });
-      return;
-    }
-    const count = left.get(tile);
-    if (!pair && count >= 2) {
-      const used = take(tile, 2);
-      walk(sets, { kind: 'pair', concealed: true, tiles: used, faces: [tile, tile] });
-      give(tile, 2);
-    }
-    if (count >= 3) {
-      const used = take(tile, 3);
-      sets.push({ kind: 'triplet', concealed: true, tiles: used, faces: [tile, tile, tile] });
-      walk(sets, pair);
-      sets.pop();
-      give(tile, 3);
-    }
-    if (!isHonour(tile) && rank(tile) <= 7) {
-      const second = `${rank(tile) + 1}${suit(tile)}`;
-      const third = `${rank(tile) + 2}${suit(tile)}`;
-      if ((left.get(second) ?? 0) > 0 && (left.get(third) ?? 0) > 0) {
-        const used = [...take(tile, 1), ...take(second, 1), ...take(third, 1)];
-        sets.push({ kind: 'run', concealed: true, tiles: used, faces: [tile, second, third] });
-        walk(sets, pair);
-        sets.pop();
-        give(tile, 1); give(second, 1); give(third, 1);
-      }
-    }
-  };
-  walk([], null);
-  return found;
-}
-
-/** Every reading of the whole hand: called sets are fixed, the rest splits. */
-export function readings(win) {
-  // New native results retain the actual highest-scoring decomposition and
-  // the winning block. Legacy saved results may only have raw tiles.
-  if (win.scoring) return [win.scoring];
-  const melds = called(win).map(setOfMeld);
-  return splittings(concealed(win)).map(({ sets, pair }) => ({
-    sets: [...melds, ...sets.map(set => ({ ...set,
-      concealed: !(set.kind === 'triplet' && ['discard', 'ron'].includes(win.by)
-        && set.tiles.some(place => place.at === AT_WON)),
-    }))], pair,
-  }));
-}
-
-const everything = win => [...concealed(win), ...called(win).flatMap(meld => meld.tiles)];
+const everything = win => [...concealed(win), ...called(win)];
 const placesOf = parts => parts.flatMap(part => part.tiles).map(place => place.at);
 const numbersOf = run => run.faces.map(rank).join('-');
 
 /** Which tiles make this yaku, as the places the screen draws them in, or
  * nothing where the yaku is about how the hand was won. */
 export function tilesFor(yaku, win) {
-  const name = typeof yaku === 'string' ? yaku : yaku.name;
-  const valueTile = typeof yaku === 'object' ? yaku.tile : null;
+  const { name, tile: valueTile } = yaku;
   if (!win) return [];
   const all = () => everything(win).map(place => place.at);
   const runs = reading => reading.sets.filter(set => set.kind === 'run');
   const blocks = reading => [...reading.sets, reading.pair].filter(Boolean);
+  // The sets the yaku is made of, picked from the reading the scorer scored.
   const pick = (choose) => {
-    for (const reading of readings(win)) {
-      const parts = choose(reading);
-      if (parts && parts.length) return placesOf(parts);
-    }
-    return [];
+    const parts = win.scoring ? choose(win.scoring) : null;
+    return parts?.length ? placesOf(parts) : [];
   };
   switch (name) {
     case 'All Simples': case 'Half Flush': case 'Full Flush': case 'All Terminals and Honours':
@@ -266,14 +176,10 @@ export function tilesFor(yaku, win) {
     }
     case 'Three Quads': case 'Four Quads':
       return pick(reading => reading.sets.filter(set => set.kind === 'quad'));
-    case 'Dragon Triplet':
-      return pick(reading => reading.sets.filter(
-        set => set.kind !== 'run' && (valueTile ? set.faces[0] === valueTile : DRAGONS.includes(set.faces[0]))));
-    case 'Seat Wind Triplet': case 'Round Wind Triplet':
-      return pick(reading => {
-        const actual = valueTile ?? windTile(name === 'Seat Wind Triplet' ? win.seat : win.round);
-        return reading.sets.filter(set => set.kind !== 'run' && set.faces[0] === actual);
-      });
+    // The scorer names the tile each of these is for, so two dragon
+    // triplets light apart, and a wind lights only the triplet it counts.
+    case 'Dragon Triplet': case 'Seat Wind Triplet': case 'Round Wind Triplet':
+      return pick(reading => reading.sets.filter(set => set.kind !== 'run' && set.faces[0] === valueTile));
     case 'Little Three Dragons':
       return pick(reading => {
         const parts = blocks(reading).filter(part => DRAGONS.includes(part.faces[0]));
@@ -290,12 +196,6 @@ export function tilesFor(yaku, win) {
 
 export function noteFor(name) {
   return YAKU_NOTES[name] ?? '';
-}
-
-function windTile(wind) {
-  if (Number.isInteger(wind) && wind >= 0 && wind < 4) return WINDS[wind];
-  const index = ['east', 'south', 'west', 'north'].indexOf(String(wind).toLowerCase());
-  return index < 0 ? null : WINDS[index];
 }
 
 export function isCircumstance(name) {

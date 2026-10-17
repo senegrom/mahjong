@@ -52,8 +52,7 @@
   let asking = $state(null);
   let shape = $derived(asking ? new Set(tilesFor(asking.yaku, asking.win)) : null);
   const handOf = winner => ({ hand: winner.hand, winning_tile: winner.winning_tile,
-    scoring: winner.scoring, by: ending.kind, seat: winner.seat, round: p.round,
-    melds: viewMelds(p.players[winner.seat]) });
+    scoring: winner.scoring, melds: viewMelds(p.players[winner.seat]) });
   const ask = (winner, yaku) => { asking = { seat: winner.seat, yaku, win: handOf(winner) }; };
   const stopAsking = () => { asking = null; };
   const showing = (winner, yaku) => asking?.seat === winner.seat && asking?.yaku === yaku;

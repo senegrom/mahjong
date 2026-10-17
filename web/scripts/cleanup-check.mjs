@@ -9,6 +9,7 @@ import { createFixtureHandler } from './static-fixture-server.mjs';
 import { emptyPosition, parseTiles, recordChoice } from '../src/lib/physical-position.js';
 import { emptyGuided, editGuided, guidedEvent, GUIDED_FORMAT } from '../src/lib/guided-game.js';
 import { SETTINGS_KEY, SAVE_KEY } from '../src/lib/session.js';
+import { LEGACY_SAVE_KEY } from '../src/lib/save-store.js';
 import { tileWords } from '../src/lib/tiles.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -216,6 +217,36 @@ try {
       assert.equal(await savedMatch(page), saved);
       assert.deepEqual(problems, []);
     } finally { denyUnusedArt = false; }
+  });
+  await check('a match saved between 5 and 10 September 2026 says why it cannot be resumed, and stays saved until New game', async context => {
+    // As those builds wrote them: one without a format under the first key,
+    // and one of format 4 under the current key. Neither is replayed, so
+    // their moves and state play no part.
+    const record = format => JSON.stringify({ version: 1, ...(format ? { format } : {}), seed: 11, difficulty: 'club', commands: [], state: '[]' });
+    for (const [key, text] of [[LEGACY_SAVE_KEY, record()], [SAVE_KEY, record(4)]]) {
+      const page = await context.newPage();
+      await page.setViewport({ width: 1100, height: 1000 });
+      const problems = [];
+      page.on('pageerror', error => problems.push(error.message));
+      const seed = await page.evaluateOnNewDocument(({ settings, key, text }) => {
+        localStorage.clear();
+        localStorage.setItem(settings, JSON.stringify({ version: 2, difficulty: 'club', hints: true, confirmDiscards: false }));
+        localStorage.setItem(key, text);
+      }, { settings: SETTINGS_KEY, key, text });
+      await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=play`, { waitUntil: 'domcontentloaded' });
+      await page.removeScriptToEvaluateOnNewDocument(seed.identifier);
+      await page.waitForSelector('.failure [role="alert"]');
+      assert.equal(await page.$eval('.failure [role="alert"]', alert => alert.textContent), 'The saved match could not be restored: '
+        + 'It was saved between 5 and 10 September 2026 by an earlier version of this site, and this version cannot resume a match that old. '
+        + 'Choose New game to start again.', key);
+      assert.equal(await page.evaluate(key => localStorage.getItem(key), key), text, `${key} is kept`);
+      await page.click('.restart');
+      await page.waitForFunction(key => JSON.parse(localStorage.getItem(key) ?? 'null')?.format === 7
+        && !document.querySelector('.failure'), {}, SAVE_KEY);
+      if (key === LEGACY_SAVE_KEY) assert.equal(await page.evaluate(key => localStorage.getItem(key), key), text, 'the first key is never written or deleted');
+      assert.deepEqual(problems, []);
+      await page.close();
+    }
   });
   await check('the guided game\'s remembered table marks discards thrown from the draw and claimed ones', async context => {
     const game = markedGuide();

@@ -143,33 +143,6 @@ test('fallback-all changes only trained opponents and rejects wrong-player comma
   } finally {m.dispose();}
 });
 
-test('old format-3 saves migrate only additive opponent identity metadata', () => {
-  let migrated=0,refused=0;
-  for(const difficulty of OPPONENT_TYPES) {
-    const m=make(81,difficulty);
-    try {
-      m.advance(false); for(let n=0;n<24&&m.view.phase!=='over';n++){turn(m);m.advance(false);}
-      const old=m.snapshot(); old.format=3; delete old.opponents;
-      const data=JSON.parse(old.state); for(const seat of data[0].seats){delete seat.player;delete seat.controller;}
-      old.state=JSON.stringify(data);
-      // Before format 5 a trained opponent's answer was written down in our
-      // own seventy-eight moves. Replaying one as Mortal's forty-six would
-      // play a different game, so such a save is refused, not migrated.
-      if(old.commands.some(c=>c.type==='opponent')) {
-        assert.throws(()=>MatchSession.restore(Game,JSON.stringify(old)),/Unsupported legacy opponent moves/);
-        refused++; continue;
-      }
-      const r=MatchSession.restore(Game,JSON.stringify(old));
-      try {assert.deepEqual(r.opponents,normalizeOpponents(difficulty));assert.equal(r.stateKey(),m.stateKey());}
-      finally {r.dispose();}
-      data[0].seats[0].score+=1000; old.state=JSON.stringify(data);
-      assert.throws(()=>MatchSession.restore(Game,JSON.stringify(old)),/does not match/);
-      migrated++;
-    } finally {m.dispose();}
-  }
-  assert.ok(migrated>0&&refused>0,'Exercised both an old save that still migrates and one that cannot');
-});
-
 test('a complete mixed hanchan keeps player identity, settings and final restoration', () => {
   const m=make(14,['beginner','neural','club']);
   try {

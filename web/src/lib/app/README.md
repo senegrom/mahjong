@@ -42,9 +42,10 @@ closes settings synchronously before opening the next modal.
 
 ## Verification
 
-Run `npm run verify` from `web`, the same command as CI. It includes actual component
-compilation, TypeScript contract checks, the real offline-status component and
-bounded-preloader unit tests. `component-check.mjs` mounts the real components under
+Run `npm run verify` from `web`, the same command as CI. It includes svelte-check,
+which compiles every component and fails on any compiler warning, TypeScript
+contract checks, the real offline-status component and bounded-preloader unit
+tests. `component-check.mjs` mounts the real components under
 a reactive parent and checks bindings, context, callbacks, modal focus, resizing,
 unmount and effective styles. `cleanup-check.mjs` exercises the production app,
 including genuine preference reloads, saved-match preservation and unavailable
