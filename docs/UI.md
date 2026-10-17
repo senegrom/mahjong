@@ -176,11 +176,11 @@ to the standings** then lands on the standings, uncovered, with focus on their
 own **Review whole game**, and the result is a tap away on its chip, which a
 keyboard reaches after the standings' buttons. The chip goes as it brings the
 result back, so focus goes to the result, as when it first appeared, rather
-than to the page. Up to 480
-pixels wide the sheet's buttons take their short labels, **Review hand**,
-**Save hand**, **Review game** and **Save game**. Measured in Chromium, they
-then take two rows over the result from 360 pixels up with Windows' fonts and
-from 390 with one as wide as Verdana, and three on narrower screens.
+than to the page. Up to 480 pixels wide the sheet's buttons take their short
+labels, **Review hand**, **Save hand**, **Review game** and **Save game**.
+Measured in Chromium, they then take two rows over the result from 360 pixels
+up with Windows' fonts and from 390 with one as wide as Verdana, and three on
+narrower screens.
 
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the
@@ -272,16 +272,19 @@ trend takes it, has a standard error of 1.5 points for either, so ten games
 tell the two apart by 8 standard errors. None of the 6,688 flagged decisions
 had every row of its table favouring the move made in the game, which puts that
 share under 0.045% (by the rule of three, at 95%), and 27% had a row for it and
-none against, so as the rule was registered the thresholds stand. The rule did
-not say how a row that ties should count. Counted with the move made, 54% of
-the flags (± 1.7 points) have every row for it or tied, and 74% of Club's; the
-least raise that brings that under half on the games used to choose it,
-flagging only moves given under 0.2% rather than 5%, leaves 47% (± 2.7) on the
-games held out, and Club's at 72%. The thresholds are unchanged until the owner
-decides which reading holds. The table is more often silent: for 60% of the
-flags, and 82% of Club's, it gives no reason for Trained AI's choice, which the
-hand review calls a judgement, a trade of speed against value or safety that
-its numbers do not capture.
+none against, so as the rule was registered the thresholds stand. Read so, it
+could hardly trip: a move that leaves the hand closer to complete almost never
+leaves more tiles that improve it as well, and not one of the 8,197
+disagreements with a table, flagged or not, had every row for the move made.
+The rule did not say how a row that ties should count. Counted with the move
+made, 54% of the flags (± 1.7 points) have every row for it or tied, and 74% of
+Club's; the least raise that brings that under half on the games used to
+choose it, flagging only moves given under 0.2% rather than 5%, leaves 47%
+(± 2.7) on the games held out, and Club's at 72%. The thresholds are unchanged
+until the owner decides which reading holds. The table is more often silent:
+for 60% of the flags, and 82% of Club's, it gives no reason for Trained AI's
+choice, which the hand review calls a judgement, a trade of speed against
+value or safety that its numbers do not capture.
 
 **Speed.** Measured on 14 October 2026 in Chromium 155 on the desktop, through
 the page's own worker on one thread, a position took a median 163 ms one at a
