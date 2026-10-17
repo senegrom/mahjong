@@ -483,7 +483,10 @@ class Views:
 
     ENGINE_PLANES = riichi_py.PLANES
 
-    def __init__(self, arena, games: int, kinds: set[str] | None = None, starts=None, renamed=None) -> None:
+    def __init__(self, arena, games: int, kinds: set[str] | None = None, *, starts=None,
+                 renamed=None) -> None:
+        # `starts` and `renamed` are keyword-only: both came in after the
+        # first three, and one passed by position lands in the other.
         self.arena = arena
         self.games = games
         kinds = set(kinds or {"mortal"})

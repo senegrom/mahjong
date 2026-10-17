@@ -54,7 +54,7 @@ class TimedViews(Views):
     playing thread's work rather than adding to it. What they encode is
     exactly what `Views` encodes."""
 
-    def __init__(self, arena, games: int, kinds: set[str] | None = None, renamed=None) -> None:
+    def __init__(self, arena, games: int, kinds: set[str] | None = None, *, renamed=None) -> None:
         super().__init__(arena, games, kinds, renamed=renamed)
         self.here = 0.0
         self.aside = 0.0
@@ -126,7 +126,7 @@ class Split:
         """The views a table timed this way is served from, and from now
         on the ones whose encoding it counts, the renamed game's included
         (see `Views`): `Views` itself when nothing is timed."""
-        self.views = (TimedViews if self.timing is not None else Views)(arena, games, kinds, renamed)
+        self.views = (TimedViews if self.timing is not None else Views)(arena, games, kinds, renamed=renamed)
         return self.views
 
 
