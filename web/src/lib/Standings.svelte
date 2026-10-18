@@ -84,7 +84,7 @@
          player pressed one. A screen reader hears a status line only once it
          knows it, so the line waits here, empty and out of sight, from the
          moment the standings appear. -->
-    {#if failure !== null}<p class="failure" class:visually-hidden={!failure} data-standings-failure role="status">{failure}</p>{/if}
+    {#if failure !== null}<p class="standings-failure" class:visually-hidden={!failure} data-standings-failure role="status">{failure}</p>{/if}
   </div>
 </section>
 
@@ -186,8 +186,9 @@
     max-width: 100%;
   }
 
-  /* A row of its own below the buttons. */
-  .failure {
+  /* A row of its own below the buttons. Not called .failure, which names
+     the page's recovery section. */
+  .standings-failure {
     flex-basis: 100%;
     margin: 0;
     font-size: 0.82rem;
