@@ -49,6 +49,10 @@
     return { destroy: () => cancelAnimationFrame(id) };
   }
 
+  // The hand's review opens below the result, and on a phone this sheet steps
+  // aside for it and for the table and the hand that it covers. The button
+  // goes once the review is open, so opening it hands focus on to the review
+  // (App) rather than leaving it to drop to the page.
   function reviewTable() {
     onreview?.();
     minimized = true;

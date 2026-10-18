@@ -79,6 +79,8 @@
   // How many hands the game's log holds: the finished ones only.
   let loggedHands = $state(0);
   let notes = $state(null);
+  // The hand review's heading, which takes focus as the review opens.
+  let reviewHeading = $state(null);
   let picked = $state(null);
   let selected = $state(null);
   let handElement = $state(null);
@@ -447,9 +449,19 @@
     } catch { notice = 'The game could not be saved to a file. Your current match is unchanged.'; }
   }
 
-  function showReview() {
+  // The result's button goes as it opens the hand's review, and on a phone
+  // the result steps aside with it, so focus goes on to the review, to its
+  // heading, which says where the player is, rather than to the page. The
+  // heading is scrolled to with as little movement as will show it, so the
+  // table and the hand that the result uncovered on a phone stay in view as
+  // far as they can. The way back to the result is the control just before
+  // the review: on a phone the result's chip, which hands focus back to it.
+  async function showReview() {
     try { notes = session?.engine.review() ?? []; }
-    catch { notice = 'The review could not be built. Your match is unchanged.'; }
+    catch { notice = 'The review could not be built. Your match is unchanged.'; return; }
+    await tick();
+    reviewHeading?.focus({ preventScroll: true });
+    reviewHeading?.scrollIntoView({ block: 'nearest' });
   }
 
   // The finished match is replayed from its saved commands on an engine of
@@ -567,7 +579,7 @@
               bets={view.riichi_sticks ?? 0} onnext={nextHand}
               onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} ongamereview={openGameReview}
               gameReviewOpen={reviewingGame} finalHand={Boolean(standings)} />
-            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} />{/if}
+            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} bind:heading={reviewHeading} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
               loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}

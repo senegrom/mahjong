@@ -118,6 +118,26 @@ After a keyboard discard, the hand regains focus for the next decision unless
 the player has deliberately focused another control. Browser shortcuts and
 other focused controls remain unaffected.
 
+### The hand's review
+
+**View table / my hand** on a hand's result opens the hand's review, **Your
+hand, looked at again**, below the result, as **Review final hand** does on the
+last hand's. On a phone the result is a sheet over the table and the hand, so
+it steps aside as well, leaving its chip, **Show result**, at the foot of the
+screen. The button goes once the review is open, so focus goes on to the
+review's heading rather than dropping to the page: the review is what the press
+brought, and on a phone the table and the hand that the sheet uncovered are
+just above it. A screen reader reads the heading out, in the region "your
+decisions this hand", so the player hears where they are. The heading is
+scrolled into view with as little movement as will show it, clear of the chip
+at the foot of a phone's screen and of the game's bar at its top, so the table
+and the hand stay in view as far as the screen allows; on the final hand the
+standings lie between them and the review, and the heading lands below the
+standings. The way back to the result is the control just before the review,
+one **Shift+Tab** away: on a phone the chip, which hands focus back to the
+result as when it first appeared, and where the result is not a sheet, its own
+buttons, which stay where they were.
+
 ### Final-hand review and saves
 
 Opening final standings does not start another hand, so it does not clear the
@@ -307,7 +327,9 @@ screen says so and waits.
 `npm run verify` in `web/` covers these behaviours: real-WASM discard previews
 and Tile rendering, riichi waits, disabled-tile navigation, consecutive keyboard
 turns, saved-state migration, ura-dora indicators with hints off, final-hand
-review, the whole-game review with the shipped network (its batches, flags,
+review, the hand's review taking keyboard focus from the result's button, and
+the way back to the result keeping it, at desktop and phone sizes, the
+whole-game review with the shipped network (its batches, flags,
 replay, retry, keyboard focus, in the flagged list too as later hands rank it
 afresh, and trend, and its way in and out on a phone, by touch and by
 keyboard),

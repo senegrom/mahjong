@@ -13,8 +13,11 @@
    * traded: how far the hand was left from complete, how many tiles would
    * have improved it, and whether the tile could have dealt in.
    */
-  // Trained AI is the default adviser, as readSettings has it.
-  let { notes = [], hints = true, engine = null, trainedAvailable = false, offline = null, adviser = $bindable('strong') } = $props();
+  // Trained AI is the default adviser, as readSettings has it. The heading
+  // is bound so that the result's button, which goes as it opens the review,
+  // can hand focus to it (App).
+  let { notes = [], hints = true, engine = null, trainedAvailable = false, offline = null, adviser = $bindable('strong'),
+    heading = $bindable(null) } = $props();
   let trainedNotes = $state.raw(null);
   let reviewing = $state(false);
   let completed = $state(0);
@@ -69,7 +72,7 @@
 
 <section class="review" aria-label="your decisions this hand" aria-busy={reviewing}>
   <header>
-    <h3>Your hand, looked at again</h3>
+    <h3 tabindex="-1" bind:this={heading}>Your hand, looked at again</h3>
     <label class="adviser">Review adviser
       <select bind:value={adviser} aria-label="Review adviser">
         <option value="club">Club</option>
@@ -212,6 +215,18 @@
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
+  }
+
+  /* The heading takes focus as the review opens, and is scrolled to with as
+     little movement as will show it (App). So it lands clear of the foot of
+     the screen, where the result's chip sits on a phone (ScoreScreen), and,
+     where the game's bar stays at the top of the screen (AppSettings), below
+     the bar. */
+  h3 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+  h3:focus { outline: none; }
+  h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    h3 { scroll-margin-top: 72px; }
   }
 
   .adviser { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; font-size: .85rem; }

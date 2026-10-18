@@ -197,6 +197,44 @@ try{
   await review.click();await p.waitForSelector('.review');assert.equal(await p.$$eval('.log p',els=>els.length),final.events.length);
   await shot(p,'final-standings-with-review');noErrors(p);
  });
+ // The result's review button goes as it opens the hand's review, and on a
+ // phone the result steps aside with it. Pressed by keyboard, focus must go
+ // on to the review's heading, which a screen reader names, in view and clear
+ // of the result's chip, and not drop to the page; the control before the
+ // review must lead back to the result: on a phone its chip, which hands
+ // focus back to the result, and where the result is no sheet, its buttons.
+ for(const [label,snapshot,pressed] of [['a hand',wins[0],'View table / my hand'],['the final hand',final.after,'Review final hand']])await check(`${pressed}, pressed by keyboard on ${label}'s result, hands focus to the review and back, at desktop and phone sizes`,async()=>{
+  for(const [width,height] of [[1100,900],[390,844],[320,568]]){
+   const p=await open(snapshot,{width,height}),where=`at ${width}x${height}`;
+   // The result takes focus as it appears, so the button is pressed after.
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const button=await p.evaluateHandle(text=>[...document.querySelectorAll('.screen .buttons button')].find(el=>el.textContent.trim()===text),pressed);
+   assert.ok(await button.evaluate(el=>el instanceof HTMLButtonElement),`the result offers ${pressed} ${where}`);
+   await button.focus();await p.keyboard.press('Enter');await p.waitForSelector('.review');
+   await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
+   const focused=()=>p.evaluate(()=>{const a=document.activeElement;return a?.matches('.review h3')?'the review':a?.matches('.screen')?'the result':!a||a===document.body?'the page':a.outerHTML.slice(0,80);});
+   assert.equal(await focused(),'the review',`focus goes on to the review ${where}`);
+   // What a screen reader says of it: the hand's review, by its heading.
+   const heading=await p.$('.review h3'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
+   assert.deepEqual([node?.role,node?.name,node?.level],['heading','Your hand, looked at again',3]);
+   assert.equal(await heading.evaluate(el=>el.closest('section').getAttribute('aria-label')),'your decisions this hand');
+   // In view, and not under the result's chip or the game's bar.
+   assert.ok(await heading.evaluate(el=>{const box=el.getBoundingClientRect(),hit=document.elementFromPoint(box.left+box.width/2,box.top+box.height/2);
+    return box.top>=0&&box.bottom<=innerHeight&&Boolean(hit)&&(hit===el||el.contains(hit));}),`the review's heading is in view and uncovered ${where}`);
+   await shot(p,`result-review-focus-${label.replaceAll(' ','-')}-${width}x${height}`);
+   // The way back to the result is the control before the review.
+   await p.keyboard.down('Shift');await p.keyboard.press('Tab');await p.keyboard.up('Shift');
+   if(width>760)assert.ok(await p.evaluate(()=>document.activeElement?.matches('.screen button')),`Shift+Tab goes back to the result's buttons ${where}`);
+   else{
+    assert.ok(await p.evaluate(()=>document.activeElement?.matches('.result-chip')),`Shift+Tab reaches the result's chip ${where}`);
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(()=>getComputedStyle(document.querySelector('.screen')).display!=='none',{timeout:5000});
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'),{timeout:5000}).catch(()=>{});
+    assert.equal(await focused(),'the result',`the chip hands focus back to the result ${where}`);
+   }
+   noErrors(p);
+  }
+ });
  await check('the game exports from East 1 from the settings, the score screen and the standings, never with the hand in play',async()=>{
   const fileName=/^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/;
   const opensAtEastOne=events=>{
