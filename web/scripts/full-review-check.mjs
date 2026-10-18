@@ -75,11 +75,10 @@ const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_
  * engine fail to build the hand's review, `failReplay` fail to replay the
  * match for the whole game's review once the page sets window.failReplay,
  * and `failSave` the browser fail to make any file; `statusLines` records
- * when each status line comes into
- * the page and when its words arrive (waited); `scrolls` notes every scroll
- * the page asks for (scrollsAsked); `locks` false takes away the Web Locks
- * API, as some private windows do, so the page cannot safely keep the
- * match. */
+ * when each status line comes into the page and when its words arrive
+ * (waited); `scrolls` notes every scroll the page asks for (scrollsAsked);
+ * `locks` false takes away the Web Locks API, as some private windows do, so
+ * the page cannot safely keep the match. */
 async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,files=false,touch=false,reduced=false,adviser='club',trained=false,failReview=false,
  failReplay=false,failSave=false,statusLines=false,scrolls=false,locks=true}={}){
  const page=await (await openContext(browser)).newPage();page.reviewErrors=[];
@@ -815,12 +814,12 @@ try{
  }
  // The settings' Export game says a game it could not save beside its own
  // button, from a line of its own that waits in its panel, empty, before its
- // words arrive. On a phone, and held sideways, the settings are a modal
- // dialog. While it is open, Chromium's accessibility tree ignores all that
- // lies outside it, the notice line at the top of the page too, so a screen
- // reader would hear nothing until the dialog closed, and the dialog and its
- // backdrop keep that line from sight. The words are said in the dialog, in
- // view there, and the pressed button keeps focus.
+ // words arrive. On a phone, upright or held sideways, the settings are a
+ // modal dialog. While it is open, Chromium's accessibility tree ignores all
+ // that lies outside it, the notice line at the top of the page too, so a
+ // screen reader would hear nothing until the dialog closed, and the dialog
+ // and its backdrop keep that line from sight. The words are said in the
+ // dialog, in view there, and the pressed button keeps focus.
  await check('a game Export game could not save is said beside its button, inside the settings\' dialog on a phone',async()=>{
   const words=/^The game could not be saved to a file\. Your current match is unchanged\.$/;
   for(const [width,height,how] of [[1100,900,'mouse'],[1100,900,'touch'],[1100,900,'keyboard'],[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],
