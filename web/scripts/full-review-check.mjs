@@ -480,6 +480,9 @@ try{
  // scroll to the heading at 844x390 would take the Final hand caption, where
  // they pressed, off the screen.
  await check('Next hand on the last hand, pressed by mouse or touch, hands focus to the standings without moving the page',async()=>{
+  // Every press after which the page asked for a scroll, with where the page
+  // went, so that a failure names each size and place it happens at.
+  const scrolled=[];
   for(const [width,height,touch,foot] of [[1100,900,false,false],[1100,900,false,true],[1280,600,false,true],[1366,768,false,true],
    [844,390,true,false],[844,390,true,true],[844,390,false,true],[390,844,true,false],[320,568,true,false],[568,320,true,false]]){
    const p=await open(final.before,{width,height,touch,reduced:true,scrolls:true}),where=`at ${width}x${height} by ${touch?'touch':'mouse'}${foot?' from the foot of the page':''}`;
@@ -493,14 +496,15 @@ try{
    assert.equal(await focusOn(p),'the standings',`focus goes on to the standings ${where}`);
    assert.equal(await ringed(p),false,`no focus ring is drawn for a pointer ${where}`);
    await settle(p);
-   const moved=await p.evaluate(before=>scrollY-before,before);
-   assert.deepEqual(await scrollsAsked(p),[],`the page asks for no scroll ${where}; it moved ${moved} pixels`);
+   const moved=await p.evaluate(before=>scrollY-before,before),asked=await scrollsAsked(p);
+   if(asked.length)scrolled.push(`${where}, the page scrolled from ${before} to ${before+moved}: ${asked.join('; ')}`);
    if(sheet){
     assert.equal(moved,0,`the page stays where it was ${where}`);
     assert.equal(await sheetShown(p),true,`the result stays over the standings ${where}`);
    }
    noErrors(p);
   }
+  assert.deepEqual(scrolled,[],'the page asks for no scroll after a press by mouse or touch');
  });
  // A hand's review that the engine could not build opens nothing: the
  // result stays as it was, on a phone too, and the pressed button stays,
