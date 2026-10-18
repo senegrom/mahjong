@@ -806,10 +806,15 @@ class TimingTests(unittest.TestCase):
 
     def test_the_four_ways_are_compared_with_the_old_duel_in_one_order(self):
         old = [2.0, 3.0, 2.5, 2.5]
-        answers = {"duel": self.report(old, 1200.0), "seating": self.report(old, 900.0, loading=21.6),
-                   "graphs": self.report(old, 600.0, loading=22.4, graphs=412, graph_seconds=38.4,
-                                         from_graphs=9876),
-                   "fixed": self.report([2.0, 3.0, 3.0, 2.0], 400.0, loading=25.0)}
+        # As neural.ruler writes them: the switch `graphs` among how it
+        # played, and the count over it only where graphs were recorded.
+        answers = {"duel": self.report(old, 1200.0, path="duel"),
+                   "seating": self.report(old, 900.0, path="ruler", questions="seating", graphs=False, loading=21.6),
+                   "graphs": self.report(old, 600.0, path="ruler", questions="seating", graphs=412, loading=22.4,
+                                         graph_seconds=38.4, from_graphs=9876),
+                   "fixed": self.report([2.0, 3.0, 3.0, 2.0], 400.0, path="ruler", questions="fixed", graphs=True,
+                                        rows=256, skip_forced=True, preview_reach=True, loading=25.0, pieces=310,
+                                        padded_rows=4400)}
 
         def way(name, arguments):
             if name == "duel":
