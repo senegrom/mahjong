@@ -198,19 +198,23 @@ try{
   await shot(p,'final-standings-with-review');noErrors(p);
  });
  // The result's review button goes as it opens the hand's review, and on a
- // phone the result steps aside with it. Pressed by keyboard, focus must go
- // on to the review's heading, which a screen reader names, in view and clear
- // of the result's chip, and not drop to the page; the control before the
- // review must lead back to the result: on a phone its chip, which hands
- // focus back to the result, and where the result is no sheet, its buttons.
+ // phone, where the result is a sheet, the sheet steps aside with it. Pressed
+ // by keyboard, focus must go on to the review's heading, which a screen
+ // reader names, in view and clear of the result's chip, and not drop to the
+ // page; the control before the review must lead back to the result: the
+ // sheet's chip, which hands focus back to the result, or else the result's
+ // own buttons.
  for(const [label,snapshot,pressed] of [['a hand',wins[0],'View table / my hand'],['the final hand',final.after,'Review final hand']])await check(`${pressed}, pressed by keyboard on ${label}'s result, hands focus to the review and back, at desktop and phone sizes`,async()=>{
-  for(const [width,height] of [[1100,900],[390,844],[320,568]]){
+  for(const [width,height] of [[1100,900],[390,844],[320,568],[844,390]]){
    const p=await open(snapshot,{width,height}),where=`at ${width}x${height}`;
    // The result takes focus as it appears, so the button is pressed after.
    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+   assert.equal(sheet,width<=760,`the result is a sheet on a phone held upright, and only there, ${where}`);
    const button=await p.evaluateHandle(text=>[...document.querySelectorAll('.screen .buttons button')].find(el=>el.textContent.trim()===text),pressed);
    assert.ok(await button.evaluate(el=>el instanceof HTMLButtonElement),`the result offers ${pressed} ${where}`);
    await button.focus();await p.keyboard.press('Enter');await p.waitForSelector('.review');
+   if(sheet)assert.equal(await p.$eval('.screen',el=>getComputedStyle(el).display),'none',`the sheet steps aside ${where}`);
    await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
    const focused=()=>p.evaluate(()=>{const a=document.activeElement;return a?.matches('.review h3')?'the review':a?.matches('.screen')?'the result':!a||a===document.body?'the page':a.outerHTML.slice(0,80);});
    assert.equal(await focused(),'the review',`focus goes on to the review ${where}`);
@@ -224,7 +228,7 @@ try{
    await shot(p,`result-review-focus-${label.replaceAll(' ','-')}-${width}x${height}`);
    // The way back to the result is the control before the review.
    await p.keyboard.down('Shift');await p.keyboard.press('Tab');await p.keyboard.up('Shift');
-   if(width>760)assert.ok(await p.evaluate(()=>document.activeElement?.matches('.screen button')),`Shift+Tab goes back to the result's buttons ${where}`);
+   if(!sheet)assert.ok(await p.evaluate(()=>document.activeElement?.matches('.screen button')),`Shift+Tab goes back to the result's buttons ${where}`);
    else{
     assert.ok(await p.evaluate(()=>document.activeElement?.matches('.result-chip')),`Shift+Tab reaches the result's chip ${where}`);
     await p.keyboard.press('Enter');
