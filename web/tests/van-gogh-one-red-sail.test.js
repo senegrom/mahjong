@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { TILE_TYPES } from '../src/lib/tiles.js';
 import { tileImage, TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
 import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 
 const root = new URL('../../', import.meta.url);
-const read = path => readFileSync(new URL(path, root));
+const read = relative => readFileSync(new URL(relative, root));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const source = 'docs/design/van-gogh/studies/26-one-characters-red-sail-c-approved.svg';
 const runtime = 'web/public/tiles/van-gogh/approved/Man1.svg';
@@ -83,18 +84,34 @@ test('the red sail appears in the gallery without extending the fourteen-tile ex
   assert.match(html, /<img src="approved\/Man1\.svg" alt="One character"/);
 });
 
-test('--only=1m reproduces the approved boat exactly without rewriting other artwork', () => {
-  const paths = ['matisse', 'dali', 'van-gogh'].flatMap(set => {
-    const folder = `web/public/tiles/${set}/approved/`;
-    return readdirSync(new URL(folder, root)).filter(name => /\.(?:svg|png|webp|avif)$/.test(name)).map(name => folder + name);
-  });
-  const before = new Map(paths.map(path => [path, hash(read(path))]));
-  const metadata = [manifestPath, 'web/src/lib/van-gogh-faces.js', 'web/public/tiles/van-gogh/preview.html'];
-  const beforeMetadata = new Map(metadata.map(path => [path, hash(read(path))]));
+test('--only=1m reproduces the approved boat exactly without rewriting other artwork', t => {
+  // In a copy of everything the export reads and writes, never in the
+  // repository: other test files read the manifest while this one runs.
+  const temporary = mkdtempSync(path.join(tmpdir(), 'van-gogh-one-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const folder = 'web/public/tiles/van-gogh/';
+  // What the export writes, as committed: a Windows checkout gives these CRLF.
+  const generated = ['web/src/lib/van-gogh-faces.js', manifestPath, `${folder}preview.html`];
+  const copied = [
+    'web/scripts/export-van-gogh-tiles.mjs', 'web/scripts/face-fit.mjs', 'web/src/lib/tiles.js', ...generated,
+    ...manifest.sources.map(item => item.source),
+    ...readdirSync(new URL(`${folder}approved/`, root)).map(name => `${folder}approved/${name}`),
+  ];
+  for (const relative of copied) {
+    const target = path.join(temporary, relative);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, generated.includes(relative) ? read(relative).toString('utf8').replaceAll('\r\n', '\n') : read(relative));
+  }
+  writeFileSync(path.join(temporary, 'package.json'), '{"type":"module"}');
+  // Every file under the copy, so a write anywhere, a new file included, is seen.
+  const tree = () => new Map(readdirSync(temporary, { recursive: true, withFileTypes: true })
+    .filter(item => item.isFile())
+    .map(item => [path.relative(temporary, path.join(item.parentPath, item.name)),
+      hash(readFileSync(path.join(item.parentPath, item.name)))]));
+  const before = tree();
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    execFileSync(process.execPath, ['web/scripts/export-van-gogh-tiles.mjs', '--only=1m'], { cwd: fileURLToPath(root) });
-    for (const [path, expected] of before) assert.equal(hash(read(path)), expected, path);
-    for (const [path, expected] of beforeMetadata) assert.equal(hash(read(path)), expected, path);
-    assert.equal(hash(read(runtime)), SVG_HASH);
+    execFileSync(process.execPath, [path.join(temporary, 'web/scripts/export-van-gogh-tiles.mjs'), '--only=1m'], { stdio: 'pipe' });
+    assert.deepEqual(tree(), before);
+    assert.equal(hash(readFileSync(path.join(temporary, runtime))), SVG_HASH);
   }
 });
