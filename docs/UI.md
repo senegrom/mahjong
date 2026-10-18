@@ -132,31 +132,74 @@ screen reader reads the heading out, in the region "your decisions this hand",
 so the player hears where they are, also while Trained AI is still reviewing
 the hand and the region is busy.
 
-Only a press by keyboard moves the page. A mouse's click or a finger's tap
-leaves it where it was: that player asked to see the table and their hand, sees
-them, and is shown no focus ring to follow below them. The page tells the two
-apart by the click itself. A click's detail is its click count: at least one
-for a mouse button, a tap or a pen, in every browser, and none for the click a
-browser makes for Enter or Space on a focused button. A screen reader's press
-counts none in Chromium and may count one elsewhere; either way focus moves,
-and a screen reader follows it. Pressed by keyboard, the heading is scrolled
-into view with its focus ring, by as little movement as will show them: below
-the game's bar where that stays at the top of the screen, clear of the chip on
-a phone, and a ring's width and a little from the foot of the screen where no
-chip sits. On a small phone that scroll takes the top of the table, its round,
-wall count and indicators, under the bar: measured in Chromium, 124 pixels at
-360x640, 171 at 320x568, and 574 at 568x320, a small phone held sideways, where
-the result is still a sheet; at 390x844 the page moves 2 pixels. On the
-final hand the standings lie between the hand and the review, and the heading
-lands below them. Held sideways on a wider phone, at 844x390, the browser's own
-scroll anchoring moves the page as the review opens, for every kind of press,
-and leaves the heading under the game's bar; a keyboard's press then brings it
-out below the bar.
+Where the result is not a sheet, at desktop width and held sideways on a phone
+wider than 760 pixels, it covered nothing, and the review opens below it, often
+below the foot of the screen. So there the heading is brought into view however
+the button was pressed; otherwise a player who clicked would see the button go
+and nothing else. Where the result is a sheet, only a press by keyboard moves
+the page. A mouse's click or a finger's tap there asked to see the table and the
+hand, which the sheet uncovers by stepping aside, and is shown no focus ring to
+follow below them, while the scroll would take the top of the table off a small
+screen. The page tells the two apart by the click itself. A click's detail is
+its click count: at least one for a mouse button, a tap or a pen, in every
+browser, and none for the click a browser makes for Enter or Space on a focused
+button. A screen reader's press counts none in Chromium and may count one
+elsewhere; either way focus moves, and a screen reader follows it.
+
+The heading is brought into view, with its focus ring for a keyboard, by as
+little movement as will show them: below the game's bar where that stays at the
+top of the screen, clear of the chip on a phone, and a ring's width and a
+little from the foot of the screen where no chip sits. Measured in Chromium,
+the page moves this many pixels for each button; on a phone a mouse's click or
+a finger's tap moves it none.
+
+| Screen | Pressed by | View table / my hand | Review final hand |
+| --- | --- | ---: | ---: |
+| 1100x900 | any | 53 | 53 |
+| 1366x768 | any | 53 | 53 |
+| 1280x600 | any | 56 | 53 |
+| 844x390, a wide phone held sideways | any | 263 | 315 |
+| 390x844 | keyboard | 2 | 343 |
+| 375x667 | keyboard | 183 | 516 |
+| 360x640 | keyboard | 124 | 451 |
+| 320x568 | keyboard | 171 | 566 |
+| 568x320, a small phone held sideways | keyboard | 574 | 847 |
+
+On a phone that scroll costs what lies above the heading. For **View table / my
+hand** at 390x844 everything stays in view; at 375x667, 360x640 and 320x568 the
+top of the table, its round, wall count and indicators, goes under the game's
+bar, and at 568x320, where the result is still a sheet, most of the hand goes
+too. On the final hand the standings lie between the hand and the review, so
+**Review final hand** moves the page further: at 390x844 the table goes off the
+top of the screen while the hand, the standings and the heading stay in view;
+on the smaller phones most of the hand goes as well, and at 568x320 the
+standings' heading too. At 844x390 the browser's own scroll anchoring moves the
+page as the review opens, and leaves the heading under the game's bar; the page
+then brings it out below the bar, and the figures above are where it ends.
 
 The way back to the result is the control just before the review, one
 **Shift+Tab** away: on a phone the chip, which hands focus back to the result
 as when it first appeared, and where the result is not a sheet, its own
 buttons, which stay where they were.
+
+A review the engine cannot build opens nothing. The result stays as it was, on
+a phone too, and so does the pressed button, with focus, and the result says
+why beside its buttons, where the player pressed one: "The review could not be
+built. Your match is unchanged." The page's notice line would not do: it sits
+at the top of the page, above the screen at desktop width, and under the sheet
+on a phone. The result says it from a status line of its own after its
+buttons, which waits there, empty and out of sight, from the moment the result
+appears, since a screen reader hears a status line only once it knows it.
+Where the result is not a sheet, the line is brought into view should it fall
+below the foot of the screen; on a phone it stays at the foot of the sheet with
+the buttons.
+
+The review's own status lines, that Trained AI is reviewing the hand and how
+far it has got, and that Club reviews in its place while the network cannot be
+reached, come into the page with the review. They wait in it, empty and out of
+sight, until the review has been drawn and a tenth of a second more, before
+their words arrive, so that a screen reader can hear them after the heading it
+reads out as focus arrives.
 
 ### The standings as the game ends
 
@@ -170,11 +213,13 @@ keyboard pressed the button the sheet steps aside for the standings, leaving
 its chip, as it does for the reviews; the chip, after the standings' own
 buttons, brings the result back with focus. A tap leaves the result up over the
 standings, as it was: focus is on their heading beneath the sheet, where a
-screen reader reads it out and no ring is drawn. As with the review, only a
-press by keyboard moves the page, to bring the heading into view with its ring,
-clear of the chip and the bar: measured in Chromium, 30 pixels at 390x844, 138
-at 360x640, 202 at 320x568 and 586 at 568x320; at desktop width and at 844x390
-the heading is already in view.
+screen reader reads it out and no ring is drawn. As with the review, where the
+result is not a sheet the heading is brought into view however the button was
+pressed, though at every size measured, at desktop width and at 844x390, it is
+already in view there, just above the result, and the page does not move. On a
+phone only a press by keyboard moves the page, to bring the heading into view
+with its ring, clear of the chip and the bar: measured in Chromium, 30 pixels
+at 390x844, 203 at 375x667, 138 at 360x640, 202 at 320x568 and 586 at 568x320.
 
 ### Final-hand review and saves
 
@@ -366,11 +411,14 @@ screen says so and waits.
 and Tile rendering, riichi waits, disabled-tile navigation, consecutive keyboard
 turns, saved-state migration, ura-dora indicators with hints off, final-hand
 review, the hand's review and the final standings taking focus from the
-result's buttons, pressed by keyboard, mouse and touch, the page moving only
-for the keyboard, and the way back to the result keeping focus, at desktop and
-phone sizes, with Club reviewing and with Trained AI still under way, a notice
-spoken from a status line that waits in the page before its words arrive, the
-whole-game review with the shipped network (its batches, flags,
+result's buttons, pressed by keyboard, mouse and touch, the page moving to
+them for any press where the result is not a sheet and only for the keyboard
+where it is, and the way back to the result keeping focus, at desktop and
+phone sizes, with Club reviewing and with Trained AI still under way, a review
+the engine could not build said beside the result's buttons, which keep focus,
+the review's own status lines and the warning that the match cannot be kept
+safely, each spoken from a line that waits in the page before its words
+arrive, the whole-game review with the shipped network (its batches, flags,
 replay, retry, keyboard focus, in the flagged list too as later hands rank it
 afresh, and trend, and its way in and out on a phone, by touch and by
 keyboard),

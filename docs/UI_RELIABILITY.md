@@ -48,11 +48,18 @@ an unfinished match has progress, including between hands.
 - The safe count counts held copies and is explicitly qualified as safety
   against declared riichi, not a guarantee against undeclared hands. Tile names
   expose selected, drawn, safe and dora states to assistive technology.
-- A notice that something could not be done, such as a file that could not be
-  saved or a hand's review the engine could not build, is spoken from a status
-  line at the top of the page. A screen reader announces a status line only
-  once it already knows it, so the line waits in the page, empty and out of
-  sight, before its words arrive, rather than arriving with them.
+- A screen reader announces a status line only once it already knows it, so
+  each status line waits in the page, empty and out of sight, before its words
+  arrive, rather than arriving with them. A notice that something could not be
+  done, such as a file that could not be saved, is spoken from a line at the
+  top of the page, and the warning that this browser cannot safely save shared
+  matches from a line of its own below it. A hand's review that the engine
+  could not build is said in the result instead, beside the button that asked
+  for it, from a line of the result's own: the top of the page is above the
+  screen at desktop width. The hand's review brings two lines of its own, that
+  Trained AI is reviewing and that Club reviews in its place; they wait in the
+  review until it has been drawn, and a tenth of a second more, before their
+  words arrive.
 
 ## Verification
 
