@@ -1,0 +1,46 @@
+name: Prepare approved Dali six-disk spiral
+on:
+  push:
+    branches: [art/dali-six-spiral-retry-20261018]
+    paths:
+      - .dali-six-spiral-prep/**
+      - .github/workflows/prepare-dali-six-spiral.yml
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Ensure image exporter is available
+        run: |
+          if ! command -v convert >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+      - name: Integrate exact selected spiral and verify all previous artwork
+        run: node .dali-six-spiral-prep/prepare.mjs
+      - name: Install web verification dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts
+      - name: Run tile and Dali regressions
+        working-directory: web
+        run: node --test tests/dali-*.test.js tests/tile-faces.test.js
+      - name: Lint scoped exporter and tile tests
+        working-directory: web
+        run: npx eslint scripts/export-dali-tiles.mjs tests/dali-*.test.js tests/tile-faces.test.js --max-warnings 0
+      - name: Commit clean verified tree on preparation branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -r .dali-six-spiral-prep .github/workflows/prepare-dali-six-spiral.yml
+          git add docs/design/dali web/public/tiles/dali web/scripts/export-dali-tiles.mjs web/src/lib/dali-faces.js web/tests
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m 'Prepare selected spiral staircase C for Dali six disks with exact artwork preservation'
+          git push origin HEAD:refs/heads/art/dali-six-spiral-retry-20261018
+          git rev-parse HEAD HEAD^{tree}
