@@ -82,8 +82,8 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('Dali resolves twenty-two approved images and no picture for the rest', () => {
-  const approved = new Set(['1p', '2p', '3p', '4p', '5p', '1s', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '7z']);
+test('Dali resolves twenty-three approved images and no picture for the rest', () => {
+  const approved = new Set(['1p', '2p', '3p', '4p', '5p', '6p', '1s', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '7z']);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'dali');
     if (!approved.has(tile)) {
@@ -93,12 +93,13 @@ test('Dali resolves twenty-two approved images and no picture for the rest', () 
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
     assert.match(svg, /viewBox="0 0 300 400"/);
     assert.match(url, /\/dali\/approved\//);
-    assert.match(svg, ['2p', '4p', '3s', '4s'].includes(tile) ? /data:image\/avif;base64,/ : ['3s', '4s', '6s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
+    assert.match(svg, ['2p', '4p', '6p', '3s', '4s'].includes(tile) ? /data:image\/avif;base64,/ : ['3s', '4s', '6s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
   }
   assert.equal(tileImage('1p', 'dali'), 'tiles/dali/approved/Pin1.svg');
   assert.equal(tileImage('2p', 'dali'), 'tiles/dali/approved/Pin2.svg');
   assert.equal(tileImage('3p', 'dali'), 'tiles/dali/approved/Pin3.svg');
   assert.equal(tileImage('4p', 'dali'), 'tiles/dali/approved/Pin4.svg');
+  assert.equal(tileImage('6p', 'dali'), 'tiles/dali/approved/Pin6.svg');
   assert.equal(tileImage('3s', 'dali'), 'tiles/dali/approved/Sou3.svg');
   assert.equal(tileImage('4s', 'dali'), 'tiles/dali/approved/Sou4.svg');
   assert.equal(tileImage('5s', 'dali'), 'tiles/dali/approved/Sou5.svg');
@@ -175,7 +176,7 @@ test('the exports record that an unpainted tile is written out, and ship no stan
   for (const name of ['dali', 'matisse']) assert.equal(existsSync(new URL(`tiles/${name}/placeholders`, publicRoot)), false, name);
   // The previews say so, and show only painted faces in their hands.
   const preview = name => readFileSync(new URL(`tiles/${name}/preview.html`, publicRoot), 'utf8');
-  assert.match(preview('dali'), /remaining 12 tiles show their names until their artwork is approved/);
+  assert.ok(preview('dali').includes(`remaining ${dali.placeholders.length} tiles show their names until their artwork is approved`));
   // The Van Gogh page names them in its own words: by suit, in disks where
   // the game says circles, and 1 character, never 1 characters.
   const series = items => items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items.join('');

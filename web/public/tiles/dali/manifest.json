@@ -100,6 +100,23 @@
       }
     },
     {
+      "name": "Pin6",
+      "tile": "6p",
+      "label": "6 disks",
+      "direction": "The Spiral Staircase — C",
+      "status": "approved",
+      "svg": "approved/Pin6.svg",
+      "source": "docs/design/dali/studies/six-disks-c-spiral-approved.svg",
+      "sourceSha256": "bfedb68eb1948f9fb2b0f5f193cebc27bf2379933f13448558c6021cc1b0dbdc",
+      "svgSha256": "bfedb68eb1948f9fb2b0f5f193cebc27bf2379933f13448558c6021cc1b0dbdc",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
       "name": "Sou1",
       "tile": "1s",
       "label": "1 bamboo",
@@ -438,9 +455,6 @@
     },
     {
       "tile": "4m"
-    },
-    {
-      "tile": "6p"
     },
     {
       "tile": "7p"
