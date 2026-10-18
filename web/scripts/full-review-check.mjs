@@ -326,9 +326,8 @@ try{
  // with no ring drawn, but the page stays where it was: the player asked to
  // see the table and their hand, which on a phone the sheet uncovered, and
  // has no ring to follow below them. (Held sideways on a wide phone, at
- // 844x390, the browser itself moves the page for every press, keeping the
- // hand history below in place as the review opens above it, so that size
- // is not measured here.)
+ // 844x390, the browser's own scroll anchoring moves the page as the review
+ // opens, for every kind of press, so that size is not measured here.)
  for(const [label,snapshot,pressed,sizes] of [
   ['a hand',wins[0],'View table / my hand',[[1100,900,false],[390,844,true],[375,667,true],[360,640,true],[320,568,true],[568,320,true]]],
   ['the final hand',final.after,'Review final hand',[[1100,900,false],[390,844,true],[320,568,true]]]])

@@ -48,6 +48,11 @@ an unfinished match has progress, including between hands.
 - The safe count counts held copies and is explicitly qualified as safety
   against declared riichi, not a guarantee against undeclared hands. Tile names
   expose selected, drawn, safe and dora states to assistive technology.
+- A notice that something could not be done, such as a file that could not be
+  saved or a hand's review the engine could not build, is spoken from a status
+  line at the top of the page. A screen reader announces a status line only
+  once it already knows it, so the line waits in the page, empty and out of
+  sight, before its words arrive, rather than arriving with them.
 
 ## Verification
 
