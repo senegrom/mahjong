@@ -206,7 +206,9 @@ try {
     await page.waitForSelector('select[aria-label="Review adviser"]');
     assert.equal(await page.$eval('select[aria-label="Review adviser"]', el => el.value), 'strong');
     assert.equal(await page.$eval('select[aria-label="Review adviser"] option[value="strong"]', el => el.disabled), true);
-    assert.match(await page.$eval('[data-review-fallback]', el => el.textContent), /Club reviews this hand/);
+    // The note's words arrive once the review has been drawn, for a screen
+    // reader to hear them.
+    await page.waitForFunction(() => /Club reviews this hand/.test(document.querySelector('[data-review-fallback]')?.textContent ?? ''));
     assert.match(await page.$eval('.review .summary', el => el.textContent), /matched Club/);
     assert.equal(await page.$('.review [role="alert"]'), null);
     // The default is kept for when the network can be had, not replaced by the fallback.

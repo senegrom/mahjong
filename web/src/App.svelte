@@ -21,7 +21,7 @@
   import { analyzeBatch, chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { acceptsHandKey, moveHandFocus, waitingNote } from './lib/ui.js';
+  import { RESULT_SHEET, acceptsHandKey, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
@@ -79,6 +79,15 @@
   // How many hands the game's log holds: the finished ones only.
   let loggedHands = $state(0);
   let notes = $state(null);
+  // The hand review's heading, which takes focus as the review opens.
+  let reviewHeading = $state(null);
+  // Why a press on the result's buttons could not be done, which the result
+  // says beside them (sayOnResult, ScoreScreen).
+  let resultFailure = $state('');
+  // The final standings' heading, which takes focus as the game ends, and
+  // whether the keyboard sent it there, for the result to step aside for it.
+  let standingsHeading = $state(null);
+  let standingsFocused = $state(false);
   let picked = $state(null);
   let selected = $state(null);
   let handElement = $state(null);
@@ -312,6 +321,8 @@
     picked = null;
     selected = null;
     notes = null;
+    resultFailure = '';
+    standingsFocused = false;
     notice = '';
     loadNote = '';
     session = new MatchSession(Game, Date.now() % 2 ** 31, strength, callbacks);
@@ -421,35 +432,112 @@
   function retryAi() { resetPolicy(); void session?.retry(); }
   function continueClub() { resetPolicy(); void session?.continueWithClub(); }
   function continueThisOpponent() { resetPolicy(); void session?.continueOpponentWithClub(); }
-  async function nextHand() {
+  // Next hand on the last hand brings the standings in place of another
+  // deal, and its button goes for the Final hand caption, so focus goes on
+  // to the standings' heading, which says where the player finished, rather
+  // than to the page (land). Only a keyboard's press moves the page to show
+  // the heading, at every size: that player follows focus, and is shown a
+  // ring there. A mouse's or a finger's press is shown no ring, and the page
+  // is left as the browser leaves it when the standings come in above the
+  // result, as it was before focus moved: where the player had scrolled down
+  // to the result's buttons, at the foot of the page, a scroll to the heading
+  // would take the Final hand caption, where they pressed, off a short screen
+  // (pressedByKeyboard). On a phone the result is a sheet over the
+  // standings. When the keyboard pressed the button, the sheet steps aside
+  // for them, so that focus is not hidden under it; a tap leaves the result
+  // up, as it was.
+  async function nextHand(event) {
     if (busy || !session) return;
-    const owner = session;
+    const owner = session, byKeyboard = pressedByKeyboard(event);
     picked = null;
     selected = null;
     const advanced = await owner.nextHand();
-    if (session === owner && advanced && !owner.over) notes = null;
+    if (session !== owner || !advanced) return;
+    if (!owner.over) { notes = null; resultFailure = ''; return; }
+    standingsFocused = byKeyboard;
+    await tick();
+    land(standingsHeading, byKeyboard);
   }
 
+  // What the result says beside its buttons when a press on one could not
+  // be done, where the player pressed it: the page's notice line sits at the
+  // top of the page, above the screen at desktop width and under the sheet
+  // on a phone.
+  const REVIEW_NOT_BUILT = 'The review could not be built. Your match is unchanged.';
+  const HAND_NOT_SAVED = 'The hand could not be saved to a file. Your current match is unchanged.';
+  const GAME_NOT_SAVED = 'The game could not be saved to a file. Your current match is unchanged.';
+
+  // Says on the result why a press failed, or, once the same press is done,
+  // takes back its words, which are no longer true; another button's words
+  // stay. Answers whether it was done, which tells the result whether to
+  // bring the line into view (ScoreScreen).
+  function sayOnResult(words, done) {
+    if (!done) resultFailure = words;
+    else if (resultFailure === words) resultFailure = '';
+    return done;
+  }
+
+  // The hand as one mjai log, from the result's button.
   function saveLog() {
     if (!session) return;
     try {
       saveLogFile(`riichi-${view.round}-${view.kyoku}-${Date.now()}.mjai.jsonl`, session.engine.log());
-    } catch { notice = 'The hand could not be saved to a file. Your current match is unchanged.'; }
+    } catch { return sayOnResult(HAND_NOT_SAVED, false); }
+    return sayOnResult(HAND_NOT_SAVED, true);
   }
 
   // The whole game from East 1. The engine leaves out a hand still being
-  // played, whose deal would show the opponents' tiles.
-  function saveGame() {
-    if (!session || session.closed || !view) return;
+  // played, whose deal would show the opponents' tiles. Says whether the
+  // file was made.
+  function writeGame() {
     try {
       const names = playerNames(view, matchLabels(session.initialOpponents, session.opponents));
       saveLogFile(gameFileName(), session.engine.game_log(names));
-    } catch { notice = 'The game could not be saved to a file. Your current match is unchanged.'; }
+      return true;
+    } catch { return false; }
+  }
+  // From the settings and the standings, a game that could not be saved is
+  // said on the page's notice line; from the result, beside its buttons.
+  function saveGame() {
+    if (session && !session.closed && view && !writeGame()) notice = GAME_NOT_SAVED;
+  }
+  function saveGameFromResult() {
+    if (!session || session.closed || !view) return;
+    return sayOnResult(GAME_NOT_SAVED, writeGame());
   }
 
-  function showReview() {
+  // Focus goes on to a heading that says where the player now is, and the
+  // page moves to show it, by as little movement as will, only when the
+  // caller asks (showReview, nextHand).
+  function land(heading, scroll) {
+    heading?.focus({ preventScroll: true });
+    if (scroll) heading?.scrollIntoView({ block: 'nearest' });
+  }
+
+  // The result's button goes as it opens the hand's review, and on a phone
+  // the result steps aside with it, so focus goes on to the review, to its
+  // heading, rather than to the page (land). Where the result is not a
+  // sheet, the heading is brought into view however the button was pressed:
+  // nothing was covered there, and the review opens below the result, often
+  // below the screen, where a player who clicked would see the button go and
+  // nothing else. Where the result is a sheet, on a phone, only a keyboard's
+  // press moves the page, since that player follows focus and is shown a
+  // ring there. A mouse's or a finger's press is shown no ring and leaves the
+  // page where it was: it asked for what the sheet covers, which the sheet
+  // uncovers by stepping aside, and the scroll would take the top of the
+  // table off a small screen (pressedByKeyboard). The way back to the result
+  // is the control just before the review: on a phone the result's chip,
+  // which hands focus back to it, and where the result is not a sheet, its
+  // own buttons. A review the engine cannot build opens nothing, and false
+  // tells the result so: it stays as it was, its button too, with focus, and
+  // says why beside its buttons (sayOnResult).
+  function showReview(event) {
+    const byKeyboard = pressedByKeyboard(event);
     try { notes = session?.engine.review() ?? []; }
-    catch { notice = 'The review could not be built. Your match is unchanged.'; }
+    catch { return sayOnResult(REVIEW_NOT_BUILT, false); }
+    sayOnResult(REVIEW_NOT_BUILT, true);
+    void tick().then(() => land(reviewHeading, byKeyboard || !matchMedia(RESULT_SHEET).matches));
+    return true;
   }
 
   // The finished match is replayed from its saved commands on an engine of
@@ -505,7 +593,9 @@
     {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={saveGame}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
   {#if faceWarning}<p class="notice" data-face-error role="alert">{faceWarning}</p>{/if}
-  {#if notice}<p class="notice" role="status">{notice}</p>{/if}
+  <!-- A screen reader hears a status line only once it knows it, so this one
+       waits in the page, empty and out of sight, before its words arrive. -->
+  <p class={notice ? 'notice' : 'visually-hidden'} data-notice role="status">{notice}</p>
 
   <OpponentDialog bind:customDialog bind:draftOpponents {opponents} {trainedAvailable}
     {ready} {saveConflict} {startCustomTable} />
@@ -534,7 +624,9 @@
       {/if}
     </section>
   {/if}
-  {#if storageWarning}<p class="notice" role="status">{storageWarning}</p>{/if}
+  <!-- Waits in the page, empty and out of sight, for its words, as the
+       notice does. -->
+  <p class={storageWarning ? 'notice' : 'visually-hidden'} data-storage-warning role="status">{storageWarning}</p>
 
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
@@ -560,14 +652,14 @@
 
         <section class="controls" aria-label="your choices" bind:this={callElement}>
           {#if standings}
-            <Standings {standings} onagain={() => start()} onsave={saveGame} onreview={openGameReview} />
+            <Standings {standings} onagain={() => start()} onsave={saveGame} onreview={openGameReview} bind:heading={standingsHeading} />
           {/if}
           {#if view.phase === 'over' && view.outcome}
             <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
               bets={view.riichi_sticks ?? 0} onnext={nextHand}
-              onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} ongamereview={openGameReview}
-              gameReviewOpen={reviewingGame} finalHand={Boolean(standings)} />
-            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} />{/if}
+              onreview={showReview} reviewed={notes !== null} failure={resultFailure} onlog={saveLog} ongame={saveGameFromResult} ongamereview={openGameReview}
+              gameReviewOpen={reviewingGame} {standingsFocused} finalHand={Boolean(standings)} />
+            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} bind:heading={reviewHeading} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
               loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}

@@ -83,6 +83,33 @@ export function callTiles(choice, pending) {
   return choice.tile ? [choice.tile] : choice.kind === 'ron' && pending ? [pending] : [];
 }
 
+/** Whether a button's click came from the keyboard, Enter or Space on the
+ * focused button, rather than from a mouse, a finger or a pen. A click's
+ * detail is its click count (UI Events): a press of a mouse button, a tap or
+ * a pen's touch counts at least one, in every browser, while the click a
+ * browser makes for a key counts none, as does a script's click(). A screen
+ * reader's press counts none in Chromium and may count one elsewhere. Either
+ * answer is safe for what it decides, whether what is on the screen moves to
+ * show where focus went: focus moves either way, and a screen reader follows
+ * it. */
+export function pressedByKeyboard(event) {
+  return event?.detail === 0;
+}
+
+/** Where a hand's result is a sheet over the table and the hand, as
+ * ScoreScreen's styles have it: on a phone held upright, and on a small one
+ * held sideways, up to 760 pixels wide. */
+export const RESULT_SHEET = '(max-width: 760px)';
+
+/** Why Club reviews a hand in Trained AI's place: the network cannot be
+ * reached now, or, once the match has no engine (another window took it
+ * over), there is no hand left to put to Trained AI. */
+export function reviewFallbackNote(engine) {
+  return engine
+    ? 'The trained network is not available right now, so Club reviews this hand. Trained AI takes over again once the network can be reached.'
+    : 'This hand can no longer be put to Trained AI, so Club reviews it.';
+}
+
 export function acceptsHandKey(event, hand) {
   if (!hand || event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
   const target = event.target;

@@ -48,6 +48,28 @@ an unfinished match has progress, including between hands.
 - The safe count counts held copies and is explicitly qualified as safety
   against declared riichi, not a guarantee against undeclared hands. Tile names
   expose selected, drawn, safe and dora states to assistive technology.
+- A screen reader announces a status line only once it already knows it. So
+  these lines wait in the page, empty and out of sight, before their words
+  arrive, rather than arriving with them:
+  - the page's notice line, at the top of the page. It says what could not be
+    done from the settings or the standings, such as a game that could not be
+    saved to a file, and that a whole game could not be replayed for review,
+    wherever its review was asked for;
+  - the warning below it that this browser cannot safely save shared matches;
+  - the result's own line after its buttons, which says why the hand's review
+    could not be built, or why the hand or the game could not be saved from
+    the result. It speaks where the player pressed, since the top of the page
+    is above the screen at desktop width and under the sheet on a phone;
+  - the hand review's two lines, that Trained AI is reviewing and that Club
+    reviews in its place, which wait in the review until it has been drawn,
+    and a tenth of a second more.
+
+  Other status lines still come into the page with their words: the line that
+  says the game is loading, the settings' line that new tile graphics are
+  loading, a yaku's explanation on a hand's result, the whole-game review's
+  headline (with the review, and again on Back to the list), the decision
+  replay's "Your decision N of M", and the status lines of Agent watch, the
+  guided physical game and physical agent play.
 
 ## Verification
 

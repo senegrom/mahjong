@@ -12,10 +12,21 @@ import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { matchLabels, playerNames } from '../src/lib/game-log.js';
+import { MANIFEST } from '../src/lib/model-manifest.js';
 await init({module_or_path:readFileSync(new URL('../src/wasm/riichi_bg.wasm',import.meta.url))});
 const web=fileURLToPath(new URL('../',import.meta.url)), dist=resolve(web,'dist'), output=resolve(web,'test-results');
 await mkdir(output,{recursive:true});
-const server=createServer(createFixtureHandler({root:dist,headers:{'Cache-Control':'no-store'}}));
+// The trained runtime can be held back, so that a review by Trained AI, the
+// default adviser, stays under way while a check looks at it. No check
+// downloads the network: its host is out of the browser's reach.
+const networkUrl=`${MANIFEST.origin}/${MANIFEST.object}`;
+const runtime=new Set(JSON.parse(readFileSync(resolve(dist,'offline-manifest.json'),'utf8')).entries
+ .filter(entry=>entry.group==='ai'&&entry.url.endsWith('.wasm')).map(entry=>entry.url));
+let holding=false;const held=new Set();
+const server=createServer(createFixtureHandler({root:dist,headers:{'Cache-Control':'no-store'},intercept:async name=>{
+ if(holding&&runtime.has(name))await new Promise(done=>held.add(done));
+}}));
+function release(){holding=false;for(const done of held)done();held.clear();}
 let browser;
 const {check,openContext,report}=browserChecks();
 const make=(seed,mode='club')=>{const m=new MatchSession(Game,seed,mode);m.advance(false);return m;};
@@ -57,9 +68,80 @@ function exported(snapshot){
  finally{m.dispose();}
 }
 const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_KEY);
-async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,files=false}={}){
+/** A page restored from the snapshot. `touch` makes it a touchscreen phone's;
+ * `reduced` asks for reduced motion, so nothing moves while a check measures
+ * where the page is; `adviser` null leaves the review's adviser at its
+ * default, Trained AI, which `trained` puts on offer; `failReview` has the
+ * engine fail to build the hand's review, and `failSave` the browser fail
+ * to make any file; `statusLines` records when each status line comes into
+ * the page and when its words arrive (waited); `scrolls` notes every scroll
+ * the page asks for (scrollsAsked); `locks` false takes away the Web Locks
+ * API, as some private windows do, so the page cannot safely keep the
+ * match. */
+async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,files=false,touch=false,reduced=false,adviser='club',trained=false,failReview=false,
+ failSave=false,statusLines=false,scrolls=false,locks=true}={}){
  const page=await (await openContext(browser)).newPage();page.reviewErrors=[];
- page.on('pageerror',error=>page.reviewErrors.push(error.message));await page.setViewport({width,height});
+ page.on('pageerror',error=>page.reviewErrors.push(error.message));await page.setViewport({width,height,isMobile:touch,hasTouch:touch});
+ if(reduced)await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
+ // The frames the page has drawn are counted from its start, each once it
+ // is drawn: a timer set as a frame begins runs after that frame is drawn.
+ // Every status line is noted with the count when it came into the page and
+ // when its words first arrived.
+ if(statusLines)await page.evaluateOnNewDocument(()=>{
+  let drawn=0;const count=()=>{setTimeout(()=>{drawn++;});requestAnimationFrame(count);};requestAnimationFrame(count);
+  const lines=window.statusLines=new Map();
+  new MutationObserver(()=>{
+   for(const el of document.querySelectorAll('[role="status"]')){
+    if(!lines.has(el))lines.set(el,{added:drawn,spoke:null});
+    const line=lines.get(el);if(line.spoke===null&&el.textContent.trim())line.spoke=drawn;
+   }
+  }).observe(document,{childList:true,subtree:true,characterData:true});
+ });
+ if(!locks)await page.evaluateOnNewDocument(()=>Object.defineProperty(navigator,'locks',{value:undefined,configurable:true}));
+ // The network answers the page's availability probe, so Trained AI is on
+ // offer, but its download never ends.
+ if(trained)await page.evaluateOnNewDocument(url=>{
+  const realFetch=window.fetch;
+  window.fetch=(input,options)=>{
+   const target=input instanceof Request?input.url:String(input);
+   if(target!==url)return realFetch(input,options);
+   const method=String(options?.method??(input instanceof Request?input.method:'GET')).toUpperCase();
+   return method==='HEAD'?Promise.resolve(new Response(null,{status:200})):new Promise(()=>{});
+  };
+ },networkUrl);
+ // The engine fails to build the hand's review, as a broken one would: its
+ // export behind Game.review throws, replaced as the page instantiates it.
+ if(failReview)await page.evaluateOnNewDocument(()=>{
+  const plant=result=>{
+   if(!result?.instance?.exports?.game_review)return result;
+   const exports={...result.instance.exports,game_review(){throw new Error('A planted review failure');}};
+   return {module:result.module,instance:{exports}};
+  };
+  for(const name of ['instantiateStreaming','instantiate']){
+   const original=WebAssembly[name].bind(WebAssembly);
+   WebAssembly[name]=async(...args)=>plant(await original(...args));
+  }
+ });
+ // No file can be made, as when the browser refuses one: the object URL a
+ // file is saved through cannot be had.
+ if(failSave)await page.evaluateOnNewDocument(()=>{URL.createObjectURL=()=>{throw new Error('A planted save failure');};});
+ // Every way the page can ask to scroll, noted once the check asks
+ // (scrollsAsked): to an element, by the window or an element, and by a
+ // focus that is let scroll.
+ if(scrolls)await page.evaluateOnNewDocument(()=>{
+  const asked=window.scrollsAsked=[];let noting=false;
+  window.noteScrolls=()=>{noting=true;asked.length=0;};
+  const spy=(owner,name,scrolling=()=>true)=>{
+   const real=owner[name];
+   owner[name]=function(...args){
+    if(noting&&scrolling(args))asked.push(`${name} on ${this===window?'the window':this.outerHTML?.slice(0,60)}`);
+    return real.apply(this,args);
+   };
+  };
+  for(const name of ['scrollIntoView','scrollTo','scrollBy','scroll'])spy(Element.prototype,name);
+  for(const name of ['scrollTo','scrollBy','scroll'])spy(window,name);
+  spy(HTMLElement.prototype,'focus',([options])=>!options?.preventScroll);
+ });
  // A saved file is kept in the page, name and text, rather than downloaded.
  if(files)await page.evaluateOnNewDocument(()=>{
   const blobs=new Map(),create=URL.createObjectURL.bind(URL);
@@ -70,15 +152,30 @@ async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,fil
    void blobs.get(this.href)?.text().then(text=>{file.text=text;});
   };
  });
- await page.evaluateOnNewDocument((key,settings,snapshot,confirm,hints)=>{
+ await page.evaluateOnNewDocument((key,settings,snapshot,confirm,hints,adviser)=>{
   if(!localStorage.getItem(key))localStorage.setItem(key,JSON.stringify(snapshot));
-  // Club reviews: these checks open a review without waiting on the network.
-  localStorage.setItem(settings,JSON.stringify({version:2,difficulty:snapshot.difficulty,hints,confirmDiscards:confirm,shortcuts:true,reviewAdviser:'club'}));
- },SAVE_KEY,SETTINGS_KEY,snapshot,confirm,hints);
+  // Club reviews unless a check asks for the default: these checks open a
+  // review without waiting on the network.
+  const preferences={version:2,difficulty:snapshot.difficulty,hints,confirmDiscards:confirm,shortcuts:true};
+  if(adviser)preferences.reviewAdviser=adviser;
+  localStorage.setItem(settings,JSON.stringify(preferences));
+ },SAVE_KEY,SETTINGS_KEY,snapshot,confirm,hints,adviser);
  await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`,{waitUntil:'networkidle0'});
  await page.waitForSelector('.hand');return page;
 }
 const noErrors=page=>assert.deepEqual(page.reviewErrors,[]);
+/** How many times the page was drawn with the status line now saying `words`
+ * in it, empty, before its words arrived, in a page opened with
+ * `statusLines`: none when it came into the page with them, or got them
+ * before the page was next drawn. */
+const waited=(page,words)=>page.evaluate(source=>{
+ const pattern=new RegExp(source);
+ for(const [el,line] of window.statusLines)if(el.isConnected&&pattern.test(el.textContent.trim()))return line.spoke-line.added;
+ return null;
+},words.source);
+/** The scrolls the page has asked for since noteScrolls, in a page opened
+ * with `scrolls`. */
+const scrollsAsked=page=>page.evaluate(()=>[...window.scrollsAsked]);
 const shot=(page,name)=>page.screenshot({path:resolve(output,name+'.png'),fullPage:true});
 async function saveFrom(page,selector){
  const before=await page.evaluate(()=>window.savedFiles.length);
@@ -89,7 +186,7 @@ async function saveFrom(page,selector){
 const lines=text=>text.trimEnd().split('\n').map(line=>JSON.parse(line));
 try{
  await new Promise(done=>server.listen(0,'127.0.0.1',done));
- browser=await launchChrome();
+ browser=await launchChrome({args:[`--host-resolver-rules=MAP ${new URL(networkUrl).hostname} ~NOTFOUND`]});
  await check('two consecutive keyboard turns retain usable hand focus',async()=>{
   const p=await open(initial);await p.focus('.hand');
   for(let n=1;n<=2;n++){
@@ -197,6 +294,389 @@ try{
   await review.click();await p.waitForSelector('.review');assert.equal(await p.$$eval('.log p',els=>els.length),final.events.length);
   await shot(p,'final-standings-with-review');noErrors(p);
  });
+ // The result's buttons, and the headings they hand focus to as they go. A
+ // press by keyboard and one by a mouse or a finger both move focus. The
+ // keyboard's moves the page to show where focus went; a mouse's or a
+ // finger's does so only where the result is not a sheet, since on a phone
+ // the sheet steps aside to show what the press asked for.
+ const SIZES=[[1100,900],[390,844],[320,568],[844,390],[568,320]];
+ const resultButton=(p,text)=>p.evaluateHandle(text=>[...document.querySelectorAll('.screen .buttons button')].find(el=>el.textContent.trim()===text),text);
+ const focusOn=p=>p.evaluate(()=>{const a=document.activeElement;return a?.matches('.review h3')?'the review':a?.matches('.standings h2')?'the standings'
+  :a?.matches('.screen')?'the result':a?.matches('.result-chip')?'the chip':!a||a===document.body?'the page':a.outerHTML.slice(0,80);});
+ const ringed=p=>p.evaluate(()=>document.activeElement?.matches(':focus-visible')??false);
+ const sheetShown=p=>p.$eval('.screen',el=>getComputedStyle(el).display!=='none');
+ const settle=p=>p.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
+ // In view, and not under the result's chip or the game's bar.
+ const uncovered=handle=>handle.evaluate(el=>{const box=el.getBoundingClientRect(),hit=document.elementFromPoint(box.left+box.width/2,box.top+box.height/2);
+  return box.top>=0&&box.bottom<=innerHeight&&Boolean(hit)&&(hit===el||el.contains(hit));});
+ // The ring that a keyboard's focus shows, drawn just outside the element,
+ // and in view with it.
+ const ringInView=handle=>handle.evaluate(el=>{const style=getComputedStyle(el),reach=parseFloat(style.outlineOffset)+parseFloat(style.outlineWidth),box=el.getBoundingClientRect();
+  return el.matches(':focus-visible')&&style.outlineStyle!=='none'&&box.top-reach>=0&&box.bottom+reach<=innerHeight;});
+ // The button where the player sees it, scrolled to first if need be.
+ async function inReach(button){
+  if(!await uncovered(button))await button.evaluate(el=>el.scrollIntoView({block:'center'}));
+  assert.ok(await uncovered(button),'the button is in view to be pressed');
+  return button;
+ }
+ // The result's own status line, after its buttons, which says why a press
+ // on one could not be done.
+ const resultLine=p=>p.$('.screen .buttons [role="status"]');
+ // A mouse's click or a finger's tap on the button's middle, which scrolls
+ // nothing first.
+ async function pointerPress(p,button,touch){
+  const box=await button.boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;
+  if(touch)await p.touchscreen.tap(x,y);else await p.mouse.click(x,y);
+ }
+ // The result's review button goes as it opens the hand's review, and on a
+ // phone, where the result is a sheet, the sheet steps aside with it. Pressed
+ // by keyboard, focus must go on to the review's heading, which a screen
+ // reader names, and the heading must be brought into view with its focus
+ // ring, clear of the result's chip and the game's bar, with no chip's height
+ // kept free below it where no chip sits. Focus must not drop to the page,
+ // and the control before the review must lead back to the result: the
+ // sheet's chip, which hands focus back to the result, or else the result's
+ // own buttons.
+ for(const [label,snapshot,pressed,sizes] of [['a hand',wins[0],'View table / my hand',SIZES],
+  ['the last hand',final.before,'View table / my hand',[[1100,900],[390,844]]],['the final hand',final.after,'Review final hand',SIZES]])
+  await check(`${pressed}, pressed by keyboard on ${label}'s result, hands focus to the review and back, at desktop and phone sizes`,async()=>{
+  for(const [width,height] of sizes){
+   const p=await open(snapshot,{width,height,reduced:true}),where=`at ${width}x${height}`;
+   // The result takes focus as it appears, so the button is pressed after.
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+   assert.equal(sheet,width<=760,`the result is a sheet up to 760 pixels wide, and only there, ${where}`);
+   const button=await resultButton(p,pressed);
+   assert.ok(await button.evaluate(el=>el instanceof HTMLButtonElement),`the result offers ${pressed} ${where}`);
+   await button.focus();await p.keyboard.press('Enter');await p.waitForSelector('.review');
+   if(sheet)assert.equal(await sheetShown(p),false,`the sheet steps aside ${where}`);
+   await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
+   assert.equal(await focusOn(p),'the review',`focus goes on to the review ${where}`);
+   // What a screen reader says of it: the hand's review, by its heading.
+   const heading=await p.$('.review h3'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
+   assert.deepEqual([node?.role,node?.name,node?.level],['heading','Your hand, looked at again',3]);
+   assert.equal(await heading.evaluate(el=>el.closest('section').getAttribute('aria-label')),'your decisions this hand');
+   await settle(p);
+   assert.ok(await uncovered(heading),`the review's heading is in view and uncovered ${where}`);
+   assert.ok(await ringInView(heading),`the heading's focus ring is drawn, and in view ${where}`);
+   // It lands clear of the chip where one sits; where none does, no chip's
+   // height is kept free below it, only its ring's width and a little.
+   const landed=await heading.evaluate(el=>{const chip=document.querySelector('.result-chip');
+    return {innerHeight,bottom:el.getBoundingClientRect().bottom,margin:parseFloat(getComputedStyle(el).scrollMarginBottom),
+     chip:chip&&getComputedStyle(chip).display!=='none'?chip.getBoundingClientRect().top:null};});
+   if(landed.chip!==null)assert.ok(landed.bottom<=landed.chip,`the heading lands above the chip ${where}: ${JSON.stringify(landed)}`);
+   else assert.ok(landed.margin<=12,`no chip's height is kept below the heading where no chip sits, ${where}: ${JSON.stringify(landed)}`);
+   await shot(p,`result-review-focus-${label.replaceAll(' ','-')}-${width}x${height}`);
+   // The way back to the result is the control before the review.
+   await p.keyboard.down('Shift');await p.keyboard.press('Tab');await p.keyboard.up('Shift');
+   if(!sheet)assert.ok(await p.evaluate(()=>document.activeElement?.matches('.screen button')),`Shift+Tab goes back to the result's buttons ${where}`);
+   else{
+    assert.equal(await focusOn(p),'the chip',`Shift+Tab reaches the result's chip ${where}`);
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(()=>getComputedStyle(document.querySelector('.screen')).display!=='none',{timeout:5000});
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'),{timeout:5000}).catch(()=>{});
+    assert.equal(await focusOn(p),'the result',`the chip hands focus back to the result ${where}`);
+   }
+   noErrors(p);
+  }
+ });
+ // Pressed by a mouse or a finger, the review's heading takes focus as well,
+ // with no ring drawn. Where the result is a sheet, on a phone, the page
+ // stays where it was: the player asked to see the table and their hand,
+ // which the sheet uncovered as it stepped aside. Where it is not, at desktop
+ // and held sideways on a wide phone, nothing was covered, and the review
+ // opens below the result, often below the screen, so its heading is brought
+ // into view, clear of the game's bar where that stays at the top of the
+ // screen. (At 844x390 the browser's own scroll anchoring moves the page as
+ // the review opens, and leaves the heading under the bar.)
+ for(const [label,snapshot,pressed,sizes] of [
+  ['a hand',wins[0],'View table / my hand',[[1100,900,false],[1280,600,false],[844,390,true],[390,844,true],[375,667,true],[360,640,true],[320,568,true],[568,320,true]]],
+  ['the final hand',final.after,'Review final hand',[[1100,900,false],[1366,768,false],[844,390,true],[390,844,true],[320,568,true]]]])
+  await check(`${pressed}, pressed by mouse or touch on ${label}'s result, hands focus to the review, brought into view only where the result is not a sheet`,async()=>{
+  for(const [width,height,touch] of sizes){
+   const p=await open(snapshot,{width,height,touch,reduced:true}),where=`at ${width}x${height} by ${touch?'touch':'mouse'}`;
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+   const button=await inReach(await resultButton(p,pressed)),before=await p.evaluate(()=>scrollY);
+   await pointerPress(p,button,touch);await p.waitForSelector('.review');
+   await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
+   assert.equal(await focusOn(p),'the review',`focus goes on to the review ${where}`);
+   assert.equal(await ringed(p),false,`no focus ring is drawn for a pointer ${where}`);
+   await settle(p);
+   if(sheet){
+    assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
+    assert.equal(await sheetShown(p),false,`the sheet steps aside ${where}`);
+   }else assert.ok(await uncovered(await p.$('.review h3')),`the review's heading is brought into view, uncovered, ${where}`);
+   noErrors(p);
+  }
+ });
+ // Most players review with the default adviser, Trained AI, whose review is
+ // still under way as the review opens, its region busy: the heading must
+ // take focus and be named all the same.
+ await check('View table / my hand, pressed by keyboard while Trained AI reviews, hands focus to the busy review',async()=>{
+  for(const [width,height] of [[1100,900],[390,844],[320,568]]){
+   const p=await open(wins[0],{width,height,reduced:true,adviser:null,trained:true}),where=`at ${width}x${height}`;
+   try{
+    // Trained AI is on offer before the review opens, as on a real visit.
+    await p.waitForSelector('.opponents option[value="neural"]');
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+    holding=true;
+    const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
+    await p.waitForSelector('.review[aria-busy="true"]');
+    assert.equal(await p.$eval('.review select',el=>el.value),'strong',`Trained AI reviews ${where}`);
+    await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
+    assert.equal(await focusOn(p),'the review',`focus goes on to the busy review ${where}`);
+    const heading=await p.$('.review h3'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
+    assert.deepEqual([node?.role,node?.name,node?.level,node?.focused],['heading','Your hand, looked at again',3,true]);
+    await p.waitForFunction(()=>[...document.querySelectorAll('.review [role="status"]')].some(el=>/^Trained AI is reviewing your decisions/.test(el.textContent.trim())),
+     {timeout:5000});
+    await settle(p);
+    assert.ok(await uncovered(heading),`the review's heading is in view and uncovered ${where}`);
+    assert.ok(await ringInView(heading),`the heading's focus ring is drawn, and in view ${where}`);
+    assert.equal(await p.$eval('.review',el=>el.getAttribute('aria-busy')),'true',`the review is still under way ${where}`);
+    noErrors(p);
+   }finally{release();}
+  }
+ });
+ // Next hand on the last hand brings the standings in place of another
+ // deal, and its button goes for the Final hand caption. Pressed by
+ // keyboard, focus must go on to the standings' heading, which says where
+ // the player finished, brought into view and uncovered: on a phone the
+ // result, a sheet over the standings, steps aside for them, and its chip,
+ // after the standings' buttons, brings it back with focus.
+ await check('Next hand on the last hand, pressed by keyboard, hands focus to the standings, at desktop and phone sizes',async()=>{
+  for(const [width,height] of SIZES){
+   const p=await open(final.before,{width,height,reduced:true}),where=`at ${width}x${height}`,sheet=width<=760;
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const button=await resultButton(p,'Next hand');await button.focus();await p.keyboard.press('Enter');
+   await p.waitForSelector('.standings');
+   await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'),{timeout:5000}).catch(()=>{});
+   assert.equal(await focusOn(p),'the standings',`focus goes on to the standings ${where}`);
+   const heading=await p.$('.standings h2'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
+   assert.deepEqual([node?.role,node?.level],['heading',2]);assert.match(node?.name??'',/^You finished /);
+   assert.equal(await heading.evaluate(el=>el.closest('section').getAttribute('aria-label')),'final standings');
+   if(sheet)assert.equal(await sheetShown(p),false,`the sheet steps aside for the standings ${where}`);
+   await settle(p);
+   assert.ok(await uncovered(heading),`the standings' heading is in view and uncovered ${where}`);
+   assert.ok(await ringInView(heading),`the heading's focus ring is drawn, and in view ${where}`);
+   await shot(p,`standings-focus-${width}x${height}`);
+   if(sheet){
+    for(let presses=0;presses<6&&await focusOn(p)!=='the chip';presses++)await p.keyboard.press('Tab');
+    assert.equal(await focusOn(p),'the chip',`Tab reaches the result's chip after the standings' buttons ${where}`);
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'),{timeout:5000}).catch(()=>{});
+    assert.equal(await focusOn(p),'the result',`the chip hands focus back to the result ${where}`);
+   }
+   noErrors(p);
+  }
+ });
+ // Pressed by a mouse or a finger, the standings' heading takes focus as
+ // well, with no ring drawn, and the page asks for no scroll at any size:
+ // it is left as the browser leaves it when the standings come in above the
+ // result, as before focus moved. On a phone the result stays over the
+ // standings, as it was, and the page where it was. Where the result is not
+ // a sheet the standings appear just above it, and a player who had
+ // scrolled to its buttons at the foot of the page keeps them in view: a
+ // scroll to the heading at 844x390 would take the Final hand caption, where
+ // they pressed, off the screen.
+ await check('Next hand on the last hand, pressed by mouse or touch, hands focus to the standings without moving the page',async()=>{
+  // Every press after which the page asked for a scroll, with where the page
+  // went, so that a failure names each size and place it happens at.
+  const scrolled=[];
+  for(const [width,height,touch,foot] of [[1100,900,false,false],[1100,900,false,true],[1280,600,false,true],[1366,768,false,true],
+   [844,390,true,false],[844,390,true,true],[844,390,false,true],[390,844,true,false],[320,568,true,false],[568,320,true,false]]){
+   const p=await open(final.before,{width,height,touch,reduced:true,scrolls:true}),where=`at ${width}x${height} by ${touch?'touch':'mouse'}${foot?' from the foot of the page':''}`;
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+   if(foot){await p.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight));await settle(p);}
+   const button=await inReach(await resultButton(p,'Next hand')),before=await p.evaluate(()=>scrollY);
+   await p.evaluate(()=>window.noteScrolls());
+   await pointerPress(p,button,touch);await p.waitForSelector('.standings');
+   await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'),{timeout:5000}).catch(()=>{});
+   assert.equal(await focusOn(p),'the standings',`focus goes on to the standings ${where}`);
+   assert.equal(await ringed(p),false,`no focus ring is drawn for a pointer ${where}`);
+   await settle(p);
+   const moved=await p.evaluate(before=>scrollY-before,before),asked=await scrollsAsked(p);
+   if(asked.length)scrolled.push(`${where}, the page scrolled from ${before} to ${before+moved}: ${asked.join('; ')}`);
+   if(sheet){
+    assert.equal(moved,0,`the page stays where it was ${where}`);
+    assert.equal(await sheetShown(p),true,`the result stays over the standings ${where}`);
+   }
+   noErrors(p);
+  }
+  assert.deepEqual(scrolled,[],'the page asks for no scroll after a press by mouse or touch');
+ });
+ // A hand's review that the engine could not build opens nothing: the
+ // result stays as it was, on a phone too, and the pressed button stays,
+ // with focus. The result says why beside its buttons, where the player
+ // pressed one and can see it, rather than in the notice line at the top of
+ // the page, which at desktop lies above the screen. It says so from a status
+ // line of its own, and a screen reader hears a status line only once it
+ // knows it, so the line waits there, empty and taking no room, before its
+ // words arrive.
+ await check('a review the engine could not build is said beside the result\'s buttons, and its button keeps focus',async()=>{
+  for(const [width,height,how] of [[1100,900,'keyboard'],[1100,900,'mouse'],[844,390,'touch'],[390,844,'keyboard'],[390,844,'touch'],[320,568,'keyboard'],
+   [568,320,'touch']]){
+   const touch=how==='touch',p=await open(wins[0],{width,height,touch,reduced:true,failReview:true}),where=`at ${width}x${height} by ${how}`;
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+   const line=await resultLine(p);
+   assert.ok(line,`the result has a line for it before the press ${where}`);
+   assert.deepEqual(await line.evaluate(el=>[el.getAttribute('role'),el.textContent.trim(),el.getBoundingClientRect().height<=1]),['status','',true],
+    `the line waits empty, taking no room, ${where}`);
+   assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status',`a screen reader knows the line ${where}`);
+   const button=await inReach(await resultButton(p,'View table / my hand')),before=await p.evaluate(()=>scrollY);
+   if(how==='keyboard'){await button.focus();await p.keyboard.press('Enter');}else await pointerPress(p,button,touch);
+   await p.waitForFunction(el=>el.textContent.trim(),{timeout:5000},line).catch(()=>{});
+   await settle(p);
+   assert.deepEqual(await line.evaluate(el=>[el.isConnected,el.textContent.trim()]),[true,'The review could not be built. Your match is unchanged.'],
+    `the same line says why ${where}`);
+   assert.ok(await uncovered(line),`the words are in view, uncovered, ${where}`);
+   assert.ok(await button.evaluate(el=>el.isConnected&&el===document.activeElement),`the button stays, with focus, ${where}`);
+   assert.equal(await p.$('.review'),null,`no review opens ${where}`);
+   if(sheet){
+    assert.equal(await sheetShown(p),true,`the result stays up ${where}`);
+    assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
+   }
+   await shot(p,`review-failure-${width}x${height}-${how}`);noErrors(p);
+  }
+ });
+ // A hand or a game that could not be saved to a file from the result is
+ // said the same way, beside the result's buttons, from the same line, and
+ // not on the notice line at the top of the page: at desktop that line lies
+ // above the screen while the result's buttons are pressed, and on a phone
+ // under the sheet. The pressed button keeps focus, and on a phone the sheet
+ // stays up and the page where it was.
+ await check('a hand or a game the result could not save is said beside its buttons, and its button keeps focus',async()=>{
+  for(const [pressed,words,name] of [['Save this hand','The hand could not be saved to a file. Your current match is unchanged.','hand'],
+   ['Save game so far','The game could not be saved to a file. Your current match is unchanged.','game']])
+   for(const [width,height,how] of [[1100,900,'mouse'],[1100,900,'touch'],[1100,900,'keyboard'],[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],
+    [320,568,'touch']]){
+    const touch=how==='touch',p=await open(wins[0],{width,height,touch,reduced:true,failSave:true}),where=`for ${pressed} at ${width}x${height} by ${how}`;
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+    const line=await resultLine(p);
+    assert.ok(line,`the result has a line for it before the press ${where}`);
+    assert.equal(await line.evaluate(el=>el.textContent.trim()),'',`the line waits empty ${where}`);
+    const button=await inReach(await resultButton(p,pressed)),before=await p.evaluate(()=>scrollY);
+    if(how==='keyboard'){await button.focus();await p.keyboard.press('Enter');}else await pointerPress(p,button,touch);
+    await p.waitForFunction(words=>[...document.querySelectorAll('[role="status"]')].some(el=>el.textContent.trim()===words),{timeout:5000},words).catch(()=>{});
+    await settle(p);
+    assert.equal(await line.evaluate(el=>el.isConnected&&el.textContent.trim()),words,`the result's line says why ${where}`);
+    assert.equal(await p.evaluate(words=>[...document.querySelectorAll('[role="status"]')].filter(el=>el.textContent.trim()===words&&!el.closest('.screen')).length,words),0,
+     `nothing says it elsewhere, on the notice line at the top of the page ${where}`);
+    assert.ok(await uncovered(line),`the words are in view, uncovered, ${where}`);
+    assert.ok(await button.evaluate(el=>el.isConnected&&el===document.activeElement),`the button stays, with focus, ${where}`);
+    if(sheet){
+     assert.equal(await sheetShown(p),true,`the result stays up ${where}`);
+     assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
+    }
+    await shot(p,`save-failure-${name}-${width}x${height}-${how}`);noErrors(p);
+   }
+ });
+ // On a phone the result is a sheet whose buttons stay at its foot over what
+ // scrolls beneath them, so their row spans the sheet from edge to edge and
+ // nothing shows beside it: not as the result appears, and not with the
+ // line that says why a press failed making the row taller.
+ await check('on a phone the result\'s buttons span the sheet, so nothing scrolls into view beside them',async()=>{
+  for(const [width,height] of [[320,568],[390,844]]){
+   const p=await open(wins[0],{width,height,reduced:true,failReview:true});
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   for(const state of ['as the result appears','with the line that says why a press failed']){
+    const where=`at ${width}x${height} ${state}`;
+    if(state!=='as the result appears'){
+     const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
+     await p.waitForFunction(()=>document.querySelector('.screen .buttons [role="status"]')?.textContent.trim(),{timeout:5000});await settle(p);
+    }
+    // Points down both edges of the sheet's inside, over the row's height on
+    // the screen, each of which must fall on the row.
+    const strip=await p.evaluate(()=>{
+     const sheet=document.querySelector('.screen'),row=sheet.querySelector('.buttons'),box=sheet.getBoundingClientRect(),own=row.getBoundingClientRect();
+     const left=box.left+sheet.clientLeft,right=left+sheet.clientWidth,beside=[];
+     for(let y=Math.ceil(Math.max(own.top,0))+1;y<Math.min(own.bottom,innerHeight)-1;y+=3)for(const x of [left+1,right-1]){
+      const hit=document.elementFromPoint(x,y);
+      if(!row.contains(hit))beside.push({x:Math.round(x),y,hit:hit?.outerHTML.slice(0,60)??null});
+     }
+     return {sheet:[left,right],row:[own.left,own.right],beside:beside.slice(0,6)};
+    });
+    assert.ok(strip.row[0]<=strip.sheet[0]&&strip.row[1]>=strip.sheet[1],`the buttons' row spans the sheet ${where}: ${JSON.stringify(strip)}`);
+    assert.deepEqual(strip.beside,[],`nothing shows beside the buttons' row ${where}`);
+   }
+   await shot(p,`result-buttons-span-${width}x${height}`);noErrors(p);
+  }
+ });
+ // A status line is heard only once a screen reader knows it, so each waits
+ // in the page, empty, before its words arrive. The review's own lines come
+ // into the page with it: they wait there until the review has been drawn
+ // before saying that Trained AI is reviewing, or that Club reviews in its
+ // place. Where none applies, they wait empty and take no room.
+ await check('the review\'s status lines wait in it, empty, before their words arrive',async()=>{
+  for(const [width,height] of [[1100,900],[390,844]]){
+   const p=await open(wins[0],{width,height,reduced:true,adviser:null,trained:true,statusLines:true}),where=`at ${width}x${height}`;
+   try{
+    await p.waitForSelector('.opponents option[value="neural"]');
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+    holding=true;
+    const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
+    const words=/^Trained AI is reviewing your decisions/;
+    await p.waitForFunction(source=>[...document.querySelectorAll('.review [role="status"]')].some(el=>new RegExp(source).test(el.textContent.trim())),
+     {timeout:5000},words.source);
+    const frames=await waited(p,words);
+    assert.ok(frames>=1,`the line that Trained AI is reviewing is drawn empty in the page before its words arrive: drawn ${frames} times ${where}`);
+    noErrors(p);
+   }finally{release();}
+  }
+  // Club in Trained AI's place, the network out of reach.
+  let p=await open(wins[0],{reduced:true,adviser:null,statusLines:true});
+  await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+  let button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
+  const words=/Club reviews this hand/;
+  await p.waitForFunction(source=>[...document.querySelectorAll('.review [role="status"]')].some(el=>new RegExp(source).test(el.textContent.trim())),
+   {timeout:5000},words.source);
+  const frames=await waited(p,words);
+  assert.ok(frames>=1,`the line that Club reviews in Trained AI's place is drawn empty in the page before its words arrive: drawn ${frames} times`);
+  noErrors(p);
+  // Club chosen: nothing to say, and both lines wait, empty, taking no room,
+  // long after they could have spoken.
+  p=await open(wins[0],{reduced:true});
+  await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+  button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
+  await p.waitForSelector('.review .summary');await settle(p);await new Promise(done=>setTimeout(done,500));
+  assert.deepEqual(await p.$$eval('.review [role="status"]',els=>els.map(el=>[el.textContent.trim(),el.getBoundingClientRect().height<=1])),[['',true],['',true]],
+   'the review keeps its two status lines, empty and taking no room');
+  noErrors(p);
+ });
+ // The warning that this browser cannot safely keep the match arrives as the
+ // match is first read, and is spoken from a status line already in the page.
+ await check('the warning that the match cannot be kept safely is spoken from a status line already in the page',async()=>{
+  const p=await open(initial,{reduced:true,statusLines:true,locks:false});
+  const words=/^This browser cannot safely save shared matches/;
+  await p.waitForFunction(source=>[...document.querySelectorAll('[role="status"]')].some(el=>new RegExp(source).test(el.textContent.trim())),
+   {timeout:10000},words.source);
+  const frames=await waited(p,words);
+  assert.ok(frames>=1,`the line is drawn empty in the page before its words arrive: drawn ${frames} times`);
+  const line=await p.evaluateHandle(source=>[...document.querySelectorAll('[role="status"]')].find(el=>new RegExp(source).test(el.textContent.trim())),words.source);
+  assert.ok(await line.evaluate(el=>el.getBoundingClientRect().height>1),'the warning is seen');
+  assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status','a screen reader knows the line');
+  noErrors(p);
+ });
+ // The page's notice line, at the top of the page, says what could not be
+ // done elsewhere, such as a game that could not be saved from the settings,
+ // which sit just above the line at desktop width. It too waits in the page,
+ // empty, before its words arrive.
+ await check('a notice from the settings is spoken from a status line already in the page',async()=>{
+  const p=await open(midway,{reduced:true,statusLines:true,failSave:true});
+  await p.click('.game-export > summary');await p.click('.game-export [data-save-game]');
+  const words=/^The game could not be saved to a file\. Your current match is unchanged\.$/;
+  await p.waitForFunction(source=>[...document.querySelectorAll('[role="status"]')].some(el=>new RegExp(source).test(el.textContent.trim())),
+   {timeout:5000},words.source);
+  const frames=await waited(p,words);
+  assert.ok(frames>=1,`the line is drawn empty in the page before its words arrive: drawn ${frames} times`);
+  const line=await p.evaluateHandle(source=>[...document.querySelectorAll('[role="status"]')].find(el=>new RegExp(source).test(el.textContent.trim())),words.source);
+  assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status','a screen reader knows the line');
+  assert.ok(await uncovered(line),'the notice is in view, uncovered, below the settings');
+  noErrors(p);
+ });
  await check('the game exports from East 1 from the settings, the score screen and the standings, never with the hand in play',async()=>{
   const fileName=/^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/;
   const opensAtEastOne=events=>{
@@ -266,6 +746,6 @@ try{
   }
  });
 }finally{
- await browser?.close();if(server.listening)await new Promise(done=>server.close(done));
+ release();await browser?.close();if(server.listening)await new Promise(done=>server.close(done));
  await report('full-review browser checks',resolve(output,'full-review-report.json'));
 }

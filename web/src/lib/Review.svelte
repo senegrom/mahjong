@@ -1,10 +1,11 @@
 <script>
+  import { onMount } from 'svelte';
   import Tile from './Tile.svelte';
   import ReviewPreference from './ReviewPreference.svelte';
   import { tileWords } from './tiles.js';
   import { analyzePolicy } from './policy.js';
   import { reviewWithStrong } from './review-policy.js';
-  import { waitingNote } from './ui.js';
+  import { reviewFallbackNote, waitingNote } from './ui.js';
   import { trainedName } from './trained-network.js';
 
   /**
@@ -13,8 +14,11 @@
    * traded: how far the hand was left from complete, how many tiles would
    * have improved it, and whether the tile could have dealt in.
    */
-  // Trained AI is the default adviser, as readSettings has it.
-  let { notes = [], hints = true, engine = null, trainedAvailable = false, offline = null, adviser = $bindable('strong') } = $props();
+  // Trained AI is the default adviser, as readSettings has it. The heading
+  // is bound so that the result's button, which goes as it opens the review,
+  // can hand focus to it (App).
+  let { notes = [], hints = true, engine = null, trainedAvailable = false, offline = null, adviser = $bindable('strong'),
+    heading = $bindable(null) } = $props();
   let trainedNotes = $state.raw(null);
   let reviewing = $state(false);
   let completed = $state(0);
@@ -29,6 +33,23 @@
   let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : notes);
   // A first Trained review can be what downloads the network.
   let download = $derived(waitingNote('', offline));
+
+  // The review's two status lines come into the page with it, and a screen
+  // reader hears a status line only once it knows it. So the lines wait in
+  // the review, empty, until it has been drawn and a tenth of a second more,
+  // the time a screen reader may take to see what came into the page, before
+  // any words arrive; from then on their words change as the review does.
+  let linesKnown = $state(false);
+  onMount(() => {
+    let timer = 0;
+    const frame = requestAnimationFrame(() => { timer = setTimeout(() => { linesKnown = true; }, 100); });
+    return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+  });
+  // Why Club reviews in Trained AI's place, while it does, and how far
+  // Trained AI has got, while it reviews.
+  let fallback = $derived(linesKnown && adviser === 'strong' && reviewer === 'club' && notes.length ? reviewFallbackNote(engine) : '');
+  let progress = $derived(linesKnown && reviewing
+    ? `Trained AI is reviewing your decisions… ${completed} of ${notes.length}${download ? ` · ${download}` : ''}` : '');
 
   let disputed = $derived(activeNotes.filter((note) => !note.agreed));
   let shown = $state('disputed');
@@ -69,17 +90,17 @@
 
 <section class="review" aria-label="your decisions this hand" aria-busy={reviewing}>
   <header>
-    <h3>Your hand, looked at again</h3>
+    <h3 tabindex="-1" bind:this={heading}>Your hand, looked at again</h3>
     <label class="adviser">Review adviser
       <select bind:value={adviser} aria-label="Review adviser">
         <option value="club">Club</option>
         <option value="strong" disabled={!trainedPossible}>{trainedName('Trained AI')}</option>
       </select>
     </label>
-    {#if reviewer === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>
-    {:else if adviser === 'strong' && notes.length}<p class="policy-help" data-review-fallback role="status">{engine
-      ? 'The trained network is not available right now, so Club reviews this hand. Trained AI takes over again once the network can be reached.'
-      : 'This hand can no longer be put to Trained AI, so Club reviews it.'}</p>{/if}
+    {#if reviewer === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>{/if}
+    <!-- This status line, and the one after the header, wait empty and out
+         of sight for their words (linesKnown). -->
+    <p class="policy-help" class:visually-hidden={!fallback} data-review-fallback role="status">{fallback}</p>
     {#if activeNotes.length && !reviewing && !failure}
       <p class="summary">
         {activeNotes.length - disputed.length} of {activeNotes.length}
@@ -88,10 +109,10 @@
     {/if}
   </header>
 
+  <p class:visually-hidden={!progress} data-review-progress role="status">{progress}</p>
   {#if !notes.length}
     <p class="empty">You made no decisions this hand.</p>
-  {:else if reviewing}
-    <p role="status">Trained AI is reviewing your decisions… {completed} of {notes.length}{download ? ` · ${download}` : ''}</p>
+  {:else if reviewing}<!-- The status line above says how far it has got. -->
   {:else if failure}
     <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Trained review</button>
       <button class="retry" data-review-club onclick={() => adviser = 'club'}>Review with Club</button></p>
@@ -212,6 +233,23 @@
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
+  }
+
+  /* The heading takes focus as the review opens, and a press by keyboard, or
+     any press where the result is not a sheet, scrolls to it with as little
+     movement as will show it and the focus ring drawn just outside it for a
+     keyboard (App). So it lands a ring's width and a little from
+     the edge of the screen, below the game's bar where that stays at the top
+     of the screen (AppSettings), and on a phone clear of the result's chip at
+     the foot of the screen (ScoreScreen). */
+  h3:focus { outline: none; }
+  h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  h3 { scroll-margin: 8px 0; }
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    h3 { scroll-margin-top: 72px; }
+  }
+  @media (max-width: 760px) {
+    h3 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   }
 
   .adviser { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; font-size: .85rem; }

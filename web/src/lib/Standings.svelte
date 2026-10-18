@@ -8,15 +8,17 @@
    * `onsave`, where given, saves the whole game as one mjai log, and
    * `onreview` opens the review of every decision the player made in it.
    * `playerLabel` is what the row the engine marks as `you` is called: the
-   * person playing, or in Watch the agent being followed.
+   * person playing, or in Watch the agent being followed. `heading` is bound
+   * so that focus can go to it as the game ends: the last hand's Next hand,
+   * which goes as it brings the standings, hands focus on to it (App).
    */
-  let { standings = [], onagain, onsave, onreview, playerLabel = 'You' } = $props();
+  let { standings = [], onagain, onsave, onreview, playerLabel = 'You', heading = $bindable(null) } = $props();
 
   let yours = $derived(standings.find((row) => row.you));
 </script>
 
 <section class="standings" aria-label="final standings">
-  <h2>
+  <h2 tabindex="-1" bind:this={heading}>
     {#if yours}
       {playerLabel} finished {placeLabel(yours).toLowerCase()}
     {:else}
@@ -84,6 +86,23 @@
     margin: 0;
     font-size: 1.2rem;
     font-weight: 600;
+  }
+
+  /* The heading takes focus as the game ends, and a press by keyboard, the
+     only press that moves the page to it, scrolls to it with as little
+     movement as will show it and the focus ring drawn just outside it (App).
+     So it lands a ring's width and a little from the edge of the screen,
+     below the game's bar where that stays at the top of the screen
+     (AppSettings), and on a phone clear of the result's chip at the foot of
+     the screen (ScoreScreen). */
+  h2:focus { outline: none; }
+  h2:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  h2 { scroll-margin: 8px 0; }
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    h2 { scroll-margin-top: 72px; }
+  }
+  @media (max-width: 760px) {
+    h2 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   }
 
   table {
