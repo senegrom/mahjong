@@ -3,7 +3,7 @@
   import Tile from './Tile.svelte';
   import DecisionReplay from './DecisionReplay.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
-  import { FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, agreement, rankDecisions } from './game-review.js';
+  import { FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, agreement, movedNote, rankDecisions } from './game-review.js';
   import { percent, waitingNote } from './ui.js';
   import { trainedName } from './trained-network.js';
 
@@ -26,7 +26,13 @@
   let version = $state(0);
   let status = $derived.by(() => { void version; return read(review); });
   let opened = $state.raw(null);
+  // Where the decision opened ranked among the flags when it was opened.
+  let openedRank = -1;
   let everyFlag = $state(false);
+  // The flagged decision whose button has keyboard focus, and what the list
+  // says when the hands reviewed since have ranked it lower.
+  let focusedFlag = $state(null);
+  let moved = $state('');
   let heading = $state(null);
   let list = $state(null);
   let controls = $state(null);
@@ -44,12 +50,14 @@
   // hand's own button goes once that hand is under review. Focus that would
   // drop to the page goes where the button was instead: to the controls the
   // review has now, or to the list of hands; and when nothing is left to
-  // press, to the flagged decisions.
+  // press, to the flagged decisions. A flagged decision's button is not
+  // taken away while it has focus (below); should focus drop from the list
+  // all the same, the list's heading takes it.
   let focusWas = null;
   $effect.pre(() => {
     void status;
     const active = document.activeElement;
-    focusWas = controls?.contains(active) ? 'controls' : handList?.contains(active) ? 'hands' : null;
+    focusWas = controls?.contains(active) ? 'controls' : handList?.contains(active) ? 'hands' : list?.contains(active) ? 'flags' : null;
   });
   $effect(() => {
     void status;
@@ -57,7 +65,7 @@
     focusWas = null;
     const active = document.activeElement;
     if (!was || (active && active !== document.body && active.isConnected)) return;
-    (was === 'hands' ? handList?.querySelector('summary') : controls?.querySelector('button') ?? flagsHeading)?.focus();
+    (was === 'hands' ? handList?.querySelector('summary') : was === 'flags' ? flagsHeading : controls?.querySelector('button') ?? flagsHeading)?.focus();
   });
 
   // Opening the review asks for it, once Trained AI can be reached; after
@@ -66,10 +74,16 @@
     if (trainedAvailable && !review.requested && !review.closed) untrack(() => review.review());
   });
 
+  const key = decision => `${decision.hand}:${decision.index}`;
   let decisions = $derived(status.hands.flatMap(hand => hand.decisions ?? []));
   let flagged = $derived(rankDecisions(decisions));
+  /** Where a flagged decision now ranks, from 0, or -1. */
+  const rankOf = wanted => flagged.findIndex(decision => key(decision) === wanted);
   let figure = $derived(agreement(decisions));
-  let shown = $derived(everyFlag ? flagged : flagged.slice(0, LEADING));
+  // The leading few, or every flag: asked for, or because the hands reviewed
+  // since have ranked the decision the player is on out of the leading few.
+  // Its button is then kept, not taken from under their focus.
+  let shown = $derived(everyFlag || (focusedFlag !== null && rankOf(focusedFlag) >= LEADING) ? flagged : flagged.slice(0, LEADING));
   let total = $derived(status.hands.reduce((sum, hand) => sum + hand.frames.length, 0));
   let done = $derived(status.hands.reduce((sum, hand) => sum
     + (hand.status === 'done' ? hand.frames.length : hand.status === 'reviewing' ? hand.done ?? 0 : 0), 0));
@@ -77,13 +91,56 @@
   let reviewed = $derived(status.hands.filter(hand => hand.status === 'done').length);
   let download = $derived(waitingNote('', offline));
   let openedHand = $derived(opened ? status.hands[opened.hand] : null);
+  // A flagged decision is open for replay, in place of the list.
+  let replaying = $derived(Boolean(opened && openedHand));
 
   $effect(() => {
     heading?.focus({ preventScroll: true });
     heading?.scrollIntoView({ block: 'start' });
   });
 
-  const key = decision => `${decision.hand}:${decision.index}`;
+  // Each hand reviewed ranks the flags afresh, and can rank the decision the
+  // player is on lower, or out of the leading few. Its button keeps focus
+  // wherever it goes: once it leaves the leading few, every flag is shown and
+  // stays shown, rather than the list taking it away. A list should not be
+  // reshuffled under someone reading it without their being told, so the
+  // status then says where it is now. A place, once said, holds until the
+  // next change of place, which says it again.
+  let heard = null;
+  $effect(() => {
+    const at = focusedFlag === null ? -1 : rankOf(focusedFlag);
+    untrack(() => {
+      if (at >= 0 && heard?.key === focusedFlag && at > heard.rank) {
+        const widened = at >= LEADING && !everyFlag;
+        if (widened) everyFlag = true;
+        moved = movedNote(at, widened);
+      }
+      heard = at >= 0 ? { key: focusedFlag, rank: at } : null;
+    });
+  });
+
+  // The note is about the decision the player was on, so it goes when focus
+  // moves to another or leaves the list. A window or tab that loses focus
+  // sends a focusout too, but focus stays on the decision, which has it again
+  // when the window comes back, so its button is kept meanwhile. Focus that
+  // moves on has left the decision by the time its focusout is heard.
+  function focusFlag(event) {
+    const entry = event.target.closest('[data-flagged]')?.dataset.flagged ?? null;
+    if (entry !== focusedFlag) moved = '';
+    focusedFlag = entry;
+  }
+  function leaveFlags(event) {
+    if (list?.contains(event.relatedTarget) || list?.contains(document.activeElement)) return;
+    focusedFlag = null;
+    moved = '';
+  }
+
+  function openDecision(decision) {
+    openedRank = rankOf(key(decision));
+    focusedFlag = null;
+    moved = '';
+    opened = decision;
+  }
 
   function duration(seconds) {
     if (seconds < 60) return `${Math.max(5, Math.round(seconds / 5) * 5)} seconds`;
@@ -116,15 +173,21 @@
   let detail = $derived(status.complete || !total ? ''
     : `${done} of ${total} decisions${status.estimate ? ` · the rest would take about ${duration(status.estimate)}` : ''}${status.busy && download ? ` · ${download}` : ''}`);
 
-  // Back to the decision opened. Wider gaps found by the review meanwhile can
-  // have moved it out of the leading few, so then every flag is shown, and
-  // the player comes back to it all the same.
+  // Back to the decision opened, wherever it now ranks. The review goes on
+  // while a decision is open, and the hands it reviews meanwhile can rank the
+  // decision lower, or out of the leading few: then every flag is shown, so
+  // the player comes back to it all the same, and the status says where it
+  // went. Should its button be missing all the same, the list's heading takes
+  // focus rather than the page.
   async function closeDecision() {
-    const opener = opened && key(opened);
+    const opener = opened && key(opened), was = openedRank;
     opened = null;
-    if (opener && !shown.some(decision => key(decision) === opener)) everyFlag = true;
+    const at = opener ? rankOf(opener) : -1;
+    const widened = at >= LEADING && !everyFlag;
+    if (widened) everyFlag = true;
     await tick();
-    list?.querySelector(`[data-open="${opener}"]`)?.focus();
+    (list?.querySelector(`[data-open="${opener}"]`) ?? flagsHeading)?.focus();
+    if (at > was && was >= 0) moved = movedNote(at, widened);
   }
 </script>
 
@@ -136,7 +199,7 @@
     <button class="app-control" data-close-review onclick={onclose}>Back to the standings</button>
   </header>
 
-  {#if opened && openedHand}
+  {#if replaying}
     {#key key(opened)}<DecisionReplay hand={openedHand} decision={opened} {hints} onback={closeDecision} />{/key}
   {:else}
     <p class="intro">{trainedName('Trained AI')} is asked about every decision you made, hand by hand. A decision is flagged when your move had
@@ -167,21 +230,28 @@
     {/if}
 
     <h3 tabindex="-1" bind:this={flagsHeading}>Where you departed most from Trained AI</h3>
+  {/if}
+  <!-- Under the heading, and in the page while a decision is open as well: a
+       screen reader hears a status only once it is in the accessibility tree,
+       and Back to the list rebuilds the list around this line as it speaks.
+       Out of the layout while it is silent. -->
+  <p class="moved" class:visually-hidden={!moved} data-moved role="status">{moved}</p>
+  {#if !replaying}
     {#if shown.length}
-      <ol class="flagged" bind:this={list}>
+      <ol class="flagged" bind:this={list} onfocusin={focusFlag} onfocusout={leaveFlags}>
         {#each shown as decision (key(decision))}
           <li data-flagged={key(decision)}>
             <p class="where">{status.hands[decision.hand].name} · your decision {decision.index + 1}</p>
             {#if decision.call_tile}<p class="context">Response to <Tile tile={decision.call_tile} size="tiny" dora={hints && (decision.dora_types ?? []).includes(decision.call_tile)} /> from {decision.call_from}</p>{/if}
             <p class="move">{#if decision.played_tile}<Tile tile={decision.played_tile} size="small" dora={hints && (decision.dora_types ?? []).includes(decision.played_tile)} />{/if}<span>You: {decision.played}</span></p>
             <p class="weight">Trained AI gave {decision.judgement.stage === 'tile' ? 'this tile, once riichi was declared,' : 'this move'} {percent(decision.judgement.played)}, and its own choice {percent(decision.judgement.preferred)}.</p>
-            <button class="app-control" data-open={key(decision)} onclick={() => { opened = decision; }}
+            <button class="app-control" data-open={key(decision)} onclick={() => openDecision(decision)}
               aria-label={`Replay and choose again: ${status.hands[decision.hand].name}, your decision ${decision.index + 1}`}>Replay and choose again</button>
           </li>
         {/each}
       </ol>
       {#if flagged.length > LEADING}
-        <button class="app-control quiet" onclick={() => { everyFlag = !everyFlag; }}>{everyFlag ? `Show the first ${LEADING}` : `Show all ${flagged.length} flagged`}</button>
+        <button class="app-control quiet" data-every-flag onclick={() => { everyFlag = !everyFlag; }}>{everyFlag ? `Show the first ${LEADING}` : `Show all ${flagged.length} flagged`}</button>
       {/if}
     {:else if status.complete}
       <p class="empty">No decision departed that far from Trained AI.</p>
@@ -232,6 +302,7 @@
   .weight { font-size: .84rem; }
   .flagged button { justify-self: start; }
   .empty { font-size: .86rem; opacity: .82; }
+  .moved { font-size: .84rem; }
   .hands { font-size: .84rem; }
   .hands summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .hands ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }

@@ -9,10 +9,17 @@
  * match must be exactly as it was, and the game must enter the trend once,
  * under the version of Trained AI that judged it. A flagged answer to another's
  * discard, from a game whose player calls everything, is chosen again from the
- * moves its prompt points to, by keyboard. On a phone, where the final
- * result covers the standings, the review must be reachable from the result
- * itself by touch and come back to the standings; held sideways, from the
- * standings beside the result.
+ * moves its prompt points to, by keyboard. While the review goes on, a flagged
+ * decision that later hands rank out of the leading five keeps keyboard focus,
+ * in the list, while the player is in another window, and back from its
+ * replay, and the list says where it went in words that stay true as the list
+ * grows, from a status line that is in the page before it speaks. On a phone,
+ * where the final result covers the standings, the review must be reachable
+ * from the result itself by touch and come back to the standings; held
+ * sideways, from the standings beside the result; and from the standings' own
+ * button under the result, by keyboard, it must leave the page as the
+ * result's own button does, with the result's chip bringing it back, focus
+ * and all.
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -162,6 +169,87 @@ async function openPage(width, height, { touch = false, network = true, saved = 
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.standings [data-review-game]');
   return page;
+}
+
+/** A place as the list says it: 1st, 2nd, 3rd, 4th, ... 11th, 21st. */
+const nth = number => `${number}${[11, 12, 13].includes(number % 100) ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[number % 10] ?? 'th'}`;
+
+/** The flagged decisions listed, in the order shown. */
+const listed = page => page.$$eval('[data-game-review] [data-flagged]', items => items.map(item => item.dataset.flagged));
+const focusedDecision = page => page.evaluate(() => {
+  const active = document.activeElement;
+  return active?.dataset.open ?? (!active || active === document.body ? 'the page' : active.outerHTML.slice(0, 80));
+});
+
+/** Opens the review and has it go through the whole game unheld, however
+ * slow the device: Continue asks for the whole game, as a player who wants
+ * all of it would. Both are pressed without moving focus, which stays where
+ * the review put it. */
+async function reviewWholeGame(page) {
+  await page.click('.standings [data-review-game]');
+  await page.waitForSelector('[data-game-review] [data-stop-review]');
+  await page.$eval('[data-game-review] [data-stop-review]', button => button.click());
+  await page.waitForSelector('[data-game-review] [data-continue]');
+  await page.$eval('[data-game-review] [data-continue]', button => button.click());
+}
+
+/** The flagged decision listed last of the leading few, once the first hands
+ * reviewed have filled them: the one decisions reviewed later push down. */
+async function lastOfLeading(page) {
+  await page.waitForFunction(count => document.querySelectorAll('[data-game-review] [data-flagged]').length >= count,
+    { timeout: 300000, polling: 50 }, LEADING);
+  return (await listed(page))[LEADING - 1];
+}
+
+/** The player turns to another window or tab, or comes back from it. The page
+ * loses focus, but the element that had it keeps it and has it again when the
+ * window comes back: Chrome sends that element a blur and a focusout with no
+ * element taking focus, while document.activeElement stays on it, and focus
+ * and focusin on the way back, as a real tab switch shows. A headless page
+ * cannot be kept in view while another window has focus, so the events are
+ * sent here as the window sends them. */
+const windowAway = (page, back = false) => page.evaluate(back => {
+  const active = document.activeElement;
+  active.dispatchEvent(new FocusEvent(back ? 'focus' : 'blur', { relatedTarget: null }));
+  active.dispatchEvent(new FocusEvent(back ? 'focusin' : 'focusout', { bubbles: true, relatedTarget: null }));
+}, back);
+
+/** Opens the review, has it go through the whole game, and puts keyboard
+ * focus on the flagged decision listed last of the leading five once the
+ * first hands have filled them; with `away`, the player then turns to another
+ * window. Waits until a later hand ranks a decision that departed further
+ * above it, out of the leading five, or focus leaves it, or the review ends,
+ * and says which decision it was. */
+async function focusUntilRankedOut(page, { away = false } = {}) {
+  await reviewWholeGame(page);
+  const key = await lastOfLeading(page);
+  await page.focus(`[data-game-review] [data-open="${key}"]`);
+  if (away) await windowAway(page);
+  await page.waitForFunction((key, leading) => {
+    const active = document.activeElement, keys = [...document.querySelectorAll('[data-game-review] [data-flagged]')].map(item => item.dataset.flagged);
+    return active?.dataset.open !== key || keys.indexOf(key) >= leading
+      || /^Every hand is reviewed/.test(document.querySelector('[data-game-review] .headline')?.textContent ?? '');
+  }, { timeout: 300000, polling: 50 }, key, LEADING);
+  return key;
+}
+
+/** What the status line says of a flagged decision, read at one moment with
+ * the list, must be true of the list at that moment: the place it names, any
+ * count of the flagged decisions it gives, and that every one is shown. Says
+ * what was read. */
+async function saysWhereItIs(page, key) {
+  const now = await page.evaluate(key => {
+    const keys = [...document.querySelectorAll('[data-game-review] [data-flagged]')].map(item => item.dataset.flagged);
+    return { rank: keys.indexOf(key), count: keys.length, note: document.querySelector('[data-game-review] [data-moved]')?.textContent ?? '',
+      toggle: document.querySelector('[data-game-review] [data-every-flag]')?.textContent ?? '' };
+  }, key);
+  const said = /^Decisions reviewed since departed further from Trained AI: this one is now (\d+)(?:st|nd|rd|th)(?: of (\d+))?(, and every flagged decision is shown)?\.$/
+    .exec(now.note);
+  assert.ok(said, `the status says where the decision went: "${now.note}"`);
+  assert.equal(Number(said[1]), now.rank + 1, `the place it names is where the decision is now: "${now.note}"`);
+  if (said[2] !== undefined) assert.equal(Number(said[2]), now.count, `a count it names is how many are flagged now: "${now.note}"`);
+  if (said[3]) assert.equal(now.toggle, `Show the first ${LEADING}`, 'every flagged decision is shown, as it says');
+  return now;
 }
 
 /** Waits for every hand to be reviewed, going on past a slow device's hold. */
@@ -450,6 +538,85 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
+  await cases.check('a flagged decision keeps keyboard focus while hands reviewed later rank it out of the leading five, and the list says where it is as it grows', async () => {
+    const page = await openPage(1100, 900);
+    const key = await focusUntilRankedOut(page);
+    assert.equal(await focusedDecision(page), key, 'focus stays on the decision the player is on');
+    const keys = await listed(page), rank = keys.indexOf(key);
+    assert.ok(rank >= LEADING, `hands reviewed later rank ${key} out of the leading ${LEADING}: ${keys.join(', ')}`);
+    // It is listed still, as every flagged decision is, and the status says
+    // where it went and why the list grew.
+    assert.equal(await page.$eval('[data-game-review] [data-every-flag]', el => el.textContent), `Show the first ${LEADING}`);
+    assert.equal(await page.$eval('[data-game-review] [data-moved]', el => el.getAttribute('role')), 'status');
+    await saysWhereItIs(page, key);
+    await shot(page, 'game-review-moved');
+    // The hands reviewed after that flag more decisions, most of them below
+    // it, while focus stays: what the status says stays true of the list.
+    await page.waitForFunction(count => document.querySelectorAll('[data-game-review] [data-flagged]').length > count,
+      { timeout: 300000, polling: 50 }, keys.length);
+    assert.equal(await focusedDecision(page), key);
+    const now = await saysWhereItIs(page, key);
+    assert.ok(now.count > keys.length, 'the list has grown since it said so');
+    // The place, and no count. Should a later hand move it again before this
+    // is read, the line says the new place without repeating that every
+    // flagged decision is shown, which it said as the list grew.
+    assert.match(now.note, new RegExp(`^Decisions reviewed since departed further from Trained AI: this one is now ${nth(now.rank + 1)}`
+      + '(, and every flagged decision is shown)?\\.$'));
+    // Focus moving on clears the note, which spoke of the decision it left.
+    await page.focus('[data-game-review] [data-every-flag]');
+    await page.waitForFunction(() => document.querySelector('[data-game-review] [data-moved]')?.textContent === '', { timeout: 5000 });
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check('a flagged decision keeps keyboard focus while the player is in another window and hands reviewed meanwhile rank it out of the leading five', async () => {
+    const page = await openPage(1100, 900);
+    const key = await focusUntilRankedOut(page, { away: true });
+    // The window took focus from the page, not from the decision, so its
+    // button is kept as the list moves, and the player comes back to it.
+    assert.equal(await focusedDecision(page), key, 'focus stays on the decision the player is on');
+    const keys = await listed(page), rank = keys.indexOf(key);
+    assert.ok(rank >= LEADING, `hands reviewed meanwhile rank ${key} out of the leading ${LEADING}: ${keys.join(', ')}`);
+    await saysWhereItIs(page, key);
+    // Back in the window, the decision has focus again, and the status still
+    // says where it is.
+    await windowAway(page, true);
+    assert.equal(await focusedDecision(page), key);
+    await saysWhereItIs(page, key);
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check('back from a decision the review ranked out of the leading five while it was open, focus returns to it and the list says where it went, from a status line in the page all along', async () => {
+    const page = await openPage(1100, 900);
+    await reviewWholeGame(page);
+    const key = await lastOfLeading(page);
+    await page.click(`[data-game-review] [data-open="${key}"]`);
+    await page.waitForSelector('[data-decision]');
+    // A screen reader hears a status only once it is in the accessibility
+    // tree. So the line that says where the decision went waits in the page,
+    // silent, while the decision is open, rather than coming back with the
+    // list already speaking.
+    const line = await page.$('[data-game-review] [data-moved]');
+    assert.ok(line, 'the status line is in the page while a decision is open');
+    assert.equal(await line.evaluate(el => el.textContent), '', 'and silent');
+    assert.equal((await page.accessibility.snapshot({ root: line, interestingOnly: false }))?.role, 'status', 'and in the accessibility tree');
+    // The review goes on behind the decision until every hand is reviewed,
+    // which enters the game in the trend.
+    await page.waitForFunction(trendKey => Boolean(localStorage.getItem(trendKey)), { timeout: 300000, polling: 250 }, TREND_KEY);
+    await page.focus('[data-decision] [data-back]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-game-review] [data-flagged]');
+    await page.waitForFunction(key => document.activeElement?.dataset.open === key, { timeout: 5000 }, key).catch(() => {});
+    assert.equal(await focusedDecision(page), key, 'focus returns to the decision opened');
+    const keys = await listed(page), rank = keys.indexOf(key);
+    assert.ok(rank >= LEADING, `the hands reviewed while it was open rank ${key} out of the leading ${LEADING}: ${keys.join(', ')}`);
+    // The line that waited is the one that speaks, not one rebuilt with the
+    // list.
+    assert.ok(await line.evaluate(el => el.isConnected), 'the status line that waited is still in the page');
+    assert.equal(await line.evaluate(el => el.textContent),
+      `Decisions reviewed since departed further from Trained AI: this one is now ${nth(rank + 1)}, and every flagged decision is shown.`);
+    assert.deepEqual(page.errors, []);
+  });
+
   await cases.check("an answer to another's discard is chosen again from the moves the hand's prompt points to, by keyboard", async () => {
     // The tile-throwing player passes every call, and Trained AI seldom
     // gives a pass under 5%, so this game's player calls everything instead.
@@ -522,8 +689,57 @@ try {
       assert.match(await page.$eval('.result-chip', el => el.textContent), /^Show result/);
       assert.ok(await tappable(page, standing), `the standings' button can be tapped at ${width}x${height}`);
       await shot(page, `game-review-phone-standings-${width}x${height}`);
+      // The full-page screenshot can leave the page scrolled elsewhere: in
+      // Chrome 155 at 320x568 it put the button under the result's chip, and
+      // the tap showed the result instead. So it is brought back first.
+      await page.$eval(standing, el => el.scrollIntoView({ block: 'center' }));
+      assert.ok(await tappable(page, standing), `the standings' button can be tapped again at ${width}x${height}`);
       await page.tap(standing);
       await page.waitForSelector('[data-game-review]');
+      assert.deepEqual(page.errors, []);
+    }
+  });
+
+  await cases.check("on a phone, the standings' own button under the result sheet, reached by keyboard, opens the review as the sheet's does and comes back to the standings uncovered, and the result's chip brings the result back with focus", async () => {
+    for (const [width, height] of [[390, 844], [320, 568]]) {
+      const page = await openPage(width, height, { network: false });
+      const standing = '.standings [data-review-game]';
+      assert.equal(await page.$eval('.screen', el => getComputedStyle(el).position), 'fixed', 'the result is a sheet over the standings');
+      // The sheet takes focus as it appears; the standings' buttons come
+      // before it, so Shift+Tab reaches them although the sheet covers them.
+      await page.waitForFunction(() => document.activeElement?.matches('.screen'));
+      for (let presses = 0; presses < 6 && !await page.evaluate(selector => document.activeElement?.matches(selector), standing); presses++) {
+        await page.keyboard.down('Shift');
+        await page.keyboard.press('Tab');
+        await page.keyboard.up('Shift');
+      }
+      assert.ok(await page.evaluate(selector => document.activeElement?.matches(selector), standing), `Shift+Tab reaches the standings' button at ${width}x${height}`);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.activeElement?.id === 'game-review-title');
+      await page.keyboard.press('Tab');
+      assert.ok(await page.evaluate(() => document.activeElement?.matches('[data-game-review] [data-close-review]')), 'Back to the standings follows the heading');
+      await page.keyboard.press('Enter');
+      // The same as from the sheet's own button: the sheet has stepped aside
+      // for the review, so the standings' button that took focus back is in
+      // view and uncovered, and the result is a tap away on its chip.
+      await page.waitForFunction(selector => !document.querySelector('[data-game-review]') && document.activeElement?.matches(selector), {}, standing);
+      assert.equal(await page.$eval('.screen', el => getComputedStyle(el).display), 'none', `the sheet stepped aside at ${width}x${height}`);
+      assert.match(await page.$eval('.result-chip', el => el.textContent), /^Show result/);
+      assert.ok(await tappable(page, standing), `the standings' button is uncovered at ${width}x${height}`);
+      await shot(page, `game-review-phone-keyboard-${width}x${height}`);
+      // The chip, which follows the standings' buttons, brings the result
+      // back by keyboard too. It goes as it does, so focus goes to the
+      // result, as when the result first appeared, and not to the page.
+      const onChip = () => page.evaluate(() => document.activeElement?.matches('.result-chip'));
+      for (let presses = 0; presses < 6 && !await onChip(); presses++) await page.keyboard.press('Tab');
+      assert.ok(await onChip(), `Tab reaches the result's chip at ${width}x${height}`);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => getComputedStyle(document.querySelector('.screen')).display !== 'none', { timeout: 5000 });
+      await page.waitForFunction(() => document.activeElement?.matches('.screen'), { timeout: 5000 }).catch(() => {});
+      assert.equal(await page.evaluate(() => {
+        const active = document.activeElement;
+        return active?.matches('.screen') ? 'the result' : !active || active === document.body ? 'the page' : active.outerHTML.slice(0, 80);
+      }), 'the result', `the chip hands focus to the result at ${width}x${height}`);
       assert.deepEqual(page.errors, []);
     }
   });

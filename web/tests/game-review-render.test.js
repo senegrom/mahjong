@@ -43,6 +43,9 @@ test('a review under way leads with the flagged decisions found so far, and hide
   assert.match(html, /You: discards the 7 characters/);
   assert.match(html, /Trained AI gave this move 2\.0%, and its own choice 81\.0%\./);
   assert.match(html, /aria-label="Replay and choose again: East 1, your decision 1"/, 'each button says which decision it opens');
+  // The line that says where a decision went is there from the start, silent
+  // and out of the layout, so a screen reader hears it when it speaks.
+  assert.match(html, /<p class="moved[^"]*visually-hidden[^"]*" data-moved="" role="status">(<!---->)?<\/p>/);
   assert.doesNotMatch(html, /discards the 1 characters/, "Trained AI's own choice waits for a retry");
   assert.match(html, /1 of 2 matched/);
   assert.match(html, /Reviewing, 1 of 2/);

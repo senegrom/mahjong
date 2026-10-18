@@ -1,4 +1,5 @@
 <script>
+  import { tick } from 'svelte';
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
   import { tilesFor, noteFor, isCircumstance } from './yaku.js';
@@ -13,9 +14,10 @@
     reviewed = false,
     onlog,
     ongame,
-    // Opens the review of the whole game from the final hand, and says
-    // whether it opened.
+    // Opens the review of the whole game from the final hand.
     ongamereview,
+    // Whether that review is open, from this sheet or from the standings.
+    gameReviewOpen = false,
     finalHand = false,
     dora = [],
     bets = 0,
@@ -52,19 +54,28 @@
     minimized = true;
   }
 
-  // The whole game's review comes back to the standings, so on a phone this
-  // sheet steps aside for it as it does for the hand's review: the standings
-  // are then in view, and not under the sheet.
-  function reviewGame() {
-    if (ongamereview?.()) minimized = true;
+  // The chip goes as it brings the result back, so focus goes with it to the
+  // result, as when the result first appeared, rather than to the page.
+  let sheet = $state(null);
+  async function showResult() {
+    minimized = false;
+    await tick();
+    sheet?.focus({ preventScroll: true });
   }
+
+  // The whole game's review comes back to the standings, so on a phone this
+  // sheet steps aside for it as it does for the hand's review, whichever
+  // button opened it: its own, or the standings' own, which the sheet covers
+  // but a keyboard or a screen reader still reaches. The standings are then
+  // in view, and not under the sheet, either way.
+  $effect(() => { if (gameReviewOpen) minimized = true; });
 </script>
 
 {#if minimized}
-  <button class="result-chip" onclick={() => minimized = false}>Show result · {outcome.line}</button>
+  <button class="result-chip" onclick={showResult}>Show result · {outcome.line}</button>
 {/if}
 
-<section class="screen" class:minimized aria-label="how the hand ended" tabindex="-1" use:reveal>
+<section class="screen" class:minimized aria-label="how the hand ended" tabindex="-1" bind:this={sheet} use:reveal>
   <header class="result-header">
     <div class="result-title">
       <span class="eyebrow">Hand result</span>
@@ -172,7 +183,7 @@
     <!-- At the end the standings offer the whole game, its review and its
          file, close and all. On a phone this sheet covers them, so it offers
          both there too. -->
-    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={reviewGame}>Review <span class="whole">whole</span> game</button>{/if}
+    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={() => ongamereview()}>Review <span class="whole">whole</span> game</button>{/if}
     {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={ongame} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
     {:else if ongame}<button class="quiet" data-save-game onclick={ongame} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
   </div>

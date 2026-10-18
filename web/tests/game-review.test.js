@@ -5,7 +5,7 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { BATCH, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, MatchReview, SLOW_MS, agreement, handName, judgement,
-  rankDecisions, scanMatch } from '../src/lib/game-review.js';
+  movedNote, ordinal, rankDecisions, scanMatch } from '../src/lib/game-review.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -130,6 +130,16 @@ test('flagged decisions rank by the gap, ties in the order played, and agreement
   assert.deepEqual(agreement([{ agreed: true }, { agreed: false }, { agreed: true, forced: true }, { agreed: true }]),
     { matched: 2, decisions: 3, share: 2 / 3 });
   assert.deepEqual(agreement([]), { matched: 0, decisions: 0, share: null });
+});
+
+test('a decision ranked lower by the hands reviewed since is told where it went, in places as they are said', () => {
+  assert.deepEqual([1, 2, 3, 4, 10, 11, 12, 13, 21, 22, 23, 101, 111, 112].map(ordinal),
+    ['1st', '2nd', '3rd', '4th', '10th', '11th', '12th', '13th', '21st', '22nd', '23rd', '101st', '111th', '112th']);
+  // The place only: how many are flagged grows with every hand reviewed, and
+  // a count said once would go stale while the place still held.
+  assert.equal(movedNote(6, true),
+    'Decisions reviewed since departed further from Trained AI: this one is now 7th, and every flagged decision is shown.');
+  assert.equal(movedNote(2, false), 'Decisions reviewed since departed further from Trained AI: this one is now 3rd.');
 });
 
 test('the whole game is reviewed in batches, and judged as the hand review judges each hand', async () => {
