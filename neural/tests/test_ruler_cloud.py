@@ -977,6 +977,33 @@ class TimingTests(unittest.TestCase):
         self.assertEqual(files, ["timing-calls.json", "timing-old-duel.json", "timing-ruler-fixed-256.json",
                                  "timing-ruler-seating-graphs.json", "timing-ruler-seating.json"])
 
+    def test_the_call_file_is_kept_whole_or_not_at_all(self):
+        """A kill while timing-calls.json is written again leaves the one
+        written before it whole: the call ids it holds are what spares a
+        rerun from paying for those calls again."""
+        class Killed(BaseException):
+            """As the launcher killed mid-write."""
+
+        written = Path.write_text
+        writes = []
+
+        def killed_on_the_second(path, text, *args, **kwargs):
+            if path.name.startswith("timing-calls"):
+                writes.append(path.name)
+                if len(writes) == 2:
+                    written(path, text[: len(text) // 2], *args, **kwargs)
+                    raise Killed()
+            return written(path, text, *args, **kwargs)
+
+        modal = Modal(lambda name, arguments: self.report([2.0, 3.0], 1000.0 if name == "duel" else 500.0))
+        arguments = ("history/gen-00910", "zoo/mortal_298k", "fusion-long", 9_100_000, 2, 256)
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()):
+            calls = Path(folder) / "timing-calls.json"
+            with patch.object(Path, "write_text", killed_on_the_second), self.assertRaises(Killed):
+                ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            kept = json.loads(calls.read_text(encoding="utf-8"))
+        self.assertEqual(len(kept["calls"]), 1)
+
     def test_changed_games_are_laid_to_the_arena_or_to_the_graphs(self):
         old = self.report([2.0, 3.0], 1000.0)
         same, other = [2.0, 3.0], [3.0, 2.0]
