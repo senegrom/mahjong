@@ -66,8 +66,10 @@ an unfinished match has progress, including between hands.
 
   Other status lines still come into the page with their words: the line that
   says the game is loading, the settings' line that new tile graphics are
-  loading, a yaku's explanation on a hand's result, and the status lines of
-  Agent watch, the guided physical game and physical agent play.
+  loading, a yaku's explanation on a hand's result, the whole-game review's
+  headline (with the review, and again on Back to the list), the decision
+  replay's "Your decision N of M", and the status lines of Agent watch, the
+  guided physical game and physical agent play.
 
 ## Verification
 

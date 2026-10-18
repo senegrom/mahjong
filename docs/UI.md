@@ -153,15 +153,17 @@ little from the foot of the screen where no chip sits. Measured in Chromium,
 the page moves this many pixels for each button; on a phone a mouse's click or
 a finger's tap moves it none. The figures are the same with Club's review,
 done as it opens, and with Trained AI's, still under way, except at 844x390,
-which has a row for each.
+which has a row for each. The 844x390 rows are pressed from the foot of the
+page, where a fling down to the result's buttons ends; there the distance
+depends on where the press starts (see below).
 
 | Screen | Pressed by | View table / my hand | Review final hand |
 | --- | --- | ---: | ---: |
 | 1100x900 | any | 53 | 53 |
 | 1366x768 | any | 53 | 53 |
 | 1280x600 | any | 56 | 53 |
-| 844x390, a wide phone held sideways, Club reviewing | any | 263 | 315 |
-| 844x390, Trained AI still reviewing | any | 154 | 204 |
+| 844x390, a wide phone held sideways, Club reviewing, from the foot | any | 263 | 315 |
+| 844x390, Trained AI still reviewing, from the foot | any | 154 | 204 |
 | 390x844 | keyboard | 2 | 343 |
 | 375x667 | keyboard | 183 | 516 |
 | 360x640 | keyboard | 124 | 451 |
@@ -186,6 +188,12 @@ the heading under the game's bar; the page then brings it out just below the
 bar, 72 pixels from the top of the screen. With Trained AI's review under way,
 a shorter review that says how far it has got, the page moves less, and the
 heading ends lower, 181 to 207 pixels from the top, in view below the bar.
+Where it starts matters too. Pressed where the button has only just come into
+view, **View table / my hand** moves the page 72 pixels and the heading lands
+358 pixels from the top. From there **Review final hand** moves it 358 pixels
+with Club, or 177 with Trained AI. With Trained AI the figures also vary by
+a few dozen pixels from press to press, as the review's progress line changes
+length while it downloads or saves.
 
 The way back to the result is the control just before the review, one
 **Shift+Tab** away: on a phone the chip, which hands focus back to the result
