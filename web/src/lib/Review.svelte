@@ -1,10 +1,11 @@
 <script>
+  import { onMount } from 'svelte';
   import Tile from './Tile.svelte';
   import ReviewPreference from './ReviewPreference.svelte';
   import { tileWords } from './tiles.js';
   import { analyzePolicy } from './policy.js';
   import { reviewWithStrong } from './review-policy.js';
-  import { waitingNote } from './ui.js';
+  import { reviewFallbackNote, waitingNote } from './ui.js';
   import { trainedName } from './trained-network.js';
 
   /**
@@ -32,6 +33,23 @@
   let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : notes);
   // A first Trained review can be what downloads the network.
   let download = $derived(waitingNote('', offline));
+
+  // The review's two status lines come into the page with it, and a screen
+  // reader hears a status line only once it knows it. So the lines wait in
+  // the review, empty, until it has been drawn and a tenth of a second more,
+  // the time a screen reader may take to see what came into the page, before
+  // any words arrive; from then on their words change as the review does.
+  let linesKnown = $state(false);
+  onMount(() => {
+    let timer = 0;
+    const frame = requestAnimationFrame(() => { timer = setTimeout(() => { linesKnown = true; }, 100); });
+    return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+  });
+  // Why Club reviews in Trained AI's place, while it does, and how far
+  // Trained AI has got, while it reviews.
+  let fallback = $derived(linesKnown && adviser === 'strong' && reviewer === 'club' && notes.length ? reviewFallbackNote(engine) : '');
+  let progress = $derived(linesKnown && reviewing
+    ? `Trained AI is reviewing your decisions… ${completed} of ${notes.length}${download ? ` · ${download}` : ''}` : '');
 
   let disputed = $derived(activeNotes.filter((note) => !note.agreed));
   let shown = $state('disputed');
@@ -79,10 +97,10 @@
         <option value="strong" disabled={!trainedPossible}>{trainedName('Trained AI')}</option>
       </select>
     </label>
-    {#if reviewer === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>
-    {:else if adviser === 'strong' && notes.length}<p class="policy-help" data-review-fallback role="status">{engine
-      ? 'The trained network is not available right now, so Club reviews this hand. Trained AI takes over again once the network can be reached.'
-      : 'This hand can no longer be put to Trained AI, so Club reviews it.'}</p>{/if}
+    {#if reviewer === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>{/if}
+    <!-- This status line, and the one after the header, wait empty and out
+         of sight for their words (linesKnown). -->
+    <p class="policy-help" class:visually-hidden={!fallback} data-review-fallback role="status">{fallback}</p>
     {#if activeNotes.length && !reviewing && !failure}
       <p class="summary">
         {activeNotes.length - disputed.length} of {activeNotes.length}
@@ -91,10 +109,10 @@
     {/if}
   </header>
 
+  <p class:visually-hidden={!progress} data-review-progress role="status">{progress}</p>
   {#if !notes.length}
     <p class="empty">You made no decisions this hand.</p>
-  {:else if reviewing}
-    <p role="status">Trained AI is reviewing your decisions… {completed} of {notes.length}{download ? ` · ${download}` : ''}</p>
+  {:else if reviewing}<!-- The status line above says how far it has got. -->
   {:else if failure}
     <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Trained review</button>
       <button class="retry" data-review-club onclick={() => adviser = 'club'}>Review with Club</button></p>

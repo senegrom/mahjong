@@ -21,7 +21,7 @@
   import { analyzeBatch, chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { acceptsHandKey, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
+  import { RESULT_SHEET, acceptsHandKey, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
@@ -79,8 +79,11 @@
   // How many hands the game's log holds: the finished ones only.
   let loggedHands = $state(0);
   let notes = $state(null);
-  // The hand review's heading, which takes focus as the review opens.
+  // The hand review's heading, which takes focus as the review opens, and
+  // why the review could not be built, which the result says beside its
+  // buttons (ScoreScreen).
   let reviewHeading = $state(null);
+  let reviewFailure = $state('');
   // The final standings' heading, which takes focus as the game ends, and
   // whether the keyboard sent it there, for the result to step aside for it.
   let standingsHeading = $state(null);
@@ -318,6 +321,7 @@
     picked = null;
     selected = null;
     notes = null;
+    reviewFailure = '';
     standingsFocused = false;
     notice = '';
     loadNote = '';
@@ -442,7 +446,7 @@
     selected = null;
     const advanced = await owner.nextHand();
     if (session !== owner || !advanced) return;
-    if (!owner.over) { notes = null; return; }
+    if (!owner.over) { notes = null; reviewFailure = ''; return; }
     standingsFocused = byKeyboard;
     await tick();
     land(standingsHeading, byKeyboard);
@@ -465,15 +469,19 @@
     } catch { notice = 'The game could not be saved to a file. Your current match is unchanged.'; }
   }
 
-  // Focus goes on to a heading that says where the player now is. When the
-  // keyboard pressed the button, the heading is brought into view as well,
-  // by as little movement as will show it, since that player follows focus
-  // and is shown a ring there. A mouse's or a finger's press leaves the page
-  // where it was: that player is shown no ring to follow, and on a phone the
-  // scroll would take the top of the table off the screen (pressedByKeyboard).
+  // Focus goes on to a heading that says where the player now is. Where the
+  // result is not a sheet, the heading is brought into view as well, by as
+  // little movement as will show it, however the button was pressed: nothing
+  // was covered there, and what the press brought may lie off the screen, as
+  // the hand's review below the result often does. Where the result is a
+  // sheet, on a phone, only a keyboard's press moves the page, since that
+  // player follows focus and is shown a ring there. A mouse's or a finger's
+  // press is shown no ring and leaves the page where it was: it asked for
+  // what the sheet covers, and the scroll would take the top of the table
+  // off a small screen (pressedByKeyboard).
   function land(heading, byKeyboard) {
     heading?.focus({ preventScroll: true });
-    if (byKeyboard) heading?.scrollIntoView({ block: 'nearest' });
+    if (byKeyboard || !matchMedia(RESULT_SHEET).matches) heading?.scrollIntoView({ block: 'nearest' });
   }
 
   // The result's button goes as it opens the hand's review, and on a phone
@@ -481,13 +489,16 @@
   // heading, rather than to the page (land). The way back to the result is
   // the control just before the review: on a phone the result's chip, which
   // hands focus back to it, and where the result is not a sheet, its own
-  // buttons.
-  async function showReview(event) {
+  // buttons. A review the engine cannot build opens nothing, and false tells
+  // the result so: it stays as it was, its button too, with focus, and says
+  // why beside its buttons, where the player pressed one (ScoreScreen).
+  function showReview(event) {
     const byKeyboard = pressedByKeyboard(event);
     try { notes = session?.engine.review() ?? []; }
-    catch { notice = 'The review could not be built. Your match is unchanged.'; return; }
-    await tick();
-    land(reviewHeading, byKeyboard);
+    catch { reviewFailure = 'The review could not be built. Your match is unchanged.'; return false; }
+    reviewFailure = '';
+    void tick().then(() => land(reviewHeading, byKeyboard));
+    return true;
   }
 
   // The finished match is replayed from its saved commands on an engine of
@@ -574,7 +585,9 @@
       {/if}
     </section>
   {/if}
-  {#if storageWarning}<p class="notice" role="status">{storageWarning}</p>{/if}
+  <!-- Waits in the page, empty and out of sight, for its words, as the
+       notice does. -->
+  <p class={storageWarning ? 'notice' : 'visually-hidden'} data-storage-warning role="status">{storageWarning}</p>
 
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
@@ -605,7 +618,7 @@
           {#if view.phase === 'over' && view.outcome}
             <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
               bets={view.riichi_sticks ?? 0} onnext={nextHand}
-              onreview={showReview} reviewed={notes !== null} onlog={saveLog} ongame={saveGame} ongamereview={openGameReview}
+              onreview={showReview} reviewed={notes !== null} {reviewFailure} onlog={saveLog} ongame={saveGame} ongamereview={openGameReview}
               gameReviewOpen={reviewingGame} {standingsFocused} finalHand={Boolean(standings)} />
             {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} bind:heading={reviewHeading} />{/if}
           {:else}

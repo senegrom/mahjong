@@ -96,6 +96,20 @@ export function pressedByKeyboard(event) {
   return event?.detail === 0;
 }
 
+/** Where a hand's result is a sheet over the table and the hand, as
+ * ScoreScreen's styles have it: on a phone held upright, and on a small one
+ * held sideways, up to 760 pixels wide. */
+export const RESULT_SHEET = '(max-width: 760px)';
+
+/** Why Club reviews a hand in Trained AI's place: the network cannot be
+ * reached now, or, once the match has no engine (another window took it
+ * over), there is no hand left to put to Trained AI. */
+export function reviewFallbackNote(engine) {
+  return engine
+    ? 'The trained network is not available right now, so Club reviews this hand. Trained AI takes over again once the network can be reached.'
+    : 'This hand can no longer be put to Trained AI, so Club reviews it.';
+}
+
 export function acceptsHandKey(event, hand) {
   if (!hand || event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
   const target = event.target;

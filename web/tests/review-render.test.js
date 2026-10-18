@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { render } from 'svelte/server';
 import { readBeliefs } from '../src/lib/beliefs.js';
+import { reviewFallbackNote } from '../src/lib/ui.js';
 import { componentLoader } from './fixtures/load-component.js';
 
 // Render the production components, substituting only the browser-only
@@ -48,13 +49,21 @@ const differing = [{
   danger_played: 'quiet', danger_advised: 'quiet', reason: 'keeps a ready hand',
 }];
 
+// The note that says why Club reviews is a status line, which comes into the
+// page with the review and waits there, empty, until the review has been
+// drawn, so that a screen reader hears its words. A server render is the
+// review as it is first drawn, so it shows the line without them; the words
+// are the note's own (reviewFallbackNote), and a browser check sees them
+// arrive in the page.
+const silentNote = /<p [^>]*data-review-fallback[^>]*><\/p>/;
+
 test('Trained AI is the default adviser, and Club reviews in its place while the network cannot be had', () => {
   // No adviser chosen, no network: Trained stays selected, Club's review is shown, and the page says why.
   // The engine is only handed on, never run, in a server render.
   const html = render(Review, { props: { notes: differing, engine: {} } }).body;
   assert.match(html, /<option value="strong"[^>]*selected/);
-  assert.match(html, /data-review-fallback/);
-  assert.match(html, /not available right now, so Club reviews this hand/);
+  assert.match(html, silentNote);
+  assert.match(reviewFallbackNote({}), /not available right now, so Club reviews this hand/);
   assert.match(html, /keeps a ready hand/);
   assert.match(html, /<table/);
   assert.match(html, /matched Club/);
@@ -63,17 +72,17 @@ test('Trained AI is the default adviser, and Club reviews in its place while the
   // reviews it, never an error, and the note does not blame the network.
   for (const trainedAvailable of [true, false]) {
     const noEngine = render(Review, { props: { notes: differing, trainedAvailable } }).body;
-    assert.match(noEngine, /data-review-fallback/);
-    assert.match(noEngine, /can no longer be put to Trained AI, so Club reviews it/);
-    assert.doesNotMatch(noEngine, /not available right now/);
+    assert.match(noEngine, silentNote);
     assert.doesNotMatch(noEngine, /role="alert"/);
   }
+  assert.match(reviewFallbackNote(null), /can no longer be put to Trained AI, so Club reviews it/);
+  assert.doesNotMatch(reviewFallbackNote(null), /not available right now/);
 });
 
 test('a chosen Club review says nothing about the network', () => {
   const html = render(Review, { props: { notes: differing, adviser: 'club' } }).body;
   assert.match(html, /<option value="club"[^>]*selected/);
-  assert.doesNotMatch(html, /data-review-fallback/);
+  assert.match(html, silentNote);
   assert.match(html, /keeps a ready hand/);
 });
 
