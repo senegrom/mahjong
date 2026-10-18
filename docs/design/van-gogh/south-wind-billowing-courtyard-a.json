@@ -1,0 +1,50 @@
+{
+  "tile": "2z",
+  "name": "Nan",
+  "candidate": "South A",
+  "title": "The Billowing Courtyard",
+  "source": "docs/design/van-gogh/studies/27-south-wind-billowing-courtyard-a-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Nan.svg",
+  "originalFilename": "van_gogh_mahjong_tile_set_design_review.png",
+  "originalDimensions": [
+    1448,
+    1086
+  ],
+  "originalBytes": 3262676,
+  "originalSha256": "b70f75eb381cf9c93f6b236c9e55d88eca27761bd63ccfbc0b0cf0ecb5117abc",
+  "originalCrop": {
+    "x": 95,
+    "y": 208,
+    "width": 393,
+    "height": 640
+  },
+  "selectedCropFilename": "south-wind-billowing-courtyard-A-full-crop.png",
+  "selectedCropSha256": "2757c24eddbe96f30e023309168cd7d98401aaf64060b0b2e48022206701139c",
+  "rasterMimeType": "image/avif",
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterBytes": 49477,
+  "rasterSha256": "44801ce1a0171dbd5acb9bab04392d331a61ebcf474792348538a669ae5fcf56",
+  "svgSha256": "490f86658f1afc854175d81d9fe0e89c90d86e5b18b212cdb79b8fb752bc0764",
+  "runtimeSvgSha256": "0c6f8facecbe662a034af16fe39b0aaa14bd7916bd74882cbb75292d65e74163",
+  "fit": {
+    "painting": {
+      "width": 393,
+      "height": 640
+    },
+    "stretch": 0.02,
+    "anchor": 0.51,
+    "bleedPixels": 0,
+    "image": {
+      "x": 0,
+      "y": -40.27,
+      "width": 300,
+      "height": 478.97
+    }
+  },
+  "approval": "Carl selected A, The Billowing Courtyard, for South wind and requested deployment again. B the boat and C the gate are not selected.",
+  "processing": "Select the exact lossless A crop. Create a 300 x 400 Lanczos/AVIF quality-70 game raster (speed 4, 4:4:4). The face-fit helper restores the tall painting proportions to within 2%, with anchor 0.51 and zero side bleed. The 3:4 face trims sky and foreground paving; the linen structure remains visible. No regeneration, repainting, recolouring or added symbols. This is an optimized game export, not the lossless original.",
+  "originalPreservation": "Untouched A/B/C board and lossless selected A crop are preserved in van-gogh-south-wind-A-prepared.zip supplied in chat, with original checksums. The repository contains the optimized approved source SVG and fitted runtime, not the full-resolution PNG originals."
+}

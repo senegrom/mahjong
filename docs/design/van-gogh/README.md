@@ -2,7 +2,7 @@
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. That restoration left the other tiles unchanged. Eight disks now uses Lemons by the Sea. Earlier sections below describe the design history.
 
-**Current set:** 32 painted faces and 2 unpainted identities showing their names: South and West winds. The Red Sail C is active for 1 character (1m / 一萬), completing the characters suit. All three numbered suits are now complete. Green Dragon at the Vineyard C and all prior artwork are unchanged. Earlier sections retain historical counts.
+**Current set:** 33 painted faces and 1 unpainted identity, West wind. The Billowing Courtyard A is active for South wind. All three numbered suits and all dragons are complete. Earlier sections retain historical counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -251,3 +251,11 @@ Run `node web/scripts/export-van-gogh-tiles.mjs --only=6z` to reproduce this fac
 Carl selected the third boat painting, preserving the small 一萬 on its cream hull, and requested GitHub deployment. The complete 1086 × 1448 portrait is exactly 3:4; it is uniformly downsampled to a 300 × 400 quality-60 AVIF game export with no crop, stretching, repainting or recolouring. The source SVG embeds the approved game raster in the shared study box. The runtime changes only that image box to zero bleed, with no stretching and the normal 26-unit rounded-corner clip. The game export is not the full-resolution PNG. The untouched original is supplied in `Van_Gogh_1_Characters_Red_Sail_Approved.zip`; its hash and processing details are recorded in `docs/design/van-gogh/one-characters-red-sail.json`.
 
 Regenerate only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=1m`. Regression tests pin the source and embedded-raster hashes, check the full-frame geometry, verify registration and hidden-tile privacy, and ensure selective exports are repeatable without changing other artwork. All 31 previous faces remain byte-for-byte unchanged.
+
+## South wind — The Billowing Courtyard A
+
+Carl selected **A — The Billowing Courtyard** as `2z` / `Nan`, South wind. The billowing white linen and its wooden frame are the approved scene; neither the boat B nor the garden gate C is used.
+
+The original board and exact 393 × 640 A crop are preserved in `van-gogh-south-wind-A-prepared.zip` supplied in chat. This repository stores a 300 × 400 quality-70 AVIF game export inside its approved study SVG. The existing face-fit helper corrects the tall painting's proportions to within 2%, trimming surrounding sky and paving rather than squeezing the whole image into the tile. The runtime differs from the study only in image placement. No repainting or recolouring was applied.
+
+Checksums, crop, encoding and fit are recorded in `south-wind-billowing-courtyard-a.json` in the design directory. Reproduce only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=2z`. All prior artwork, including 7 and 8 disks and The Potter’s Table 9 disks, is unchanged; the existing fourteen-tile preview hand is preserved. The set now has **33 painted faces**, with **West wind** the only remaining unpainted identity.
