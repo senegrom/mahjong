@@ -649,6 +649,35 @@ try{
     await shot(p,`standings-failure-${pressed.split(' ')[0].toLowerCase()}-${width}x${height}-${how}`);noErrors(p);
    }
  });
+ // The sheet steps aside for every press beneath it that fails, also once
+ // its chip has brought it back: after the keyboard's Next hand on the last
+ // hand sent focus to the standings, and for the same failure twice.
+ await check('on a phone, each failed press on the standings beneath the result has the result step aside, also after its chip brought it back',async()=>{
+  for(const [width,height] of [[390,844],[320,568]]){
+   const p=await open(final.before,{width,height,reduced:true,failSave:true}),where=`at ${width}x${height}`;
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const next=await resultButton(p,'Next hand');await next.focus();await p.keyboard.press('Enter');
+   await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'),{timeout:5000});
+   const line=await p.$('.standings [role="status"]'),button=await p.$('.standings [data-save-game]');
+   for(const round of ['first','second']){
+    // The chip, after the standings' buttons, brings the result back over
+    // them, with focus.
+    for(let presses=0;presses<6&&!await p.evaluate(()=>document.activeElement?.matches('.result-chip'));presses++)await p.keyboard.press('Tab');
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'),{timeout:5000});
+    assert.equal(await sheetShown(p),true,`the chip brings the result back before the ${round} press ${where}`);
+    await shiftTabTo(p,'.standings [data-save-game]');
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(()=>getComputedStyle(document.querySelector('.screen')).display==='none',{timeout:5000}).catch(()=>{});
+    await settle(p);
+    assert.equal(await sheetShown(p),false,`the sheet steps aside for the ${round} failed press ${where}`);
+    assert.equal(await line.evaluate(el=>el.textContent.trim()),'The game could not be saved to a file. Your current match is unchanged.',`the standings' line says why ${where}`);
+    assert.ok(await uncovered(line),`the words are in view, uncovered, after the ${round} press ${where}`);
+    assert.ok(await button.evaluate(el=>el===document.activeElement),`the button keeps focus after the ${round} press ${where}`);
+   }
+   noErrors(p);
+  }
+ });
  // On a phone the result offers the whole game's review too, and says on
  // its own line that the game could not be replayed for it, as for its
  // other buttons: the sheet stays up, its button keeps focus, and the page

@@ -87,7 +87,9 @@ try {
   await check('a selection is said by a region that was already in the page, out of sight', desktop, async page => {
     // A screen reader listens to a live region only once it exists, so the
     // words must change inside one node rather than arrive with a new one.
-    const region = await page.$('.visually-hidden[role="status"]');
+    // The selection's region is the one just before the hand's prompt; the
+    // settings' Export game has an empty one of its own, earlier in the page.
+    const region = await page.$('.visually-hidden[role="status"]:has(+ #hand-help)');
     const read = () => region.evaluate(el => (el.isConnected ? el.textContent : null));
     assert.equal(await read(), 'Selected: 1 characters');
     await page.click('.confirm-discard button:last-child');

@@ -104,10 +104,13 @@
   // in view, and not under the sheet, either way. It steps aside for them as
   // well when the keyboard has sent focus on to them as the game ended, so
   // that focus is not hidden under it; a tap leaves the result up, as it was.
-  // And it steps aside each time a press on their own buttons fails, which
-  // only a keyboard or a screen reader reaches beneath it, so that the words
-  // they say beside those buttons, and the button with focus, are seen.
-  $effect(() => { if (gameReviewOpen || standingsFocused || standingsFailures) minimized = true; });
+  $effect(() => { if (gameReviewOpen || standingsFocused) minimized = true; });
+  // And it steps aside each time a press on the standings' own buttons
+  // fails, which beneath it only a keyboard or a screen reader reaches, so
+  // that the words they say beside those buttons, and the button with focus,
+  // are seen: also after the chip has brought the result back. An effect of
+  // its own reads the count every time, whatever the other two are.
+  $effect(() => { if (standingsFailures) minimized = true; });
 </script>
 
 {#if minimized}
