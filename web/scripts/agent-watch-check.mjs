@@ -296,10 +296,13 @@ try {
     });
     const sheetShown = page => page.$eval('.agent-watch .screen', el => getComputedStyle(el).display !== 'none');
     const scrolled = [];
+    // On a phone the controls' button lies under the result's sheet, where
+    // only a keyboard reaches it.
     for (const [pressed, width, height, how] of [['result', 1100, 900, 'keyboard'], ['result', 1100, 900, 'mouse'], ['result', 1100, 900, 'touch'],
-      ['controls', 1100, 900, 'keyboard'], ['controls', 1100, 900, 'mouse'], ['result', 844, 390, 'keyboard'], ['result', 844, 390, 'touch'],
+      ['controls', 1100, 900, 'keyboard'], ['controls', 1100, 900, 'mouse'], ['controls', 1100, 900, 'touch'],
+      ['result', 844, 390, 'keyboard'], ['result', 844, 390, 'mouse'], ['result', 844, 390, 'touch'], ['controls', 844, 390, 'keyboard'], ['controls', 844, 390, 'touch'],
       ['result', 390, 844, 'keyboard'], ['result', 390, 844, 'touch'], ['result', 390, 844, 'mouse'], ['controls', 390, 844, 'keyboard'],
-      ['result', 320, 568, 'keyboard'], ['result', 320, 568, 'touch']]) {
+      ['result', 320, 568, 'keyboard'], ['result', 320, 568, 'touch'], ['result', 320, 568, 'mouse'], ['controls', 320, 568, 'keyboard']]) {
       const touch = how === 'touch', where = `pressing the ${pressed === 'result' ? 'result\'s' : 'controls\''} Next hand at ${width}x${height} by ${how}`;
       const page = await open(23, width, { height, touch, scrolls: true });
       // The controls' button plays the followed agent's choices and deals the

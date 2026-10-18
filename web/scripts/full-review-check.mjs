@@ -615,7 +615,7 @@ try{
  await check('a whole game the standings could not save or replay for review is said beside their buttons, and the pressed button keeps focus',async()=>{
   for(const [pressed,selector,words,plant] of STANDINGS_FAILURES)
    for(const [width,height,how] of [[1100,900,'mouse'],[1100,900,'touch'],[1100,900,'keyboard'],[1366,768,'mouse'],[1366,768,'keyboard'],[844,390,'touch'],
-    [844,390,'keyboard'],[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],[320,568,'touch'],[320,568,'keyboard']]){
+    [844,390,'mouse'],[844,390,'keyboard'],[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],[320,568,'touch'],[320,568,'mouse'],[320,568,'keyboard']]){
     const touch=how==='touch',p=await open(final.after,{width,height,touch,reduced:true,...plant}),where=`for ${pressed} at ${width}x${height} by ${how}`;
     await p.waitForSelector('.standings');
     await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
@@ -683,7 +683,7 @@ try{
  // other buttons: the sheet stays up, its button keeps focus, and the page
  // stays where it was.
  await check('on a phone, a whole game the result could not replay for review is said beside its buttons, and its button keeps focus',async()=>{
-  for(const [width,height,how] of [[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],[320,568,'touch'],[320,568,'keyboard']]){
+  for(const [width,height,how] of [[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],[320,568,'touch'],[320,568,'mouse'],[320,568,'keyboard']]){
    const touch=how==='touch',p=await open(final.after,{width,height,touch,reduced:true,failReplay:true}),where=`at ${width}x${height} by ${how}`;
    await p.waitForSelector('.standings');
    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
@@ -824,7 +824,7 @@ try{
  await check('a game Export game could not save is said beside its button, inside the settings\' dialog on a phone',async()=>{
   const words=/^The game could not be saved to a file\. Your current match is unchanged\.$/;
   for(const [width,height,how] of [[1100,900,'mouse'],[1100,900,'touch'],[1100,900,'keyboard'],[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],
-   [320,568,'touch'],[320,568,'keyboard'],[844,390,'touch'],[844,390,'keyboard']]){
+   [320,568,'touch'],[320,568,'mouse'],[320,568,'keyboard'],[844,390,'touch'],[844,390,'mouse'],[844,390,'keyboard']]){
    const touch=how==='touch',p=await open(midway,{width,height,touch,reduced:true,statusLines:true,failSave:true}),where=`at ${width}x${height} by ${how}`;
    const dialog=width<=760||height<=500;
    if(dialog){
