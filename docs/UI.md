@@ -146,7 +146,7 @@ a phone, and a ring's width and a little from the foot of the screen where no
 chip sits. On a small phone that scroll takes the top of the table, its round,
 wall count and indicators, under the bar: measured in Chromium, 124 pixels at
 360x640, 171 at 320x568, and 574 at 568x320, a small phone held sideways, where
-the result is still a sheet; at 390x844 the heading is already in view. On the
+the result is still a sheet; at 390x844 the page moves 2 pixels. On the
 final hand the standings lie between the hand and the review, and the heading
 lands below them. Held sideways on a wider phone, at 844x390, the browser's own
 scroll anchoring moves the page as the review opens, for every kind of press,
