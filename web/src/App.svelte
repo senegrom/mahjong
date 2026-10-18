@@ -455,7 +455,8 @@
   // heading is scrolled to with as little movement as will show it, so the
   // table and the hand that the result uncovered on a phone stay in view as
   // far as they can. The way back to the result is the control just before
-  // the review: on a phone the result's chip, which hands focus back to it.
+  // the review: on a phone the result's chip, which hands focus back to it,
+  // and elsewhere the result's own buttons.
   async function showReview() {
     try { notes = session?.engine.review() ?? []; }
     catch { notice = 'The review could not be built. Your match is unchanged.'; return; }
