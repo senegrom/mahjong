@@ -17,7 +17,7 @@
     network = playedNetwork().version, onnetworkchange,
     difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
-    onconfirmationchange, onshortcutschange, loggedHands = 0, onsavegame,
+    onconfirmationchange, onshortcutschange, loggedHands = 0, onsavegame, exportFailure = '',
   }: SettingsProps = $props();
   const MODES: [GameMode, string][] = [['play', 'Play'], ['watch', 'Agent watch'], ['physical', 'Physical agent play'], ['guided', 'Guided physical game']];
   const COMPACT = '(max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape)';
@@ -30,6 +30,17 @@
   function pickNetwork(picker: HTMLSelectElement) {
     // A pick App does not take leaves the network that plays on show.
     if (!onnetworkchange?.(picker.value)) picker.value = network;
+  }
+
+  // Export game says why the game could not be saved in a line after its
+  // button (exportFailure), where it was pressed. On a phone the settings
+  // are a modal dialog, and while it is open everything outside it is
+  // hidden from a screen reader and, behind the backdrop, from sight. A save
+  // that failed brings the line into view, in the dialog or on the page, by
+  // as little movement as will.
+  let exportLine = $state<HTMLParagraphElement | null>(null);
+  function exported(answer: boolean | void) {
+    if (answer === false) void tick().then(() => exportLine?.scrollIntoView({ block: 'nearest' }));
   }
 
   function closeSettings() {
@@ -141,7 +152,10 @@
     <summary>Export game</summary>
     <div class="option-fields">
       <p>Saves every finished hand of this match, from East 1 on, as one mjai log that replayers and other riichi programs read. The hand being played is left out until it ends, so the file never shows tiles that are still hidden.</p>
-      <button class="app-control" data-save-game onclick={onsavegame} disabled={!loggedHands || Boolean(saveConflict)}>{loggedHands ? `Save ${finishedHands(loggedHands)}` : 'No hand has finished yet'}</button>
+      <button class="app-control" data-save-game onclick={() => exported(onsavegame?.())} disabled={!loggedHands || Boolean(saveConflict)}>{loggedHands ? `Save ${finishedHands(loggedHands)}` : 'No hand has finished yet'}</button>
+      <!-- A screen reader hears a status line only once it knows it, so this
+           one waits here, empty and out of sight, before its words arrive. -->
+      <p class:visually-hidden={!exportFailure} data-export-failure role="status" bind:this={exportLine}>{exportFailure}</p>
     </div>
   </details>
 {/if}

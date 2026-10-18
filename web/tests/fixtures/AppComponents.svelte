@@ -42,7 +42,7 @@
     onfacechange={face => { tileFace = face; callbacks.push(`face:${face}`); }}
     onconfirmationchange={() => { selected = null; callbacks.push('confirmation'); }}
     onshortcutschange={() => callbacks.push('shortcuts')}
-    {loggedHands} onsavegame={() => callbacks.push(`save-game:${loggedHands}`)} />
+    {loggedHands} onsavegame={() => { callbacks.push(`save-game:${loggedHands}`); }} />
   <button type="button" data-fixture-finish-hand onclick={() => loggedHands += 1}>Finish a hand</button>
   <OpponentDialog bind:customDialog bind:draftOpponents {opponents} trainedAvailable={false} ready={true} saveConflict=""
     startCustomTable={() => { opponents = [...draftOpponents]; callbacks.push('custom'); customDialog?.close(); }} />

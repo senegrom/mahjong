@@ -22,13 +22,17 @@
     // said in a line after them: empty while there is nothing to say, and
     // null where the page says such failures elsewhere (AgentWatch).
     failure = null,
-    // Opens the review of the whole game from the final hand.
+    // Opens the review of the whole game from the final hand, and answers
+    // false when the game could not be replayed for it.
     ongamereview,
     // Whether that review is open, from this sheet or from the standings.
     gameReviewOpen = false,
     // Whether the keyboard has sent focus on to the standings as the game
-    // ended, pressing the last hand's Next hand (App).
+    // ended, pressing the last hand's Next hand (App, AgentWatch).
     standingsFocused = false,
+    // How many presses on the standings' own buttons have failed, each said
+    // beside them (App).
+    standingsFailures = 0,
     finalHand = false,
     dora = [],
     bets = 0,
@@ -60,12 +64,13 @@
     return { destroy: () => cancelAnimationFrame(id) };
   }
 
-  // A press that could not be done, a review that could not be built or a
-  // file that could not be saved, answers false: the result stays as it
-  // was, the button too, with focus, and the line after the buttons says why
-  // (failure). Where the result is not a sheet, that line may fall below the
-  // screen, so it is brought into view; on a phone it stays at the foot of
-  // the sheet with the buttons. Says whether the press was done.
+  // A press that could not be done, a review that could not be built, a game
+  // that could not be replayed for its review or a file that could not be
+  // saved, answers false: the result stays as it was, the button too, with
+  // focus, and the line after the buttons says why (failure). Where the
+  // result is not a sheet, that line may fall below the screen, so it is
+  // brought into view; on a phone it stays at the foot of the sheet with the
+  // buttons. Says whether the press was done.
   let failureLine = $state(null);
   function done(answer) {
     if (answer !== false) return true;
@@ -99,7 +104,10 @@
   // in view, and not under the sheet, either way. It steps aside for them as
   // well when the keyboard has sent focus on to them as the game ended, so
   // that focus is not hidden under it; a tap leaves the result up, as it was.
-  $effect(() => { if (gameReviewOpen || standingsFocused) minimized = true; });
+  // And it steps aside each time a press on their own buttons fails, which
+  // only a keyboard or a screen reader reaches beneath it, so that the words
+  // they say beside those buttons, and the button with focus, are seen.
+  $effect(() => { if (gameReviewOpen || standingsFocused || standingsFailures) minimized = true; });
 </script>
 
 {#if minimized}
@@ -214,7 +222,7 @@
     <!-- At the end the standings offer the whole game, its review and its
          file, close and all. On a phone this sheet covers them, so it offers
          both there too. -->
-    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={() => ongamereview()}>Review <span class="whole">whole</span> game</button>{/if}
+    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={() => done(ongamereview())}>Review <span class="whole">whole</span> game</button>{/if}
     {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={() => done(ongame())} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
     {:else if ongame}<button class="quiet" data-save-game onclick={() => done(ongame())} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
     <!-- Why a press on these buttons could not be done, said where the

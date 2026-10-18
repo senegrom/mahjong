@@ -21,11 +21,30 @@ const { check, openContext, report } = browserChecks();
 let browser;
 const builtin = async (engine, agent) => ({ choice: engine.agent_pick(agent), choices: engine.agent_choices() });
 
-async function open(seed, width = 1100) {
+/** Agent watch, its first game started with Club in every seat from this
+ * seed. A page is touchable below 600 pixels unless `touch` says otherwise;
+ * `scrolls` notes every scroll the page asks for once the check asks
+ * (scrollsAsked): to an element, by the window or an element, and by a focus
+ * that is let scroll. */
+async function open(seed, width = 1100, { height = 900, touch = width < 600, scrolls = false } = {}) {
   const page = await (await openContext(browser)).newPage(); page.problems = [];
   page.on('pageerror', error => page.problems.push(error.message));
-  await page.setViewport({ width, height: 900, deviceScaleFactor: 1, hasTouch: width < 600 });
+  await page.setViewport({ width, height, deviceScaleFactor: 1, hasTouch: touch });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  if (scrolls) await page.evaluateOnNewDocument(() => {
+    const asked = window.scrollsAsked = []; let noting = false;
+    window.noteScrolls = () => { noting = true; asked.length = 0; };
+    const spy = (owner, name, scrolling = () => true) => {
+      const real = owner[name];
+      owner[name] = function (...args) {
+        if (noting && scrolling(args)) asked.push(`${name} on ${this === window ? 'the window' : this.outerHTML?.slice(0, 60)}`);
+        return real.apply(this, args);
+      };
+    };
+    for (const name of ['scrollIntoView', 'scrollTo', 'scrollBy', 'scroll']) spy(Element.prototype, name);
+    for (const name of ['scrollTo', 'scrollBy', 'scroll']) spy(window, name);
+    spy(HTMLElement.prototype, 'focus', ([options]) => !options?.preventScroll);
+  });
   // A saved file is kept in the page, name and text, rather than downloaded.
   await page.evaluateOnNewDocument(() => {
     const blobs = new Map(), create = URL.createObjectURL.bind(URL);
@@ -239,6 +258,120 @@ try {
       await page.screenshot({ path: resolve(output, 'agent-watch-draw.png'), fullPage: true });
       assert.deepEqual(page.problems, []);
     } finally { watch.dispose(); }
+  });
+
+  // Next hand on a watched game's last hand brings the standings in place of
+  // another deal: the result's own button goes for the Final hand caption,
+  // and the controls' button is no longer to be pressed. So focus goes on to
+  // the standings' heading, which says where the followed agent finished,
+  // rather than to the page, as in Play. Pressed by keyboard, the heading is
+  // brought into view with its ring, clear of the game's bar and, on a phone,
+  // of the result's chip: the result, a sheet over the standings there,
+  // steps aside, and its chip, after the standings' buttons, brings it back
+  // with focus. Pressed by a mouse or a finger, the page asks for no scroll,
+  // and on a phone the result stays up and the page where it was.
+  await check('Next hand on a watched game\'s last hand hands focus to the standings, and moves the page only for a keyboard', async () => {
+    // How many presses of the controls' button bring the game to its last
+    // hand's result, counted on a copy that plays the same game.
+    const copy = new WatchSession(Game, 23, ['club', 'club', 'club', 'club'], { evaluate: builtin });
+    let steps = 0;
+    try {
+      await copy.prepare();
+      while (!copy.match.over) { assert.ok(await copy.step()); steps++; }
+    } finally { copy.dispose(); }
+    const focusOn = page => page.evaluate(() => {
+      const active = document.activeElement;
+      return active?.matches('.standings h2') ? 'the standings' : active?.matches('.agent-watch .screen') ? 'the result'
+        : active?.matches('.result-chip') ? 'the chip' : !active || active === document.body ? 'the page' : active.outerHTML.slice(0, 80);
+    });
+    const settle = page => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+    // In view, and not under the result's chip, the result or the game's bar.
+    const uncovered = handle => handle.evaluate(el => {
+      const box = el.getBoundingClientRect(), hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return box.top >= 0 && box.bottom <= innerHeight && Boolean(hit) && (hit === el || el.contains(hit));
+    });
+    const ringInView = handle => handle.evaluate(el => {
+      const style = getComputedStyle(el), reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth), box = el.getBoundingClientRect();
+      return el.matches(':focus-visible') && style.outlineStyle !== 'none' && box.top - reach >= 0 && box.bottom + reach <= innerHeight;
+    });
+    const sheetShown = page => page.$eval('.agent-watch .screen', el => getComputedStyle(el).display !== 'none');
+    const scrolled = [];
+    for (const [pressed, width, height, how] of [['result', 1100, 900, 'keyboard'], ['result', 1100, 900, 'mouse'], ['result', 1100, 900, 'touch'],
+      ['controls', 1100, 900, 'keyboard'], ['controls', 1100, 900, 'mouse'], ['result', 844, 390, 'keyboard'], ['result', 844, 390, 'touch'],
+      ['result', 390, 844, 'keyboard'], ['result', 390, 844, 'touch'], ['result', 390, 844, 'mouse'], ['controls', 390, 844, 'keyboard'],
+      ['result', 320, 568, 'keyboard'], ['result', 320, 568, 'touch']]) {
+      const touch = how === 'touch', where = `pressing the ${pressed === 'result' ? 'result\'s' : 'controls\''} Next hand at ${width}x${height} by ${how}`;
+      const page = await open(23, width, { height, touch, scrolls: true });
+      // The controls' button plays the followed agent's choices and deals the
+      // hands, pressed here as fast as the page answers, up to the last
+      // hand's result.
+      await page.evaluate(async count => {
+        const button = () => document.querySelector('.watch-controls > button');
+        const shown = () => [document.querySelector('.watch-round')?.textContent, document.querySelectorAll('.watch-table .pool .tile').length,
+          document.querySelector('.agent-watch > details:last-of-type > summary')?.textContent, Boolean(document.querySelector('.agent-watch .screen'))].join('|');
+        const until = test => new Promise((done, fail) => {
+          const started = performance.now();
+          const look = () => { if (test()) done(); else if (performance.now() - started > 10000) fail(new Error(`the watch stopped at ${shown()}`)); else setTimeout(look, 1); };
+          look();
+        });
+        for (let n = 0; n < count; n++) {
+          await until(() => !button().disabled);
+          const before = shown();
+          button().click();
+          await until(() => shown() !== before && !button().disabled);
+        }
+      }, steps - 1);
+      await page.waitForSelector('.agent-watch .screen .buttons .primary');
+      assert.equal(await page.$('.standings'), null, `the game has not ended before the press ${where}`);
+      const sheet = await page.$eval('.agent-watch .screen', el => getComputedStyle(el).position === 'fixed');
+      assert.equal(sheet, width <= 760, `the result is a sheet up to 760 pixels wide, and only there, ${where}`);
+      const button = await page.$(pressed === 'result' ? '.agent-watch .screen .buttons .primary' : '.watch-controls > button');
+      assert.equal(await button.evaluate(el => el.textContent.trim()), 'Next hand');
+      if (how === 'keyboard') await button.focus();
+      else {
+        if (!await uncovered(button)) await button.evaluate(el => el.scrollIntoView({ block: 'center' }));
+        assert.ok(await uncovered(button), `the button is in view to be pressed ${where}`);
+      }
+      await settle(page);
+      const before = await page.evaluate(() => { window.noteScrolls(); return scrollY; });
+      if (how === 'keyboard') await page.keyboard.press('Enter');
+      else {
+        const box = await button.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2;
+        if (touch) await page.touchscreen.tap(x, y); else await page.mouse.click(x, y);
+      }
+      await page.waitForSelector('.standings');
+      await page.waitForFunction(() => document.activeElement?.matches('.standings h2'), { timeout: 5000 }).catch(() => {});
+      assert.equal(await focusOn(page), 'the standings', `focus goes on to the standings ${where}`);
+      const heading = await page.$('.standings h2'), node = await page.accessibility.snapshot({ root: heading, interestingOnly: false });
+      assert.deepEqual([node?.role, node?.level], ['heading', 2]); assert.match(node?.name ?? '', /^Followed agent finished /);
+      assert.equal(await heading.evaluate(el => el.closest('section').getAttribute('aria-label')), 'final standings');
+      await settle(page);
+      const moved = await page.evaluate(before => scrollY - before, before), asked = await page.evaluate(() => [...window.scrollsAsked]);
+      if (how === 'keyboard') {
+        if (sheet) assert.equal(await sheetShown(page), false, `the sheet steps aside for the standings ${where}`);
+        assert.ok(await uncovered(heading), `the standings' heading is in view and uncovered ${where}`);
+        assert.ok(await ringInView(heading), `the heading's focus ring is drawn, and in view ${where}`);
+        console.log(`  ${where}: the page moved ${moved} pixels`);
+        if (sheet) {
+          const onChip = () => page.evaluate(() => document.activeElement?.matches('.result-chip'));
+          for (let presses = 0; presses < 6 && !await onChip(); presses++) await page.keyboard.press('Tab');
+          assert.ok(await onChip(), `Tab reaches the result's chip after the standings' buttons ${where}`);
+          await page.keyboard.press('Enter');
+          await page.waitForFunction(() => document.activeElement?.matches('.agent-watch .screen'), { timeout: 5000 }).catch(() => {});
+          assert.equal(await focusOn(page), 'the result', `the chip hands focus back to the result ${where}`);
+        }
+      } else {
+        assert.equal(await heading.evaluate(el => el.matches(':focus-visible')), false, `no focus ring is drawn for a pointer ${where}`);
+        if (asked.length) scrolled.push(`${where}, the page scrolled from ${before} to ${before + moved}: ${asked.join('; ')}`);
+        if (sheet) {
+          assert.equal(moved, 0, `the page stays where it was ${where}`);
+          assert.equal(await sheetShown(page), true, `the result stays over the standings ${where}`);
+        }
+      }
+      await page.screenshot({ path: resolve(output, `agent-watch-standings-${pressed}-${width}x${height}-${how}.png`) });
+      assert.deepEqual(page.problems, []);
+    }
+    assert.deepEqual(scrolled, [], 'the page asks for no scroll after a press by mouse or touch');
   });
 } finally {
   await browser?.close();

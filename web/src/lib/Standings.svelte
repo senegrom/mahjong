@@ -1,4 +1,5 @@
 <script>
+  import { tick } from 'svelte';
   import { placeLabel, signed } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
   /**
@@ -6,15 +7,31 @@
    * points, so the places lead and the arithmetic follows: what was on the
    * table, the bonus the place earned or cost, and what the game came to.
    * `onsave`, where given, saves the whole game as one mjai log, and
-   * `onreview` opens the review of every decision the player made in it.
-   * `playerLabel` is what the row the engine marks as `you` is called: the
-   * person playing, or in Watch the agent being followed. `heading` is bound
-   * so that focus can go to it as the game ends: the last hand's Next hand,
-   * which goes as it brings the standings, hands focus on to it (App).
+   * `onreview` opens the review of every decision the player made in it;
+   * each may answer false when it could not. `failure` is why the last press
+   * on these buttons that failed could not be done, said in a line after
+   * them: empty while there is nothing to say, and null where the page says
+   * such failures elsewhere (AgentWatch). `playerLabel` is what the row the
+   * engine marks as `you` is called: the person playing, or in Watch the
+   * agent being followed. `heading` is bound so that focus can go to it as
+   * the game ends: the last hand's Next hand, which goes as it brings the
+   * standings, hands focus on to it (App, AgentWatch).
    */
-  let { standings = [], onagain, onsave, onreview, playerLabel = 'You', heading = $bindable(null) } = $props();
+  let { standings = [], onagain, onsave, onreview, failure = null, playerLabel = 'You', heading = $bindable(null) } = $props();
 
   let yours = $derived(standings.find((row) => row.you));
+
+  // A press that could not be done answers false: the buttons stay as they
+  // were, the pressed one with focus, and the line after them says why
+  // (failure). The buttons and the line are brought into view, by as little
+  // movement as will show them, clear of the game's bar and the result's
+  // chip: on a phone the line may fall under the chip or below the screen,
+  // and the press may have come from beneath the result's sheet, which steps
+  // aside for it (App).
+  let buttons = $state(null);
+  function done(answer) {
+    if (answer === false) void tick().then(() => buttons?.scrollIntoView({ block: 'nearest' }));
+  }
 </script>
 
 <section class="standings" aria-label="final standings">
@@ -59,10 +76,15 @@
     </tbody>
   </table>
 
-  <div class="buttons">
+  <div class="buttons" bind:this={buttons}>
     <button class="primary" onclick={onagain}>Play again</button>
-    {#if onreview}<button class="quiet" data-review-game onclick={onreview}>Review whole game</button>{/if}
-    {#if onsave}<button class="quiet" data-save-game onclick={onsave} title="Every hand of this game from East 1 as one mjai event log, which replayers and other riichi programs read">Save whole game</button>{/if}
+    {#if onreview}<button class="quiet" data-review-game onclick={() => done(onreview())}>Review whole game</button>{/if}
+    {#if onsave}<button class="quiet" data-save-game onclick={() => done(onsave())} title="Every hand of this game from East 1 as one mjai event log, which replayers and other riichi programs read">Save whole game</button>{/if}
+    <!-- Why a press on these buttons could not be done, said where the
+         player pressed one. A screen reader hears a status line only once it
+         knows it, so the line waits here, empty and out of sight, from the
+         moment the standings appear. -->
+    {#if failure !== null}<p class="failure" class:visually-hidden={!failure} data-standings-failure role="status">{failure}</p>{/if}
   </div>
 </section>
 
@@ -162,6 +184,26 @@
     flex-wrap: wrap;
     gap: 8px;
     max-width: 100%;
+  }
+
+  /* A row of its own below the buttons. */
+  .failure {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 0.82rem;
+  }
+
+  /* When a press fails, the buttons and the line that says why are brought
+     into view with as little movement as will show them, a little from the
+     edge of the screen, as the heading is: below the game's bar where that
+     stays at the top of the screen, and on a phone clear of the result's chip
+     at the foot of the screen. */
+  .buttons { scroll-margin: 8px 0; }
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    .buttons { scroll-margin-top: 72px; }
+  }
+  @media (max-width: 760px) {
+    .buttons { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   }
 
   button {
