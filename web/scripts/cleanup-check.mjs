@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { browserChecks, launchChrome, openPanel } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { emptyPosition, parseTiles, recordChoice } from '../src/lib/physical-position.js';
 import { emptyGuided, editGuided, guidedEvent, GUIDED_FORMAT } from '../src/lib/guided-game.js';
@@ -104,7 +104,7 @@ try {
   await check('settings bindings update the hand and preferences without changing the saved match', async context => {
     const { page, problems } = await pageAt(context);
     const saved = await savedMatch(page);
-    await page.click('.options > summary');
+    await openPanel(page, '.options > summary');
     await page.click('.options input[type=checkbox]');
     await page.waitForFunction(() => !document.querySelector('.mine .hint'));
     await page.select('select[aria-label="Tile face"]', 'matisse');
@@ -132,7 +132,7 @@ try {
   await check('discard cancellation and preference changes clear the shared selection without playing a move', async context => {
     const { page, problems } = await pageAt(context);
     const saved = await savedMatch(page);
-    await page.click('.options > summary');
+    await openPanel(page, '.options > summary');
     const confirmation = '.options label:has(input[type=checkbox]):nth-of-type(3) input';
     await page.click(confirmation);
     await page.click('.hand button[data-hand-index]:not(:disabled)');

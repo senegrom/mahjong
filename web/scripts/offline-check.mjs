@@ -8,7 +8,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { browserChecks, launchChrome, openPanel } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
@@ -311,7 +311,7 @@ try {
     // cannot be saved spends none of the network's 116 MB.
     assert.equal(count.get(modelPath) ?? 0,0);
     failPath=null;
-    await p.click('.settings-trigger'); await p.click('.offline-settings summary'); await p.click('.offline-settings button'); await ready(p); await p.click('.mobile-preferences-head button');
+    await p.click('.settings-trigger'); await openPanel(p, '.offline-settings summary'); await p.click('.offline-settings button'); await ready(p); await p.click('.mobile-preferences-head button');
     assert.equal(count.get(modelPath),1); assert.ok(count.get(runtimePath)>=1);
     await play(p,4); assert.deepEqual(p.errors,[]);
   });

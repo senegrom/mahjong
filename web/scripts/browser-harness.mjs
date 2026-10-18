@@ -27,6 +27,24 @@ export async function launchChrome({ args = [], ...options } = {}) {
     args: ['--no-sandbox', '--disable-dev-shm-usage', ...args] });
 }
 
+/** Opens a <details> by pressing its summary, then waits for its toggle
+ * event and two frames, so that a press inside it lands where it is aimed.
+ * The settings lay an opened panel out where it stands first, and move it
+ * below the other summaries (`order: 1`) only after its toggle event: a
+ * press aimed before the move lands on what took its place, at 1100x900 the
+ * panel's own summary, which closes it again. */
+export async function openPanel(page, summary) {
+  await page.evaluate(selector => {
+    window.__panelSettled = new Promise((done, fail) => {
+      setTimeout(() => fail(new Error(`${selector} did not toggle its panel`)), 5000);
+      document.querySelector(selector).parentElement.addEventListener('toggle',
+        () => requestAnimationFrame(() => requestAnimationFrame(done)), { once: true });
+    });
+  }, summary);
+  await page.click(summary);
+  await page.evaluate(() => window.__panelSettled);
+}
+
 /** Named cases, run one after another. A case can open several browser
  * contexts: pushed to `contexts`, they are all closed before the next case,
  * whether it passed or not, and a context that fails to close fails it too. */

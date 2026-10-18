@@ -7,7 +7,7 @@ import { mkdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { browserChecks, launchChrome, openPanel } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
@@ -113,7 +113,7 @@ try {
     const p = await open(initial);
     const drawn = await p.$eval('.hand button[data-drawn=true]', el => ({ ringed:el.classList.contains('ringed'), label:el.getAttribute('aria-label') }));
     assert.equal(drawn.ringed, false); assert.match(drawn.label, /just drawn/);
-    const c = await open(closed); await c.click('.options summary'); await c.click('.option-fields input');
+    const c = await open(closed); await openPanel(c, '.options summary'); await c.click('.option-fields input');
     assert.equal(await c.$('[data-readiness]'), null); assert.equal(await c.$('.hint'), null);
     assert.equal(await c.$eval('.hand .hand-tile[data-hand-drawn=true]', el => getComputedStyle(el).marginInlineStart), '18px');
     await c.click('.option-fields input'); await assertRings(c, closed.expected);
