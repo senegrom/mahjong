@@ -61,16 +61,16 @@ an unfinished match has progress, including between hands.
     result, and on a phone why the whole game could not be replayed for
     review. It speaks where the player pressed, since the top of the page is
     above the screen at desktop width and under the sheet on a phone;
-  - the final standings' own line after their buttons, which says why the
-    whole game could not be saved, or replayed for review, from their **Save
-    whole game** and **Review whole game**. It waits there from the moment
-    the standings appear;
+  - in play, the final standings' own line after their buttons, which says
+    why the whole game could not be saved, or replayed for review, from their
+    **Save whole game** and **Review whole game**. It waits there from the
+    moment the standings appear;
   - **Export game**'s own line in the settings, after its button, which says
-    why the game could not be saved. On a phone, and on a small one held
-    sideways, the settings are a modal dialog, and while it is open
-    Chromium's accessibility tree ignores all that lies outside it
-    (`activeModalDialog`), so a line behind it would be heard only once the
-    dialog closed. This one is inside it;
+    why the game could not be saved. On a phone, upright or held sideways,
+    the settings are a modal dialog, and while it is open Chromium's
+    accessibility tree ignores all that lies outside it (`activeModalDialog`),
+    so a line behind it would be heard only once the dialog closed. This one
+    is inside it;
   - the hand review's two lines, that Trained AI is reviewing and that Club
     reviews in its place, which wait in the review until it has been drawn,
     and a tenth of a second more.

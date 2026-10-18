@@ -278,15 +278,16 @@ agent finished 2nd"), and only a press by keyboard moves the page to it, the
 result stepping aside on a phone as in play, with its chip after the
 standings' buttons. Measured in Chromium on a game of Club agents from seed
 23, a press by keyboard on the result's button moves the page 387 pixels at
-390x844 and 720 at 320x568, and 304 pixels up at 844x390, where the browser's
-scroll anchoring had left the heading above the screen; at 1100x900 the
-heading is already in view. On the controls' button, at the top of the watch,
-it moves the page 14 pixels at 1100x900, 387 at 390x844, 720 at 320x568 and
-462 at 844x390. A click or a tap asks for no scroll, so the page ends where it
-did before focus moved, at each of these sizes: at 844x390 the browser's own
-scroll anchoring moves it 267 pixels as the standings come in after a press on
-the result's button, as it did. On a phone the controls' button lies under
-the result's sheet, where only a keyboard or a screen reader reaches it.
+390x844, 720 at 320x568 and 568 at 568x320, and 304 pixels up at 844x390,
+where the browser's scroll anchoring had left the heading above the screen;
+at 1100x900 the heading is already in view. On the controls' button, at the
+top of the watch, it moves the page 14 pixels at 1100x900, 387 at 390x844,
+720 at 320x568 and 462 at 844x390. A click or a tap asks for no scroll, so
+the page ends where it did before focus moved, at each of these sizes: at
+844x390 the browser's own scroll anchoring moves it 267 pixels as the
+standings come in after a press on the result's button, as it did. On a
+phone the controls' button lies under the result's sheet, where only a
+keyboard or a screen reader reaches it.
 
 The standings' own **Save whole game** and **Review whole game** say a failure
 where they were pressed as well, from a status line of their own after their
@@ -306,8 +307,8 @@ focus to be seen, and the chip brings the result back. The buttons and the
 line are brought into view by as little movement as will, clear of the game's
 bar and the chip: measured, the page does not move for any press at 1100x900,
 1366x768 and 844x390, nor on a phone for a finger or a mouse; for a keyboard
-beneath the sheet it moves 41 pixels at 390x844 and 42 to 61 at 320x568, to
-bring the line out from under the chip.
+beneath the sheet it moves 41 pixels at 390x844, 42 to 61 at 320x568 and 21 at
+568x320, to bring the line out from under the chip.
 
 ### Final-hand review and saves
 
@@ -332,9 +333,9 @@ Mortal and its log validator read.
 When **Export game** cannot save its file, it says so beside its button, from
 a status line of its own that waits in its panel, empty and out of sight,
 before its words arrive: "The game could not be saved to a file. Your current
-match is unchanged." The button keeps focus. On a phone, and on a small one
-held sideways, the settings are a modal dialog, and the notice line that said
-it before lies behind the dialog. Measured in Chromium, while the dialog was
+match is unchanged." The button keeps focus. On a phone, upright or held
+sideways, the settings are a modal dialog, and the notice line that said it
+before lies behind the dialog. Measured in Chromium, while the dialog was
 open the accessibility tree ignored that line (`activeModalDialog`), so a
 screen reader heard nothing until the dialog closed, and a sighted player saw
 it only dimmed behind the backdrop, above the dialog at 390x844, or not at
