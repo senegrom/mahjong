@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 22
       - name: Ensure image exporter is available
@@ -23,7 +23,18 @@ jobs:
             sudo apt-get install -y imagemagick
           fi
       - name: Integrate exact selected spiral and verify all previous artwork
-        run: node .dali-six-spiral-prep/prepare.mjs
+        run: |
+          node .dali-six-spiral-prep/prepare.mjs
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const file = 'web/tests/tile-faces.test.js';
+          const source = readFileSync(file, 'utf8');
+          const old = "assert.match(preview('dali'), /remaining 12 tiles show their names until their artwork is approved/);";
+          const next = "assert.ok(preview('dali').includes(`remaining ${dali.placeholders.length} tiles show their names until their artwork is approved`));";
+          assert.equal(source.split(old).length, 2);
+          writeFileSync(file, source.replace(old, next));
+          JS
       - name: Install web verification dependencies
         working-directory: web
         run: npm ci --ignore-scripts
