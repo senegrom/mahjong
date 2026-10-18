@@ -81,16 +81,17 @@ async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,fil
  const page=await (await openContext(browser)).newPage();page.reviewErrors=[];
  page.on('pageerror',error=>page.reviewErrors.push(error.message));await page.setViewport({width,height,isMobile:touch,hasTouch:touch});
  if(reduced)await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
- // The frames the page draws are counted from its start, and every status
- // line is noted with the frame it came into the page in and the frame its
- // words first arrived in.
+ // The frames the page has drawn are counted from its start, each once it
+ // is drawn: a timer set as a frame begins runs after that frame is drawn.
+ // Every status line is noted with the count when it came into the page and
+ // when its words first arrived.
  if(statusLines)await page.evaluateOnNewDocument(()=>{
-  let frame=0;const count=()=>{frame++;requestAnimationFrame(count);};requestAnimationFrame(count);
+  let drawn=0;const count=()=>{setTimeout(()=>{drawn++;});requestAnimationFrame(count);};requestAnimationFrame(count);
   const lines=window.statusLines=new Map();
   new MutationObserver(()=>{
    for(const el of document.querySelectorAll('[role="status"]')){
-    if(!lines.has(el))lines.set(el,{added:frame,spoke:null});
-    const line=lines.get(el);if(line.spoke===null&&el.textContent.trim())line.spoke=frame;
+    if(!lines.has(el))lines.set(el,{added:drawn,spoke:null});
+    const line=lines.get(el);if(line.spoke===null&&el.textContent.trim())line.spoke=drawn;
    }
   }).observe(document,{childList:true,subtree:true,characterData:true});
  });
@@ -141,10 +142,10 @@ async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,fil
  await page.waitForSelector('.hand');return page;
 }
 const noErrors=page=>assert.deepEqual(page.reviewErrors,[]);
-/** How many frames the status line now saying `words` waited in the page,
- * empty, before its words arrived, in a page opened with `statusLines`: none
- * when it came into the page with them. Two or more mean that the page was
- * drawn at least once with the line in it and its words not. */
+/** How many times the page was drawn with the status line now saying `words`
+ * in it, empty, before its words arrived, in a page opened with
+ * `statusLines`: none when it came into the page with them, or got them
+ * before the page was next drawn. */
 const waited=(page,words)=>page.evaluate(source=>{
  const pattern=new RegExp(source);
  for(const [el,line] of window.statusLines)if(el.isConnected&&pattern.test(el.textContent.trim()))return line.spoke-line.added;
@@ -475,7 +476,8 @@ try{
  // knows it, so the line waits there, empty and taking no room, before its
  // words arrive.
  await check('a review the engine could not build is said beside the result\'s buttons, and its button keeps focus',async()=>{
-  for(const [width,height,how] of [[1100,900,'keyboard'],[1100,900,'mouse'],[390,844,'keyboard'],[390,844,'touch'],[320,568,'keyboard']]){
+  for(const [width,height,how] of [[1100,900,'keyboard'],[1100,900,'mouse'],[844,390,'touch'],[390,844,'keyboard'],[390,844,'touch'],[320,568,'keyboard'],
+   [568,320,'touch']]){
    const touch=how==='touch',p=await open(wins[0],{width,height,touch,reduced:true,failReview:true}),where=`at ${width}x${height} by ${how}`;
    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
@@ -517,7 +519,7 @@ try{
     await p.waitForFunction(source=>[...document.querySelectorAll('.review [role="status"]')].some(el=>new RegExp(source).test(el.textContent.trim())),
      {timeout:5000},words.source);
     const frames=await waited(p,words);
-    assert.ok(frames>=2,`the line that Trained AI is reviewing waits in the page, drawn empty, before its words: ${frames} frames ${where}`);
+    assert.ok(frames>=1,`the line that Trained AI is reviewing is drawn empty in the page before its words arrive: drawn ${frames} times ${where}`);
     noErrors(p);
    }finally{release();}
   }
@@ -529,7 +531,7 @@ try{
   await p.waitForFunction(source=>[...document.querySelectorAll('.review [role="status"]')].some(el=>new RegExp(source).test(el.textContent.trim())),
    {timeout:5000},words.source);
   const frames=await waited(p,words);
-  assert.ok(frames>=2,`the line that Club reviews in Trained AI's place waits in the page, drawn empty, before its words: ${frames} frames`);
+  assert.ok(frames>=1,`the line that Club reviews in Trained AI's place is drawn empty in the page before its words arrive: drawn ${frames} times`);
   noErrors(p);
   // Club chosen: nothing to say, and both lines wait, empty, taking no room,
   // long after they could have spoken.
@@ -549,7 +551,7 @@ try{
   await p.waitForFunction(source=>[...document.querySelectorAll('[role="status"]')].some(el=>new RegExp(source).test(el.textContent.trim())),
    {timeout:10000},words.source);
   const frames=await waited(p,words);
-  assert.ok(frames>=2,`the line waits in the page, drawn empty, before its words: ${frames} frames`);
+  assert.ok(frames>=1,`the line is drawn empty in the page before its words arrive: drawn ${frames} times`);
   const line=await p.evaluateHandle(source=>[...document.querySelectorAll('[role="status"]')].find(el=>new RegExp(source).test(el.textContent.trim())),words.source);
   assert.ok(await line.evaluate(el=>el.getBoundingClientRect().height>1),'the warning is seen');
   assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status','a screen reader knows the line');
