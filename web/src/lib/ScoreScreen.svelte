@@ -18,6 +18,9 @@
     ongamereview,
     // Whether that review is open, from this sheet or from the standings.
     gameReviewOpen = false,
+    // Whether the keyboard has sent focus on to the standings as the game
+    // ended, pressing the last hand's Next hand (App).
+    standingsFocused = false,
     finalHand = false,
     dora = [],
     bets = 0,
@@ -52,9 +55,11 @@
   // The hand's review opens below the result, and on a phone this sheet steps
   // aside for it and for the table and the hand that it covers. The button
   // goes once the review is open, so opening it hands focus on to the review
-  // (App) rather than leaving it to drop to the page.
-  function reviewTable() {
-    onreview?.();
+  // (App) rather than leaving it to drop to the page. The press goes along:
+  // whether the keyboard made it decides whether the page moves to the
+  // review.
+  function reviewTable(event) {
+    onreview?.(event);
     minimized = true;
   }
 
@@ -71,8 +76,10 @@
   // sheet steps aside for it as it does for the hand's review, whichever
   // button opened it: its own, or the standings' own, which the sheet covers
   // but a keyboard or a screen reader still reaches. The standings are then
-  // in view, and not under the sheet, either way.
-  $effect(() => { if (gameReviewOpen) minimized = true; });
+  // in view, and not under the sheet, either way. It steps aside for them as
+  // well when the keyboard has sent focus on to them as the game ended, so
+  // that focus is not hidden under it; a tap leaves the result up, as it was.
+  $effect(() => { if (gameReviewOpen || standingsFocused) minimized = true; });
 </script>
 
 {#if minimized}

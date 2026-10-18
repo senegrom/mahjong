@@ -83,6 +83,19 @@ export function callTiles(choice, pending) {
   return choice.tile ? [choice.tile] : choice.kind === 'ron' && pending ? [pending] : [];
 }
 
+/** Whether a button's click came from the keyboard, Enter or Space on the
+ * focused button, rather than from a mouse, a finger or a pen. A click's
+ * detail is its click count (UI Events): a press of a mouse button, a tap or
+ * a pen's touch counts at least one, in every browser, while the click a
+ * browser makes for a key counts none, as does a script's click(). A screen
+ * reader's press counts none in Chromium and may count one elsewhere. Either
+ * answer is safe for what it decides, whether what is on the screen moves to
+ * show where focus went: focus moves either way, and a screen reader follows
+ * it. */
+export function pressedByKeyboard(event) {
+  return event?.detail === 0;
+}
+
 export function acceptsHandKey(event, hand) {
   if (!hand || event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
   const target = event.target;

@@ -217,16 +217,20 @@
     font-weight: 600;
   }
 
-  /* The heading takes focus as the review opens, and is scrolled to with as
-     little movement as will show it (App). So it lands clear of the foot of
-     the screen, where the result's chip sits on a phone (ScoreScreen), and,
-     where the game's bar stays at the top of the screen (AppSettings), below
-     the bar. */
-  h3 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+  /* The heading takes focus as the review opens, and a press by keyboard
+     scrolls to it with as little movement as will show it and the focus ring
+     drawn just outside it (App). So it lands a ring's width and a little from
+     the edge of the screen, below the game's bar where that stays at the top
+     of the screen (AppSettings), and on a phone clear of the result's chip at
+     the foot of the screen (ScoreScreen). */
   h3:focus { outline: none; }
   h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  h3 { scroll-margin: 8px 0; }
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     h3 { scroll-margin-top: 72px; }
+  }
+  @media (max-width: 760px) {
+    h3 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   }
 
   .adviser { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; font-size: .85rem; }
