@@ -1,6 +1,6 @@
 # Dalí mahjong tile set
 
-A surrealist tile face set for the mahjong game. Twenty-two faces are approved, drawn from the original studies and Carl's later selections. The latest is two disks **The Impossible Balance — B**, the selected middle painting with two jewel-toned medallions on a soft ivory branch and a rigid straight shadow. This completes ranks 1–5 of disks. The previously selected four disks **The Soft Staircase — B**, the selected middle painting with four jade medallions on an impossible staircase and one softened disk. The complete 1086 × 1448 painting is retained at full pixel dimensions. The previously selected six bamboo **The Impossible Reflection — Green C**, the selected third option with its approved green hue. This completes all nine bamboo faces. The previously selected four bamboo **The Sleeping Landscape — B** uses the approved right-hand painting with exactly four green stalks on a sleeping stone eyelid and a suspended green tear. Three and four bamboo now use the approved full-resolution 1086 × 1448 portraits. East wind **The Dreaming East** uses the approved first plain-image composition with the wind woven into its painted 東. North wind **The Wind-Carved Arch** uses the approved recreation of the selected second composition, with clearly separated stone 北 strokes integrated into its wind ribbons above the arch.
+A surrealist tile face set for the mahjong game. Twenty-three faces are approved, drawn from the original studies and Carl's later selections. The latest is six disks **The Spiral Staircase — C**, the selected third concept recreated as a standalone 3:4 portrait: six blue-and-green disks inset into an ivory spiral tower on a floating island. This completes disks 1–6. The previously selected two disks **The Impossible Balance — B**, the selected middle painting with two jewel-toned medallions on a soft ivory branch and a rigid straight shadow. This completes ranks 1–5 of disks. The previously selected four disks **The Soft Staircase — B**, the selected middle painting with four jade medallions on an impossible staircase and one softened disk. The complete 1086 × 1448 painting is retained at full pixel dimensions. The previously selected six bamboo **The Impossible Reflection — Green C**, the selected third option with its approved green hue. This completes all nine bamboo faces. The previously selected four bamboo **The Sleeping Landscape — B** uses the approved right-hand painting with exactly four green stalks on a sleeping stone eyelid and a suspended green tear. Three and four bamboo now use the approved full-resolution 1086 × 1448 portraits. East wind **The Dreaming East** uses the approved first plain-image composition with the wind woven into its painted 東. North wind **The Wind-Carved Arch** uses the approved recreation of the selected second composition, with clearly separated stone 北 strokes integrated into its wind ribbons above the arch.
 
 ## Approved first studies
 
@@ -11,6 +11,7 @@ A surrealist tile face set for the mahjong game. Twenty-two faces are approved, 
 | `Pin3.svg` | 3 disks | Time coming apart — B: jade and ruby disks above a blue clock dissolving into suspended fragments; its shadow remains whole |
 | `Pin4.svg` | 4 disks | The Soft Staircase — B: four jade medallions on an impossible ivory staircase, one melting over a step |
 | `Pin5.svg` | 5 dots | Levitation — five polished, slightly softened disks floating over the desert |
+| `Pin6.svg` | 6 disks | The Spiral Staircase — C: six blue-and-green disks inset into an ivory spiral tower on a floating island |
 | `Sou1.svg` | 1 bamboo | Stilt Bird — one elongated surreal crane-like bird with impossibly long legs |
 | `Sou2.svg` | 2 bamboo | Elastic Growth — two sinuous segmented bamboo stalks; all visible colour remains green |
 | `Sou3.svg` | 3 bamboo | The Bamboo That Tied Itself — A: three green stalks, with an impossible knot in the tall central stem |
@@ -29,9 +30,11 @@ A surrealist tile face set for the mahjong game. Twenty-two faces are approved, 
 | `Pei.svg` | North wind | The Wind-Carved Arch — second composition: sculptural 北, flowing wind ribbons, cypresses and an impossible stone arch |
 | `Chun.svg` | Red dragon | Molten Ruby — translucent ruby-red 中 stretched into an uncanny molten form |
 
-The other 12 tiles have no approved artwork yet, and the game writes out each one's name on its ivory face until they do; no stand-in picture is shipped. All nine bamboo faces are now approved; six uses the selected green-hued C, three uses selected A and four uses the approved B adaptation. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
+The other 11 tiles have no approved artwork yet, and the game writes out each one's name on its ivory face until they do; no stand-in picture is shipped. All nine bamboo faces are now approved; six uses the selected green-hued C, three uses selected A and four uses the approved B adaptation. North uses the 北 adaptation of the selected second wind composition, not the original 東. Its assignment is recorded in [north-wind-selection.json](north-wind-selection.json).
 
 ## Presentation
+
+Six disks uses [the selected spiral staircase C](studies/six-disks-c-spiral-approved.svg), recreated at the correct 3:4 aspect ratio in `spiral_tower_of_celestial_orbs.png` (1086 × 1448; original PNG SHA-256 `bbbdab7d9d3ed1435917f2e1901a9a018ea84bb69220fb8be2090f0cbf258dd3`). This is the approved six-disk tower, not any seashell alternative. The complete painting is encoded as AVIF quality 50, speed 6 at its original pixel dimensions, without resizing, cropping, repainting, recolouring or adding a tile background. The full-dimension AVIF is stored separately and embedded in byte-identical source/runtime SVGs. Compression is lossy; the repository does not claim to preserve the original PNG bytes. Existing 300 × 400 layout, clipping and bleed are unchanged. See [provenance](six-disks.json). All previously approved artwork and fitting remain unchanged.
 
 The set follows the existing tile system's 300 × 400 face, 26-unit rounded clipping and 1% bleed. Each SVG embeds approved raster artwork. The existing twelve PNG-backed faces remain unchanged. The five remaining faces from the first studies are lossless crops of [the approved board](studies/01-first-six-approved.png), excluding its labels and surround. The board also preserves the earlier eight-character design that Carl replaced with B.
 
@@ -69,7 +72,7 @@ Nine characters uses the exact [approved repaired C image](studies/nine-characte
 
 Present three alternatives for each new tile before selection.
 
-Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. The twenty-two approved faces are in the preload inventory; a tile without approved artwork shows its name and loads nothing. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
+Choose **Options → Tile face → Dalí**. The preference is persisted with the existing settings mechanism. The twenty-three approved faces are in the preload inventory; a tile without approved artwork shows its name and loads nothing. The option is part of the Svelte settings control, and the tile's hint rings follow the same rounded outline as its artwork.
 
 ## Reproducing the exports
 
