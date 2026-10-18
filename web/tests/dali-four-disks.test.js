@@ -68,13 +68,13 @@ test('four disks preloads once and does not change hidden tiles or other sets', 
 });
 
 test('the staircase is registered for reproducible export, preview and complete tile coverage', () => {
-  assert.equal(set.tiles.length, 22);
-  assert.equal(set.placeholders.length, 12);
+  assert.equal(set.tiles.length, 23);
+  assert.equal(set.placeholders.length, 11);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   assert.deepEqual([...set.tiles, ...set.placeholders].map(entry => entry.tile).sort(), [...TILE_TYPES].sort());
   assert.deepEqual(selected.crop, { x: 0, y: 0, width: 1086, height: 1448 });
   const exporter = read('web/scripts/export-dali-tiles.mjs').toString();
   assert.ok(exporter.includes("['Pin4', '4p', '4 disks', 'The Soft Staircase — B', 'four-disks-b-approved.svg', [0, 0, 1086, 1448]]"));
   const preview = read('web/public/tiles/dali/preview.html').toString();
-  for (const text of ['approved/Pin4.svg', 'The Soft Staircase', '22 approved faces', 'remaining 12 tiles']) assert.ok(preview.includes(text));
+  for (const text of ['approved/Pin4.svg', 'The Soft Staircase', '23 approved faces', 'remaining 11 tiles']) assert.ok(preview.includes(text));
 });
