@@ -5,11 +5,15 @@ at a time and stops where its rule says, on the comparison it was registered
 with (two challengers played in each call, or one read against another
 series deal by deal), never on the challenger against the incumbent once a
 second player is named; it spawns a failed seed again with its own seed,
-waits for a call in Modal's queue without taking it to be playing, keeps
-every report locally and reads what the volume kept; what it could not play
-or read is refused before anything is registered; and the timing says, in a
-fixed order, whether the ruler played the old duel's games, by its arena or
-by its graphs if not, and how much faster."""
+waits for a call in Modal's queue without taking it to be playing, gives a
+call Modal cannot be asked about an hour of polls and then stops without
+spawning its seed again, keeps every report locally and reads what the
+volume kept; what it could not play or read is refused before anything is
+registered, and a series of two challengers is not read against another,
+even one only the volume holds; and the timing says, in a fixed order,
+whether the ruler played the old duel's games, by its arena or by its graphs
+if not, and how much faster, keeps each report whole or not at all, and run
+again it spawns again only the ways whose call failed."""
 
 import contextlib
 import io
@@ -32,17 +36,24 @@ class Refused(Exception):
     """As Modal refuses a launch at the spend limit."""
 
 
+class Unreachable(Exception):
+    """As the client's ConnectionError, when Modal could not be asked at all."""
+
+
 class Modal:
     """The parts of the Modal client the launcher uses. A spawned call first
     passes through `queue(function, arguments)` (or `queue` itself), a
-    state a poll: "queued", given no container yet, or "running". Then it
-    finishes with what `answer(function, arguments)` gives, a report or an
-    exception it raises, and a ruler's report lands on the volume as
-    `modal_app.ruler` keeps it. The first `refusals` launches are refused."""
+    state a poll: "queued", given no container yet, "running", or
+    "unreachable", a poll Modal could not be asked about. Then it finishes
+    with what `answer(function, arguments)` gives, a report or an exception
+    it raises, and a ruler's report lands on the volume as `modal_app.ruler`
+    keeps it. The first `refusals` launches are refused, as is any launch
+    `refused(function, arguments)` says Modal refuses at that moment."""
 
-    def __init__(self, answer, refusals: int = 0, queue=()):
+    def __init__(self, answer, refusals: int = 0, queue=(), refused=None):
         self.answer = answer
         self.refusals = refusals
+        self.refused = refused or (lambda name, arguments: False)
         self.queue = queue if callable(queue) else (lambda name, arguments: queue)
         self.spawned: list[tuple[str, dict]] = []
         self.results: dict[str, object] = {}
@@ -54,7 +65,8 @@ class Modal:
         self.files: dict[str, bytes] = {}
         self.uploaded: dict[str, str] = {}
         self.options: dict[str, dict] = {}
-        self.exception = SimpleNamespace(NotFoundError=NotFound, ResourceExhaustedError=Refused)
+        self.exception = SimpleNamespace(NotFoundError=NotFound, ResourceExhaustedError=Refused,
+                                         ConnectionError=Unreachable)
         self.Function = SimpleNamespace(from_name=self.function)
         self.FunctionCall = SimpleNamespace(from_id=self.call)
         self.Volume = SimpleNamespace(from_name=lambda name: self)
@@ -70,6 +82,8 @@ class Modal:
         def spawn(**arguments):
             if self.refusals:
                 self.refusals -= 1
+                raise Refused("billing cycle spend limit")
+            if self.refused(name, arguments):
                 raise Refused("billing cycle spend limit")
             call_id = f"fc-{len(self.spawned)}"
             self.spawned.append((name, arguments))
@@ -92,7 +106,10 @@ class Modal:
         def get(timeout=None):
             ahead = self.ahead.get(call_id)
             if ahead:
-                self.state[call_id] = ahead.pop(0)
+                state = ahead.pop(0)
+                if state == "unreachable":
+                    raise Unreachable("Could not connect to the Modal server.")
+                self.state[call_id] = state
                 raise TimeoutError()
             self.state[call_id] = "finished"
             self.files.update(self.landing.pop(call_id, {}))
@@ -120,6 +137,19 @@ class Modal:
     def batch_upload(self, force=False):
         yield SimpleNamespace(put_file=lambda local, remote: self.uploaded.update(
             {remote: Path(local).read_text(encoding="utf-8")}))
+
+
+@contextlib.contextmanager
+def clock():
+    """Stands in for the launcher's clock: each poll's sleep moves it on, so
+    hours of polls take no time. Yields what reads it."""
+    now = [1_800_000_000.0]
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    with patch.object(ruler_cloud.time, "time", lambda: now[0]), patch.object(ruler_cloud.time, "sleep", sleep):
+        yield lambda: now[0]
 
 
 def placements(seed: int, spread: int, base: float, deals: int = 50) -> list[float]:
@@ -168,12 +198,12 @@ class SeriesTests(unittest.TestCase):
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
 
-    def play(self, modal, tag="g910-g810", expected=None):
+    def play(self, modal, tag="g910-g810", expected=None, poll=0):
         series = ruler_cloud.Series(self.root / tag)
         rule = series.register(dict(SETTINGS), looks.design(expected, ruler_cloud.what_of(SETTINGS)))
         ruler_cloud.upload(modal, series)
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            state = ruler_cloud.run_series(modal, series, dict(SETTINGS), rule, poll=0)
+            state = ruler_cloud.run_series(modal, series, dict(SETTINGS), rule, poll=poll)
         return series, state, out.getvalue()
 
     def test_a_clear_difference_stops_after_one_look_of_seeds(self):
@@ -255,6 +285,83 @@ class SeriesTests(unittest.TestCase):
         self.assertTrue(all(len(calls) == 1 for calls in series.calls().values()))
         self.assertEqual(out.count("waits in Modal's queue"), 5)
         self.assertEqual(out.count("left Modal's queue after 0 minutes: playing"), 5)
+
+    def test_a_series_at_the_spend_limit_for_hours_goes_on_by_itself(self):
+        """As g810-suits on 17 October: launches refused for three hours,
+        then calls left in Modal's queue for five more. Neither is a call
+        Modal cannot be asked about, so the series waits, saying so every
+        hour, and finishes by itself once the limit is raised."""
+        modal = Modal(lambda name, arguments: paired_report(arguments["seed"], 0.3), refusals=180,
+                      queue=("queued",) * 300)
+        with clock() as now:
+            start = now()
+            series, state, out = self.play(modal, poll=60)
+            waited = now() - start
+        self.assertEqual(state, "first")
+        self.assertGreater(waited, 7 * 3600)
+        self.assertEqual(len(modal.spawned), 5)
+        self.assertTrue(all(len(calls) == 1 for calls in series.calls().values()))
+        self.assertEqual(out.count("has waited 4.0 hours in Modal's queue"), 5)
+        self.assertEqual(out.count("left Modal's queue after 300 minutes: done"), 5)
+
+    def test_a_call_modal_cannot_be_asked_about_for_an_hour_stops_the_series(self):
+        """Asked about every minute, it is given an hour; then the series
+        stops, naming the call, the error and how to resume, and does not
+        spawn its seed again, since the call may still be playing. Run
+        again, the series asks about the same call and finishes with it."""
+        lost = looks.design().seeds[2]
+        # Ninety polls Modal cannot answer: the first launcher gives up after
+        # sixty-one, an hour, and the one run again hears the rest and the answer.
+        modal = Modal(lambda name, arguments: paired_report(arguments["seed"], 0.3),
+                      queue=lambda name, arguments: ("unreachable",) * 90 if arguments["seed"] == lost else ())
+        with clock() as now:
+            start = now()
+            with self.assertRaises(SystemExit) as stop:
+                self.play(modal, poll=60)
+            waited = now() - start
+            series, state, _out = self.play(modal, poll=60)
+        message = str(stop.exception.code)
+        self.assertIn(f"g910-g810: seed {lost}: Modal could not be asked about its call fc-2 for 60 minutes", message)
+        self.assertIn("(Unreachable: Could not connect to the Modal server.)", message)
+        self.assertIn("its seed is not spawned again: run the same command again", message)
+        self.assertTrue(3600 <= waited <= 3600 + 2 * 60, waited)
+        self.assertEqual(state, "first")
+        self.assertEqual([arguments["seed"] for _name, arguments in modal.spawned], looks.design().seeds[:5])
+        self.assertEqual(series.calls()[lost], ["fc-2"])
+
+    def test_a_seed_left_unasked_while_a_launch_is_refused_starts_its_hour_again(self):
+        """Seed 2 could not be asked about once; then seed 0 failed, and Modal
+        refused to launch it again for three hours, so the seeds after it
+        went unasked; then seed 2 could not be asked about once more. Two
+        polls three hours apart are not an hour of polls Modal could not
+        answer, so the series goes on, and finishes once both have."""
+        order = looks.design().seeds
+        lost = []
+
+        def queue(name, arguments):
+            # Asked before `answer`: seed 0's first call plays a minute, then fails.
+            if arguments["seed"] == order[0] and not lost:
+                return ("running",)
+            return ("unreachable",) * 2 if arguments["seed"] == order[2] else ()
+
+        def answer(name, arguments):
+            if arguments["seed"] == order[0] and not lost:
+                lost.append(arguments["seed"])
+                raise RuntimeError("container lost")
+            return paired_report(arguments["seed"], 0.3)
+
+        with clock() as now:
+            start = now()
+            # Every launch after the look's first five, for three hours.
+            modal = Modal(answer, queue=queue,
+                          refused=lambda name, arguments: len(modal.spawned) >= 5 and now() < start + 3 * 3600)
+            series, state, out = self.play(modal, poll=60)
+            waited = now() - start
+        self.assertEqual(state, "first")
+        self.assertGreater(waited, 3 * 3600)
+        self.assertIn("refused a launch for now", out)
+        self.assertEqual(series.calls()[order[0]], ["fc-0", "fc-5"])
+        self.assertEqual(series.calls()[order[2]], ["fc-2"])
 
     def test_a_report_the_volume_kept_is_never_paid_for_again(self):
         """A launcher started again after Modal let a finished call's answer
@@ -472,6 +579,52 @@ class QueueTests(unittest.TestCase):
         self.assertIn("seed 9100000 has waited 1.0 hours in Modal's queue", lines[1])
         self.assertIn("seed 9100000 left Modal's queue after 122 minutes: playing", lines[2])
 
+    def test_a_call_modal_cannot_be_asked_about_is_given_an_hour_in_a_row(self):
+        """Such a poll is no news of the call: it neither ends a wait in the
+        queue nor starts one, and any answer between two starts the hour
+        again. Asked every minute: fifty-eight minutes of no news, an answer,
+        then no news from the next poll on."""
+        def get(timeout=None):
+            raise Unreachable("no route to host")
+
+        modal = SimpleNamespace(FunctionCall=SimpleNamespace(from_id=lambda call_id: SimpleNamespace(get=get)),
+                                exception=SimpleNamespace(ConnectionError=Unreachable))
+        self.assertEqual(ruler_cloud.outcome(modal, "fc-1"), ("unknown", "Unreachable: no route to host"))
+        lost = {"call_id": "fc-1", "what": "Unreachable: no route to host"}
+        polls = [(0.0, "waiting"), *((60.0 * minute, "unknown") for minute in range(1, 59)), (3540.0, "waiting"),
+                 *((60.0 * minute, "unknown") for minute in range(60, 120))]
+        heard = ruler_cloud.Heard()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            for now, state in polls:
+                heard("seed 9100000", state, now=now, **lost)
+            with self.assertRaises(SystemExit) as stop:
+                heard("seed 9100000", "unknown", now=7200.0, **lost)
+        self.assertEqual(len(out.getvalue().splitlines()), 1)
+        self.assertIn("seed 9100000 waits in Modal's queue", out.getvalue())
+        self.assertIn("seed 9100000: Modal could not be asked about its call fc-1 for 60 minutes, poll after poll "
+                      "(Unreachable: no route to host)", str(stop.exception.code))
+
+    def test_a_call_not_asked_about_for_a_while_starts_its_hour_again(self):
+        """As the seeds after one whose launch Modal refuses go unasked: two
+        polls Modal could not answer, three hours apart, say nothing of the
+        hours between, so the hour starts again at the second. Polls ten
+        minutes apart, as Modal's slow answers might space them, still add
+        up to the hour."""
+        lost = {"call_id": "fc-2", "what": "Unreachable: no route to host"}
+        heard = ruler_cloud.Heard()
+        heard("seed 9300006", "unknown", now=0.0, **lost)
+        for minute in range(180, 240):
+            heard("seed 9300006", "unknown", now=60.0 * minute, **lost)
+        with self.assertRaises(SystemExit) as stop:
+            heard("seed 9300006", "unknown", now=60.0 * 240, **lost)
+        self.assertIn("seed 9300006: Modal could not be asked about its call fc-2 for 60 minutes, poll after poll",
+                      str(stop.exception.code))
+        slow = ruler_cloud.Heard()
+        for minute in range(0, 60, 10):
+            slow("seed 9300006", "unknown", now=60.0 * minute, **lost)
+        with self.assertRaisesRegex(SystemExit, "for 60 minutes"):
+            slow("seed 9300006", "unknown", now=3600.0, **lost)
+
 
 class KeepTests(unittest.TestCase):
     def test_an_old_rulers_finished_calls_are_kept_as_a_series(self):
@@ -587,6 +740,50 @@ class CommandLineTests(unittest.TestCase):
                     self.assertIn("name it with --also", err)
             self.assertEqual(list(Path(folder).iterdir()), [])
 
+    def test_a_series_of_two_challengers_is_not_read_against_another(self):
+        """Its reports hold each challenger's placements and none of their
+        own, so it is read only as its first challenger against its second:
+        read against another series, or another against it, it is refused
+        before the client is asked or a report is read, saying what to run."""
+        with tempfile.TemporaryDirectory() as folder:
+            paired = ruler_cloud.Series(Path(folder) / "g910-g810")
+            paired.register(dict(SETTINGS), looks.design())
+            single = ruler_cloud.Series(Path(folder) / "g910")
+            for seed in looks.design().seeds[:5]:
+                paired.keep(paired_report(seed, 0.3))
+                single.keep(old_ruler(seed))
+            code, _err = self.run_main("looks", "g910-g810", "--against", "g910", "--local", folder)
+            self.assertIn("g910-g810 cannot be read against g910: g910-g810 plays two challengers", code)
+            self.assertIn("read it with `looks g910-g810`, without --against", code)
+            code, _err = self.run_main("looks", "g910", "--against", "g910-g810", "--local", folder)
+            self.assertIn("g910 cannot be read against g910-g810: g910-g810 plays two challengers", code)
+            self.assertIn("one of single rulers", code)
+            # Asked directly, `reading` refuses it before it mirrors or reads anything.
+            with self.assertRaisesRegex(SystemExit, "g910-g810 plays two challengers"):
+                ruler_cloud.reading(Untouchable(), paired, single)
+
+    def test_a_series_of_two_challengers_only_the_volume_holds_is_refused_once_mirrored(self):
+        """Registered and played from another folder, it is known here only
+        once its reports are mirrored: read against it, or it against
+        another, it is refused then, before any report is compared, rather
+        than ending in a KeyError."""
+        refusals = {
+            ("g910", "g910-g810"): "g910 cannot be read against g910-g810: g910-g810 plays two challengers in "
+                                   "every call (--also), and a series is read against one of single rulers",
+            ("g910-g810", "g910"): "g910-g810 cannot be read against g910: g910-g810 plays two challengers in "
+                                   "every call (--also) and is read only as the first against the second",
+        }
+        for (tag, against), refusal in refusals.items():
+            with self.subTest(tag=tag, against=against), tempfile.TemporaryDirectory() as folder:
+                modal = Modal(lambda name, arguments: None)
+                modal.files["rulers/g910-g810/series.json"] = json.dumps(SETTINGS).encode()
+                single = ruler_cloud.Series(Path(folder) / "g910")
+                for seed in looks.design().seeds[:5]:
+                    single.keep(old_ruler(seed))
+                    modal.files[f"rulers/g910-g810/seed-{seed}.json"] = json.dumps(paired_report(seed, 0.3)).encode()
+                code, _err = self.run_main("looks", tag, "--against", against, "--local", folder, modal=modal)
+                self.assertIn(refusal, code)
+
     def test_a_comparison_that_could_not_be_read_is_refused_before_it_is_registered(self):
         with tempfile.TemporaryDirectory() as folder:
             kept = ruler_cloud.Series(Path(folder) / "g910")
@@ -698,6 +895,114 @@ class TimingTests(unittest.TestCase):
         self.assertEqual(len(modal.spawned), 4)
         self.assertEqual(lines[-1], "the seating ruler with graphs plays the old duel's games bit for bit, "
                                     "2.50 times as fast: keep it")
+
+    def test_run_again_it_spawns_again_only_the_ways_whose_call_failed(self):
+        """As when a fusion's old duel died of signal 9: the check stops with
+        the reason and how to go on. Run again, it says it spawns the old
+        duel again and spawns none of the rulers, one finished, one waiting
+        in Modal's queue and one playing; run once more after Modal has let
+        every call's answer go, it reads the reports it kept and spawns
+        nothing."""
+        deaths = [RuntimeError("Runner terminated with signal 9")]
+
+        def answer(name, arguments):
+            if name == "duel" and deaths:
+                raise deaths.pop()
+            return self.report([2.0, 3.0], 1000.0 if name == "duel" else 500.0)
+
+        def queue(name, arguments):
+            if name == "duel" or arguments["questions"] == "fixed":
+                return ()
+            return ("running",) * 2 if arguments.get("graphs") else ("queued",) * 2
+
+        modal = Modal(answer, queue=queue)
+        arguments = ("history/gen-00910", "zoo/mortal_298k", "fusion-long", 9_100_000, 2, 256)
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()) as out:
+            with self.assertRaises(SystemExit) as stop:
+                ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            lines = ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            kept = json.loads((Path(folder) / "timing-calls.json").read_text())
+            for call_id in modal.results:
+                modal.results[call_id] = RuntimeError("OutputExpiredError")
+            again = ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+        self.assertIn("old duel (fc-0) failed: RuntimeError: Runner terminated with signal 9. Run the same command "
+                      "again to spawn it again", str(stop.exception.code))
+        self.assertIn("old duel (fc-0) failed: RuntimeError: Runner terminated with signal 9; spawning it again",
+                      out.getvalue())
+        self.assertIn("spawned old duel as fc-4", out.getvalue())
+        self.assertEqual([name for name, _arguments in modal.spawned], ["duel", "ruler", "ruler", "ruler", "duel"])
+        self.assertEqual(modal.options, {"duel": {"memory": 49152}})
+        self.assertEqual(kept["calls"], {"old duel": "fc-4", "ruler, seating": "fc-1", "ruler, seating, graphs": "fc-2",
+                                         "ruler, fixed 256": "fc-3"})
+        self.assertEqual(kept["failed"], {"old duel": ["fc-0"]})
+        self.assertEqual(lines[-1], "the seating ruler without graphs plays the old duel's games bit for bit, "
+                                    "2.00 times as fast: keep it")
+        self.assertEqual(again, lines)
+
+    def test_a_report_is_kept_whole_or_not_at_all(self):
+        """A kill while the old duel's report is written leaves no report cut
+        short in its place, and the same command run again keeps it whole
+        from its call. A report cut short all the same, as one written in
+        place could be, is said and its call asked about again, rather than
+        failing every run until it is deleted by hand."""
+        class Killed(BaseException):
+            """As the launcher killed mid-write."""
+
+        written = Path.write_text
+
+        def killed_mid_write(path, text, *args, **kwargs):
+            if path.name.startswith("timing-old-duel"):
+                written(path, text[: len(text) // 2], *args, **kwargs)
+                raise Killed()
+            return written(path, text, *args, **kwargs)
+
+        modal = Modal(lambda name, arguments: self.report([2.0, 3.0], 1000.0 if name == "duel" else 500.0))
+        arguments = ("history/gen-00910", "zoo/mortal_298k", "fusion-long", 9_100_000, 2, 256)
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()) as out:
+            report = Path(folder) / "timing-old-duel.json"
+            with patch.object(Path, "write_text", killed_mid_write), self.assertRaises(Killed):
+                ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            self.assertFalse(report.exists())
+            lines = ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            report.write_text(report.read_text(encoding="utf-8")[:50], encoding="utf-8")
+            again = ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            whole = json.loads(report.read_text(encoding="utf-8"))
+            files = sorted(path.name for path in Path(folder).iterdir())
+        self.assertEqual(len(modal.spawned), 4)
+        self.assertEqual(lines[-1], "the seating ruler without graphs plays the old duel's games bit for bit, "
+                                    "2.00 times as fast: keep it")
+        self.assertEqual(again, lines)
+        self.assertEqual(whole["by_deal"], [2.0, 3.0])
+        self.assertIn("old duel: its report timing-old-duel.json could not be read (JSONDecodeError", out.getvalue())
+        self.assertEqual(files, ["timing-calls.json", "timing-old-duel.json", "timing-ruler-fixed-256.json",
+                                 "timing-ruler-seating-graphs.json", "timing-ruler-seating.json"])
+
+    def test_the_call_file_is_kept_whole_or_not_at_all(self):
+        """A kill while timing-calls.json is written again leaves the one
+        written before it whole: the call ids it holds are what spares a
+        rerun from paying for those calls again."""
+        class Killed(BaseException):
+            """As the launcher killed mid-write."""
+
+        written = Path.write_text
+        writes = []
+
+        def killed_on_the_second(path, text, *args, **kwargs):
+            if path.name.startswith("timing-calls"):
+                writes.append(path.name)
+                if len(writes) == 2:
+                    written(path, text[: len(text) // 2], *args, **kwargs)
+                    raise Killed()
+            return written(path, text, *args, **kwargs)
+
+        modal = Modal(lambda name, arguments: self.report([2.0, 3.0], 1000.0 if name == "duel" else 500.0))
+        arguments = ("history/gen-00910", "zoo/mortal_298k", "fusion-long", 9_100_000, 2, 256)
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()):
+            calls = Path(folder) / "timing-calls.json"
+            with patch.object(Path, "write_text", killed_on_the_second), self.assertRaises(Killed):
+                ruler_cloud.timing(modal, Path(folder), *arguments, poll=0)
+            kept = json.loads(calls.read_text(encoding="utf-8"))
+        self.assertEqual(len(kept["calls"]), 1)
 
     def test_changed_games_are_laid_to_the_arena_or_to_the_graphs(self):
         old = self.report([2.0, 3.0], 1000.0)

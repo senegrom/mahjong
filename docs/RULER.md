@@ -319,14 +319,35 @@ read so is refused before anything is registered, as is one that asks with
 and prints the looks so far, by the comparison the series was registered
 with. `looks <tag> --against <other>` reads it against another series instead,
 and says so when its rule was registered for another comparison, since then
-its looks did not decide when it stopped. `python -m neural.looks <folder>`
-reads a local folder of reports, the old duel's included.
+its looks did not decide when it stopped. Both must be series of single
+rulers: a series registered with `--also` holds each challenger's
+placements and none of its own, and is read only as its first challenger
+against its second (`looks <tag>`), so `--against` on either side of it is
+refused. When the local folder holds that series, it is refused before
+anything is read; when only the volume does, once a report of it is
+mirrored, before any is compared (with none on the volume yet there is
+nothing to compare, and the looks are empty). `python -m neural.looks
+<folder>` reads a local
+folder of reports, the old duel's included.
 
 At the spend limit Modal refuses a launch, which the launcher asks again
 later, or takes it and leaves the call in its queue with no container. A
 call in the queue is waiting, not playing: the launcher says when one starts
 waiting, again every hour it waits, and when it leaves the queue, and waits
-with it; it never spawns such a call again, since it has not failed.
+with it; it never spawns such a call again, since it has not failed. Neither
+ends a series, however long the limit holds: it goes on by itself once the
+limit is raised.
+
+A call Modal cannot be asked about at all is another matter. When every
+poll of it for an hour raises ConnectionError, ServiceError, InternalError
+or ResourceExhaustedError, the call may be playing or lost, and nothing says
+which, so the launcher stops and names the call and the error. Run the same
+command again to resume: the series asks about the call again, and never
+spawns its seed again while the call may still be playing. The hour is one
+of polls, a minute apart: a call left unasked for more than a quarter of an
+hour, as the seeds after one whose launch Modal refuses are, starts its hour
+again at its next poll, since what Modal could not answer before says
+nothing of the time between.
 
 ## The timing check
 
@@ -348,6 +369,17 @@ ruler's first seed did if nothing in the engine or the image has changed
 since 14 October. The calls are written down as they are spawned: if Modal
 refuses a launch partway, as at the spend limit, the same command run again
 later spawns only the rest.
+
+Each report is kept in the folder as its call finishes, written whole or
+not at all, so a kill mid-write leaves none cut short; one that cannot be
+read all the same is said, and its call asked about again. A call that
+fails, as an old duel does when it dies of signal 9, stops the check with
+its reason. The same command run again spawns again only the ways whose call
+failed and says so; a call that finished, waits in Modal's queue or still
+plays is kept, and the failed calls are written down under `failed` in
+`timing-calls.json`. A call Modal cannot be asked about for an hour stops
+the check as it stops a series, and the same command run again asks about
+it again.
 
 A seating ruler must place exactly as the old duel on all 1,000 deals, or it
 has changed games and must not continue the published series. Without

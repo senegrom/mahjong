@@ -43,13 +43,20 @@ second plays as it always did.
 `keep` saves the finished calls of a ruler measured the old way
 (`modal-duel-many.py`, which writes a seed and a call id a line) as a
 series' reports, so a new series can be read against it deal by deal after
-Modal has let its calls go.
+Modal has let its calls go. `looks --against` reads one series of single
+rulers against another; a series registered with `--also` is read only as
+its first challenger against its second, and `--against` is refused for it.
 
 At the spend limit Modal refuses a launch, which is asked again later, or
 takes it and leaves the call in its queue with no container. A call in the
 queue is waiting, not playing: the launchers say when one starts waiting,
 again every hour it waits, and when it leaves the queue, and never spawn it
-again, since it has not failed.
+again, since it has not failed. A call Modal cannot be asked about at all,
+poll after poll, may be playing or lost, and nothing says which: after an
+hour of such polls, none more than a quarter of an hour after the one
+before, a launcher stops, naming the call and the error. Run again, it asks
+about the call again, and never spawns it again while it may still be
+playing.
 
 Checkpoints are named as `modal_app` names them: within `--run`, or by their
 path from the volume's root (`zoo/mortal_298k`). Run with the Modal client's
@@ -94,6 +101,11 @@ one 6.9, but there small questions are nearly all of the work, and at 1,000
 deals the encoder, the same in every way, weighs far more: expect less, and
 read the parts to see where the rest goes. The fixed ruler plays other
 games, so its placement differs within its error.
+
+Each report is kept in the folder, whole or not at all, as its call
+finishes. A call that fails stops the timing with its reason; the same
+command run again spawns again only the ways whose call failed, says so,
+and waits for the rest.
 """
 
 from __future__ import annotations
@@ -117,6 +129,18 @@ RULERS = "rulers"
 POLL = 60
 #: How often a launcher says again that a call still waits in Modal's queue.
 REMIND = 60 * 60
+#: How long a launcher goes on asking about a call Modal cannot be asked
+#: about, poll after poll, before it stops rather than wait on it forever:
+#: such a call may be playing or lost, and nothing says which. A refused
+#: launch and a call in Modal's queue are waited for however long the spend
+#: limit holds.
+PATIENCE = 60 * 60
+#: A call left unasked for longer than this, as the seeds after one whose
+#: launch Modal refuses are, starts its `PATIENCE` again at its next poll:
+#: what Modal could not answer before says nothing of the time between.
+#: Fifteen polls long, so that polls spaced out by Modal's slow answers
+#: still add up to the hour.
+LAPSE = 15 * 60
 #: How often a seed whose call failed is spawned again, with its own seed.
 RESPAWNS = 2
 #: What `modal_app.ruler` is told for every seed of a series.
@@ -220,10 +244,16 @@ class Series:
 
     def keep(self, report: dict) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
-        path = self.folder / f"seed-{report['seed']}.json"
-        staged = path.with_suffix(".partial")
-        staged.write_text(json.dumps(report, indent=1), encoding="utf-8")
-        staged.replace(path)
+        write_whole(self.folder / f"seed-{report['seed']}.json", json.dumps(report, indent=1))
+
+
+def write_whole(path: Path, text: str) -> None:
+    """Writes `text` to `path` whole or not at all: staged beside it and put
+    in its place, so a kill mid-write leaves what was there before, and a
+    launcher run again never reads a file cut short."""
+    staged = path.with_suffix(".partial")
+    staged.write_text(text, encoding="utf-8")
+    staged.replace(path)
 
 
 def upload(modal, series: Series) -> None:
@@ -264,12 +294,17 @@ def unasked(modal) -> tuple[type, ...]:
     return tuple(error for error in found if isinstance(error, type))
 
 
+def reason(error: BaseException) -> str:
+    """An error as a launcher says it: its kind and the end of its message."""
+    return f"{type(error).__name__}: {str(error)[-200:]}"
+
+
 def outcome(modal, call_id: str):
     """("done", report), ("waiting", None) while the call waits in Modal's
-    queue for a container, ("playing", None) once one has taken it up, or
-    ("failed", why). A call Modal could not be asked about, or whose state
-    its call graph does not say, is taken to be playing, as it was before
-    the queue could be told apart."""
+    queue for a container, ("playing", None) once one has taken it up,
+    ("unknown", why) when Modal could not be asked about it, or ("failed",
+    why). A call whose state its call graph does not say is taken to be
+    playing, as it was before the queue could be told apart."""
     call = modal.FunctionCall.from_id(call_id)
     try:
         answer = call.get(timeout=0)
@@ -278,10 +313,11 @@ def outcome(modal, call_id: str):
         if error.args:
             return "failed", str(error)[-200:]
         return ("waiting", None) if queued(call, call_id) else ("playing", None)
-    except unasked(modal):
-        return "playing", None
+    except unasked(modal) as error:
+        # Not a failure: the call may still be playing, and is asked about again.
+        return "unknown", reason(error)
     except Exception as error:  # noqa: BLE001 - whatever ended the call
-        return "failed", f"{type(error).__name__}: {str(error)[-200:]}"
+        return "failed", reason(error)
     report = json.loads(answer) if isinstance(answer, str) and answer.strip() else answer
     return ("done", report) if isinstance(report, dict) and report else ("failed", "an empty answer")
 
@@ -302,14 +338,39 @@ def queued(call, call_id: str) -> bool:
 class Heard:
     """What a launcher last heard of each of its calls, so it says when one
     starts waiting in Modal's queue, again every `REMIND` seconds it goes on
-    waiting, and when it leaves the queue."""
+    waiting, and when it leaves the queue; and so it stops, saying which
+    call, why and `resume`, once Modal could not be asked about a call at
+    any poll for `PATIENCE` seconds, none of the polls more than `LAPSE`
+    after the one before."""
 
-    def __init__(self) -> None:
+    def __init__(self, resume: str = "The call may still be playing: run the same command again "
+                                     "to ask about it again.") -> None:
         # The state of each call, since when, and when it was last said.
         self.last: dict[str, tuple[str, float, float]] = {}
+        # Since when Modal could not be asked about each call, poll after
+        # poll, and when it was last asked.
+        self.unknown: dict[str, tuple[float, float]] = {}
+        self.resume = resume
 
-    def __call__(self, label: str, state: str, now: float | None = None) -> None:
+    def __call__(self, label: str, state: str, now: float | None = None, call_id: str = "",
+                 what: object = None) -> None:
+        """Hears one poll of the call `label` names: its state, and with it
+        `what` the poll answered, the error when the state is "unknown"."""
         now = time.time() if now is None else now
+        if state == "unknown":
+            # No news of the call: what was last heard of it stands, so a wait
+            # in the queue neither ends nor starts again here.
+            since, asked = self.unknown.get(label, (now, now))
+            if now - asked > LAPSE:
+                # Left unasked a while: the polls before say nothing of the
+                # time between, so the hour starts again here.
+                since = now
+            self.unknown[label] = (since, now)
+            if now - since >= PATIENCE:
+                raise SystemExit(f"{label}: Modal could not be asked about its call {call_id} for "
+                                 f"{(now - since) / 60:.0f} minutes, poll after poll ({what}). {self.resume}")
+            return
+        self.unknown.pop(label, None)
         before, since, said = self.last.get(label, ("", now, now))
         if state != before:
             self.last[label] = (state, now, now)
@@ -336,7 +397,8 @@ def spawn_seed(modal, series: Series, settings: dict, seed: int) -> str:
 def settle(modal, series: Series, settings: dict, seeds: list[int], heard: Heard | None = None) -> bool:
     """Spawns whatever of `seeds` has no call yet, keeps the reports of the
     calls that have finished, and spawns a failed seed again, at most
-    `RESPAWNS` times; a call that waits or plays is waited for. True once
+    `RESPAWNS` times; a call that waits or plays is waited for, as is one
+    Modal could not be asked about, up to `heard`'s patience. True once
     every one of `seeds` has a report."""
     heard = heard or Heard()
     # First what the volume kept: a launcher started again after Modal let a
@@ -353,7 +415,7 @@ def settle(modal, series: Series, settings: dict, seeds: list[int], heard: Heard
             spawn_seed(modal, series, settings, seed)
             continue
         state, what = outcome(modal, spawned[-1])
-        heard(f"{series.tag}: seed {seed}", state)
+        heard(f"{series.tag}: seed {seed}", state, call_id=spawned[-1], what=what)
         if state == "done":
             series.keep(what)
         elif state == "failed":
@@ -397,7 +459,8 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
     answers how it ended: "first", "second" or "level"."""
     order = rule.seeds
     names = compared(series, settings)
-    heard = Heard()
+    heard = Heard("The call may still be playing, so its seed is not spawned again: run the same command "
+                  "again to resume the series, which asks about the call again.")
     shown = 0
     while True:
         taken, state = looks.read(rule, differences_of(series, settings))
@@ -518,6 +581,38 @@ def against_problem(settings: dict, rule: looks.Design, other: Series) -> str | 
     return None
 
 
+def plays_two(series: Series) -> bool:
+    """Whether a series plays two challengers in every call: registered with
+    `--also`, or, never registered, holding a paired call's report."""
+    settings = series.settings()
+    if settings:
+        return bool(settings.get("also"))
+    return any("arms" in report for report in series.reports().values())
+
+
+def paired_problem(series: Series, against: Series) -> str | None:
+    """Why `series` cannot be read against `against`, if one of them plays
+    two challengers in every call: its reports hold each challenger's
+    placements and none of their own, and it is read only as its first
+    challenger against its second. Found from what the local folders hold:
+    asked before the volume is, and again once a series only the volume
+    held has been mirrored, before any report is compared."""
+    if plays_two(series):
+        return (f"{series.tag} plays two challengers in every call (--also) and is read only as the first "
+                f"against the second; read it with `looks {series.tag}`, without --against")
+    if plays_two(against):
+        return (f"{against.tag} plays two challengers in every call (--also), and a series is read against "
+                "one of single rulers, as a ruler kept with `keep` is")
+    return None
+
+
+def refuse_paired(series: Series, against: Series) -> None:
+    """Stops with `paired_problem`'s reason, if there is one."""
+    problem = paired_problem(series, against)
+    if problem:
+        raise SystemExit(f"{series.tag} cannot be read against {against.tag}: {problem}")
+
+
 def what_of(settings: dict) -> str:
     """What a series compares, in words, as its rule records it."""
     first = challenger_name(settings, "first")
@@ -536,7 +631,12 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     was registered with; with `against`, read instead against that series
     of single rulers on the same seeds, deal by deal (the first's edge less
     the second's), which is said when the rule was registered for another.
-    A folder with no registered rule is read by the usual one, and says so."""
+    A folder with no registered rule is read by the usual one, and says so.
+    A series of two challengers a call is read only by its own comparison:
+    read against another, or another against it, it is refused before any
+    report is compared: before anything is mirrored when the local folders
+    show it, and otherwise as soon as the reports of `against` are mirrored
+    (see `paired_problem`)."""
     path = series.folder / "design.json"
     lines = []
     if path.exists():
@@ -550,9 +650,13 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     elif against is not None and path.exists() and against.tag != registered:
         lines.append(f"read against {against.tag}, a comparison {series.tag}'s rule was not registered for: "
                      "its looks did not decide when the series stopped")
+    if against is not None:
+        refuse_paired(series, against)
     reports = series.reports()
     if against is not None:
         mirror(modal, against)
+        # A series only the volume held shows what it plays once mirrored.
+        refuse_paired(series, against)
         by_seed = looks.against_each(reports, against.reports())
         names = (names_of(series)[0], names_of(against)[0])
     else:
@@ -563,22 +667,28 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     return lines
 
 
-def wait_for(modal, call_ids: dict[str, str], poll: float = POLL) -> dict[str, dict]:
-    """The reports of the calls named, once all have finished; a failure
-    ends the wait with its reason."""
+def wait_for(modal, call_ids: dict[str, str], poll: float = POLL, keep=None) -> dict[str, dict]:
+    """The timing's reports of the calls named, once all have finished,
+    each handed to `keep(name, report)` as its call finishes. A failure
+    ends the wait with its reason, as does a call Modal could not be asked
+    about for `PATIENCE` seconds in a row, and says how the timing goes on."""
     done: dict[str, dict] = {}
-    heard = Heard()
+    heard = Heard("The call may still be playing, so it is not spawned again: run the same command again "
+                  "to wait for it again.")
     while len(done) < len(call_ids):
         for name, call_id in call_ids.items():
             if name in done:
                 continue
             state, what = outcome(modal, call_id)
-            heard(name, state)
+            heard(name, state, call_id=call_id, what=what)
             if state == "done":
                 done[name] = what
+                if keep is not None:
+                    keep(name, what)
                 say(f"{name} finished")
             elif state == "failed":
-                raise SystemExit(f"{name} ({call_id}) failed: {what}")
+                raise SystemExit(f"{name} ({call_id}) failed: {what}. Run the same command again to spawn it "
+                                 "again: the calls that finished are kept, and the others are waited for")
         if len(done) < len(call_ids):
             time.sleep(poll)
     return done
@@ -667,12 +777,23 @@ def verdict(reports: dict[str, dict]) -> list[str]:
     return lines
 
 
+def timing_file(folder: Path, name: str) -> Path:
+    """Where the timing keeps the report of one way of playing."""
+    return folder / f"timing-{name.replace(',', '').replace(' ', '-')}.json"
+
+
 def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed: int, games: int,
            rows: int, poll: float = POLL) -> list[str]:
     """Spawns the four timing calls, or those not spawned yet for these
     arguments (`folder/timing-calls.json`, written as each is spawned, so a
     launch refused partway loses none of the calls before it), waits for
-    them, keeps their reports in the folder and answers the comparison."""
+    them, keeps each report in the folder, whole or not at all, as its call
+    finishes and answers the comparison. Run again, it spawns again exactly
+    the ways whose call failed, and says so: a way whose report is kept has
+    finished, whatever Modal still holds of its call, and a call that waits
+    or plays is waited for. The failed calls are written down under
+    `failed`. A kept report that cannot be read is said, and its call asked
+    about again."""
     folder.mkdir(parents=True, exist_ok=True)
     kept = folder / "timing-calls.json"
     arguments = {"challenger": challenger, "incumbent": incumbent, "run": run, "seed": seed, "games": games,
@@ -680,6 +801,44 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
     saved = json.loads(kept.read_text(encoding="utf-8")) if kept.exists() else {"arguments": arguments, "calls": {}}
     if saved["arguments"] != arguments:
         raise SystemExit(f"{kept} holds the calls spawned for {saved['arguments']}: name another folder")
+
+    def note() -> None:
+        write_whole(kept, json.dumps(saved, indent=1) + "\n")
+
+    def keep(name: str, report: dict) -> None:
+        write_whole(timing_file(folder, name), json.dumps(report, indent=1))
+
+    def kept_report(name: str) -> dict | None:
+        """The report kept for a way of playing, if one can be read. One
+        cut short, as a report written in place could be, is said, and
+        its call is asked about below as if none were kept."""
+        path = timing_file(folder, name)
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as error:  # cut short, or not text at all
+            say(f"{name}: its report {path.name} could not be read ({reason(error)}); asking about its call again")
+            return None
+
+    found = {name: kept_report(name) for name in saved["calls"]}
+    reports = {name: report for name, report in found.items() if report is not None}
+    # The calls an earlier run spawned and left unfinished, each asked about
+    # once: a failure is known only by asking, and may have come after that
+    # run stopped. A failed call is set aside, and its way spawned below as
+    # one never spawned.
+    for name, call_id in list(saved["calls"].items()):
+        if name in reports:
+            continue
+        state, what = outcome(modal, call_id)
+        if state == "done":
+            keep(name, what)
+            reports[name] = what
+        elif state == "failed":
+            say(f"{name} ({call_id}) failed: {what}; spawning it again")
+            saved.setdefault("failed", {}).setdefault(name, []).append(call_id)
+            del saved["calls"][name]
+            note()
     common = dict(challenger=challenger, incumbent=incumbent, games=games, seed=seed, run=run)
     ways = {
         # 48 GiB, as the published rulers' launcher asks: a fusion's duel died
@@ -696,6 +855,9 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
     for name, (function, options, asked) in ways.items():
         if name in saved["calls"]:
             continue
+        # A report left from a call no longer written down would otherwise
+        # be read, run again, as this call's.
+        timing_file(folder, name).unlink(missing_ok=True)
         spawner = modal.Function.from_name(APP, function)
         if options:
             spawner = spawner.with_options(**options)
@@ -706,12 +868,10 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
                              f"the {len(saved['calls'])} calls spawned before it are kept in {kept}; "
                              "run the same command again later to spawn the rest") from None
         saved["calls"][name] = call.object_id
-        kept.write_text(json.dumps(saved, indent=1) + "\n", encoding="utf-8")
+        note()
         say(f"spawned {name} as {saved['calls'][name]}")
-    reports = wait_for(modal, saved["calls"], poll)
-    for name, report in reports.items():
-        (folder / f"timing-{name.replace(',', '').replace(' ', '-')}.json").write_text(
-            json.dumps(report, indent=1), encoding="utf-8")
+    unfinished = {name: call_id for name, call_id in saved["calls"].items() if name not in reports}
+    reports.update(wait_for(modal, unfinished, poll, keep))
     return compare(reports)
 
 
@@ -775,6 +935,9 @@ def main() -> None:
         problem = asking_problem(settings)
         if problem:
             parser.error(problem)
+    if args.command == "looks" and args.against:
+        # As `reading` refuses it, but before the series is mirrored.
+        refuse_paired(Series(args.local / args.tag), Series(args.local / args.against))
 
     import modal
 
