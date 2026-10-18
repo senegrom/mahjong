@@ -11,12 +11,17 @@
     seats = [],
     onnext,
     // Opens the hand's review, and answers false when it could not be
-    // built; reviewFailure then says why.
+    // built.
     onreview,
     reviewed = false,
-    reviewFailure = '',
+    // Save the hand, and the game, each to a file, and may answer false
+    // when they could not.
     onlog,
     ongame,
+    // Why the last press on these buttons that failed could not be done,
+    // said in a line after them: empty while there is nothing to say, and
+    // null where the page says such failures elsewhere (AgentWatch).
+    failure = null,
     // Opens the review of the whole game from the final hand.
     ongamereview,
     // Whether that review is open, from this sheet or from the standings.
@@ -55,23 +60,27 @@
     return { destroy: () => cancelAnimationFrame(id) };
   }
 
+  // A press that could not be done, a review that could not be built or a
+  // file that could not be saved, answers false: the result stays as it
+  // was, the button too, with focus, and the line after the buttons says why
+  // (failure). Where the result is not a sheet, that line may fall below the
+  // screen, so it is brought into view; on a phone it stays at the foot of
+  // the sheet with the buttons. Says whether the press was done.
+  let failureLine = $state(null);
+  function done(answer) {
+    if (answer !== false) return true;
+    void tick().then(() => { if (!matchMedia(RESULT_SHEET).matches) failureLine?.scrollIntoView({ block: 'nearest' }); });
+    return false;
+  }
+
   // The hand's review opens below the result, and on a phone this sheet steps
   // aside for it and for the table and the hand that it covers. The button
   // goes once the review is open, so opening it hands focus on to the review
   // (App) rather than leaving it to drop to the page. The press goes along:
   // on a phone, whether the keyboard made it decides whether the page moves
-  // to the review. A review that could not be built opens nothing, so the
-  // sheet stays, and the button, with focus, and the line after the buttons
-  // says why. Where the result is not a sheet, that line may fall below the
-  // screen, so it is brought into view; on a phone it stays at the foot of
-  // the sheet with the buttons.
-  let failureLine = $state(null);
+  // to the review.
   function reviewTable(event) {
-    if (onreview?.(event) === false) {
-      void tick().then(() => { if (!matchMedia(RESULT_SHEET).matches) failureLine?.scrollIntoView({ block: 'nearest' }); });
-      return;
-    }
-    minimized = true;
+    if (done(onreview?.(event))) minimized = true;
   }
 
   // The chip goes as it brings the result back, so focus goes with it to the
@@ -201,18 +210,19 @@
     {#if finalHand}<span class="final-caption">Final hand</span>
     {:else}<button disabled={busy} class="primary" onclick={onnext}>Next hand</button>{/if}
     {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{#if finalHand}Review <span class="qualifier">final</span> hand{:else}View table / my hand{/if}</button>{/if}
-    {#if onlog}<button class="quiet" onclick={onlog} title="The hand as an mjai event log, which replayers and other riichi programs read">Save <span class="qualifier">{finalHand ? 'final' : 'this'}</span> hand</button>{/if}
+    {#if onlog}<button class="quiet" onclick={() => done(onlog())} title="The hand as an mjai event log, which replayers and other riichi programs read">Save <span class="qualifier">{finalHand ? 'final' : 'this'}</span> hand</button>{/if}
     <!-- At the end the standings offer the whole game, its review and its
          file, close and all. On a phone this sheet covers them, so it offers
          both there too. -->
     {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={() => ongamereview()}>Review <span class="whole">whole</span> game</button>{/if}
-    {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={ongame} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
-    {:else if ongame}<button class="quiet" data-save-game onclick={ongame} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
-    <!-- Why the hand's review could not be built, said where its button was
-         pressed. A screen reader hears a status line only once it knows it,
-         so the line waits here, empty and out of sight, for its words. -->
-    {#if onreview}<p class="review-failure" class:visually-hidden={!reviewFailure} data-review-failure role="status"
-      bind:this={failureLine}>{reviewFailure}</p>{/if}
+    {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={() => done(ongame())} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
+    {:else if ongame}<button class="quiet" data-save-game onclick={() => done(ongame())} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
+    <!-- Why a press on these buttons could not be done, said where the
+         player pressed one. A screen reader hears a status line only once it
+         knows it, so the line waits here, empty and out of sight, for its
+         words. -->
+    {#if failure !== null}<p class="result-failure" class:visually-hidden={!failure} data-result-failure role="status"
+      bind:this={failureLine}>{failure}</p>{/if}
   </div>
 </section>
 
@@ -282,7 +292,7 @@
   .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
   /* A row of its own below the buttons, kept a little clear of the foot of
      the screen when it is brought into view. */
-  .review-failure { flex-basis: 100%; margin: 0; font-size: .82rem; scroll-margin: 8px 0; }
+  .result-failure { flex-basis: 100%; margin: 0; font-size: .82rem; scroll-margin: 8px 0; }
   .buttons button { min-width: 0; max-width: 100%; min-height: 44px; padding: 8px 18px; border: 1px solid var(--button-accent); border-radius: 999px; background: var(--button-accent); color: var(--button-text); font-weight: 650; cursor: pointer; }
   .buttons button.quiet { border-color: rgba(255,255,255,.25); background: transparent; color: inherit; font-weight: 500; }
   /* Beside the standings, which offer the same review and file, they are not

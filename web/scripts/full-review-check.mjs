@@ -72,12 +72,14 @@ const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_
  * `reduced` asks for reduced motion, so nothing moves while a check measures
  * where the page is; `adviser` null leaves the review's adviser at its
  * default, Trained AI, which `trained` puts on offer; `failReview` has the
- * engine fail to build the hand's review; `statusLines` records when each
- * status line comes into the page and when its words arrive (waited);
- * `locks` false takes away the Web Locks API, as some private windows do,
- * so the page cannot safely keep the match. */
+ * engine fail to build the hand's review, and `failSave` the browser fail
+ * to make any file; `statusLines` records when each status line comes into
+ * the page and when its words arrive (waited); `scrolls` notes every scroll
+ * the page asks for (scrollsAsked); `locks` false takes away the Web Locks
+ * API, as some private windows do, so the page cannot safely keep the
+ * match. */
 async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,files=false,touch=false,reduced=false,adviser='club',trained=false,failReview=false,
- statusLines=false,locks=true}={}){
+ failSave=false,statusLines=false,scrolls=false,locks=true}={}){
  const page=await (await openContext(browser)).newPage();page.reviewErrors=[];
  page.on('pageerror',error=>page.reviewErrors.push(error.message));await page.setViewport({width,height,isMobile:touch,hasTouch:touch});
  if(reduced)await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
@@ -120,6 +122,26 @@ async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,fil
    WebAssembly[name]=async(...args)=>plant(await original(...args));
   }
  });
+ // No file can be made, as when the browser refuses one: the object URL a
+ // file is saved through cannot be had.
+ if(failSave)await page.evaluateOnNewDocument(()=>{URL.createObjectURL=()=>{throw new Error('A planted save failure');};});
+ // Every way the page can ask to scroll, noted once the check asks
+ // (scrollsAsked): to an element, by the window or an element, and by a
+ // focus that is let scroll.
+ if(scrolls)await page.evaluateOnNewDocument(()=>{
+  const asked=window.scrollsAsked=[];let noting=false;
+  window.noteScrolls=()=>{noting=true;asked.length=0;};
+  const spy=(owner,name,scrolling=()=>true)=>{
+   const real=owner[name];
+   owner[name]=function(...args){
+    if(noting&&scrolling(args))asked.push(`${name} on ${this===window?'the window':this.outerHTML?.slice(0,60)}`);
+    return real.apply(this,args);
+   };
+  };
+  for(const name of ['scrollIntoView','scrollTo','scrollBy','scroll'])spy(Element.prototype,name);
+  for(const name of ['scrollTo','scrollBy','scroll'])spy(window,name);
+  spy(HTMLElement.prototype,'focus',([options])=>!options?.preventScroll);
+ });
  // A saved file is kept in the page, name and text, rather than downloaded.
  if(files)await page.evaluateOnNewDocument(()=>{
   const blobs=new Map(),create=URL.createObjectURL.bind(URL);
@@ -151,6 +173,9 @@ const waited=(page,words)=>page.evaluate(source=>{
  for(const [el,line] of window.statusLines)if(el.isConnected&&pattern.test(el.textContent.trim()))return line.spoke-line.added;
  return null;
 },words.source);
+/** The scrolls the page has asked for since noteScrolls, in a page opened
+ * with `scrolls`. */
+const scrollsAsked=page=>page.evaluate(()=>[...window.scrollsAsked]);
 const shot=(page,name)=>page.screenshot({path:resolve(output,name+'.png'),fullPage:true});
 async function saveFrom(page,selector){
  const before=await page.evaluate(()=>window.savedFiles.length);
@@ -294,6 +319,9 @@ try{
   assert.ok(await uncovered(button),'the button is in view to be pressed');
   return button;
  }
+ // The result's own status line, after its buttons, which says why a press
+ // on one could not be done.
+ const resultLine=p=>p.$('.screen .buttons [role="status"]');
  // A mouse's click or a finger's tap on the button's middle, which scrolls
  // nothing first.
  async function pointerPress(p,button,touch){
@@ -443,27 +471,34 @@ try{
   }
  });
  // Pressed by a mouse or a finger, the standings' heading takes focus as
- // well, with no ring drawn. On a phone the result stays over the standings,
- // as it was, and the page where it was. Where the result is not a sheet the
- // standings appear just above it, and their heading is brought into view
- // where it is not already, as when the page was at its foot.
- await check('Next hand on the last hand, pressed by mouse or touch, hands focus to the standings, moving nothing on a phone',async()=>{
-  for(const [width,height,touch,foot] of [[1100,900,false,false],[1100,900,false,true],[1280,600,false,true],[844,390,true,false],
-   [390,844,true,false],[320,568,true,false],[568,320,true,false]]){
-   const p=await open(final.before,{width,height,touch,reduced:true}),where=`at ${width}x${height} by ${touch?'touch':'mouse'}${foot?' from the foot of the page':''}`;
+ // well, with no ring drawn, and the page asks for no scroll at any size:
+ // it is left as the browser leaves it when the standings come in above the
+ // result, as before focus moved. On a phone the result stays over the
+ // standings, as it was, and the page where it was. Where the result is not
+ // a sheet the standings appear just above it, and a player who had
+ // scrolled to its buttons at the foot of the page keeps them in view: a
+ // scroll to the heading at 844x390 would take the Final hand caption, where
+ // they pressed, off the screen.
+ await check('Next hand on the last hand, pressed by mouse or touch, hands focus to the standings without moving the page',async()=>{
+  for(const [width,height,touch,foot] of [[1100,900,false,false],[1100,900,false,true],[1280,600,false,true],[1366,768,false,true],
+   [844,390,true,false],[844,390,true,true],[844,390,false,true],[390,844,true,false],[320,568,true,false],[568,320,true,false]]){
+   const p=await open(final.before,{width,height,touch,reduced:true,scrolls:true}),where=`at ${width}x${height} by ${touch?'touch':'mouse'}${foot?' from the foot of the page':''}`;
    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
    if(foot){await p.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight));await settle(p);}
    const button=await inReach(await resultButton(p,'Next hand')),before=await p.evaluate(()=>scrollY);
+   await p.evaluate(()=>window.noteScrolls());
    await pointerPress(p,button,touch);await p.waitForSelector('.standings');
    await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'),{timeout:5000}).catch(()=>{});
    assert.equal(await focusOn(p),'the standings',`focus goes on to the standings ${where}`);
    assert.equal(await ringed(p),false,`no focus ring is drawn for a pointer ${where}`);
    await settle(p);
+   const moved=await p.evaluate(before=>scrollY-before,before);
+   assert.deepEqual(await scrollsAsked(p),[],`the page asks for no scroll ${where}; it moved ${moved} pixels`);
    if(sheet){
-    assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
+    assert.equal(moved,0,`the page stays where it was ${where}`);
     assert.equal(await sheetShown(p),true,`the result stays over the standings ${where}`);
-   }else assert.ok(await uncovered(await p.$('.standings h2')),`the standings' heading is in view, uncovered, ${where}`);
+   }
    noErrors(p);
   }
  });
@@ -481,7 +516,7 @@ try{
    const touch=how==='touch',p=await open(wins[0],{width,height,touch,reduced:true,failReview:true}),where=`at ${width}x${height} by ${how}`;
    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
-   const line=await p.$('.screen [data-review-failure]');
+   const line=await resultLine(p);
    assert.ok(line,`the result has a line for it before the press ${where}`);
    assert.deepEqual(await line.evaluate(el=>[el.getAttribute('role'),el.textContent.trim(),el.getBoundingClientRect().height<=1]),['status','',true],
     `the line waits empty, taking no room, ${where}`);
@@ -501,6 +536,39 @@ try{
    }
    await shot(p,`review-failure-${width}x${height}-${how}`);noErrors(p);
   }
+ });
+ // A hand or a game that could not be saved to a file from the result is
+ // said the same way, beside the result's buttons, from the same line, and
+ // not on the notice line at the top of the page: at desktop that line lies
+ // above the screen while the result's buttons are pressed, and on a phone
+ // under the sheet. The pressed button keeps focus, and on a phone the sheet
+ // stays up and the page where it was.
+ await check('a hand or a game the result could not save is said beside its buttons, and its button keeps focus',async()=>{
+  for(const [pressed,words,name] of [['Save this hand','The hand could not be saved to a file. Your current match is unchanged.','hand'],
+   ['Save game so far','The game could not be saved to a file. Your current match is unchanged.','game']])
+   for(const [width,height,how] of [[1100,900,'mouse'],[1100,900,'touch'],[1100,900,'keyboard'],[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],
+    [320,568,'touch']]){
+    const touch=how==='touch',p=await open(wins[0],{width,height,touch,reduced:true,failSave:true}),where=`for ${pressed} at ${width}x${height} by ${how}`;
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+    const line=await resultLine(p);
+    assert.ok(line,`the result has a line for it before the press ${where}`);
+    assert.equal(await line.evaluate(el=>el.textContent.trim()),'',`the line waits empty ${where}`);
+    const button=await inReach(await resultButton(p,pressed)),before=await p.evaluate(()=>scrollY);
+    if(how==='keyboard'){await button.focus();await p.keyboard.press('Enter');}else await pointerPress(p,button,touch);
+    await p.waitForFunction(words=>[...document.querySelectorAll('[role="status"]')].some(el=>el.textContent.trim()===words),{timeout:5000},words).catch(()=>{});
+    await settle(p);
+    assert.equal(await line.evaluate(el=>el.isConnected&&el.textContent.trim()),words,`the result's line says why ${where}`);
+    assert.equal(await p.evaluate(words=>[...document.querySelectorAll('[role="status"]')].filter(el=>el.textContent.trim()===words&&!el.closest('.screen')).length,words),0,
+     `nothing says it elsewhere, on the notice line at the top of the page ${where}`);
+    assert.ok(await uncovered(line),`the words are in view, uncovered, ${where}`);
+    assert.ok(await button.evaluate(el=>el.isConnected&&el===document.activeElement),`the button stays, with focus, ${where}`);
+    if(sheet){
+     assert.equal(await sheetShown(p),true,`the result stays up ${where}`);
+     assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
+    }
+    await shot(p,`save-failure-${name}-${width}x${height}-${how}`);noErrors(p);
+   }
  });
  // A status line is heard only once a screen reader knows it, so each waits
  // in the page, empty, before its words arrive. The review's own lines come
@@ -555,6 +623,23 @@ try{
   const line=await p.evaluateHandle(source=>[...document.querySelectorAll('[role="status"]')].find(el=>new RegExp(source).test(el.textContent.trim())),words.source);
   assert.ok(await line.evaluate(el=>el.getBoundingClientRect().height>1),'the warning is seen');
   assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status','a screen reader knows the line');
+  noErrors(p);
+ });
+ // The page's notice line, at the top of the page, says what could not be
+ // done elsewhere, such as a game that could not be saved from the settings,
+ // which sit just above the line at desktop width. It too waits in the page,
+ // empty, before its words arrive.
+ await check('a notice from the settings is spoken from a status line already in the page',async()=>{
+  const p=await open(midway,{reduced:true,statusLines:true,failSave:true});
+  await p.click('.game-export > summary');await p.click('.game-export [data-save-game]');
+  const words=/^The game could not be saved to a file\. Your current match is unchanged\.$/;
+  await p.waitForFunction(source=>[...document.querySelectorAll('[role="status"]')].some(el=>new RegExp(source).test(el.textContent.trim())),
+   {timeout:5000},words.source);
+  const frames=await waited(p,words);
+  assert.ok(frames>=1,`the line is drawn empty in the page before its words arrive: drawn ${frames} times`);
+  const line=await p.evaluateHandle(source=>[...document.querySelectorAll('[role="status"]')].find(el=>new RegExp(source).test(el.textContent.trim())),words.source);
+  assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status','a screen reader knows the line');
+  assert.ok(await uncovered(line),'the notice is in view, uncovered, below the settings');
   noErrors(p);
  });
  await check('the game exports from East 1 from the settings, the score screen and the standings, never with the hand in play',async()=>{

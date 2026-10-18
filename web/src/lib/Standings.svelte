@@ -88,13 +88,13 @@
     font-weight: 600;
   }
 
-  /* The heading takes focus as the game ends, and a press by keyboard, or
-     any press where the result is not a sheet, scrolls to it with as little
-     movement as will show it and the focus ring drawn just outside it for a
-     keyboard (App). So it lands a ring's width and a little from
-     the edge of the screen, below the game's bar where that stays at the top
-     of the screen (AppSettings), and on a phone clear of the result's chip at
-     the foot of the screen (ScoreScreen). */
+  /* The heading takes focus as the game ends, and a press by keyboard, the
+     only press that moves the page to it, scrolls to it with as little
+     movement as will show it and the focus ring drawn just outside it (App).
+     So it lands a ring's width and a little from the edge of the screen,
+     below the game's bar where that stays at the top of the screen
+     (AppSettings), and on a phone clear of the result's chip at the foot of
+     the screen (ScoreScreen). */
   h2:focus { outline: none; }
   h2:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   h2 { scroll-margin: 8px 0; }
