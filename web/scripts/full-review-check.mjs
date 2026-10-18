@@ -570,6 +570,37 @@ try{
     await shot(p,`save-failure-${name}-${width}x${height}-${how}`);noErrors(p);
    }
  });
+ // On a phone the result is a sheet whose buttons stay at its foot over what
+ // scrolls beneath them, so their row spans the sheet from edge to edge and
+ // nothing shows beside it: not as the result appears, and not with the
+ // line that says why a press failed making the row taller.
+ await check('on a phone the result\'s buttons span the sheet, so nothing scrolls into view beside them',async()=>{
+  for(const [width,height] of [[320,568],[390,844]]){
+   const p=await open(wins[0],{width,height,reduced:true,failReview:true});
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   for(const state of ['as the result appears','with the line that says why a press failed']){
+    const where=`at ${width}x${height} ${state}`;
+    if(state!=='as the result appears'){
+     const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
+     await p.waitForFunction(()=>document.querySelector('.screen .buttons [role="status"]')?.textContent.trim(),{timeout:5000});await settle(p);
+    }
+    // Points down both edges of the sheet's inside, over the row's height on
+    // the screen, each of which must fall on the row.
+    const strip=await p.evaluate(()=>{
+     const sheet=document.querySelector('.screen'),row=sheet.querySelector('.buttons'),box=sheet.getBoundingClientRect(),own=row.getBoundingClientRect();
+     const left=box.left+sheet.clientLeft,right=left+sheet.clientWidth,beside=[];
+     for(let y=Math.ceil(Math.max(own.top,0))+1;y<Math.min(own.bottom,innerHeight)-1;y+=3)for(const x of [left+1,right-1]){
+      const hit=document.elementFromPoint(x,y);
+      if(!row.contains(hit))beside.push({x:Math.round(x),y,hit:hit?.outerHTML.slice(0,60)??null});
+     }
+     return {sheet:[left,right],row:[own.left,own.right],beside:beside.slice(0,6)};
+    });
+    assert.ok(strip.row[0]<=strip.sheet[0]&&strip.row[1]>=strip.sheet[1],`the buttons' row spans the sheet ${where}: ${JSON.stringify(strip)}`);
+    assert.deepEqual(strip.beside,[],`nothing shows beside the buttons' row ${where}`);
+   }
+   await shot(p,`result-buttons-span-${width}x${height}`);noErrors(p);
+  }
+ });
  // A status line is heard only once a screen reader knows it, so each waits
  // in the page, empty, before its words arrive. The review's own lines come
  // into the page with it: they wait there until the review has been drawn

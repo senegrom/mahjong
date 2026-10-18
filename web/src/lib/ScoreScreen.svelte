@@ -340,10 +340,16 @@
     .hero-score { flex-basis: 100%; justify-items: start; padding: 9px 0 3px; border-top: 1px solid rgba(255,255,255,.09); }
     .hero-score b { max-width: 100%; font-size: 2rem; overflow-wrap: anywhere; }
     .changes th, .changes td { min-width: 0; padding-right: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* The buttons stay at the foot of the sheet over what scrolls beneath
+       them, so their row spans the sheet's whole width, its margins reaching
+       over the sheet's padding on either side. Held to the width inside the
+       padding, the row would leave a strip at the right where the yaku
+       counts and the points scroll into view beside it. */
     .buttons {
       position: sticky;
       bottom: calc(-1 * max(14px, env(safe-area-inset-bottom)));
       z-index: 2;
+      max-width: none;
       margin: 2px -18px calc(-1 * max(14px, env(safe-area-inset-bottom)));
       padding: 10px 18px max(14px, env(safe-area-inset-bottom));
       background: linear-gradient(180deg, transparent, color-mix(in srgb,var(--felt-deep) 97%,black 3%) 20%);
