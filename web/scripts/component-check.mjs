@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { browserChecks, launchChrome, openPanel } from './browser-harness.mjs';
 import { DALI_APPROVED } from '../src/lib/dali-faces.js';
 import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { tileFile, tileWords } from '../src/lib/tiles.js';
@@ -54,7 +54,7 @@ try {
     await page.click('.hand button[data-hand-index="1"]');
     await page.waitForSelector('.confirm-discard');
     assert.equal((await state(page)).selected, 1);
-    await page.click('.options > summary');
+    await openPanel(page, '.options > summary');
     const boxes = await page.$$('.options input[type=checkbox]');
     await boxes[1].click();
     assert.equal((await state(page)).confirmDiscards, false);
@@ -102,7 +102,7 @@ try {
     }), { width: 1, height: 1, position: 'absolute', display: 'block', clip: 'inset(50%)' });
   });
   await check('real offline status reacts to a parent update and invokes download once', desktop, async page => {
-    await page.click('.offline-settings > summary');
+    await openPanel(page, '.offline-settings > summary');
     assert.match(await page.$eval('[data-ai-status]', el => el.textContent), /Interrupted fixture download/);
     await page.click('[data-download-ai]');
     await page.waitForFunction(() => document.querySelector('[data-offline-status]').textContent.includes('game + AI ready'));
@@ -151,8 +151,8 @@ try {
     assert.equal(await page.evaluate(() => document.querySelector('.settings-dialog').contains(document.activeElement)), true);
     for (const expanded of [false, true]) {
       if (expanded) {
-        await page.click('.options > summary');
-        await page.click('.offline-settings > summary');
+        await openPanel(page, '.options > summary');
+        await openPanel(page, '.offline-settings > summary');
       }
       for (const reverse of [false, true]) {
         if (reverse) await page.keyboard.down('Shift');
@@ -172,7 +172,7 @@ try {
   });
   await check('responsive changes preserve preferences, release modality and remove listeners on unmount', phone, async page => {
     await openSettings(page);
-    await page.click('.options > summary');
+    await openPanel(page, '.options > summary');
     await page.click('.options input[type=checkbox]');
     await page.setViewport(desktop);
     await page.waitForFunction(() => !document.querySelector(':modal') && document.activeElement.matches('.options > summary'));
