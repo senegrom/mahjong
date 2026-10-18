@@ -51,25 +51,43 @@ an unfinished match has progress, including between hands.
 - A screen reader announces a status line only once it already knows it. So
   these lines wait in the page, empty and out of sight, before their words
   arrive, rather than arriving with them:
-  - the page's notice line, at the top of the page. It says what could not be
-    done from the settings or the standings, such as a game that could not be
-    saved to a file, and that a whole game could not be replayed for review,
-    wherever its review was asked for;
+  - the page's notice line, at the top of the page. It now says only that
+    this browser is not keeping the settings, so the trained network picker
+    cannot load another network. On a phone the picker sits in the settings'
+    dialog, and while that is open this line is not heard (see below);
   - the warning below it that this browser cannot safely save shared matches;
   - the result's own line after its buttons, which says why the hand's review
-    could not be built, or why the hand or the game could not be saved from
-    the result. It speaks where the player pressed, since the top of the page
-    is above the screen at desktop width and under the sheet on a phone;
+    could not be built, why the hand or the game could not be saved from the
+    result, and on a phone why the whole game could not be replayed for
+    review. It speaks where the player pressed, since the top of the page is
+    above the screen at desktop width and under the sheet on a phone;
+  - the final standings' own line after their buttons, which says why the
+    whole game could not be saved, or replayed for review, from their **Save
+    whole game** and **Review whole game**. It waits there from the moment
+    the standings appear;
+  - **Export game**'s own line in the settings, after its button, which says
+    why the game could not be saved. On a phone, and on a small one held
+    sideways, the settings are a modal dialog, and while it is open
+    Chromium's accessibility tree ignores all that lies outside it
+    (`activeModalDialog`), so a line behind it would be heard only once the
+    dialog closed. This one is inside it;
   - the hand review's two lines, that Trained AI is reviewing and that Club
     reviews in its place, which wait in the review until it has been drawn,
     and a tenth of a second more.
+
+  Two lines still do not speak where the player pressed. The trained network
+  picker's refusal, on the notice line, lies behind the settings' dialog on a
+  phone, as **Export game**'s failure did. Agent watch's line that its game
+  could not be saved comes into the page with its words, below the watch's
+  controls, whichever of its save buttons was pressed: the controls', the
+  result's or the standings'.
 
   Other status lines still come into the page with their words: the line that
   says the game is loading, the settings' line that new tile graphics are
   loading, a yaku's explanation on a hand's result, the whole-game review's
   headline (with the review, and again on Back to the list), the decision
-  replay's "Your decision N of M", and the status lines of Agent watch, the
-  guided physical game and physical agent play.
+  replay's "Your decision N of M", and the status lines of Agent watch (its
+  file note among them), the guided physical game and physical agent play.
 
 ## Verification
 
