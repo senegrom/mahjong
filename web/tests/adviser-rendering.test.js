@@ -82,8 +82,7 @@ test('the value is named and explained by the reward the network the page plays 
   const body = await shown('0.1.1110');
   assert.match(body, /title="Estimated placement bonus, not a win probability">Estimated placement reward −1\.25</);
   assert.match(body, /Trained 0\.1\.1110 learned from placement alone/);
-  assert.match(body, /the placement bonus the scoreboard promises when its hand ends, or after the game(’|'|&#39;)s last hand the bonus itself/);
-  assert.match(body, /\+1\.5 for first, \+0\.5 for second, −0\.5 for third and −1\.5 for fourth/);
+  assert.match(body, /the placement bonus \(\+1\.5 for first, \+0\.5 for second, −0\.5 for third and −1\.5 for fourth\) the scoreboard promises when its hand ends, or after the game(’|'|&#39;)s last hand the bonus itself\./);
   assert.match(body, /Points count only through the places they win/);
   assert.doesNotMatch(body, /training reward|÷ 4,000|mixed|finishing place/);
   // With no value nothing is said of one, whichever network plays.

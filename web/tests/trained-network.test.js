@@ -53,7 +53,7 @@ test("a network's value is named and described by the reward it learned from, as
     assert.deepEqual(valueWords(find(version)), {
       label: 'Estimated training reward',
       title: 'Estimated mixed training reward, not an expected finishing place or win probability',
-      help: `Trained ${version} learned from a mixed reward: each decision earns its hand's point change ÷ 4,000 plus the game's final placement bonus, ${BONUS}. This is not a predicted finishing place, place gain or win probability.`,
+      help: `Trained ${version} learned from a mixed reward: each decision earns its hand's point change ÷ 4,000 plus the game's final placement bonus (${BONUS}). This is not a predicted finishing place, place gain or win probability.`,
     });
   }
   // 1110: the placement reward at alpha 0, U at the next hand's start and
@@ -62,13 +62,13 @@ test("a network's value is named and described by the reward it learned from, as
   assert.deepEqual(placement, {
     label: 'Estimated placement reward',
     title: 'Estimated placement bonus, not a win probability',
-    help: `Trained 0.1.1110 learned from placement alone: each decision earns the placement bonus the scoreboard promises when its hand ends, or after the game's last hand the bonus itself, ${BONUS}. Points count only through the places they win. This is the network's estimate, not a win probability.`,
+    help: `Trained 0.1.1110 learned from placement alone: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself. Points count only through the places they win. This is the network's estimate, not a win probability.`,
   });
   assert.doesNotMatch(placement.help, /4,000|training reward|finishing place/);
   // A placement reward that weighs points says how much they weigh.
   const tiebreak = valueWords({ version: '0.1.1210', reward: { kind: 'placement', alpha: 0.05 } });
   assert.equal(tiebreak.label, 'Estimated placement reward');
-  assert.equal(tiebreak.help, `Trained 0.1.1210 learned from placement and points: each decision earns the placement bonus the scoreboard promises when its hand ends, or after the game's last hand the bonus itself, ${BONUS}, plus 0.05 × its hand's point change ÷ 4,000. This is the network's estimate, not a win probability.`);
+  assert.equal(tiebreak.help, `Trained 0.1.1210 learned from placement and points: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself, plus 0.05 × its hand's point change ÷ 4,000. This is the network's estimate, not a win probability.`);
   // A reward this build cannot describe is not described.
   for (const reward of [undefined, { kind: 'other' }]) {
     const unknown = valueWords({ version: '0.1.9', reward });

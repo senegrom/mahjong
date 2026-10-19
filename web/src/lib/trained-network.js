@@ -59,7 +59,7 @@ export function valueWords(network = playing) {
   if (kind === 'hybrid') return {
     label: 'Estimated training reward',
     title: 'Estimated mixed training reward, not an expected finishing place or win probability',
-    help: `${name} learned from a mixed reward: each decision earns its hand's point change ÷ 4,000 plus the game's final placement bonus, ${BONUS}. This is not a predicted finishing place, place gain or win probability.`,
+    help: `${name} learned from a mixed reward: each decision earns its hand's point change ÷ 4,000 plus the game's final placement bonus (${BONUS}). This is not a predicted finishing place, place gain or win probability.`,
   };
   if (kind === 'placement') {
     // The scoreboard's promise is the bonus its trainer expected from the
@@ -70,7 +70,7 @@ export function valueWords(network = playing) {
     return {
       label: 'Estimated placement reward',
       title: 'Estimated placement bonus, not a win probability',
-      help: `${name} learned from ${points ? 'placement and points' : 'placement alone'}: each decision earns the placement bonus the scoreboard promises when its hand ends, or after the game's last hand the bonus itself, ${BONUS}${points}.${points ? '' : ' Points count only through the places they win.'} This is the network's estimate, not a win probability.`,
+      help: `${name} learned from ${points ? 'placement and points' : 'placement alone'}: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself${points}.${points ? '' : ' Points count only through the places they win.'} This is the network's estimate, not a win probability.`,
     };
   }
   return {
