@@ -320,6 +320,11 @@ async function overviewIsRight(page, frame, step, steps) {
   for (const list of [...shown.opponents, shown.own]) {
     assert.ok(!list.overflows && list.inside, `${list.label} keeps within its seat and the screen`);
   }
+  // Every size checked leaves an opponent's seat room for fourteen tiles of
+  // 12 pixels or more on one row, which a hand is read along.
+  for (const list of shown.opponents) {
+    assert.ok(list.tileWidth >= 12 && list.rows === 1, `${list.label}: ${list.rows} rows of tiles ${list.tileWidth} pixels wide`);
+  }
   assert.equal(shown.facedown, 0, 'nothing is face down');
   assert.equal(shown.toggles, 0, 'nothing offers to show or hide the hands');
   assert.ok(shown.fits, 'the page does not scroll sideways');
