@@ -4,6 +4,7 @@ import { render } from 'svelte/server';
 import { TREND_WINDOW } from '../src/lib/review-trend.js';
 import { playedNetwork, trainedName } from '../src/lib/trained-network.js';
 import { componentLoader } from './fixtures/load-component.js';
+import { text } from './fixtures/markup-text.js';
 
 // Render the production components, substituting only the decision replay,
 // which no test here opens.
@@ -84,9 +85,6 @@ test('a finished review with nothing flagged says so, and offers no more work', 
   assert.doesNotMatch(html, /data-continue|data-stop-review|data-review-hand/);
 });
 
-/** The text of a piece of markup, its tags and the renderer's markers gone,
- * a space where each tag was, as the page lays its elements apart. */
-const text = markup => markup.replace(/<!--[^]*?-->/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
 test('the list opens on the flagged decisions, and its filter lists those that differ or every one, saying how many each holds', () => {
   const near = decision({ index: 1, advised_tile: '9p', advised: 'discards the 9 circles', played_weight: 0.2, preferred_weight: 0.7,

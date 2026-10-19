@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { render } from 'svelte/server';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
+import { text } from './fixtures/markup-text.js';
 import { MatchReview, tableSaid } from '../src/lib/game-review.js';
 import { OPPONENT_LABELS, OPPONENT_POSITIONS } from '../src/lib/opponents.js';
 import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
@@ -53,9 +54,6 @@ const flaggedAt = hand.decisions.findIndex(decision => decision.judgement?.flagg
 const plainAt = hand.decisions.findIndex(decision => !decision.forced && !decision.judgement?.flagged);
 const replay = props => render(DecisionReplay, { props: { hand, hints: true, onback() {}, ...props } }).body;
 
-/** The text of a piece of markup, its tags and the renderer's markers gone,
- * a space where each tag was, as the page lays its elements apart. */
-const text = markup => markup.replace(/<!--[^]*?-->/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 /** The names of the tiles shown in a piece of markup, in order. */
 const tileNames = markup => [...markup.matchAll(/class="tile [^"]*"[^>]*aria-label="([^"]*)"/g)].map(match => match[1]);
 /** The markup of the hands, each as the list a screen reader moves to: the
@@ -147,7 +145,7 @@ test('another flagged decision of the hand offers its retry or its answer, and t
   const items = [...html.matchAll(/<button class="app-control[^"]*" data-step-to="(\d+)"[^>]*>([^]*?)<\/button>/g)]
     .map(([, step, inner]) => ({ step: Number(step), said: text(inner) }));
   assert.equal(items.length, hand.frames.length);
-  assert.match(html, /<div class="decision-list[^"]*">[^]*?<ol[^>]*\brole="list"[^>]*>(?:<!--[^]*?-->)*<li[^>]*><button class="app-control[^"]*" data-step-to="0"/);
+  assert.match(html, /<div class="decision-list[^"]*">[^]*?<ol[^>]*\brole="list"[^>]*>(?:<!--[^>]*-->)*<li[^>]*><button class="app-control[^"]*" data-step-to="0"/);
   // The word a screen reader hears before the number keeps its space, which
   // Svelte would trim from the end of an element's text.
   assert.match(html, /<span class="visually-hidden">Decision <\/span>1<\/span>/);
