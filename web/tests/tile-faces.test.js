@@ -15,12 +15,12 @@ const publicRoot = new URL('../public/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', publicRoot), 'utf8'));
 const faces = TILE_FACE_OPTIONS.map(face => face.value);
 
-test('Van Gogh preserves selected Almond Branches, East A and North B, excludes K and uses L for white dragon', () => {
+test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes K and uses L for white dragon', () => {
   const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z', '2m', '4m', '2s', '4s', '7s', '8s', '5s', '9s', '3p', '5m', '6m', '7m', '4p', '8m', '6p', '7p', '9m', '8p', '6z', '1m', '2z'];
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'Disks C', 'Six B (green)', 'L', 'East A', 'North B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Lemon Terrace', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'Disks C', 'Six B (green)', 'L', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Lemon Terrace', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -34,10 +34,10 @@ test('Van Gogh preserves selected Almond Branches, East A and North B, excludes 
   assert.equal(set.superseded.find(tile => tile.candidate === 'D').activeCandidate, 'Characters A');
   const north = set.tiles.find(tile => tile.tile === '4z');
   assert.equal(tileImage('4z', 'van-gogh'), 'tiles/van-gogh/approved/Pei.svg');
-  assert.equal(north.source, 'docs/design/van-gogh/studies/04-north-wind-ribbons.png');
-  assert.deepEqual(north.crop, { x: 0, y: 0, width: 1086, height: 1448 });
+  assert.equal(north.source, 'docs/design/van-gogh/studies/28-north-wind-winter-b-approved.svg');
+  assert.deepEqual(north.crop, { x: 0, y: 0, width: 300, height: 400 });
   assert.equal(hash(readFileSync(new URL(`../../${north.source}`, import.meta.url))),
-    '3a51fc2f26cbd476cce085d93b52a5a81c5a17d14d4bcf00a0597a402435588e');
+    '731701567e7f7ee83311e8d19953e339f87b4997d9932f24f0c92aa6c3cb142f');
   for (const source of set.sources) {
     assert.equal(hash(readFileSync(new URL(`../../${source.source}`, import.meta.url))), source.sha256);
   }
@@ -58,7 +58,7 @@ test('Van Gogh preserves selected Almond Branches, East A and North B, excludes 
       assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
     } else {
       assert.equal(hash(svg), entry.svgSha256);
-      assert.equal(entry.rasterMimeType, ['9m', '6z', '1m', '2z'].includes(tile) ? 'image/avif' : 'image/webp');
+      assert.equal(entry.rasterMimeType, ['9m', '6z', '1m', '2z', '4z'].includes(tile) ? 'image/avif' : 'image/webp');
       assert.ok(svg.includes(`data:${entry.rasterMimeType};base64,`));
       const embedded = svg.match(/href="data:image\/(?:webp|avif);base64,([A-Za-z0-9+/=]+)"/);
       assert.ok(embedded);

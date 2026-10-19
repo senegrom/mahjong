@@ -1,5 +1,7 @@
 # Van Gogh
 
+**Current North wind:** Snowbound North B (`4z` / `Pei`) replaces Wind Ribbons, following Carl's winter selection. The snowy scene is cropped to exactly 3:4, not squeezed; the complete 北, moon, village and snowy path remain visible. The former North source and playable PNG/SVG are retained in the design archive. Earlier North sections below describe that superseded design. This replacement does not add a tile or change any other artwork.
+
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. That restoration left the other tiles unchanged. Eight disks now uses Lemons by the Sea. Earlier sections below describe the design history.
 
 Choose **Options → Tile face → Van Gogh**. The 33 approved faces appear in hands, discards, melds, indicators, waits, agent modes, reviews and scoring. The preference is saved on this device, and the new faces are included in preloading and offline preparation.
@@ -220,3 +222,11 @@ Carl selected **A — The Billowing Courtyard** as `2z` / `Nan`, South wind. The
 The original board and exact 393 × 640 A crop are preserved in `van-gogh-south-wind-A-prepared.zip` supplied in chat. This repository stores a 300 × 400 quality-70 AVIF game export inside its approved study SVG. The existing face-fit helper corrects the tall painting's proportions to within 2%, trimming surrounding sky and paving rather than squeezing the whole image into the tile. The runtime differs from the study only in image placement. No repainting or recolouring was applied.
 
 Checksums, crop, encoding and fit are recorded in `south-wind-billowing-courtyard-a.json` in the design directory. Reproduce only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=2z`. All prior artwork, including 7 and 8 disks and The Potter’s Table 9 disks, is unchanged; the existing fourteen-tile preview hand is preserved. The set now has **33 painted faces**, with **West wind** the only remaining unpainted identity.
+
+## Snowbound North B — winter replacement
+
+Carl selected the middle winter panel and requested GitHub deployment. The stone marked 北 stands beside a snowy path, warm-lit village and swirling blue-and-gold sky. The cypress and harbour alternatives are not used.
+
+The crop `[497, 126, 456, 608]` on the original 1448 × 1086 triptych is exactly 3:4. A small strip of upper sky and excess foreground are trimmed, not stretched. The full selected panel and untouched board remain in the separately supplied approval ZIP. Uniform LANCZOS downsampling produces a 300 × 400 quality-60 AVIF; there is no repainting, recolouring or glyph editing. The playable face uses zero stretch and zero extra bleed, apart from the usual rounded-corner mask.
+
+Source, original, crop, raster, runtime and archive checksums are recorded in `docs/design/van-gogh/north-wind-winter.json`. Reproduce only this replacement with `node web/scripts/export-van-gogh-tiles.mjs --only=4z`. All other selected faces and the existing fourteen-tile preview hand remain unchanged.
