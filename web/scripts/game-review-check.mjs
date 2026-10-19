@@ -772,7 +772,9 @@ try {
       await page.$eval('[data-decision] #overview-title', el => el.scrollIntoView({ block: 'start' }));
       await shot(page, `review-overview-${width}x${height}`);
       if (phoneSized(page)) {
-        await page.$eval('[data-decision] [data-overview] .mine', el => el.scrollIntoView({ block: 'end' }));
+        // The player's seat from its top, just below the game's bar.
+        await page.$eval('[data-decision] [data-overview] .mine', el =>
+          scrollBy(0, el.getBoundingClientRect().top - document.querySelector('header.bar').getBoundingClientRect().bottom - 8));
         await shot(page, `review-overview-${width}x${height}-yours`);
       }
     }
