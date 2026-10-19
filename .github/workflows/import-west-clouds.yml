@@ -1,0 +1,69 @@
+name: Import approved Cloudborne West
+on:
+  push:
+    branches: [art/van-gogh-west-clouds-complete]
+    paths: [.west-transfer/ready.json]
+permissions:
+  contents: write
+concurrency:
+  group: import-van-gogh-west-clouds
+  cancel-in-progress: false
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: art/van-gogh-west-clouds-complete
+          persist-credentials: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Assemble exact approved artwork and verify preservation
+        run: python3 .west-transfer/install.py
+      - name: Install locked web test dependencies
+        working-directory: web
+        run: npm ci
+      - name: Test tile faces, artists, proportions and offline preparation
+        working-directory: web
+        shell: bash
+        run: |
+          shopt -s nullglob
+          tests=(tests/tile-faces.test.js tests/van-gogh-*.test.js tests/dali-*.test.js tests/*proportion*.test.js tests/offline*.test.js)
+          node --test "${tests[@]}"
+      - name: Lint changed JavaScript
+        working-directory: web
+        run: npx eslint scripts/export-van-gogh-tiles.mjs tests/tile-faces.test.js tests/van-gogh-west-wind.test.js --max-warnings 0
+      - name: Commit only verified West integration
+        shell: bash
+        run: |
+          git rm -r .west-transfer
+          git add docs/design/van-gogh/README.md docs/design/van-gogh/west-wind-clouds.json docs/design/van-gogh/studies/29-west-wind-cloud-strokes-lighthouse-approved.svg web/public/tiles/van-gogh/README.md web/public/tiles/van-gogh/approved/Shaa.svg web/public/tiles/van-gogh/manifest.json web/public/tiles/van-gogh/preview.html web/scripts/export-van-gogh-tiles.mjs web/src/lib/van-gogh-faces.js web/tests/tile-faces.test.js web/tests/van-gogh-west-wind.test.js
+          python3 - <<'PY'
+          import subprocess
+          allowed = {
+            'docs/design/van-gogh/README.md',
+            'docs/design/van-gogh/west-wind-clouds.json',
+            'docs/design/van-gogh/studies/29-west-wind-cloud-strokes-lighthouse-approved.svg',
+            'web/public/tiles/van-gogh/README.md',
+            'web/public/tiles/van-gogh/approved/Shaa.svg',
+            'web/public/tiles/van-gogh/manifest.json',
+            'web/public/tiles/van-gogh/preview.html',
+            'web/scripts/export-van-gogh-tiles.mjs',
+            'web/src/lib/van-gogh-faces.js',
+            'web/tests/tile-faces.test.js',
+            'web/tests/van-gogh-west-wind.test.js',
+          }
+          changed = subprocess.check_output(['git','diff','--cached','--name-only'], text=True).splitlines()
+          unexpected = [p for p in changed if p not in allowed and not p.startswith('.west-transfer/')]
+          assert not unexpected, unexpected
+          assert allowed.issubset(set(changed)), allowed - set(changed)
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Add approved Cloudborne West and complete all 34 Van Gogh faces'
+          git push origin HEAD:refs/heads/art/van-gogh-west-clouds-complete
