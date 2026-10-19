@@ -1,1 +1,1 @@
-{"version":1,"tile":"3z","approvedOriginal":"stormy_sunset_lighthouse_seascape.png","expectedPreviousFaces":33}
+{"version":2,"tile":"3z","approvedOriginal":"stormy_sunset_lighthouse_seascape.png","expectedPreviousFaces":33,"note":"Match existing SVG image-box convention with identical 3:4 geometry; raster bytes unchanged."}
