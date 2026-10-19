@@ -96,6 +96,15 @@ export function pressedByKeyboard(event) {
   return event?.detail === 0;
 }
 
+/** Hands focus on to a heading that says where the player now is, and moves
+ * the page to show it, by as little movement as will, only when the caller
+ * asks: for a press by keyboard, whose player follows focus and is shown a
+ * ring there, and not for a mouse's or a finger's, which is shown none. */
+export function land(heading, scroll) {
+  heading?.focus({ preventScroll: true });
+  if (scroll) heading?.scrollIntoView({ block: 'nearest' });
+}
+
 /** Where a hand's result is a sheet over the table and the hand, as
  * ScoreScreen's styles have it: on a phone held upright, and on a small one
  * held sideways, up to 760 pixels wide. */

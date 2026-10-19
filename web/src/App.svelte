@@ -21,7 +21,7 @@
   import { analyzeBatch, chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { RESULT_SHEET, acceptsHandKey, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
+  import { RESULT_SHEET, acceptsHandKey, land, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
@@ -81,9 +81,13 @@
   let notes = $state(null);
   // The hand review's heading, which takes focus as the review opens.
   let reviewHeading = $state(null);
-  // Why a press on the result's buttons could not be done, which the result
-  // says beside them (sayOnResult, ScoreScreen).
-  let resultFailure = $state('');
+  // Why a press on a set of buttons could not be done, which is said beside
+  // them (say): the result's (ScoreScreen), the final standings' (Standings)
+  // and the settings' Export game's (AppSettings).
+  let failures = $state({ result: '', standings: '', export: '' });
+  // How many presses on the standings' own buttons have failed, for the
+  // result to step aside on a phone, where it is a sheet over them.
+  let standingsFailures = $state(0);
   // The final standings' heading, which takes focus as the game ends, and
   // whether the keyboard sent it there, for the result to step aside for it.
   let standingsHeading = $state(null);
@@ -321,7 +325,8 @@
     picked = null;
     selected = null;
     notes = null;
-    resultFailure = '';
+    failures = { result: '', standings: '', export: '' };
+    standingsFailures = 0;
     standingsFocused = false;
     notice = '';
     loadNote = '';
@@ -453,27 +458,42 @@
     selected = null;
     const advanced = await owner.nextHand();
     if (session !== owner || !advanced) return;
-    if (!owner.over) { notes = null; resultFailure = ''; return; }
+    if (!owner.over) { notes = null; failures.result = ''; return; }
     standingsFocused = byKeyboard;
     await tick();
     land(standingsHeading, byKeyboard);
   }
 
-  // What the result says beside its buttons when a press on one could not
-  // be done, where the player pressed it: the page's notice line sits at the
-  // top of the page, above the screen at desktop width and under the sheet
-  // on a phone.
+  // What is said beside a set of buttons when a press on one could not be
+  // done, where the player pressed it (say). The page's notice line would
+  // not do: it sits at the top of the page, above the screen at desktop
+  // width while the result's and the standings' buttons are pressed, and on
+  // a phone under the result's sheet, or behind the settings' dialog, which
+  // leaves all outside it unheard by a screen reader while it is open.
   const REVIEW_NOT_BUILT = 'The review could not be built. Your match is unchanged.';
   const HAND_NOT_SAVED = 'The hand could not be saved to a file. Your current match is unchanged.';
   const GAME_NOT_SAVED = 'The game could not be saved to a file. Your current match is unchanged.';
+  // How a replay that failed begins; what follows names its error.
+  const NOT_REPLAYED = 'The game could not be replayed for review:';
 
-  // Says on the result why a press failed, or, once the same press is done,
-  // takes back its words, which are no longer true; another button's words
-  // stay. Answers whether it was done, which tells the result whether to
-  // bring the line into view (ScoreScreen).
-  function sayOnResult(words, done) {
-    if (!done) resultFailure = words;
-    else if (resultFailure === words) resultFailure = '';
+  // Says beside the result's, the standings' or Export game's buttons
+  // (`line`) why a press on one failed, or, once the same thing is done from
+  // any of them, takes back what was said of it wherever it shows, since it
+  // is no longer true; a different failure's words stay. What was said of it
+  // is the same words (`same`), or for a replay, which names its error, any
+  // reason it could not be replayed. Answers whether it was done, which
+  // tells the buttons whether to bring the line into view (ScoreScreen,
+  // Standings, AppSettings). On a phone the result is a sheet over the
+  // standings, whose buttons a keyboard or a screen reader still reaches
+  // beneath it, so a press there that fails has the sheet step aside, for
+  // its words and the button with focus to be seen (ScoreScreen).
+  function say(line, words, done, same = text => text === words) {
+    if (!done) {
+      failures[line] = words;
+      if (line === 'standings') standingsFailures += 1;
+    } else {
+      for (const other of Object.keys(failures)) if (failures[other] && same(failures[other])) failures[other] = '';
+    }
     return done;
   }
 
@@ -482,36 +502,20 @@
     if (!session) return;
     try {
       saveLogFile(`riichi-${view.round}-${view.kyoku}-${Date.now()}.mjai.jsonl`, session.engine.log());
-    } catch { return sayOnResult(HAND_NOT_SAVED, false); }
-    return sayOnResult(HAND_NOT_SAVED, true);
+    } catch { return say('result', HAND_NOT_SAVED, false); }
+    return say('result', HAND_NOT_SAVED, true);
   }
 
-  // The whole game from East 1. The engine leaves out a hand still being
-  // played, whose deal would show the opponents' tiles. Says whether the
-  // file was made.
-  function writeGame() {
+  // The whole game from East 1, from the result, the standings or Export
+  // game (`line`). The engine leaves out a hand still being played, whose
+  // deal would show the opponents' tiles. Says whether the file was made.
+  function saveGame(line) {
+    if (!session || session.closed || !view) return;
     try {
       const names = playerNames(view, matchLabels(session.initialOpponents, session.opponents));
       saveLogFile(gameFileName(), session.engine.game_log(names));
-      return true;
-    } catch { return false; }
-  }
-  // From the settings and the standings, a game that could not be saved is
-  // said on the page's notice line; from the result, beside its buttons.
-  function saveGame() {
-    if (session && !session.closed && view && !writeGame()) notice = GAME_NOT_SAVED;
-  }
-  function saveGameFromResult() {
-    if (!session || session.closed || !view) return;
-    return sayOnResult(GAME_NOT_SAVED, writeGame());
-  }
-
-  // Focus goes on to a heading that says where the player now is, and the
-  // page moves to show it, by as little movement as will, only when the
-  // caller asks (showReview, nextHand).
-  function land(heading, scroll) {
-    heading?.focus({ preventScroll: true });
-    if (scroll) heading?.scrollIntoView({ block: 'nearest' });
+    } catch { return say(line, GAME_NOT_SAVED, false); }
+    return say(line, GAME_NOT_SAVED, true);
   }
 
   // The result's button goes as it opens the hand's review, and on a phone
@@ -530,22 +534,24 @@
   // which hands focus back to it, and where the result is not a sheet, its
   // own buttons. A review the engine cannot build opens nothing, and false
   // tells the result so: it stays as it was, its button too, with focus, and
-  // says why beside its buttons (sayOnResult).
+  // says why beside its buttons (say).
   function showReview(event) {
     const byKeyboard = pressedByKeyboard(event);
     try { notes = session?.engine.review() ?? []; }
-    catch { return sayOnResult(REVIEW_NOT_BUILT, false); }
-    sayOnResult(REVIEW_NOT_BUILT, true);
+    catch { return say('result', REVIEW_NOT_BUILT, false); }
+    say('result', REVIEW_NOT_BUILT, true);
     void tick().then(() => land(reviewHeading, byKeyboard || !matchMedia(RESULT_SHEET).matches));
     return true;
   }
 
+  // Why the finished match could not be replayed for review, the last time
+  // it could not, for the same press to take back once a review opens.
+  let replayFailure = '';
   // The finished match is replayed from its saved commands on an engine of
   // the review's own, so the match and its save are left as they are. Says
   // whether the review is open. The network this page plays judges it, and
   // the trend keeps which version that was.
   function openGameReview() {
-    if (!session?.over || session.closed) return false;
     if (!matchReview) {
       try {
         matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch,
@@ -553,12 +559,19 @@
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
       } catch (error) {
-        notice = `The game could not be replayed for review: ${error?.message ?? error}. Your saved match is unchanged.`;
+        replayFailure = `${NOT_REPLAYED} ${error?.message ?? error}. Your saved match is unchanged.`;
         return false;
       }
     }
     reviewingGame = true;
     return true;
+  }
+  // From the standings, or on a phone from the result (`line`), a match that
+  // could not be replayed is said beside the button pressed (say).
+  function reviewGame(line) {
+    if (!session?.over || session.closed) return;
+    const opened = openGameReview();
+    return say(line, replayFailure, opened, text => text.startsWith(NOT_REPLAYED));
   }
 
   // Back to the standings' own button, wherever the review was opened from:
@@ -590,7 +603,7 @@
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts {tileFace} {pendingTileFace} onfacechange={changeTileFace}
     network={network.version} onnetworkchange={changeNetwork}
     {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
-    {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={saveGame}
+    {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
   {#if faceWarning}<p class="notice" data-face-error role="alert">{faceWarning}</p>{/if}
   <!-- A screen reader hears a status line only once it knows it, so this one
@@ -652,13 +665,14 @@
 
         <section class="controls" aria-label="your choices" bind:this={callElement}>
           {#if standings}
-            <Standings {standings} onagain={() => start()} onsave={saveGame} onreview={openGameReview} bind:heading={standingsHeading} />
+            <Standings {standings} onagain={() => start()} onsave={() => saveGame('standings')} onreview={() => reviewGame('standings')}
+              failure={failures.standings} bind:heading={standingsHeading} />
           {/if}
           {#if view.phase === 'over' && view.outcome}
             <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
               bets={view.riichi_sticks ?? 0} onnext={nextHand}
-              onreview={showReview} reviewed={notes !== null} failure={resultFailure} onlog={saveLog} ongame={saveGameFromResult} ongamereview={openGameReview}
-              gameReviewOpen={reviewingGame} {standingsFocused} finalHand={Boolean(standings)} />
+              onreview={showReview} reviewed={notes !== null} failure={failures.result} onlog={saveLog} ongame={() => saveGame('result')}
+              ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)} />
             {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} bind:heading={reviewHeading} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}

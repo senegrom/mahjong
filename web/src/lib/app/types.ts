@@ -58,8 +58,10 @@ export interface SettingsProps extends OfflineStatusProps {
   startFresh: () => boolean; configureTable: () => void;
   onfacechange: (face: TileFace) => void | Promise<void>;
   onconfirmationchange: () => void; onshortcutschange: () => void;
-  /** Hands the game's log holds, the finished ones only, and what saves it. */
-  loggedHands?: number; onsavegame?: () => void;
+  /** Hands the game's log holds, the finished ones only, and what saves it,
+   * which may answer false when it could not; why it could not, said beside
+   * Export game's button. */
+  loggedHands?: number; onsavegame?: () => boolean | void; exportFailure?: string;
 }
 export interface OpponentDialogProps {
   customDialog?: HTMLDialogElement | null; draftOpponents: Opponent[];

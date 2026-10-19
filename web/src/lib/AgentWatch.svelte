@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { Game } from '../wasm/riichi.js';
   import { chooseAction } from './policy.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
@@ -8,7 +8,7 @@
   import AgentWeights from './AgentWeights.svelte';
   import Tile from './Tile.svelte';
   import HandTile from './HandTile.svelte';
-  import { analyzeDiscards, heldSafeCount, unseenTileCounts, waitingNote } from './ui.js';
+  import { analyzeDiscards, heldSafeCount, land, pressedByKeyboard, unseenTileCounts, waitingNote } from './ui.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
   import ScoreScreen from './ScoreScreen.svelte';
@@ -31,6 +31,10 @@
   let showWeights = $state(true);
   let speed = $state(1400);
   let standings = $state(null);
+  // The final standings' heading, which takes focus as the game ends, and
+  // whether the keyboard sent it there, for the result to step aside for it.
+  let standingsHeading = $state(null);
+  let standingsFocused = $state(false);
   let log = $state([]);
   // How many hands the game's log holds: the finished ones only.
   let loggedHands = $state(0);
@@ -84,6 +88,7 @@
   function start() {
     configured = true;
     fileNote = '';
+    standingsFocused = false;
     watch?.dispose();
     watch = new WatchSession(Game, Date.now() % 2 ** 31, lineup, {
       ai: (planes, mask, signal) => chooseAction(planes, mask, signal),
@@ -100,6 +105,25 @@
   function watchWithClub() {
     lineup = (watch?.lineup ?? lineup).map(agent => isTrained(agent) ? 'club' : agent);
     start();
+  }
+  // The controls' button plays the followed agent's choice or, at a hand's
+  // end, deals the next hand, as the result's Next hand does. On the last
+  // hand Next hand brings the standings in place of another deal: the
+  // result's button goes for the Final hand caption and the controls' can no
+  // longer be pressed, so focus goes on to the standings' heading, which
+  // says where the followed agent finished, rather than to the page (land),
+  // as in Play. Only a keyboard's press moves the page to show the heading:
+  // that player follows focus, and is shown a ring there. A mouse's or a
+  // finger's press is shown no ring, and the page is left as the browser
+  // leaves it when the standings come in (pressedByKeyboard). On a phone the
+  // result is a sheet over the standings, which steps aside for a keyboard's
+  // press, so that focus is not hidden under it; a tap leaves it up.
+  async function play(event) {
+    const owner = watch, byKeyboard = pressedByKeyboard(event);
+    if (!owner || !await owner.step() || watch !== owner || !owner.match.over) return;
+    standingsFocused = byKeyboard;
+    await tick();
+    land(standingsHeading, byKeyboard);
   }
   function chooseAlternative(choice) {
     const owner = watch, expected = analysis;
@@ -134,7 +158,7 @@
     <label><input type="checkbox" checked={holdAtHandEnd} onchange={event => { holdAtHandEnd = event.currentTarget.checked; watch?.setPauseAtHandEnd(holdAtHandEnd); }} /> Wait at the end of a hand</label>
     <label><input type="checkbox" bind:checked={showWeights} /> Show choice weights</label>
     <label>Pace<select value={speed} onchange={event => { speed = Number(event.currentTarget.value); if (watch) { watch.delay = speed; watch.schedule(); } }} aria-label="Watch pace"><option value={700}>Fast</option><option value={1400}>Normal</option><option value={3000}>Slow</option></select></label>
-    {#if view}<button onclick={() => watch.step()} disabled={busy || Boolean(standings)}>{view.phase === 'over' ? 'Next hand' : 'Play this choice'}</button>{/if}
+    {#if view}<button onclick={play} disabled={busy || Boolean(standings)}>{view.phase === 'over' ? 'Next hand' : 'Play this choice'}</button>{/if}
     {#if view}<button data-save-game onclick={saveGame} disabled={!loggedHands}
       title="Every finished hand of this game from East 1 as one mjai log. The hand being played is left out until it ends.">{standings ? 'Save whole game' : loggedHands ? `Save game so far (${finishedHands(loggedHands)})` : 'No hand has finished yet'}</button>{/if}
   </div>
@@ -177,10 +201,10 @@
     {:else if analysis && !showWeights}<p role="status">{auto ? 'Auto play is running.' : 'Paused before the followed agent’s next choice.'}</p>{/if}
     {#if showWeights}<AgentWeights {analysis} onchoose={chooseAlternative} disabled={busy || Boolean(standings)} dora={shownDora} />{/if}
     <!-- The first seat is the followed agent, not the person watching. -->
-    {#if standings}<Standings {standings} onagain={start} onsave={saveGame} playerLabel={positions[0]} />{/if}
+    {#if standings}<Standings {standings} onagain={start} onsave={saveGame} playerLabel={positions[0]} bind:heading={standingsHeading} />{/if}
     {#if view.phase === 'over' && view.outcome}
       <ScoreScreen outcome={view.outcome} seats={view.seats} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
-        bets={view.riichi_sticks ?? 0} playerLabel={positions[0]} onnext={() => watch.step()} ongame={saveGame} />
+        bets={view.riichi_sticks ?? 0} playerLabel={positions[0]} onnext={play} ongame={saveGame} {standingsFocused} />
     {/if}
     <details><summary>Hand history · {log.length} events</summary>{#each log as line, index (index)}<p class="log-line">{line}</p>{/each}</details>
   {/if}

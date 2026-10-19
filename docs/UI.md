@@ -208,19 +208,23 @@ built. Your match is unchanged." When the result's **Save this hand** or
 **Save whole game**, cannot save its file, the result says so the same way,
 from the same line: "The hand could not be saved to a file." or "The game
 could not be saved to a file.", each followed by "Your current match is
-unchanged." The line keeps the words of the last press that failed until that
-press succeeds. The page's notice line would not do: it sits at the top of the
-page, above the screen at desktop width, and under the sheet on a phone. The
-result says it from a status line of its own after its buttons, which waits
-there, empty and out of sight, from the moment the result appears, since a
-screen reader hears a status line only once it knows it. Where the result is
-not a sheet, the line is brought into view should it fall below the foot of
-the screen; on a phone it stays at the foot of the sheet with the buttons,
-whose row spans the sheet from edge to edge, so that nothing scrolling beneath
-it shows beside them. The notice line still says what could not be done from
-the settings and the standings, such as a game that **Export game** could not
-save, and that a whole game could not be replayed for review, wherever
-**Review whole game** was pressed.
+unchanged." On a phone the last hand's result offers **Review whole game** as
+well, and when the finished match cannot be replayed for that review it says
+so from the same line: "The game could not be replayed for review:", why, and
+"Your saved match is unchanged." The line keeps the words of the last press
+that failed until that press succeeds. The page's notice line would not do: it
+sits at the top of the page, above the screen at desktop width, and under the
+sheet on a phone, or at best above it, dimmed by its shade, at the far end of
+the screen from the buttons. The result says it from a status line of its own
+after its buttons, which waits there, empty and out of sight, from the moment
+the result appears, since a screen reader hears a status line only once it
+knows it. Where the result is not a sheet, the line is brought into view
+should it fall below the foot of the screen; on a phone it stays at the foot
+of the sheet with the buttons, whose row spans the sheet from edge to edge, so
+that nothing scrolling beneath it shows beside them. The standings and the
+settings' **Export game** say their own failures the same way, beside their
+own buttons (below); the notice line now says only what the trained network
+picker could not do.
 
 The review's own status lines, that Trained AI is reviewing the hand and how
 far it has got, and that Club reviews in its place while the network cannot be
@@ -264,6 +268,54 @@ page, and the page does not move; from the foot of the page at 844x390 the
 keyboard's press brings the heading in below the bar, 255 pixels above where a
 click leaves the page.
 
+Agent watch does the same as a watched game ends. There **Next hand** on the
+last hand is pressed on the result or among the watch's controls, whose button
+plays the followed agent's choices and deals the hands. Either brings the
+standings, the result's button giving way to its **Final hand** caption and
+the controls' becoming one that cannot be pressed, and either used to leave
+focus on the page. Focus now goes on to the standings' heading ("Followed
+agent finished 2nd"), and only a press by keyboard moves the page to it, the
+result stepping aside on a phone as in play, with its chip after the
+standings' buttons. Measured in Chromium on a game of Club agents from seed
+23, a press by keyboard on the result's button moves the page 387 pixels at
+390x844, 720 at 320x568 and 568 at 568x320, and 304 pixels up at 844x390,
+where the browser's scroll anchoring had left the heading above the screen;
+at 1100x900 the heading is already in view. On the controls' button, at the
+top of the watch, it moves the page 14 pixels at 1100x900, 387 at 390x844,
+720 at 320x568 and 462 at 844x390. A click or a tap asks for no scroll, so
+the page ends where it did before focus moved, at each of these sizes: at
+844x390 the browser's own scroll anchoring moves it 267 pixels as the
+standings come in after a press on the result's button, as it did. On a
+phone the controls' button lies mostly under the result's sheet, where a
+keyboard or a screen reader reaches it; at 390x844, once the page is scrolled
+to bring it there, a finger can also tap it in the 78 pixels between the game's
+bar and the sheet, and that tap is taken as a tap on the result's button: focus
+goes to the heading, the page does not move and the sheet stays.
+
+The standings' own **Save whole game** and **Review whole game** say a failure
+where they were pressed as well, from a status line of their own after their
+buttons, which waits there, empty and out of sight, from the moment the
+standings appear: "The game could not be saved to a file. Your current match
+is unchanged.", or "The game could not be replayed for review:", why, and
+"Your saved match is unchanged." Nothing opens, and the pressed button keeps
+focus. The notice line said it before, at the top of the page, which lies
+above the screen wherever the standings' buttons are pressed: measured in
+Chromium, 421 to 440 pixels above the top of the screen at 1100x900, 553 to 572
+at 1366x768, 497 to 534 at 844x390, on a phone held upright 96 to 644 pixels
+above it, and 619 to 738 at 568x320.
+On a phone the result is a sheet over the standings. A finger or a mouse
+reaches their buttons once the sheet has stepped aside for a review; a
+keyboard or a screen reader reaches them beneath it, so a press there that
+fails has the sheet step aside, each time, for the words and the button with
+focus to be seen, and the chip brings the result back. The buttons and the
+line are brought into view by as little movement as will, clear of the game's
+bar and the chip: measured, the page does not move for any press at 1100x900,
+1366x768 and 844x390, nor on a phone for a finger or a mouse; for a keyboard
+beneath the sheet it moves 41 pixels at 390x844, 42 to 61 at 320x568, and at
+568x320 21 for Save whole game and 41 for Review whole game, to bring the line
+out from under the chip. Once the game is saved, or its review opens, from any
+button, every line that said it could not be takes its words back.
+
 ### Final-hand review and saves
 
 Opening final standings does not start another hand, so it does not clear the
@@ -283,6 +335,22 @@ from the first deal, so a reloaded match exports from East 1 again whatever
 format it was saved in. A win names its ura indicators both as
 `uradora_markers`, the original protocol's name, and as `ura_markers`, which
 Mortal and its log validator read.
+
+When **Export game** cannot save its file, it says so beside its button, from
+a status line of its own that waits in its panel, empty and out of sight,
+before its words arrive: "The game could not be saved to a file. Your current
+match is unchanged." The button keeps focus. On a phone, upright or held
+sideways, the settings are a modal dialog, and the notice line that said it
+before lies behind the dialog. Measured in Chromium, while the dialog was
+open the accessibility tree ignored that line (`activeModalDialog`), so a
+screen reader heard nothing until the dialog closed, and a sighted player saw
+it only dimmed behind the backdrop, above the dialog at 390x844, or not at
+all, above the screen at 320x568 and 844x390. The panel's own line is inside
+the dialog, where it is heard and seen: should it fall below the dialog's
+foot, the dialog's contents are brought up to show it, by 23 pixels at
+320x568 and 5 at 844x390, and at 390x844 the dialog has the room. At desktop
+width the settings are part of the page and the line is in view: under the
+button at 1100x900, and beside it on the same row at 1280x600 and 1366x768.
 
 Matches are saved in format 7. A save of format 5 or 6 is replayed from its
 recorded legal commands and checked against all authoritative state; only what
@@ -457,10 +525,14 @@ review, focus going on from the result's buttons to the hand's review and to
 the final standings, pressed by keyboard, mouse and touch, and back to the
 result, at desktop and phone sizes, the page moving to the review for any
 press where the result is not a sheet and otherwise only for the keyboard, and
-to the standings only for the keyboard, a review that could not be built and
-a file that could not be saved said beside the result's buttons, which keep
-focus, the sheet's buttons spanning it on a phone, the status lines that wait
-in the page, empty, before their words arrive, the whole-game review with the
+to the standings only for the keyboard, in play and in Agent watch, a review
+that could not be built and a file that could not be saved said beside the
+result's buttons, which keep focus, a whole game that could not be saved or
+replayed for review said beside the standings' buttons, the result stepping
+aside on a phone for a press beneath it, and a game that **Export game** could
+not save said beside its button, inside the settings' dialog on a phone, the
+sheet's buttons spanning it on a phone, the status lines that wait in the
+page, empty, before their words arrive, the whole-game review with the
 shipped network (its batches, flags,
 replay, retry, keyboard focus, in the flagged list too as later hands rank it
 afresh, and trend, and its way in and out on a phone, by touch and by

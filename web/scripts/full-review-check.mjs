@@ -7,12 +7,12 @@ import { mkdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { browserChecks, launchChrome, openPanel } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { matchLabels, playerNames } from '../src/lib/game-log.js';
-import { MANIFEST } from '../src/lib/model-manifest.js';
+import { MANIFEST, NETWORKS } from '../src/lib/model-manifest.js';
 await init({module_or_path:readFileSync(new URL('../src/wasm/riichi_bg.wasm',import.meta.url))});
 const web=fileURLToPath(new URL('../',import.meta.url)), dist=resolve(web,'dist'), output=resolve(web,'test-results');
 await mkdir(output,{recursive:true});
@@ -72,14 +72,16 @@ const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_
  * `reduced` asks for reduced motion, so nothing moves while a check measures
  * where the page is; `adviser` null leaves the review's adviser at its
  * default, Trained AI, which `trained` puts on offer; `failReview` has the
- * engine fail to build the hand's review, and `failSave` the browser fail
- * to make any file; `statusLines` records when each status line comes into
- * the page and when its words arrive (waited); `scrolls` notes every scroll
- * the page asks for (scrollsAsked); `locks` false takes away the Web Locks
- * API, as some private windows do, so the page cannot safely keep the
- * match. */
+ * engine fail to build the hand's review, `failReplay` fail to replay the
+ * match for the whole game's review once the page sets window.failReplay,
+ * numbering each failure in its error, and `failSave` the browser fail to
+ * make any file until the page sets window.failSave false; `statusLines` records
+ * when each status line comes into the page and when its words arrive
+ * (waited); `scrolls` notes every scroll the page asks for (scrollsAsked);
+ * `locks` false takes away the Web Locks API, as some private windows do, so
+ * the page cannot safely keep the match. */
 async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,files=false,touch=false,reduced=false,adviser='club',trained=false,failReview=false,
- failSave=false,statusLines=false,scrolls=false,locks=true}={}){
+ failReplay=false,failSave=false,statusLines=false,scrolls=false,locks=true}={}){
  const page=await (await openContext(browser)).newPage();page.reviewErrors=[];
  page.on('pageerror',error=>page.reviewErrors.push(error.message));await page.setViewport({width,height,isMobile:touch,hasTouch:touch});
  if(reduced)await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
@@ -122,9 +124,28 @@ async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,fil
    WebAssembly[name]=async(...args)=>plant(await original(...args));
   }
  });
+ // The finished match cannot be replayed for the whole game's review, as
+ // when its replay goes another way: once the check sets window.failReplay,
+ // the engine's export behind new Game throws, so the match already on the
+ // table plays on and only the replay's new game fails.
+ if(failReplay)await page.evaluateOnNewDocument(()=>{
+  const plant=result=>{
+   const real=result?.instance?.exports?.game_new;
+   if(!real)return result;
+   const exports={...result.instance.exports,game_new(...args){if(window.failReplay)throw new Error(`A planted replay failure #${window.replayFailures=(window.replayFailures??0)+1}`);return real(...args);}};
+   return {module:result.module,instance:{exports}};
+  };
+  for(const name of ['instantiateStreaming','instantiate']){
+   const original=WebAssembly[name].bind(WebAssembly);
+   WebAssembly[name]=async(...args)=>plant(await original(...args));
+  }
+ });
  // No file can be made, as when the browser refuses one: the object URL a
- // file is saved through cannot be had.
- if(failSave)await page.evaluateOnNewDocument(()=>{URL.createObjectURL=()=>{throw new Error('A planted save failure');};});
+ // file is saved through cannot be had, until a check sets failSave false.
+ if(failSave)await page.evaluateOnNewDocument(()=>{
+  const real=URL.createObjectURL.bind(URL);window.failSave=true;
+  URL.createObjectURL=(...args)=>{if(window.failSave)throw new Error('A planted save failure');return real(...args);};
+ });
  // Every way the page can ask to scroll, noted once the check asks
  // (scrollsAsked): to an element, by the window or an element, and by a
  // focus that is let scroll.
@@ -574,6 +595,164 @@ try{
     await shot(p,`save-failure-${name}-${width}x${height}-${how}`);noErrors(p);
    }
  });
+ // Shift+Tab, as a keyboard reaches a control before the one with focus,
+ // until the element has focus.
+ async function shiftTabTo(p,selector){
+  for(let presses=0;presses<8&&!await p.evaluate(selector=>document.activeElement?.matches(selector),selector);presses++){
+   await p.keyboard.down('Shift');await p.keyboard.press('Tab');await p.keyboard.up('Shift');
+  }
+  assert.ok(await p.evaluate(selector=>document.activeElement?.matches(selector),selector),`Shift+Tab reaches ${selector}`);
+ }
+ // The standings' own Save whole game and Review whole game say a failure
+ // the same way, beside their buttons, from a line of their own that waits
+ // there, empty, from the moment the standings appear, rather than on the
+ // notice line at the top of the page, which lies above the screen wherever
+ // they are pressed at desktop width. On a phone the result is a sheet over
+ // the standings. A finger or a mouse reaches their buttons once the sheet
+ // has stepped aside for the final hand's review; a keyboard reaches them
+ // beneath it, so the sheet steps aside when a press there fails, for the
+ // words and the button with focus to be seen. Every way, the words and the
+ // pressed button, which keeps focus, end in view and uncovered.
+ const STANDINGS_FAILURES=[['Save whole game','.standings [data-save-game]',/^The game could not be saved to a file\. Your current match is unchanged\.$/,{failSave:true}],
+  ['Review whole game','.standings [data-review-game]',/^The game could not be replayed for review: .+\. Your saved match is unchanged\.$/,{failReplay:true}]];
+ await check('a whole game the standings could not save or replay for review is said beside their buttons, and the pressed button keeps focus',async()=>{
+  for(const [pressed,selector,words,plant] of STANDINGS_FAILURES)
+   for(const [width,height,how] of [[1100,900,'mouse'],[1100,900,'touch'],[1100,900,'keyboard'],[1366,768,'mouse'],[1366,768,'keyboard'],[844,390,'touch'],
+    [844,390,'mouse'],[844,390,'keyboard'],[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],[320,568,'touch'],[320,568,'mouse'],[320,568,'keyboard']]){
+    const touch=how==='touch',p=await open(final.after,{width,height,touch,reduced:true,...plant}),where=`for ${pressed} at ${width}x${height} by ${how}`;
+    await p.waitForSelector('.standings');
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+    const line=await p.$('.standings [role="status"]');
+    assert.ok(line,`the standings have a line for it before the press ${where}`);
+    assert.deepEqual(await line.evaluate(el=>[el.textContent.trim(),el.getBoundingClientRect().height<=1]),['',true],`the line waits empty, taking no room, ${where}`);
+    assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status',`a screen reader knows the line ${where}`);
+    if(sheet&&how!=='keyboard'){
+     await pointerPress(p,await inReach(await resultButton(p,'Review final hand')),touch);
+     await p.waitForSelector('.review');await settle(p);
+     assert.equal(await sheetShown(p),false,`the sheet has stepped aside for the hand's review ${where}`);
+    }
+    const button=await p.$(selector);
+    if(how==='keyboard')await shiftTabTo(p,selector);else await inReach(button);
+    await settle(p);
+    const before=await p.evaluate(()=>{window.failReplay=true;return scrollY;});
+    if(how==='keyboard')await p.keyboard.press('Enter');else await pointerPress(p,button,touch);
+    await p.waitForFunction(el=>el.textContent.trim(),{timeout:5000},line).catch(()=>{});
+    await settle(p);
+    assert.match(await line.evaluate(el=>el.isConnected?el.textContent.trim():''),words,`the standings' line says why ${where}`);
+    assert.equal(await p.evaluate(source=>[...document.querySelectorAll('[role="status"],[role="alert"]')]
+     .filter(el=>new RegExp(source).test(el.textContent.trim())&&!el.closest('.standings')).length,words.source),0,`nothing says it elsewhere, on the notice line at the top of the page ${where}`);
+    assert.ok(await button.evaluate(el=>el.isConnected&&el===document.activeElement),`the button stays, with focus, ${where}`);
+    assert.equal(await p.$('[data-game-review]'),null,`no review opens ${where}`);
+    if(sheet)assert.equal(await sheetShown(p),false,`the sheet is not over the standings ${where}`);
+    assert.ok(await uncovered(line),`the words are in view, uncovered, ${where}`);
+    assert.ok(await uncovered(button),`the pressed button is in view, uncovered, ${where}`);
+    if(how==='keyboard')assert.ok(await ringInView(button),`the button's focus ring is drawn, and in view ${where}`);
+    console.log(`  ${pressed} at ${width}x${height} by ${how}: the page moved ${await p.evaluate(()=>scrollY)-before} pixels`);
+    await shot(p,`standings-failure-${pressed.split(' ')[0].toLowerCase()}-${width}x${height}-${how}`);noErrors(p);
+   }
+ });
+ // A failure's words hold only until the same thing is done, from whichever
+ // button: once Export game has saved the game, the standings' line no
+ // longer says it could not be saved.
+ await check('a game saved from another button takes back the standings\' words that it could not be saved',async()=>{
+  const p=await open(final.after,{reduced:true,failSave:true,files:true});
+  await p.waitForSelector('.standings');
+  const line=await p.$('.standings [data-standings-failure]');
+  await p.click('.standings [data-save-game]');
+  await p.waitForFunction(el=>el.textContent.trim(),{timeout:5000},line);
+  assert.match(await line.evaluate(el=>el.textContent.trim()),/^The game could not be saved to a file\./,'the standings say the game could not be saved');
+  await p.evaluate(()=>{window.failSave=false;});
+  await openPanel(p,'.game-export > summary');
+  await saveFrom(p,'.game-export [data-save-game]');
+  assert.equal(await line.evaluate(el=>el.textContent.trim()),'','the standings\' line takes its words back');
+  assert.equal(await p.$eval('[data-export-failure]',el=>el.textContent.trim()),'','Export game says nothing failed');
+  noErrors(p);
+ });
+ // The sheet steps aside for every press beneath it that fails, also once
+ // its chip has brought it back: after the keyboard's Next hand on the last
+ // hand sent focus to the standings, and for the same failure twice.
+ await check('on a phone, each failed press on the standings beneath the result has the result step aside, also after its chip brought it back',async()=>{
+  for(const [width,height] of [[390,844],[320,568]]){
+   const p=await open(final.before,{width,height,reduced:true,failSave:true}),where=`at ${width}x${height}`;
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const next=await resultButton(p,'Next hand');await next.focus();await p.keyboard.press('Enter');
+   await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'),{timeout:5000});
+   const line=await p.$('.standings [role="status"]'),button=await p.$('.standings [data-save-game]');
+   for(const round of ['first','second']){
+    // The chip, after the standings' buttons, brings the result back over
+    // them, with focus.
+    for(let presses=0;presses<6&&!await p.evaluate(()=>document.activeElement?.matches('.result-chip'));presses++)await p.keyboard.press('Tab');
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(()=>document.activeElement?.matches('.screen'),{timeout:5000});
+    assert.equal(await sheetShown(p),true,`the chip brings the result back before the ${round} press ${where}`);
+    await shiftTabTo(p,'.standings [data-save-game]');
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(()=>getComputedStyle(document.querySelector('.screen')).display==='none',{timeout:5000}).catch(()=>{});
+    await settle(p);
+    assert.equal(await sheetShown(p),false,`the sheet steps aside for the ${round} failed press ${where}`);
+    assert.equal(await line.evaluate(el=>el.textContent.trim()),'The game could not be saved to a file. Your current match is unchanged.',`the standings' line says why ${where}`);
+    assert.ok(await uncovered(line),`the words are in view, uncovered, after the ${round} press ${where}`);
+    assert.ok(await button.evaluate(el=>el===document.activeElement),`the button keeps focus after the ${round} press ${where}`);
+   }
+   noErrors(p);
+  }
+ });
+ // On a phone the result offers the whole game's review too, and says on
+ // its own line that the game could not be replayed for it, as for its
+ // other buttons: the sheet stays up, its button keeps focus, and the page
+ // stays where it was.
+ await check('on a phone, a whole game the result could not replay for review is said beside its buttons, and its button keeps focus',async()=>{
+  for(const [width,height,how] of [[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],[320,568,'touch'],[320,568,'mouse'],[320,568,'keyboard']]){
+   const touch=how==='touch',p=await open(final.after,{width,height,touch,reduced:true,failReplay:true}),where=`at ${width}x${height} by ${how}`;
+   await p.waitForSelector('.standings');
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const line=await resultLine(p);
+   assert.ok(line,`the result has a line for it before the press ${where}`);
+   assert.equal(await line.evaluate(el=>el.textContent.trim()),'',`the line waits empty ${where}`);
+   const button=await inReach(await p.$('.screen [data-review-game]')),before=await p.evaluate(()=>{window.failReplay=true;return scrollY;});
+   if(how==='keyboard'){await button.focus();await p.keyboard.press('Enter');}else await pointerPress(p,button,touch);
+   await p.waitForFunction(el=>el.textContent.trim(),{timeout:5000},line).catch(()=>{});
+   await settle(p);
+   const words=/^The game could not be replayed for review: .+\. Your saved match is unchanged\.$/;
+   assert.match(await line.evaluate(el=>el.isConnected?el.textContent.trim():''),words,`the result's line says why ${where}`);
+   assert.equal(await p.evaluate(source=>[...document.querySelectorAll('[role="status"],[role="alert"]')]
+    .filter(el=>new RegExp(source).test(el.textContent.trim())&&!el.closest('.screen')).length,words.source),0,`nothing says it elsewhere ${where}`);
+   assert.ok(await uncovered(line),`the words are in view, uncovered, ${where}`);
+   assert.ok(await button.evaluate(el=>el.isConnected&&el===document.activeElement),`the button stays, with focus, ${where}`);
+   assert.equal(await p.$('[data-game-review]'),null,`no review opens ${where}`);
+   assert.equal(await sheetShown(p),true,`the result stays up ${where}`);
+   assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
+   await shot(p,`result-replay-failure-${width}x${height}-${how}`);noErrors(p);
+  }
+ });
+ // A replay can fail for another reason at each press, so what was said of
+ // it is taken back by what it says, not by its latest reason: the
+ // standings' line said the first reason, the result's the second, and the
+ // review then opened from the result.
+ await check('on a phone, a review opened from the result takes back the standings\' words that the game could not be replayed, whatever the reason',async()=>{
+  const p=await open(final.after,{width:390,height:844,reduced:true,failReplay:true});
+  await p.waitForSelector('.standings');
+  await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+  const standings=()=>p.$eval('.standings [data-standings-failure]',el=>el.textContent.trim());
+  await p.evaluate(()=>{window.failReplay=true;});
+  await shiftTabTo(p,'.standings [data-review-game]');await p.keyboard.press('Enter');
+  await p.waitForFunction(()=>document.querySelector('.standings [data-standings-failure]')?.textContent.trim(),{timeout:5000});
+  assert.match(await standings(),/planted replay failure #1\./,'the standings say the first reason');
+  await p.focus('.result-chip');await p.keyboard.press('Enter');
+  await p.waitForFunction(()=>document.activeElement?.matches('.screen'),{timeout:5000});
+  const button=await inReach(await p.$('.screen [data-review-game]')),line=await resultLine(p);
+  await button.focus();await p.keyboard.press('Enter');
+  await p.waitForFunction(el=>el.textContent.trim(),{timeout:5000},line);
+  assert.match(await line.evaluate(el=>el.textContent.trim()),/planted replay failure #2\./,'the result says the second reason');
+  await p.evaluate(()=>{window.failReplay=false;});
+  await p.keyboard.press('Enter');
+  await p.waitForSelector('[data-game-review]',{timeout:5000});
+  await p.click('[data-close-review]');
+  await p.waitForSelector('.standings',{timeout:5000});
+  assert.equal(await standings(),'','the standings\' line takes back its reason');
+  noErrors(p);
+ });
  // On a phone the result is a sheet whose buttons stay at its foot over what
  // scrolls beneath them, so their row spans the sheet from edge to edge and
  // nothing shows beside it: not as the result appears, and not with the
@@ -660,20 +839,97 @@ try{
   assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status','a screen reader knows the line');
   noErrors(p);
  });
- // The page's notice line, at the top of the page, says what could not be
- // done elsewhere, such as a game that could not be saved from the settings,
- // which sit just above the line at desktop width. It too waits in the page,
- // empty, before its words arrive.
- await check('a notice from the settings is spoken from a status line already in the page',async()=>{
-  const p=await open(midway,{reduced:true,statusLines:true,failSave:true});
-  await p.click('.game-export > summary');await p.click('.game-export [data-save-game]');
+ // What Chromium's accessibility tree makes of an element: its role, or that
+ // it is ignored, and why. While a modal dialog is open, everything outside
+ // it is ignored, as activeModalDialog, and a screen reader hears none of it.
+ // The element is found again by a mark of its own, since a new protocol
+ // session cannot resolve the page's handles.
+ async function accessibilityOf(p,handle){
+  const mark=String(Math.random()).slice(2);
+  await handle.evaluate((el,mark)=>el.setAttribute('data-accessibility-check',mark),mark);
+  const client=await p.createCDPSession();
+  try{
+   const {root}=await client.send('DOM.getDocument',{depth:0});
+   const {nodeId}=await client.send('DOM.querySelector',{nodeId:root.nodeId,selector:`[data-accessibility-check="${mark}"]`});
+   const {node}=await client.send('DOM.describeNode',{nodeId});
+   const {nodes}=await client.send('Accessibility.getPartialAXTree',{nodeId,fetchRelatives:false});
+   const own=nodes.find(entry=>entry.backendDOMNodeId===node.backendNodeId);
+   return own?.ignored?`ignored: ${(own.ignoredReasons??[]).map(reason=>reason.name).join(', ')}`:own?.role?.value??'none';
+  }finally{
+   await client.detach();
+   await handle.evaluate(el=>el.removeAttribute('data-accessibility-check'));
+  }
+ }
+ // The settings' Export game says a game it could not save beside its own
+ // button, from a line of its own that waits in its panel, empty, before its
+ // words arrive. On a phone, upright or held sideways, the settings are a
+ // modal dialog. While it is open, Chromium's accessibility tree ignores all
+ // that lies outside it, the notice line at the top of the page too, so a
+ // screen reader would hear nothing until the dialog closed, and the dialog
+ // and its backdrop keep that line from sight. The words are said in the
+ // dialog, in view there, and the pressed button keeps focus.
+ await check('a game Export game could not save is said beside its button, inside the settings\' dialog on a phone',async()=>{
   const words=/^The game could not be saved to a file\. Your current match is unchanged\.$/;
+  for(const [width,height,how] of [[1100,900,'mouse'],[1100,900,'touch'],[1100,900,'keyboard'],[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],
+   [320,568,'touch'],[320,568,'mouse'],[320,568,'keyboard'],[844,390,'touch'],[844,390,'mouse'],[844,390,'keyboard']]){
+   const touch=how==='touch',p=await open(midway,{width,height,touch,reduced:true,statusLines:true,failSave:true}),where=`at ${width}x${height} by ${how}`;
+   const dialog=width<=760||height<=500;
+   if(dialog){
+    // The settings open from their button in the game's bar, pressed the
+    // same way.
+    const trigger=await p.$('.settings-trigger');
+    if(how==='keyboard'){await trigger.focus();await p.keyboard.press('Enter');}else await pointerPress(p,trigger,touch);
+    await p.waitForSelector('.settings-dialog[open]');
+   }
+   const scope=dialog?'.settings-dialog ':'';
+   await openPanel(p,`${scope}.game-export > summary`);
+   const line=await p.$(`${scope}.game-export [role="status"]`);
+   assert.ok(line,`Export game has a line for it ${where}`);
+   assert.deepEqual(await line.evaluate(el=>[el.textContent.trim(),el.getBoundingClientRect().height<=1]),['',true],`the line waits empty, taking no room, ${where}`);
+   assert.equal(await accessibilityOf(p,line),'status',`a screen reader knows the line ${where}`);
+   // Pressed by keyboard from the panel's summary, which opening it focused.
+   const button=await p.$(`${scope}.game-export [data-save-game]`);
+   if(how==='keyboard'){
+    for(let presses=0;presses<3&&!await button.evaluate(el=>el===document.activeElement);presses++)await p.keyboard.press('Tab');
+    assert.ok(await button.evaluate(el=>el===document.activeElement),`Tab reaches the button ${where}`);
+    await p.keyboard.press('Enter');
+   }else await pointerPress(p,await inReach(button),touch);
+   await p.waitForFunction(el=>el.textContent.trim(),{timeout:5000},line).catch(()=>{});
+   await settle(p);
+   assert.match(await line.evaluate(el=>el.isConnected?el.textContent.trim():''),words,`Export game's line says why ${where}`);
+   const frames=await waited(p,words);
+   assert.ok(frames>=1,`the line is drawn empty in the page before its words arrive: drawn ${frames} times ${where}`);
+   assert.equal(await accessibilityOf(p,line),'status',`a screen reader still knows the line as its words arrive ${where}`);
+   assert.equal(await p.evaluate(source=>[...document.querySelectorAll('[role="status"],[role="alert"]')]
+    .filter(el=>new RegExp(source).test(el.textContent.trim())&&!el.closest('.game-export')).length,words.source),0,`nothing says it elsewhere, on the notice line behind the settings ${where}`);
+   assert.ok(await uncovered(line),`the words are in view, uncovered, ${where}`);
+   assert.ok(await button.evaluate(el=>el.isConnected&&el===document.activeElement),`the button stays, with focus, ${where}`);
+   if(dialog)assert.ok(await p.$eval('.settings-dialog',el=>el.open),`the settings stay open ${where}`);
+   await shot(p,`export-failure-${width}x${height}-${how}`);noErrors(p);
+  }
+ });
+ // The page's notice line, at the top of the page, says what the trained
+ // network picker could not do: load another network in a browser that
+ // keeps no settings. At desktop width the settings sit just above it. It
+ // too waits in the page, empty, before its words arrive.
+ await check('a notice from the network picker is spoken from a status line already in the page',async()=>{
+  const p=await open(midway,{reduced:true,statusLines:true});
+  // From now on this browser keeps no settings: every write of them is lost.
+  await p.evaluate(key=>{
+   const real=Storage.prototype.setItem;
+   Storage.prototype.setItem=function(name,value){if(name!==key)real.call(this,name,value);};
+  },SETTINGS_KEY);
+  p.on('dialog',dialog=>dialog.accept());
+  await openPanel(p,'.network-choice > summary');
+  await p.select('select[aria-label="Trained network"]',NETWORKS.find(network=>network!==MANIFEST).version);
+  const words=/^This browser is not keeping your settings, so another trained network cannot be loaded here\.$/;
   await p.waitForFunction(source=>[...document.querySelectorAll('[role="status"]')].some(el=>new RegExp(source).test(el.textContent.trim())),
    {timeout:5000},words.source);
   const frames=await waited(p,words);
   assert.ok(frames>=1,`the line is drawn empty in the page before its words arrive: drawn ${frames} times`);
   const line=await p.evaluateHandle(source=>[...document.querySelectorAll('[role="status"]')].find(el=>new RegExp(source).test(el.textContent.trim())),words.source);
-  assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status','a screen reader knows the line');
+  assert.ok(await line.evaluate(el=>el.matches('[data-notice]')),'the notice line says it');
+  assert.equal(await accessibilityOf(p,line),'status','a screen reader knows the line');
   assert.ok(await uncovered(line),'the notice is in view, uncovered, below the settings');
   noErrors(p);
  });
@@ -688,7 +944,7 @@ try{
   // settings, and nothing of the hand on the table.
   const mid=exported(midway);assert.equal(mid.hands,2);
   let p=await open(midway,{files:true});
-  await p.click('.game-export > summary');
+  await openPanel(p,'.game-export > summary');
   assert.match(await p.$eval('.game-export',el=>el.textContent),/hand being played is left out until it ends/);
   assert.equal(await p.$eval('.game-export [data-save-game]',el=>el.textContent.trim()),'Save 2 finished hands');
   let file=await saveFrom(p,'.game-export [data-save-game]');
