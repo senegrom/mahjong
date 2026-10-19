@@ -140,10 +140,12 @@ test('another flagged decision of the hand offers its retry or its answer, and t
   assert.doesNotMatch(html, /data-answer=|data-view=/);
   assert.match(text(html), /Flagged: Trained AI gave (this move|this tile, once riichi was declared,) (&lt;)?[\d.]+%, and its own choice [\d.]+%\./);
   // The list holds every decision of the hand, each saying the move and
-  // whether Trained AI agreed, the flagged ones saying so.
+  // whether Trained AI agreed, the flagged ones saying so. It is drawn
+  // without markers, so it says it is a list in so many words.
   const items = [...html.matchAll(/<button class="app-control[^"]*" data-step-to="(\d+)"[^>]*>([^]*?)<\/button>/g)]
     .map(([, step, inner]) => ({ step: Number(step), said: text(inner) }));
   assert.equal(items.length, hand.frames.length);
+  assert.match(html, /<div class="decision-list[^"]*">[^]*?<ol[^>]*\brole="list"[^>]*>(?:<!--[^]*?-->)*<li[^>]*><button class="app-control[^"]*" data-step-to="0"/);
   // The word a screen reader hears before the number keeps its space, which
   // Svelte would trim from the end of an element's text.
   assert.match(html, /<span class="visually-hidden">Decision <\/span>1<\/span>/);

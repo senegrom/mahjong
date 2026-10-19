@@ -298,7 +298,10 @@
   <p class="moved" class:visually-hidden={!moved} data-moved role="status">{moved}</p>
   {#if !replaying}
     {#if shown.length}
-      <ol class="flagged" bind:this={list} onfocusin={focusItem} onfocusout={leaveList}>
+      <!-- This list and the list of hands are drawn without markers, so each
+           says it is a list in so many words: Safari does not tell
+           VoiceOver that a list without them is one. -->
+      <ol class="flagged" role="list" bind:this={list} onfocusin={focusItem} onfocusout={leaveList}>
         {#each shown as decision (key(decision))}
           {@const flagged = Boolean(decision.judgement?.flagged)}
           {@const name = status.hands[decision.hand].name}
@@ -332,7 +335,7 @@
 
     <details class="hands" bind:open={handsOpen} bind:this={handList}>
       <summary>Hands · {reviewed} of {status.hands.length} reviewed</summary>
-      <ol>
+      <ol role="list">
         {#each status.hands as hand (hand.index)}
           <li>
             <span class="name">{hand.name}</span>

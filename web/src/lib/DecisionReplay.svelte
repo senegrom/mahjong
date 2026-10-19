@@ -237,7 +237,9 @@
       <DecisionFilter bind:value={listFilter} counts={listCounts} label="Which of this hand's decisions to list"
         said={{ scope: ' in this hand', ranked: false }} />
       {#if listed.length}
-        <ol>
+        <!-- Drawn without markers, so said to be a list in so many words:
+             Safari does not tell VoiceOver that a list without them is one. -->
+        <ol role="list">
           {#each listed as entry (entry.index)}
             {@const brief = decisionInBrief(entry.frame, entry.decision)}
             <li>

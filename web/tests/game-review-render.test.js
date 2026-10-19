@@ -50,6 +50,11 @@ test('a review under way leads with the flagged decisions found so far, and hide
   assert.match(html, /1 of 2 matched/);
   assert.match(html, /Reviewing, 1 of 2/);
   assert.match(html, /2 decisions, not reviewed yet/);
+  // The list of decisions and the list of hands are drawn without markers,
+  // so each says it is a list in so many words: Safari does not tell
+  // VoiceOver that a list whose markers are taken away is one.
+  assert.match(html, /<ol class="flagged[^"]*"[^>]*\brole="list"/);
+  assert.match(html, /<details class="hands[^"]*"[^>]*>[^]*?<ol[^>]*\brole="list"/);
   // So far, and not yet in the trend. The note is an element of its own, so
   // the space is looked for past any tags rather than by stripping them.
   assert.match(html, /50%(?:<[^>]*>)*\s+(?:<[^>]*>)*so far/, 'a space between the figure and its note');
