@@ -144,6 +144,9 @@ test('another flagged decision of the hand offers its retry or its answer, and t
   const items = [...html.matchAll(/<button class="app-control[^"]*" data-step-to="(\d+)"[^>]*>([^]*?)<\/button>/g)]
     .map(([, step, inner]) => ({ step: Number(step), said: text(inner) }));
   assert.equal(items.length, hand.frames.length);
+  // The word a screen reader hears before the number keeps its space, which
+  // Svelte would trim from the end of an element's text.
+  assert.match(html, /<span class="visually-hidden">Decision <\/span>1<\/span>/);
   for (const { step, said } of items) {
     const decision = hand.decisions[step];
     const verdict = decision.judgement?.flagged ? 'Flagged' : decision.forced ? 'Only move' : decision.agreed ? 'Trained AI agreed' : 'Trained AI differed';
