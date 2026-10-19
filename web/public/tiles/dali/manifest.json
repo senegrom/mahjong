@@ -117,6 +117,23 @@
       }
     },
     {
+      "name": "Pin7",
+      "tile": "7p",
+      "label": "7 disks",
+      "direction": "The Shell That Holds the Sea — A",
+      "status": "approved",
+      "svg": "approved/Pin7.svg",
+      "source": "docs/design/dali/studies/seven-disks-a-shell-approved.svg",
+      "sourceSha256": "1d6bb184b46ad23b34c2454904287a56e11f991b1866645a194238848ed00fa2",
+      "svgSha256": "1d6bb184b46ad23b34c2454904287a56e11f991b1866645a194238848ed00fa2",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
       "name": "Sou1",
       "tile": "1s",
       "label": "1 bamboo",
@@ -455,9 +472,6 @@
     },
     {
       "tile": "4m"
-    },
-    {
-      "tile": "7p"
     },
     {
       "tile": "8p"
