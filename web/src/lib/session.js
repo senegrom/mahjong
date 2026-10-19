@@ -9,9 +9,10 @@ import { NETWORKS } from './model-manifest.js';
 export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
 const VERSION = 1;
-// The settings record's own version, 2 since the site played generation 810:
-// see readSettings. Saved matches keep VERSION.
-const SETTINGS_VERSION = 2;
+// The settings record's own version: 2 since the site played generation 810
+// and 3 since it played generation 1110, see readSettings. Saved matches keep
+// VERSION, so a match saved before either still resumes.
+const SETTINGS_VERSION = 3;
 const MAX_COMMANDS = 20000;
 const MAX_SAVE_BYTES = 2_000_000;
 const PLAYER_ACTIONS = ['discard', 'riichi', 'tsumo', 'concealed-kan', 'extended-kan', 'ron', 'pon', 'kan', 'chii', 'pass'];
@@ -36,19 +37,26 @@ export const DEFAULT_REVIEW_ADVISER = 'strong';
  * is written only once they pick one, so a player who never has plays the
  * default, the network published last, and moves on with it when a newer one
  * is published. Without a pick, and for a version this build does not list,
- * it is left out, and the page plays the default (trained-network.js). */
+ * it is left out, and the page plays the default (trained-network.js). A
+ * record from before the site played generation 1110 (version 2) keeps every
+ * other choice but not its pick: when 1110 arrived every player was put in
+ * front of it once, at the owner's word, whatever version they had picked
+ * before. A player who picks 0.1.810 or 0.1.410 again writes a version 3
+ * record, and from version 3 a pick is kept as it stands. */
 export function readSettings(storage, touch = false) {
   const defaults = { difficulty: DEFAULT_OPPONENT, hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: DEFAULT_REVIEW_ADVISER };
   try {
     const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
-    if (value?.version !== SETTINGS_VERSION && value?.version !== 1) return defaults;
+    if (![1, 2, SETTINGS_VERSION].includes(value?.version)) return defaults;
     defaults.tileFace = normalizeTileFace(value.tileFace);
     for (const key of ['hints', 'confirmDiscards', 'shortcuts']) {
       if (typeof value[key] === 'boolean') defaults[key] = value[key];
     }
     if (value.version === 1) return defaults;
     if (['club', 'strong'].includes(value.reviewAdviser)) defaults.reviewAdviser = value.reviewAdviser;
-    if (NETWORKS.some(network => network.version === value.trainedNetwork)) defaults.trainedNetwork = value.trainedNetwork;
+    if (value.version === SETTINGS_VERSION && NETWORKS.some(network => network.version === value.trainedNetwork)) {
+      defaults.trainedNetwork = value.trainedNetwork;
+    }
     if (OPPONENT_TYPES.includes(value.difficulty)) defaults.difficulty = value.difficulty;
     if (Array.isArray(value.opponents)) {
       // Only a complete valid table replaces the legacy single-tier setting.
