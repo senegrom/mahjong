@@ -614,10 +614,13 @@ try {
       const active = document.activeElement;
       return !active || active === document.body ? 'the page' : active.getAttribute('aria-label') ?? active.textContent.trim();
     });
-    // By keyboard: the list of hands, then the hand's own button.
-    await page.focus('[data-game-review] .hands summary');
-    await page.keyboard.press('Enter');
-    await page.waitForSelector(`[data-game-review] [data-replay-hand="${chosen.index}"]`);
+    // By keyboard: the list of hands, unless a slow device's review opened
+    // it already, then the hand's own button.
+    if (!await page.$eval('[data-game-review] .hands', details => details.open)) {
+      await page.focus('[data-game-review] .hands summary');
+      await page.keyboard.press('Enter');
+    }
+    await page.waitForSelector(`[data-game-review] [data-replay-hand="${chosen.index}"]`, { visible: true });
     await page.focus(`[data-game-review] [data-replay-hand="${chosen.index}"]`);
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement?.id === 'decision-title', { timeout: 5000 });
