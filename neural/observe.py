@@ -13,8 +13,10 @@ position and none of it cheaply. Our engine stays the authority on the rules
 and on which moves are legal; Mortal's only reads the game and describes it.
 
 Two costs come with the richer view, and this module pays both. The
-lookahead takes milliseconds a decision, so the encoder runs across games
-in parallel, in Rust and without the GIL, in `libriichi.follow.Follower`.
+lookahead takes about 0.6 ms a decision on one core, and several at three
+shanten (1.3 ms on average until October 2026, when its shanten checks
+became incremental), so the encoder runs across games in parallel, in Rust
+and without the GIL, in `libriichi.follow.Follower`.
 And a decision is 34,408 floats where it was 3,298, so the planes are kept
 sparse: about one value in eighteen is not zero, and a round of them fits
 where it used to.

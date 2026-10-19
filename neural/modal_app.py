@@ -229,7 +229,9 @@ def _generation_or_zoo(checkpoint: Path) -> str:
 # Processors for the three trainers. Self-play, not the card, is the long
 # pole, and it is bound by their number: the engine and Mortal's encoder
 # spread a step's decisions over all of them, and the encoder's efficiency
-# lookahead costs about two milliseconds a decision on one. With sixteen,
+# lookahead cost about two milliseconds a decision on one (about 0.6 since
+# October 2026: its shanten checks became incremental, 2.2 times as fast
+# in the trainer's own calls, the planes unchanged). With sixteen,
 # the first block of Mortal's fine-tuning spent 242 of a generation's 390
 # seconds playing. Sixteen is the figure measured on 6 September with the
 # engine's own planes, when thirty-two made self-play slower, 93 seconds
