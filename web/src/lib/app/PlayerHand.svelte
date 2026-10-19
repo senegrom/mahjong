@@ -9,9 +9,13 @@
 
   // Selection and keyboard focus stay owned by App across turn changes.
   // Only read-only presentation and hypothetical discard analysis live here.
+  // A review shows this hand as one of the table's four, so it can name the
+  // tiles for the seat (`handLabel`), make them a list (`listed`) and say what
+  // the player was doing (`note`).
   let {
     view, engine, closed, hints, busy, blocked, discardChoices, confirmDiscards, picked, selected,
     canDiscard, selectTile, syncHandFocus, handElement = $bindable(null),
+    handLabel = 'your tiles', listed = false, note = '',
   }: PlayerHandProps = $props();
   let me = $derived(view?.seats[0]);
   let handTiles = $derived(me ? [...me.hand, ...(me.drawn ? [me.drawn] : [])] : []);
@@ -37,6 +41,7 @@
     <span class="score">{me.score.toLocaleString()}</span>
     {#if me.seat === 'east'}<span class="my-dealer">Dealer</span>{/if}
     {#if me.riichi}<span class="riichi">Riichi</span>{/if}
+    {#if note}<span class="note">{note}</span>{/if}
     {#if hints}
       <span class="hint">
         {#if !discardHint && view.shanten < 0}Complete tile shape
@@ -64,9 +69,9 @@
   <!-- A tile is a toggle only while a press selects it for confirmation.
        Without confirmation a press discards it, so it is a plain button,
        and the arrow keys' marker is not announced as pressed. -->
-  <div class="hand" class:has-draw={Boolean(me.drawn)} role="group" aria-label="your tiles" aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
+  <div class="hand" class:has-draw={Boolean(me.drawn)} role={listed ? 'list' : 'group'} aria-label={handLabel} aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
     {#each handTiles as tile, index (index)}
-      <HandTile {tile} handIndex={index} onclick={() => selectTile(tile, index)} toggle={confirmDiscards}
+      <HandTile {tile} {listed} handIndex={index} onclick={() => selectTile(tile, index)} toggle={confirmDiscards}
         disabled={!canDiscard(tile)} muted={view.phase === 'over'} selected={myTurn && (picked === index || selected === index)}
         drawn={Boolean(me.drawn) && index === me.hand.length}
         discardShanten={discardHints.get(tile)?.shanten ?? null}
@@ -86,6 +91,8 @@
   .mine header { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: .9rem; }
   .score { font-variant-numeric: tabular-nums; }
   .riichi, .furiten { color: var(--warning-text); font-weight: 600; }
+  /* As a review's seats say it: a word beside the gold edge of the turn. */
+  .note { padding: 1px 7px; border-radius: 999px; background: rgba(216,161,42,.16); color: var(--gold); font-size: .7rem; font-weight: 650; }
   .hint { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-left: auto; font-size: .85rem; }
   .hand-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .8rem; }
   .safe-note { color: #9cddb5; }

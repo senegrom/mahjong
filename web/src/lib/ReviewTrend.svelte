@@ -10,8 +10,10 @@
    * stated, not coloured as good or bad. Another version of Trained AI judges
    * differently, so only the games judged by the version this page plays are
    * compared and shown; the rest wait for that version to be picked again.
+   * `open` is whether the table of the games is open, which the review's
+   * screen keeps while a replay takes its place.
    */
-  let { figure, complete = false, games = [], current = '' } = $props();
+  let { figure, complete = false, games = [], current = '', open = $bindable(false) } = $props();
   const SHOWN = 12;
   // The line's box: a 4px end-dot and its 2px ring fit inside the margin.
   const WIDTH = 240, HEIGHT = 56, MARGIN = 7;
@@ -59,7 +61,7 @@
     </svg>
   {/if}
   {#if shown.length}
-    <details class="games">
+    <details class="games" bind:open>
       <summary>Your reviewed games ({shown.length})</summary>
       <table>
         <thead><tr><th scope="col">Reviewed</th><th scope="col">Matched</th><th scope="col">Decisions</th></tr></thead>

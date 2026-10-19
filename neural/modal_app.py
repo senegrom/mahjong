@@ -248,11 +248,13 @@ TRAINER_TIMEOUT = 24 * 60 * 60
 # the compiler cache take a while themselves.
 TRAINER_SPARE = 10 * 60
 
-# What the three trainers run on, one container at a time each. An A100
-# when no H100 can be had: on 7 September two blocks sat two hours with no
-# container at all, their calls still marked running.
+# What the three trainers run on, one container at a time each: an L40S, and
+# no other card without the owner's word (19 October 2026). Self-play, on the
+# processors, is most of a generation, and an L40S played one in 9.5 minutes
+# against an H100's 9.0 for half the card's price. A card asked for at the
+# call (`with_options`) still wins, as a benchmark of another card does.
 TRAINER = dict(
-    gpu=["H100", "A100-80GB"],
+    gpu="L40S",
     cpu=TRAINER_CPUS,
     memory=98304,
     timeout=TRAINER_TIMEOUT,
@@ -955,7 +957,7 @@ def train_combined(
 @app.function(
     # The round, its planes and Mortal's vector of every decision are held
     # at once, as a trainer's are: a trainer's card and memory.
-    gpu=["H100", "A100-80GB"],
+    gpu="L40S",
     cpu=TRAINER_CPUS,
     memory=98304,
     timeout=4 * 60 * 60,
@@ -1263,8 +1265,8 @@ def ruler(
 
 
 @app.function(
-    # An A100 when no H100 can be had, as for the trainers.
-    gpu=["H100", "A100-80GB"],
+    # An L40S, as for the trainers.
+    gpu="L40S",
     cpu=16.0,
     memory=65536,
     timeout=6 * 60 * 60,
@@ -1339,7 +1341,7 @@ def distil(
 
 
 @app.function(
-    gpu=["H100", "A100-80GB"],
+    gpu="L40S",
     cpu=16.0,
     memory=65536,
     timeout=6 * 60 * 60,
@@ -1448,7 +1450,7 @@ def _smoke_part(name: str, command: list[str], kept: int) -> list[str]:
 
 
 @app.function(
-    gpu="L4",
+    gpu="L40S",
     cpu=8.0,
     memory=32768,
     timeout=SMOKE_TIMEOUT,

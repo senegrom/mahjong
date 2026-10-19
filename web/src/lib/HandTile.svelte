@@ -17,10 +17,12 @@
     discardShanten = null,
     safe = false,
     dora = false,
+    /** One item of a hand shown as a list, as a review shows each hand. */
+    listed = false,
   } = $props();
 </script>
 
-<span class="hand-tile" class:small={size === 'small'} data-hand-drawn={drawn ? 'true' : undefined}>
+<span class="hand-tile" class:small={size === 'small'} data-hand-drawn={drawn ? 'true' : undefined} role={listed ? 'listitem' : undefined}>
   <Tile {tile} {size} {handIndex} {onclick} {toggle} {disabled} {muted} {selected} {drawn}
     {discardShanten} {safe} {dora} />
   {#if showRemaining && remaining !== null}

@@ -48,6 +48,13 @@ an unfinished match has progress, including between hands.
 - The safe count counts held copies and is explicitly qualified as safety
   against declared riichi, not a guarantee against undeclared hands. Tile names
   expose selected, drawn, safe and dora states to assistive technology.
+- A list the player opens or folds stays that way. The whole-game review's
+  lists keep whether they are open in their own component (`bind:open`),
+  never in an `open` set from other state: Svelte sets such an attribute
+  again whenever anything drawn beside it changes, which folded a replayed
+  hand's list of decisions under the player's press, at every step and as
+  later hands were reviewed, and dropped keyboard focus on a step's button
+  in it to the page.
 - A screen reader announces a status line only once it already knows it. So
   these lines wait in the page, empty and out of sight, before their words
   arrive, rather than arriving with them:
@@ -73,7 +80,12 @@ an unfinished match has progress, including between hands.
     is inside it;
   - the hand review's two lines, that Trained AI is reviewing and that Club
     reviews in its place, which wait in the review until it has been drawn,
-    and a tenth of a second more.
+    and a tenth of a second more;
+  - the lines that say what a filter of the player's decisions shows, under
+    the whole-game review's list and in a replayed hand's list of decisions,
+    which come into the page with their buttons, speak only when one is
+    pressed, and go quiet again when focus leaves the buttons or the counts
+    they gave change.
 
   Two lines still do not speak where the player pressed. The trained network
   picker's refusal, on the notice line, lies behind the settings' dialog on a
@@ -86,8 +98,9 @@ an unfinished match has progress, including between hands.
   says the game is loading, the settings' line that new tile graphics are
   loading, a yaku's explanation on a hand's result, the whole-game review's
   headline (with the review, and again on Back to the list), the decision
-  replay's "Your decision N of M", and the status lines of Agent watch (its
-  file note among them), the guided physical game and physical agent play.
+  replay's "Your decision N of M" and its line that says the table at each
+  step, and the status lines of Agent watch (its file note among them), the
+  guided physical game and physical agent play.
 
 ## Verification
 
