@@ -462,18 +462,18 @@ apart, above their sets (the called tile turned) and their discards in order
 (the riichi tile turned, the tiles called away marked), the seat headed by its
 wind, where the opponent sat and who played them ("South · Right · Club"),
 the dealer, the score and riichi; the round, the honba and riichi sticks, the
-dora indicators and the tiles left in the wall in the middle; and the player's
-own seat below, with what happened since their previous decision between. The
+dora indicators and the tiles left in the wall in the middle; then what
+happened since the player's previous decision, and the player's own seat. The
 seat whose move it was is edged in gold and says so in words: "To play", or
 "To answer" on the player's seat with "Discarded" or "Declared a kan" on the
 seat that let the tile go. Each hand is a list named for its seat ("South's
 tiles, Right (Club)", "East's tiles, yours"), the table is headed "The table at
 your decision 5", and a status line says it as the step changes ("South
 discarded the 5 bamboo, 45 tiles left in the wall. West has declared riichi.").
-The tiles are the review's own: the replay of the match that the review is
-built from reads them at each decision once the hand is over (`scanMatch`,
-the engine's `review_hands`), which the engine refuses while a hand is still
-being played, as it refuses to log one, and never from the match being played.
+The tiles are the review's own: the replay the review is built from reads them
+at each decision once the hand is over (`scanMatch`, through the engine's
+`review_hands`), never from the match being played. The engine refuses them
+while a hand is still being played, as it leaves such a hand out of a log.
 `web/tests/game-review.test.js` rebuilds every hand at every decision of two
 fixture games from the hand's mjai log, through calls, quads, riichi and wins,
 and the engine's own test rebuilds them through Mortal's reader of the same
