@@ -1,16 +1,26 @@
 # Van Gogh
 
+**Current White dragon:** **C — The Almond-Blossom Dragon** (`5z` / `Haku`) replaces Quiet Dragon L, following Carl's selection and request to deploy C. White almond blossoms and gnarled branches form the dragon against turquoise sky. The full 1086 × 1448 painting is proportionally downsampled to 300 × 400 with zero stretch and zero extra bleed, using the shared 26-unit rounded corners. The previous L PNG and SVG are preserved in the design archive.
+
 **Current North wind:** Snowbound North B (`4z` / `Pei`) replaces Wind Ribbons, following Carl's winter selection. The snowy scene is cropped to exactly 3:4, not squeezed; the complete 北, moon, village and snowy path remain visible. The former North source and playable PNG/SVG are retained in the design archive. Earlier North sections below describe that superseded design. This replacement does not add a tile or change any other artwork.
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. That restoration left the other tiles unchanged. Eight disks now uses Lemons by the Sea. Earlier sections below describe the design history.
 
-**Current set:** All 34 tile identities are painted. Cloudborne West completes the four winds and the entire Van Gogh set. Snowbound North B, The Billowing Courtyard A and every earlier selection remain unchanged. Earlier sections retain historical counts.
+**Current set:** All 34 tile identities are painted. Cloudborne West completed the four winds and the entire Van Gogh set. The Almond-Blossom Dragon C now replaces Quiet Dragon L; the other 33 faces retain their approved artwork. Earlier sections retain historical counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
-Carl approved all except K and requested deployment. **Van Gogh is a selectable set with nineteen distinct faces**: A–B, E, G–J and L, plus Copper Sunset for 5 bamboo, Bamboo Raft for 8 bamboo, Seven with Irises C for 7 bamboo, green Moonlit Four C for 4 bamboo, green Triple Shoots A for 3 bamboo, green Garden Rhythm B for 2 bamboo, Almond Branches (Characters A), Night Café (Characters B), Cypress Fields (Characters C), Blazing Dawn (East A) and Wind Ribbons (North B). Almond Branches replaces D for 3 of characters; Night Café and Cypress Fields are the approved adaptations for 2 and 4 of characters. The later L is the active white dragon; F remains an earlier alternative. East wind K is excluded. The remaining 15 tile identities use Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
+At the earlier Copper Sunset rollout, Carl had approved all except K and requested deployment. **Van Gogh then had nineteen distinct faces**: A–B, E, G–J and L, plus Copper Sunset for 5 bamboo, Bamboo Raft for 8 bamboo, Seven with Irises C for 7 bamboo, green Moonlit Four C for 4 bamboo, green Triple Shoots A for 3 bamboo, green Garden Rhythm B for 2 bamboo, Almond Branches (Characters A), Night Café (Characters B), Cypress Fields (Characters C), Blazing Dawn (East A) and Wind Ribbons (North B). Almond Branches replaces D for 3 of characters; Night Café and Cypress Fields are the approved adaptations for 2 and 4 of characters. The later L was then the active white dragon; F remained an earlier alternative. Both are now superseded by The Almond-Blossom Dragon C. East wind K is excluded. At that stage the remaining 15 tile identities used Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
 
 ![Van Gogh — six first tile studies](studies/01-van-gogh-concepts.png)
+
+## Selected White dragon: The Almond-Blossom Dragon C
+
+Carl requested three creative replacements for White Dragon, selected **C — The Almond-Blossom Dragon**, and explicitly requested GitHub deployment. The selected standalone painting combines white almond blossoms and branching wood into a dragon against turquoise sky.
+
+The [approved study](studies/30-white-dragon-almond-blossom-c-approved.svg) embeds a 300 × 400 quality-70 AVIF game export with 4:4:4 chroma. Its source image is exactly 1086 × 1448, so uniform Lanczos downsampling retains the whole composition at its original 3:4 proportions. The runtime uses zero stretch and zero bleed with the shared 26-unit rounded clip. Original-image and export checksums are recorded in the [approval and processing record](white-dragon-almond-blossom-c.json).
+
+Quiet Dragon L remains preserved as its exact previous [PNG](superseded/white-dragon-quiet-L-Haku.png) and [SVG](superseded/white-dragon-quiet-L-Haku.svg), as well as in the original second concept sheet. Regenerate C with `node web/scripts/export-van-gogh-tiles.mjs --only=5z`.
 
 ## First six examples
 
@@ -38,7 +48,7 @@ Carl approved all except K and requested deployment. **Van Gogh is a selectable 
 
 The second sheet was generated after Carl asked to continue and retry image generation. **G and H are the strongest new directions.** I keeps nine clearly separated disks; J keeps six clearly separated bamboo motifs. L removes much of F's filigree and gives the white dragon a simpler silhouette. K should receive a final glyph-structure check, and H's flower petals need more clearance at the edges, when these concepts become individual faces.
 
-The first two sheets contain 12 studies covering 11 distinct tile types, including two white-dragon alternatives. Eight of those faces remain active after the Almond Branches replacement for 3 of characters and the Triple Shoots replacement for 3 bamboo. The normal dora foil shines over L's own painted dragon without substituting another set's dragon.
+The first two sheets contain 12 studies covering 11 distinct tile types, including two white-dragon alternatives. At that stage eight of those faces remained active after the Almond Branches replacement for 3 of characters and the Triple Shoots replacement for 3 bamboo. The normal dora foil shone over L's own painted dragon without substituting another set's dragon.
 
 ## Selected East wind
 

@@ -1,12 +1,14 @@
 # Van Gogh
 
+**Current White dragon:** **C — The Almond-Blossom Dragon** (`5z` / `Haku`) replaces Quiet Dragon L, following Carl's selection and request to deploy C. White almond blossoms and gnarled branches form the dragon against turquoise sky. The full 1086 × 1448 painting is proportionally downsampled to 300 × 400 with zero stretch and zero extra bleed, using the shared 26-unit rounded corners. The previous L PNG and SVG are preserved in the design archive.
+
 **Current North wind:** Snowbound North B (`4z` / `Pei`) replaces Wind Ribbons, following Carl's winter selection. The snowy scene is cropped to exactly 3:4, not squeezed; the complete 北, moon, village and snowy path remain visible. The former North source and playable PNG/SVG are retained in the design archive. Earlier North sections below describe that superseded design. This replacement does not add a tile or change any other artwork.
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. That restoration left the other tiles unchanged. Eight disks now uses Lemons by the Sea. Earlier sections below describe the design history.
 
 Choose **Options → Tile face → Van Gogh**. The 34 approved faces appear in hands, discards, melds, indicators, waits, agent modes, reviews and scoring. The preference is saved on this device, and the new faces are included in preloading and offline preparation.
 
-**The Billowing Courtyard A** is active for South wind (2z / Nan). **The Red Sail C** is active for 1 character (1m / 一萬), completing the characters suit. All three numbered suits are complete. **Green Dragon at the Vineyard C** is active for green dragon (6z / Hatsu). **Lemons by the Sea** is active for 8 disks, completing all nine disks. The selected studies are A–B, E, G–H and L, plus **Seven Apples at the Window** for 7 disks, **The Provençal Kitchen B** for 6 disks, **Starry Olive Grove** for 8 characters, **The Potter’s Table C** for 9 disks, **Four Oranges A** for 4 disks, **Irises at Dusk C** for 7 characters, **Lemon Terrace** for 6 characters, **The Red Vineyard A** for 5 characters, **Three Café Lanterns B** for 3 disks, **Green Still Life B** replacing J for 6 bamboo, **Copper Sunset** for 5 bamboo, **Moonlit Wind Chime A** for 9 bamboo, **Bamboo Raft** for 8 bamboo, **Seven with Irises C** for 7 bamboo, green Moonlit Four C for 4 bamboo, green Triple Shoots A for 3 bamboo, green Garden Rhythm B for 2 bamboo, **Almond Branches (Characters A)** for 3 of characters, **Night Cafe (Characters B)** for 2 of characters, **Cypress Fields (Characters C)** for 4 of characters, **Blazing Dawn (East A)** and **Snowbound North (Winter B)**. Almond Branches replaces the earlier Painted Letters D. White dragon uses the later, simpler L. East wind K is excluded. **Cloudborne West** is active for West wind (3z / Shaa), completing all 34 identities; no tile requires an unpainted fallback. Hidden tiles keep the shared back. The white dragon retains its own pale dragon under the normal dora ring and foil sheen.
+**The Billowing Courtyard A** is active for South wind (2z / Nan). **The Red Sail C** is active for 1 character (1m / 一萬), completing the characters suit. All three numbered suits are complete. **Green Dragon at the Vineyard C** is active for green dragon (6z / Hatsu). **Lemons by the Sea** is active for 8 disks, completing all nine disks. The selected studies are A–B, E and G–H, plus **The Almond-Blossom Dragon C** for white dragon, **Seven Apples at the Window** for 7 disks, **The Provençal Kitchen B** for 6 disks, **Starry Olive Grove** for 8 characters, **The Potter’s Table C** for 9 disks, **Four Oranges A** for 4 disks, **Irises at Dusk C** for 7 characters, **Lemon Terrace** for 6 characters, **The Red Vineyard A** for 5 characters, **Three Café Lanterns B** for 3 disks, **Green Still Life B** replacing J for 6 bamboo, **Copper Sunset** for 5 bamboo, **Moonlit Wind Chime A** for 9 bamboo, **Bamboo Raft** for 8 bamboo, **Seven with Irises C** for 7 bamboo, green Moonlit Four C for 4 bamboo, green Triple Shoots A for 3 bamboo, green Garden Rhythm B for 2 bamboo, **Almond Branches (Characters A)** for 3 of characters, **Night Cafe (Characters B)** for 2 of characters, **Cypress Fields (Characters C)** for 4 of characters, **Blazing Dawn (East A)** and **Snowbound North (Winter B)**. Almond Branches replaces the earlier Painted Letters D. White dragon uses The Almond-Blossom Dragon C. East wind K is excluded. **Cloudborne West** is active for West wind (3z / Shaa), completing all 34 identities; no tile requires an unpainted fallback. Hidden tiles keep the shared back. The white dragon retains its own almond-blossom artwork under the normal dora ring and foil sheen.
 
 The [preview](preview.html) shows the actual exports and a mixed hand. The [manifest](manifest.json) records approval, source hashes and exact crop rectangles. [Design studies](../../../../docs/design/van-gogh/README.md) preserve the original boards and generation prompts; the [raft record](../../../../docs/design/van-gogh/eight-bamboo-raft.json) records eight bamboo, and the [green still-life record](../../../../docs/design/van-gogh/six-bamboo-green-still-life.json) records the six-bamboo replacement.
 
@@ -21,6 +23,16 @@ The 2 and 4 of characters use exact copies of their full-canvas source PNGs. To 
 ```sh
 node web/scripts/export-van-gogh-tiles.mjs --only=2m,4m
 ```
+
+## The Almond-Blossom Dragon C: White dragon
+
+The selected C painting is embedded in a self-contained SVG as a 300 × 400 quality-70 AVIF with 4:4:4 chroma. The playable path remains `approved/Haku.svg`. The [approval and processing record](../../../../docs/design/van-gogh/white-dragon-almond-blossom-c.json) records the original image, exact dimensions, source and raster checksums, and archived L exports. The source SVG is a game-sized export of the selected original.
+
+```sh
+node web/scripts/export-van-gogh-tiles.mjs --only=5z
+```
+
+This reproduces White Dragon and its generated metadata. The set retains all 34 painted faces.
 
 ## Garden Rhythm: green 2 bamboo
 
