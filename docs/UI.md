@@ -464,9 +464,10 @@ wind, where the opponent sat and who played them, the dealer, the score and
 riichi; the round, the honba and riichi sticks, the
 dora indicators and the tiles left in the wall in the middle; then what
 happened since the player's previous decision, and the player's own seat. The
-seat whose move it was is edged in gold and says so in words: "To play", or
-"To answer" on the player's seat with "Discarded" or "Declared a kan" on the
-seat that let the tile go. Each hand is a list named for its seat ("South's
+seat whose move it was is edged in gold and says so in words: "To play" on the
+player's own turn; when the player answers another's tile, the edge is on the
+seat that let it go, which says "Discarded" or "Declared a kan", and the
+player's seat says "To answer" without one. Each hand is a list named for its seat ("South's
 tiles, Right (Club)", "East's tiles, yours"), the table is headed "The table at
 your decision 5", and a status line says it as the step changes ("South
 discarded the 5 bamboo, 45 tiles left in the wall. West has declared riichi."),
