@@ -460,8 +460,8 @@ stood, every player's hand face up all the time, with no control to hide or
 show them: each opponent's concealed tiles in their seat, the tile just drawn
 apart, above their sets (the called tile turned) and their discards in order
 (the riichi tile turned, the tiles called away marked), the seat headed by its
-wind, where the opponent sat and who played them ("South · Right · Club"),
-the dealer, the score and riichi; the round, the honba and riichi sticks, the
+wind, where the opponent sat and who played them, the dealer, the score and
+riichi; the round, the honba and riichi sticks, the
 dora indicators and the tiles left in the wall in the middle; then what
 happened since the player's previous decision, and the player's own seat. The
 seat whose move it was is edged in gold and says so in words: "To play", or
