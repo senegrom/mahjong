@@ -480,8 +480,9 @@ while a hand is still being played, as it leaves such a hand out of a log.
 fixture games from the hand's mjai log, through calls, quads, riichi and wins,
 and the engine's own test rebuilds them through Mortal's reader of the same
 events. An opponent's tiles take a row of fourteen with the drawn tile's gap,
-as large as their seat has room for, up to the size of their discards; where
-fourteen tiles of 12 pixels would not fit they wrap instead. On a phone held
+on a darker rack that sets them apart from the discards below, as large as
+their seat has room for, up to the size of their discards; where fourteen
+tiles of 12 pixels would not fit they wrap instead. On a phone held
 upright, three seats side by side would leave each hand a few tiles to a row,
 so there the opponents take the width of the screen, one under another in the
 order they play after the player, their discards a size larger than in play
