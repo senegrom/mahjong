@@ -323,7 +323,9 @@ async function overviewIsRight(page, frame, step, steps) {
   assert.equal(shown.facedown, 0, 'nothing is face down');
   assert.equal(shown.toggles, 0, 'nothing offers to show or hide the hands');
   assert.ok(shown.fits, 'the page does not scroll sideways');
-  assert.equal(shown.said, tableSaid(frame.view));
+  // The table in a sentence, and whether Trained AI flagged the move there.
+  assert.ok(shown.said.startsWith(tableSaid(frame.view)), shown.said);
+  assert.match(shown.said.slice(tableSaid(frame.view).length), /^( Trained AI flagged your move here\.)?$/);
   assert.equal(shown.wall, frame.view.wall);
   assert.ok(shown.notes.includes(frame.view.phase === 'act' ? 'To play' : 'To answer'), `whose move it was: ${shown.notes.join(', ')}`);
   return shown;

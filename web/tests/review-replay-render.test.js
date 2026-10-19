@@ -91,7 +91,9 @@ test('every step of a replayed hand shows every hand face up, each a list named 
     assert.doesNotMatch(text(html), /(Show|Hide) (the )?(other players'|every|all) (tiles|hands)/i);
     // The board and the step, and the line that says the table as it changes.
     assert.match(html, new RegExp(`<h4 id="overview-title"[^>]*>The table at your decision ${index + 1}</h4>`));
-    assert.match(html, new RegExp(`role="status" data-table-said="">${tableSaid(frame.view).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</p>`));
+    // Said with the table: whether Trained AI flagged the move there.
+    const said = `${tableSaid(frame.view)}${hand.decisions[index].judgement?.flagged ? ' Trained AI flagged your move here.' : ''}`;
+    assert.ok(html.includes(`role="status" data-table-said="">${said}</p>`), said);
     assert.match(html, new RegExp(`<div class="wall[^"]*"><strong[^>]*>${frame.view.wall}</strong>`));
     for (const indicator of frame.view.dora_indicators) assert.ok(html.includes(`data-tile="${indicator}"`));
     // Whose turn it is, in words: the player to play or to answer.

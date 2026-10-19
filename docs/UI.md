@@ -469,7 +469,9 @@ seat whose move it was is edged in gold and says so in words: "To play", or
 seat that let the tile go. Each hand is a list named for its seat ("South's
 tiles, Right (Club)", "East's tiles, yours"), the table is headed "The table at
 your decision 5", and a status line says it as the step changes ("South
-discarded the 5 bamboo, 45 tiles left in the wall. West has declared riichi.").
+discarded the 5 bamboo, 45 tiles left in the wall. West has declared riichi."),
+adding "Trained AI flagged your move here." at a flagged decision other than
+the one opened, whose own step says so.
 The tiles are the review's own: the replay the review is built from reads them
 at each decision once the hand is over (`scanMatch`, through the engine's
 `review_hands`), never from the match being played. The engine refuses them

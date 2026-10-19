@@ -63,6 +63,9 @@
   let pending = $derived(retrying && standing(start).mode !== 'answered');
   let last = $derived(pending ? start : hand.frames.length - 1);
   let theOne = $derived(retrying && step === start);
+  // Said with the table as the step changes: a flagged decision says so too,
+  // but for the one opened to choose again, whose step already says it.
+  let tableLine = $derived(`${tableSaid(frame.view)}${flaggedAt(step) && !theOne ? ' Trained AI flagged your move here.' : ''}`);
   let notes = $derived(seatNotes(frame.view));
   let me = $derived(frame.view.seats[0]);
   let discardChoices = $derived(choosing ? frame.choices.filter(choice => choice.kind === 'discard') : []);
@@ -250,7 +253,7 @@
   <section class="overview" aria-labelledby="overview-title" data-overview>
     <h4 id="overview-title">The table at your decision {step + 1}</h4>
     <!-- Said as the step changes, from a line in the page from the start. -->
-    <p class="visually-hidden" role="status" data-table-said>{tableSaid(frame.view)}</p>
+    <p class="visually-hidden" role="status" data-table-said>{tableLine}</p>
 
     <MatchTable view={frame.view} {hints} thinking={false} pendingOpponent={null} hands={frame.hands ?? null} {notes} review />
 
