@@ -263,8 +263,9 @@ async function saysWhereItIs(page, key) {
 
 /** The replay's overview as the page draws it: each opponent's hand, a list
  * named by its seat, and the player's own, with the names of their tiles,
- * the narrowest tile, how many rows the tiles take and whether the list
- * keeps within its seat and the screen; whether anything is face down or
+ * the narrowest tile, how many rows the tiles take, whether every tile is on
+ * the screen and whether the list spills out of its seat; whether anything
+ * is face down or
  * offers to show or hide the hands; and the step, what is said of the table,
  * the wall and what each seat was doing. */
 const overviewAt = page => page.evaluate(() => {
@@ -273,8 +274,9 @@ const overviewAt = page => page.evaluate(() => {
     const tiles = [...list.querySelectorAll('.tile')], seat = list.closest('.seat, .mine');
     return { label: list.getAttribute('aria-label'), seat: list.dataset.seatHand ?? null,
       names: tiles.map(tile => tile.getAttribute('aria-label')), tileWidth: Math.min(...tiles.map(tile => box(tile).width)),
-      rows: new Set(tiles.map(tile => Math.round(box(tile).bottom))).size, overflows: list.scrollWidth > list.clientWidth + 1,
-      inside: box(list).left >= -0.5 && box(list).right <= innerWidth + 0.5,
+      rows: new Set(tiles.map(tile => Math.round(box(tile).bottom))).size,
+      spills: list.scrollWidth > list.clientWidth + 1 ? `${list.scrollWidth} in ${list.clientWidth}` : '',
+      offscreen: tiles.filter(tile => box(tile).left < -0.5 || box(tile).right > innerWidth + 0.5).map(tile => tile.getAttribute('aria-label')),
       // The rest of the seat: its discards, its sets and its riichi.
       discards: seat.querySelectorAll('.pool .tile').length, melds: seat.querySelectorAll('.meld').length,
       riichi: Boolean(seat.querySelector('.stick, .riichi')) };
@@ -317,12 +319,16 @@ async function overviewIsRight(page, frame, step, steps) {
   assert.deepEqual(unmarked(shown.own.names), named(frame.hands[0]), `the player's own tiles at step ${step + 1}`);
   assert.deepEqual([shown.own.discards, shown.own.melds, shown.own.riichi], [seats[0].discards.length, seats[0].melds.length, seats[0].riichi],
     `the player's discards, sets and riichi at step ${step + 1}`);
+  // Every tile of every hand is on the screen. An opponent's hand keeps to
+  // its seat too, and every size checked leaves the seat room for fourteen
+  // tiles of 12 pixels or more on one row, which a hand is read along. (The
+  // player's own hand lets the drawn tile's gap run into its end padding,
+  // as in play, so only its tiles are held to the screen.)
   for (const list of [...shown.opponents, shown.own]) {
-    assert.ok(!list.overflows && list.inside, `${list.label} keeps within its seat and the screen`);
+    assert.deepEqual(list.offscreen, [], `${list.label}: tiles off the screen`);
   }
-  // Every size checked leaves an opponent's seat room for fourteen tiles of
-  // 12 pixels or more on one row, which a hand is read along.
   for (const list of shown.opponents) {
+    assert.equal(list.spills, '', `${list.label} spills out of its seat`);
     assert.ok(list.tileWidth >= 12 && list.rows === 1, `${list.label}: ${list.rows} rows of tiles ${list.tileWidth} pixels wide`);
   }
   assert.equal(shown.facedown, 0, 'nothing is face down');
@@ -627,18 +633,15 @@ try {
     assert.equal(await page.$eval('#decision-title', el => el.textContent), `${chosen.name}, decision by decision`);
     // Every step by keyboard, from the deal to the hand's last decision. A
     // step keeps focus on Next, and the last hands it to Previous.
-    const measured = [];
     await page.evaluate(() => [...document.querySelectorAll('[data-decision] .steps button')].find(b => b.textContent === 'Next').focus());
     for (const [step, frame] of frames.entries()) {
       await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
         `Your decision ${step + 1} of ${frames.length}`);
-      measured.push(await overviewIsRight(page, frame, step, frames.length));
+      await overviewIsRight(page, frame, step, frames.length);
       assert.equal(await focused(), step < frames.length - 1 ? 'Next decision' : 'Previous decision', `focus after step ${step + 1}`);
       if (step < frames.length - 1) await page.keyboard.press('Enter');
     }
     await shot(page, 'review-overview-1100x900');
-    console.log('MEASURE', JSON.stringify({ size: '1100x900', hand: chosen.name, steps: frames.length,
-      opponents: measured.flatMap(shown => shown.opponents.map(list => [list.tileWidth, list.rows])), own: measured.map(shown => [shown.own.tileWidth, shown.own.rows]) }));
 
     // By pointer, through the hand's list of decisions, open beside the
     // table on a wide screen: a step's button keeps focus as it shows it.
@@ -695,20 +698,17 @@ try {
     for (const [width, height] of [[1366, 768], [390, 844], [320, 568], [844, 390]]) {
       await page.setViewport({ width, height });
       await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
-      const before = await overviewIsRight(page, frames[step], step, frames.length);
+      await overviewIsRight(page, frames[step], step, frames.length);
       const forward = step < frames.length - 1;
       step += forward ? 1 : -1;
       await page.$eval('[data-decision] .steps', el => el.scrollIntoView({ block: 'center' }));
       await page.click(`[data-decision] .steps button[aria-label="${forward ? 'Next decision' : 'Previous decision'}"]`);
       await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
         `Your decision ${step + 1} of ${frames.length}`);
-      const after = await overviewIsRight(page, frames[step], step, frames.length);
+      await overviewIsRight(page, frames[step], step, frames.length);
       assert.notEqual(await focused(), 'the page', `focus stays in the replay at ${width}x${height}`);
       await page.$eval('[data-decision] [data-overview]', el => el.scrollIntoView({ block: 'start' }));
       await shot(page, `review-overview-${width}x${height}`);
-      console.log('MEASURE', JSON.stringify({ size: `${width}x${height}`, opponents: [before, after].flatMap(shown => shown.opponents.map(list => [list.tileWidth, list.rows])),
-        own: [before, after].map(shown => [shown.own.tileWidth, shown.own.rows]),
-        height: await page.$eval('[data-decision] [data-overview]', el => Math.round(el.getBoundingClientRect().height)) }));
     }
 
     // Back to the list, by pointer: focus returns to the hand's own button.
