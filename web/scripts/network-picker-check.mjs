@@ -3,13 +3,14 @@
  * network's address alone, names it wherever Trained plays or advises, and
  * is reported on by the worker; picking the default again brings the default
  * back and leaves no pick, and a pick made in Agent watch reloads into Agent
- * watch. Settings saved before the default was published play it once,
+ * watch. Settings saved before 1110 (record version 2) play the default,
  * whatever they picked, keep every other choice and resume a saved match;
  * a pick made after that stays. On a phone a seat's badge says Trained
  * without the version, and the opponents menu shows the version whole, not
- * cut off before its chevron. The networks' host is unreachable for the whole browser and the
- * page's own requests for a network are answered here, so nothing downloads
- * 116 MB: what is checked is which address each page asks for. */
+ * cut off before its chevron. The networks' host is unreachable for the
+ * whole browser and the page's own requests for a network are answered here,
+ * so nothing downloads 116 MB: what is checked is which address each page
+ * asks for. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
