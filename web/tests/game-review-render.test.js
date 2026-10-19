@@ -79,6 +79,56 @@ test('a finished review with nothing flagged says so, and offers no more work', 
   assert.doesNotMatch(html, /data-continue|data-stop-review|data-review-hand/);
 });
 
+/** The text of a piece of markup, its tags and the renderer's markers gone,
+ * a space where each tag was, as the page lays its elements apart. */
+const text = markup => markup.replace(/<!--[^]*?-->/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+test('the list opens on the flagged decisions, and its filter lists those that differ or every one, saying how many each holds', () => {
+  const near = decision({ index: 1, advised_tile: '9p', advised: 'discards the 9 circles', played_weight: 0.2, preferred_weight: 0.7,
+    judgement: { stage: 'move', played: 0.2, preferred: 0.7, gap: 0.5, flagged: false } });
+  const agreed = decision({ index: 2, agreed: true, judgement: null });
+  const forced = decision({ index: 3, agreed: true, forced: true, judgement: null });
+  const done = hand(0, { status: 'done', frames: [frame, frame, frame, frame], decisions: [decision(), near, agreed, forced] });
+  const reviewed = review({ hands: [done, hand(1), hand(2)] });
+  const items = html => [...html.matchAll(/<li[^>]*data-listed="([^"]+)"([^>]*)>([^]*?)<\/li>/g)]
+    .map(([, key, attributes, inner]) => ({ key, flagged: /data-flagged=/.test(attributes), said: text(inner) }));
+  const options = html => [...html.matchAll(/aria-pressed="(true|false)" data-filter-option="(\w+)">([^]*?)<\/button>/g)]
+    .map(([, pressed, option, label]) => [option, pressed === 'true', text(label)]);
+
+  const opening = page({ review: reviewed });
+  assert.match(opening, /role="group" aria-label="Which decisions to list"/);
+  assert.deepEqual(options(opening), [['flagged', true, 'Flagged (1)'], ['differed', false, 'Trained AI chose differently (2)'],
+    ['every', false, 'Every decision (4)']]);
+  // What a choice of filter shows is said from a line in the page from the start.
+  assert.match(opening, /<p class="visually-hidden[^"]*" role="status" data-filter-said=""><\/p>/);
+  assert.match(opening, /<h3[^>]*>Where you departed most from Trained AI<\/h3>/);
+  assert.deepEqual(items(opening).map(item => [item.key, item.flagged]), [['0:0', true]]);
+
+  // Those that differ: the flagged one marked as such, and replayed to choose
+  // again; the other names Trained AI's choice and is replayed to look at.
+  const different = page({ review: reviewed, filter: 'differed' });
+  assert.match(different, /<h3[^>]*>Where Trained AI chose differently<\/h3>/);
+  assert.deepEqual(options(different).map(([option, pressed]) => [option, pressed]), [['flagged', false], ['differed', true], ['every', false]]);
+  const [flaggedItem, nearItem] = items(different);
+  assert.deepEqual([flaggedItem.key, nearItem.key], ['0:0', '0:1'], 'the widest gap first');
+  assert.match(flaggedItem.said, /^East 1 · your decision 1 · Flagged You: discards the 7 characters Trained AI gave this move 2\.0%, and its own choice 81\.0%\. Replay and choose again$/);
+  assert.doesNotMatch(flaggedItem.said, /discards the 1 characters/, "a flagged decision's answer waits for its retry");
+  assert.equal(nearItem.said, 'East 1 · your decision 2 You: discards the 7 characters Trained AI: discards the 9 circles '
+    + 'Trained AI gave this move 20.0%, and its own choice 70.0%. Replay');
+  assert.match(different, /data-open="0:1" aria-label="Replay: East 1, your decision 2"/);
+
+  // Every decision, in the order played, each saying how it went.
+  const every = page({ review: reviewed, filter: 'every' });
+  assert.match(every, /<h3[^>]*>Every decision you made<\/h3>/);
+  assert.deepEqual(items(every).map(item => item.key), ['0:0', '0:1', '0:2', '0:3']);
+  assert.match(items(every)[2].said, /You: discards the 7 characters Trained AI chose the same\. Replay$/);
+  assert.match(items(every)[3].said, /It was the only move\. Replay$/);
+
+  // A reviewed hand can be replayed whole; one not yet reviewed, reviewed.
+  assert.match(opening, /data-replay-hand="0" aria-label="Replay this hand: East 1"/);
+  assert.match(opening, /data-review-hand="1" aria-label="Review this hand: East 2"/);
+});
+
 test('a slow device that held after a hand offers the next hand or the rest, with how long the rest takes', () => {
   const html = page({ review: review({ held: true, slow: true, positionMs: 800, estimate: 200,
     hands: [hand(0, { status: 'done', decisions: [decision()] }), hand(1), hand(2)] }) });

@@ -10,7 +10,7 @@
   // A review draws the table as it stood at a past decision: `hands` puts
   // each seat's concealed tiles face up, in the order of view.seats, `notes`
   // says what each seat was doing, and `review` names each opponent by where
-  // they sat.
+  // they sat and lays the table out for four hands in view.
   let { view, hints, thinking, pendingOpponent, hands = null, notes = null, review = false }: MatchTableProps = $props();
   // A review replays a hand on a second table while the match's own stays
   // on the page, so the dialog's title is named for its own table.
@@ -24,7 +24,7 @@
   function inspectTable() { tableDialog?.showModal(); }
 </script>
 
-<div class="board">
+<div class="board" class:review>
   <div class="place across"><Seat seat={across} dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player}
     hand={hands?.[2] ?? null} position={review ? OPPONENT_POSITIONS[1] : ''} note={notes?.[2] ?? ''} /></div>
   <div class="place left"><Seat seat={left} dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player}
@@ -184,5 +184,25 @@
     .left { grid-area: 2 / 1; }
     .across { grid-area: 2 / 2; }
     .right { grid-area: 2 / 3; }
+  }
+
+  /* A review shows every hand face up (Seat). On a phone held upright three
+     columns would leave each hand a few tiles to a row, so there each
+     opponent takes the width of the screen instead, in the order they play
+     after the player, and their tiles are drawn a size larger than in play;
+     held sideways the columns stay, a little larger too. `--hand-tile` is the
+     most a concealed tile grows to where the seat has room (Seat). */
+  @media (max-width: 760px) and (orientation: portrait) {
+    .board.review { grid-template-columns: minmax(0, 1fr); }
+    .board.review .right { grid-area: 2 / 1; }
+    .board.review .across { grid-area: 3 / 1; }
+    .board.review .left { grid-area: 4 / 1; }
+    .board.review .place { --tile-width: 36px; --hand-tile: 48px; }
+  }
+  @media (max-width: 359px) and (orientation: portrait) {
+    .board.review .place { --tile-width: 32px; }
+  }
+  @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    .board.review .place { --tile-width: 28px; --hand-tile: 32px; }
   }
 </style>

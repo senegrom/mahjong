@@ -431,18 +431,75 @@ hand reviewed while the place stays, so a count said once would go stale, and
 one kept current would be read out again at every hand. The line goes when
 focus moves on.
 
+**Which decisions are listed.** The list opens on the flagged decisions, and a
+filter under its heading lists instead every decision where Trained AI chose
+differently, or every decision, each of its three buttons saying how many it
+holds: "Flagged (7)", "Trained AI chose differently (64)", "Every decision
+(182)". The button pressed says so (`aria-pressed`) and keeps focus, and the
+heading names the list. Where Trained AI chose differently, the decisions are
+ranked as the flagged ones are, by the gap between the weights, those whose
+moves could not be compared (an unscored quad) after the rest, and the
+flagged ones among them say **Flagged** and keep the accent's edge; every
+decision is listed in the order it was made. Each list leads with five, the
+rest behind **Show all**. A status line, in the page from the start, says what
+the list now shows ("Showing 64 decisions where Trained AI chose differently,
+7 of them flagged, the widest departure first. The first 5 are listed."), and
+goes quiet once focus leaves the filter, or once the hands reviewed since have
+changed the counts it gave, so it never stays to say a count the list has
+outgrown. A flagged decision keeps Trained AI's choice back
+for its retry; any other says it ("Trained AI: discards the 9 circles"), or
+that Trained AI chose the same, or that the move was the only one, and opens
+with **Replay**: its position, the move and Trained AI's view of it, with no
+retry. Keyboard focus on a listed decision stays with it in every list as the
+review goes on, and the status line says where it went: further departures put
+a decision lower in a ranked list, and in the list of every decision a hand
+reviewed out of turn puts its decisions before those of the hands after it.
+
+**Every hand, face up.** At every step of a replay the table is shown as it
+stood, every player's hand face up all the time, with no control to hide or
+show them: each opponent's concealed tiles in their seat, the tile just drawn
+apart, above their sets (the called tile turned) and their discards in order
+(the riichi tile turned, the tiles called away marked), the seat headed by its
+wind, where the opponent sat and who played them ("South · Right · Club"),
+the dealer, the score and riichi; the round, the honba and riichi sticks, the
+dora indicators and the tiles left in the wall in the middle; and the player's
+own seat below, with what happened since their previous decision between. The
+seat whose move it was is edged in gold and says so in words: "To play", or
+"To answer" on the player's seat with "Discarded" or "Declared a kan" on the
+seat that let the tile go. Each hand is a list named for its seat ("South's
+tiles, Right (Club)", "East's tiles, yours"), the table is headed "The table at
+your decision 5", and a status line says it as the step changes ("South
+discarded the 5 bamboo, 45 tiles left in the wall. West has declared riichi.").
+The tiles are the review's own: the replay of the match that the review is
+built from reads them at each decision once the hand is over (`scanMatch`,
+the engine's `review_hands`), which the engine refuses while a hand is still
+being played, as it refuses to log one, and never from the match being played.
+`web/tests/game-review.test.js` rebuilds every hand at every decision of two
+fixture games from the hand's mjai log, through calls, quads, riichi and wins,
+and the engine's own test rebuilds them through Mortal's reader of the same
+events. An opponent's tiles take a row of fourteen with the drawn tile's gap,
+as large as their seat has room for, up to the size of their discards; where
+fourteen tiles of 12 pixels would not fit they wrap instead. On a phone held
+upright, three seats side by side would leave each hand a few tiles to a row,
+so there the opponents take the width of the screen, one under another in the
+order they play after the player, their discards a size larger than in play
+and their hands larger still.
+
 **Replay and choose again.** A flagged decision opens at the position it was
-made from: the table as it stood, the player's hand, and what happened since
-their previous decision. **From the deal**, **Previous** and **Next** step
+made from: the table as it stood, every player's hand, and what happened since
+the player's previous decision. **From the deal**, **Previous** and **Next** step
 through the hand a decision of the player's at a time, saying whether each
 earlier move matched Trained AI; the step's status says the move as well, so a
 screen reader hears it with each step. A step that disables the button pressed
-hands keyboard focus on rather than dropping it: at the deal to **Next**, and
-at the decision to the hand, whose description asks for the choice, as play
-gives the hand focus when a turn comes. **Choose again** does the same, since
-the answer it closes held the button. At the flagged decision the player chooses
+hands keyboard focus on rather than dropping it: at the deal to **Next**, at
+the hand's last decision to **Previous**, and at the decision to the hand,
+whose description asks for the choice, as play gives the hand focus when a
+turn comes. **Choose again** does the same, since the answer it closes held the
+button. At the flagged decision the player chooses
 again, a tile from the hand or a move below it, before anything is revealed,
-or asks for **Trained AI's answer** outright. An answer to another's discard
+or asks for **Trained AI's answer** outright; until then the replay goes no
+further than that decision, and once it is answered it goes on to the end of
+the hand. An answer to another's discard
 leaves no tile to throw, so there the description sends the player to the
 moves below the hand, which **Tab** reaches next. The answer lists the weight of
 every move, the riichi discards under their declaration, marking Trained AI's
@@ -459,6 +516,23 @@ five, every flagged decision is shown, and the same status line says where it
 went. The line stays in the page, silent, while a decision is open: a screen
 reader hears a status only once it is in the accessibility tree, and the list
 comes back around the line in the same moment that it speaks.
+
+**Any decision, any hand.** A reviewed hand is replayed whole, from its deal,
+by **Replay this hand** in the list of hands, which stays open for the player
+while the hand is replayed, so **Back to the list** returns focus to the
+hand's button. In any replay a list of the hand's decisions, open above the
+table where the screen has room for it and folded on a phone or in a replay
+opened to choose again, has a button for each step, saying the move and
+whether Trained AI agreed ("Trained AI agreed", "Trained AI differed",
+"Flagged", "Only move"); the step shown is the current one (`aria-current`),
+and a step's button keeps focus as it shows its step. The same filter lists
+only the hand's flagged decisions, or those where Trained AI chose
+differently, each button saying how many it holds, and says what it shows
+from its own status line. A decision that was not flagged shows the move made
+and Trained AI's view of it: the weights of the moves, and for a turn what
+each of the two moves leaves. A flagged decision other than the one opened
+offers **Choose again here**, which asks for the choice before the answer as
+at the decision opened, or **Show Trained AI's answer**.
 
 **Agreement and its trend.** The figure is the share of decisions with a
 choice where the player's move was Trained AI's. When every hand is reviewed,
@@ -538,7 +612,9 @@ sheet's buttons spanning it on a phone, the status lines that wait in the
 page, empty, before their words arrive, the whole-game review with the
 shipped network (its batches, flags,
 replay, retry, keyboard focus, in the flagged list too as later hands rank it
-afresh, and trend, and its way in and out on a phone, by touch and by
+afresh, and trend, every hand face up at every step of a replayed hand at
+desktop and phone sizes, the filters of its list and of a hand's decisions,
+by keyboard and pointer, and its way in and out on a phone, by touch and by
 keyboard),
 history and export, and settlements that balance event by event.
 Its browser checks run in Chromium, including narrow portrait and landscape

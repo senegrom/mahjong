@@ -3298,6 +3298,7 @@ mod game_log_tests {
             |seed| Game::with_opponents(seed, "beginner", "club", "beginner").expect("a table"),
         ];
         let (mut decisions, mut answers, mut drawn, mut called, mut quads) = (0, 0, 0, 0, 0);
+        let (mut riichi, mut wins) = (0, 0);
         for seed in 1..=6u32 {
             let mut game = tables[seed as usize % tables.len()](f64::from(seed));
             let mut states: [PlayerState; 4] =
@@ -3378,10 +3379,27 @@ mod game_log_tests {
                     if matches!(decision.played, ReviewedMove::Call(_)) {
                         answers += 1;
                     }
-                    if decision.position.players.iter().any(|player| {
-                        player.melds.iter().any(|meld| meld.tiles().len() == 4)
-                    }) {
+                    if decision
+                        .position
+                        .players
+                        .iter()
+                        .any(|player| player.melds.iter().any(|meld| meld.tiles().len() == 4))
+                    {
                         quads += 1;
+                    }
+                    if decision
+                        .position
+                        .players
+                        .iter()
+                        .any(|player| player.has_riichi())
+                    {
+                        riichi += 1;
+                    }
+                    if matches!(
+                        decision.played,
+                        ReviewedMove::Action(Action::Tsumo) | ReviewedMove::Call(Call::Ron)
+                    ) {
+                        wins += 1;
                     }
                     decisions += 1;
                 }
@@ -3393,10 +3411,15 @@ mod game_log_tests {
             });
         }
         // Turns with a drawn tile, answers to discards, opponents holding
-        // fewer tiles for their calls, and quads on the table were all seen.
+        // fewer tiles for their calls, quads and riichi on the table, and
+        // the player's own wins were all seen.
         assert!(decisions > 500, "{decisions} decisions");
-        assert!(drawn > 0 && answers > 0 && called > 0 && quads > 0,
-            "{drawn} drawn tiles, {answers} answers, {called} opponents after a call, {quads} decisions with a quad");
+        let kinds = [drawn, answers, called, quads, riichi, wins];
+        assert!(
+            kinds.iter().all(|count| *count > 0),
+            "{drawn} drawn tiles, {answers} answers, {called} opponents after a call, \
+             {quads} decisions with a quad, {riichi} with riichi, {wins} wins"
+        );
     }
 
     /// Names go in by number and come out on one line whatever they hold;

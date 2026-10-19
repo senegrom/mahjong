@@ -73,7 +73,12 @@ an unfinished match has progress, including between hands.
     is inside it;
   - the hand review's two lines, that Trained AI is reviewing and that Club
     reviews in its place, which wait in the review until it has been drawn,
-    and a tenth of a second more.
+    and a tenth of a second more;
+  - the lines that say what a filter of the player's decisions shows, under
+    the whole-game review's list and in a replayed hand's list of decisions,
+    which come into the page with their buttons, speak only when one is
+    pressed, and go quiet again when focus leaves the buttons or the counts
+    they gave change.
 
   Two lines still do not speak where the player pressed. The trained network
   picker's refusal, on the notice line, lies behind the settings' dialog on a
@@ -86,8 +91,9 @@ an unfinished match has progress, including between hands.
   says the game is loading, the settings' line that new tile graphics are
   loading, a yaku's explanation on a hand's result, the whole-game review's
   headline (with the review, and again on Back to the list), the decision
-  replay's "Your decision N of M", and the status lines of Agent watch (its
-  file note among them), the guided physical game and physical agent play.
+  replay's "Your decision N of M" and its line that says the table at each
+  step, and the status lines of Agent watch (its file note among them), the
+  guided physical game and physical agent play.
 
 ## Verification
 

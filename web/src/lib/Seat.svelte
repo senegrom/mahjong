@@ -13,9 +13,9 @@
    * One opponent at the table. Where they sit is MatchTable's to lay out:
    * it places each seat in a wrapper named for its side.
    *
-   * A review shows the table as it stood at a past decision, and can show
-   * this seat's concealed tiles face up: `hand` is them, `{ hand, drawn }`
-   * with the tile just drawn held apart, or null to keep them face down.
+   * A review shows the table as it stood at a past decision, this seat's
+   * concealed tiles face up: `hand` is them, `{ hand, drawn }` with the tile
+   * just drawn held apart; in play it is null, and they stay face down.
    * There `position` names where the opponent sat, such as "Right", and
    * `note` says what the seat was doing, such as "Discarded".
    */
@@ -91,7 +91,7 @@
   </header>
 
   {#if hand}
-    <ul class="revealed" aria-label={heldName} data-revealed={seat.seat}>
+    <ul class="revealed" aria-label={heldName} data-seat-hand={seat.seat}>
       {#each hand.hand as tile, index (index)}<li><Tile {tile} size="tiny" dora={dora.includes(tile)} /></li>{/each}
       {#if hand.drawn}<li class="drawn"><Tile tile={hand.drawn} size="tiny" drawn dora={dora.includes(hand.drawn)} /></li>{/if}
     </ul>
@@ -228,10 +228,16 @@
     flex: none;
   }
 
-  /* A review's face-up tiles, the size of the seat's discards, wrapping in
-     the seat's own width so four hands fit any screen. The tile just drawn
-     stands apart, as it does in the player's own hand. */
+  /* A review's face-up tiles: fourteen to a row, the tile just drawn apart as
+     in the player's own hand, as large as the seat's width allows up to the
+     size of its discards, or `--hand-tile` where the table sets a larger one
+     (MatchTable). The row is measured as a container; where it is too narrow
+     for tiles of 12 pixels, they wrap instead, so four hands fit any screen
+     without its page scrolling sideways. 18 pixels are the thirteen gaps
+     between the tiles and the drawn tile's own. */
   .revealed {
+    --hand-cap: var(--hand-tile, var(--tile-width));
+    container-type: inline-size;
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
@@ -240,7 +246,7 @@
     padding: 0;
     list-style: none;
   }
-  .revealed li { display: flex; }
+  .revealed li { display: flex; --tile-width: max(24px, min(var(--hand-cap), calc((100cqi - 18px) / 7))); }
   .revealed .drawn { margin-inline-start: 5px; }
 
   .position { opacity: .8; }
