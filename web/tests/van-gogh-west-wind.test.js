@@ -32,8 +32,11 @@ test('West preserves the latest approved lighthouse export and pinned hashes', (
   assert.equal(provenance.originalFile, 'stormy_sunset_lighthouse_seascape.png');
   assert.equal(provenance.originalSha256, 'f6bada873d43c8e48b8a0683566e98b200da9cf973859f4e68962ea5db34b10a');
   const svg = read(provenance.runtime);
-  assert.deepEqual(svg, read(provenance.source));
-  assert.equal(hash(svg), 'c756af363fcc16806aaff468e5855947b7e72add6b0feb290eab051ecaa585cd');
+  const source = read(provenance.source);
+  assert.equal(hash(source), '17966bd08cac7c2cca7a46477f9258d6ad08785bb5ef58004198e1055ded7444');
+  assert.equal(provenance.sourceSvgSha256, hash(source));
+  assert.deepEqual(svg, Buffer.from(source.toString().replace('x="-3" y="-4" width="306" height="408"', 'x="0" y="0" width="300" height="400"')));
+  assert.equal(hash(svg), 'dfbe095b43506f6b8738bdee236e65d5dd36ebdca911d92ded24f31e4f88a081');
   assert.equal(entry.svgSha256, hash(svg));
   assert.equal(provenance.svgSha256, hash(svg));
   const match = svg.toString().match(/href="data:image\/avif;base64,([A-Za-z0-9+/=]+)"/);
@@ -51,11 +54,14 @@ test('West retains the entire exact 3:4 frame without stretching or bleed', () =
   assert.equal(provenance.originalSize[0] * 4, provenance.originalSize[1] * 3);
   assert.equal(provenance.stretch, 0);
   assert.equal(provenance.bleed, 0);
-  assert.equal(entry.fit, undefined);
+  assert.deepEqual(entry.fit, {
+    painting: { width: 300, height: 400 }, stretch: 0, anchor: 0.5, bleedPixels: 0,
+    image: { x: 0, y: 0, width: 300, height: 400 },
+  });
   const svg = read(provenance.runtime).toString();
   assert.match(svg, /viewBox="0 0 300 400"/);
   assert.match(svg, /rx="26"/);
-  assert.match(svg, /x="0" y="0" width="300" height="400" preserveAspectRatio="xMidYMid meet"/);
+  assert.match(svg, /x="0" y="0" width="300" height="400" preserveAspectRatio="none"/);
   assert.doesNotMatch(svg, /<script|<foreignObject|<text|href="https?:/);
 });
 
