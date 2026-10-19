@@ -790,6 +790,9 @@ try {
     await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, option('every'));
     assert.equal(await heading(), 'Every decision you made');
     assert.equal(await page.$eval('[data-game-review] [data-filter-said]', el => el.textContent), filterSaid('every', counts, { leading: LEADING }));
+    // The screen as it shows the first few: every one of them makes a page
+    // too long to keep a picture of.
+    await page.screenshot({ path: resolve(output, 'review-overview-every-decision.png') });
     await showAll();
     const every = await items();
     assert.deepEqual(every.map(item => item.key), hands.flatMap(hand => hand.frames.map((_, step) => `${hand.index}:${step}`)));
@@ -797,7 +800,6 @@ try {
     // Focus moving on quiets the line, which spoke of the list as it was.
     await page.focus('[data-game-review] h3');
     await page.waitForFunction(() => document.querySelector('[data-game-review] [data-filter-said]')?.textContent === '', { timeout: 5000 });
-    await shot(page, 'review-overview-every-decision');
     assert.deepEqual(page.errors, []);
   });
 
