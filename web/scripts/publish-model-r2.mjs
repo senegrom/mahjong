@@ -4,13 +4,16 @@
 // export parity or playing strength.
 //
 //   node web/scripts/publish-model-r2.mjs network.onnx --generation <n> \
-//     --source <checkpoint> --origin https://<model host> [--version <a.b.c>]
+//     --source <checkpoint> --origin https://<model host> \
+//     --reward hybrid | --reward placement --alpha <weight> [--version <a.b.c>]
 //
-// The version is 0.1.<generation> unless --version names another. Publishing
-// a version that is listed already replaces that entry, as a new export of
-// the same network; publishing the listed bytes again makes them the default.
-// Publish one network at a time: each publication reads the list the last
-// one wrote.
+// The version is 0.1.<generation> unless --version names another. --reward
+// and --alpha name the reward the network learned from, as its trainer was
+// given them (neural/train_combined.py), which the page says beside the
+// network's value. Publishing a version that is listed already replaces that
+// entry, as a new export of the same network; publishing the listed bytes
+// again makes them the default. Publish one network at a time: each
+// publication reads the list the last one wrote.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, open, rename, mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -18,7 +21,7 @@ import { gzip } from 'node:zlib';
 import { dirname, join, resolve, win32 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MANIFEST = join(ROOT, 'web/src/lib/model-manifest.js');
@@ -120,6 +123,28 @@ async function uploadR2(bucket, key, file) {
 // A version players pick a network by: three whole numbers, such as 0.1.810.
 const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 
+/** The reward a network learned from, as the manifest records it, from the
+ * options its trainer was given (neural/train_combined.py --reward, --alpha):
+ * { kind: 'hybrid' }, paying a decision its hand's points over 4,000 plus the
+ * game's placement bonus, or { kind: 'placement', alpha }, paying it the bonus
+ * the scoreboard promises at the start of the next hand, and after the game's
+ * last hand the bonus itself, plus alpha times the hand's points over 4,000.
+ * The value the network answers is an estimate of that reward, and the page
+ * says which in words (trained-network.js). Throws saying what is missing. */
+export function rewardOf(kind, alpha) {
+  if (kind === 'hybrid') {
+    if (alpha !== undefined) throw new Error('Only the placement reward takes --alpha.');
+    return { kind };
+  }
+  if (kind !== 'placement') throw new Error('Name the reward the network learned from: --reward hybrid, or --reward placement with its --alpha.');
+  if (alpha === undefined) throw new Error("Name the placement reward's --alpha, the weight it gave the hand's points: 0 for placement alone.");
+  const weight = typeof alpha === 'string' && /^[0-9]+(\.[0-9]+)?$/.test(alpha) ? Number(alpha) : alpha;
+  if (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0) {
+    throw new Error('Invalid --alpha: name it as a number of 0 or more, such as 0 or 0.05.');
+  }
+  return { kind, alpha: weight };
+}
+
 /** Whether a manifest entry is a whole network identity, as publish writes
  * one. Throws naming the first field that is not. */
 function checkNetwork(network) {
@@ -128,6 +153,11 @@ function checkNetwork(network) {
   if (typeof network.version !== 'string' || !VERSION.test(network.version)) throw bad('version');
   if (typeof network.source !== 'string' || !network.source.trim()) throw bad('source');
   if (!Number.isSafeInteger(network.generation) || network.generation < 0) throw bad('generation');
+  // A network listed without its reward could not be described to players,
+  // so a manifest that lacks one is not written over either.
+  let reward;
+  try { reward = rewardOf(network.reward?.kind, network.reward?.alpha); } catch { throw bad('reward'); }
+  if (!isDeepStrictEqual({ ...network.reward }, reward)) throw bad('reward');
   if (![...PRECISIONS.values()].includes(network.precision)) throw bad('precision');
   for (const field of ['bytes', 'storedBytes']) {
     if (!Number.isSafeInteger(network[field]) || network[field] <= 0) throw bad(field);
@@ -149,9 +179,13 @@ export function manifestSource(networks) {
  * stay listed, newest first, for a player to pick by version. Each object key
  * carries the network's own digest, so the response may be immutable and a
  * different export is a different address; \`network-store.js\` checks the
- * digest again before anything runs.
+ * digest again before anything runs. Each names the reward it learned from,
+ * which the page says beside the network's value.
  */
-export const NETWORKS = Object.freeze(${JSON.stringify(networks, null, 2)}.map(network => Object.freeze(network)));
+export const NETWORKS = Object.freeze(${JSON.stringify(networks, null, 2)}.map(network => {
+  Object.freeze(network.reward);
+  return Object.freeze(network);
+}));
 
 /** The default network: the one a player who has picked none plays. */
 export const MANIFEST = NETWORKS[0];
@@ -202,7 +236,7 @@ export async function atomicManifest(path, body, io = { open, rename, mkdir, mkd
   } finally { await io.rm(dir, { recursive: true, force: true }); }
 }
 
-export async function publish({ modelPath, generation, source, origin, version,
+export async function publish({ modelPath, generation, source, origin, version, reward, alpha,
   bucket = process.env.R2_BUCKET ?? 'mahjong-models', manifestPath = MANIFEST,
   upload = uploadR2 } = {}) {
   // Validate before reading/staging/uploading anything. Never coerce undefined
@@ -215,6 +249,7 @@ export async function publish({ modelPath, generation, source, origin, version,
   if (typeof version !== 'string' || !VERSION.test(version)) throw new Error('Invalid version: name it as three numbers, such as 0.1.810.');
   if (typeof modelPath !== 'string' || !modelPath) throw new Error('Name the exported network to publish.');
   if (typeof source !== 'string' || !source.trim()) throw new Error('Name the source checkpoint.');
+  const learned = rewardOf(reward, alpha);
   let address;
   try { address = new URL(origin); } catch { throw new Error('A valid HTTPS model origin is required.'); }
   if (address.protocol !== 'https:' || address.username || address.password
@@ -232,7 +267,7 @@ export async function publish({ modelPath, generation, source, origin, version,
     const file = await open(staged, 'wx');
     try { await file.writeFile(packed); await file.sync(); } finally { await file.close(); }
     await upload(bucket, key, staged);
-    const network = { version, source, generation, precision, bytes: bytes.length,
+    const network = { version, source, generation, reward: learned, precision, bytes: bytes.length,
       storedBytes: packed.length, origin, object: key, sha256 };
     // Read just before the write that replaces it. The upload is immutable
     // and named by its digest, so one that ends up unlisted costs nothing.
@@ -247,7 +282,8 @@ export async function publish({ modelPath, generation, source, origin, version,
 const invoked = process.argv[1] ? process.argv[1].split(/[/\\]/).pop() : '';
 if (invoked === 'publish-model-r2.mjs') {
   const network = await publish({ modelPath: process.argv[2], generation: option('generation'),
-    source: option('source'), origin: option('origin'), version: option('version') });
+    source: option('source'), origin: option('origin'), version: option('version'),
+    reward: option('reward'), alpha: option('alpha') });
   process.stdout.write(`${JSON.stringify(network, null, 2)}\n`);
   const listed = await listedNetworks(MANIFEST);
   process.stdout.write(`Listed: ${listed.map((entry, index) => index ? entry.version : `${entry.version} (default)`).join(', ')}\n`);

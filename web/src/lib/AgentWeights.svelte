@@ -4,9 +4,12 @@
   import { likeliest } from './beliefs.js';
   import { groupPolicyChoices } from './action-weights.js';
   import { percent } from './ui.js';
+  import { valueWords } from './trained-network.js';
   let { analysis = null, onchoose = null, disabled = false, dora = [] } = $props();
-  // A signed estimate of the model's mixed training target, not a place gain.
+  // A signed estimate of the reward the network learned from, which differs
+  // between networks: the words name it and say what it pays.
   const worth = value => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(2)}`;
+  const words = valueWords();
   // A share of a hand, read as copies: a guess of .15 against thirteen tiles
   // is about two of them.
   const copies = entry => entry.expected == null
@@ -20,9 +23,9 @@
 {#if analysis}
   <section class="weights" aria-label="Agent decision weights">
     <div class="recommendation"><strong>{agentName(analysis.agent)}</strong><span>Next choice: {analysis.choice.label}</span>
-      {#if analysis.value != null}<span class="worth" title="Estimated mixed training reward, not an expected finishing place or win probability">Estimated training reward {worth(analysis.value)}</span>{/if}
+      {#if analysis.value != null}<span class="worth" title={words.title}>{words.label} {worth(analysis.value)}</span>{/if}
     </div>
-    {#if analysis.value != null}<p class="reward-help">The current model's reward combines the hand's point change ÷ 4,000 with its final placement bonus. This is not a predicted finishing place, place gain or win probability.</p>{/if}
+    {#if analysis.value != null}<p class="reward-help">{words.help}</p>{/if}
     <p>{analysis.kind === 'policy' ? 'Policy weights are preferences, not win probabilities. The agent selects in its original action space, then chooses a discard if it declares riichi. Grouped display weights do not determine its selected move.' : 'Built-in agents do not have policy percentages. Selected shows the exact move this agent will play, including any sampled tie-break.'}</p>
     {#if onchoose}<p>The blue border marks the agent’s choice. Select a move below to play it after confirmation.</p>{/if}
     {#snippet rowContent(choice, weight, conditional = false)}

@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MANIFEST, NETWORKS } from '../src/lib/model-manifest.js';
-import { networkAt, networkFor, networkUrl, pickedVersion, playedNetwork, playNetwork, trainedName } from '../src/lib/trained-network.js';
+import { networkAt, networkFor, networkUrl, pickedVersion, playedNetwork, playNetwork, trainedName, valueWords } from '../src/lib/trained-network.js';
 import { loadModule } from './fixtures/load-module.js';
 
 const find = version => NETWORKS.find(network => network.version === version);
-const IDENTITY = ['version', 'source', 'generation', 'precision', 'bytes', 'storedBytes', 'origin', 'object', 'sha256'];
+const IDENTITY = ['version', 'source', 'generation', 'reward', 'precision', 'bytes', 'storedBytes', 'origin', 'object', 'sha256'];
 
 test('the manifest lists every network whole, the default first, and keeps exporting the default as MANIFEST', () => {
   assert.ok(NETWORKS.length >= 2);
@@ -14,6 +14,7 @@ test('the manifest lists every network whole, the default first, and keeps expor
   for (const network of NETWORKS) {
     assert.deepEqual(Object.keys(network), IDENTITY);
     assert.ok(Object.isFrozen(network));
+    assert.ok(Object.isFrozen(network.reward));
     assert.match(network.version, /^\d+\.\d+\.\d+$/);
     // The address carries the digest, so it names these bytes and no others.
     assert.equal(network.object, `models/g${network.generation}/${network.sha256}`);
@@ -23,18 +24,64 @@ test('the manifest lists every network whole, the default first, and keeps expor
   }
 });
 
-test('0.1.810 and 0.1.410 are listed as published, 810 ahead of 410', () => {
-  // Generation 410 is the export the site played until 810, byte for byte.
+test('0.1.1110 is the default, and 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
+  // Generation 1110 of the placement fork, at the owner's word; 810 and 410
+  // are the exports the site played before it, byte for byte.
   const origin = 'https://mahjong-model.connect4-chaos.workers.dev';
-  assert.deepEqual({ ...find('0.1.410') }, { version: '0.1.410', source: 'fusion-long/history/gen-00410', generation: 410,
-    precision: 'float32', bytes: 116633861, storedBytes: 107849226, origin,
-    object: 'models/g410/f7d662b330a8dd31c10e72488371d09eb11a4d1c0b5cd75c7be33253865eca72',
-    sha256: 'f7d662b330a8dd31c10e72488371d09eb11a4d1c0b5cd75c7be33253865eca72' });
+  assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.1110', '0.1.810', '0.1.410']);
+  assert.equal(MANIFEST, find('0.1.1110'));
+  assert.deepEqual({ ...find('0.1.1110') }, { version: '0.1.1110', source: 'fusion-place-a0/history/gen-01110', generation: 1110,
+    reward: { kind: 'placement', alpha: 0 }, precision: 'float32', bytes: 116633861, storedBytes: 107857675, origin,
+    object: 'models/g1110/f3ef362fa4a93c04677f62c0aa296c0f5d39a52d402d2e5bc1c4aca3da643136',
+    sha256: 'f3ef362fa4a93c04677f62c0aa296c0f5d39a52d402d2e5bc1c4aca3da643136' });
   assert.deepEqual({ ...find('0.1.810') }, { version: '0.1.810', source: 'fusion-long/history/gen-00810', generation: 810,
-    precision: 'float32', bytes: 116633861, storedBytes: 107852892, origin,
+    reward: { kind: 'hybrid' }, precision: 'float32', bytes: 116633861, storedBytes: 107852892, origin,
     object: 'models/g810/001d2aa9749ed0c8b9759fd84f39cdbf05e6deee3f562fe55f68b29551d10688',
     sha256: '001d2aa9749ed0c8b9759fd84f39cdbf05e6deee3f562fe55f68b29551d10688' });
-  assert.ok(NETWORKS.indexOf(find('0.1.810')) < NETWORKS.indexOf(find('0.1.410')), 'newest first');
+  assert.deepEqual({ ...find('0.1.410') }, { version: '0.1.410', source: 'fusion-long/history/gen-00410', generation: 410,
+    reward: { kind: 'hybrid' }, precision: 'float32', bytes: 116633861, storedBytes: 107849226, origin,
+    object: 'models/g410/f7d662b330a8dd31c10e72488371d09eb11a4d1c0b5cd75c7be33253865eca72',
+    sha256: 'f7d662b330a8dd31c10e72488371d09eb11a4d1c0b5cd75c7be33253865eca72' });
+});
+
+test("a network's value is named and described by the reward it learned from, as its trainer pays it", t => {
+  t.after(() => playNetwork(undefined));
+  const BONUS = '+1.5 for first, +0.5 for second, −0.5 for third and −1.5 for fourth';
+  // 810 and 410: neural/train_combined.py's hybrid, a hand's points over
+  // 4,000 plus the game's placement bonus.
+  for (const version of ['0.1.810', '0.1.410']) {
+    assert.deepEqual(valueWords(find(version)), {
+      label: 'Estimated training reward',
+      title: 'Estimated mixed training reward, not an expected finishing place or win probability',
+      help: `Trained ${version} learned from a mixed reward: each decision earns its hand's point change ÷ 4,000 plus the game's final placement bonus, ${BONUS}. This is not a predicted finishing place, place gain or win probability.`,
+    });
+  }
+  // 1110: the placement reward at alpha 0, U at the next hand's start and
+  // the bonus itself after the last hand, with no points term.
+  const placement = valueWords(find('0.1.1110'));
+  assert.deepEqual(placement, {
+    label: 'Estimated placement reward',
+    title: 'Estimated placement bonus, not a win probability',
+    help: `Trained 0.1.1110 learned from placement alone: each decision earns the placement bonus the scoreboard promises when its hand ends, or after the game's last hand the bonus itself, ${BONUS}. Points count only through the places they win. This is the network's estimate, not a win probability.`,
+  });
+  assert.doesNotMatch(placement.help, /4,000|training reward|finishing place/);
+  // A placement reward that weighs points says how much they weigh.
+  const tiebreak = valueWords({ version: '0.1.1210', reward: { kind: 'placement', alpha: 0.05 } });
+  assert.equal(tiebreak.label, 'Estimated placement reward');
+  assert.equal(tiebreak.help, `Trained 0.1.1210 learned from placement and points: each decision earns the placement bonus the scoreboard promises when its hand ends, or after the game's last hand the bonus itself, ${BONUS}, plus 0.05 × its hand's point change ÷ 4,000. This is the network's estimate, not a win probability.`);
+  // A reward this build cannot describe is not described.
+  for (const reward of [undefined, { kind: 'other' }]) {
+    const unknown = valueWords({ version: '0.1.9', reward });
+    assert.equal(unknown.label, 'Estimated training reward');
+    assert.doesNotMatch(unknown.help, /placement|points|4,000/);
+  }
+  // Every listed network is described by its own reward, and the page
+  // describes the one it plays.
+  for (const network of NETWORKS) {
+    assert.match(valueWords(network).help, /learned from (a mixed reward|placement)/, network.version);
+    playNetwork(network.version);
+    assert.deepEqual(valueWords(), valueWords(network));
+  }
 });
 
 test('a listed version picks its network, and anything else plays the default', t => {

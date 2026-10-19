@@ -9,6 +9,8 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { browserChecks, launchChrome } from './browser-harness.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { riichiPosition, RIICHI_SEED } from '../tests/fixtures/riichi-position.js';
+import { MANIFEST } from '../src/lib/model-manifest.js';
+import { valueWords } from '../src/lib/trained-network.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -52,6 +54,12 @@ try {
       assert.deepEqual(await page.$$eval('.reach-discards meter', meters => meters.map(meter => meter.value)), [.75, .25]);
       assert.equal(await page.$eval('.weight-row.best', row => row.dataset.choice), preferred.label);
       assert.equal(await page.$eval('.weight-row.best', row => getComputedStyle(row).borderColor), 'rgb(78, 163, 255)');
+      // The value is named and explained by the reward the network the page
+      // plays learned from, the default here.
+      const words = valueWords(MANIFEST);
+      assert.deepEqual(await page.$eval('.weights', weights => ({ worth: weights.querySelector('.worth').textContent.trim(),
+        title: weights.querySelector('.worth').title, help: weights.querySelector('.reward-help').textContent.trim() })),
+      { worth: `${words.label} −1.25`, title: words.title, help: words.help });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
       const selector = `.reach-discards .choice-action[aria-label=${JSON.stringify(`Play ${alternative.label}`)}]`;
       const history = () => page.$$eval('.agent-watch .log-line', lines => lines.map(line => line.textContent));

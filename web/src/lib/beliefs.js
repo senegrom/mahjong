@@ -73,10 +73,10 @@ export function likeliest(belief, count = 6) {
 }
 
 /**
- * The value head reads in the same units the critic was trained in: the
- * hand's return to the seat that was asked, where a full return is one
- * placement's worth. Reported as it is, not dressed up as a win chance,
- * because it is not one.
+ * The value head reads in the units of the reward its network learned from:
+ * the return to the seat that was asked, which differs between networks
+ * (trained-network.js valueWords). Reported as it is, not dressed up as a win
+ * chance, because it is not one.
  */
 export function readValue(value) {
   return Number.isFinite(value) ? value : null;
