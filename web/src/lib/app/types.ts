@@ -76,7 +76,8 @@ export interface MatchTableProps {
   hands?: HiddenHand[] | null;
   /** What each seat was doing at a review's decision, in the same order, such as "To play". */
   notes?: string[] | null;
-  /** A table drawn for a review names each opponent by where they sat. */
+  /** A table drawn for a review names each opponent by where they sat, and on a
+   * phone held upright stacks them, so their face-up hands have room. */
   review?: boolean;
 }
 export interface PlayerHandProps {
