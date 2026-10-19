@@ -345,8 +345,13 @@ const overviewAt = page => page.evaluate(() => {
     // A concealed quad shows two of its tiles face down, as at a table; a
     // hand shows none.
     facedown: overview.querySelectorAll('.held, .back, :is(ul.revealed, .hand) [aria-label="face-down tile"]').length,
-    toggles: [...document.querySelectorAll('[data-decision] :is(button, input, select)')]
-      .filter(control => control.type === 'checkbox' || /\b(tiles|hands)\b/i.test(`${control.textContent} ${control.getAttribute('aria-label') ?? ''}`)).length,
+    // A control that offers to show or hide tiles or hands. The hand's own
+    // tiles are buttons too, and a safe one is announced "not guaranteed
+    // against undeclared hands", so tiles are not counted, and a control
+    // counts only where it offers to show, hide or reveal.
+    toggles: [...document.querySelectorAll('[data-decision] :is(button, input, select):not(.tile)')]
+      .filter(control => control.type === 'checkbox'
+        || /\b(show|hide|reveal|peek)\b[^.]*\b(tiles?|hands?)\b/i.test(`${control.textContent} ${control.getAttribute('aria-label') ?? ''}`)).length,
     fits: document.documentElement.scrollWidth <= innerWidth + 1,
     step: document.querySelector('[data-decision] [data-step]').textContent,
     said: overview.querySelector('[data-table-said]').textContent,
