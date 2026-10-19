@@ -1,21 +1,27 @@
 <script>
   import { tick, untrack } from 'svelte';
   import Tile from './Tile.svelte';
+  import DecisionFilter from './DecisionFilter.svelte';
   import DecisionReplay from './DecisionReplay.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
-  import { FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, agreement, movedNote, rankDecisions } from './game-review.js';
+  import { FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, agreement, filterCounts, filterDecisions, movedNote } from './game-review.js';
   import { percent, waitingNote } from './ui.js';
   import { trainedName } from './trained-network.js';
 
   /**
    * The whole game, looked at again once it is over: every decision the player
-   * made, in every hand, put to Trained AI, and the few where the player's move
-   * departed furthest from its choice, each of which can be replayed and
-   * chosen again. The review itself (game-review.js) belongs to the finished
-   * match and goes on while this screen is closed; the screen only shows it.
-   * `trend` is the games this browser has reviewed, oldest first.
+   * made, in every hand, put to Trained AI, led by the few where the player's
+   * move departed furthest from its choice, each of which can be replayed and
+   * chosen again. A filter lists every decision where Trained AI chose
+   * differently instead, or every decision, and any of them, or any hand
+   * reviewed, can be replayed with every player's tiles in view. The review
+   * itself (game-review.js) belongs to the finished match and goes on while
+   * this screen is closed; the screen only shows it. `trend` is the games this
+   * browser has reviewed, oldest first. `filter` is which decisions the list
+   * shows: the flagged ones as it opens, those where Trained AI chose
+   * differently, or every decision.
    */
-  let { review, trend = [], hints = true, trainedAvailable = false, offline = null, onclose } = $props();
+  let { review, trend = [], hints = true, trainedAvailable = false, offline = null, onclose, filter = $bindable('flagged') } = $props();
 
   const read = owner => ({
     hands: owner.hands.map(hand => ({ ...hand })), busy: owner.busy, failure: owner.failure, held: owner.held,
@@ -25,13 +31,15 @@
   // The review tells this screen when it changes; the screen reads it again.
   let version = $state(0);
   let status = $derived.by(() => { void version; return read(review); });
+  // What is open for replay: a decision from the list, at its step, or a
+  // hand from the list of hands, from its deal.
   let opened = $state.raw(null);
-  // Where the decision opened ranked among the flags when it was opened.
+  // Where the decision opened ranked in the list when it was opened.
   let openedRank = -1;
-  let everyFlag = $state(false);
-  // The flagged decision whose button has keyboard focus, and what the list
-  // says when the hands reviewed since have ranked it lower.
-  let focusedFlag = $state(null);
+  let everyShown = $state(false);
+  // The listed decision whose button has keyboard focus, and what the list
+  // says when the hands reviewed since have put it lower.
+  let focusedItem = $state(null);
   let moved = $state('');
   let heading = $state(null);
   let list = $state(null);
@@ -45,12 +53,30 @@
     return () => { owner.onChange = () => {}; };
   });
 
+  // Whether the list of hands, and the trend's table of games, are open.
+  // Both are the player's to open and fold, and are kept while a replay
+  // takes the list's place, so that Back to the list finds them as they
+  // were, a replayed hand's button among them. A slow device holds after
+  // each hand, and the list of hands then offers any hand to review next,
+  // so it opens by itself once, when the review turns out slow. The states
+  // are held here rather than set on the lists from the review's: the page
+  // sets that afresh at each hand reviewed, which would undo what the player
+  // did.
+  let handsOpen = $state(untrack(() => status.slow && !status.complete));
+  let trendOpen = $state(false);
+  let openedForSlow = untrack(() => handsOpen);
+  $effect(() => {
+    if (openedForSlow || !status.slow || status.complete) return;
+    openedForSlow = true;
+    handsOpen = true;
+  });
+
   // The review's buttons change under the player's hand: Continue becomes
   // Stop and Stop Continue, a slow device's hold offers the next hand, and a
   // hand's own button goes once that hand is under review. Focus that would
   // drop to the page goes where the button was instead: to the controls the
   // review has now, or to the list of hands; and when nothing is left to
-  // press, to the flagged decisions. A flagged decision's button is not
+  // press, to the listed decisions. A listed decision's button is not
   // taken away while it has focus (below); should focus drop from the list
   // all the same, the list's heading takes it.
   let focusWas = null;
@@ -76,14 +102,16 @@
 
   const key = decision => `${decision.hand}:${decision.index}`;
   let decisions = $derived(status.hands.flatMap(hand => hand.decisions ?? []));
-  let flagged = $derived(rankDecisions(decisions));
-  /** Where a flagged decision now ranks, from 0, or -1. */
-  const rankOf = wanted => flagged.findIndex(decision => key(decision) === wanted);
+  let counts = $derived(filterCounts(decisions));
+  let listed = $derived(filterDecisions(decisions, filter));
+  /** Where a listed decision now stands, from 0, or -1. */
+  const rankOf = wanted => listed.findIndex(decision => key(decision) === wanted);
   let figure = $derived(agreement(decisions));
-  // The leading few, or every flag: asked for, or because the hands reviewed
-  // since have ranked the decision the player is on out of the leading few.
-  // Its button is then kept, not taken from under their focus.
-  let shown = $derived(everyFlag || (focusedFlag !== null && rankOf(focusedFlag) >= LEADING) ? flagged : flagged.slice(0, LEADING));
+  // The leading few, or every decision the filter holds: asked for, or
+  // because the hands reviewed since have put the decision the player is on
+  // out of the leading few. Its button is then kept, not taken from under
+  // their focus.
+  let shown = $derived(everyShown || (focusedItem !== null && rankOf(focusedItem) >= LEADING) ? listed : listed.slice(0, LEADING));
   let total = $derived(status.hands.reduce((sum, hand) => sum + hand.frames.length, 0));
   let done = $derived(status.hands.reduce((sum, hand) => sum
     + (hand.status === 'done' ? hand.frames.length : hand.status === 'reviewing' ? hand.done ?? 0 : 0), 0));
@@ -91,31 +119,36 @@
   let reviewed = $derived(status.hands.filter(hand => hand.status === 'done').length);
   let download = $derived(waitingNote('', offline));
   let openedHand = $derived(opened ? status.hands[opened.hand] : null);
-  // A flagged decision is open for replay, in place of the list.
-  let replaying = $derived(Boolean(opened && openedHand));
+  // A decision, or a hand, is open for replay, in place of the list.
+  let replaying = $derived(Boolean(opened && openedHand?.decisions));
+
+  // What the list is headed, and what the button that shows the rest of it
+  // calls them, for each filter.
+  const HEADINGS = { flagged: 'Where you departed most from Trained AI', differed: 'Where Trained AI chose differently', every: 'Every decision you made' };
+  const REST = { flagged: count => `Show all ${count} flagged`, differed: count => `Show all ${count} that differ`, every: count => `Show all ${count} decisions` };
 
   $effect(() => {
     heading?.focus({ preventScroll: true });
     heading?.scrollIntoView({ block: 'start' });
   });
 
-  // Each hand reviewed ranks the flags afresh, and can rank the decision the
+  // Each hand reviewed ranks the list afresh, and can put the decision the
   // player is on lower, or out of the leading few. Its button keeps focus
-  // wherever it goes: once it leaves the leading few, every flag is shown and
-  // stays shown, rather than the list taking it away. A list should not be
-  // reshuffled under someone reading it without their being told, so the
-  // status then says where it is now. A place, once said, holds until the
-  // next change of place, which says it again.
+  // wherever it goes: once it leaves the leading few, every decision the
+  // filter holds is shown and stays shown, rather than the list taking it
+  // away. A list should not be reshuffled under someone reading it without
+  // their being told, so the status then says where it is now. A place, once
+  // said, holds until the next change of place, which says it again.
   let heard = null;
   $effect(() => {
-    const at = focusedFlag === null ? -1 : rankOf(focusedFlag);
+    const at = focusedItem === null ? -1 : rankOf(focusedItem);
     untrack(() => {
-      if (at >= 0 && heard?.key === focusedFlag && at > heard.rank) {
-        const widened = at >= LEADING && !everyFlag;
-        if (widened) everyFlag = true;
-        moved = movedNote(at, widened);
+      if (at >= 0 && heard?.key === focusedItem && at > heard.rank) {
+        const widened = at >= LEADING && !everyShown;
+        if (widened) everyShown = true;
+        moved = movedNote(at, widened, filter);
       }
-      heard = at >= 0 ? { key: focusedFlag, rank: at } : null;
+      heard = at >= 0 ? { key: focusedItem, rank: at } : null;
     });
   });
 
@@ -124,22 +157,34 @@
   // sends a focusout too, but focus stays on the decision, which has it again
   // when the window comes back, so its button is kept meanwhile. Focus that
   // moves on has left the decision by the time its focusout is heard.
-  function focusFlag(event) {
-    const entry = event.target.closest('[data-flagged]')?.dataset.flagged ?? null;
-    if (entry !== focusedFlag) moved = '';
-    focusedFlag = entry;
+  function focusItem(event) {
+    const entry = event.target.closest('[data-listed]')?.dataset.listed ?? null;
+    if (entry !== focusedItem) moved = '';
+    focusedItem = entry;
   }
-  function leaveFlags(event) {
+  function leaveList(event) {
     if (list?.contains(event.relatedTarget) || list?.contains(document.activeElement)) return;
-    focusedFlag = null;
+    focusedItem = null;
+    moved = '';
+  }
+
+  // Another filter lists another set of decisions, the leading few again.
+  function filtered() {
+    everyShown = false;
     moved = '';
   }
 
   function openDecision(decision) {
     openedRank = rankOf(key(decision));
-    focusedFlag = null;
+    focusedItem = null;
     moved = '';
-    opened = decision;
+    opened = { key: key(decision), hand: decision.hand, start: decision.index, retry: Boolean(decision.judgement?.flagged), whole: false };
+  }
+
+  function openHand(hand) {
+    focusedItem = null;
+    moved = '';
+    opened = { key: `hand ${hand.index}`, hand: hand.index, start: 0, retry: false, whole: true };
   }
 
   function duration(seconds) {
@@ -172,22 +217,36 @@
   });
   let detail = $derived(status.complete || !total ? ''
     : `${done} of ${total} decisions${status.estimate ? ` · the rest would take about ${duration(status.estimate)}` : ''}${status.busy && download ? ` · ${download}` : ''}`);
+  // What the list says when its filter holds nothing yet.
+  let empty = $derived.by(() => {
+    if (!status.complete) return reviewed ? 'None in the hands reviewed so far.' : 'They appear here as each hand is reviewed.';
+    return { flagged: 'No decision departed that far from Trained AI.', differed: 'Trained AI chose as you did at every decision.',
+      every: 'You made no decisions in this game.' }[filter];
+  });
 
-  // Back to the decision opened, wherever it now ranks. The review goes on
-  // while a decision is open, and the hands it reviews meanwhile can rank the
-  // decision lower, or out of the leading few: then every flag is shown, so
-  // the player comes back to it all the same, and the status says where it
-  // went. Should its button be missing all the same, the list's heading takes
+  // Back to what was opened. A hand goes back to its own button in the list
+  // of hands, kept open for it. A decision goes back to its button wherever
+  // it now stands: the review goes on while a decision is open, and the
+  // hands it reviews meanwhile can put the decision lower, or out of the
+  // leading few. Then every decision the filter holds is shown, so the
+  // player comes back to it all the same, and the status says where it went.
+  // Should the button be missing all the same, the list's heading takes
   // focus rather than the page.
   async function closeDecision() {
-    const opener = opened && key(opened), was = openedRank;
+    const was = opened;
     opened = null;
-    const at = opener ? rankOf(opener) : -1;
-    const widened = at >= LEADING && !everyFlag;
-    if (widened) everyFlag = true;
+    if (!was) return;
+    if (was.whole) {
+      await tick();
+      (handList?.querySelector(`[data-replay-hand="${was.hand}"]`) ?? flagsHeading)?.focus();
+      return;
+    }
+    const rankWas = openedRank, at = rankOf(was.key);
+    const widened = at >= LEADING && !everyShown;
+    if (widened) everyShown = true;
     await tick();
-    (list?.querySelector(`[data-open="${opener}"]`) ?? flagsHeading)?.focus();
-    if (at > was && was >= 0) moved = movedNote(at, widened);
+    (list?.querySelector(`[data-open="${was.key}"]`) ?? flagsHeading)?.focus();
+    if (at > rankWas && rankWas >= 0) moved = movedNote(at, widened, filter);
   }
 </script>
 
@@ -200,7 +259,7 @@
   </header>
 
   {#if replaying}
-    {#key key(opened)}<DecisionReplay hand={openedHand} decision={opened} {hints} onback={closeDecision} />{/key}
+    {#key opened.key}<DecisionReplay hand={openedHand} start={opened.start} retry={opened.retry} whole={opened.whole} {hints} onback={closeDecision} />{/key}
   {:else}
     <p class="intro">{trainedName('Trained AI')} is asked about every decision you made, hand by hand. A decision is flagged when your move had
       under {Math.round(FLAG_PLAYED_BELOW * 100)}% of Trained AI's weight while its own choice had {Math.round(FLAG_PREFERRED_FROM * 100)}% or more.
@@ -226,10 +285,11 @@
     </div>
 
     {#if figure.decisions}
-      <ReviewTrend {figure} complete={status.complete} games={trend} current={review.id} />
+      <ReviewTrend {figure} complete={status.complete} games={trend} current={review.id} bind:open={trendOpen} />
     {/if}
 
-    <h3 tabindex="-1" bind:this={flagsHeading}>Where you departed most from Trained AI</h3>
+    <h3 tabindex="-1" bind:this={flagsHeading}>{HEADINGS[filter]}</h3>
+    <DecisionFilter bind:value={filter} {counts} label="Which decisions to list" said={{ leading: LEADING }} onchange={filtered} />
   {/if}
   <!-- Under the heading, and in the page while a decision is open as well: a
        screen reader hears a status only once it is in the accessibility tree,
@@ -238,30 +298,44 @@
   <p class="moved" class:visually-hidden={!moved} data-moved role="status">{moved}</p>
   {#if !replaying}
     {#if shown.length}
-      <ol class="flagged" bind:this={list} onfocusin={focusFlag} onfocusout={leaveFlags}>
+      <!-- This list and the list of hands are drawn without markers, so each
+           says it is a list in so many words: Safari does not tell
+           VoiceOver that a list without them is one. -->
+      <ol class="flagged" role="list" bind:this={list} onfocusin={focusItem} onfocusout={leaveList}>
         {#each shown as decision (key(decision))}
-          <li data-flagged={key(decision)}>
-            <p class="where">{status.hands[decision.hand].name} · your decision {decision.index + 1}</p>
+          {@const flagged = Boolean(decision.judgement?.flagged)}
+          {@const name = status.hands[decision.hand].name}
+          <li data-listed={key(decision)} data-flagged={flagged ? key(decision) : undefined} class:flag={flagged}>
+            <p class="where">{name} · your decision {decision.index + 1}{#if flagged && filter !== 'flagged'}{' · '}<strong class="flag-mark">Flagged</strong>{/if}</p>
             {#if decision.call_tile}<p class="context">Response to <Tile tile={decision.call_tile} size="tiny" dora={hints && (decision.dora_types ?? []).includes(decision.call_tile)} /> from {decision.call_from}</p>{/if}
             <p class="move">{#if decision.played_tile}<Tile tile={decision.played_tile} size="small" dora={hints && (decision.dora_types ?? []).includes(decision.played_tile)} />{/if}<span>You: {decision.played}</span></p>
-            <p class="weight">Trained AI gave {decision.judgement.stage === 'tile' ? 'this tile, once riichi was declared,' : 'this move'} {percent(decision.judgement.played)}, and its own choice {percent(decision.judgement.preferred)}.</p>
+            {#if decision.forced}
+              <p class="weight">It was the only move.</p>
+            {:else if decision.agreed}
+              <p class="weight">Trained AI chose the same.</p>
+            {:else}
+              <!-- Trained AI's own choice waits behind a flagged decision's
+                   retry; any other says it here. -->
+              {#if !flagged}<p class="move">{#if decision.advised_tile}<Tile tile={decision.advised_tile} size="small" dora={hints && (decision.dora_types ?? []).includes(decision.advised_tile)} />{/if}<span>Trained AI: {decision.advised}</span></p>{/if}
+              {#if decision.judgement}
+                <p class="weight">Trained AI gave {decision.judgement.stage === 'tile' ? 'this tile, once riichi was declared,' : 'this move'} {percent(decision.judgement.played)}, and its own choice {percent(decision.judgement.preferred)}.</p>
+              {/if}
+            {/if}
             <button class="app-control" data-open={key(decision)} onclick={() => openDecision(decision)}
-              aria-label={`Replay and choose again: ${status.hands[decision.hand].name}, your decision ${decision.index + 1}`}>Replay and choose again</button>
+              aria-label={`${flagged ? 'Replay and choose again' : 'Replay'}: ${name}, your decision ${decision.index + 1}`}>{flagged ? 'Replay and choose again' : 'Replay'}</button>
           </li>
         {/each}
       </ol>
-      {#if flagged.length > LEADING}
-        <button class="app-control quiet" data-every-flag onclick={() => { everyFlag = !everyFlag; }}>{everyFlag ? `Show the first ${LEADING}` : `Show all ${flagged.length} flagged`}</button>
+      {#if listed.length > LEADING}
+        <button class="app-control quiet" data-every-flag onclick={() => { everyShown = !everyShown; }}>{everyShown ? `Show the first ${LEADING}` : REST[filter](listed.length)}</button>
       {/if}
-    {:else if status.complete}
-      <p class="empty">No decision departed that far from Trained AI.</p>
     {:else}
-      <p class="empty">{reviewed ? 'None in the hands reviewed so far.' : 'They appear here as each hand is reviewed.'}</p>
+      <p class="empty">{empty}</p>
     {/if}
 
-    <details class="hands" open={status.slow && !status.complete} bind:this={handList}>
+    <details class="hands" bind:open={handsOpen} bind:this={handList}>
       <summary>Hands · {reviewed} of {status.hands.length} reviewed</summary>
-      <ol>
+      <ol role="list">
         {#each status.hands as hand (hand.index)}
           <li>
             <span class="name">{hand.name}</span>
@@ -270,6 +344,9 @@
             {#if hand.status === 'waiting' && hand.frames.length && trainedAvailable}
               <button class="app-control" data-review-hand={hand.index} onclick={() => review.review([hand.index])}
                 aria-label={`Review this hand: ${hand.name}`}>Review this hand</button>
+            {:else if hand.status === 'done' && hand.frames.length}
+              <button class="app-control" data-replay-hand={hand.index} onclick={() => openHand(hand)}
+                aria-label={`Replay this hand: ${hand.name}`}>Replay this hand</button>
             {/if}
           </li>
         {/each}
@@ -295,7 +372,11 @@
   .controls:empty { display: none; }
   .quiet { justify-self: start; background: transparent; }
   .flagged { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-  .flagged li { display: grid; gap: 6px; min-width: 0; padding: 10px 12px; border-radius: 10px; background: rgba(0, 0, 0, .24); border-left: 3px solid var(--accent); }
+  /* A flagged decision has the accent's edge, and says so in words outside
+     the list of flagged decisions; any other a plain one. */
+  .flagged li { display: grid; gap: 6px; min-width: 0; padding: 10px 12px; border-radius: 10px; background: rgba(0, 0, 0, .24); border-left: 3px solid #ffffff33; }
+  .flagged li.flag { border-left-color: var(--accent); }
+  .flag-mark { font-weight: 650; color: var(--gold); }
   .where { font-size: .78rem; letter-spacing: .04em; opacity: .75; }
   .context, .move { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: .9rem; }
   .context { font-size: .8rem; }

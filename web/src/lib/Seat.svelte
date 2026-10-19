@@ -7,12 +7,19 @@
   import { SEAT_NAMES as NAMES } from './tiles.js';
   import Discards from './Discards.svelte';
   import Melds from './Melds.svelte';
+  import Tile from './Tile.svelte';
 
   /**
    * One opponent at the table. Where they sit is MatchTable's to lay out:
    * it places each seat in a wrapper named for its side.
+   *
+   * A review shows the table as it stood at a past decision, this seat's
+   * concealed tiles face up: `hand` is them, `{ hand, drawn }` with the tile
+   * just drawn held apart; in play it is null, and they stay face down.
+   * There `position` names where the opponent sat, such as "Right", and
+   * `note` says what the seat was doing, such as "Discarded".
    */
-  let { seat, dealer = false, dora = [], thinking = false } = $props();
+  let { seat, dealer = false, dora = [], thinking = false, hand = null, position = '', note = '' } = $props();
 
   // How long a call is said for: long enough to read from across the
   // table, gone well before the next one is made.
@@ -54,11 +61,16 @@
   // by a region that is always here, naming the seat it is about.
   let spoken = $derived(seatAnnouncement(NAMES[seat.seat], seat.riichi, called));
   const shortScore = score => `${(score / 1000).toFixed(1)}k`;
+  // Face-up tiles are a list named for the seat and the player in it, as a
+  // screen reader moves from hand to hand: "South's tiles, Right (Club)".
+  let heldName = $derived(`${NAMES[seat.seat]}'s tiles${position ? `, ${position}` : ''}`
+    + `${OPPONENT_LABELS[seat.controller] ? ` (${OPPONENT_LABELS[seat.controller]})` : ''}`);
 </script>
 
 <section class="seat" class:turn={seat.turn} class:thinking aria-label="{NAMES[seat.seat]} seat">
   <header>
     <span class="wind">{NAMES[seat.seat]}</span>
+    {#if position}<span class="position">{position}</span>{/if}
     {#if dealer}<span class="dealer-badge">Dealer</span>{/if}
     <span class="score score-full">{seat.score.toLocaleString()}</span>
     <span class="score score-short" title={seat.score.toLocaleString()}>{shortScore(seat.score)}</span>
@@ -74,14 +86,28 @@
     {#if announcement}
       <span class="called" aria-hidden="true">{announcement}</span>
     {/if}
+    {#if note}<span class="note">{note}</span>{/if}
     <span class="visually-hidden" role="status">{spoken}</span>
   </header>
 
-  <div class="held" role="img" aria-label="{seat.hand_size} tiles in hand">
-    {#each Array(Math.min(seat.hand_size, 14)) as _, index (index)}
-      <span class="back"></span>
-    {/each}
-  </div>
+  {#if hand}
+    <!-- The rack's width sets how large the tiles are drawn and whether
+         they take one row or two. The list is drawn without markers, so it
+         says it is one in so many words: Safari does not tell VoiceOver that
+         a list without them is a list. -->
+    <div class="rack">
+      <ul class="revealed" role="list" aria-label={heldName} data-seat-hand={seat.seat}>
+        {#each hand.hand as tile, index (index)}<li><Tile {tile} size="tiny" dora={dora.includes(tile)} /></li>{/each}
+        {#if hand.drawn}<li class="drawn"><Tile tile={hand.drawn} size="tiny" drawn dora={dora.includes(hand.drawn)} /></li>{/if}
+      </ul>
+    </div>
+  {:else}
+    <div class="held" role="img" aria-label="{seat.hand_size} tiles in hand">
+      {#each Array(Math.min(seat.hand_size, 14)) as _, index (index)}
+        <span class="back"></span>
+      {/each}
+    </div>
+  {/if}
 
   {#if seat.melds.length}
     <Melds melds={seat.melds} size="tiny" {dora} />
@@ -208,6 +234,62 @@
     flex: none;
   }
 
+  /* A review's face-up tiles, on a darker rack that sets the hand apart from
+     the discards below it, tiles of much the same size. They take a row of
+     fourteen, the tile just drawn apart as in the player's own hand, as
+     large as the rack's width allows, up to half of `--hand-tile` where the
+     table sets one (MatchTable) and otherwise to the size of the discards.
+     19 pixels are the thirteen gaps between the tiles, the drawn tile's
+     own, and one to spare, so that widths rounded to the screen's pixels
+     never push the last tile onto a row of its own. The rack is measured
+     as a container, its width inside its padding. */
+  .rack {
+    --hand-cap: var(--hand-tile, var(--tile-width));
+    container-type: inline-size;
+    padding: 3px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, .3);
+  }
+  .revealed {
+    --tile-width: min(var(--hand-cap), calc((100cqi - 19px) / 7));
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .revealed li { display: flex; }
+  .revealed .drawn { margin-inline-start: 5px; }
+  /* Where a row of fourteen would draw them under 18 pixels wide, on a rack
+     under 271 pixels, the tiles take two rows of seven instead, and are
+     larger: the list is held to the width of seven, with 12 pixels for the
+     six gaps between them, the drawn tile's own and one to spare, so that
+     the drawn tile ends the second row. Only a rack under 96 pixels, which
+     no screen leaves a seat, would wrap them again rather than draw them
+     under 12. */
+  @container (width < 271px) {
+    .revealed {
+      --tile-width: max(24px, min(var(--hand-cap), calc((100cqi - 12px) * 2 / 7)));
+      max-width: calc(var(--tile-width) * 3.5 + 12px);
+    }
+  }
+
+  .position { opacity: .8; }
+
+  /* What the seat was doing at the decision a review shows: a word, never
+     a colour alone, beside the gold edge of the seat whose turn it is. */
+  .note {
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(216,161,42,.16);
+    color: var(--gold);
+    font-size: .66rem;
+    font-weight: 650;
+    line-height: 1.2;
+  }
+
   .thinking::before {
     content: '';
     position: absolute;
@@ -225,6 +307,7 @@
     header { font-size: .7rem; gap: 2px 5px; }
     .back { width: 4px; height: 9px; }
     .called { font-size: .65rem; margin-left: 0; }
+    .note { padding-inline: 4px; font-size: .56rem; }
     .score-full { display: none; }
     .score-short { display: inline; }
     .dealer-badge { padding-inline: 4px; font-size: .5rem; }

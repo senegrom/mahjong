@@ -7,7 +7,11 @@
   import { SEAT_NAMES as NAMES } from '../tiles.js';
   import { OPPONENT_POSITIONS } from '../opponents.js';
 
-  let { view, hints, thinking, pendingOpponent }: MatchTableProps = $props();
+  // A review draws the table as it stood at a past decision: `hands` puts
+  // each seat's concealed tiles face up, in the order of view.seats, `notes`
+  // says what each seat was doing, and `review` names each opponent by where
+  // they sat and lays the table out for four hands in view.
+  let { view, hints, thinking, pendingOpponent, hands = null, notes = null, review = false }: MatchTableProps = $props();
   // A review replays a hand on a second table while the match's own stays
   // on the page, so the dialog's title is named for its own table.
   const uid = $props.id();
@@ -20,9 +24,11 @@
   function inspectTable() { tableDialog?.showModal(); }
 </script>
 
-<div class="board">
-  <div class="place across"><Seat seat={across} dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player} /></div>
-  <div class="place left"><Seat seat={left} dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player} /></div>
+<div class="board" class:review>
+  <div class="place across"><Seat seat={across} dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player}
+    hand={hands?.[2] ?? null} position={review ? OPPONENT_POSITIONS[1] : ''} note={notes?.[2] ?? ''} /></div>
+  <div class="place left"><Seat seat={left} dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player}
+    hand={hands?.[3] ?? null} position={review ? OPPONENT_POSITIONS[2] : ''} note={notes?.[3] ?? ''} /></div>
   <div class="centre" role="group" aria-label="the table">
     <div class="round-details">
       <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>Round</span></div>
@@ -49,7 +55,8 @@
       Discards
     </button>
   </div>
-  <div class="place right"><Seat seat={right} dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player} /></div>
+  <div class="place right"><Seat seat={right} dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player}
+    hand={hands?.[1] ?? null} position={review ? OPPONENT_POSITIONS[0] : ''} note={notes?.[1] ?? ''} /></div>
 </div>
 
 <dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="{uid}-title">
@@ -177,5 +184,32 @@
     .left { grid-area: 2 / 1; }
     .across { grid-area: 2 / 2; }
     .right { grid-area: 2 / 3; }
+  }
+
+  /* A review shows every hand face up (Seat), each concealed tile up to half
+     of `--hand-tile` wide where its seat has room. Wherever the table is
+     smaller than on a wide screen that is 24 pixels, larger than the
+     discards there, so that only a narrow seat would draw a row of fourteen
+     under 18 pixels, and there they take two rows instead (Seat). On a phone
+     held upright three columns would leave each hand a few tiles to a row,
+     so there each opponent takes the width of the screen instead, in the
+     order they play after the player, their discards a size larger than in
+     play; held sideways the columns stay, their discards a little larger
+     too. */
+  @media (max-width: 967px), (max-height: 500px) {
+    .board.review .place { --hand-tile: 48px; }
+  }
+  @media (max-width: 760px) and (orientation: portrait) {
+    .board.review { grid-template-columns: minmax(0, 1fr); }
+    .board.review .right { grid-area: 2 / 1; }
+    .board.review .across { grid-area: 3 / 1; }
+    .board.review .left { grid-area: 4 / 1; }
+    .board.review .place { --tile-width: 36px; }
+  }
+  @media (max-width: 359px) and (orientation: portrait) {
+    .board.review .place { --tile-width: 32px; }
+  }
+  @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    .board.review .place { --tile-width: 28px; }
   }
 </style>
