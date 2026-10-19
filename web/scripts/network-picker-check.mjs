@@ -6,8 +6,8 @@
  * watch. Settings saved before the default was published play it once,
  * whatever they picked, keep every other choice and resume a saved match;
  * a pick made after that stays. On a phone a seat's badge says Trained
- * without the version, and the opponents menu shows the version clear of its
- * chevron. The networks' host is unreachable for the whole browser and the
+ * without the version, and the opponents menu shows the version whole, not
+ * cut off before its chevron. The networks' host is unreachable for the whole browser and the
  * page's own requests for a network are answered here, so nothing downloads
  * 116 MB: what is checked is which address each page asks for. */
 import assert from 'node:assert/strict';
@@ -267,7 +267,7 @@ try {
     });
   }
 
-  await cases.check('on a phone each Trained seat badge says Trained in one line, a screen reader still hears the version, and the opponents menu shows it clear of its chevron', async () => {
+  await cases.check('on a phone each Trained seat badge says Trained in one line, a screen reader still hears the version, and the opponents menu shows it whole', async () => {
     const page = await open([]);
     await page.waitForSelector('.board');
     const seen = {}, menus = {};
@@ -283,8 +283,9 @@ try {
         const lines = new Set([...range.getClientRects()].filter(box => box.width > 0).map(box => Math.round(box.top))).size;
         return { shown: badge.innerText.trim(), label: badge.getAttribute('aria-label'), lines };
       }));
-      // The menu's text, laid out in its own font, against the room between
-      // the menu's left padding and its chevron.
+      // The menu's text, laid out in its own font, against the room its
+      // padding leaves: a select cuts its text off where the right padding,
+      // which holds the chevron, begins.
       menus[width] = await page.$eval('select[aria-label="opponent strength"]', select => {
         const style = getComputedStyle(select), shown = select.selectedOptions[0].textContent;
         const probe = Object.assign(document.createElement('span'), { textContent: shown });
@@ -292,9 +293,8 @@ try {
         document.body.append(probe);
         const text = probe.getBoundingClientRect().width;
         probe.remove();
-        const start = select.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
-        const chevron = select.parentElement.querySelector('.select-chevron').getBoundingClientRect().left;
-        return { shown, clear: text <= chevron - start, text: Math.round(text), room: Math.round(chevron - start) };
+        const room = select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        return { shown, whole: text <= room, text: +text.toFixed(1), room };
       });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `no sideways scroll at ${width}`);
       await page.screenshot({ path: resolve(output, `network-picker-phone-${width}.png`) });
@@ -303,12 +303,7 @@ try {
     assert.deepEqual(seen, { 390: badge, 360: badge, 320: badge });
     for (const [width, menu] of Object.entries(menus)) {
       assert.equal(menu.shown, `Trained ${MANIFEST.version}`);
-      // How wide the text is depends on the platform's fonts: Windows draws
-      // it in Segoe UI, the page's first choice, which the menu's width is
-      // set by; a Linux runner may have only a wider face.
-      if (process.platform === 'win32') {
-        assert.ok(menu.clear, `at ${width} px the menu's ${menu.text} px of text overrun the ${menu.room} px before its chevron`);
-      }
+      assert.ok(menu.whole, `at ${width} px the menu cuts off its ${menu.text} px of text at ${menu.room} px`);
     }
     assert.deepEqual(page.problems, []);
   });
