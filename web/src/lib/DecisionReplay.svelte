@@ -1,5 +1,5 @@
 <script>
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import Tile from './Tile.svelte';
   import DecisionFilter from './DecisionFilter.svelte';
   import MatchTable from './app/MatchTable.svelte';
@@ -46,8 +46,17 @@
   let nextButton = $state(null);
   let previousButton = $state(null);
   // The list of the hand's decisions starts open where the screen has room
-  // for it above the table, unless the replay was opened to choose again.
+  // for it above the table, unless the replay was opened to choose again;
+  // after that it is the player's to open and fold. So is the list of what
+  // happened since the previous decision, which starts open, and stays as
+  // the player leaves it across a step where nothing happened, which takes
+  // it from the page. Each is held here rather than set on the list from
+  // the step: the page sets that afresh at every step, and as later hands
+  // are reviewed, which folded a list under the player's press and dropped
+  // keyboard focus on a step's button to the page.
   const roomy = !(globalThis.matchMedia?.('(max-width: 760px), (max-height: 500px) and (orientation: landscape)').matches ?? true);
+  let listOpen = $state(untrack(() => !retrying && roomy));
+  let linesOpen = $state(true);
 
   let frame = $derived(hand.frames[step]);
   let current = $derived(hand.decisions?.[step] ?? null);
@@ -222,7 +231,7 @@
 
   <!-- Every decision of the hand the replay reaches, each a button to its
        step, which keeps focus as the step it shows changes. -->
-  <details class="decisions" open={!retrying && roomy} data-decisions>
+  <details class="decisions" bind:open={listOpen} data-decisions>
     <summary>{pending ? 'Your decisions up to the flagged one' : 'Your decisions in this hand'} ({reached.length})</summary>
     <div class="decision-list">
       <DecisionFilter bind:value={listFilter} counts={listCounts} label="Which of this hand's decisions to list"
@@ -258,7 +267,7 @@
     <MatchTable view={frame.view} {hints} thinking={false} pendingOpponent={null} hands={frame.hands ?? null} {notes} review />
 
     {#if frame.lines.length}
-      <details class="lines" open>
+      <details class="lines" bind:open={linesOpen}>
         <summary>{step === 0 ? 'Since the deal' : 'Since your previous decision'} · {frame.lines.length} event{frame.lines.length === 1 ? '' : 's'}</summary>
         <ol>{#each frame.lines as line, index (index)}<li>{line}</li>{/each}</ol>
       </details>

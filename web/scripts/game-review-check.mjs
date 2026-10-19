@@ -14,7 +14,13 @@
  * screen at desktop and phone sizes; the hand's list of decisions and the
  * review's own list are filtered to the flagged decisions, those where
  * Trained AI chose differently or every one, saying how many each holds, and
- * a decision that was not flagged opens without a retry. A flagged answer to
+ * a decision that was not flagged opens without a retry. A list the player
+ * opens or folds stays as they left it: a hand's list of decisions, folded on
+ * a phone and in a replay opened to choose again, as its steps are pressed by
+ * touch and by keyboard while later hands are reviewed, focus staying on the
+ * step's button; a slow device's list of hands as the review goes on; a
+ * hand's events across a step with none; and the trend's games across a
+ * replay. A flagged answer to
  * another's discard, from a game whose player calls everything, is chosen
  * again from the moves its prompt points to, by keyboard. While the review goes on, a flagged
  * decision that later hands rank out of the leading five keeps keyboard focus,
@@ -129,6 +135,30 @@ let browser;
 const percent = weight => weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
 const shot = (page, name) => page.screenshot({ path: resolve(output, `${name}.png`), fullPage: true });
 const overflow = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1);
+/** Whether the page is the size of a phone, held either way, as the site's
+ * layouts tell one. */
+const phoneSized = page => page.viewport().width <= 760 || page.viewport().height <= 500;
+/** Two frames after a short wait: long enough for a list's toggle event and
+ * whatever the page does with it. */
+const settle = page => page.evaluate(() => new Promise(done => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(done)), 50)));
+/** How many of the review's batches the worker has answered. */
+const answered = page => page.evaluate(() => window.reviewBatches.filter(batch => batch.answers).length);
+/** Waits until the worker has answered `more` batches beyond `count`. */
+const answeredBeyond = (page, count, more = 1) => page.waitForFunction((count, more) =>
+  window.reviewBatches.filter(batch => batch.answers).length >= count + more, { timeout: 120000, polling: 100 }, count, more);
+/** Taps the element at its middle, brought to the middle of the screen
+ * first, clear of the game's bar along the top of a phone's screen. */
+async function tapAt(page, selector) {
+  await page.$eval(selector, element => element.scrollIntoView({ block: 'center' }));
+  await page.tap(selector);
+}
+/** Closes a page's context before the case ends, so that a case going
+ * through several sizes keeps one page open at a time. */
+async function closePage(page) {
+  const context = page.browserContext();
+  cases.contexts.splice(cases.contexts.indexOf(context), 1);
+  await context.close();
+}
 /** Whether a tap at the middle of the element would reach it, rather than
  * whatever lies over it. */
 const tappable = (page, selector) => page.$eval(selector, element => {
@@ -140,8 +170,11 @@ const tappable = (page, selector) => page.$eval(selector, element => {
 /** The page with a finished match restored, the tile-throwing game unless
  * another is `saved`. `touch` makes it a phone, set before the page loads
  * since turning touch on reloads it; without `network` the page finds
- * Trained AI out of reach and never downloads it. */
-async function openPage(width, height, { touch = false, network = true, saved = snapshot } = {}) {
+ * Trained AI out of reach and never downloads it. `answerDelay` holds each
+ * batch the review sends that many milliseconds before the worker has it, as
+ * a slower device would take, and `trend` is the games the trend holds from
+ * before. */
+async function openPage(width, height, { touch = false, network = true, saved = snapshot, answerDelay = 0, trend = null } = {}) {
   const page = await (await cases.openContext(browser)).newPage();
   page.errors = [];
   page.on('pageerror', error => page.errors.push(error.message));
@@ -155,9 +188,10 @@ async function openPage(width, height, { touch = false, network = true, saved = 
       void answer.catch(() => {}); // A context can close while a request is pending.
     });
   }
-  await page.evaluateOnNewDocument((saveKey, settingsKey, saved) => {
+  await page.evaluateOnNewDocument((saveKey, settingsKey, saved, answerDelay, trendKey, trend) => {
     if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(saved));
     if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify({ version: 2, difficulty: 'beginner', hints: true }));
+    if (trend && !localStorage.getItem(trendKey)) localStorage.setItem(trendKey, JSON.stringify({ version: 1, games: trend }));
     // Every batch the review sends, and the worker's answer to it.
     window.reviewBatches = [];
     const NativeWorker = window.Worker;
@@ -170,11 +204,17 @@ async function openPage(width, height, { touch = false, network = true, saved = 
         });
       }
       postMessage(data, ...rest) {
-        if (data?.count) window.reviewBatches.push({ id: data.id, count: data.count, mask: Array.from(data.mask) });
+        if (data?.count) {
+          window.reviewBatches.push({ id: data.id, count: data.count, mask: Array.from(data.mask) });
+          if (answerDelay) {
+            setTimeout(() => super.postMessage(data, ...rest), answerDelay);
+            return;
+          }
+        }
         super.postMessage(data, ...rest);
       }
     };
-  }, SAVE_KEY, SETTINGS_KEY, saved);
+  }, SAVE_KEY, SETTINGS_KEY, saved, answerDelay, TREND_KEY, trend);
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('.standings [data-review-game]');
   return page;
@@ -193,9 +233,10 @@ const focusedDecision = page => page.evaluate(() => {
 /** Opens the review and has it go through the whole game unheld, however
  * slow the device: Continue asks for the whole game, as a player who wants
  * all of it would. Both are pressed without moving focus, which stays where
- * the review put it. */
+ * the review put it. The standings' button is pressed where it is, which on
+ * a phone held upright is under the result's sheet. */
 async function reviewWholeGame(page) {
-  await page.click('.standings [data-review-game]');
+  await page.$eval('.standings [data-review-game]', button => button.click());
   await page.waitForSelector('[data-game-review] [data-stop-review]');
   await page.$eval('[data-game-review] [data-stop-review]', button => button.click());
   await page.waitForSelector('[data-game-review] [data-continue]');
@@ -715,6 +756,143 @@ try {
     await page.setViewport({ width: 1100, height: 900 });
     await page.click('[data-decision] [data-back]');
     await page.waitForFunction(index => document.activeElement?.dataset.replayHand === String(index), { timeout: 5000 }, chosen.index);
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("a hand's list of decisions, folded on a phone and to choose again, stays as the player leaves it, with focus on the step's button pressed, as the step changes and later hands are reviewed, by touch and keyboard", async () => {
+    // A page loaded at each size, one at a time. On a phone the list starts
+    // folded under the steps; at 1100 by 900 it starts folded in a replay
+    // opened to choose again. Each batch reaches the worker a second late, so
+    // that later hands are still being reviewed while the list is used,
+    // however fast the machine.
+    for (const [width, height] of [[390, 844], [320, 568], [844, 390], [1100, 900]]) {
+      const size = `${width}x${height}`, page = await openPage(width, height, { touch: true, answerDelay: 1000 });
+      await reviewWholeGame(page);
+      if (phoneSized(page)) {
+        // The first hand reviewed, replayed whole from the list of hands.
+        const hand = await (await page.waitForFunction(() => document.querySelector('[data-game-review] [data-replay-hand]')?.dataset.replayHand ?? false,
+          { timeout: 300000, polling: 100 })).jsonValue();
+        if (!await page.$eval('[data-game-review] .hands', details => details.open)) await tapAt(page, '[data-game-review] .hands summary');
+        await tapAt(page, `[data-game-review] [data-replay-hand="${hand}"]`);
+      } else {
+        // A flagged decision with two of the player's decisions before it.
+        const key = await (await page.waitForFunction(() => {
+          const all = document.querySelector('[data-game-review] [data-every-flag]');
+          if (all && /^Show all/.test(all.textContent)) all.click();
+          return [...document.querySelectorAll('[data-game-review] [data-flagged]')].map(item => item.dataset.flagged)
+            .find(key => Number(key.split(':')[1]) >= 2) ?? false;
+        }, { timeout: 300000, polling: 100 })).jsonValue();
+        await tapAt(page, `[data-game-review] [data-open="${key}"]`);
+      }
+      const list = '[data-decision] [data-decisions]';
+      await page.waitForSelector(list);
+      /** Whether the list is open, and the step whose button has focus, or
+       * what else has it. */
+      const state = () => page.evaluate(list => {
+        const active = document.activeElement;
+        return { open: document.querySelector(list).open, focus: active?.dataset.stepTo
+          ?? (!active || active === document.body ? 'the page' : active.getAttribute('aria-label') ?? active.textContent.trim()) };
+      }, list);
+      const onStep = index => page.waitForFunction((list, index) => document.querySelector(`${list} [data-step-to="${index}"]`)
+        ?.getAttribute('aria-current') === 'step', { timeout: 5000 }, list, index);
+      assert.equal((await state()).open, false, `the list starts folded at ${size}`);
+      // By touch: the list opened, then a step's button.
+      await tapAt(page, `${list} summary`);
+      await page.waitForFunction(list => document.querySelector(list).open, { timeout: 5000 }, list);
+      await settle(page);
+      await tapAt(page, `${list} [data-step-to="1"]`);
+      await onStep(1);
+      await settle(page);
+      assert.deepEqual(await state(), { open: true, focus: '1' }, `a step's button tapped at ${size}`);
+      // By keyboard: another step's button.
+      await page.focus(`${list} [data-step-to="0"]`);
+      await page.keyboard.press('Enter');
+      await onStep(0);
+      await settle(page);
+      assert.deepEqual(await state(), { open: true, focus: '0' }, `a step's button pressed by keyboard at ${size}`);
+      // Later hands are reviewed meanwhile, and nothing is pressed: the list
+      // stays open, and focus on the button.
+      await answeredBeyond(page, await answered(page), 2);
+      await settle(page);
+      assert.deepEqual(await state(), { open: true, focus: '0' }, `later hands reviewed at ${size}`);
+      // Folded by touch, it stays folded as the step changes and the review
+      // goes on.
+      await tapAt(page, `${list} summary`);
+      await page.waitForFunction(list => !document.querySelector(list).open, { timeout: 5000 }, list);
+      await tapAt(page, '[data-decision] .steps button[aria-label="Next decision"]');
+      await onStep(1);
+      await answeredBeyond(page, await answered(page));
+      await settle(page);
+      assert.equal((await state()).open, false, `the list stays folded at ${size}`);
+      assert.deepEqual(page.errors, []);
+      await closePage(page);
+    }
+  });
+
+  await cases.check("the review's other lists stay as the player leaves them: a slow device's list of hands as the review goes on, a hand's events across a step with none, and the trend's games across a replay, by keyboard and pointer", async () => {
+    // Each batch reaches the worker four and a half seconds late, over half a
+    // second a position: a device slow enough to hold after each hand, for
+    // which the list of hands opens. A game reviewed before this one puts the
+    // trend's table of games on the page from the first hand.
+    const page = await openPage(1100, 900, { answerDelay: 4500,
+      trend: [{ id: 'earlier', network: MANIFEST.version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100, flagged: 4 }] });
+    // What the page did not keep as the player left it, said together at the
+    // end, so that each list is checked whatever the others do.
+    const changed = [];
+    const stays = async (selector, open, what) => {
+      await settle(page);
+      if (await page.$eval(selector, details => details.open) !== open) changed.push(what);
+    };
+    const handList = '[data-game-review] .hands', games = '[data-game-review] [data-trend] details.games';
+    await page.click('.standings [data-review-game]');
+    await page.waitForSelector('[data-game-review] [data-next-hand]', { timeout: 300000 });
+    assert.equal(await page.$eval(handList, details => details.open), true, 'the list of hands opens for the hold');
+    // Folded by keyboard, it stays folded, also while the next hand is
+    // reviewed and at the hold after it.
+    await page.focus(`${handList} summary`);
+    await page.keyboard.press('Enter');
+    await stays(handList, false, 'the list of hands opened again as it was folded');
+    const before = await answered(page);
+    await page.focus('[data-game-review] [data-next-hand]');
+    await page.keyboard.press('Enter');
+    await answeredBeyond(page, before);
+    await stays(handList, false, 'the list of hands opened again as the review went on');
+    await page.waitForSelector('[data-game-review] [data-next-hand]', { timeout: 300000 });
+    await stays(handList, false, "the list of hands opened again at the review's next hold");
+
+    // The trend's table of games, opened by pointer.
+    await page.click(`${games} summary`);
+    await page.waitForFunction(games => document.querySelector(games).open, { timeout: 5000 }, games);
+    // A reviewed hand with a step that nothing happened before, between two
+    // that had events, replayed whole by pointer: its events, folded at the
+    // step before, stay folded at the step after.
+    const done = await page.$$eval('[data-game-review] [data-replay-hand]', buttons => buttons.map(button => Number(button.dataset.replayHand)));
+    const quiet = hands.filter(hand => done.includes(hand.index)).flatMap(hand => hand.frames.map((_, step) => ({ hand, step })))
+      .find(({ hand, step }) => step > 0 && step < hand.frames.length - 1 && !hand.frames[step].lines.length
+        && hand.frames[step - 1].lines.length && hand.frames[step + 1].lines.length);
+    assert.ok(quiet, `a reviewed hand with a step that nothing happened before, among hands ${done.join(', ')}`);
+    if (!await page.$eval(handList, details => details.open)) await page.click(`${handList} summary`);
+    await page.click(`[data-game-review] [data-replay-hand="${quiet.hand.index}"]`);
+    const lines = '[data-decision] details.lines', next = '[data-decision] .steps button[aria-label="Next decision"]';
+    const onStep = step => page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text,
+      { timeout: 5000 }, `Your decision ${step + 1} of ${quiet.hand.frames.length}`);
+    await page.click(`[data-decision] [data-decisions] [data-step-to="${quiet.step - 1}"]`);
+    await onStep(quiet.step - 1);
+    await page.click(`${lines} summary`);
+    await page.waitForFunction(lines => !document.querySelector(lines).open, { timeout: 5000 }, lines);
+    await page.click(next);
+    await onStep(quiet.step);
+    assert.equal(await page.$(lines), null, 'no events since the previous decision');
+    await page.click(next);
+    await onStep(quiet.step + 1);
+    await stays(lines, false, "a hand's events opened again after a step with none");
+    // Back to the list by keyboard: focus returns to the hand's own button,
+    // and the trend's games are open still.
+    await page.focus('[data-decision] [data-back]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(index => document.activeElement?.dataset.replayHand === String(index), { timeout: 5000 }, quiet.hand.index);
+    await stays(games, true, "the trend's games folded after a replay");
+    assert.deepEqual(changed, [], 'every list stays as the player left it');
     assert.deepEqual(page.errors, []);
   });
 

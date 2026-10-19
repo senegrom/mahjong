@@ -41,9 +41,6 @@
   // says when the hands reviewed since have put it lower.
   let focusedItem = $state(null);
   let moved = $state('');
-  // Whether the player opened the list of hands, which is kept open for
-  // them while a hand it opened is replayed, so its button is there again.
-  let handsOpen = $state(false);
   let heading = $state(null);
   let list = $state(null);
   let controls = $state(null);
@@ -54,6 +51,24 @@
     const owner = review;
     owner.onChange = () => { version++; };
     return () => { owner.onChange = () => {}; };
+  });
+
+  // Whether the list of hands, and the trend's table of games, are open.
+  // Both are the player's to open and fold, and are kept while a replay
+  // takes the list's place, so that Back to the list finds them as they
+  // were, a replayed hand's button among them. A slow device holds after
+  // each hand, and the list of hands then offers any hand to review next,
+  // so it opens by itself once, when the review turns out slow. The states
+  // are held here rather than set on the lists from the review's: the page
+  // sets that afresh at each hand reviewed, which would undo what the player
+  // did.
+  let handsOpen = $state(untrack(() => status.slow && !status.complete));
+  let trendOpen = $state(false);
+  let openedForSlow = untrack(() => handsOpen);
+  $effect(() => {
+    if (openedForSlow || !status.slow || status.complete) return;
+    openedForSlow = true;
+    handsOpen = true;
   });
 
   // The review's buttons change under the player's hand: Continue becomes
@@ -270,7 +285,7 @@
     </div>
 
     {#if figure.decisions}
-      <ReviewTrend {figure} complete={status.complete} games={trend} current={review.id} />
+      <ReviewTrend {figure} complete={status.complete} games={trend} current={review.id} bind:open={trendOpen} />
     {/if}
 
     <h3 tabindex="-1" bind:this={flagsHeading}>{HEADINGS[filter]}</h3>
@@ -315,7 +330,7 @@
       <p class="empty">{empty}</p>
     {/if}
 
-    <details class="hands" open={handsOpen || (status.slow && !status.complete)} ontoggle={event => { handsOpen = event.currentTarget.open; }} bind:this={handList}>
+    <details class="hands" bind:open={handsOpen} bind:this={handList}>
       <summary>Hands · {reviewed} of {status.hands.length} reviewed</summary>
       <ol>
         {#each status.hands as hand (hand.index)}

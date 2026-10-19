@@ -48,6 +48,13 @@ an unfinished match has progress, including between hands.
 - The safe count counts held copies and is explicitly qualified as safety
   against declared riichi, not a guarantee against undeclared hands. Tile names
   expose selected, drawn, safe and dora states to assistive technology.
+- A list the player opens or folds stays that way. The whole-game review's
+  lists keep whether they are open in their own component (`bind:open`),
+  never in an `open` set from other state: Svelte sets such an attribute
+  again whenever anything drawn beside it changes, which folded a replayed
+  hand's list of decisions under the player's press, at every step and as
+  later hands were reviewed, and dropped keyboard focus on a step's button
+  in it to the page.
 - A screen reader announces a status line only once it already knows it. So
   these lines wait in the page, empty and out of sight, before their words
   arrive, rather than arriving with them:

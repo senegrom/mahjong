@@ -529,12 +529,15 @@ comes back around the line in the same moment that it speaks.
 **Any decision, any hand.** A reviewed hand is replayed whole, from its deal,
 by **Replay this hand** in the list of hands, which stays open for the player
 while the hand is replayed, so **Back to the list** returns focus to the
-hand's button. In any replay a list of the hand's decisions, open above the
-table where the screen has room for it and folded on a phone or in a replay
-opened to choose again, has a button for each step, saying the move and
-whether Trained AI agreed ("Trained AI agreed", "Trained AI differed",
-"Flagged", "Only move"); the step shown is the current one (`aria-current`),
-and a step's button keeps focus as it shows its step. The same filter lists
+hand's button. In any replay a list of the hand's decisions has a button for
+each step, saying the move and whether Trained AI agreed ("Trained AI agreed",
+"Trained AI differed", "Flagged", "Only move"); the step shown is the current
+one (`aria-current`), and a step's button keeps focus as it shows its step.
+The list starts open above the table where the screen has room for it, and
+folded on a phone or in a replay opened to choose again; from then on it stays
+as the player leaves it, open or folded, as the step changes and as later
+hands are reviewed. So does the list of what happened since the previous
+decision, also across a step where nothing did. The same filter lists
 only the hand's flagged decisions, or those where Trained AI chose
 differently, each button saying how many it holds, and says what it shows
 from its own status line. A decision that was not flagged shows the move made
@@ -595,7 +598,10 @@ with its progress and an estimate of the time left, goes on while its screen
 is closed, and stops at **Stop** or when the player leaves Play. A device that
 takes over half a second a position holds after each hand and offers the next
 hand or the rest of the game; any hand can also be reviewed alone from the
-list of hands. These buttons replace one another as the review goes, so focus
+list of hands, which opens by itself once, when the review turns out that
+slow. After that the list of hands, like the trend's table of games, stays as
+the player leaves it, open or folded, as the review goes on and across a
+replay. These buttons replace one another as the review goes, so focus
 is handed on rather than dropped: from **Stop** to **Continue the review** and
 back, from a hand's own button to the list of hands once that hand is under
 review, and to the flagged decisions when nothing is left to press. The
@@ -622,8 +628,10 @@ page, empty, before their words arrive, the whole-game review with the
 shipped network (its batches, flags,
 replay, retry, keyboard focus, in the flagged list too as later hands rank it
 afresh, and trend, every hand face up at every step of a replayed hand at
-desktop and phone sizes, the filters of its list and of a hand's decisions,
-by keyboard and pointer, and its way in and out on a phone, by touch and by
+desktop, tablet and phone sizes, the filters of its list and of a hand's
+decisions, by keyboard and pointer, its lists staying open or folded as the
+player leaves them while the steps change and later hands are reviewed, by
+touch and by keyboard, and its way in and out on a phone, by touch and by
 keyboard),
 history and export, and settlements that balance event by event.
 Its browser checks run in Chromium, including narrow portrait and landscape
