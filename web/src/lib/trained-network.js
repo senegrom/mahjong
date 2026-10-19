@@ -70,7 +70,7 @@ export function valueWords(network = playing) {
     return {
       label: 'Estimated placement reward',
       title: 'Estimated placement bonus, not a win probability',
-      help: `${name} learned from ${points ? 'placement and points' : 'placement alone'}: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself${points}.${points ? '' : ' Points count only through the places they win.'} This is the network's estimate, not a win probability.`,
+      help: `${name} was last trained on ${points ? 'placement and points' : 'placement alone'}: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself${points}.${points ? '' : ' Points count only through the places they win.'} This is the network's estimate, not a win probability.`,
     };
   }
   return {

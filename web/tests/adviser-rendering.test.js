@@ -78,10 +78,10 @@ test('the value is named and explained by the reward the network the page plays 
     assert.match(body, /not a predicted finishing place, place gain or win probability/);
     assert.doesNotMatch(body, /Hand worth|in places at the table|placement alone/);
   }
-  // 1110 learned from placement alone: no points term, no mixed units.
+  // 1110 was last trained on placement alone: no points term, no mixed units.
   const body = await shown('0.1.1110');
   assert.match(body, /title="Estimated placement bonus, not a win probability">Estimated placement reward −1\.25</);
-  assert.match(body, /Trained 0\.1\.1110 learned from placement alone/);
+  assert.match(body, /Trained 0\.1\.1110 was last trained on placement alone/);
   assert.match(body, /the placement bonus \(\+1\.5 for first, \+0\.5 for second, −0\.5 for third and −1\.5 for fourth\) the scoreboard promises when its hand ends, or after the game(’|'|&#39;)s last hand the bonus itself\./);
   assert.match(body, /Points count only through the places they win/);
   assert.doesNotMatch(body, /training reward|÷ 4,000|mixed|finishing place/);
@@ -98,7 +98,7 @@ test('built-in selection does not acquire percentages or a riichi probability gr
     choices: [{ ...reachA, weight: 1 }, { ...discard, weight: 0 }] } });
   assert.match(body, /Selected/);
   assert.match(body, /<strong>Club<\/strong>/);
-  assert.doesNotMatch(body, /<meter |\d\.\d%|Riichi declaration weight|Estimated training reward/);
+  assert.doesNotMatch(body, /<meter |\d\.\d%|Riichi declaration weight|Estimated (training|placement) reward/);
 });
 
 test('trained advice names the network that gave it by version', async () => {

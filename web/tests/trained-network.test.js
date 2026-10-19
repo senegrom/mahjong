@@ -62,13 +62,13 @@ test("a network's value is named and described by the reward it learned from, as
   assert.deepEqual(placement, {
     label: 'Estimated placement reward',
     title: 'Estimated placement bonus, not a win probability',
-    help: `Trained 0.1.1110 learned from placement alone: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself. Points count only through the places they win. This is the network's estimate, not a win probability.`,
+    help: `Trained 0.1.1110 was last trained on placement alone: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself. Points count only through the places they win. This is the network's estimate, not a win probability.`,
   });
   assert.doesNotMatch(placement.help, /4,000|training reward|finishing place/);
   // A placement reward that weighs points says how much they weigh.
   const tiebreak = valueWords({ version: '0.1.1210', reward: { kind: 'placement', alpha: 0.05 } });
   assert.equal(tiebreak.label, 'Estimated placement reward');
-  assert.equal(tiebreak.help, `Trained 0.1.1210 learned from placement and points: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself, plus 0.05 × its hand's point change ÷ 4,000. This is the network's estimate, not a win probability.`);
+  assert.equal(tiebreak.help, `Trained 0.1.1210 was last trained on placement and points: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself, plus 0.05 × its hand's point change ÷ 4,000. This is the network's estimate, not a win probability.`);
   // A reward this build cannot describe is not described.
   for (const reward of [undefined, { kind: 'other' }]) {
     const unknown = valueWords({ version: '0.1.9', reward });
@@ -78,7 +78,7 @@ test("a network's value is named and described by the reward it learned from, as
   // Every listed network is described by its own reward, and the page
   // describes the one it plays.
   for (const network of NETWORKS) {
-    assert.match(valueWords(network).help, /learned from (a mixed reward|placement)/, network.version);
+    assert.match(valueWords(network).help, /learned from a mixed reward|was last trained on placement/, network.version);
     playNetwork(network.version);
     assert.deepEqual(valueWords(), valueWords(network));
   }

@@ -90,7 +90,8 @@ reads the pick against its own list, and answers with its default when the
 player picked nothing or a version it no longer lists. The update that made
 1110 the default is the one exception: its pages drop every pick saved before
 it (settings record version 3), which its waiting worker cannot tell from the
-running page's message, so for a player who had picked 0.1.410 nothing new is
+running page's message, so for a player who had picked an older network
+(0.1.410, or 0.1.810 picked before #139 made picking the default no pick) nothing new is
 saved ahead, and the update's own page saves 1110 once it runs, while
 connected. A new version never plays a network it does not list, even one an
 earlier version left saved.
