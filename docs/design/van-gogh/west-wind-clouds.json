@@ -1,0 +1,37 @@
+{
+  "tile": "3z",
+  "name": "Shaa",
+  "title": "Cloudborne West — Lighthouse at Sunset",
+  "candidate": "West B (cloud strokes)",
+  "approval": "Carl selected the lighthouse B West wind, requested softer cloud-shaped 西 strokes, and approved deployment of the latest standalone stormy_sunset_lighthouse_seascape.png shown after re-uploading the earlier preview. The earlier JPEG and alternative W / windmill panels are not the deployed source.",
+  "originalFile": "stormy_sunset_lighthouse_seascape.png",
+  "originalSize": [
+    1086,
+    1448
+  ],
+  "originalSha256": "f6bada873d43c8e48b8a0683566e98b200da9cf973859f4e68962ea5db34b10a",
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "canvas": {
+    "width": 300,
+    "height": 400
+  },
+  "aspectRatio": "3:4",
+  "stretch": 0,
+  "bleed": 0,
+  "processing": "Preserve the entire approved 1086 x 1448 PNG. Uniform Lanczos downsampling to 300 x 400 with Pillow 12.3.0, AVIF quality 65, 4:4:4 chroma, speed 4. No crop, stretch, regeneration, repainting or recolouring during deployment. The runtime adds only the shared radius-26 rounded clipping.",
+  "rasterMimeType": "image/avif",
+  "rasterSha256": "d75dd1b0cb95a8d8759355506e62ff49d11fca885a77b7221aff26e2e7b595ba",
+  "svgSha256": "dfbe095b43506f6b8738bdee236e65d5dd36ebdca911d92ded24f31e4f88a081",
+  "avifQuality": 65,
+  "avifChroma": "4:4:4",
+  "source": "docs/design/van-gogh/studies/29-west-wind-cloud-strokes-lighthouse-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Shaa.svg",
+  "archive": "Van_Gogh_West_Wind_Clouds_Approved.zip",
+  "sourceResolutionNote": "The repository source SVG embeds the game-sized image in the shared study box. The runtime changes only its image box to remove bleed and retain the full composition. The untouched approved full-resolution PNG is preserved in the downloadable approval archive.",
+  "sourceSvgSha256": "17966bd08cac7c2cca7a46477f9258d6ad08785bb5ef58004198e1055ded7444"
+}

@@ -4,7 +4,7 @@
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. That restoration left the other tiles unchanged. Eight disks now uses Lemons by the Sea. Earlier sections below describe the design history.
 
-**Current set:** 33 painted faces and 1 unpainted identity, West wind. The Billowing Courtyard A is active for South wind. All three numbered suits and all dragons are complete. Earlier sections retain historical counts.
+**Current set:** All 34 tile identities are painted. Cloudborne West completes the four winds and the entire Van Gogh set. Snowbound North B, The Billowing Courtyard A and every earlier selection remain unchanged. Earlier sections retain historical counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
@@ -269,3 +269,13 @@ Carl selected the middle winter panel and requested GitHub deployment. The stone
 The crop `[497, 126, 456, 608]` on the original 1448 × 1086 triptych is exactly 3:4. A small strip of upper sky and excess foreground are trimmed, not stretched. The full selected panel and untouched board remain in the separately supplied approval ZIP. Uniform LANCZOS downsampling produces a 300 × 400 quality-60 AVIF; there is no repainting, recolouring or glyph editing. The playable face uses zero stretch and zero extra bleed, apart from the usual rounded-corner mask.
 
 Source, original, crop, raster, runtime and archive checksums are recorded in `docs/design/van-gogh/north-wind-winter.json`. Reproduce only this replacement with `node web/scripts/export-van-gogh-tiles.mjs --only=4z`. All other selected faces and the existing fourteen-tile preview hand remain unchanged.
+
+## Cloudborne West — final tile
+
+Carl approved the latest standalone `stormy_sunset_lighthouse_seascape.png` for West wind (`3z` / `Shaa`): a billowing cloud-shaped 西 above a lighthouse, sunset and breaking waves. The earlier re-uploaded JPEG and alternative concept sheets are not used.
+
+The entire **1086 × 1448** approved PNG is exactly **3:4**. It is uniformly Lanczos-downsampled to **300 × 400**, encoded as quality-65, 4:4:4 AVIF, and embedded in the shared radius-26 SVG. There is **zero crop, zero stretch and zero bleed**; only the rounded corners are clipped. No image regeneration, repainting or recolouring occurs during deployment. Source and runtime SVGs embed identical raster bytes; the runtime changes only the image box to remove the shared study bleed.
+
+`west-wind-clouds.json` records the original and export checksums and processing. The untouched original and game export are preserved in `Van_Gogh_West_Wind_Clouds_Approved.zip`, supplied in chat; the repository source SVG embeds the game-sized image. Reproduce only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=3z`.
+
+**All 34 tile identities now have approved Van Gogh artwork.** All 33 earlier paintings, their proportions and the fourteen-tile example hand remain unchanged.

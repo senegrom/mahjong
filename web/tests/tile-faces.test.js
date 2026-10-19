@@ -16,11 +16,11 @@ const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', 
 const faces = TILE_FACE_OPTIONS.map(face => face.value);
 
 test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes K and uses L for white dragon', () => {
-  const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z', '2m', '4m', '2s', '4s', '7s', '8s', '5s', '9s', '3p', '5m', '6m', '7m', '4p', '8m', '6p', '7p', '9m', '8p', '6z', '1m', '2z'];
+  const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z', '2m', '4m', '2s', '4s', '7s', '8s', '5s', '9s', '3p', '5m', '6m', '7m', '4p', '8m', '6p', '7p', '9m', '8p', '6z', '1m', '2z', '3z'];
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'Disks C', 'Six B (green)', 'L', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Lemon Terrace', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'Disks C', 'Six B (green)', 'L', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Lemon Terrace', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -58,7 +58,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
       assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
     } else {
       assert.equal(hash(svg), entry.svgSha256);
-      assert.equal(entry.rasterMimeType, ['9m', '6z', '1m', '2z', '4z'].includes(tile) ? 'image/avif' : 'image/webp');
+      assert.equal(entry.rasterMimeType, ['9m', '6z', '1m', '2z', '4z', '3z'].includes(tile) ? 'image/avif' : 'image/webp');
       assert.ok(svg.includes(`data:${entry.rasterMimeType};base64,`));
       const embedded = svg.match(/href="data:image\/(?:webp|avif);base64,([A-Za-z0-9+/=]+)"/);
       assert.ok(embedded);
@@ -184,7 +184,12 @@ test('the exports record that an unpainted tile is written out, and ship no stan
     const ranks = vanGogh.remaining.filter(tile => tile[1] === suit).map(tile => tile[0]);
     return ranks.length ? `${series(ranks)} ${ranks.join() === '1' ? one : many}` : '';
   }).concat(series(vanGogh.remaining.filter(tile => tile[1] === 'z').map(tileWords))).filter(Boolean).join('; ');
-  assert.match(preview('van-gogh'), new RegExp(`remaining ${vanGogh.remaining.length} tiles show their names until their artwork is approved: ${unpainted}\\.`));
+  if (vanGogh.remaining.length) {
+    assert.match(preview('van-gogh'), new RegExp(`remaining ${vanGogh.remaining.length} tiles show their names until their artwork is approved: ${unpainted}\\.`));
+  } else {
+    assert.match(preview('van-gogh'), /Every tile type now has approved artwork\./);
+    assert.doesNotMatch(preview('van-gogh'), /remaining 0 tiles/);
+  }
   assert.doesNotMatch(preview('van-gogh'), /\b1 characters\b|circles/);
   for (const name of ['dali', 'van-gogh']) assert.doesNotMatch(preview(name), /Classic artwork|study placeholder|placeholders\/|src="\.\.\//, name);
   for (const name of ['export-dali-tiles', 'export-van-gogh-tiles', 'export-matisse-tiles']) {
@@ -262,7 +267,8 @@ test('the real Tile component respects the selected face and hidden state', asyn
     // mark, the ring and the shine included, but no set's white dragon.
     for (const [face, approved] of [['dali', DALI_APPROVED], ['van-gogh', VAN_GOGH_APPROVED]]) {
       const unpainted = TILE_TYPES.filter(tile => !approved.includes(tile));
-      assert.ok(unpainted.length, face);
+      if (face === 'van-gogh') assert.deepEqual(unpainted, [], 'the Van Gogh set is complete');
+      else assert.ok(unpainted.length, face);
       for (const tile of unpainted) {
         const named = show(tile, face, { dora: true, rotated: true, size: 'small', fromDraw: true, claimed: true });
         for (const name of [face, 'rotated', 'ringed', 'from-draw', 'claimed']) assert.match(named, new RegExp(`class="tile [^"]*\\b${name}\\b`), `${face} ${tile} ${name}`);
