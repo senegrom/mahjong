@@ -8,6 +8,8 @@ mod sp_tables;
 mod update;
 
 #[cfg(test)]
+mod golden;
+#[cfg(test)]
 mod test;
 
 #[cfg(feature = "pymod")]

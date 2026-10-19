@@ -60,6 +60,17 @@ Local changes, all under the same licence:
   that unasked.
 - `src/dataset/grp.rs` no longer has `Grp::len` and `is_empty`, which
   nothing in the crate called and the Python class never exposed.
+- `src/state/golden.rs`, new, with `testdata/encoder-golden`: the encoder's
+  golden test. Whole games recorded from this project's arena are replayed
+  through the player states, and at every decision the planes, the mask and
+  the lookahead's table, and the same with the player's reach previewed
+  where our rules allow one, are held to digests the encoder gave before;
+  so are a few hands put to the lookahead directly, with its other options.
+  `neural/tests/test_encoder_golden.py` holds the `Follower`'s output for
+  the same games to digests of its own. A change meant to be exact has to
+  reproduce them to the bit. `src/state/mod.rs` registers the test, and
+  `Cargo.toml` optimises the test profile, in which the games replay in
+  seconds where an unoptimised build took minutes.
 - Newer dependencies: `Cargo.toml` takes PyO3 and numpy 0.29 and pyo3-log
   0.13 for that port, then ndarray 0.17, rand and rand_chacha 0.10, sha3
   0.12 and indicatif 0.18, and adds the `half` crate, with numpy's `half`

@@ -13,6 +13,13 @@ opt-level = 3
 lto = true
 codegen-units = 1
 
+# The tests replay whole recorded games through the observation encoder and
+# its efficiency lookahead (`src/state/golden.rs`), which an unoptimised
+# build runs some thirty times slower. Debug assertions and overflow checks
+# stay on, as in any test build.
+[profile.test]
+opt-level = 3
+
 [lib]
 name = "riichi"
 crate-type = ["cdylib", "rlib"]
