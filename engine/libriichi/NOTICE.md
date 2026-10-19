@@ -60,6 +60,12 @@ Local changes, all under the same licence:
   that unasked.
 - `src/dataset/grp.rs` no longer has `Grp::len` and `is_empty`, which
   nothing in the crate called and the Python class never exposed.
+- Newer dependencies: `Cargo.toml` takes PyO3 and numpy 0.29 and pyo3-log
+  0.13 for that port, then ndarray 0.17, rand and rand_chacha 0.10, sha3
+  0.12 and indicatif 0.18, and adds the `half` crate, with numpy's `half`
+  feature, for the follower's float16. `Cargo.lock` follows, and
+  Dependabot keeps it current: it watches this crate's lockfile beside the
+  root one.
 - `src/state/golden.rs`, new, with `testdata/encoder-golden`: the encoder's
   golden test. Whole games recorded from this project's arena are replayed
   through the player states, and at every decision the planes, the mask and
@@ -85,9 +91,3 @@ Local changes, all under the same licence:
   `draw_without_tegawari_slow` in `src/algo/sp/calc.rs` sums its draw
   probabilities with the turns swapped, each sum still taking the same
   terms in the same order.
-- Newer dependencies: `Cargo.toml` takes PyO3 and numpy 0.29 and pyo3-log
-  0.13 for that port, then ndarray 0.17, rand and rand_chacha 0.10, sha3
-  0.12 and indicatif 0.18, and adds the `half` crate, with numpy's `half`
-  feature, for the follower's float16. `Cargo.lock` follows, and
-  Dependabot keeps it current: it watches this crate's lockfile beside the
-  root one.

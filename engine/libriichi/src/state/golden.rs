@@ -10,7 +10,11 @@
 //! `lookahead.digests` holds what this crate gave when the fixture was
 //! blessed, so a change meant to be exact has to reproduce them to the bit.
 //! The trainer's test of the same games (`neural/tests/test_encoder_golden.py`)
-//! holds `Follower.encode`'s output to its old bytes in the same way.
+//! holds `Follower.encode`'s output to its old bytes in the same way. Below
+//! them, a few hands put to the lookahead directly hold it to its old
+//! answers where the games rarely go, and the river's decay is checked
+//! against its correctly rounded values, on which the digests' portability
+//! rests.
 //!
 //! `ENCODER_GOLDEN_BLESS=1` writes the digests instead of checking them,
 //! which is right only for a change that is meant to change the planes.
