@@ -278,7 +278,9 @@ const overviewAt = page => page.evaluate(() => {
   };
   const overview = document.querySelector('[data-decision] [data-overview]');
   return { opponents: [...overview.querySelectorAll('ul.revealed')].map(hand), own: hand(overview.querySelector('.hand[role="list"]')),
-    facedown: overview.querySelectorAll('.held, .back, [aria-label="face-down tile"]').length,
+    // A concealed quad shows two of its tiles face down, as at a table; a
+    // hand shows none.
+    facedown: overview.querySelectorAll('.held, .back, :is(ul.revealed, .hand) [aria-label="face-down tile"]').length,
     toggles: [...document.querySelectorAll('[data-decision] :is(button, input, select)')]
       .filter(control => control.type === 'checkbox' || /\b(tiles|hands)\b/i.test(`${control.textContent} ${control.getAttribute('aria-label') ?? ''}`)).length,
     fits: document.documentElement.scrollWidth <= innerWidth + 1,

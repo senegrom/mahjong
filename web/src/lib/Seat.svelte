@@ -233,8 +233,10 @@
      size of its discards, or `--hand-tile` where the table sets a larger one
      (MatchTable). The row is measured as a container; where it is too narrow
      for tiles of 12 pixels, they wrap instead, so four hands fit any screen
-     without its page scrolling sideways. 18 pixels are the thirteen gaps
-     between the tiles and the drawn tile's own. */
+     without its page scrolling sideways. 19 pixels are the thirteen gaps
+     between the tiles, the drawn tile's own, and one to spare, so that
+     widths rounded to the screen's pixels never push the last tile onto a
+     row of its own. */
   .revealed {
     --hand-cap: var(--hand-tile, var(--tile-width));
     container-type: inline-size;
@@ -246,7 +248,7 @@
     padding: 0;
     list-style: none;
   }
-  .revealed li { display: flex; --tile-width: max(24px, min(var(--hand-cap), calc((100cqi - 18px) / 7))); }
+  .revealed li { display: flex; --tile-width: max(24px, min(var(--hand-cap), calc((100cqi - 19px) / 7))); }
   .revealed .drawn { margin-inline-start: 5px; }
 
   .position { opacity: .8; }
