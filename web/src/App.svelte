@@ -475,19 +475,21 @@
   const GAME_NOT_SAVED = 'The game could not be saved to a file. Your current match is unchanged.';
 
   // Says beside the result's, the standings' or Export game's buttons
-  // (`line`) why a press on one failed, or, once the same press is done,
-  // takes back its words, which are no longer true; another button's words
-  // stay. Answers whether it was done, which tells the buttons whether to
-  // bring the line into view (ScoreScreen, Standings, AppSettings). On a
-  // phone the result is a sheet over the standings, whose buttons a keyboard
-  // or a screen reader still reaches beneath it, so a press there that fails
-  // has the sheet step aside, for its words and the button with focus to be
-  // seen (ScoreScreen).
+  // (`line`) why a press on one failed, or, once the same thing is done from
+  // any of them, takes back those words wherever they show, since they are
+  // no longer true; a different failure's words stay. Answers whether it was
+  // done, which tells the buttons whether to bring the line into view
+  // (ScoreScreen, Standings, AppSettings). On a phone the result is a sheet
+  // over the standings, whose buttons a keyboard or a screen reader still
+  // reaches beneath it, so a press there that fails has the sheet step
+  // aside, for its words and the button with focus to be seen (ScoreScreen).
   function say(line, words, done) {
     if (!done) {
       failures[line] = words;
       if (line === 'standings') standingsFailures += 1;
-    } else if (failures[line] === words) failures[line] = '';
+    } else {
+      for (const other of Object.keys(failures)) if (failures[other] === words) failures[other] = '';
+    }
     return done;
   }
 

@@ -286,8 +286,11 @@ top of the watch, it moves the page 14 pixels at 1100x900, 387 at 390x844,
 the page ends where it did before focus moved, at each of these sizes: at
 844x390 the browser's own scroll anchoring moves it 267 pixels as the
 standings come in after a press on the result's button, as it did. On a
-phone the controls' button lies under the result's sheet, where only a
-keyboard or a screen reader reaches it.
+phone the controls' button lies mostly under the result's sheet, where a
+keyboard or a screen reader reaches it; at 390x844 a finger can also tap it in
+the 73 pixels between the game's bar and the sheet, and that tap is taken as a
+tap on the result's button: focus goes to the heading, the page does not move
+and the sheet stays.
 
 The standings' own **Save whole game** and **Review whole game** say a failure
 where they were pressed as well, from a status line of their own after their
@@ -298,7 +301,8 @@ is unchanged.", or "The game could not be replayed for review:", why, and
 focus. The notice line said it before, at the top of the page, which lies
 above the screen wherever the standings' buttons are pressed: measured in
 Chromium, 421 to 440 pixels above the top of the screen at 1100x900, 553 to 572
-at 1366x768, 497 to 534 at 844x390, and on a phone 96 to 644 pixels above it.
+at 1366x768, 497 to 534 at 844x390, on a phone held upright 96 to 644 pixels
+above it, and 619 to 738 at 568x320.
 On a phone the result is a sheet over the standings. A finger or a mouse
 reaches their buttons once the sheet has stepped aside for a review; a
 keyboard or a screen reader reaches them beneath it, so a press there that
@@ -307,8 +311,10 @@ focus to be seen, and the chip brings the result back. The buttons and the
 line are brought into view by as little movement as will, clear of the game's
 bar and the chip: measured, the page does not move for any press at 1100x900,
 1366x768 and 844x390, nor on a phone for a finger or a mouse; for a keyboard
-beneath the sheet it moves 41 pixels at 390x844, 42 to 61 at 320x568 and 21 at
-568x320, to bring the line out from under the chip.
+beneath the sheet it moves 41 pixels at 390x844, 42 to 61 at 320x568, and at
+568x320 21 for Save whole game and 41 for Review whole game, to bring the line
+out from under the chip. Once the game is saved, or its review opens, from any
+button, every line that said it could not be takes its words back.
 
 ### Final-hand review and saves
 
@@ -343,8 +349,8 @@ all, above the screen at 320x568 and 844x390. The panel's own line is inside
 the dialog, where it is heard and seen: should it fall below the dialog's
 foot, the dialog's contents are brought up to show it, by 23 pixels at
 320x568 and 5 at 844x390, and at 390x844 the dialog has the room. At desktop
-width the settings are part of the page, and the line sits under the button,
-in view.
+width the settings are part of the page and the line is in view: under the
+button at 1100x900, and beside it on the same row at 1280x600 and 1366x768.
 
 Matches are saved in format 7. A save of format 5 or 6 is replayed from its
 recorded legal commands and checked against all authoritative state; only what

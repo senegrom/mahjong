@@ -140,8 +140,11 @@ async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,fil
   }
  });
  // No file can be made, as when the browser refuses one: the object URL a
- // file is saved through cannot be had.
- if(failSave)await page.evaluateOnNewDocument(()=>{URL.createObjectURL=()=>{throw new Error('A planted save failure');};});
+ // file is saved through cannot be had, until a check sets failSave false.
+ if(failSave)await page.evaluateOnNewDocument(()=>{
+  const real=URL.createObjectURL.bind(URL);window.failSave=true;
+  URL.createObjectURL=(...args)=>{if(window.failSave)throw new Error('A planted save failure');return real(...args);};
+ });
  // Every way the page can ask to scroll, noted once the check asks
  // (scrollsAsked): to an element, by the window or an element, and by a
  // focus that is let scroll.
@@ -648,6 +651,23 @@ try{
     await shot(p,`standings-failure-${pressed.split(' ')[0].toLowerCase()}-${width}x${height}-${how}`);noErrors(p);
    }
  });
+ // A failure's words hold only until the same thing is done, from whichever
+ // button: once Export game has saved the game, the standings' line no
+ // longer says it could not be saved.
+ await check('a game saved from another button takes back the standings\' words that it could not be saved',async()=>{
+  const p=await open(final.after,{reduced:true,failSave:true,files:true});
+  await p.waitForSelector('.standings');
+  const line=await p.$('.standings [data-standings-failure]');
+  await p.click('.standings [data-save-game]');
+  await p.waitForFunction(el=>el.textContent.trim(),{timeout:5000},line);
+  assert.match(await line.evaluate(el=>el.textContent.trim()),/^The game could not be saved to a file\./,'the standings say the game could not be saved');
+  await p.evaluate(()=>{window.failSave=false;});
+  await openPanel(p,'.game-export > summary');
+  await saveFrom(p,'.game-export [data-save-game]');
+  assert.equal(await line.evaluate(el=>el.textContent.trim()),'','the standings\' line takes its words back');
+  assert.equal(await p.$eval('[data-export-failure]',el=>el.textContent.trim()),'','Export game says nothing failed');
+  noErrors(p);
+ });
  // The sheet steps aside for every press beneath it that fails, also once
  // its chip has brought it back: after the keyboard's Next hand on the last
  // hand sent focus to the standings, and for the same failure twice.
@@ -896,7 +916,7 @@ try{
   // settings, and nothing of the hand on the table.
   const mid=exported(midway);assert.equal(mid.hands,2);
   let p=await open(midway,{files:true});
-  await p.click('.game-export > summary');
+  await openPanel(p,'.game-export > summary');
   assert.match(await p.$eval('.game-export',el=>el.textContent),/hand being played is left out until it ends/);
   assert.equal(await p.$eval('.game-export [data-save-game]',el=>el.textContent.trim()),'Save 2 finished hands');
   let file=await saveFrom(p,'.game-export [data-save-game]');
