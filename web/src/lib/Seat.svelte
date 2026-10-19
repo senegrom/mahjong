@@ -91,10 +91,16 @@
   </header>
 
   {#if hand}
-    <ul class="revealed" aria-label={heldName} data-seat-hand={seat.seat}>
-      {#each hand.hand as tile, index (index)}<li><Tile {tile} size="tiny" dora={dora.includes(tile)} /></li>{/each}
-      {#if hand.drawn}<li class="drawn"><Tile tile={hand.drawn} size="tiny" drawn dora={dora.includes(hand.drawn)} /></li>{/if}
-    </ul>
+    <!-- The rack's width sets how large the tiles are drawn and whether
+         they take one row or two. The list is drawn without markers, so it
+         says it is one in so many words: Safari does not tell VoiceOver that
+         a list without them is a list. -->
+    <div class="rack">
+      <ul class="revealed" role="list" aria-label={heldName} data-seat-hand={seat.seat}>
+        {#each hand.hand as tile, index (index)}<li><Tile {tile} size="tiny" dora={dora.includes(tile)} /></li>{/each}
+        {#if hand.drawn}<li class="drawn"><Tile tile={hand.drawn} size="tiny" drawn dora={dora.includes(hand.drawn)} /></li>{/if}
+      </ul>
+    </div>
   {:else}
     <div class="held" role="img" aria-label="{seat.hand_size} tiles in hand">
       {#each Array(Math.min(seat.hand_size, 14)) as _, index (index)}
@@ -228,32 +234,47 @@
     flex: none;
   }
 
-  /* A review's face-up tiles: fourteen to a row, the tile just drawn apart as
-     in the player's own hand, as large as the seat's width allows up to the
-     size of its discards, or `--hand-tile` where the table sets a larger one
-     (MatchTable). The row is measured as a container; where it is too narrow
-     for tiles of 12 pixels, they wrap instead, so four hands fit any screen
-     without its page scrolling sideways. 19 pixels are the thirteen gaps
-     between the tiles, the drawn tile's own, and one to spare, so that
-     widths rounded to the screen's pixels never push the last tile onto a
-     row of its own. The tiles sit on a darker rack, which sets the hand
-     apart from the discards below it, tiles of much the same size; the
-     container's width is inside the rack's padding. */
-  .revealed {
+  /* A review's face-up tiles, on a darker rack that sets the hand apart from
+     the discards below it, tiles of much the same size. They take a row of
+     fourteen, the tile just drawn apart as in the player's own hand, as
+     large as the rack's width allows, up to half of `--hand-tile` where the
+     table sets one (MatchTable) and otherwise to the size of the discards.
+     19 pixels are the thirteen gaps between the tiles, the drawn tile's
+     own, and one to spare, so that widths rounded to the screen's pixels
+     never push the last tile onto a row of its own. The rack is measured
+     as a container, its width inside its padding. */
+  .rack {
     --hand-cap: var(--hand-tile, var(--tile-width));
     container-type: inline-size;
+    padding: 3px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, .3);
+  }
+  .revealed {
+    --tile-width: min(var(--hand-cap), calc((100cqi - 19px) / 7));
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
     gap: 1px;
     margin: 0;
-    padding: 3px;
-    border-radius: 6px;
-    background: rgba(0, 0, 0, .3);
+    padding: 0;
     list-style: none;
   }
-  .revealed li { display: flex; --tile-width: max(24px, min(var(--hand-cap), calc((100cqi - 19px) / 7))); }
+  .revealed li { display: flex; }
   .revealed .drawn { margin-inline-start: 5px; }
+  /* Where a row of fourteen would draw them under 18 pixels wide, on a rack
+     under 271 pixels, the tiles take two rows of seven instead, and are
+     larger: the list is held to the width of seven, with 12 pixels for the
+     six gaps between them, the drawn tile's own and one to spare, so that
+     the drawn tile ends the second row. Only a rack under 96 pixels, which
+     no screen leaves a seat, would wrap them again rather than draw them
+     under 12. */
+  @container (width < 271px) {
+    .revealed {
+      --tile-width: max(24px, min(var(--hand-cap), calc((100cqi - 12px) * 2 / 7)));
+      max-width: calc(var(--tile-width) * 3.5 + 12px);
+    }
+  }
 
   .position { opacity: .8; }
 

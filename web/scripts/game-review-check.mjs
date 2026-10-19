@@ -11,7 +11,9 @@
  * whole, by keyboard and pointer, and at every step every player's tiles must
  * be the ones the engine held, face up, each hand a list named by its seat,
  * with the board as it stood and nothing offering to hide them, fitting the
- * screen at desktop and phone sizes; the hand's list of decisions and the
+ * screen at desktop, tablet and phone sizes, an opponent's tiles on one row,
+ * or on two where one would draw them under 18 pixels wide; the hand's list
+ * of decisions and the
  * review's own list are filtered to the flagged decisions, those where
  * Trained AI chose differently or every one, saying how many each holds, and
  * a decision that was not flagged opens without a retry. A list the player
@@ -304,7 +306,8 @@ async function saysWhereItIs(page, key) {
 
 /** The replay's overview as the page draws it: each opponent's hand, a list
  * named by its seat, and the player's own, with the names of their tiles,
- * the narrowest tile, how many rows the tiles take, whether every tile is on
+ * the narrowest tile, how many rows the tiles take and how many are on the
+ * first, whether every tile is on
  * the screen and whether the list spills out of its seat; whether anything
  * is face down or
  * offers to show or hide the hands; and the step, what is said of the table,
@@ -313,9 +316,10 @@ const overviewAt = page => page.evaluate(() => {
   const box = element => element.getBoundingClientRect();
   const hand = list => {
     const tiles = [...list.querySelectorAll('.tile')], seat = list.closest('.seat, .mine');
+    const row = tile => Math.round(box(tile).bottom);
     return { label: list.getAttribute('aria-label'), seat: list.dataset.seatHand ?? null,
       names: tiles.map(tile => tile.getAttribute('aria-label')), tileWidth: Math.min(...tiles.map(tile => box(tile).width)),
-      rows: new Set(tiles.map(tile => Math.round(box(tile).bottom))).size,
+      rows: new Set(tiles.map(row)).size, firstRow: tiles.filter(tile => row(tile) === row(tiles[0])).length,
       spills: list.scrollWidth > list.clientWidth + 1 ? `${list.scrollWidth} in ${list.clientWidth}` : '',
       offscreen: tiles.filter(tile => box(tile).left < -0.5 || box(tile).right > innerWidth + 0.5).map(tile => tile.getAttribute('aria-label')),
       // The rest of the seat: its discards, its sets and its riichi.
@@ -361,8 +365,9 @@ async function overviewIsRight(page, frame, step, steps) {
   assert.deepEqual([shown.own.discards, shown.own.melds, shown.own.riichi], [seats[0].discards.length, seats[0].melds.length, seats[0].riichi],
     `the player's discards, sets and riichi at step ${step + 1}`);
   // Every tile of every hand is on the screen. An opponent's hand keeps to
-  // its seat too, and every size checked leaves the seat room for fourteen
-  // tiles of 12 pixels or more on one row, which a hand is read along. (The
+  // its seat too, on one row, which a hand is read along, or where one row
+  // would draw its tiles under 18 pixels wide, on two of seven, so that they
+  // are larger: at every size checked they are 18 pixels or wider. (The
   // player's own hand lets the drawn tile's gap run into its end padding,
   // as in play, so only its tiles are held to the screen.)
   for (const list of [...shown.opponents, shown.own]) {
@@ -370,7 +375,8 @@ async function overviewIsRight(page, frame, step, steps) {
   }
   for (const list of shown.opponents) {
     assert.equal(list.spills, '', `${list.label} spills out of its seat`);
-    assert.ok(list.tileWidth >= 12 && list.rows === 1, `${list.label}: ${list.rows} rows of tiles ${list.tileWidth} pixels wide`);
+    assert.ok(list.tileWidth >= 18 && (list.rows === 1 || (list.rows === 2 && list.firstRow === 7)),
+      `${list.label}: ${list.rows} rows, ${list.firstRow} on the first, of tiles ${list.tileWidth} pixels wide`);
   }
   assert.equal(shown.facedown, 0, 'nothing is face down');
   assert.equal(shown.toggles, 0, 'nothing offers to show or hide the hands');
@@ -645,7 +651,7 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check('a reviewed hand replays from its deal with every hand face up and the board at every step, at desktop and phone sizes, by keyboard and pointer', async () => {
+  await cases.check('a reviewed hand replays from its deal with every hand face up and the board at every step, at desktop, tablet and phone sizes, by keyboard and pointer', async () => {
     const page = await openPage(1100, 900);
     await reviewWholeGame(page);
     await reviewed(page);
@@ -736,7 +742,7 @@ try {
     // step by pointer at each. Only the size changes: emulating touch would
     // reload the page, and the review with it.
     let step = target;
-    for (const [width, height] of [[1366, 768], [390, 844], [320, 568], [844, 390]]) {
+    for (const [width, height] of [[1366, 768], [800, 1280], [390, 844], [320, 568], [844, 390]]) {
       await page.setViewport({ width, height });
       await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
       await overviewIsRight(page, frames[step], step, frames.length);

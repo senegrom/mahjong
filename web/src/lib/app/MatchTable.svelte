@@ -186,23 +186,30 @@
     .right { grid-area: 2 / 3; }
   }
 
-  /* A review shows every hand face up (Seat). On a phone held upright three
-     columns would leave each hand a few tiles to a row, so there each
-     opponent takes the width of the screen instead, in the order they play
-     after the player, and their tiles are drawn a size larger than in play;
-     held sideways the columns stay, a little larger too. `--hand-tile` is the
-     most a concealed tile grows to where the seat has room (Seat). */
+  /* A review shows every hand face up (Seat), each concealed tile up to half
+     of `--hand-tile` wide where its seat has room. Wherever the table is
+     smaller than on a wide screen that is 24 pixels, larger than the
+     discards there, so that only a narrow seat would draw a row of fourteen
+     under 18 pixels, and there they take two rows instead (Seat). On a phone
+     held upright three columns would leave each hand a few tiles to a row,
+     so there each opponent takes the width of the screen instead, in the
+     order they play after the player, their discards a size larger than in
+     play; held sideways the columns stay, their discards a little larger
+     too. */
+  @media (max-width: 967px), (max-height: 500px) {
+    .board.review .place { --hand-tile: 48px; }
+  }
   @media (max-width: 760px) and (orientation: portrait) {
     .board.review { grid-template-columns: minmax(0, 1fr); }
     .board.review .right { grid-area: 2 / 1; }
     .board.review .across { grid-area: 3 / 1; }
     .board.review .left { grid-area: 4 / 1; }
-    .board.review .place { --tile-width: 36px; --hand-tile: 48px; }
+    .board.review .place { --tile-width: 36px; }
   }
   @media (max-width: 359px) and (orientation: portrait) {
     .board.review .place { --tile-width: 32px; }
   }
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
-    .board.review .place { --tile-width: 28px; --hand-tile: 32px; }
+    .board.review .place { --tile-width: 28px; }
   }
 </style>

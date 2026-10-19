@@ -59,9 +59,11 @@ const text = markup => markup.replace(/<!--[^]*?-->/g, '').replace(/<[^>]+>/g, '
 /** The names of the tiles shown in a piece of markup, in order. */
 const tileNames = markup => [...markup.matchAll(/class="tile [^"]*"[^>]*aria-label="([^"]*)"/g)].map(match => match[1]);
 /** The markup of the hands, each as the list a screen reader moves to: the
- * three opponents' lists, then the player's own. */
+ * three opponents' lists, then the player's own. Each says it is a list in
+ * so many words (`role="list"`), as Safari does not tell VoiceOver that a
+ * list whose markers are taken away is one. */
 function handsIn(html) {
-  const opponents = [...html.matchAll(/<ul class="revealed[^"]*" aria-label="([^"]*)" data-seat-hand="(\w+)">([^]*?)<\/ul>/g)]
+  const opponents = [...html.matchAll(/<ul class="revealed[^"]*" role="list" aria-label="([^"]*)" data-seat-hand="(\w+)">([^]*?)<\/ul>/g)]
     .map(([, label, seat, inner]) => ({ label, seat, tiles: tileNames(inner) }));
   const own = /<div class="hand[^"]*"[^>]*role="list" aria-label="([^"]*)"[^>]*>([^]*?)<div class="own-discards/.exec(html);
   return { opponents, own: own && { label: own[1], tiles: tileNames(own[2].split('class="my-melds')[0]) } };
