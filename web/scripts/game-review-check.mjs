@@ -586,10 +586,14 @@ try {
     const page = await openPage(1100, 900);
     await reviewWholeGame(page);
     await reviewed(page);
-    // The hand with the most on the table: sets called and riichi declared.
+    // Of the hands with a flagged decision, the one with the most on the
+    // table: sets called and riichi declared.
+    await page.evaluate(() => [...document.querySelectorAll('[data-game-review] [data-every-flag]')].find(b => /^Show all/.test(b.textContent))?.click());
+    const flaggedHands = new Set((await listed(page)).map(key => Number(key.split(':')[0])));
     const busy = hand => hand.frames.reduce((sum, frame) => sum
       + frame.view.seats.reduce((count, seat) => count + seat.melds.length + (seat.riichi ? 1 : 0), 0), 0);
-    const chosen = hands.filter(hand => hand.frames.length >= 4).sort((a, b) => busy(b) - busy(a))[0];
+    const chosen = hands.filter(hand => hand.frames.length >= 4 && flaggedHands.has(hand.index)).sort((a, b) => busy(b) - busy(a))[0];
+    assert.ok(chosen, 'a hand of four decisions or more with one flagged');
     const { frames } = chosen, focused = () => page.evaluate(() => {
       const active = document.activeElement;
       return !active || active === document.body ? 'the page' : active.getAttribute('aria-label') ?? active.textContent.trim();
@@ -624,6 +628,25 @@ try {
     await overviewIsRight(page, frames[target], target, frames.length);
     assert.equal(await page.evaluate(() => document.activeElement?.dataset.stepTo), String(target));
     assert.equal(await page.$eval(`[data-decision] [data-step-to="${target}"]`, el => el.getAttribute('aria-current')), 'step');
+    // A flagged decision reached in a hand replayed whole offers its retry,
+    // by keyboard: Choose again here gives the hand focus, as a turn does,
+    // with every hand still in view, and the answer outright its heading.
+    const flaggedStep = Number(await page.$$eval('[data-decision] [data-step-to]', buttons =>
+      buttons.find(button => button.querySelector('.verdict')?.textContent === 'Flagged')?.dataset.stepTo));
+    await page.click(`[data-decision] [data-step-to="${flaggedStep}"]`);
+    await page.waitForSelector('[data-decision] [data-offer]');
+    assert.match(await page.$eval('[data-decision] [data-offer] p', el => el.textContent), /^Flagged: Trained AI gave /);
+    await page.focus('[data-decision] [data-choose-here]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] .hand'), { timeout: 5000 });
+    assert.match(await page.$eval('[data-decision] .hand', el => document.getElementById(el.getAttribute('aria-describedby')).textContent),
+      /^What would you play here\? Choose again before you see Trained AI's answer/);
+    await overviewIsRight(page, frames[flaggedStep], flaggedStep, frames.length);
+    await page.focus('[data-decision] [data-reveal]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
+    assert.ok(await page.$('[data-decision] [data-answer]'), "Trained AI's answer");
+    await page.click(`[data-decision] [data-step-to="${target}"]`);
     // Its filter, by keyboard: the moves where Trained AI chose differently,
     // said as the list changes, and then every decision again.
     const filterOption = option => `[data-decision] [data-decisions] [data-filter-option="${option}"]`;
