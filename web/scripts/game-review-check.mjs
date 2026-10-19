@@ -135,7 +135,21 @@ const server = createServer(createFixtureHandler({ root: dist, publicRoot: dist 
 const cases = browserChecks();
 let browser;
 const percent = weight => weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
-const shot = (page, name) => page.screenshot({ path: resolve(output, `${name}.png`), fullPage: true });
+/** A picture of the screen as it stands on a phone, and of the whole page
+ * elsewhere. The table's felt is fixed to the screen (app.css), and a
+ * picture of the whole page paints it only behind the part on the screen,
+ * leaving the rest washed out; so for such a picture the felt scrolls with
+ * the page. */
+async function shot(page, name) {
+  const path = resolve(output, `${name}.png`);
+  if (phoneSized(page)) return page.screenshot({ path });
+  const felt = await page.addStyleTag({ content: 'body { background-attachment: scroll !important; }' });
+  try {
+    return await page.screenshot({ path, fullPage: true });
+  } finally {
+    await felt.evaluate(style => style.remove());
+  }
+}
 const overflow = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1);
 /** Whether the page is the size of a phone, held either way, as the site's
  * layouts tell one. */
@@ -740,7 +754,8 @@ try {
 
     // The same overview at each size, the hands fitting the screen, and a
     // step by pointer at each. Only the size changes: emulating touch would
-    // reload the page, and the review with it.
+    // reload the page, and the review with it. A phone's picture is of the
+    // screen, so there are two: the table, and the player's own seat.
     let step = target;
     for (const [width, height] of [[1366, 768], [800, 1280], [390, 844], [320, 568], [844, 390]]) {
       await page.setViewport({ width, height });
@@ -754,8 +769,12 @@ try {
         `Your decision ${step + 1} of ${frames.length}`);
       await overviewIsRight(page, frames[step], step, frames.length);
       assert.notEqual(await focused(), 'the page', `focus stays in the replay at ${width}x${height}`);
-      await page.$eval('[data-decision] [data-overview]', el => el.scrollIntoView({ block: 'start' }));
+      await page.$eval('[data-decision] #overview-title', el => el.scrollIntoView({ block: 'start' }));
       await shot(page, `review-overview-${width}x${height}`);
+      if (phoneSized(page)) {
+        await page.$eval('[data-decision] [data-overview] .mine', el => el.scrollIntoView({ block: 'end' }));
+        await shot(page, `review-overview-${width}x${height}-yours`);
+      }
     }
 
     // Back to the list, by pointer: focus returns to the hand's own button.
@@ -1162,9 +1181,10 @@ try {
       assert.match(await page.$eval('.result-chip', el => el.textContent), /^Show result/);
       assert.ok(await tappable(page, standing), `the standings' button can be tapped at ${width}x${height}`);
       await shot(page, `game-review-phone-standings-${width}x${height}`);
-      // The full-page screenshot can leave the page scrolled elsewhere: in
-      // Chrome 155 at 320x568 it put the button under the result's chip, and
-      // the tap showed the result instead. So it is brought back first.
+      // A picture of the whole page could leave the page scrolled elsewhere:
+      // in Chrome 155 at 320x568 it put the button under the result's chip,
+      // and the tap showed the result instead. The picture is of the screen
+      // now, and the button is brought back first all the same.
       await page.$eval(standing, el => el.scrollIntoView({ block: 'center' }));
       assert.ok(await tappable(page, standing), `the standings' button can be tapped again at ${width}x${height}`);
       await page.tap(standing);
