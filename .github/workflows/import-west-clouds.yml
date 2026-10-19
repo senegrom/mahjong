@@ -40,7 +40,7 @@ jobs:
       - name: Commit only verified West integration
         shell: bash
         run: |
-          git rm -r .west-transfer
+          git rm -rf .west-transfer
           git add docs/design/van-gogh/README.md docs/design/van-gogh/west-wind-clouds.json docs/design/van-gogh/studies/29-west-wind-cloud-strokes-lighthouse-approved.svg web/public/tiles/van-gogh/README.md web/public/tiles/van-gogh/approved/Shaa.svg web/public/tiles/van-gogh/manifest.json web/public/tiles/van-gogh/preview.html web/scripts/export-van-gogh-tiles.mjs web/src/lib/van-gogh-faces.js web/tests/tile-faces.test.js web/tests/van-gogh-west-wind.test.js
           python3 - <<'PY'
           import subprocess
