@@ -473,22 +473,26 @@
   const REVIEW_NOT_BUILT = 'The review could not be built. Your match is unchanged.';
   const HAND_NOT_SAVED = 'The hand could not be saved to a file. Your current match is unchanged.';
   const GAME_NOT_SAVED = 'The game could not be saved to a file. Your current match is unchanged.';
+  // How a replay that failed begins; what follows names its error.
+  const NOT_REPLAYED = 'The game could not be replayed for review:';
 
   // Says beside the result's, the standings' or Export game's buttons
   // (`line`) why a press on one failed, or, once the same thing is done from
-  // any of them, takes back those words wherever they show, since they are
-  // no longer true; a different failure's words stay. Answers whether it was
-  // done, which tells the buttons whether to bring the line into view
-  // (ScoreScreen, Standings, AppSettings). On a phone the result is a sheet
-  // over the standings, whose buttons a keyboard or a screen reader still
-  // reaches beneath it, so a press there that fails has the sheet step
-  // aside, for its words and the button with focus to be seen (ScoreScreen).
-  function say(line, words, done) {
+  // any of them, takes back what was said of it wherever it shows, since it
+  // is no longer true; a different failure's words stay. What was said of it
+  // is the same words (`same`), or for a replay, which names its error, any
+  // reason it could not be replayed. Answers whether it was done, which
+  // tells the buttons whether to bring the line into view (ScoreScreen,
+  // Standings, AppSettings). On a phone the result is a sheet over the
+  // standings, whose buttons a keyboard or a screen reader still reaches
+  // beneath it, so a press there that fails has the sheet step aside, for
+  // its words and the button with focus to be seen (ScoreScreen).
+  function say(line, words, done, same = text => text === words) {
     if (!done) {
       failures[line] = words;
       if (line === 'standings') standingsFailures += 1;
     } else {
-      for (const other of Object.keys(failures)) if (failures[other] === words) failures[other] = '';
+      for (const other of Object.keys(failures)) if (failures[other] && same(failures[other])) failures[other] = '';
     }
     return done;
   }
@@ -555,7 +559,7 @@
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
       } catch (error) {
-        replayFailure = `The game could not be replayed for review: ${error?.message ?? error}. Your saved match is unchanged.`;
+        replayFailure = `${NOT_REPLAYED} ${error?.message ?? error}. Your saved match is unchanged.`;
         return false;
       }
     }
@@ -567,7 +571,7 @@
   function reviewGame(line) {
     if (!session?.over || session.closed) return;
     const opened = openGameReview();
-    return say(line, replayFailure, opened);
+    return say(line, replayFailure, opened, text => text.startsWith(NOT_REPLAYED));
   }
 
   // Back to the standings' own button, wherever the review was opened from:

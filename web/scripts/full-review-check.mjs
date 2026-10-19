@@ -74,7 +74,8 @@ const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_
  * default, Trained AI, which `trained` puts on offer; `failReview` has the
  * engine fail to build the hand's review, `failReplay` fail to replay the
  * match for the whole game's review once the page sets window.failReplay,
- * and `failSave` the browser fail to make any file; `statusLines` records
+ * numbering each failure in its error, and `failSave` the browser fail to
+ * make any file until the page sets window.failSave false; `statusLines` records
  * when each status line comes into the page and when its words arrive
  * (waited); `scrolls` notes every scroll the page asks for (scrollsAsked);
  * `locks` false takes away the Web Locks API, as some private windows do, so
@@ -131,7 +132,7 @@ async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,fil
   const plant=result=>{
    const real=result?.instance?.exports?.game_new;
    if(!real)return result;
-   const exports={...result.instance.exports,game_new(...args){if(window.failReplay)throw new Error('A planted replay failure');return real(...args);}};
+   const exports={...result.instance.exports,game_new(...args){if(window.failReplay)throw new Error(`A planted replay failure #${window.replayFailures=(window.replayFailures??0)+1}`);return real(...args);}};
    return {module:result.module,instance:{exports}};
   };
   for(const name of ['instantiateStreaming','instantiate']){
@@ -724,6 +725,33 @@ try{
    assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
    await shot(p,`result-replay-failure-${width}x${height}-${how}`);noErrors(p);
   }
+ });
+ // A replay can fail for another reason at each press, so what was said of
+ // it is taken back by what it says, not by its latest reason: the
+ // standings' line said the first reason, the result's the second, and the
+ // review then opened from the result.
+ await check('on a phone, a review opened from the result takes back the standings\' words that the game could not be replayed, whatever the reason',async()=>{
+  const p=await open(final.after,{width:390,height:844,reduced:true,failReplay:true});
+  await p.waitForSelector('.standings');
+  await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+  const standings=()=>p.$eval('.standings [data-standings-failure]',el=>el.textContent.trim());
+  await p.evaluate(()=>{window.failReplay=true;});
+  await shiftTabTo(p,'.standings [data-review-game]');await p.keyboard.press('Enter');
+  await p.waitForFunction(()=>document.querySelector('.standings [data-standings-failure]')?.textContent.trim(),{timeout:5000});
+  assert.match(await standings(),/planted replay failure #1\./,'the standings say the first reason');
+  await p.focus('.result-chip');await p.keyboard.press('Enter');
+  await p.waitForFunction(()=>document.activeElement?.matches('.screen'),{timeout:5000});
+  const button=await inReach(await p.$('.screen [data-review-game]')),line=await resultLine(p);
+  await button.focus();await p.keyboard.press('Enter');
+  await p.waitForFunction(el=>el.textContent.trim(),{timeout:5000},line);
+  assert.match(await line.evaluate(el=>el.textContent.trim()),/planted replay failure #2\./,'the result says the second reason');
+  await p.evaluate(()=>{window.failReplay=false;});
+  await p.keyboard.press('Enter');
+  await p.waitForSelector('[data-game-review]',{timeout:5000});
+  await p.click('[data-close-review]');
+  await p.waitForSelector('.standings',{timeout:5000});
+  assert.equal(await standings(),'','the standings\' line takes back its reason');
+  noErrors(p);
  });
  // On a phone the result is a sheet whose buttons stay at its foot over what
  // scrolls beneath them, so their row spans the sheet from edge to edge and

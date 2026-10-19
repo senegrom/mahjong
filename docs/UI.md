@@ -287,10 +287,10 @@ the page ends where it did before focus moved, at each of these sizes: at
 844x390 the browser's own scroll anchoring moves it 267 pixels as the
 standings come in after a press on the result's button, as it did. On a
 phone the controls' button lies mostly under the result's sheet, where a
-keyboard or a screen reader reaches it; at 390x844 a finger can also tap it in
-the 73 pixels between the game's bar and the sheet, and that tap is taken as a
-tap on the result's button: focus goes to the heading, the page does not move
-and the sheet stays.
+keyboard or a screen reader reaches it; at 390x844, once the page is scrolled
+to bring it there, a finger can also tap it in the 78 pixels between the game's
+bar and the sheet, and that tap is taken as a tap on the result's button: focus
+goes to the heading, the page does not move and the sheet stays.
 
 The standings' own **Save whole game** and **Review whole game** say a failure
 where they were pressed as well, from a status line of their own after their
