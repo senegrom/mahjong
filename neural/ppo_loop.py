@@ -14,6 +14,7 @@ three.
 
 from __future__ import annotations
 
+import bisect
 from concurrent.futures import Future, ThreadPoolExecutor
 import contextlib
 import json
@@ -385,6 +386,10 @@ class PlayAhead:
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="play-ahead")
         self.abandon = threading.Event()
         self.round: tuple[int, Future] | None = None
+        #: When each round still held here stopped being played, by its
+        #: generation: what the record of the learning it was played beside
+        #: is cut at (see `LearningClock`). Written by the worker.
+        self.ended: dict[int, float] = {}
 
     @property
     def playing(self) -> int | None:
@@ -427,6 +432,7 @@ class PlayAhead:
                 batch = self.play(self.actor, generation, own_draws=True, abandon=self.abandon)
         finally:
             torch.autocast_decrement_nesting()
+            self.ended[generation] = time.time()
         return batch, time.time() - began
 
     def take(self, generation: int):
@@ -438,7 +444,10 @@ class PlayAhead:
         future = self.round[1]
         self.round = None
         began = time.time()
-        batch, played = future.result()
+        try:
+            batch, played = future.result()
+        finally:
+            self.ended.pop(generation, None)
         waited = time.time() - began
         if self.stream is not None:
             # Whatever the round left queued is done before the learner's
@@ -463,6 +472,40 @@ class PlayAhead:
         self.abandon.set()
         self.round = None
         self.worker.shutdown(wait=True)
+
+
+class LearningClock:
+    """When a generation's learning began and when it took each optimiser
+    update, so that its record can say how much of the learning went on
+    beside the round played ahead (`PlayAhead`) and how much after that
+    round was done, and how many updates each part made: what playing a
+    round costs the learning beside it, which the card and the processors
+    the two share can each account for. It reads the clock and nothing
+    else."""
+
+    def __init__(self) -> None:
+        self.began = time.time()
+        self.updates: list[float] = []
+
+    def update(self) -> None:
+        """Notes an optimiser update, as it is taken."""
+        self.updates.append(time.time())
+
+    def split(self, ended: float | None, now: float | None = None) -> dict:
+        """The learning until `now`, cut where the round beside it ended:
+        `ended` is when it stopped being played, None for one still being
+        played, which the whole learning was beside, and the learning's
+        own beginning where no round was played beside it. Seconds and
+        updates, beside the round and after it."""
+        now = time.time() if now is None else now
+        cut = now if ended is None else min(max(ended, self.began), now)
+        beside = bisect.bisect_right(self.updates, cut)
+        return {
+            "learning_beside_round_seconds": round(cut - self.began, 1),
+            "learning_alone_seconds": round(now - cut, 1),
+            "updates_beside_round": beside,
+            "updates_alone": len(self.updates) - beside,
+        }
 
 
 _STAGING: dict[torch.device, torch.cuda.Stream] = {}
