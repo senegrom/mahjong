@@ -1,0 +1,46 @@
+name: Prepare selected Dali White Dragon A
+on:
+  push:
+    branches: [art/dali-white-a-prep-20261019]
+    paths:
+      - .dali-white-a-prep/**
+      - .github/workflows/prepare-dali-white-a.yml
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+      - name: Ensure the existing image exporter is available
+        run: |
+          if ! command -v convert >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+      - name: Integrate selected silk dragon and verify prior artwork
+        run: node .dali-white-a-prep/prepare.mjs
+      - name: Install verification dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts
+      - name: Run Dali and tile regressions
+        working-directory: web
+        run: node --test tests/dali-*.test.js tests/tile-faces.test.js
+      - name: Lint scoped exporter and tests
+        working-directory: web
+        run: npx eslint scripts/export-dali-tiles.mjs tests/dali-*.test.js tests/tile-faces.test.js --max-warnings 0
+      - name: Commit a clean verified tree on the preparation branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -r .dali-white-a-prep .github/workflows/prepare-dali-white-a.yml
+          git add docs/design/dali web/public/tiles/dali web/scripts/export-dali-tiles.mjs web/src/lib/dali-faces.js web/tests
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m 'Prepare selected silk White Dragon A with exact prior-art preservation'
+          git push origin HEAD:refs/heads/art/dali-white-a-prep-20261019
+          git rev-parse HEAD HEAD^{tree}
