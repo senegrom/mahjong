@@ -3,13 +3,27 @@
 ## Source of truth
 
 `web/src/lib/model-manifest.js` lists the published remote networks a player
-can pick, the default first, each by its version (such as 0.1.810) with its
-source, generation, precision, decoded byte count, stored byte count, origin,
-immutable object key, and SHA-256; `MANIFEST` is the default. Inspect those
-fields for the current release. `neural.export` checks the graph's operators;
-the publication tool `web/scripts/publish-model-r2.mjs` writes the delivery
-manifest, reading the precision from the exported weights and refusing to run
-without the source checkpoint's name. It uploads with an exact wrangler
+can pick, the default first, each by its version with its source, generation,
+the reward it learned from, precision, decoded byte count, stored byte count,
+origin, immutable object key, and SHA-256; `MANIFEST` is the default. It lists
+0.1.1110, the default since 19 October 2026, then 0.1.810 and 0.1.410, which
+the site played before it. Inspect those fields for the current release.
+
+The reward is what the network's value estimates, and the page names and
+explains the value by the reward of the network it plays: `{ "kind": "hybrid" }`
+for 810 and 410, a hand's points over 4,000 plus the game's placement bonus,
+and `{ "kind": "placement", "alpha": 0 }` for 1110, the bonus the scoreboard
+promises at the start of the next hand plus alpha times the hand's points over
+4,000, and after the game's last hand the bonus itself
+(`neural/train_combined.py --reward`, `neural/place_model.py`).
+
+`neural.export` checks the graph's operators; the publication tool
+`web/scripts/publish-model-r2.mjs` writes the delivery manifest, reading the
+precision from the exported weights and refusing to run without the source
+checkpoint's name or the reward the network learned from, given as its trainer
+was given it: `--reward hybrid`, or `--reward placement --alpha <weight>`.
+Every network it keeps listed keeps its reward, and it does not write over a
+manifest that lists a network without one. It uploads with an exact wrangler
 release, gzipped, under `models/g<generation>/<sha256>`, which
 `workers/model-cdn` serves to the page, and writes the manifest only after the
 upload, staged and atomically renamed: a failed upload leaves the previous
@@ -73,8 +87,13 @@ network and never beside another network download, or else by the update's
 own page after it starts, once per visit while connected. The update's
 network is the one its page will play for this player: the waiting worker
 reads the pick against its own list, and answers with its default when the
-player picked nothing or a version it no longer lists. A new version never
-plays a network it does not list, even one an earlier version left saved.
+player picked nothing or a version it no longer lists. The update that made
+1110 the default is the one exception: its pages drop every pick saved before
+it (settings record version 3), which its waiting worker cannot tell from the
+running page's message, so for a player who had picked 0.1.410 nothing new is
+saved ahead, and the update's own page saves 1110 once it runs, while
+connected. A new version never plays a network it does not list, even one an
+earlier version left saved.
 Normal waiting-worker activation is retained: there is no forced mid-match
 upgrade.
 
