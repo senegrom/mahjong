@@ -11,7 +11,8 @@
  */
 import { MatchSession } from './session.js';
 import { reviewWithStrong } from './review-policy.js';
-import { SEAT_NAMES } from './tiles.js';
+import { SEAT_NAMES, tileWords } from './tiles.js';
+import { quadOnOffer } from './ui.js';
 
 /** A decision is flagged when the player's move had under this weight... */
 export const FLAG_PLAYED_BELOW = 0.05;
@@ -267,6 +268,10 @@ export class MatchReview {
     const engine = this.replay.engine, signal = this.abort.signal;
     const notes = engine.review();
     if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed for review');
+    // Every player's tiles at each decision, the seats in the order the
+    // frame's view gives them. They are read from the review's own replay,
+    // which answers only once the hand is over, and never from the match.
+    const hands = notes.map((_, index) => engine.review_hands(index));
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
       batch: { size: BATCH, analyze: (positions, signal) => this.timed(positions, signal) },
@@ -274,7 +279,7 @@ export class MatchReview {
     });
     if (signal.aborted) throw new DOMException('Review changed', 'AbortError');
     hand.decisions = rows.map((row, index) => {
-      const decision = { ...row, hand: hand.index, index, frame: hand.frames[index] };
+      const decision = { ...row, hand: hand.index, index, frame: hand.frames[index], hands: hands[index] };
       decision.judgement = judgement(decision);
       // The review's numbers for the moves a player compares: what they
       // played, what the network chose and, where it is flagged, every turn
@@ -314,4 +319,45 @@ export class MatchReview {
 /** Whether a choice is the move of this kind and tile. */
 export function sameMove(choice, kind, tile) {
   return choice.kind === kind && (choice.tile ?? null) === (tile ?? null);
+}
+
+/** What each seat was doing at one of the player's decisions, in the order
+ * of the view's seats, as a replay's table marks it: the player to play, or
+ * to answer the tile another seat had just let go, and that seat. */
+export function seatNotes(view) {
+  const notes = view.seats.map(() => '');
+  if (view.phase === 'act') {
+    const turn = view.seats.findIndex(seat => seat.turn);
+    if (turn >= 0) notes[turn] = 'To play';
+  } else if (view.phase === 'call') {
+    notes[0] = 'To answer';
+    const from = view.seats.findIndex(seat => seat.seat === view.pending_from);
+    if (from > 0) notes[from] = quadOnOffer(view) ? 'Declared a kan' : 'Discarded';
+  }
+  return notes;
+}
+
+/** The table at a decision in a sentence, which a replay says as its step
+ * changes: whose move it was, how many tiles were left to draw, and whether
+ * the other players' tiles are shown. */
+export function tableSaid(view, shown) {
+  const tiles = `${view.wall} tile${view.wall === 1 ? '' : 's'} left`;
+  const move = view.phase === 'call' && view.pending_discard
+    ? `${SEAT_NAMES[view.pending_from] ?? 'An opponent'} ${quadOnOffer(view) ? 'declared a kan of' : 'discarded'} the ${tileWords(view.pending_discard)}`
+    : 'Your turn';
+  return `${move}, with ${tiles}. ${shown ? "Every player's tiles are shown." : "The other players' tiles are hidden."}`;
+}
+
+const MOVE_NAMES = { discard: 'Discard', riichi: 'Riichi', tsumo: 'Tsumo', ron: 'Ron', pon: 'Pon', chii: 'Chii',
+  kan: 'Kan', 'concealed-kan': 'Kan', 'extended-kan': 'Kan', pass: 'Pass' };
+
+/** A decision as the list of a hand's decisions gives it: the move in a
+ * word, the tile it concerns (the tile thrown or declared, or the discard
+ * an answer was to), and whether Trained AI agreed. A flagged decision says
+ * so; while it waits to be chosen again, that is all it says. */
+export function decisionInBrief(frame, decision, waiting = false) {
+  const { kind, tile } = frame.played;
+  const verdict = !decision ? '' : decision.judgement?.flagged ? (waiting ? 'flagged, choose again' : 'flagged')
+    : decision.forced ? 'only move' : decision.agreed ? 'matched' : 'differed';
+  return { move: MOVE_NAMES[kind] ?? kind, tile: frame.view.phase === 'call' ? frame.view.pending_discard : tile ?? null, verdict };
 }

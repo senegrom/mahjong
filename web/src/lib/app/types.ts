@@ -68,8 +68,16 @@ export interface OpponentDialogProps {
   opponents: Opponent[]; trainedAvailable: boolean; ready: boolean;
   saveConflict: string; startCustomTable: () => void;
 }
+/** One seat's concealed tiles at a past decision, as a review shows them. */
+export interface HiddenHand { seat: SeatName; player: number; hand: Tile[]; drawn: Tile | null }
 export interface MatchTableProps {
   view: GameView; hints: boolean; thinking: boolean; pendingOpponent: PendingOpponent | null;
+  /** A review's face-up tiles for every seat, in the order of view.seats, or null to keep them face down. */
+  hands?: HiddenHand[] | null;
+  /** What each seat was doing at a review's decision, in the same order, such as "To play". */
+  notes?: string[] | null;
+  /** A table drawn for a review names each opponent by where they sat. */
+  review?: boolean;
 }
 export interface PlayerHandProps {
   view: GameView; engine?: DiscardAnalyser | null; closed: boolean;
@@ -79,6 +87,12 @@ export interface PlayerHandProps {
   picked: number | null; selected: number | null;
   canDiscard: (tile: Tile) => boolean; selectTile: (tile: Tile, index: number) => void;
   syncHandFocus: (event: FocusEvent) => void; handElement?: HTMLDivElement | null;
+  /** What a screen reader calls the tiles; a review names them for the seat. */
+  handLabel?: string;
+  /** The tiles as a list, one of a review's four hands, rather than a group. */
+  listed?: boolean;
+  /** What the player was doing at a review's decision, such as "To play". */
+  note?: string;
 }
 export interface TurnChoicesProps {
   view: GameView; shownDora: Tile[]; busy: boolean; thinking: boolean;

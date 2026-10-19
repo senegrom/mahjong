@@ -430,6 +430,20 @@ pub struct MeasureView {
     pub dora: u8,
 }
 
+/// One player's concealed tiles at a recorded decision: what the table hid
+/// from the player then, which a review shows once the hand is over.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct HiddenHandView {
+    /// The seat wind: `"east"`, `"south"`, `"west"` or `"north"`.
+    pub seat: String,
+    /// Stable person identity, as the view's seats give it.
+    pub player: usize,
+    /// The concealed tiles, sorted, without the tile just drawn.
+    pub hand: Vec<String>,
+    /// The tile just drawn, held apart, while it is this seat's turn.
+    pub drawn: Option<String>,
+}
+
 /// One thing the player may do.
 #[derive(Serialize)]
 pub struct ActionView {
@@ -1451,6 +1465,51 @@ impl Game {
             danger: danger_name(note.danger_played).to_string(),
             dora: note.dora_played,
         }))
+    }
+
+    /// Every player's concealed tiles at a recorded decision, the deciding
+    /// player's seat first and then round the table in the order `view`
+    /// gives the seats, each with the tile just drawn held apart. A
+    /// whole-game review shows them beside the table as it stood.
+    ///
+    /// Answered only once the hand is over. While it is played they are the
+    /// tiles the table hides from the player, so they are refused then, as
+    /// `game_log` leaves out the hand in play.
+    pub fn review_hands(&self, index: usize) -> Result<JsValue, JsValue> {
+        let hands = self.hands_at(index).map_err(JsValue::from_str)?;
+        serde_wasm_bindgen::to_value(&hands).map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    /// What `review_hands` answers, before it is handed to the page. The
+    /// tiles are read from the position the decision was made from, which
+    /// the engine kept whole for the review.
+    fn hands_at(&self, index: usize) -> Result<Vec<HiddenHandView>, &'static str> {
+        if !matches!(self.hand.phase, Phase::Over) {
+            return Err("the hand is still being played");
+        }
+        let decision = self
+            .decisions
+            .get(index)
+            .ok_or("No recorded decision at this index")?;
+        let position = &decision.position;
+        Ok((0..4)
+            .map(|offset| {
+                let seat = decision.seat.plus(offset);
+                let mut tiles = position.players[seat.index()].hand;
+                // Only the seat whose turn it is holds a tile just drawn,
+                // as `drawn_tile` reads it for the view.
+                let drawn = position.drawn.filter(|_| position.turn == seat);
+                if let Some(tile) = drawn {
+                    tiles.remove(tile);
+                }
+                HiddenHandView {
+                    seat: wind_name(seat).to_string(),
+                    player: self.hand_seating[seat.index()],
+                    hand: tiles.tiles().map(|tile| tile.to_string()).collect(),
+                    drawn: drawn.map(|tile| tile.to_string()),
+                }
+            })
+            .collect())
     }
 
     /// The hand as an mjai event log, one JSON object per line.
@@ -3202,6 +3261,142 @@ mod game_log_tests {
             }
         }
         panic!("thirty games never covered every kind of event: {seen:?}");
+    }
+
+    /// What the view showed of one seat at one of the player's decisions.
+    struct SeatSeen {
+        seat: String,
+        player: usize,
+        hand_size: usize,
+        hand: Vec<String>,
+        drawn: Option<String>,
+    }
+
+    /// Where one of our tiles is counted in Mortal's thirty-four.
+    fn mortal_index(tile: &str) -> usize {
+        let ours: Tile = tile.parse().expect("one of our tiles");
+        riichi_core::mjai::name(ours)
+            .parse::<riichi::tile::Tile>()
+            .expect("Mortal reads every tile the log writes")
+            .as_usize()
+    }
+
+    /// Every player's concealed tiles at each of the player's decisions, as
+    /// a whole-game review shows them, against a rebuild that shares nothing
+    /// with the engine's own state: Mortal's reader follows the game's
+    /// events as they had been told by the decision, one state for each of
+    /// the four players, and each state's own tiles, the tile just drawn
+    /// among them, must be the ones the engine held. The seats come in the
+    /// view's order, the player's own exactly as the view showed it, and
+    /// every seat holds as many tiles as the view said. While the hand is
+    /// played the tiles are refused, since the table hides them.
+    #[test]
+    fn every_hand_at_every_decision_is_the_one_mortal_rebuilds_from_the_events() {
+        let tables: [fn(f64) -> Game; 3] = [
+            |seed| Game::new(seed, Some("club".into())),
+            |seed| Game::new(seed, Some("beginner".into())),
+            |seed| Game::with_opponents(seed, "beginner", "club", "beginner").expect("a table"),
+        ];
+        let (mut decisions, mut answers, mut drawn, mut called, mut quads) = (0, 0, 0, 0, 0);
+        for seed in 1..=6u32 {
+            let mut game = tables[seed as usize % tables.len()](f64::from(seed));
+            let mut states: [PlayerState; 4] =
+                std::array::from_fn(|player| PlayerState::new(player as u8));
+            let mut told = 0;
+            let mut seen: Vec<Vec<SeatSeen>> = Vec::new();
+            play_whole_game(&mut game, |game| {
+                if !game.hand_is_over() {
+                    assert_eq!(
+                        game.hands_at(0),
+                        Err("the hand is still being played"),
+                        "seed {seed}"
+                    );
+                    let view = game.table_view();
+                    seen.push(
+                        view.seats
+                            .into_iter()
+                            .map(|seat| SeatSeen {
+                                seat: seat.seat,
+                                player: seat.player,
+                                hand_size: seat.hand_size,
+                                hand: seat.hand,
+                                drawn: seat.drawn,
+                            })
+                            .collect(),
+                    );
+                    return;
+                }
+                // The last hand is seen once more as the game ends, with
+                // its decisions already compared.
+                if seen.is_empty() {
+                    return;
+                }
+                assert_eq!(game.decisions.len(), seen.len(), "seed {seed}");
+                for (index, (decision, view)) in game.decisions.iter().zip(&seen).enumerate() {
+                    for json in &game.mortal_events[told..decision.told] {
+                        let event: Read = serde_json::from_str(json).expect("Mortal reads it");
+                        for state in &mut states {
+                            state
+                                .update(&event)
+                                .unwrap_or_else(|error| panic!("seed {seed}: {error:?}\n{json}"));
+                        }
+                    }
+                    told = decision.told;
+                    let hands = game.hands_at(index).expect("the hand is over");
+                    assert_eq!(hands.len(), 4);
+                    assert_eq!(
+                        (&hands[0].hand, &hands[0].drawn),
+                        (&view[0].hand, &view[0].drawn),
+                        "seed {seed}: the player's own tiles as the view showed them"
+                    );
+                    for (hand, seat) in hands.iter().zip(view) {
+                        assert_eq!((&hand.seat, hand.player), (&seat.seat, seat.player));
+                        let held = hand.hand.len() + usize::from(hand.drawn.is_some());
+                        assert_eq!(held, seat.hand_size, "seed {seed}, {}", hand.seat);
+                        let mut counts = [0u8; 34];
+                        for tile in hand.hand.iter().chain(&hand.drawn) {
+                            counts[mortal_index(tile)] += 1;
+                        }
+                        let state = &states[hand.player];
+                        assert_eq!(
+                            counts,
+                            state.tehai(),
+                            "seed {seed}, decision {index}, {}: {:?} against Mortal's\n{}",
+                            hand.seat,
+                            hand,
+                            state.brief_info()
+                        );
+                        if let Some(tile) = &hand.drawn {
+                            let last = state.last_self_tsumo().map(|tile| tile.deaka().as_usize());
+                            assert_eq!(last, Some(mortal_index(tile)), "seed {seed}");
+                            drawn += 1;
+                        }
+                        if held < 13 && hand.player != view[0].player {
+                            called += 1;
+                        }
+                    }
+                    if matches!(decision.played, ReviewedMove::Call(_)) {
+                        answers += 1;
+                    }
+                    if decision.position.players.iter().any(|player| {
+                        player.melds.iter().any(|meld| meld.tiles().len() == 4)
+                    }) {
+                        quads += 1;
+                    }
+                    decisions += 1;
+                }
+                assert_eq!(
+                    game.hands_at(game.decisions.len()),
+                    Err("No recorded decision at this index")
+                );
+                seen.clear();
+            });
+        }
+        // Turns with a drawn tile, answers to discards, opponents holding
+        // fewer tiles for their calls, and quads on the table were all seen.
+        assert!(decisions > 500, "{decisions} decisions");
+        assert!(drawn > 0 && answers > 0 && called > 0 && quads > 0,
+            "{drawn} drawn tiles, {answers} answers, {called} opponents after a call, {quads} decisions with a quad");
     }
 
     /// Names go in by number and come out on one line whatever they hold;

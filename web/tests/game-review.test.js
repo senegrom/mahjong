@@ -11,15 +11,18 @@ await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', 
 
 
 /** A whole game, played to its standings by a player who takes every win,
- * declares every riichi and otherwise throws the tile just drawn. */
-function finishedGame(seed, opponents = 'beginner') {
+ * declares every riichi and otherwise throws the tile just drawn. With
+ * `calls` the player also declares every quad and calls every set offered. */
+function finishedGame(seed, opponents = 'beginner', { calls = false } = {}) {
   const match = new MatchSession(Game, seed, opponents);
   try {
     match.advance(false);
     for (let step = 0; step < 5000 && !match.over; step++) {
       if (match.engine.hand_is_over()) { match.apply({ type: 'next' }); match.advance(false); continue; }
       const choices = match.choices, drawn = match.view.seats[0].drawn;
-      const choice = choices.find(c => ['ron', 'tsumo', 'riichi'].includes(c.kind)) ?? choices.find(c => c.kind === 'pass')
+      const choice = choices.find(c => ['ron', 'tsumo', 'riichi'].includes(c.kind))
+        ?? (calls ? choices.find(c => ['concealed-kan', 'extended-kan', 'kan', 'pon', 'chii'].includes(c.kind)) : undefined)
+        ?? choices.find(c => c.kind === 'pass')
         ?? choices.find(c => c.kind === 'discard' && c.tile === drawn) ?? choices.find(c => c.kind === 'discard') ?? choices[0];
       match.apply({ type: 'choose', kind: choice.kind, tile: choice.tile ?? null }); match.advance(false);
     }
@@ -165,7 +168,7 @@ test('the whole game is reviewed in batches, and judged as the hand review judge
         const single = await reviewWithStrong(match.engine, match.engine.review(), async (planes, mask) => decisive(mask));
         assert.equal(hand.decisions.length, single.length);
         hand.decisions.forEach((decision, index) => {
-          const { hand: _hand, index: _index, frame, judgement: judged, measures: _measures, ...row } = decision;
+          const { hand: _hand, index: _index, frame, judgement: judged, measures: _measures, hands: _hands, ...row } = decision;
           assert.deepEqual(row, single[index]);
           assert.equal(frame, hand.frames[index]);
           assert.deepEqual(judged, judgement(row));
@@ -201,6 +204,91 @@ test('a flagged turn carries the review numbers of every move that was open, the
       assert.ok(checked > 0);
     } finally { match.dispose(); }
   } finally { review.dispose(); }
+});
+
+/** Each player's concealed tiles, the tile just drawn among them, rebuilt
+ * from a hand's mjai log by player number, which is all a replayer of the
+ * log has to go on: the deal, the draws, the discards and the tiles each
+ * call takes from the hand. */
+function tilesFromLog(log) {
+  const ours = name => ('ESWNPFC'.includes(name) ? `${'ESWNPFC'.indexOf(name) + 1}z` : name);
+  const held = [[], [], [], []];
+  const take = (actor, tiles) => {
+    for (const tile of tiles) {
+      const at = held[actor].indexOf(ours(tile));
+      assert.ok(at >= 0, `player ${actor} holds the ${tile} they give up`);
+      held[actor].splice(at, 1);
+    }
+  };
+  for (const event of log.split('\n').filter(Boolean).map(line => JSON.parse(line))) {
+    if (event.type === 'start_kyoku') held.splice(0, 4, ...event.tehais.map(tiles => tiles.map(ours)));
+    else if (event.type === 'tsumo') held[event.actor].push(ours(event.pai));
+    else if (event.type === 'dahai' || event.type === 'kakan') take(event.actor, [event.pai]);
+    else if (['chi', 'pon', 'daiminkan', 'ankan'].includes(event.type)) take(event.actor, event.consumed);
+  }
+  return held.map(tiles => tiles.sort());
+}
+
+test('every hand at every decision is the one its log rebuilds, and every tile of the set is accounted for', async () => {
+  // A game that throws its draws, and one that calls every set and declares
+  // every quad, so the hands shrink by calls and quads on both sides.
+  const calling = finishedGame(5, 'beginner', { calls: true });
+  let quads = 0, called = 0;
+  for (const snapshot of [game, calling]) {
+    const review = new MatchReview(Game, snapshot, { analyzeBatch: network() });
+    const match = new MatchSession(Game, snapshot.seed, snapshot.opponents);
+    try {
+      review.review();
+      await settled(review);
+      assert.ok(review.complete);
+      const byCommand = new Map(review.decisions.map(decision => [decision.frame.command, decision]));
+      let checked = 0;
+      match.advance(false);
+      for (const [at, command] of snapshot.commands.entries()) {
+        const decision = byCommand.get(at);
+        if (decision) {
+          // A replay of the game's commands on an engine of the test's own,
+          // read at the decision: its hand's log, and its table.
+          const { view } = decision.frame, rebuilt = tilesFromLog(match.engine.log());
+          assert.deepEqual(match.view, view, 'the frame is the table at the decision');
+          assert.equal(decision.hands.length, 4);
+          let counted = view.wall + 14;
+          decision.hands.forEach((held, slot) => {
+            const seat = view.seats[slot], tiles = [...held.hand, ...(held.drawn ? [held.drawn] : [])];
+            assert.deepEqual([held.seat, held.player], [seat.seat, seat.player], 'the seats in the order of the view');
+            assert.deepEqual([...tiles].sort(), rebuilt[seat.player], `${seat.seat} at ${decision.hand}:${decision.index}`);
+            assert.equal(tiles.length, seat.hand_size);
+            assert.ok(!held.drawn || seat.turn, 'only the seat whose turn it is holds a tile apart');
+            counted += tiles.length + seat.melds.reduce((sum, meld) => sum + meld.tiles.length, 0)
+              + seat.discards.filter(discard => !discard.claimed).length;
+            if (slot && seat.melds.length) called++;
+            if (seat.melds.some(meld => meld.tiles.length === 4)) quads++;
+          });
+          assert.deepEqual([decision.hands[0].hand, decision.hands[0].drawn], [view.seats[0].hand, view.seats[0].drawn],
+            "the player's own tiles as the table showed them");
+          // The hands, the sets, the discards still lying, the wall and the
+          // dead wall hold the whole set between them.
+          assert.equal(counted, 136, `${decision.hand}:${decision.index}`);
+          checked++;
+        }
+        match.apply(command);
+        match.advance(false);
+      }
+      assert.equal(checked, review.decisions.length, 'every decision of every hand');
+    } finally { review.dispose(); match.dispose(); }
+  }
+  assert.ok(called > 0 && quads > 0, `opponents after a call at ${called} decisions, a quad on the table at ${quads}`);
+});
+
+test('the hands at a decision are refused while that hand is still being played', () => {
+  const match = new MatchSession(Game, game.seed, game.opponents);
+  try {
+    match.advance(false);
+    const first = game.commands.findIndex(command => command.type === 'choose');
+    for (const command of game.commands.slice(0, first + 1)) { match.apply(command); match.advance(false); }
+    assert.equal(match.engine.review().length, 1);
+    assert.throws(() => match.engine.review_hands(0), /the hand is still being played/);
+  } finally { match.dispose(); }
 });
 
 test('a hand asked for out of order is reviewed first, and an earlier one after it replays from the deal', async () => {

@@ -7,7 +7,11 @@
   import { SEAT_NAMES as NAMES } from '../tiles.js';
   import { OPPONENT_POSITIONS } from '../opponents.js';
 
-  let { view, hints, thinking, pendingOpponent }: MatchTableProps = $props();
+  // A review draws the table as it stood at a past decision: `hands` puts
+  // each seat's concealed tiles face up, in the order of view.seats, `notes`
+  // says what each seat was doing, and `review` names each opponent by where
+  // they sat.
+  let { view, hints, thinking, pendingOpponent, hands = null, notes = null, review = false }: MatchTableProps = $props();
   // A review replays a hand on a second table while the match's own stays
   // on the page, so the dialog's title is named for its own table.
   const uid = $props.id();
@@ -21,8 +25,10 @@
 </script>
 
 <div class="board">
-  <div class="place across"><Seat seat={across} dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player} /></div>
-  <div class="place left"><Seat seat={left} dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player} /></div>
+  <div class="place across"><Seat seat={across} dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player}
+    hand={hands?.[2] ?? null} position={review ? OPPONENT_POSITIONS[1] : ''} note={notes?.[2] ?? ''} /></div>
+  <div class="place left"><Seat seat={left} dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player}
+    hand={hands?.[3] ?? null} position={review ? OPPONENT_POSITIONS[2] : ''} note={notes?.[3] ?? ''} /></div>
   <div class="centre" role="group" aria-label="the table">
     <div class="round-details">
       <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>Round</span></div>
@@ -49,7 +55,8 @@
       Discards
     </button>
   </div>
-  <div class="place right"><Seat seat={right} dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player} /></div>
+  <div class="place right"><Seat seat={right} dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player}
+    hand={hands?.[1] ?? null} position={review ? OPPONENT_POSITIONS[0] : ''} note={notes?.[1] ?? ''} /></div>
 </div>
 
 <dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="{uid}-title">
