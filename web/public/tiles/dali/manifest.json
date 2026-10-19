@@ -411,6 +411,23 @@
       }
     },
     {
+      "name": "Haku",
+      "tile": "5z",
+      "label": "White dragon",
+      "direction": "The Fold That Woke Up — A",
+      "status": "approved",
+      "svg": "approved/Haku.svg",
+      "source": "docs/design/dali/studies/white-dragon-a-approved.svg",
+      "sourceSha256": "019442ea211bf281e98271a692e115dd529ec68a288bfb9303fe7a43ee4a74cb",
+      "svgSha256": "019442ea211bf281e98271a692e115dd529ec68a288bfb9303fe7a43ee4a74cb",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1086,
+        "height": 1448
+      }
+    },
+    {
       "name": "Chun",
       "tile": "7z",
       "label": "Red dragon",
@@ -470,9 +487,6 @@
     },
     {
       "tile": "3z"
-    },
-    {
-      "tile": "5z"
     },
     {
       "tile": "6z"

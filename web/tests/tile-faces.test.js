@@ -82,8 +82,8 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('Dali resolves twenty-three approved images and no picture for the rest', () => {
-  const approved = new Set(['1p', '2p', '3p', '4p', '5p', '6p', '1s', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '7z']);
+test('Dali resolves twenty-four approved images and no picture for the rest', () => {
+  const approved = new Set(['1p', '2p', '3p', '4p', '5p', '6p', '1s', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '5z', '7z']);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'dali');
     if (!approved.has(tile)) {
@@ -93,7 +93,7 @@ test('Dali resolves twenty-three approved images and no picture for the rest', (
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
     assert.match(svg, /viewBox="0 0 300 400"/);
     assert.match(url, /\/dali\/approved\//);
-    assert.match(svg, ['2p', '4p', '6p', '3s', '4s'].includes(tile) ? /data:image\/avif;base64,/ : ['3s', '4s', '6s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
+    assert.match(svg, ['2p', '4p', '6p', '3s', '4s', '5z'].includes(tile) ? /data:image\/avif;base64,/ : ['3s', '4s', '6s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
   }
   assert.equal(tileImage('1p', 'dali'), 'tiles/dali/approved/Pin1.svg');
   assert.equal(tileImage('2p', 'dali'), 'tiles/dali/approved/Pin2.svg');
@@ -114,6 +114,7 @@ test('Dali resolves twenty-three approved images and no picture for the rest', (
   assert.equal(tileImage('9m', 'dali'), 'tiles/dali/approved/Man9.svg');
   assert.equal(tileImage('1z', 'dali'), 'tiles/dali/approved/Ton.svg');
   assert.equal(tileImage('4z', 'dali'), 'tiles/dali/approved/Pei.svg');
+  assert.equal(tileImage('5z', 'dali'), 'tiles/dali/approved/Haku.svg');
   assert.equal(tileImage('7z', 'dali'), 'tiles/dali/approved/Chun.svg');
 });
 
