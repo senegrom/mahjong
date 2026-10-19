@@ -481,18 +481,23 @@ fixture games from the hand's mjai log, through calls, quads, riichi and wins,
 and the engine's own test rebuilds them through Mortal's reader of the same
 events. An opponent's tiles take a row of fourteen with the drawn tile's gap,
 on a darker rack that sets them apart from the discards below, as large as
-their seat has room for, up to the size of their discards; where fourteen
-tiles of 12 pixels would not fit they wrap instead. On a phone held
-upright, three seats side by side would leave each hand a few tiles to a row,
-so there the opponents take the width of the screen, one under another in the
-order they play after the player, their discards a size larger than in play
-and their hands larger still. Measured in Chromium on 19 October 2026,
-stepping through a hand of the browser check's game, an opponent's tiles were
-18 to 20 pixels wide at 1100 by 900 and 20 to 22 at 1366 by 768, beside
-discards of 27 and the player's own tiles of 52; 22 at 390 by 844 and 17 at
-320 by 568, one opponent under another; and 15 held sideways at 844 by 390,
-three abreast. Every hand kept to one row, no page scrolled sideways, and the
-table with the player's seat took 800 to 1,020 pixels of height.
+their seat has room for: up to the size of their discards on a wide screen,
+and up to 24 pixels wide on a smaller one, larger than their discards there.
+Where one row would draw them under 18 pixels wide, they take two rows of
+seven instead, the drawn tile last, as the player's own hand does on a phone.
+On a phone held upright, three seats side by side would leave each hand a few
+tiles to a row, so there the opponents take the width of the screen, one
+under another in the order they play after the player, their discards a size
+larger than in play. Measured in Chromium on 19 October 2026 at each of the
+139 decisions of the browser check's game, an opponent's tiles were 18 to 20
+pixels wide on one row at 1100 by 900 and 20 to 22 at 1366 by 768, beside
+discards of 27 and the player's own tiles of 52; 22 on one row at 390 by 844
+and 24 on two at 320 by 568, one opponent under another; and 24 on two at
+800 by 1280 and held sideways at 844 by 390, three abreast. No page scrolled
+sideways. The table with the player's seat, the events since the previous
+decision open between them, took 682 to 1,106 pixels of height at 1100 by
+900, 687 to 1,111 at 1366 by 768, 651 to 1,012 at 800 by 1280, 656 to 1,235
+at 390 by 844, 762 to 1,287 at 320 by 568 and 532 to 899 at 844 by 390.
 
 **Replay and choose again.** A flagged decision opens at the position it was
 made from: the table as it stood, every player's hand, and what happened since
