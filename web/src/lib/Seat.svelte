@@ -236,7 +236,9 @@
      without its page scrolling sideways. 19 pixels are the thirteen gaps
      between the tiles, the drawn tile's own, and one to spare, so that
      widths rounded to the screen's pixels never push the last tile onto a
-     row of its own. */
+     row of its own. The tiles sit on a darker rack, which sets the hand
+     apart from the discards below it, tiles of much the same size; the
+     container's width is inside the rack's padding. */
   .revealed {
     --hand-cap: var(--hand-tile, var(--tile-width));
     container-type: inline-size;
@@ -245,7 +247,9 @@
     align-items: flex-end;
     gap: 1px;
     margin: 0;
-    padding: 0;
+    padding: 3px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, .3);
     list-style: none;
   }
   .revealed li { display: flex; --tile-width: max(24px, min(var(--hand-cap), calc((100cqi - 19px) / 7))); }
