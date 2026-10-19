@@ -1,0 +1,76 @@
+{
+  "tile": "5z",
+  "name": "Haku",
+  "title": "The Almond-Blossom Dragon",
+  "candidate": "Almond Blossom C",
+  "approval": "Carl requested three creative White Dragon options, selected C — The Almond-Blossom Dragon, and explicitly requested GitHub deployment. The selected standalone C image is the source for this replacement of Quiet Dragon L.",
+  "originalFile": "exec-c44d412f-88f2-4c5f-b8b1-d23c011487b2.png",
+  "originalSize": [
+    1086,
+    1448
+  ],
+  "originalSha256": "239586e0549d54448bdc9311191d5f0c37e65443de67e995035f4a2e34b47f6b",
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "canvas": {
+    "width": 300,
+    "height": 400
+  },
+  "aspectRatio": "3:4",
+  "stretch": 0,
+  "bleed": 0,
+  "processing": "Preserve the entire approved 1086 x 1448 PNG. Uniform Lanczos downsampling to 300 x 400 with Pillow 12.3.0, AVIF quality 70, 4:4:4 chroma, speed 4. The runtime adds the shared radius-26 rounded clipping, with zero stretch and zero extra bleed. The painting is not regenerated, repainted or recoloured.",
+  "rasterMimeType": "image/avif",
+  "rasterSha256": "386e76dda399be08f9ba7f179d2d2cd1bf56b450a963079e98b0435e47e1a29a",
+  "svgSha256": "587dcc3e3ed822653ed914d5e6b5781e928e9de8ae0927aef96dc6cdcba3d34c",
+  "avifQuality": 70,
+  "avifChroma": "4:4:4",
+  "avifSpeed": 4,
+  "source": "docs/design/van-gogh/studies/30-white-dragon-almond-blossom-c-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Haku.svg",
+  "sourceSvgSha256": "2e28efe18e5b576b1f4573509a3ef294d18e528c8ec774ac9920a1fc1dc3d44f",
+  "sourceResolutionNote": "The repository source SVG embeds a game-sized export of the selected standalone C image shown in the conversation. Its original filename, dimensions and checksum are recorded above. The runtime changes only the study image box to retain the full composition without bleed.",
+  "superseded": {
+    "candidate": "L",
+    "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+    "archivedPng": "docs/design/van-gogh/superseded/white-dragon-quiet-L-Haku.png",
+    "archivedSvg": "docs/design/van-gogh/superseded/white-dragon-quiet-L-Haku.svg",
+    "pngSha256": "00da99912d57e7e9704ae2ba8237118a202ebe1d9829cfbaba489b7bc8870994",
+    "svgSha256": "997076272a00d098d2bffe3ac9b886f7bd42e1c373b6d69522c8c707b6f20a05",
+    "previousManifestEntry": {
+      "candidate": "L",
+      "tile": "5z",
+      "name": "Haku",
+      "label": "White dragon",
+      "source": "docs/design/van-gogh/studies/02-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Haku.png",
+      "svg": "approved/Haku.svg",
+      "crop": {
+        "x": 838,
+        "y": 645,
+        "width": 380,
+        "height": 495
+      },
+      "fit": {
+        "painting": {
+          "width": 380,
+          "height": 495
+        },
+        "stretch": -0.02,
+        "anchor": 0.5,
+        "image": {
+          "x": -3.47,
+          "y": -4,
+          "width": 306.95,
+          "height": 408
+        }
+      },
+      "pngSha256": "00da99912d57e7e9704ae2ba8237118a202ebe1d9829cfbaba489b7bc8870994"
+    }
+  }
+}
