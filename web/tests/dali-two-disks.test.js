@@ -72,9 +72,9 @@ test('two disks preloads once while hidden tiles, other sets and named fallbacks
   for (const { tile } of set.placeholders) assert.equal(tileImage(tile, 'dali'), null);
 });
 
-test('two disks is registered for reproducible export and the twenty-three-face preview', () => {
-  assert.equal(set.tiles.length, 23);
-  assert.equal(set.placeholders.length, 11);
+test('two disks is registered for reproducible export and the twenty-four-face preview', () => {
+  assert.equal(set.tiles.length, 24);
+  assert.equal(set.placeholders.length, 10);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   assert.deepEqual([...set.tiles, ...set.placeholders].map(entry => entry.tile).sort(), [...TILE_TYPES].sort());
   assert.deepEqual(selected.crop, { x: 0, y: 0, width: 1086, height: 1448 });
@@ -83,6 +83,6 @@ test('two disks is registered for reproducible export and the twenty-three-face 
   const preview = read('web/public/tiles/dali/preview.html').toString();
   assert.ok(preview.includes('approved/Pin2.svg'));
   assert.ok(preview.includes('The Impossible Balance'));
-  assert.ok(preview.includes('23 approved faces'));
-  assert.ok(preview.includes('remaining 11 tiles show their names'));
+  assert.ok(preview.includes('24 approved faces'));
+  assert.ok(preview.includes('remaining 10 tiles show their names'));
 });

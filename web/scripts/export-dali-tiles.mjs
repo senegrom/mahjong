@@ -18,6 +18,7 @@ const definitions = [
   ['Pin4', '4p', '4 disks', 'The Soft Staircase — B', 'four-disks-b-approved.svg', [0, 0, 1086, 1448]],
   ['Pin5', '5p', '5 disks', 'Levitation', board, [441, 110, 374, 492]],
   ['Pin6', '6p', '6 disks', 'The Spiral Staircase — C', 'six-disks-c-spiral-approved.svg', [0, 0, 1086, 1448]],
+  ['Pin7', '7p', '7 disks', 'The Shell That Holds the Sea — A', 'seven-disks-a-shell-approved.svg', [0, 0, 1086, 1448]],
   ['Sou1', '1s', '1 bamboo', 'Stilt Bird', board, [847, 110, 372, 492]],
   ['Sou2', '2s', '2 bamboo', 'Elastic Growth', board, [36, 656, 372, 513]],
   ['Sou3', '3s', '3 bamboo', 'The Bamboo That Tied Itself — A', 'three-bamboo-a-approved.svg', [0, 0, 1086, 1448]],
@@ -36,6 +37,11 @@ const definitions = [
   ['Pei', '4z', 'North wind', 'The Wind-Carved Arch', 'north-wind-second-approved.svg', [0, 0, 300, 400]],
   ['Chun', '7z', 'Red dragon', 'Molten Ruby', board, [847, 656, 373, 513]],
 ];
+const onlyArgument = process.argv.find(argument => argument.startsWith('--only='));
+const onlyTiles = onlyArgument ? new Set(onlyArgument.slice(7).split(',')) : null;
+if (onlyTiles && [...onlyTiles].some(tile => !definitions.some(definition => definition[1] === tile))) {
+  throw new Error('Unknown tile in --only selection');
+}
 const facePresentation = { radius: 26, bleed: 3, preserveAspectRatio: 'none' };
 // The board's crops that are not 3:4 are cropped further to the face rather
 // than stretched to it, keeping their proportions to within 2% (see face-fit.mjs).
@@ -50,6 +56,7 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 mkdirSync(path.join(out, 'approved'), { recursive: true });
 
 for (const [name, tile, label, direction, sourceName, crop] of definitions) {
+  const selected = !onlyTiles || onlyTiles.has(tile);
   const source = `${studies}/${sourceName}`;
   const sourceBytes = readFileSync(path.join(root, source));
   const [x, y, width, height] = crop;
@@ -61,20 +68,21 @@ for (const [name, tile, label, direction, sourceName, crop] of definitions) {
   if (sourceName.endsWith('.svg')) {
     const svg = `approved/${name}.svg`;
     const face = fit ? placeStudyImage(sourceBytes, image) : sourceBytes;
-    writeFileSync(path.join(out, svg), face);
+    if (selected) writeFileSync(path.join(out, svg), face);
     manifest.tiles.push({ name, tile, label, direction, status: 'approved', svg, source,
       sourceSha256: hash(sourceBytes), svgSha256: hash(face), crop: { x, y, width, height }, ...fitted });
     continue;
   }
   // Standalone studies are complete 3:4 tiles; preserve their original PNG bytes.
-  const raster = sourceName !== board ? sourceBytes : execFileSync('convert', [
+  const raster = !selected ? readFileSync(path.join(out, `approved/${name}.png`))
+    : sourceName !== board ? sourceBytes : execFileSync('convert', [
     path.join(root, source), '-crop', `${width}x${height}+${x}+${y}`, '+repage', '-strip', 'PNG:-',
   ], { maxBuffer: 16 * 1024 * 1024 });
   const png = `approved/${name}.png`;
   const svg = `approved/${name}.svg`;
-  writeFileSync(path.join(out, png), raster);
+  if (selected) writeFileSync(path.join(out, png), raster);
   const markup = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Dali — ${direction}</title><defs><clipPath id="face"><rect width="300" height="400" rx="26"/></clipPath></defs><image clip-path="url(#face)" ${imageAttributes(image)} preserveAspectRatio="none" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`;
-  writeFileSync(path.join(out, svg), markup);
+  if (selected) writeFileSync(path.join(out, svg), markup);
   manifest.tiles.push({ name, tile, label, direction, status: 'approved', png, svg, source,
     sourceSha256: hash(sourceBytes), pngSha256: hash(raster), crop: { x, y, width, height }, ...fitted });
 }
@@ -93,6 +101,6 @@ const hand = ['Sou3', 'Sou4', 'Ton', 'Pei', 'Pin6', 'Sou9', 'Pin4', 'Pin2', 'Man
 writeFileSync(path.join(out, 'preview.html'), `<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Dali mahjong tiles</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#f2eadb;color:#29261e;font:16px/1.5 system-ui}main{max-width:1000px;margin:auto;padding:28px 18px}h1{margin:0}p{max-width:640px}.gallery{display:flex;flex-wrap:wrap;gap:24px}figure{margin:0;text-align:center}img{display:block}figcaption{margin-top:6px}small{display:block;color:#665a49}.scroll{overflow:auto;padding:8px 0 24px}.hand{display:flex;gap:2px;background:#163d35;padding:16px 8px;width:390px;border-radius:12px}.hand img{width:24px;height:32px;flex:none}</style>
-<main><h1>Dali</h1><p>${manifest.tiles.length} approved faces. Six disks uses C — The Spiral Staircase: the approved 3:4 portrait with six blue-and-green disks set into an ivory spiral tower over a floating island. The full 1086 × 1448 painting is retained without resizing or cropping. Two disks uses B — The Impossible Balance: the approved middle painting with a sapphire disk high on a soft ivory branch and a jade disk low over the salt flat, while the shadow remains a rigid straight beam. Ranks 1–6 of disks are complete. Four disks uses B — The Soft Staircase: four jade medallions on an impossible ivory staircase, including one melting over a step. The complete approved painting is embedded at its full 1086 × 1448 resolution without adding a tile background. Six bamboo uses C — The Impossible Reflection: the approved green-hued revision with six distinct bamboo stalks around a pool containing an impossible mountain landscape. The bamboo suit is complete. Three and four bamboo use the approved standalone high-resolution portraits at their full 1086 × 1448 pixel dimensions. Both embed full-dimension AVIF artwork; the 300 × 400 SVG viewBox controls game layout only. East wind uses The Dreaming East — the approved first plain-image composition, mechanically extracted without redrawing it or adding a tile background. North wind uses The Wind-Carved Arch — the selected second composition, with a sculptural 北 woven into its wind ribbons above the arch. Three bamboo uses A — The Bamboo That Tied Itself: three green stalks with an impossible knot in the central stem, using its approved high-resolution standalone portrait. Five characters uses A — Theatre of the Impossible; six characters uses B — The Runaway Shadow. Seven characters uses A — The Sleeping Seven; eight characters uses B — The Window in Reality; nine characters uses the corrected C — Sapphire Suspension. Eight bamboo uses Emerald Moonlit Seascape — the selected greener moonlit composition with eight green stalks and no red accents. Nine bamboo uses The Surreal Grove — varied green stems, a ruby centre and red leaf accents on a neutral full-bleed landscape. Seven bamboo uses The Dream Cabinet — one ruby and six jade bamboo cabinets. Five bamboo uses A — The Soft Grove. Three disks uses B — Time coming apart. Choose Options → Tile face → Dalí in the game. The remaining ${manifest.placeholders.length} tiles show their names until their artwork is approved.</p>
+<main><h1>Dali</h1><p>${manifest.tiles.length} approved faces. Seven disks uses A — The Shell That Holds the Sea: seven luminous pearls in a 3–1–3 arrangement inside a sea-filled shell, with a sailing-ship shadow. Its complete 1086 × 1448 portrait is retained without resizing or compositional cropping. Six disks uses C — The Spiral Staircase: the approved 3:4 portrait with six blue-and-green disks set into an ivory spiral tower over a floating island. The full 1086 × 1448 painting is retained without resizing or cropping. Two disks uses B — The Impossible Balance: the approved middle painting with a sapphire disk high on a soft ivory branch and a jade disk low over the salt flat, while the shadow remains a rigid straight beam. Ranks 1–7 of disks are complete. Four disks uses B — The Soft Staircase: four jade medallions on an impossible ivory staircase, including one melting over a step. The complete approved painting is embedded at its full 1086 × 1448 resolution without adding a tile background. Six bamboo uses C — The Impossible Reflection: the approved green-hued revision with six distinct bamboo stalks around a pool containing an impossible mountain landscape. The bamboo suit is complete. Three and four bamboo use the approved standalone high-resolution portraits at their full 1086 × 1448 pixel dimensions. Both embed full-dimension AVIF artwork; the 300 × 400 SVG viewBox controls game layout only. East wind uses The Dreaming East — the approved first plain-image composition, mechanically extracted without redrawing it or adding a tile background. North wind uses The Wind-Carved Arch — the selected second composition, with a sculptural 北 woven into its wind ribbons above the arch. Three bamboo uses A — The Bamboo That Tied Itself: three green stalks with an impossible knot in the central stem, using its approved high-resolution standalone portrait. Five characters uses A — Theatre of the Impossible; six characters uses B — The Runaway Shadow. Seven characters uses A — The Sleeping Seven; eight characters uses B — The Window in Reality; nine characters uses the corrected C — Sapphire Suspension. Eight bamboo uses Emerald Moonlit Seascape — the selected greener moonlit composition with eight green stalks and no red accents. Nine bamboo uses The Surreal Grove — varied green stems, a ruby centre and red leaf accents on a neutral full-bleed landscape. Seven bamboo uses The Dream Cabinet — one ruby and six jade bamboo cabinets. Five bamboo uses A — The Soft Grove. Three disks uses B — Time coming apart. Choose Options → Tile face → Dalí in the game. The remaining ${manifest.placeholders.length} tiles show their names until their artwork is approved.</p>
 <h2>At hand size</h2><div class="scroll"><div class="hand">${hand.map(name => `<img src="approved/${name}.svg" alt="${name}">`).join('')}</div></div>
 <h2>Approved artwork</h2><div class="gallery">${cards}</div></main></html>\n`);
