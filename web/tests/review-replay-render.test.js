@@ -136,7 +136,7 @@ test('another flagged decision of the hand offers its retry or its answer, and t
   assert.match(html, /data-choose-here=""/);
   assert.match(html, /data-reveal=""/);
   assert.doesNotMatch(html, /data-answer=|data-view=/);
-  assert.match(text(html), /Flagged: Trained AI gave (this move|this tile, once riichi was declared,) [\d.<]+%, and its own choice [\d.]+%\./);
+  assert.match(text(html), /Flagged: Trained AI gave (this move|this tile, once riichi was declared,) (&lt;)?[\d.]+%, and its own choice [\d.]+%\./);
   // The list holds every decision of the hand, each saying the move and
   // whether Trained AI agreed, the flagged ones saying so.
   const items = [...html.matchAll(/<button class="app-control[^"]*" data-step-to="(\d+)"[^>]*>([^]*?)<\/button>/g)]

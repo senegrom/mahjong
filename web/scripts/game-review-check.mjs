@@ -270,11 +270,14 @@ async function saysWhereItIs(page, key) {
 const overviewAt = page => page.evaluate(() => {
   const box = element => element.getBoundingClientRect();
   const hand = list => {
-    const tiles = [...list.querySelectorAll('.tile')];
+    const tiles = [...list.querySelectorAll('.tile')], seat = list.closest('.seat, .mine');
     return { label: list.getAttribute('aria-label'), seat: list.dataset.seatHand ?? null,
       names: tiles.map(tile => tile.getAttribute('aria-label')), tileWidth: Math.min(...tiles.map(tile => box(tile).width)),
       rows: new Set(tiles.map(tile => Math.round(box(tile).bottom))).size, overflows: list.scrollWidth > list.clientWidth + 1,
-      inside: box(list).left >= -0.5 && box(list).right <= innerWidth + 0.5 };
+      inside: box(list).left >= -0.5 && box(list).right <= innerWidth + 0.5,
+      // The rest of the seat: its discards, its sets and its riichi.
+      discards: seat.querySelectorAll('.pool .tile').length, melds: seat.querySelectorAll('.meld').length,
+      riichi: Boolean(seat.querySelector('.stick, .riichi')) };
   };
   const overview = document.querySelector('[data-decision] [data-overview]');
   return { opponents: [...overview.querySelectorAll('ul.revealed')].map(hand), own: hand(overview.querySelector('.hand[role="list"]')),
@@ -307,9 +310,13 @@ async function overviewIsRight(page, frame, step, steps) {
     assert.ok(slot > 0, `an opponent's seat: ${list.seat}`);
     assert.equal(list.label, `${SEAT_NAMES[list.seat]}'s tiles, ${OPPONENT_POSITIONS[slot - 1]} (${OPPONENT_LABELS[seats[slot].controller]})`);
     assert.deepEqual(unmarked(list.names), named(frame.hands[slot]), `${list.seat}'s tiles at step ${step + 1}`);
+    assert.deepEqual([list.discards, list.melds, list.riichi], [seats[slot].discards.length, seats[slot].melds.length, seats[slot].riichi],
+      `${list.seat}'s discards, sets and riichi at step ${step + 1}`);
   }
   assert.equal(shown.own.label, `${SEAT_NAMES[seats[0].seat]}'s tiles, yours`);
   assert.deepEqual(unmarked(shown.own.names), named(frame.hands[0]), `the player's own tiles at step ${step + 1}`);
+  assert.deepEqual([shown.own.discards, shown.own.melds, shown.own.riichi], [seats[0].discards.length, seats[0].melds.length, seats[0].riichi],
+    `the player's discards, sets and riichi at step ${step + 1}`);
   for (const list of [...shown.opponents, shown.own]) {
     assert.ok(!list.overflows && list.inside, `${list.label} keeps within its seat and the screen`);
   }
