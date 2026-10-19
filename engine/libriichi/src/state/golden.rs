@@ -99,7 +99,7 @@ struct Coverage {
 }
 
 impl Coverage {
-    fn add(&mut self, other: &Self) {
+    const fn add(&mut self, other: &Self) {
         self.rows += other.rows;
         self.three_shanten_discards += other.three_shanten_discards;
         self.early_three_shanten_discards += other.early_three_shanten_discards;

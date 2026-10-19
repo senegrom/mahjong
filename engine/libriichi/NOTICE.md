@@ -71,6 +71,20 @@ Local changes, all under the same licence:
   reproduce them to the bit. `src/state/mod.rs` registers the test, and
   `Cargo.toml` optimises the test profile, in which the games replay in
   seconds where an unoptimised build took minutes.
+- The efficiency lookahead, about twice as fast with every value the same
+  to the bit. `src/algo/shanten.rs` gains `Near`, the shanten of every hand
+  one tile away from a base hand: it looks the base's four groups up once
+  and combines each group's three others once, so that each neighbour costs
+  one lookup and one entry of a product where `calc_all` looked up and
+  combined all four groups again, and its comment says why each answer is
+  exactly `calc_all`'s; `near_is_calc_all` compares the two on random hands
+  (`NEAR_HANDS` sets how many). `src/algo/sp/state.rs` asks it in the scans
+  over the tiles that could be thrown or drawn, which made some eleven
+  thousand shanten calculations an observation; with
+  `sp_reproduce_cpp_ver` they still ask `calc_normal` afresh.
+  `draw_without_tegawari_slow` in `src/algo/sp/calc.rs` sums its draw
+  probabilities with the turns swapped, each sum still taking the same
+  terms in the same order.
 - Newer dependencies: `Cargo.toml` takes PyO3 and numpy 0.29 and pyo3-log
   0.13 for that port, then ndarray 0.17, rand and rand_chacha 0.10, sha3
   0.12 and indicatif 0.18, and adds the `half` crate, with numpy's `half`
