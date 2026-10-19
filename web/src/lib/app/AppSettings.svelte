@@ -328,8 +328,10 @@
     }
     h1 { margin-right: auto; font-size: 1rem; letter-spacing: .18em; white-space: nowrap; }
     .opponents { margin-left: 0; }
-    /* Wide enough to name the Trained network with its version, "Trained 0.1.810", clear of the chevron. */
-    .opponents select { min-height: 44px; width: 136px; max-width: 136px; padding: 5px 30px 5px 12px; font-size: .82rem; }
+    /* Wide enough to show the Trained network with its version, "Trained 0.1.1110", whole: a select cuts its
+       text off where its right padding, which holds the chevron, begins. Those sixteen characters take about
+       13.5 digit widths (ch) in the fonts phones and desktops draw them in; 44px is the padding and border. */
+    .opponents select { min-height: 44px; width: calc(14ch + 44px); max-width: calc(14ch + 44px); padding: 5px 30px 5px 12px; font-size: .82rem; }
     .settings-trigger {
       display: inline-flex;
       width: 44px;

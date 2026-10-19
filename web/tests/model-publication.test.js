@@ -28,7 +28,7 @@ test('interleaved publishers upload only their own immutable staged bytes', asyn
   let release, entered;
   const paused = new Promise(resolve => entered = resolve), gate = new Promise(resolve => release = resolve);
   const sent = [], staged = [];
-  const options = { generation: 36, source: 'test checkpoint', origin: 'https://model.invalid' };
+  const options = { generation: 36, source: 'test checkpoint', origin: 'https://model.invalid', reward: 'hybrid' };
   const a = publish({ ...options, modelPath: paths[0], manifestPath: join(dir, 'a.js'),
     upload: async (_bucket, key, file) => {
       staged.push(file); entered(); await gate;
@@ -50,7 +50,7 @@ test('invalid publication requests fail before uploading or changing the manifes
   const dir = await folder(t), manifestPath = join(dir, 'manifest.js');
   await fs.writeFile(manifestPath, 'previous manifest');
   let uploads = 0;
-  const good = { modelPath: join(dir, 'missing.onnx'), generation: 36, source: 'actor',
+  const good = { modelPath: join(dir, 'missing.onnx'), generation: 36, source: 'actor', reward: 'hybrid',
     origin: 'https://model.invalid', manifestPath, upload: () => uploads++ };
   for (const bad of [{ generation: undefined }, { generation: 'g36' }, { generation: null },
     { generation: true }, { generation: 1.5 }, { generation: -1 }, { generation: 2 ** 53 },
@@ -64,6 +64,15 @@ test('invalid publication requests fail before uploading or changing the manifes
     await assert.rejects(publish({ ...good, version }), /Invalid version/, String(version));
     assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
   }
+  // The reward is named as the network's trainer was given it: hybrid, or
+  // placement with its alpha, a number of 0 or more.
+  for (const [reward, alpha, reason] of [[undefined, undefined, /Name the reward/], ['mixed', undefined, /Name the reward/],
+    ['Hybrid', undefined, /Name the reward/], ['placement', undefined, /--alpha, the weight/],
+    ...[-1, -0.5, NaN, Infinity, '', '-1', 'x', '1e-2', '.5', null, true, [0]].map(alpha => ['placement', alpha, /Invalid --alpha/]),
+    ['hybrid', 0, /Only the placement reward/], ['hybrid', '0', /Only the placement reward/]]) {
+    await assert.rejects(publish({ ...good, reward, alpha }), reason, `${reward} ${String(alpha)}`);
+    assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
+  }
   assert.equal(uploads, 0);
 });
 
@@ -71,7 +80,7 @@ test('upload and pre-rename failures preserve the previous manifest and clean up
   const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
   await fs.writeFile(manifestPath, 'previous manifest'); await fs.writeFile(modelPath, network(1, 'model'));
   let staged;
-  await assert.rejects(publish({ modelPath, manifestPath, generation: 36, source: 'actor', origin: 'https://model.invalid',
+  await assert.rejects(publish({ modelPath, manifestPath, generation: 36, source: 'actor', reward: 'hybrid', origin: 'https://model.invalid',
     upload: (_bucket, _key, file) => { staged = file; throw new Error('upload failed'); } }), /upload failed/);
   await assert.rejects(fs.stat(staged), { code: 'ENOENT' });
   await assert.rejects(atomicManifest(manifestPath, 'complete new manifest', {
@@ -86,7 +95,7 @@ test('upload and pre-rename failures preserve the previous manifest and clean up
 test('the manifest records the precision the weights are stored in, or nothing is published', async t => {
   const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
   let uploads = 0;
-  const request = { modelPath, manifestPath, generation: 36, source: 'actor', origin: 'https://model.invalid',
+  const request = { modelPath, manifestPath, generation: 36, source: 'actor', reward: 'hybrid', origin: 'https://model.invalid',
     upload: () => { uploads++; } };
   for (const [type, precision] of [[1, 'float32'], [3, 'int8'], [10, 'float16']]) {
     await fs.writeFile(modelPath, network(type, `weights of type ${type}`));
@@ -112,7 +121,7 @@ async function imported(path) {
 test('a published network becomes the default and every network listed before it stays listed', async t => {
   const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
   const sent = [];
-  const request = { modelPath, manifestPath, source: 'actor', origin: 'https://model.invalid',
+  const request = { modelPath, manifestPath, source: 'actor', reward: 'hybrid', origin: 'https://model.invalid',
     upload: (_bucket, key) => { sent.push(key); } };
   const published = [];
   for (const generation of [36, 410, 810]) {
@@ -126,15 +135,36 @@ test('a published network becomes the default and every network listed before it
   assert.deepEqual(listed.map(entry => ({ ...entry })), [...published].reverse(), 'each keeps its whole identity');
   assert.deepEqual(sent, published.map(entry => entry.object));
   for (const entry of listed) {
-    assert.deepEqual(Object.keys(entry), ['version', 'source', 'generation', 'precision', 'bytes', 'storedBytes', 'origin', 'object', 'sha256']);
+    assert.deepEqual(Object.keys(entry), ['version', 'source', 'generation', 'reward', 'precision', 'bytes', 'storedBytes', 'origin', 'object', 'sha256']);
     assert.equal(entry.object, `models/g${entry.generation}/${entry.sha256}`);
   }
   assert.deepEqual(await listedNetworks(manifestPath), [...published].reverse());
 });
 
+test('each network records the reward it learned from, as its trainer was given it, and keeps it on every later publication', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  const request = { modelPath, manifestPath, origin: 'https://model.invalid', upload: () => {} };
+  const rewards = async () => (await listedNetworks(manifestPath)).map(entry => [entry.version, entry.reward]);
+  // As the command line gives them, --alpha as text, and as a script would.
+  for (const [generation, reward, alpha] of [[410, 'hybrid'], [810, 'hybrid'], [1110, 'placement', '0'], [1210, 'placement', 0.05]]) {
+    await fs.writeFile(modelPath, network(1, `weights of generation ${generation}`));
+    await publish({ ...request, generation, source: `run/gen-${generation}`, reward, alpha });
+  }
+  const placement = alpha => ({ kind: 'placement', alpha }), hybrid = { kind: 'hybrid' };
+  assert.deepEqual(await rewards(), [['0.1.1210', placement(0.05)], ['0.1.1110', placement(0)], ['0.1.810', hybrid], ['0.1.410', hybrid]]);
+  // As the page imports them, each reward frozen with its network.
+  const { NETWORKS: listed } = await imported(manifestPath);
+  for (const entry of listed) assert.ok(Object.isFrozen(entry) && Object.isFrozen(entry.reward), entry.version);
+  // Publishing a listed network again as the default moves it first and
+  // changes no network's reward.
+  await fs.writeFile(modelPath, network(1, 'weights of generation 810'));
+  await publish({ ...request, generation: 810, source: 'run/gen-810', reward: 'hybrid' });
+  assert.deepEqual(await rewards(), [['0.1.810', hybrid], ['0.1.1210', placement(0.05)], ['0.1.1110', placement(0)], ['0.1.410', hybrid]]);
+});
+
 test('a listed version is replaced, listed bytes published again become the default, and a version may be named', async t => {
   const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
-  const request = { modelPath, manifestPath, source: 'actor', origin: 'https://model.invalid', upload: () => {} };
+  const request = { modelPath, manifestPath, source: 'actor', reward: 'hybrid', origin: 'https://model.invalid', upload: () => {} };
   const versions = async () => (await listedNetworks(manifestPath)).map(entry => [entry.version, entry.sha256]);
   await fs.writeFile(modelPath, network(1, 'generation 410'));
   const older = await publish({ ...request, generation: 410 });
@@ -157,7 +187,7 @@ test('a listed version is replaced, listed bytes published again become the defa
 
 test('the same network under a second version, or a manifest that is not a list, changes nothing', async t => {
   const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
-  const request = { modelPath, manifestPath, generation: 410, source: 'actor', origin: 'https://model.invalid', upload: () => {} };
+  const request = { modelPath, manifestPath, generation: 410, source: 'actor', reward: 'hybrid', origin: 'https://model.invalid', upload: () => {} };
   await fs.writeFile(modelPath, network(1, 'generation 410'));
   await publish(request);
   const before = await fs.readFile(manifestPath, 'utf8');
@@ -165,9 +195,15 @@ test('the same network under a second version, or a manifest that is not a list,
   assert.equal(await fs.readFile(manifestPath, 'utf8'), before);
   // A manifest it cannot read as whole networks would lose every network
   // players picked if it were written over.
+  const [listed] = await listedNetworks(manifestPath);
   for (const [text, reason] of [['previous manifest', /could not be read/], ['export const NETWORKS = [];', /lists no networks/],
     ['export const NETWORKS = [{ "version": "0.1.1" }];', /network whose source is not valid/],
-    [manifestSource([{ ...(await listedNetworks(manifestPath))[0], object: 'models/g1/elsewhere' }]), /network whose object is not valid/]]) {
+    [manifestSource([{ ...listed, object: 'models/g1/elsewhere' }]), /network whose object is not valid/],
+    // A network listed without the reward it learned from could not be
+    // described to players, so its entry is not whole.
+    ...[undefined, 'hybrid', { kind: 'hybrid', alpha: 0 }, { kind: 'placement' }, { kind: 'placement', alpha: '0' },
+      { kind: 'placement', alpha: -1 }, { kind: 'hybrid', note: 'mixed' }].map(reward =>
+      [manifestSource([{ ...listed, reward }]), /network whose reward is not valid/])]) {
     await fs.writeFile(manifestPath, text);
     await assert.rejects(publish(request), reason);
     assert.equal(await fs.readFile(manifestPath, 'utf8'), text);

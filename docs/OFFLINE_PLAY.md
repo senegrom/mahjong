@@ -9,7 +9,7 @@ Beginner or Club opponents.** Play becomes available once the engine and selecte
 face set are ready; this does not mean the full offline package has finished.
 
 Only the trained network and its runtime are optional. The network is the one
-picked under **Game settings → Trained network**, 0.1.810 unless another was
+picked under **Game settings → Trained network**, 0.1.1110 unless another was
 picked; the offline panel's Trained AI line names it, and after picking
 another, wait for **Offline: game + AI ready** again before flying. Trained
 opponents are the default for a new player, so a first match starts their
@@ -164,9 +164,12 @@ cache isolation and failed upgrades.
 The cold-restart checks also refuse game assets at the HTTP server, so ordinary
 HTTP caching cannot conceal a missing offline file. Existing small-phone layout
 assertions remain part of verification.
-`scripts/network-picker-check.mjs` picks 0.1.410 in the production build and
-then the default again, and checks that each page asks for its own network's
-address alone, names it, and that the real service worker reports on it;
+`scripts/network-picker-check.mjs` picks each listed network but the default
+in the production build and then the default again, and checks that each page
+asks for its own network's address alone, names it, and that the real service
+worker reports on it, and that settings saved before 1110 (record version 2)
+play the default whatever they picked, keep every other choice and resume
+their match;
 unit tests run the worker with several listed networks, picked, saved,
 updated and pruned.
 

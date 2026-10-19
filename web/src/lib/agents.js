@@ -6,7 +6,7 @@ import { trainedName } from './trained-network.js';
 export const AGENTS = Object.freeze({ beginner: 'Beginner', club: 'Club', full: 'Trained' });
 export const isTrained = agent => agent === 'full';
 /** An agent as a mode names it where it is picked, followed or advises:
- * "Club", or "Trained 0.1.810" with the version of the network this page plays. */
+ * "Club", or "Trained 0.1.1110" with the version of the network this page plays. */
 export const agentName = agent => isTrained(agent) ? trainedName() : AGENTS[agent];
 
 export async function evaluateAgent(engine, agent, signal) {
@@ -28,7 +28,8 @@ export async function evaluateAgent(engine, agent, signal) {
     if (!choice) throw new Error('The agent did not return a legal choice');
     return { agent, choice, kind: 'policy',
       // What the network makes of the position beside the move: what it
-      // thinks the hand is worth, and what it thinks the other three hold.
+      // expects the reward it learned from to come to (valueWords names that
+      // reward), and what it thinks the other three hold.
       // How many concealed tiles each of them holds turns a guessed share of
       // a hand into a guessed number of copies.
       value: readValue(value),

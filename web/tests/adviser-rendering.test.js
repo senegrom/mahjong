@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { render } from 'svelte/server';
-import { MANIFEST } from '../src/lib/model-manifest.js';
+import { MANIFEST, NETWORKS } from '../src/lib/model-manifest.js';
+import { playNetwork } from '../src/lib/trained-network.js';
 import { componentLoader, moduleUrl, svelteModule } from './fixtures/load-component.js';
 
 // Render the production presentation components. Only Tile, for its artwork,
@@ -62,14 +63,34 @@ test('zero conditional probability is not confused with missing data or an unsco
   assert.doesNotMatch(body, /Not evaluated/);
 });
 
-test('training reward has explicit mixed units and is hidden when unavailable', async () => {
-  const body = await html('AgentWeights.svelte', { analysis: analysis({ value: -1.25 }) });
-  assert.match(body, /Estimated training reward −1\.25/);
-  assert.match(body, /point change ÷ 4,000/); assert.match(body, /final placement bonus/);
-  assert.match(body, /not a predicted finishing place, place gain or win probability/);
-  assert.doesNotMatch(body, /Hand worth|in places at the table/);
-  const absent = await html('AgentWeights.svelte', { analysis: analysis({ value: null }) });
-  assert.doesNotMatch(absent, /Estimated training reward|point change ÷/);
+test('the value is named and explained by the reward the network the page plays learned from, and hidden when unavailable', async t => {
+  t.after(() => playNetwork(undefined));
+  const shown = async version => {
+    playNetwork(version);
+    return html('AgentWeights.svelte', { analysis: analysis({ value: -1.25 }) });
+  };
+  // 810 and 410 learned from the hybrid reward, in mixed units.
+  for (const version of ['0.1.810', '0.1.410']) {
+    const body = await shown(version);
+    assert.match(body, /Estimated training reward −1\.25/);
+    assert.match(body, new RegExp(`Trained ${version.replaceAll('.', '\\.')} learned from a mixed reward`));
+    assert.match(body, /point change ÷ 4,000/); assert.match(body, /final placement bonus/);
+    assert.match(body, /not a predicted finishing place, place gain or win probability/);
+    assert.doesNotMatch(body, /Hand worth|in places at the table|placement alone/);
+  }
+  // 1110 was last trained on placement alone: no points term, no mixed units.
+  const body = await shown('0.1.1110');
+  assert.match(body, /title="Estimated placement bonus, not a win probability">Estimated placement reward −1\.25</);
+  assert.match(body, /Trained 0\.1\.1110 was last trained on placement alone/);
+  assert.match(body, /the placement bonus \(\+1\.5 for first, \+0\.5 for second, −0\.5 for third and −1\.5 for fourth\) the scoreboard promises when its hand ends, or after the game(’|'|&#39;)s last hand the bonus itself\./);
+  assert.match(body, /Points count only through the places they win/);
+  assert.doesNotMatch(body, /training reward|÷ 4,000|mixed|finishing place/);
+  // With no value nothing is said of one, whichever network plays.
+  for (const network of NETWORKS) {
+    playNetwork(network.version);
+    const absent = await html('AgentWeights.svelte', { analysis: analysis({ value: null }) });
+    assert.doesNotMatch(absent, /Estimated|reward-help|learned from/);
+  }
 });
 
 test('built-in selection does not acquire percentages or a riichi probability group', async () => {
@@ -77,7 +98,7 @@ test('built-in selection does not acquire percentages or a riichi probability gr
     choices: [{ ...reachA, weight: 1 }, { ...discard, weight: 0 }] } });
   assert.match(body, /Selected/);
   assert.match(body, /<strong>Club<\/strong>/);
-  assert.doesNotMatch(body, /<meter |\d\.\d%|Riichi declaration weight|Estimated training reward/);
+  assert.doesNotMatch(body, /<meter |\d\.\d%|Riichi declaration weight|Estimated (training|placement) reward/);
 });
 
 test('trained advice names the network that gave it by version', async () => {

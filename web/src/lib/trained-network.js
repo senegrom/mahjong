@@ -40,5 +40,42 @@ export const playedNetwork = () => playing;
  * build's page will, so a waiting update saves the network its page plays. */
 export const pickedVersion = () => picked;
 
-/** How the page names the network it plays: "Trained 0.1.810". */
+/** How the page names the network it plays: "Trained 0.1.1110". */
 export const trainedName = (name = 'Trained') => `${name} ${playing.version}`;
+
+// The placement bonus, best place to worst: the winner bonus of the rules,
+// which every reward the networks learned from pays (riichi-core's
+// PLACEMENT_VALUE).
+const BONUS = '+1.5 for first, +0.5 for second, −0.5 for third and −1.5 for fourth';
+
+/** What the page calls a network's value and what it says the value is,
+ * where the decision weights show it. The value is the network's estimate of
+ * the reward it learned from, which differs between networks, so it is read
+ * in that reward's units: the manifest records the reward as the network's
+ * trainer was given it (neural/train_combined.py --reward and --alpha). */
+export function valueWords(network = playing) {
+  const name = `Trained ${network.version}`;
+  const { kind, alpha } = network.reward ?? {};
+  if (kind === 'hybrid') return {
+    label: 'Estimated training reward',
+    title: 'Estimated mixed training reward, not an expected finishing place or win probability',
+    help: `${name} learned from a mixed reward: each decision earns its hand's point change ÷ 4,000 plus the game's final placement bonus (${BONUS}). This is not a predicted finishing place, place gain or win probability.`,
+  };
+  if (kind === 'placement') {
+    // The scoreboard's promise is the bonus its trainer expected from the
+    // scores, the hand of the game, the dealer, the counters, the sticks on
+    // the table and who holds each seat (neural/place_model.py). With alpha
+    // above nought the hand's points count beside it.
+    const points = alpha > 0 ? `, plus ${alpha} × its hand's point change ÷ 4,000` : '';
+    return {
+      label: 'Estimated placement reward',
+      title: 'Estimated placement bonus, not a win probability',
+      help: `${name} was last trained on ${points ? 'placement and points' : 'placement alone'}: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself${points}.${points ? '' : ' Points count only through the places they win.'} This is the network's estimate, not a win probability.`,
+    };
+  }
+  return {
+    label: 'Estimated training reward',
+    title: 'Estimated training reward, not a win probability',
+    help: `${name}'s estimate of the reward it learned from. This is not a win probability.`,
+  };
+}
