@@ -35,6 +35,18 @@
  * button under the result, by keyboard, it must leave the page as the
  * result's own button does, with the result's chip bringing it back, focus
  * and all.
+ *
+ * Before the end, any hand's result opens the review of the game so far,
+ * restored from a save waiting at that result. It must ask Trained AI about
+ * the hand just played first, then about the rest from the first deal, every
+ * group once; lead with that hand, whose own row replays it and takes focus
+ * back from the replay; keep the game out of the trend; and come back to the
+ * result as it was, with focus on the button that opened it, by keyboard and
+ * pointer at desktop and phone sizes, where the sheet must be up again with
+ * no chip, and held sideways, where the button shows beside the table. Next
+ * hand on the last hand stops it, and the standings' review must then ask
+ * about no hand it reviewed before; a game every hand of which was reviewed
+ * at the last result must join the trend as Next hand ends it, once.
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -81,6 +93,19 @@ function finishedGame(seed, { calls = false } = {}) {
 }
 const snapshot = finishedGame(5), callingGame = finishedGame(5, { calls: true });
 const hands = scanMatch(Game, snapshot);
+/** The match as it was saved after its first `count` commands: waiting at a
+ * hand's result where `count` is that hand's end. */
+function savedAfter(finished, count) {
+  const match = new MatchSession(Game, finished.seed, finished.opponents);
+  try {
+    match.advance(false);
+    for (const command of finished.commands.slice(0, count)) { match.apply(command); match.advance(false); }
+    return match.snapshot();
+  } finally { match.dispose(); }
+}
+// The tile-throwing game waiting at the result of its third hand, and at the
+// result of its last, before the Next hand that ends it.
+const midway = savedAfter(snapshot, hands[2].end), lastResult = savedAfter(snapshot, hands.at(-1).end);
 // What the engine says about every decision, read off a replay at each
 // hand's end: its legal moves, both of Mortal's masks, and how each of
 // Mortal's moves translates back.
@@ -102,6 +127,43 @@ const facts = hands.map(hand => {
     });
   } finally { match.dispose(); }
 });
+
+/** Walks the batches the review sent, asking about the hands of `order` in
+ * that order: a hand at a time, eight decisions a group, forced moves
+ * unasked, then each group's declarations. Every batch must be the group it
+ * stands for, asked from the decisions' own positions, and answered. Says the
+ * network's answers to each decision, and how many batches were walked, so
+ * that a caller can tell whether any was missing or extra. */
+function walkBatches(batches, order) {
+  const first = new Map(), second = new Map();
+  let cursor = 0;
+  for (const hand of order) {
+    const decisions = facts[hand];
+    for (let start = 0; start < decisions.length; start += BATCH) {
+      const group = decisions.map((_, index) => index).slice(start, start + BATCH).filter(index => !decisions[index].forced);
+      if (!group.length) continue;
+      const batch = batches[cursor++];
+      assert.equal(batch?.count, group.length, `hand ${hand}, group from ${start}`);
+      assert.ok(batch.answers, 'every batch was answered');
+      group.forEach((index, slot) => {
+        assert.deepEqual(batch.mask.slice(slot * 46, (slot + 1) * 46), decisions[index].mask, 'the decision was asked from its own position');
+        first.set(`${hand}:${index}`, batch.answers[slot]);
+      });
+      const reaching = group.filter((_, slot) => batch.answers[slot].action === MORTAL_REACH);
+      const asked = reaching.filter(index => legalCount(decisions[index].reachMask) > 1);
+      if (asked.length) {
+        const named = batches[cursor++];
+        assert.equal(named?.count, asked.length);
+        asked.forEach((index, slot) => second.set(`${hand}:${index}`, named.answers[slot]));
+      }
+      for (const index of reaching.filter(index => !asked.includes(index))) {
+        const only = decisions[index].reachMask.indexOf(1);
+        second.set(`${hand}:${index}`, { action: only, weights: decisions[index].reachMask });
+      }
+    }
+  }
+  return { first, second, walked: cursor };
+}
 
 /** Each decision judged from the network's answers alone, as the review is
  * documented to judge it. */
@@ -189,8 +251,10 @@ const tappable = (page, selector) => page.$eval(selector, element => {
  * Trained AI out of reach and never downloads it. `answerDelay` holds each
  * batch the review sends that many milliseconds before the worker has it, as
  * a slower device would take, and `trend` is the games the trend holds from
- * before. */
-async function openPage(width, height, { touch = false, network = true, saved = snapshot, answerDelay = 0, trend = null } = {}) {
+ * before. `ready` is what the page is waited for by: the standings' review,
+ * or for a match saved at a hand's result, that result's. */
+async function openPage(width, height, { touch = false, network = true, saved = snapshot, answerDelay = 0, trend = null,
+  ready = '.standings [data-review-game]' } = {}) {
   const page = await (await cases.openContext(browser)).newPage();
   page.errors = [];
   page.on('pageerror', error => page.errors.push(error.message));
@@ -232,7 +296,7 @@ async function openPage(width, height, { touch = false, network = true, saved = 
     };
   }, SAVE_KEY, SETTINGS_KEY, saved, answerDelay, TREND_KEY, trend);
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`, { waitUntil: 'networkidle0' });
-  await page.waitForSelector('.standings [data-review-game]');
+  await page.waitForSelector(ready);
   return page;
 }
 
@@ -246,13 +310,14 @@ const focusedDecision = page => page.evaluate(() => {
   return active?.dataset.open ?? (!active || active === document.body ? 'the page' : active.outerHTML.slice(0, 80));
 });
 
-/** Opens the review and has it go through the whole game unheld, however
- * slow the device: Continue asks for the whole game, as a player who wants
- * all of it would. Both are pressed without moving focus, which stays where
- * the review put it. The standings' button is pressed where it is, which on
- * a phone held upright is under the result's sheet. */
-async function reviewWholeGame(page) {
-  await page.$eval('.standings [data-review-game]', button => button.click());
+/** Opens the review and has it go through every hand unheld, however slow
+ * the device: Continue asks for every hand, as a player who wants all of it
+ * would. Both are pressed without moving focus, which stays where the review
+ * put it. The review is opened from `from`: the standings' button by
+ * default, pressed where it is, which on a phone held upright is under the
+ * result's sheet, or a result's own. */
+async function reviewWholeGame(page, from = '.standings [data-review-game]') {
+  await page.$eval(from, button => button.click());
   await page.waitForSelector('[data-game-review] [data-stop-review]');
   await page.$eval('[data-game-review] [data-stop-review]', button => button.click());
   await page.waitForSelector('[data-game-review] [data-continue]');
@@ -408,7 +473,8 @@ async function overviewIsRight(page, frame, step, steps) {
   return shown;
 }
 
-/** Waits for every hand to be reviewed, going on past a slow device's hold. */
+/** Waits for every hand to be reviewed, of the game so far or of the whole
+ * game, going on past a slow device's hold. */
 async function reviewed(page) {
   const deadline = Date.now() + 300000;
   while (Date.now() < deadline) {
@@ -416,7 +482,7 @@ async function reviewed(page) {
       headline: document.querySelector('[data-game-review] .headline')?.textContent ?? '',
       rest: Boolean(document.querySelector('[data-game-review] [data-rest]')),
     }));
-    if (state.headline.startsWith('Every hand is reviewed')) return;
+    if (/^Every hand (so far )?is reviewed/.test(state.headline)) return;
     assert.doesNotMatch(state.headline, /The review stopped/, state.headline);
     if (state.rest) await page.click('[data-game-review] [data-rest]');
     await new Promise(done => setTimeout(done, 500));
@@ -442,36 +508,11 @@ try {
     await page.waitForFunction(() => document.activeElement?.matches('[data-game-review] h3'), { timeout: 5000 });
     assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Where you departed most from Trained AI');
 
-    // Every batch, in the order the review asks: a hand at a time, eight
-    // decisions a group, forced moves unasked, then each group's declarations.
+    // Every batch, in the order the review asks: a finished game's from its
+    // first deal.
     const batches = await page.evaluate(() => window.reviewBatches);
-    const first = new Map(), second = new Map();
-    let cursor = 0;
-    facts.forEach((decisions, hand) => {
-      for (let start = 0; start < decisions.length; start += BATCH) {
-        const group = decisions.map((_, index) => index).slice(start, start + BATCH).filter(index => !decisions[index].forced);
-        if (!group.length) continue;
-        const batch = batches[cursor++];
-        assert.equal(batch?.count, group.length, `hand ${hand}, group from ${start}`);
-        assert.ok(batch.answers, 'every batch was answered');
-        group.forEach((index, slot) => {
-          assert.deepEqual(batch.mask.slice(slot * 46, (slot + 1) * 46), decisions[index].mask, 'the decision was asked from its own position');
-          first.set(`${hand}:${index}`, batch.answers[slot]);
-        });
-        const reaching = group.filter((_, slot) => batch.answers[slot].action === MORTAL_REACH);
-        const asked = reaching.filter(index => legalCount(decisions[index].reachMask) > 1);
-        if (asked.length) {
-          const named = batches[cursor++];
-          assert.equal(named?.count, asked.length);
-          asked.forEach((index, slot) => second.set(`${hand}:${index}`, named.answers[slot]));
-        }
-        for (const index of reaching.filter(index => !asked.includes(index))) {
-          const only = decisions[index].reachMask.indexOf(1);
-          second.set(`${hand}:${index}`, { action: only, weights: decisions[index].reachMask });
-        }
-      }
-    });
-    assert.equal(cursor, batches.length, 'no batch is missing or extra');
+    const { first, second, walked } = walkBatches(batches, facts.map((_, hand) => hand));
+    assert.equal(walked, batches.length, 'no batch is missing or extra');
 
     const verdicts = facts.flatMap((decisions, hand) => decisions.map((fact, index) => {
       const key = `${hand}:${index}`;
@@ -1242,6 +1283,202 @@ try {
       }), 'the result', `the chip hands focus to the result at ${width}x${height}`);
       assert.deepEqual(page.errors, []);
     }
+  });
+
+  await cases.check('after a hand, its result opens the review of the game so far, which asks Trained AI about that hand first and leads with it, keeps the game out of the trend, and comes back to the result, by keyboard and pointer at desktop and phone sizes', async () => {
+    const button = '.screen [data-review-game]', latest = hands[2], where = page => `at ${page.viewport().width}x${page.viewport().height}`;
+    const focused = (page, selector) => page.evaluate(selector => Boolean(document.activeElement?.matches(selector)), selector);
+    /** Back from the review, which goes, to the result's button, which has
+     * focus again, with the table and the result shown as they were. */
+    const backOnResult = page => page.waitForFunction(selector => !document.querySelector('[data-game-review]')
+      && document.activeElement?.matches(selector), { timeout: 5000 }, button);
+    // A game reviewed before this one, for the trend to say when this one
+    // joins it.
+    let page = await openPage(1100, 900, { saved: midway, ready: button,
+      trend: [{ id: 'earlier', network: MANIFEST.version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100, flagged: 4 }] });
+    // The result takes focus as it appears; its button is pressed after it,
+    // by keyboard.
+    await page.waitForFunction(() => document.activeElement?.matches('.screen'));
+    assert.equal(await page.$eval(button, el => el.textContent.trim()), 'Review game so far');
+    await page.focus(button);
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    assert.equal(await page.$eval('#game-review-title', el => el.textContent), 'Your game so far, looked at again');
+    assert.equal(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none', 'the table and the result step aside');
+    assert.equal(await page.$eval('[data-game-review] [data-close-review]', el => el.textContent.trim()), 'Back to the result');
+    // It leads with the hand just played.
+    assert.equal(await page.$eval('[data-game-review] [data-latest-hand]', el => Number(el.dataset.latestHand)), latest.index);
+    assert.equal(await page.$eval('[data-game-review] [data-latest-hand] .name', el => el.textContent), latest.name);
+    await reviewed(page);
+
+    // Every batch: the hand just played first, then the others from the
+    // first deal, each group once.
+    const batches = await page.evaluate(() => window.reviewBatches);
+    assert.equal(walkBatches(batches, [latest.index, 0, 1]).walked, batches.length, 'no batch is missing or extra');
+    const total = hands.slice(0, latest.index + 1).reduce((sum, hand) => sum + hand.frames.length, 0);
+    assert.equal(await page.$eval('[data-game-review] .headline', el => el.textContent),
+      `Every hand so far is reviewed: ${total} decision${total === 1 ? '' : 's'}.`);
+    // The game so far is not a game for the trend, which says when it joins.
+    const trend = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), TREND_KEY);
+    assert.deepEqual(trend.games.map(game => game.id), ['earlier'], 'the game so far is not in the trend');
+    assert.match(await page.$eval('[data-trend]', el => el.textContent), /This game joins your trend once the game is over and every hand is reviewed\./);
+    await shot(page, 'game-review-so-far');
+
+    // The hand just played, replayed whole from its own row by keyboard,
+    // with every hand face up, and back to the row's button.
+    await page.focus('[data-game-review] [data-replay-latest]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'decision-title', { timeout: 5000 });
+    assert.equal(await page.$eval('#decision-title', el => el.textContent), `${latest.name}, decision by decision`);
+    await overviewIsRight(page, latest.frames[0], 0, latest.frames.length);
+    await page.focus('[data-decision] [data-back]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-game-review] [data-replay-latest]'), { timeout: 5000 });
+
+    // Back to the result as it was, with focus on the button that opened the
+    // review, and the save untouched.
+    await page.focus('[data-game-review] [data-close-review]');
+    await page.keyboard.press('Enter');
+    await backOnResult(page);
+    assert.notEqual(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none', 'the table and the result are back');
+    assert.ok(await tappable(page, button), 'the button is in view, uncovered');
+    const { _storage, ...save } = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
+    assert.deepEqual(save, midway, 'the save is unchanged');
+    assert.deepEqual(page.errors, []);
+    await closePage(page);
+
+    // On a phone the result is a sheet over the table, its button "Review
+    // game", and the review comes back to the sheet, up as it was left, with
+    // no chip and focus on that button. Only the way in and out is looked at
+    // here, so Trained AI is out of reach and the review only waits for it.
+    for (const [width, height] of [[390, 844], [320, 568]]) {
+      page = await openPage(width, height, { touch: true, network: false, saved: midway, ready: button });
+      assert.equal(await page.$eval('.screen', el => getComputedStyle(el).position), 'fixed', `the result is a sheet ${where(page)}`);
+      assert.equal(await page.$eval(button, el => el.innerText.trim()), 'Review game', `the short label ${where(page)}`);
+      assert.ok(await tappable(page, button), `the sheet's button can be tapped ${where(page)}`);
+      await page.tap(button);
+      await page.waitForSelector('[data-game-review]');
+      await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+      await page.tap('[data-game-review] [data-close-review]');
+      await backOnResult(page);
+      assert.notEqual(await page.$eval('.screen', el => getComputedStyle(el).display), 'none', `the sheet is up again ${where(page)}`);
+      assert.equal(await page.$('.result-chip'), null, `with no chip ${where(page)}`);
+      assert.ok(await tappable(page, button), `the sheet's button is uncovered ${where(page)}`);
+      await shot(page, `game-review-so-far-${width}x${height}`);
+      assert.deepEqual(page.errors, []);
+      await closePage(page);
+    }
+
+    // By keyboard on a phone: the sheet has focus as it appears, Tab reaches
+    // its button, and Back to the result follows the review's heading.
+    page = await openPage(390, 844, { network: false, saved: midway, ready: button });
+    await page.waitForFunction(() => document.activeElement?.matches('.screen'));
+    for (let presses = 0; presses < 20 && !await focused(page, button); presses++) await page.keyboard.press('Tab');
+    assert.ok(await focused(page, button), "Tab reaches the sheet's button at 390x844");
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    await page.keyboard.press('Tab');
+    assert.ok(await focused(page, '[data-game-review] [data-close-review]'), 'Back to the result follows the heading');
+    await page.keyboard.press('Enter');
+    await backOnResult(page);
+    assert.notEqual(await page.$eval('.screen', el => getComputedStyle(el).display), 'none', 'the sheet is up again at 390x844');
+    assert.ok(await tappable(page, button), "the sheet's button is uncovered at 390x844");
+    assert.deepEqual(page.errors, []);
+    await closePage(page);
+
+    // Held sideways the result sits beside the table rather than over it,
+    // and offers the review all the same: unlike the final hand's buttons
+    // for the whole game, which the standings beside it repeat, nothing else
+    // offers this one.
+    page = await openPage(844, 390, { touch: true, network: false, saved: midway, ready: button });
+    assert.notEqual(await page.$eval('.screen', el => getComputedStyle(el).position), 'fixed');
+    assert.notEqual(await page.$eval(button, el => getComputedStyle(el).display), 'none', 'the button is shown at 844x390');
+    await page.$eval(button, el => el.scrollIntoView({ block: 'center' }));
+    assert.ok(await tappable(page, button), 'the button can be tapped at 844x390');
+    await page.tap(button);
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    await page.tap('[data-game-review] [data-close-review]');
+    await backOnResult(page);
+    assert.ok(await tappable(page, button), 'the button is in view again at 844x390');
+    await shot(page, 'game-review-so-far-844x390');
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("a review of the game so far goes on into the whole game's: Next hand stops it, the hands it reviewed are not asked again, and the game joins the trend once, as it ends", async () => {
+    const button = '.screen [data-review-game]', standing = '.standings [data-review-game]';
+    const id = `${snapshot.seed}:${snapshot.commands.length}`;
+    const trendIds = page => page.evaluate(key => (JSON.parse(localStorage.getItem(key)) ?? { games: [] }).games.map(game => game.id), TREND_KEY);
+    const sent = page => page.evaluate(() => window.reviewBatches.length);
+    /** Back to the last hand's result by keyboard, and its Next hand, which
+     * ends the game and hands focus on to the standings' heading. */
+    async function backAndOn(page) {
+      await page.focus('[data-game-review] [data-close-review]');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(selector => !document.querySelector('[data-game-review]') && document.activeElement?.matches(selector),
+        { timeout: 5000 }, button);
+      await page.focus('.screen .primary');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.activeElement?.matches('.standings h2'), { timeout: 5000 });
+    }
+
+    // Each batch reaches the worker a second late, so that the review is
+    // still under way at Next hand, however fast the machine, and it goes
+    // through the hands unheld, as a player who asks for all of them has it.
+    let page = await openPage(1100, 900, { saved: lastResult, ready: button, answerDelay: 1000 });
+    await page.waitForFunction(() => document.activeElement?.matches('.screen'));
+    await reviewWholeGame(page, button);
+    // The hand just played is asked about first: once it is reviewed, its
+    // row offers its replay while the hands before it are reviewed.
+    await page.waitForSelector('[data-game-review] [data-replay-latest]', { timeout: 300000 });
+    assert.ok(await page.$('[data-game-review] [data-stop-review]'), 'the review goes on to the earlier hands');
+    await backAndOn(page);
+    // The deal that ended the game stopped the review, which asks nothing
+    // more until it is opened again.
+    const stopped = await sent(page);
+    await new Promise(done => setTimeout(done, 2500));
+    assert.equal(await sent(page), stopped, 'no batch is sent while the review is shut');
+    assert.deepEqual(await trendIds(page), [], 'a game not reviewed whole is not in the trend');
+    await page.click(standing);
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    assert.equal(await page.$eval('#game-review-title', el => el.textContent), 'Your game, looked at again');
+    assert.equal(await page.$('[data-game-review] [data-latest-hand]'), null, 'a finished game leads with no hand');
+    // The hands reviewed before Next hand, read before the review could
+    // finish another, a batch taking a second to reach the worker: none of
+    // them is asked about again, and every other hand is, once, from the
+    // first deal.
+    const done = await page.$$eval('[data-game-review] [data-replay-hand]', buttons => buttons.map(entry => Number(entry.dataset.replayHand)));
+    assert.ok(done.includes(hands.at(-1).index), `the last hand was reviewed before the game ended: ${done.join(', ')}`);
+    await reviewed(page);
+    const after = (await page.evaluate(() => window.reviewBatches)).slice(stopped);
+    const rest = hands.map(hand => hand.index).filter(index => !done.includes(index));
+    assert.equal(walkBatches(after, rest).walked, after.length, `only hands ${rest.join(', ')} are asked about, each once`);
+    assert.deepEqual(await trendIds(page), [id], 'the game joins the trend once, whole');
+    assert.equal(await page.$eval('[data-game-review] [data-close-review]', el => el.textContent.trim()), 'Back to the standings');
+    await page.click('[data-game-review] [data-close-review]');
+    await page.waitForFunction(selector => !document.querySelector('[data-game-review]') && document.activeElement?.matches(selector),
+      { timeout: 5000 }, standing);
+    assert.deepEqual(page.errors, []);
+    await closePage(page);
+
+    // Every hand reviewed at the last hand's result: the game joins the
+    // trend as Next hand ends it, before any review is opened, and the
+    // standings' review asks about nothing again.
+    page = await openPage(1100, 900, { saved: lastResult, ready: button });
+    await page.waitForFunction(() => document.activeElement?.matches('.screen'));
+    await page.click(button);
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    await reviewed(page);
+    assert.deepEqual(await trendIds(page), [], 'the game so far is not in the trend');
+    await backAndOn(page);
+    assert.deepEqual(await trendIds(page), [id], 'the game joins the trend as it ends');
+    const asked = await sent(page);
+    await page.click(standing);
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    assert.match(await page.$eval('[data-game-review] .headline', el => el.textContent), /^Every hand is reviewed: \d+ decisions?\.$/);
+    await new Promise(done => setTimeout(done, 500));
+    assert.equal(await sent(page), asked, 'nothing is asked again');
+    assert.deepEqual(await trendIds(page), [id], 'and the game is in the trend once');
+    assert.deepEqual(page.errors, []);
   });
 } finally {
   await browser?.close();

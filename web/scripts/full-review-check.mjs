@@ -726,6 +726,37 @@ try{
    await shot(p,`result-replay-failure-${width}x${height}-${how}`);noErrors(p);
   }
  });
+ // Every hand's result offers the review of the game so far, at every size,
+ // and says on its own line that the game could not be replayed for it, as
+ // for its other buttons: the pressed button keeps focus, no review opens,
+ // and on a phone the sheet stays up and the page where it was.
+ await check('a game the result could not replay for its review so far is said beside its buttons, and its button keeps focus',async()=>{
+  const words=/^The game could not be replayed for review: .+\. Your saved match is unchanged\.$/;
+  for(const [width,height,how] of [[1100,900,'mouse'],[1100,900,'keyboard'],[390,844,'touch'],[390,844,'keyboard'],[320,568,'touch'],[844,390,'touch']]){
+   const touch=how==='touch',p=await open(wins[0],{width,height,touch,reduced:true,failReplay:true}),where=`at ${width}x${height} by ${how}`;
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+   const line=await resultLine(p);
+   assert.ok(line,`the result has a line for it before the press ${where}`);
+   assert.equal(await line.evaluate(el=>el.textContent.trim()),'',`the line waits empty ${where}`);
+   const button=await inReach(await p.$('.screen [data-review-game]')),before=await p.evaluate(()=>{window.failReplay=true;return scrollY;});
+   assert.equal(await button.evaluate(el=>el.textContent.trim()),'Review game so far',`the result offers the review of the game so far ${where}`);
+   if(how==='keyboard'){await button.focus();await p.keyboard.press('Enter');}else await pointerPress(p,button,touch);
+   await p.waitForFunction(el=>el.textContent.trim(),{timeout:5000},line).catch(()=>{});
+   await settle(p);
+   assert.match(await line.evaluate(el=>el.isConnected?el.textContent.trim():''),words,`the result's line says why ${where}`);
+   assert.equal(await p.evaluate(source=>[...document.querySelectorAll('[role="status"],[role="alert"]')]
+    .filter(el=>new RegExp(source).test(el.textContent.trim())&&!el.closest('.screen')).length,words.source),0,`nothing says it elsewhere ${where}`);
+   assert.ok(await uncovered(line),`the words are in view, uncovered, ${where}`);
+   assert.ok(await button.evaluate(el=>el.isConnected&&el===document.activeElement),`the button stays, with focus, ${where}`);
+   assert.equal(await p.$('[data-game-review]'),null,`no review opens ${where}`);
+   if(sheet){
+    assert.equal(await sheetShown(p),true,`the result stays up ${where}`);
+    assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
+   }
+   await shot(p,`result-replay-so-far-failure-${width}x${height}-${how}`);noErrors(p);
+  }
+ });
  // A replay can fail for another reason at each press, so what was said of
  // it is taken back by what it says, not by its latest reason: the
  // standings' line said the first reason, the result's the second, and the
