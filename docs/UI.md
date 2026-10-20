@@ -442,12 +442,16 @@ can happen.
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the
 first deal, on an engine of the review's own; the replay must end exactly where
-the match did, or the review refuses to start. At the end of each hand the
-review asks the questions the hand review asks (`review-policy.js`), eight
-positions a forward pass: Mortal's planes for each decision as it was made,
-then, where the network declares riichi, which tile it would discard. A move
-with one legal choice, such as the discard after riichi, is not asked and is
-left out of every figure.
+the match did, or the review refuses to start and says why ("The game could
+not be replayed for review: The replay did not end where the match did. Your
+saved match is unchanged."). A replay that ends where the match did, but in a
+hand still being played, is refused too ("A hand is still being played"),
+though a review opens only at a result. At the end of each hand the review
+asks the questions the hand review asks (`review-policy.js`), eight positions
+a forward pass: Mortal's planes for each decision as it was made, then, where
+the network declares riichi, which tile it would discard. A move with one
+legal choice, such as the discard after riichi, is not asked and is left out
+of every figure.
 
 **How decisions are ranked.** A decision is flagged when the player's move had
 under 5% of Trained AI's weight while its own choice had 60% or more, so a

@@ -142,8 +142,8 @@ test('a finished match replays hand by hand, with the table at every decision an
   }
   assert.ok(hands.some(hand => hand.frames.some(frame => frame.lines.length)), 'the history between decisions is kept');
   const moved = { ...game, state: game.state.replace(/"score":(\d+)/, (_, score) => `"score":${Number(score) + 100}`) };
-  assert.throws(() => scanMatch(Game, moved), /could not be replayed/);
-  assert.throws(() => scanMatch(Game, { ...game, commands: game.commands.slice(0, -1) }), /could not be replayed/);
+  assert.throws(() => scanMatch(Game, moved), /^Error: The replay did not end where the match did$/);
+  assert.throws(() => scanMatch(Game, { ...game, commands: game.commands.slice(0, -1) }), /^Error: The replay did not end where the match did$/);
 });
 
 test("a match waiting at a hand's result replays to that hand as the finished match has it, and a hand in play is refused", () => {
@@ -163,8 +163,13 @@ test("a match waiting at a hand's result replays to that hand as the finished ma
   // result, and before any move at all.
   const first = game.commands.findIndex(command => command.type === 'choose');
   for (const count of [first + 1, scanMatch(Game, game)[0].end + 1, 0]) {
-    assert.throws(() => scanMatch(Game, savedAfter(game, count)), /could not be replayed/, `after ${count} commands`);
+    assert.throws(() => scanMatch(Game, savedAfter(game, count)), /^Error: A hand is still being played$/, `after ${count} commands`);
   }
+  // A replay that went another way says so, though it stopped in a hand too.
+  const playing = savedAfter(game, first + 1);
+  const astray = { ...playing, state: playing.state.replace(/"score":(\d+)/, (_, score) => `"score":${Number(score) + 100}`) };
+  assert.notEqual(astray.state, playing.state);
+  assert.throws(() => scanMatch(Game, astray), /^Error: The replay did not end where the match did$/);
 });
 
 test('every hand of a game has a name of its own, a repeated hand told apart by its honba', () => {

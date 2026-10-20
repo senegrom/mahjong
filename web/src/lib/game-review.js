@@ -86,10 +86,15 @@ export function scanMatch(Game, snapshot) {
       hand ??= begin();
       close(snapshot.commands.length);
     }
-    // A replay that ends in a hand being played, or in one just dealt, is
-    // refused: the tiles then are what the table hides. A finished match
-    // keeps its last hand on the table, over.
-    if (hand || !match.engine.hand_is_over() || match.stateKey() !== snapshot.state) throw new Error('This match could not be replayed for review');
+    // A replay that does not end where the match was saved went another way,
+    // and is refused. The state is checked first, so that a replay that went
+    // another way and stopped in a hand says that, the reason that is true.
+    // One that ends where the match was saved, but in a hand being played or
+    // in one just dealt, is refused too: the tiles then are what the table
+    // hides. A finished match keeps its last hand on the table, over. Each
+    // reason follows the page's "The game could not be replayed for review:".
+    if (match.stateKey() !== snapshot.state) throw new Error('The replay did not end where the match did');
+    if (hand || !match.engine.hand_is_over()) throw new Error('A hand is still being played');
     return hands;
   } finally { match.dispose(); }
 }
@@ -472,7 +477,8 @@ export class MatchReview {
     }
     const engine = this.replay.engine, signal = this.abort.signal;
     const notes = engine.review();
-    if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed for review');
+    // Said after the headline's "Review stopped:", which names the review.
+    if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed');
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
       batch: { size: BATCH, analyze: async (positions, signal) => {
