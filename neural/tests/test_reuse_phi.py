@@ -286,6 +286,46 @@ class TrainerTests(unittest.TestCase):
         self.assertIs(record["reused_phi"], False)
 
 
+class RoomTests(unittest.TestCase):
+    """Room on the card for Mortal's vectors (`ppo_loop.room_on_card`): what
+    the driver has free and what this process's allocator holds without
+    using it, past what the learning step, and beside a round played ahead
+    the round, keep to spare."""
+
+    GB = 1 << 30
+    VECTORS = int(3.2 * GB)
+    SPARE = 20 * GB
+
+    def room(self, free: int, reserved: int, allocated: int, wanted: int = VECTORS) -> bool:
+        with patch.object(torch.cuda, "mem_get_info", return_value=(free, 46 * self.GB)), \
+                patch.object(torch.cuda, "memory_reserved", return_value=reserved), \
+                patch.object(torch.cuda, "memory_allocated", return_value=allocated):
+            return ppo_loop.room_on_card(wanted, "cuda", self.SPARE)
+
+    def test_what_the_allocator_holds_unused_is_room(self):
+        """As a005's card was beside a round played ahead: the driver has
+        22 GB free, and counts as used 23 GB the allocator holds, of which
+        it is using 7."""
+        self.assertTrue(self.room(22 * self.GB, 23 * self.GB, 7 * self.GB))
+        # Read from the driver alone, as the rule was, there was no room.
+        self.assertFalse(self.room(22 * self.GB, 0, 0))
+
+    def test_what_the_card_is_using_is_not(self):
+        self.assertFalse(self.room(22 * self.GB, 23 * self.GB, 23 * self.GB))
+
+    def test_room_is_the_spare_left_after_and_not_a_byte_less(self):
+        free, unused = 10 * self.GB, 13 * self.GB + 7
+        left = free + unused - self.SPARE
+        self.assertTrue(self.room(free, unused + self.GB, self.GB, wanted=left))
+        self.assertFalse(self.room(free, unused + self.GB, self.GB, wanted=left + 1))
+
+    def test_on_the_processor_a_tensor_is_kept_without_asking_the_card(self):
+        tensor = torch.arange(6.0)
+        with patch.object(torch.cuda, "mem_get_info", side_effect=AssertionError("asked the card")):
+            kept = ppo_loop.kept_on_card(tensor, "cpu", spare=1 << 60)
+        self.assertTrue(torch.equal(kept, tensor))
+
+
 class EndToEndTests(unittest.TestCase):
     def test_a_generation_learns_the_same_from_plays_vectors(self):
         """One real generation that holds Mortal still, on the processor,

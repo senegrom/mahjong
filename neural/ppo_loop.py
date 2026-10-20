@@ -254,21 +254,39 @@ def step_spare() -> int:
     return step_spare_bytes()
 
 
+def room_on_card(wanted: int, device: str | torch.device, spare: int | None = None) -> bool:
+    """Whether the card `device` has room for `wanted` bytes more and
+    `spare` bytes to spare afterwards for the learning step (`step_spare`
+    by default): what its driver has free, and what this process's
+    allocator holds without using it, which the allocator hands out again,
+    or gives back to the driver when an allocation would otherwise fail.
+
+    The driver counts what the allocator holds as used, and the allocator
+    keeps whatever the learning step's peak once took, and beside a round
+    played ahead the round's as well (`PlayAhead`). Read from the driver
+    alone, a005's card from generation 1211 had room for Mortal's vectors,
+    3.2 GB, in two of the six generations that could have kept them, while
+    no generation had allocated more than 15.2 GB of the card's 46."""
+    device = torch.device(device)
+    if spare is None:
+        spare = step_spare()
+    free, _total = torch.cuda.mem_get_info(device)
+    unused = torch.cuda.memory_reserved(device) - torch.cuda.memory_allocated(device)
+    return free + unused - wanted >= spare
+
+
 def kept_on_card(
     tensor: torch.Tensor, device: str | torch.device, spare: int | None = None
 ) -> torch.Tensor | None:
     """`tensor` on `device` when that is the processor, or a card with
     room for it and `spare` bytes to spare afterwards for the learning
-    step, as for a round's planes (see `observe.resident`, whose sixteen
-    gigabytes and `RESIDENT_SPARE_GB` this shares, `step_spare`); None when
-    the card has no such room."""
+    step (`room_on_card`), as for a round's planes (see
+    `observe.resident`, whose sixteen gigabytes and `RESIDENT_SPARE_GB`
+    this shares, `step_spare`); None when the card has no such room."""
     device = torch.device(device)
     if device.type != "cuda":
         return tensor.to(device)
-    if spare is None:
-        spare = step_spare()
-    free, _total = torch.cuda.mem_get_info(device)
-    if free - tensor.numel() * tensor.element_size() < spare:
+    if not room_on_card(tensor.numel() * tensor.element_size(), device, spare):
         return None
     return tensor.to(device)
 
