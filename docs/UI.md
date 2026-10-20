@@ -208,24 +208,24 @@ built. Your match is unchanged." When the result's **Save this hand** or
 **Save whole game**, cannot save its file, the result says so the same way,
 from the same line: "The hand could not be saved to a file." or "The game
 could not be saved to a file.", each followed by "Your current match is
-unchanged." Until the game is over every hand's result offers **Review game
-so far**, and once it is over, on a phone, the last hand's result offers
-**Review whole game** as well; when the match cannot be replayed for that
-review, the result says so from the same line: "The game could not be replayed for review:", why, and "Your saved match
-is unchanged." The line keeps the words of the last press
-that failed until that press succeeds. The page's notice line would not do: it
-sits at the top of the page, above the screen at desktop width, and under the
-sheet on a phone, or at best above it, dimmed by its shade, at the far end of
-the screen from the buttons. The result says it from a status line of its own
-after its buttons, which waits there, empty and out of sight, from the moment
-the result appears, since a screen reader hears a status line only once it
-knows it. Where the result is not a sheet, the line is brought into view
-should it fall below the foot of the screen; on a phone it stays at the foot
-of the sheet with the buttons, whose row spans the sheet from edge to edge, so
-that nothing scrolling beneath it shows beside them. The standings and the
-settings' **Export game** say their own failures the same way, beside their
-own buttons (below); the notice line now says only what the trained network
-picker could not do.
+unchanged." Until the game is over every hand's result offers **Review game so
+far**, and once it is over, on a phone, the last hand's result offers **Review
+whole game** as well; when the match cannot be replayed for that review, the
+result says so from the same line: "The game could not be replayed for
+review:", why, and "Your saved match is unchanged." The line keeps the words
+of the last press that failed until that press succeeds. The page's notice
+line would not do: it sits at the top of the page, above the screen at desktop
+width, and under the sheet on a phone, or at best above it, dimmed by its
+shade, at the far end of the screen from the buttons. The result says it from
+a status line of its own after its buttons, which waits there, empty and out
+of sight, from the moment the result appears, since a screen reader hears a
+status line only once it knows it. Where the result is not a sheet, the line
+is brought into view should it fall below the foot of the screen; on a phone
+it stays at the foot of the sheet with the buttons, whose row spans the sheet
+from edge to edge, so that nothing scrolling beneath it shows beside them. The
+standings and the settings' **Export game** say their own failures the same
+way, beside their own buttons (below); the notice line now says only what the
+trained network picker could not do.
 
 The review's own status lines, that Trained AI is reviewing the hand and how
 far it has got, and that Club reviews in its place while the network cannot be
@@ -400,28 +400,28 @@ narrower screens.
 **After every hand.** Until the game is over, every hand's result offers
 **Review game so far** (**Review game** up to 480 pixels wide) after the
 hand's own buttons, at every size, since nothing else offers it before the
-end. It opens the same screen
-on the match so far, headed "Your game so far, looked at again": Trained AI is
-asked about the hand just played first, then about the rest from the first
-deal, and the screen leads with that hand, its outcome and how far its review
-has got, and once it is reviewed **Replay this hand**, whose **Back to the
-list** comes back to that button. Below it is the review as described here.
-**Back to the result** brings the table and the result back as they were left,
-with focus on the button that opened the review; on a phone the sheet is up
-again rather than stepping aside, the button in its row at its foot. The
-review is built at the first press and taken on to each later result, so a
-hand reviewed once is never put to the network again. **Next hand** stops it,
-since the next deal's Trained opponents ask the same network and go first;
-opened again, it goes on with the hands still waiting, the hand just played
-first, and at the end the standings' **Review whole game** goes on from it
-the same way. The game so far stays out of the trend, and says so: a game
-joins it once the match is over and every hand is reviewed, which for a game
-whose every hand was reviewed as it was played is the moment the last **Next
-hand** ends it. Nothing of it is saved with the match, so after a reload a
-press asks about each hand so far once more. **View table / my hand** stays,
-and still opens the hand's own notes under the result; up to 480 pixels wide
-it reads **View table**, so that the fifth button adds no fourth row of
-buttons over the result on the narrowest phones.
+end. It opens the same screen on the match so far, headed "Your game so far,
+looked at again": Trained AI is asked about the hand just played first, then
+about the rest from the first deal, and the screen leads with that hand, its
+outcome and how far its review has got, and once it is reviewed **Replay this
+hand**, whose **Back to the list** comes back to that button. Below it is the
+review as described here. **Back to the result** brings the table and the
+result back as they were left, with focus on the button that opened the
+review; on a phone the sheet is up again rather than stepping aside, the
+button in its row at its foot. The review is built at the first press and
+taken on to each later result, so a hand reviewed once is never put to the
+network again. **Next hand** stops it, since the next deal's Trained opponents
+ask the same network and go first; opened again, it goes on with the hands
+still waiting, the hand just played first, and at the end the standings'
+**Review whole game** goes on from it the same way. The game so far stays out
+of the trend, and says so: a game joins it once the match is over and every
+hand is reviewed, which for a game whose every hand was reviewed as it was
+played is the moment the last **Next hand** ends it. Nothing of it is saved
+with the match, so after a reload a press asks about each hand so far once
+more. **View table / my hand** stays, and still opens the hand's own notes
+under the result; up to 480 pixels wide it reads **View table**, so that the
+fifth button adds no fourth row of buttons over the result on the narrowest
+phones.
 
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the

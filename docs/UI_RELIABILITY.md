@@ -65,9 +65,11 @@ an unfinished match has progress, including between hands.
   - the warning below it that this browser cannot safely save shared matches;
   - the result's own line after its buttons, which says why the hand's review
     could not be built, why the hand or the game could not be saved from the
-    result, and on a phone why the whole game could not be replayed for
-    review. It speaks where the player pressed, since the top of the page is
-    above the screen at desktop width and under the sheet on a phone;
+    result, and why the game could not be replayed for review: the game so
+    far, from every hand's result at every size, and once the game is over the
+    whole game, from the last hand's result on a phone. It speaks where the
+    player pressed, since the top of the page is above the screen at desktop
+    width and under the sheet on a phone;
   - in play, the final standings' own line after their buttons, which says
     why the whole game could not be saved, or replayed for review, from their
     **Save whole game** and **Review whole game**. It waits there from the
