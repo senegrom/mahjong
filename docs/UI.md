@@ -234,6 +234,17 @@ sight, until the review has been drawn and a tenth of a second more, before
 their words arrive, so that a screen reader can hear them after the heading it
 reads out as focus arrives.
 
+The notes honour the setting that has reviews keep Trained AI's move back
+(`reviewHideMove`, stored with the other preferences and off unless set), so
+that this second way into the hand does not give away what the review of the
+game asks the player to find. With it on, whichever adviser gives the notes,
+each decision shows only the move made, and **Show answers**, after the
+filter, adds what the adviser would have done instead, with its preference,
+or Club's reason and numbers. Pressed, the button reads **Hide answers** and
+keeps focus. How many decisions matched, and the filter with its counts, stay:
+they say how far the player went wrong, not what was better. The setting has
+no checkbox yet; it comes with the review of the game that honours it too.
+
 ### The standings as the game ends
 
 **Next hand** on the last hand brings the final standings in place of another
@@ -700,7 +711,9 @@ replayed for review said beside the standings' buttons, the result stepping
 aside on a phone for a press beneath it, and a game that **Export game** could
 not save said beside its button, inside the settings' dialog on a phone, the
 sheet's buttons spanning it on a phone, the status lines that wait in the
-page, empty, before their words arrive, the whole-game review with the
+page, empty, before their words arrive, the hand's notes keeping the
+adviser's answers behind **Show answers** while Trained AI's move is hidden,
+its button keeping focus, the whole-game review with the
 shipped network (its batches, flags,
 replay, retry, keyboard focus, in the flagged list too as later hands rank it
 afresh, and trend, every hand face up at every step of a replayed hand at

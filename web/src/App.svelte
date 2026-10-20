@@ -725,7 +725,7 @@
               onreview={showReview} reviewed={notes !== null} failure={failures.result} onlog={saveLog} ongame={() => saveGame('result')}
               ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)} />
             {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
-              onask={() => notesAsking.begin()} />{/if}
+              onask={() => notesAsking.begin()} hideAnswers={reviewHideMove} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
               loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}

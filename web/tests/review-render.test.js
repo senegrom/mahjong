@@ -90,6 +90,27 @@ test('a chosen Club review says nothing about the network', () => {
   assert.match(html, /keeps a ready hand/);
 });
 
+test("with Trained AI's move hidden, the hand's notes keep the adviser's answers behind Show answers", () => {
+  // Club's notes, which a server render shows as they are first drawn: the
+  // move made at each decision, and nothing of what Club would have done
+  // instead, its reason or its numbers, until the button is pressed.
+  const hidden = render(Review, { props: { notes: differing, adviser: 'club', hideAnswers: true } }).body;
+  assert.match(hidden, /<button class="answers[^"]*" data-show-answers[^>]*>Show answers<\/button>/);
+  assert.match(hidden, /discards the 3 characters/);
+  assert.match(hidden, /aria-label="3 characters"/);
+  assert.doesNotMatch(hidden, /instead of|discards the 9 circles|9 circles|keeps a ready hand|<table|Hand left/);
+  // How many decisions matched, and the filter with its counts, say how far
+  // the player went wrong, not what was better: they stay.
+  assert.match(hidden, /matched Club/);
+  assert.match(hidden, /Where it differs \(1\)/);
+  // Without the setting the notes are as they were, with no such button.
+  const shown = render(Review, { props: { notes: differing, adviser: 'club' } }).body;
+  assert.match(shown, /instead of/);
+  assert.match(shown, /keeps a ready hand/);
+  assert.match(shown, /<table/);
+  assert.doesNotMatch(shown, /data-show-answers|Show answers/);
+});
+
 test('the belief panel names honours as the page names tiles, and marks their dora', async () => {
   const agents = 'data:text/javascript,export const AGENTS = { full: "Trained" }; export const agentName = agent => AGENTS[agent];';
   const AgentWeights = await componentLoader({ 'agents.js': agents })('AgentWeights.svelte');

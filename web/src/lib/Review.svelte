@@ -19,9 +19,14 @@
   // can hand focus to it (App). `onask` is told as the review begins to ask
   // Trained AI, and answers what to call once it stops asking: the review of
   // the game so far, which asks the same worker, waits for it meanwhile
-  // (App). Without a listener there is nothing to tell.
+  // (App). Without a listener there is nothing to tell. `hideAnswers` is the
+  // player's setting that Trained AI's reviews keep its move back until they
+  // ask for it (App): these notes are a second way into the hand, so with it
+  // on they keep back what the adviser would have done, whichever adviser it
+  // is, rather than give away what the review of the game asks the player to
+  // find.
   let { notes = [], hints = true, engine = null, trainedAvailable = false, offline = null, adviser = $bindable('strong'),
-    heading = $bindable(null), onask = () => () => {} } = $props();
+    heading = $bindable(null), onask = () => () => {}, hideAnswers = false } = $props();
   let trainedNotes = $state.raw(null);
   let reviewing = $state(false);
   let completed = $state(0);
@@ -60,6 +65,16 @@
   // A whole hand played the way the adviser would have is worth saying.
   let clean = $derived(activeNotes.length > 0 && disputed.length === 0);
   let listed = $derived(shown === 'all' || clean ? activeNotes : disputed);
+
+  // Whether the player has asked to see the adviser's answers, which the
+  // setting keeps back until they do: what each decision's adviser would have
+  // done instead, with its preference, or Club's reason and numbers. The
+  // count of decisions matched, the filter and its counts stay, since they
+  // say how far the player went wrong, not what was better. Once asked, the
+  // answers stay for as long as the notes are open, through a change of
+  // filter or of adviser.
+  let answersShown = $state(false);
+  let hiding = $derived(hideAnswers && !answersShown);
 
   $effect(() => {
     const source = notes, owner = engine;
@@ -149,6 +164,12 @@
     {/if}
 
     {#if !clean || reviewer === 'strong'}
+    {#if hideAnswers}
+      <!-- One button for every decision's answer. It stays in its place as
+           it is pressed, its words saying what the next press does, so
+           keyboard focus stays on it. -->
+      <button class="answers" data-show-answers onclick={() => { answersShown = !answersShown; }}>{answersShown ? 'Hide answers' : 'Show answers'}</button>
+    {/if}
     <ol>
       {#each listed as note, index (index)}
         <li class:agreed={note.agreed}>
@@ -161,7 +182,7 @@
               {/if}
               <span class="what">{note.played}</span>
             </span>
-            {#if !note.agreed}
+            {#if !note.agreed && !hiding}
               <span class="instead">instead of</span>
               <span class="advised">
                 {#if note.advised_tile}
@@ -172,7 +193,8 @@
             {/if}
           </div>
 
-          {#if reviewer === 'strong'}
+          {#if hiding}<!-- The adviser's answer waits for Show answers. -->
+          {:else if reviewer === 'strong'}
             <ReviewPreference {note} />
           {:else if !note.agreed}
             <p class="why">{note.reason}</p>
@@ -312,6 +334,22 @@
   .tabs button.on {
     border-color: var(--gold);
     color: var(--gold);
+  }
+
+  /* Sized as the filter's buttons are, a finger's width tall, but
+     square-cornered and never gold, since it is no filter: it shows or hides
+     the answers in whichever list the filter keeps. */
+  .answers {
+    justify-self: start;
+    padding: 8px 12px;
+    min-height: 44px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
   }
 
   ol {

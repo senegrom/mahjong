@@ -79,9 +79,10 @@ const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_
  * when each status line comes into the page and when its words arrive
  * (waited); `scrolls` notes every scroll the page asks for (scrollsAsked);
  * `locks` false takes away the Web Locks API, as some private windows do, so
- * the page cannot safely keep the match. */
+ * the page cannot safely keep the match; `hideMove` stores the setting that
+ * has reviews keep Trained AI's move back (reviewHideMove). */
 async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,files=false,touch=false,reduced=false,adviser='club',trained=false,failReview=false,
- failReplay=false,failSave=false,statusLines=false,scrolls=false,locks=true}={}){
+ failReplay=false,failSave=false,statusLines=false,scrolls=false,locks=true,hideMove=false}={}){
  const page=await (await openContext(browser)).newPage();page.reviewErrors=[];
  page.on('pageerror',error=>page.reviewErrors.push(error.message));await page.setViewport({width,height,isMobile:touch,hasTouch:touch});
  if(reduced)await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
@@ -173,14 +174,15 @@ async function open(snapshot,{width=1100,height=900,confirm=false,hints=true,fil
    void blobs.get(this.href)?.text().then(text=>{file.text=text;});
   };
  });
- await page.evaluateOnNewDocument((key,settings,snapshot,confirm,hints,adviser)=>{
+ await page.evaluateOnNewDocument((key,settings,snapshot,confirm,hints,adviser,hideMove)=>{
   if(!localStorage.getItem(key))localStorage.setItem(key,JSON.stringify(snapshot));
   // Club reviews unless a check asks for the default: these checks open a
   // review without waiting on the network.
   const preferences={version:2,difficulty:snapshot.difficulty,hints,confirmDiscards:confirm,shortcuts:true};
   if(adviser)preferences.reviewAdviser=adviser;
+  if(hideMove)preferences.reviewHideMove=true;
   localStorage.setItem(settings,JSON.stringify(preferences));
- },SAVE_KEY,SETTINGS_KEY,snapshot,confirm,hints,adviser);
+ },SAVE_KEY,SETTINGS_KEY,snapshot,confirm,hints,adviser,hideMove);
  await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`,{waitUntil:'networkidle0'});
  await page.waitForSelector('.hand');return page;
 }
@@ -854,6 +856,48 @@ try{
   await p.waitForSelector('.review .summary');await settle(p);await new Promise(done=>setTimeout(done,500));
   assert.deepEqual(await p.$$eval('.review [role="status"]',els=>els.map(el=>[el.textContent.trim(),el.getBoundingClientRect().height<=1])),[['',true],['',true]],
    'the review keeps its two status lines, empty and taking no room');
+  noErrors(p);
+ });
+ // With the setting that reviews keep Trained AI's move back, the hand's
+ // notes are a quiz too: each decision shows the move made, and the adviser's
+ // answers, what it would have done instead with its reason and numbers, wait
+ // behind one Show answers. Pressed by keyboard, it shows the notes exactly as
+ // they are without the setting, reads Hide answers and keeps focus, and
+ // pressed again it hides them again.
+ await check('with Trained AI\'s move hidden, the hand\'s notes show the adviser\'s answers only once asked, and the button keeps focus',async()=>{
+  const rows=p=>p.$$eval('.review li',els=>els.map(el=>el.textContent.replace(/\s+/g,' ').trim()));
+  const notesOpened=async p=>{
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
+   await p.waitForSelector('.review .summary');
+  };
+  // The same hand's notes without the setting: what Show answers must bring.
+  let p=await open(wins[0],{reduced:true});await notesOpened(p);
+  const answered=await rows(p);
+  assert.ok(answered.some(text=>text.includes('instead of')),`the hand has a decision where Club differs: ${answered.join(' | ')}`);
+  assert.equal(await p.$('.review [data-show-answers]'),null,'without the setting the notes offer no Show answers');
+  noErrors(p);
+  p=await open(wins[0],{reduced:true,hideMove:true});await notesOpened(p);
+  const show=await p.$('.review [data-show-answers]');
+  assert.ok(show,'the notes offer Show answers');
+  assert.equal(await show.evaluate(el=>el.textContent.trim()),'Show answers');
+  const asked=await rows(p);
+  assert.equal(asked.length,answered.length,'every decision is still listed');
+  assert.ok(asked.every(text=>!text.includes('instead of')),`no advised move is shown: ${asked.join(' | ')}`);
+  assert.equal(await p.$$eval('.review li :is(.advised, .why, .numbers, .policy-preference)',els=>els.length),0,'nor the adviser\'s reason, numbers or preference');
+  assert.match(await p.$eval('.review .summary',el=>el.textContent),/matched Club/,'how many decisions matched stays');
+  await shot(p,'notes-answers-hidden');
+  // Shown by keyboard: the notes as they are without the setting.
+  await show.focus();await p.keyboard.press('Enter');
+  await p.waitForFunction(()=>document.querySelector('.review [data-show-answers]')?.textContent.trim()==='Hide answers');
+  assert.ok(await p.evaluate(()=>document.activeElement?.matches('.review [data-show-answers]')),'the button keeps focus as it shows the answers');
+  assert.deepEqual(await rows(p),answered,'the answers are those the notes give without the setting');
+  await shot(p,'notes-answers-shown');
+  // Hidden again, and focus stays.
+  await p.keyboard.press('Enter');
+  await p.waitForFunction(()=>document.querySelector('.review [data-show-answers]')?.textContent.trim()==='Show answers');
+  assert.ok(await p.evaluate(()=>document.activeElement?.matches('.review [data-show-answers]')),'the button keeps focus as it hides them');
+  assert.deepEqual(await rows(p),asked);
   noErrors(p);
  });
  // The warning that this browser cannot safely keep the match arrives as the
