@@ -866,6 +866,7 @@ def train_combined(
     preview_reach: bool = False,
     play_ahead: bool = False,
     play_graphs: bool = False,
+    compile_play: bool = False,
     reward: str = "hybrid",
     alpha: float = 0.0,
     place_model: str = "",
@@ -921,6 +922,11 @@ def train_combined(
     the trainer's `--play-graphs`; passed on only when true, and refused
     likewise with `compile` unless `compile_learning` is set: the graphs
     record play's eager forwards.
+
+    `compile_play` has play's bigger questions answered from forwards
+    compiled before the first round, the trainer's `--compile-play`; passed
+    on only when true, and only beside `play_graphs`, which keeps the small
+    questions from them.
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
@@ -930,6 +936,9 @@ def train_combined(
     if play_graphs and compile and not compile_learning:
         raise ValueError("play_graphs records play's eager forwards: pass compile=False, "
                          "or compile_learning=True to compile the learning step alone")
+    if compile_play and not play_graphs:
+        raise ValueError("compile_play compiles play's bigger questions beside the graphs that answer "
+                         "its small ones: pass play_graphs=True too")
     placement = placement_arguments(reward, alpha, place_model, place_refit_every, place_refit_rounds,
                                     value_warm_up, value_warm_up_lr)
     seeded = []
@@ -984,6 +993,8 @@ def train_combined(
             command.append("--play-ahead")
         if play_graphs:
             command.append("--play-graphs")
+        if compile_play:
+            command.append("--compile-play")
         if fixed:
             command += ["--fixed", *fixed]
         command += placement + seeded

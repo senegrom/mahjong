@@ -384,6 +384,13 @@ def parse_args() -> argparse.Namespace:
         "dense in bfloat16, as without compiling. Fuses the step's elementwise kernels; the "
         "numbers move by where bfloat16 rounds. Off by default; not with --compile",
     )
+    parser.add_argument(
+        "--compile-play", action="store_true",
+        help="answer play's questions bigger than its graphs (--play-graphs) from forwards "
+        "compiled with the batch's size left symbolic, the playing copy's and the seated "
+        "others', compiled before the first round: on an L40S about half the card's time of "
+        "the eager forwards. They answer in other last bits. Needs --play-graphs and --amp",
+    )
     add_training_controls(parser)
     args = parser.parse_args()
     if args.compile and args.compile_learning:
@@ -399,6 +406,11 @@ def parse_args() -> argparse.Namespace:
         # have to record, and the compiler's own graphs are another matter.
         parser.error("--play-graphs records play's eager forwards; with it, compile the "
                      "learning step alone (--compile-learning)")
+    if args.compile_play and not (args.play_graphs and args.amp):
+        # The graphs keep the small questions from the compiled forwards: one
+        # of a single row would have them compiled again, where play asks.
+        parser.error("--compile-play compiles play's bigger questions beside the graphs that answer "
+                     "its small ones, in bfloat16: it needs --play-graphs and --amp")
     check_placement_options(parser, args)
     return args
 
@@ -540,11 +552,13 @@ def main() -> None:
         actor = copy.deepcopy(net).requires_grad_(False)
     if args.play_graphs:
         # Small questions from CUDA graphs, every one recorded now, when play
-        # asks in bfloat16 (--amp). The copy is given the learner's weights
+        # asks in bfloat16 (--amp), and with --compile-play the bigger ones
+        # from the forward compiled now too. The copy is given the learner's weights
         # where it holds them before each round, and the learner's own are
         # moved where they are by the optimiser, so the graphs answer by the
         # weights of the moment.
-        play_graphs.graphed(net if actor is None else actor, device, amp=amp_enabled)
+        play_graphs.graphed(net if actor is None else actor, device, amp=amp_enabled,
+                            compile=args.compile_play)
 
     learn = learning_forward(net, args)
 
