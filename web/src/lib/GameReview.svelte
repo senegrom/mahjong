@@ -18,7 +18,10 @@
    * them, or any hand reviewed, can be replayed with every player's tiles in
    * view. The review itself (game-review.js) belongs to the match and goes on
    * while this screen is closed, until the next deal; the screen only shows
-   * it. `trend` is the games this browser has reviewed, oldest first.
+   * it. Whether the screen is open or not, the review waits before each batch
+   * while the hand's own notes ask Trained AI, then goes on where it was, so
+   * that a note never waits behind more than the batch already sent (App).
+   * `trend` is the games this browser has reviewed, oldest first.
    * `filter` is which decisions the list shows: the flagged ones as it opens,
    * those where Trained AI chose differently, or every decision.
    */

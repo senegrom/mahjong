@@ -13,7 +13,7 @@
   import Standings from './lib/Standings.svelte';
   import Review from './lib/Review.svelte';
   import GameReview from './lib/GameReview.svelte';
-  import { MatchReview } from './lib/game-review.js';
+  import { Asking, MatchReview } from './lib/game-review.js';
   import { readTrend, recordTrend } from './lib/review-trend.js';
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
@@ -100,9 +100,25 @@
   // Trained AI's review of the match, kept while that match is: of the game
   // so far from any hand's result, taken on to each later one, and of the
   // whole game once it is over. And whether its screen is open. It reviews
-  // on while the screen is shut, until the next deal (nextHand).
+  // on while the screen is shut, until the next deal (nextHand), and waits
+  // while the hand's own notes ask Trained AI (notesAsking).
   let matchReview = $state.raw(null);
   let reviewingGame = $state(false);
+  // The hand's own notes, opened by View table / my hand or Review final
+  // hand, ask Trained AI a decision at a time (Review), of the page's one
+  // worker, which answers its requests in turn. The review asks the same
+  // worker eight decisions a request, so each note would wait behind one of
+  // its batches: a hand's notes would take twenty seconds rather than two or
+  // three, and on a slow device a note could run out of its time, which ends
+  // the worker and stops the review with it. So the notes say when they
+  // begin and stop asking, and before each batch the review waits for them
+  // at its gate, then goes on exactly where it was: the same hand, the same
+  // hands queued and the same word from the player. Nothing need start it
+  // again, so the review of the whole game behind the standings still
+  // reaches the trend. The notes wait behind no more than the one batch
+  // already sent, whichever of the two was opened first, the review's screen
+  // open or shut.
+  const notesAsking = new Asking();
   // The reviewed games this browser keeps, which a finished review joins.
   let reviewTrend = $state.raw(readTrend(storage));
 
@@ -569,7 +585,7 @@
     try {
       if (matchReview) matchReview.extend(session.snapshot());
       else {
-        matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch,
+        matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch, gate: () => notesAsking.gate(),
           onComplete: review => {
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
@@ -698,7 +714,8 @@
               bets={view.riichi_sticks ?? 0} onnext={nextHand}
               onreview={showReview} reviewed={notes !== null} failure={failures.result} onlog={saveLog} ongame={() => saveGame('result')}
               ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)} />
-            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} bind:heading={reviewHeading} />{/if}
+            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
+              onask={() => notesAsking.begin()} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
               loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
