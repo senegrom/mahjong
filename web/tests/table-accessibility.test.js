@@ -158,6 +158,39 @@ test('the table, the inspection of all discards and your own row all carry both 
   assert.deepEqual(discards.map(tile => [tile.label, marks(tile)]), [['north wind, claimed, discarded from the draw', ['from-draw', 'claimed']]]);
 });
 
+test("a review's answer to a discard outlines the tile on offer in the discarder's row, and names it so", async () => {
+  const thrown = (tile, extra = {}) => ({ tile, drawn: false, riichi: false, claimed: false, ...extra });
+  // The tiles a row outlines, by name, past the markers a server render
+  // leaves around a snippet and a tile.
+  const outlined = markup => [...markup.matchAll(/<span class="offered[^"]*">(?:<!--[^>]*-->)*<span class="tile [^"]*"[^>]*aria-label="([^"]*)"/g)]
+    .map(match => match[1]);
+  // The row outlines the tile it is given, and its name and hover text say why.
+  const row = await html('Discards.svelte', { marked: 1, dora: ['7p'], discards: [thrown('3p'), thrown('7p', { drawn: true })] });
+  assert.deepEqual(outlined(row), ['7 circles, discarded from the draw, dora, the tile on offer']);
+  assert.deepEqual(shownTiles(row).map(tile => tile.title), ['3 circles', '7 circles, discarded from the draw, dora, the tile on offer']);
+  assert.deepEqual(outlined(await html('Discards.svelte', { discards: [thrown('3p'), thrown('7p')] })), []);
+
+  // South let the 7 circles go and the player answers it. West threw one
+  // earlier, which is not on offer.
+  const view = seats => ({ phase: 'call', round: 'east', kyoku: 1, wall: 50, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'],
+    dora_types: [], dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: '7p', pending_from: 'south',
+    outcome: null, seats });
+  const offered = view([seat('east', 0, { hand: ['1m'], drawn: null }), seat('south', 1, { discards: [thrown('3p'), thrown('7p')] }),
+    seat('west', 2, { discards: [thrown('7p')] }), seat('north', 3)]);
+  const table = props => html('app/MatchTable.svelte', { hints: true, thinking: false, pendingOpponent: null, ...props });
+  // A review's table outlines it in South's row alone, not in the inspection
+  // of all discards, which lists every row as it lies.
+  assert.deepEqual(outlined(await table({ view: offered, review: true })), ['7 circles, the tile on offer']);
+  // Play's table names the tile on offer in the call itself, and outlines nothing.
+  assert.deepEqual(outlined(await table({ view: offered })), []);
+  // A quad offered to be robbed holds every copy of its tile, so no row ends
+  // with it, and nothing is outlined.
+  const quad = { kind: 'extended-kan', tiles: ['7p', '7p', '7p', '7p'], from: 'left', claimed_tile: '7p' };
+  const robbing = view([seat('east', 0, { hand: ['5p', '6p'], drawn: null }), seat('south', 1, { melds: [quad], discards: [thrown('3p')] }),
+    seat('west', 2), seat('north', 3)]);
+  assert.deepEqual(outlined(await table({ view: robbing, review: true })), []);
+});
+
 test('the tile guide explains both discard marks, each with its swatch', async () => {
   const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
     ready: true, busy: false, saveConflict: '', trainedAvailable: false,

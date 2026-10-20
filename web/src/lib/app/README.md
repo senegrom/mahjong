@@ -9,7 +9,7 @@ Presentation components cannot write a match or choose a fallback opponent.
 | `AppSettings` | Bind preference scalars to App; own the responsive settings dialog and focus; ask App to load another trained network, which App does by reloading the page. |
 | `OfflineStatus` | Render actual core/AI persistence status and invoke an explicit download callback. |
 | `OpponentDialog` | Edit a separate draft; ask App to confirm replacement of the match. |
-| `MatchTable` | Render opponents and table inspection; own all regular-table breakpoints, and those of a review's table, which shows every hand face up as it stood at a past decision. |
+| `MatchTable` | Render opponents and table inspection; own all regular-table breakpoints, and those of a review's table, which shows every hand face up as it stood at a past decision and, where the player answers a discard, outlines the tile on offer in the row of the seat that let it go. |
 | `PlayerHand` | Render the hand and read-only hypothetical discard analysis; bind its DOM element to App. In a review, name the tiles for the seat, as one of the table's four hands. |
 | `TurnChoices` | Render choices and forward actions/cancellation to App's guards. |
 

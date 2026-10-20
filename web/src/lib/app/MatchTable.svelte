@@ -21,14 +21,25 @@
   let across = $derived(view?.seats[2]);
   let left = $derived(view?.seats[3]);
   let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
+  // At a review's decision that answers another player's discard, the seat
+  // that let it go, whose row outlines it: the engine puts the tile on offer
+  // at the end of that seat's discards, as it is thrown. A quad offered to be
+  // robbed holds all four of its tile, so none ends a row, and nothing is
+  // outlined. Play's table names the tile on offer in the call itself
+  // (TurnChoices), and outlines nothing.
+  let offeredBy = $derived.by(() => {
+    if (!review || view?.phase !== 'call' || !view.pending_discard) return null;
+    const discards = view.seats.find(seat => seat.seat === view.pending_from)?.discards ?? [];
+    return discards[discards.length - 1]?.tile === view.pending_discard ? view.pending_from : null;
+  });
   function inspectTable() { tableDialog?.showModal(); }
 </script>
 
 <div class="board" class:review>
   <div class="place across"><Seat seat={across} dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player}
-    hand={hands?.[2] ?? null} position={review ? OPPONENT_POSITIONS[1] : ''} note={notes?.[2] ?? ''} /></div>
+    hand={hands?.[2] ?? null} position={review ? OPPONENT_POSITIONS[1] : ''} note={notes?.[2] ?? ''} offered={across.seat === offeredBy} /></div>
   <div class="place left"><Seat seat={left} dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player}
-    hand={hands?.[3] ?? null} position={review ? OPPONENT_POSITIONS[2] : ''} note={notes?.[3] ?? ''} /></div>
+    hand={hands?.[3] ?? null} position={review ? OPPONENT_POSITIONS[2] : ''} note={notes?.[3] ?? ''} offered={left.seat === offeredBy} /></div>
   <div class="centre" role="group" aria-label="the table">
     <div class="round-details">
       <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>Round</span></div>
@@ -56,7 +67,7 @@
     </button>
   </div>
   <div class="place right"><Seat seat={right} dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player}
-    hand={hands?.[1] ?? null} position={review ? OPPONENT_POSITIONS[0] : ''} note={notes?.[1] ?? ''} /></div>
+    hand={hands?.[1] ?? null} position={review ? OPPONENT_POSITIONS[0] : ''} note={notes?.[1] ?? ''} offered={right.seat === offeredBy} /></div>
 </div>
 
 <dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="{uid}-title">

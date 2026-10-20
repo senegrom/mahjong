@@ -17,9 +17,11 @@
    * concealed tiles face up: `hand` is them, `{ hand, drawn }` with the tile
    * just drawn held apart; in play it is null, and they stay face down.
    * There `position` names where the opponent sat, such as "Right", and
-   * `note` says what the seat was doing, such as "Discarded".
+   * `note` says what the seat was doing, such as "Discarded". `offered`
+   * says that the last tile in the seat's discards is the one another player
+   * is answering at that decision, which the row outlines (Discards).
    */
-  let { seat, dealer = false, dora = [], thinking = false, hand = null, position = '', note = '' } = $props();
+  let { seat, dealer = false, dora = [], thinking = false, hand = null, position = '', note = '', offered = false } = $props();
 
   // How long a call is said for: long enough to read from across the
   // table, gone well before the next one is made.
@@ -113,7 +115,7 @@
     <Melds melds={seat.melds} size="tiny" {dora} />
   {/if}
 
-  <Discards discards={seat.discards} compact {dora} />
+  <Discards discards={seat.discards} compact {dora} marked={offered ? seat.discards.length - 1 : null} />
 </section>
 
 <style>

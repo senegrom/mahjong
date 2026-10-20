@@ -87,7 +87,9 @@ switched off. Each tile's name, read by screen readers and shown on hover, says
 the same: claimed, riichi declaration, discarded from the draw. The shade and
 the border's colour are the `--from-draw-shade` and `--claimed-border` tokens
 in `app.css`, and the tile guide in the settings has a line and a swatch for
-each.
+each. A review's table adds one more at a decision that answers a discard: a
+gold outline around the tile on offer, in the row of the seat that let it go
+(see the whole-game review below).
 
 ## Hand results
 
@@ -533,7 +535,11 @@ happened since the player's previous decision, and the player's own seat. The
 seat whose move it was is edged in gold and says so in words: "To play" on the
 player's own turn; when the player answers another's tile, the edge is on the
 seat that let it go, which says "Discarded" or "Declared a kan", and the
-player's seat says "To answer" without one. Each hand is a list named for its seat ("South's
+player's seat says "To answer" without one. The tile on offer is outlined in
+the same gold at the end of that seat's discards, in the gap the row leaves
+between tiles, so nothing moves as it comes and goes, and its name adds "the
+tile on offer"; a quad offered to be robbed holds every copy of its tile, so
+there no row has it to outline. Each hand is a list named for its seat ("South's
 tiles, Right (Club)", "East's tiles, yours"), the table is headed "The table at
 decision 5", and a status line says it as the step changes, in the words the
 table itself uses for the wall and a riichi ("South discarded the 5 bamboo, 45
