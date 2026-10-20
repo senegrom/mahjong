@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Tile from './Tile.svelte';
   import ReviewPreference from './ReviewPreference.svelte';
   import { tileWords } from './tiles.js';
@@ -16,9 +16,12 @@
    */
   // Trained AI is the default adviser, as readSettings has it. The heading
   // is bound so that the result's button, which goes as it opens the review,
-  // can hand focus to it (App).
+  // can hand focus to it (App). `onask` is told as the review begins to ask
+  // Trained AI, and answers what to call once it stops asking: the review of
+  // the game so far, which asks the same worker, waits for it meanwhile
+  // (App). Without a listener there is nothing to tell.
   let { notes = [], hints = true, engine = null, trainedAvailable = false, offline = null, adviser = $bindable('strong'),
-    heading = $bindable(null) } = $props();
+    heading = $bindable(null), onask = () => () => {} } = $props();
   let trainedNotes = $state.raw(null);
   let reviewing = $state(false);
   let completed = $state(0);
@@ -69,6 +72,16 @@
     trainedNotes = null;
     completed = 0;
     reviewing = true;
+    // Said before the first question goes to the worker, so that the review
+    // of the game so far sends nothing more until this review stops asking,
+    // and said again, once, as it stops, whichever way comes first: as its
+    // answers settle, whether they came, failed or ran out of time, or
+    // sooner, as it is closed, as the player leaves Play or changes its
+    // adviser, or as it is asked again, which the next run says afresh. Told
+    // untracked, so that nothing the listener reads becomes a reason to ask
+    // again.
+    let asking = untrack(() => onask());
+    const stopAsking = () => { asking?.(); asking = null; };
     void reviewWithStrong(owner, source, analyzePolicy, {
       signal: abort.signal, onProgress: count => { if (!abort.signal.aborted) completed = count; },
     }).then(rows => {
@@ -77,8 +90,14 @@
       trainedNotes = rows;
     }).catch(error => {
       if (!abort.signal.aborted) failure = error?.message ?? String(error);
-    }).finally(() => { if (!abort.signal.aborted) reviewing = false; });
-    return () => abort.abort();
+    }).finally(() => {
+      stopAsking();
+      if (!abort.signal.aborted) reviewing = false;
+    });
+    return () => {
+      abort.abort();
+      stopAsking();
+    };
   });
 
   function distance(value) {

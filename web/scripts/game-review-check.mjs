@@ -46,7 +46,11 @@
  * no chip, and held sideways, where the button shows beside the table. Next
  * hand on the last hand stops it, and the standings' review must then ask
  * about no hand it reviewed before; a game every hand of which was reviewed
- * at the last result must join the trend as Next hand ends it, once.
+ * at the last result must join the trend as Next hand ends it, once. Next
+ * hand on an earlier hand, pressed as the review runs, stops it too: nothing
+ * is asked while the next hand is played in the page, and that hand's result
+ * must open the review leading with it, asking about it first and then only
+ * about the hands left waiting, none it had reviewed.
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -488,6 +492,35 @@ async function reviewed(page) {
     await new Promise(done => setTimeout(done, 500));
   }
   throw new Error('The whole-game review did not finish in five minutes');
+}
+
+/** The tile-throwing game's decisions, by the saved command that made each. */
+const decisionAt = new Map(hands.flatMap(hand => hand.frames.map(frame => [frame.command, frame])));
+/** Whether the page has saved `count` commands of its match, and shows what
+ * `selector` names, if anything. */
+const savedTo = (key, count, selector) => JSON.parse(localStorage.getItem(key))?.commands.length === count
+  && (!selector || Boolean(document.querySelector(selector)));
+
+/** Plays `hand` of the tile-throwing game in the page from its deal, by
+ * pointer, pressing in order the moves its saved commands hold, as the
+ * replays here apply them: a discard on its tile in the hand, and any other
+ * move on its own button among the calls, the one in the place the engine
+ * offers it. Each is pressed once the page has saved every command before it
+ * and offers the move. The opponents are the engine's own, which play as each
+ * move is applied, so every command a hand saves is a move of the player's.
+ * Waits for the hand's result. */
+async function playHand(page, hand) {
+  for (let at = hands[hand.index - 1].end + 1; at < hand.end; at++) {
+    const command = snapshot.commands[at], frame = decisionAt.get(at);
+    assert.ok(command.type === 'choose' && frame, `command ${at} is a move of the player's`);
+    const call = frame.choices.filter(choice => choice.kind !== 'discard')
+      .findIndex(choice => choice.kind === command.kind && (choice.tile ?? null) === command.tile);
+    const move = command.kind === 'discard' ? `.play-area .hand button[data-tile="${command.tile}"]:not(:disabled)`
+      : `.play-area .call-options button:nth-child(${call + 1})[data-choice="${command.kind}"]:not(:disabled)`;
+    await page.waitForFunction(savedTo, { timeout: 15000, polling: 50 }, SAVE_KEY, at, move);
+    await page.$eval(move, button => button.click());
+  }
+  await page.waitForFunction(savedTo, { timeout: 15000, polling: 50 }, SAVE_KEY, hand.end, '.play-area .screen');
 }
 
 try {
@@ -1478,6 +1511,59 @@ try {
     await new Promise(done => setTimeout(done, 500));
     assert.equal(await sent(page), asked, 'nothing is asked again');
     assert.deepEqual(await trendIds(page), [id], 'and the game is in the trend once');
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("a review of the game so far goes on at the next hand's result: Next hand stops it as it runs, and that result's review asks about the hand just played first, then only about the hands left waiting, none it had reviewed", async () => {
+    const button = '.screen [data-review-game]', sent = page => page.evaluate(() => window.reviewBatches.length);
+    // The hand played in the page: the first after the third that asks
+    // Trained AI about a decision, so that batches of its own lead what its
+    // result's review sends. The review is opened at the result of the hand
+    // before it.
+    const next = hands.find(hand => hand.index > 2 && facts[hand.index].some(fact => !fact.forced));
+    assert.ok(next, 'a hand after the third asks Trained AI about a decision');
+    // Each batch reaches the worker a second late, so that the review is
+    // still under way at Next hand, however fast the machine, and it goes
+    // through the hands unheld, as a player who asks for all of them has it.
+    const page = await openPage(1100, 900, { saved: savedAfter(snapshot, hands[next.index - 1].end), ready: button, answerDelay: 1000 });
+    await page.waitForFunction(() => document.activeElement?.matches('.screen'));
+    await reviewWholeGame(page, button);
+    // A hand is reviewed, and the review goes on to the others.
+    await page.waitForSelector('[data-game-review] [data-replay-hand]', { timeout: 300000 });
+    assert.ok(await page.$('[data-game-review] [data-stop-review]'), 'the review goes on to the other hands');
+    // Back to the result by keyboard, and its Next hand while the review
+    // runs, which stops it.
+    await page.focus('[data-game-review] [data-close-review]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(selector => !document.querySelector('[data-game-review]') && document.activeElement?.matches(selector),
+      { timeout: 5000 }, button);
+    await page.focus('.screen .primary');
+    await page.keyboard.press('Enter');
+    const stopped = await sent(page);
+    // The next hand, played in the page as the game played it: nothing is
+    // asked meanwhile, and the match is saved at its result as the game was.
+    await playHand(page, next);
+    assert.equal(await sent(page), stopped, 'no batch is sent while the review is shut');
+    const { _storage, ...save } = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
+    assert.deepEqual(save, savedAfter(snapshot, next.end), 'the hand was played as the game played it');
+    // That hand's result opens the review again, which leads with that hand.
+    // The hands reviewed before Next hand are read before the review could
+    // finish another, a batch taking a second to reach the worker.
+    await page.click(button);
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-game-review] [data-latest-hand]', el => Number(el.dataset.latestHand)), next.index,
+      'the review leads with the hand just played');
+    assert.equal(await page.$eval('[data-game-review] [data-latest-hand] .name', el => el.textContent), next.name);
+    const done = await page.$$eval('[data-game-review] [data-replay-hand]', buttons => buttons.map(entry => Number(entry.dataset.replayHand)));
+    assert.ok(done.length > 0 && !done.includes(next.index), `hands reviewed before Next hand, and not the hand played since: ${done.join(', ')}`);
+    await reviewed(page);
+    // Every batch sent since walks the hand just played first, then the
+    // hands left waiting from the first deal, each group once, asked from its
+    // decisions' own positions: none of a hand reviewed before Next hand is
+    // sent again.
+    const after = (await page.evaluate(() => window.reviewBatches)).slice(stopped);
+    const rest = [next.index, ...hands.slice(0, next.index).map(hand => hand.index).filter(index => !done.includes(index))];
+    assert.equal(walkBatches(after, rest).walked, after.length, `only hands ${rest.join(', ')} are asked about, in that order, each once`);
     assert.deepEqual(page.errors, []);
   });
 } finally {

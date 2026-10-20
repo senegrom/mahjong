@@ -6,6 +6,33 @@ owner before applying an answer, reporting an error or changing the interface.
 A failed neural opponent remains explicitly Trained until the player retries,
 continues the same position with Club opponents, or starts a new match.
 
+The page has one trained worker, which answers its requests in turn. At a
+hand's result two things ask it: the hand's own notes (**View table / my
+hand**, or **Review final hand** at the last hand), a decision at a time, and
+Trained AI's review of the game, so far or whole, eight decisions a request,
+which goes on in the background. While the notes ask, the review waits before
+each batch it would send, then goes on exactly where it was, the hands waiting
+and the player's word as they were, so nothing the player chose is lost and
+nothing need start the review again. Without that wait every note would queue
+behind a batch: a hand's notes would take twenty seconds rather than two or
+three, and on a slow device any note could pass its deadline. With it, only
+the first note can queue behind a batch, the one already sent, whichever was
+opened first, and the notes after it behind none. The wait spares those later
+notes, not the first. A request's deadline is its own: twenty seconds for a
+note and forty for a batch of eight, from when it is sent, or once the network
+is loaded if it is not yet, so its time in the queue counts against it. The
+first note still passes its deadline where what is left of the batch ahead of
+it and its own position take over twenty seconds together, as they can from
+about 2.2 seconds a position, and that ends the worker and fails every request
+still waiting on it. The notes then say that the trained opponent did not
+answer in time. If the review's batch is still running, as it can be from 2.5
+seconds a position, the review stops too, saying the same; if not, it had its
+answer, and only the notes fail. The notes say they have stopped however they
+stop: answered, failed, out of time, closed, left for another mode, or turned
+to Club; and a review stopped or closed while it waits stops waiting at once.
+The next deal's Trained opponents go first another way: **Next hand** stops
+the review.
+
 ## Saved matches
 
 After each successful player/AI action and each hand transition, the application
@@ -65,9 +92,11 @@ an unfinished match has progress, including between hands.
   - the warning below it that this browser cannot safely save shared matches;
   - the result's own line after its buttons, which says why the hand's review
     could not be built, why the hand or the game could not be saved from the
-    result, and on a phone why the whole game could not be replayed for
-    review. It speaks where the player pressed, since the top of the page is
-    above the screen at desktop width and under the sheet on a phone;
+    result, and why the game could not be replayed for review: the game so
+    far, from every hand's result at every size, and once the game is over the
+    whole game, from the last hand's result on a phone. It speaks where the
+    player pressed, since the top of the page is above the screen at desktop
+    width and under the sheet on a phone;
   - in play, the final standings' own line after their buttons, which says
     why the whole game could not be saved, or replayed for review, from their
     **Save whole game** and **Review whole game**. It waits there from the

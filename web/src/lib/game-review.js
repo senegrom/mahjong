@@ -222,6 +222,43 @@ export function agreement(decisions) {
   return { matched, decisions: counted.length, share: counted.length ? matched / counted.length : null };
 }
 
+/** The spells in which the hand's own notes ask Trained AI, a decision at a
+ * time, of the worker the review of the game so far asks too (App). The
+ * worker answers its requests in turn, so a note asked while the review goes
+ * on would wait behind one of its batches, and the next note behind another:
+ * the review waits at its gate for every spell to end instead. The notes
+ * begin a spell as they begin to ask, and end it however they stop, whether
+ * answered, failed, out of time, closed or asked again. `begin()` answers the
+ * function that ends the spell it began, which ends it once however often it
+ * is called: a spell counted out twice would open the gate on another still
+ * under way. `gate()` is what a review's gate answers: null while no spell
+ * is under way, or a promise that settles once every spell begun has ended. */
+export class Asking {
+  constructor() {
+    this.spells = 0;
+    this.ended = null;
+    this.open = null;
+  }
+
+  begin() {
+    if (!this.spells++) this.ended = new Promise(resolve => { this.open = resolve; });
+    let over = false;
+    return () => {
+      if (over) return;
+      over = true;
+      if (--this.spells) return;
+      // The gate answers null again before the review waiting at it goes on,
+      // so a review that looks again finds it open, unless another spell has
+      // begun meanwhile.
+      const open = this.open;
+      this.ended = this.open = null;
+      open();
+    };
+  }
+
+  gate() { return this.ended; }
+}
+
 /** The review of one match: of the game so far while it is played, and of the
  * whole game once it is over. It is taken on to each later result (`extend`),
  * keeping every hand it has reviewed. It owns its replay and its requests,
@@ -229,12 +266,17 @@ export function agreement(decisions) {
  * device holds after each hand unless the player has asked for every hand.
  * `analyzeBatch(positions, signal)` asks the network; `onChange` hears every
  * change, and `onComplete` hears once that every hand of the finished match
- * is reviewed, whether or not anyone is looking. */
+ * is reviewed, whether or not anyone is looking. `gate()` answers null while
+ * the review may ask the network, or a promise that settles once it may; the
+ * review waits there before each forward pass (passGate), so that the hand's
+ * own notes, which ask the same worker a decision at a time, go first
+ * (Asking). */
 export class MatchReview {
-  constructor(Game, snapshot, { analyzeBatch, onChange = () => {}, onComplete = () => {}, now = () => performance.now() } = {}) {
+  constructor(Game, snapshot, { analyzeBatch, gate = () => null, onChange = () => {}, onComplete = () => {}, now = () => performance.now() } = {}) {
     this.Game = Game;
     this.snapshot = snapshot;
     this.analyzeBatch = analyzeBatch;
+    this.gate = gate;
     this.onChange = onChange;
     this.onComplete = onComplete;
     this.now = now;
@@ -411,7 +453,10 @@ export class MatchReview {
     if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed for review');
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
-      batch: { size: BATCH, analyze: (positions, signal) => this.timed(positions, signal) },
+      batch: { size: BATCH, analyze: async (positions, signal) => {
+        await this.passGate(signal);
+        return this.timed(positions, signal);
+      } },
       onProgress: done => { hand.done = done; this.notify(); },
     });
     if (signal.aborted) throw new DOMException('Review changed', 'AbortError');
@@ -433,8 +478,31 @@ export class MatchReview {
     hand.status = 'done';
   }
 
+  /** Waits, before a forward pass, while the gate is shut: while the hand's
+   * own notes ask Trained AI. Nothing is given up meanwhile. The review goes
+   * on exactly where it was, at the next batch of the same hand, with the
+   * same hands queued and the same word from the player: that they asked for
+   * it, and whether a slow device should go on to the end or hold after the
+   * hand for them. Each time the gate opens it is asked again, since the
+   * notes may have begun to ask again by the time the review goes on. A
+   * review stopped or closed while it waits stops waiting at once, as it
+   * stops waiting for an answer, and a gate that fails stops the review as a
+   * failed answer would, saying why, rather than leaving it waiting. */
+  async passGate(signal) {
+    for (let shut = this.gate(); shut; shut = this.gate()) {
+      await new Promise((resolve, reject) => {
+        const stop = () => reject(new DOMException('Review changed', 'AbortError'));
+        if (signal?.aborted) return stop();
+        signal?.addEventListener('abort', stop, { once: true });
+        shut.then(resolve, reject).finally(() => signal?.removeEventListener('abort', stop));
+      });
+    }
+  }
+
   /** Asks one batch and keeps the time it took a position. The first batch
-   * of a review can include loading the network, so it is not counted. */
+   * of a review can include loading the network, so it is not counted. Time
+   * spent at the gate is the notes' rather than the network's, so it is not
+   * counted either: the clock starts once the gate is passed. */
   async timed(positions, signal) {
     const started = this.now();
     const answers = await this.analyzeBatch(positions, signal);

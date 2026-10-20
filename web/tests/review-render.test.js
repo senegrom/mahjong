@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import { parse } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { readBeliefs } from '../src/lib/beliefs.js';
+import { Asking } from '../src/lib/game-review.js';
 import { reviewFallbackNote } from '../src/lib/ui.js';
 import { componentLoader } from './fixtures/load-component.js';
 
@@ -100,4 +104,154 @@ test('the belief panel names honours as the page names tiles, and marks their do
   assert.match(html, /aria-label="white dragon, dora"/);
   assert.match(html, /aria-label="east wind"/);
   assert.doesNotMatch(html, /NaN|Front\.svg/, 'no kind is shown as an unknown blank tile');
+});
+
+// A server render never runs the review's effects, and no unit test has a
+// browser to mount the review in. So the effect that asks Trained AI is run
+// here from the component's own source, as Svelte runs it: once as the review
+// opens or is asked again, and its cleanup as the review is closed or asked
+// again. The component's state, the questions and `untrack` are stand-ins.
+const reviewSource = readFileSync(new URL('../src/lib/Review.svelte', import.meta.url), 'utf8');
+function find(node, predicate) {
+  if (!node || typeof node !== 'object') return null;
+  if (predicate(node)) return node;
+  for (const value of Object.values(node)) {
+    const found = find(value, predicate);
+    if (found) return found;
+  }
+  return null;
+}
+const askingEffect = (() => {
+  const call = find(parse(reviewSource, { modern: true }).instance.content, node => node.type === 'CallExpression'
+    && node.callee?.name === '$effect' && reviewSource.slice(node.start, node.end).includes('reviewWithStrong'));
+  assert.ok(call, 'the review asks Trained AI from an effect');
+  return reviewSource.slice(call.arguments[0].start, call.arguments[0].end);
+})();
+const turn = () => new Promise(resolve => setImmediate(resolve));
+
+/** The review's effect on its state, Trained AI chosen and two decisions to
+ * ask about unless `state` says otherwise, telling `onask` by beginning a
+ * spell of the page's `asking`. Each request is held until the test answers
+ * or fails it, and notes whether the gate was already shut as it was sent;
+ * `told` notes, each time the review said it was asking, whether it said so
+ * untracked. `run()` runs the effect and answers its cleanup. */
+function askingNotes(asking, state = {}) {
+  const requests = [];
+  const context = vm.createContext({
+    notes: [{ turn: 1 }, { turn: 2 }], engine: {}, retry: 0, reviewer: 'strong', cached: null,
+    trainedNotes: null, completed: 0, reviewing: false, failure: '', AbortController, told: [], untracking: false,
+    untrack: read => {
+      context.untracking = true;
+      try { return read(); } finally { context.untracking = false; }
+    },
+    onask: () => {
+      context.told.push(context.untracking);
+      return asking.begin();
+    },
+    analyzePolicy: () => { throw new Error('The stand-in for the questions asks nothing itself'); },
+    reviewWithStrong: (_engine, _notes, _analyze, { signal }) => new Promise((answer, fail) => {
+      requests.push({ signal, shut: asking.gate() !== null, answer, fail });
+    }),
+    ...state,
+  });
+  const effect = vm.runInContext(`(${askingEffect})`, context);
+  return { context, requests, run: () => effect() };
+}
+
+test("the hand's notes shut the review's gate before their first question, and open it once, however they stop", async () => {
+  // Answered: shut, untracked, before the first question is sent, and open
+  // again as the answers come.
+  let asking = new Asking(), notes = askingNotes(asking);
+  const close = notes.run();
+  assert.deepEqual(notes.context.told, [true], 'told once, untracked');
+  assert.equal(notes.requests.length, 1);
+  assert.equal(notes.requests[0].shut, true, 'shut before the first question is sent');
+  const rows = [{ agreed: true }];
+  notes.requests[0].answer(rows);
+  await turn();
+  assert.equal(asking.gate(), null, 'open as the answers come');
+  assert.equal(notes.context.trainedNotes, rows);
+  assert.equal(notes.context.reviewing, false);
+  // Closed later, they say nothing more, which would open the gate on
+  // another spell under way meanwhile.
+  const other = asking.begin();
+  close();
+  assert.notEqual(asking.gate(), null, 'the notes said once that they stopped');
+  other();
+
+  // A failure, or no answer in time, which fails every request the worker
+  // holds: open as it comes, and said.
+  for (const error of [new Error('The opponent worker failed'), new Error('The trained opponent did not answer in time')]) {
+    asking = new Asking();
+    notes = askingNotes(asking);
+    notes.run();
+    notes.requests[0].fail(error);
+    await turn();
+    assert.equal(asking.gate(), null, error.message);
+    assert.equal(notes.context.failure, error.message);
+  }
+
+  // Closed before the answers come, as when the next hand is dealt, Play is
+  // left or Club is chosen: open at once, the question dropped, and nothing
+  // more said as its refusal comes.
+  asking = new Asking();
+  notes = askingNotes(asking);
+  notes.run()();
+  assert.equal(asking.gate(), null, 'open as the notes are closed');
+  assert.equal(notes.requests[0].signal.aborted, true, 'the question is dropped');
+  const later = asking.begin();
+  notes.requests[0].fail(new DOMException('Match changed', 'AbortError'));
+  await turn();
+  assert.notEqual(asking.gate(), null, 'nothing more is said');
+  assert.equal(notes.context.failure, '');
+  later();
+
+  // Asked again, as Svelte does when what they review changes: the cleanup,
+  // then the next run, which shuts the gate afresh, the first run's late
+  // refusal leaving it shut.
+  asking = new Asking();
+  notes = askingNotes(asking);
+  notes.run()();
+  notes.run();
+  assert.deepEqual(notes.context.told, [true, true]);
+  assert.equal(notes.requests[1].shut, true);
+  notes.requests[0].fail(new DOMException('Match changed', 'AbortError'));
+  await turn();
+  assert.notEqual(asking.gate(), null, "the first run's end leaves the next run's gate shut");
+  notes.requests[1].answer([]);
+  await turn();
+  assert.equal(asking.gate(), null);
+
+  // Nothing asked, so nothing said: Club chosen, no decision to ask about,
+  // or answers already had for the same decisions.
+  const decisions = [{ turn: 1 }], engine = {};
+  for (const state of [{ reviewer: 'club' }, { notes: [] }, { notes: decisions, engine, cached: { source: decisions, engine, rows: [] } }]) {
+    asking = new Asking();
+    notes = askingNotes(asking, state);
+    notes.run();
+    assert.deepEqual({ told: notes.context.told, requests: notes.requests.length, gate: asking.gate() }, { told: [], requests: 0, gate: null },
+      JSON.stringify(Object.keys(state)));
+  }
+});
+
+test("the page gives the review of the game so far the gate that the hand's notes shut", () => {
+  // The page's own wiring, from its source: what it tells the notes to call
+  // as they begin to ask, and the gate it gives the review, each run on one
+  // count of spells, as the page has it.
+  const appSource = readFileSync(new URL('../src/App.svelte', import.meta.url), 'utf8');
+  const app = parse(appSource, { modern: true });
+  const counted = find(app.instance.content, node => node.type === 'VariableDeclarator' && node.id.name === 'notesAsking');
+  assert.equal(counted?.init.callee.name, 'Asking', "the page counts the notes' spells of asking");
+  const onask = find(app.fragment, node => node.type === 'Component' && node.name === 'Review')
+    ?.attributes.find(attribute => attribute.name === 'onask')?.value?.expression;
+  const gate = find(app.instance.content, node => node.type === 'NewExpression' && node.callee.name === 'MatchReview')
+    ?.arguments[2]?.properties.find(property => property.key?.name === 'gate')?.value;
+  assert.ok(onask && gate, 'the notes are told what to call as they ask, and the review is given a gate');
+  const notesAsking = new Asking(), context = vm.createContext({ notesAsking });
+  const [ask, shut] = [onask, gate].map(node => vm.runInContext(`(${appSource.slice(node.start, node.end)})`, context));
+  assert.equal(shut(), null, 'open while the notes ask nothing');
+  const stop = ask();
+  assert.ok(shut() instanceof Promise, 'shut while they ask');
+  stop();
+  assert.equal(shut(), null, 'open once they stop');
 });
