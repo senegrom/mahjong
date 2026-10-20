@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { BATCH, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, MatchReview, SLOW_MS, agreement, decisionInBrief, differed,
+import { Asking, BATCH, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, MatchReview, SLOW_MS, agreement, decisionInBrief, differed,
   filterCounts, filterDecisions, filterSaid, handName, judgement, movedNote, ordinal, rankDecisions, scanMatch, seatNotes,
   tableSaid } from '../src/lib/game-review.js';
 
@@ -54,6 +54,38 @@ const settled = review => new Promise(resolve => {
   const check = () => (review.busy ? setImmediate(check) : resolve());
   setImmediate(check);
 });
+const turn = () => new Promise(resolve => setImmediate(resolve));
+/** Waits a turn of the event loop at a time until `ready()` holds. */
+async function until(ready, what) {
+  for (let count = 0; count < 1000 && !ready(); count++) await turn();
+  assert.ok(ready(), what);
+}
+
+/** A review whose gate is the notes' spells of asking, `asking`, as the page
+ * has it, noting in `waits` the hand it was on each time it found the gate
+ * shut, and in `sizes` every batch it sent. `onBatch(sent)` is told as each
+ * batch is sent, with how many were sent before it, so that the notes can
+ * begin to ask while that batch is under way. */
+function gatedReview(snapshot, asking, { sizes = [], waits = [], onBatch = () => {}, analyzeBatch = network(sizes), ...options } = {}) {
+  const review = new MatchReview(Game, snapshot, { ...options,
+    analyzeBatch: (positions, signal) => { onBatch(sizes.length); return analyzeBatch(positions, signal); },
+    gate: () => {
+      const shut = asking.gate();
+      if (shut) waits.push(review.current);
+      return shut;
+    } });
+  return review;
+}
+
+/** The batches an ungated review of `snapshot` sends, in order. */
+async function ungatedSizes(snapshot) {
+  const sizes = [], review = new MatchReview(Game, snapshot, { analyzeBatch: network(sizes) });
+  try {
+    review.review();
+    await settled(review);
+    return sizes;
+  } finally { review.dispose(); }
+}
 
 /** The replayed engine at the end of one hand, for comparisons. */
 function atHandEnd(snapshot, end) {
@@ -508,6 +540,195 @@ test('stopping puts the hand being reviewed back, and a failure says what failed
     assert.equal(retried.failure, '');
     assert.ok(retried.complete);
   } finally { retried.dispose(); }
+});
+
+test("the notes' spells of asking keep the gate shut until the last has ended, each ended once however often it is told", async () => {
+  const asking = new Asking();
+  assert.equal(asking.gate(), null, 'open while nothing is asked');
+  const first = asking.begin(), shut = asking.gate();
+  assert.ok(shut instanceof Promise);
+  const second = asking.begin();
+  assert.equal(asking.gate(), shut, 'one gate for the spells under way together');
+  let opened = false;
+  void shut.then(() => { opened = true; });
+  // The first spell told twice that it has ended: counted out twice, it
+  // would open the gate on the second, still under way.
+  first();
+  first();
+  await turn();
+  assert.equal(asking.gate(), shut);
+  assert.equal(opened, false);
+  second();
+  assert.equal(asking.gate(), null, 'open again before whoever waits there goes on');
+  await turn();
+  assert.equal(opened, true);
+  // The next spell shuts it afresh, and an old one told again leaves it so.
+  const third = asking.begin();
+  assert.ok(asking.gate() instanceof Promise && asking.gate() !== shut);
+  second();
+  assert.notEqual(asking.gate(), null);
+  third();
+  assert.equal(asking.gate(), null);
+});
+
+test('a review waits at its gate while the notes ask, and goes on where it was, the time it waited not held against the device', async () => {
+  // At the third hand's result, which is asked about first, then the first
+  // two. The notes begin to ask while the review's second batch is under
+  // way, so its third waits, and a clock that moves only at the gate stands
+  // for the notes' time there: a minute, which, held against the device,
+  // would make it slow and have it hold after the hand.
+  const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end), alone = await ungatedSizes(saved);
+  const asking = new Asking(), sizes = [], waits = [];
+  let clock = 0, stopAsking = null;
+  const review = gatedReview(saved, asking, { sizes, waits, now: () => clock,
+    onBatch: sent => { if (sent === 1) stopAsking = asking.begin(); } });
+  try {
+    review.review();
+    await until(() => waits.length > 0, 'the review comes to its gate');
+    for (let count = 0; count < 50; count++) await turn();
+    assert.deepEqual(sizes, alone.slice(0, 2), 'nothing more is sent while the notes ask');
+    // Nothing is given up while it waits: the hand under review and how far
+    // it has got, the hands queued, and the player's word as it was.
+    const reviewing = review.hands[2];
+    assert.deepEqual({ busy: review.busy, current: review.current, status: reviewing.status, queue: review.queue,
+      requested: review.requested, patient: review.patient, held: review.held, failure: review.failure },
+    { busy: true, current: 2, status: 'reviewing', queue: [0, 1], requested: true, patient: false, held: false, failure: '' });
+    assert.ok(reviewing.done > 0 && reviewing.done < reviewing.frames.length, `the hand is part reviewed: ${reviewing.done}`);
+    assert.ok(new Set(waits).size === 1 && waits[0] === 2, 'only ever at the hand under review');
+    clock += 60000;
+    stopAsking();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(review.complete, 'it goes on to the end by itself');
+    assert.equal(review.slow, false, 'the time at the gate is not held against the device');
+    // Every batch an ungated review sends, each once: the hand went on from
+    // its third batch, and nothing was asked again or left out.
+    assert.deepEqual(sizes, alone);
+  } finally { review.dispose(); }
+});
+
+test("a slow device waits at the gate as any other, and still holds after the hand for the player's word", async () => {
+  const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end);
+  const asking = new Asking(), sizes = [], waits = [], answer = network(sizes);
+  let clock = 0, stopAsking = null;
+  const review = gatedReview(saved, asking, { sizes, waits, now: () => clock,
+    analyzeBatch: (positions, signal) => {
+      clock += positions.length * (SLOW_MS + 100);
+      return answer(positions, signal);
+    },
+    onBatch: sent => { if (sent === 1) stopAsking = asking.begin(); } });
+  try {
+    review.review();
+    await until(() => waits.length > 0, 'the review comes to its gate');
+    stopAsking();
+    await settled(review);
+    // The hand just played is reviewed, and the review holds after it as it
+    // would have without the notes, the rest queued for the player's word.
+    assert.equal(review.slow, true);
+    assert.deepEqual({ held: review.held, queue: review.queue, requested: review.requested, patient: review.patient,
+      reviewed: review.reviewedHands, failure: review.failure },
+    { held: true, queue: [0, 1], requested: true, patient: false, reviewed: 1, failure: '' });
+    // The player asks for the rest while the notes ask again: the review
+    // comes to its gate before its first batch, the word kept meanwhile.
+    stopAsking = asking.begin();
+    const waited = waits.length, sent = sizes.length;
+    review.resume({ patient: true });
+    await until(() => waits.length > waited, 'the review comes to its gate again');
+    assert.deepEqual({ busy: review.busy, current: review.current, queue: review.queue, patient: review.patient, held: review.held, sent: sizes.length },
+      { busy: true, current: 0, queue: [1], patient: true, held: false, sent });
+    stopAsking();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(review.complete, "the player's word holds: no hold after the first hand");
+  } finally { review.dispose(); }
+});
+
+test('a review stopped or closed while it waits at its gate stops waiting at once', async () => {
+  // Notes that do not stop asking until the end: the gate shuts while the
+  // review's first batch is under way, and stays shut. A review that went on
+  // waiting would never settle, so it is given a few turns, not for ever.
+  const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end);
+  const asking = new Asking(), sizes = [], waits = [];
+  let stopAsking = null;
+  const review = gatedReview(saved, asking, { sizes, waits, onBatch: sent => { if (sent === 0) stopAsking = asking.begin(); } });
+  try {
+    review.review();
+    await until(() => waits.length > 0, 'the review comes to its gate');
+    review.stop();
+    await until(() => !review.busy, 'the stopped review stops waiting');
+    // Stopped as at any other moment: the hand under review goes back to
+    // waiting, nothing is left queued, and nothing is said to have failed.
+    assert.deepEqual(review.hands.map(hand => hand.status), ['waiting', 'waiting', 'waiting']);
+    assert.deepEqual({ queue: review.queue, current: review.current, failure: review.failure }, { queue: [], current: null, failure: '' });
+    // Asked for again, it comes to the gate again, before its first batch,
+    // and is closed there.
+    const waited = waits.length, sent = sizes.length;
+    review.review();
+    await until(() => waits.length > waited, 'the review comes to its gate again');
+    review.dispose();
+    await until(() => !review.busy, 'the closed review stops waiting');
+    assert.equal(review.replay, null, 'its replay is freed');
+    // The notes stop at last: a closed review asks nothing more.
+    stopAsking();
+    for (let count = 0; count < 50; count++) await turn();
+    assert.equal(sizes.length, sent);
+    assert.equal(review.busy, false);
+  } finally { review.dispose(); }
+});
+
+test('a whole-game review held at its gate goes on by itself once let through, and the game joins the trend once', async () => {
+  // The review of the finished game, from the standings. The last hand's
+  // notes ask Trained AI while the fourth hand is reviewed, and stop only to
+  // ask again at once, as Svelte runs them again when what they review
+  // changes under them: the gate opens and shuts in the same turn, and the
+  // review, looking again, waits on.
+  const alone = await ungatedSizes(game), whole = [];
+  const ungated = new MatchReview(Game, game, { analyzeBatch: network(), onComplete: done => whole.push(done.summary) });
+  try {
+    ungated.review();
+    await settled(ungated);
+  } finally { ungated.dispose(); }
+  const asking = new Asking(), sizes = [], waits = [], reported = [];
+  let stopAsking = null;
+  const review = gatedReview(game, asking, { sizes, waits, onComplete: done => reported.push(done.summary),
+    onBatch: () => { if (review.current === 3 && !stopAsking) stopAsking = asking.begin(); } });
+  try {
+    review.review();
+    await until(() => waits.length > 0, 'the review comes to its gate');
+    const sent = sizes.length;
+    stopAsking();
+    const stopAgain = asking.begin();
+    for (let count = 0; count < 50; count++) await turn();
+    assert.equal(sizes.length, sent, 'nothing is sent while the notes ask again');
+    assert.equal(review.current, 3);
+    stopAgain();
+    // Nothing asks for the review again: it goes on to the end by itself.
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(review.complete);
+    assert.deepEqual(sizes, alone, 'every batch once');
+    assert.deepEqual(reported, whole, 'the game joins the trend as an ungated review has it');
+    review.review();
+    await settled(review);
+    assert.equal(reported.length, 1, 'and only once');
+  } finally { review.dispose(); }
+});
+
+test('a gate that fails stops the review, saying why, rather than leaving it waiting', async () => {
+  let failing = true;
+  const review = new MatchReview(Game, game, { analyzeBatch: network(),
+    gate: () => (failing ? Promise.reject(new Error('The notes could not say whether they ask')) : null) });
+  try {
+    review.review();
+    await settled(review);
+    assert.equal(review.failure, 'The notes could not say whether they ask');
+    assert.ok(review.hands.every(hand => hand.status === 'waiting'));
+    failing = false;
+    review.review();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(review.complete);
+  } finally { review.dispose(); }
 });
 
 test('a finished review is reported once, with what the trend keeps of it', async () => {
