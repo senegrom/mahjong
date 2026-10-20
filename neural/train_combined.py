@@ -38,7 +38,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from . import combined, host, place_model, play_graphs, policy_inference, ppo_loop, selfplay
+from . import block_convolution, combined, host, place_model, play_graphs, policy_inference, ppo_loop, selfplay
 from .behavior import validate_exploration
 from .checkpoints import atomic_save
 from .observe import pad_rows
@@ -161,7 +161,10 @@ def learning_forward(net: combined.Combined, args: argparse.Namespace):
     every mode anew already. --compile-learning compiles the learning step
     alone, at the one shape it is always handed: whole minibatches; the
     trainer has the convolutions of our network and of the head run
-    channels-last first (`channels_last`), once the playing copy is made."""
+    channels-last first (`channels_last`), and those of Mortal's blocks
+    work out their weight gradients as GEMMs
+    (`block_convolution.gemm_weight_gradients`), once the playing copy is
+    made."""
     if args.compile:
         guard_parameters()
         net.backbones_forward = torch.compile(net.backbones, dynamic=True)
@@ -703,9 +706,10 @@ def parse_args() -> argparse.Namespace:
         "--compile-learning", action="store_true",
         help="compile the learning step's forward and nothing else: play and the seated others "
         "stay eager, with their weights cast to bfloat16 once and the step's planes made "
-        "dense in bfloat16, as without compiling. Fuses the step's elementwise kernels and "
+        "dense in bfloat16, as without compiling. Fuses the step's elementwise kernels, "
         "runs our network's and the head's convolutions channels-last, in the step and the "
-        "pass; the numbers move by where bfloat16 rounds. Off by default; not with --compile",
+        "pass, and works out the weight gradients of Mortal's block convolutions as GEMMs; "
+        "the numbers move by where bfloat16 rounds. Off by default; not with --compile",
     )
     parser.add_argument(
         "--compile-play", action="store_true",
@@ -902,6 +906,18 @@ def main() -> None:
         # measurement's games and the record's head_shift.
         channels_last(net.ours)
         channels_last(net.fuse)
+        # The convolutions of Mortal's blocks, one-dimensional still, work
+        # out their weight gradients in the learning step as GEMMs that
+        # cuBLAS spreads over the card, where cuDNN's kernel for their
+        # shape ran on six of its 142 SMs (see `block_convolution`): the
+        # same sums in another order, their forwards and input gradients
+        # cuDNN's own. On an L40S from a005's gen-1240 an update took 33
+        # ms less in each mode that trains Mortal, and the step's answers
+        # and every other gradient were bit for bit as before in all six
+        # modes. Only now as well, for the same reasons; and only where
+        # the step trains Mortal, so the pass and the generations that
+        # hold Mortal still keep the graphs they had.
+        block_convolution.gemm_weight_gradients(net.mortal)
     learn = learning_forward(net, args)
     passing = pass_forward(net, args)
 
