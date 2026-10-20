@@ -91,3 +91,10 @@ Local changes, all under the same licence:
   `draw_without_tegawari_slow` in `src/algo/sp/calc.rs` sums its draw
   probabilities with the turns swapped, each sum still taking the same
   terms in the same order.
+- The river's decay from a table. `src/state/obs_repr.rs` reads exp(-0.2 k)
+  for k below 64 from `RIVER_DECAY`, its correctly rounded float32 values,
+  instead of calling `exp`: the same values the native libms give, so no
+  plane changes there, while the WebAssembly build's `expf` was a unit in
+  the last place off at k = 11, 13, 23, 37 and 54. `golden.rs` checks the
+  table against the exponential in double and against this platform's
+  float32 `exp`.
