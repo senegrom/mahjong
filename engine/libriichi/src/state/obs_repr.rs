@@ -36,7 +36,9 @@ const RIVER_DECAY: [u32; 64] = [
 
 /// The decay of a discard `k` turns before the end of the longest river.
 pub(super) fn river_decay(k: usize) -> f32 {
-    RIVER_DECAY.get(k).map_or_else(|| (-0.2 * k as f32).exp(), |&bits| f32::from_bits(bits))
+    RIVER_DECAY
+        .get(k)
+        .map_or_else(|| (-0.2 * k as f32).exp(), |&bits| f32::from_bits(bits))
 }
 
 struct ObsEncoderContext<'a> {

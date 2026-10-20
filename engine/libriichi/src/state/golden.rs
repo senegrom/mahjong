@@ -359,7 +359,11 @@ fn the_river_decays_correctly_rounded_in_every_build() {
         let argument = -0.2 * k as f32;
         let rounded = (argument as f64).exp() as f32;
         let decay = super::obs_repr::river_decay(k);
-        assert_eq!(decay.to_bits(), rounded.to_bits(), "k = {k}: {decay:e}, correctly rounded {rounded:e}");
+        assert_eq!(
+            decay.to_bits(),
+            rounded.to_bits(),
+            "k = {k}: {decay:e}, correctly rounded {rounded:e}"
+        );
         assert_eq!(
             argument.exp().to_bits(),
             rounded.to_bits(),
