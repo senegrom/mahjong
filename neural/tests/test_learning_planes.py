@@ -1,7 +1,8 @@
-"""The learning step's planes reach the card sooner and smaller without a
-bit of what it learns changing: made dense in bfloat16 where only autocast
-reads them, copied from page-locked memory on a stream of their own, and
-checked in full once a round rather than once a minibatch."""
+"""The learning step's planes, and those of the pass that values the round
+before it, reach the card sooner and smaller without a bit of what it
+learns changing: made dense in bfloat16 where only autocast reads them,
+copied from page-locked memory on a stream of their own, and checked in
+full once a round rather than once a minibatch."""
 
 import contextlib
 import io
@@ -300,6 +301,110 @@ class StagedMinibatchTests(unittest.TestCase):
         for (picks, dense), (want_picks, want_dense) in zip(got, reference):
             same_bits(self, picks, want_picks)
             same_bits(self, dense, want_dense)
+
+
+def chunks_as_they_were(rollout, rows, dtype=torch.float32):
+    """The pass's chunks as `ppo_loop.baseline` made them before the
+    staging: pageable copies on the pass's own stream, a chunk at a time.
+    The reference."""
+    for start in range(0, rollout.decisions, rows):
+        yield slice(start, start + rows), rollout.observations.slice(start, start + rows).dense(
+            rollout.device, dtype)
+
+
+class StagedPassTests(unittest.TestCase):
+    """The pass that values a round reads its planes as the minibatches do
+    (`ppo_loop.chunks`): made dense a few chunks ahead, on the card from
+    page-locked memory on a stream of their own. The same planes, so the
+    same values, bit for bit."""
+
+    def check_chunks(self, device: str, dtype, busy=None):
+        rollout = host_round(encoded_like(500, seed=21), device)
+        reference = list(chunks_as_they_were(rollout, 64, dtype))
+        kept = []
+        with closing(ppo_loop.chunks(rollout, 64, dtype)) as staged:
+            for chunk, dense in staged:
+                if busy is not None:
+                    # The pass falls behind, then reads the chunk, which is
+                    # let go before it has: the staging stream must neither
+                    # be read early nor reuse that memory too soon.
+                    busy = busy()
+                kept.append((chunk, dense.clone()))
+                del dense
+        self.assertEqual(len(kept), len(reference))
+        self.assertEqual(len(kept), -(-500 // 64))
+        for (chunk, dense), (want_chunk, want_dense) in zip(kept, reference):
+            self.assertEqual(chunk, want_chunk)
+            same_bits(self, dense, want_dense)
+
+    def test_off_the_card_the_chunks_are_the_old_ones(self):
+        self.check_chunks("cpu", torch.float32)
+
+    @unittest.skipUnless(CUDA, "the staging is the card's")
+    def test_staged_chunks_are_the_old_ones_however_busy_the_pass(self):
+        work = [torch.randn(1024, 1024, device="cuda")]
+
+        def busy():
+            for _ in range(20):
+                work[0] = torch.tanh(work[0] @ work[0])
+            return busy
+
+        for dtype in (torch.float32, torch.bfloat16):
+            with self.subTest(dtype=dtype):
+                self.check_chunks("cuda", dtype, busy)
+
+    @unittest.skipUnless(CUDA, "the staging is the card's")
+    def test_a_chunk_still_being_staged_is_waited_for(self):
+        """The staging stream is slowed, a spin on the card before each
+        chunk, and the pass reads every chunk the moment it has it: what it
+        reads is still the whole chunk."""
+        dense = Planes.dense
+
+        def slowly(self, device, dtype=torch.float32, pinned=False):
+            torch.cuda._sleep(20_000_000)
+            return dense(self, device, dtype, pinned)
+
+        with patch.object(Planes, "dense", slowly):
+            self.check_chunks("cuda", torch.bfloat16)
+
+    def test_the_pass_values_the_round_as_it_did_bit_for_bit(self):
+        """`baseline` from staged chunks against the loop it was, on the
+        processor and on the card: the values of every head, and the round
+        trusted once it has been checked."""
+        weight = torch.randn(1012, 34, generator=torch.Generator().manual_seed(22))
+        for device in ("cpu", "cuda") if CUDA else ("cpu",):
+            with self.subTest(device=device):
+                weighed = weight.to(device)
+
+                def value(chunk, dense):
+                    return (dense * weighed).sum(dim=(1, 2)), dense.amax(dim=(1, 2))
+
+                rollout = host_round(encoded_like(300, seed=23), device)
+                want = [torch.empty(300, device=device) for _ in range(2)]
+                for chunk, dense in chunks_as_they_were(rollout, 128):
+                    for guess, answer in zip(want, value(chunk, ppo_loop.pad_rows(dense, 128))):
+                        guess[chunk] = answer.float()[: dense.shape[0]]
+                got = ppo_loop.baseline(rollout, 128, value, heads=2)
+                for one, two in zip(got, want):
+                    same_bits(self, one, two)
+                self.assertTrue(rollout.observations.trusted)
+
+    @unittest.skipUnless(CUDA, "the staging is the card's")
+    def test_a_pass_that_fails_leaves_no_worker_behind(self):
+        rollout = host_round(encoded_like(600, seed=24), "cuda")
+        before = {thread.ident for thread in threading.enumerate() if thread.name == "mahjong-prefetch"}
+
+        def value(chunk, dense):
+            if chunk.start:
+                raise RuntimeError("the forward failed")
+            return (dense.sum(dim=(1, 2)),)
+
+        with self.assertRaisesRegex(RuntimeError, "the forward failed"):
+            ppo_loop.baseline(rollout, 32, value, dtype=torch.bfloat16)
+        torch.cuda.synchronize()
+        after = {thread.ident for thread in threading.enumerate() if thread.name == "mahjong-prefetch"}
+        self.assertEqual(after, before)
+        self.assertFalse(rollout.observations.trusted)
 
 
 class CheckedOnceTests(unittest.TestCase):
