@@ -5,7 +5,8 @@
 //! new mjai events as JSON lines and asked for the observations of whichever
 //! players owe a decision, in one sparse batch. Both run across games in
 //! parallel without the GIL: the observation's efficiency lookahead costs
-//! milliseconds a decision, and a step has hundreds of decisions.
+//! about 0.6 ms a decision on one core, several at three shanten, and a
+//! step has hundreds of decisions.
 //!
 //! This module is not part of Mortal; it was added for the mahjong project
 //! that vendors this crate, and is licensed as the rest of it.

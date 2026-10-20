@@ -490,39 +490,41 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
             self.state.undo_deal(tile);
 
             let tsumo_probs = &self.tsumo_prob_table[count as usize - 1];
-            for i in 0..MAX_TSUMO {
-                let m = not_tsumo_probs[i];
-                if m == 0. {
-                    // We are breaking here because `not_tsumo_probs[i..]` must
-                    // all be zero, since `not_tsumo_probs` is monotonically
-                    // decreasing.
-                    //
-                    // This divide-by-zero check is missing in the original
-                    // version, which is very problematic.
-                    break;
-                }
-
-                for j in i..MAX_TSUMO {
-                    let n = not_tsumo_probs[j];
-                    if n == 0. {
-                        // `not_tsumo_probs[j..]` must all be zero, no need to
-                        // proceed.
-                        break;
-                    }
-                    // 現在の巡目が i の場合に j 巡目に有効牌を引く確率
-                    let prob = tsumo_probs[j] * n / m;
-
-                    match &scores_or_values {
-                        ScoresOrValues::Scores(scores) => {
-                            let assume_riichi = self.sup.is_menzen && self.sup.prefer_riichi;
+            // Seen from turn i, the chance of drawing this tile at turn j >= i
+            // with no required tile drawn before it is
+            // tsumo_probs[j] * not_tsumo_probs[j] / not_tsumo_probs[i]. The
+            // terms stop at the first turn by which a required tile is certain
+            // to have come: `not_tsumo_probs` falls to zero there and stays
+            // zero (the original version divided by that zero). Only a hand
+            // that wants nearly every unseen tile gets there inside the
+            // horizon.
+            //
+            // The terms are summed with j outside and i inside, so that the
+            // inner loops run over neighbouring accumulators and can be
+            // vectorised. No sum changes by a bit: each accumulator still takes
+            // its terms in increasing j, each term is the same product divided
+            // by the same number, and Rust never reassociates floating-point
+            // arithmetic or fuses a multiply into an add.
+            let horizon = not_tsumo_probs
+                .iter()
+                .position(|&p| p == 0.)
+                .unwrap_or(MAX_TSUMO);
+            match &scores_or_values {
+                ScoresOrValues::Scores(scores) => {
+                    let assume_riichi = self.sup.is_menzen && self.sup.prefer_riichi;
+                    for j in 0..horizon {
+                        let drawn = tsumo_probs[j] * not_tsumo_probs[j];
+                        // 最後の巡目で和了の場合は海底撈月成立
+                        let win_haitei = self.sup.calc_haitei && j == MAX_TSUMO - 1;
+                        for i in 0..=j {
+                            // 現在の巡目が i の場合に j 巡目に有効牌を引く確率
+                            let prob = drawn / not_tsumo_probs[i];
                             // 聴牌の場合は次で和了
                             // i 巡目で聴牌の場合はダブル立直成立
                             let win_double_riichi =
                                 assume_riichi && self.sup.calc_double_riichi && i == 0;
                             // i 巡目で聴牌し、次の巡目で和了の場合は一発成立
                             let win_ippatsu = assume_riichi && j == i;
-                            // 最後の巡目で和了の場合は海底撈月成立
-                            let win_haitei = self.sup.calc_haitei && j == MAX_TSUMO - 1;
                             let han_plus = win_double_riichi as usize
                                 + win_ippatsu as usize
                                 + win_haitei as usize;
@@ -530,19 +532,40 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
                             win_probs[i] += prob;
                             exp_values[i] += prob * scores[han_plus];
                         }
-                        ScoresOrValues::Values(next_values) => {
+                    }
+                }
+                ScoresOrValues::Values(next_values) => {
+                    // Values come only from a hand not yet tenpai, so `shanten`
+                    // is 1 or more here, and "not 1" below means "more than 1".
+                    debug_assert!(shanten >= 1);
+                    for j in 0..horizon {
+                        let drawn = tsumo_probs[j] * not_tsumo_probs[j];
+                        if j < MAX_TSUMO - 1 {
+                            // 聴牌以上で max_tsumo_ - 1 巡目以下の場合
+                            let tenpai = next_values.tenpai_probs[j + 1];
+                            let win = next_values.win_probs[j + 1];
+                            let ev = next_values.exp_values[j + 1];
                             if shanten == 1 {
                                 // 1向聴の場合は次で聴牌
-                                tenpai_probs[i] += prob;
-                            }
-                            if j < MAX_TSUMO - 1 {
-                                if shanten > 1 {
-                                    // 2向聴以上で max_tsumo_ - 1 巡目以下の場合
-                                    tenpai_probs[i] += prob * next_values.tenpai_probs[j + 1];
+                                for i in 0..=j {
+                                    let prob = drawn / not_tsumo_probs[i];
+                                    tenpai_probs[i] += prob;
+                                    win_probs[i] += prob * win;
+                                    exp_values[i] += prob * ev;
                                 }
-                                // 聴牌以上で max_tsumo_ - 1 巡目以下の場合
-                                win_probs[i] += prob * next_values.win_probs[j + 1];
-                                exp_values[i] += prob * next_values.exp_values[j + 1];
+                            } else {
+                                // 2向聴以上で max_tsumo_ - 1 巡目以下の場合
+                                for i in 0..=j {
+                                    let prob = drawn / not_tsumo_probs[i];
+                                    tenpai_probs[i] += prob * tenpai;
+                                    win_probs[i] += prob * win;
+                                    exp_values[i] += prob * ev;
+                                }
+                            }
+                        } else if shanten == 1 {
+                            // 1向聴の場合は次で聴牌
+                            for i in 0..=j {
+                                tenpai_probs[i] += drawn / not_tsumo_probs[i];
                             }
                         }
                     }

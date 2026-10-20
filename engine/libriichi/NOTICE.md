@@ -66,3 +66,28 @@ Local changes, all under the same licence:
   feature, for the follower's float16. `Cargo.lock` follows, and
   Dependabot keeps it current: it watches this crate's lockfile beside the
   root one.
+- `src/state/golden.rs`, new, with `testdata/encoder-golden`: the encoder's
+  golden test. Whole games recorded from this project's arena are replayed
+  through the player states, and at every decision the planes, the mask and
+  the lookahead's table, and the same with the player's reach previewed
+  where our rules allow one, are held to digests the encoder gave before;
+  so are a few hands put to the lookahead directly, with its other options.
+  `neural/tests/test_encoder_golden.py` holds the `Follower`'s output for
+  the same games to digests of its own. A change meant to be exact has to
+  reproduce them to the bit. `src/state/mod.rs` registers the test, and
+  `Cargo.toml` optimises the test profile, in which the games replay in
+  seconds where an unoptimised build took minutes.
+- The efficiency lookahead, about twice as fast with every value the same
+  to the bit. `src/algo/shanten.rs` gains `Near`, the shanten of every hand
+  one tile away from a base hand: it looks the base's four groups up once
+  and combines each group's three others once, so that each neighbour costs
+  one lookup and one entry of a product where `calc_all` looked up and
+  combined all four groups again, and its comment says why each answer is
+  exactly `calc_all`'s; `near_is_calc_all` compares the two on random hands
+  (`NEAR_HANDS` sets how many). `src/algo/sp/state.rs` asks it in the scans
+  over the tiles that could be thrown or drawn, which made some eleven
+  thousand shanten calculations an observation; with
+  `sp_reproduce_cpp_ver` they still ask `calc_normal` afresh.
+  `draw_without_tegawari_slow` in `src/algo/sp/calc.rs` sums its draw
+  probabilities with the turns swapped, each sum still taking the same
+  terms in the same order.

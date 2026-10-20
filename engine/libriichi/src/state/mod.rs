@@ -7,6 +7,10 @@ mod player_state;
 mod sp_tables;
 mod update;
 
+// The digests are of the lookahead as the encoder runs it, which
+// reproducing the C++ version changes.
+#[cfg(all(test, not(feature = "sp_reproduce_cpp_ver")))]
+mod golden;
 #[cfg(test)]
 mod test;
 

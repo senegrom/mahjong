@@ -13,8 +13,10 @@ position and none of it cheaply. Our engine stays the authority on the rules
 and on which moves are legal; Mortal's only reads the game and describes it.
 
 Two costs come with the richer view, and this module pays both. The
-lookahead takes milliseconds a decision, so the encoder runs across games
-in parallel, in Rust and without the GIL, in `libriichi.follow.Follower`.
+lookahead takes about 0.6 ms a decision on one core, and several at three
+shanten (1.3 ms on average until October 2026, when its shanten checks
+became incremental), so the encoder runs across games in parallel, in Rust
+and without the GIL, in `libriichi.follow.Follower`.
 And a decision is 34,408 floats where it was 3,298, so the planes are kept
 sparse: about one value in eighteen is not zero, and a round of them fits
 where it used to.
@@ -27,6 +29,7 @@ from dataclasses import dataclass
 import functools
 import os
 from pathlib import Path
+import time
 
 import numpy as np
 import torch
@@ -511,6 +514,10 @@ class Views:
         # The step's encodings of deciding players, each one call of the
         # encoder's, made here or by a worker (see `prepare`).
         self._step: list[Encoded] = []
+        #: Seconds the worker has spent making encodings aside: the seated
+        #: others' views, which the learner's deciding hides from the
+        #: round's own clock. Written by the worker alone.
+        self.aside_seconds = 0.0
 
     def advance(self) -> None:
         # Fed only once nothing is being encoded from it (see `prepare`).
@@ -553,7 +560,7 @@ class Views:
         if self.observer is None or len(games) == 0:
             return
         who = list(zip(np.asarray(games).tolist(), np.asarray(players).tolist()))
-        made = (encoder_thread().submit(self._encode, who, after_reach) if aside
+        made = (encoder_thread().submit(self._encode_aside, who, after_reach) if aside
                 else self._encode(who, after_reach))
         self._step.append(Encoded(who, {pair: index for index, pair in enumerate(who)}, after_reach, made))
 
@@ -569,6 +576,14 @@ class Views:
         once nothing is being encoded from the follower."""
         self.wait()
         self.observer.tell(game, player, line)
+
+    def _encode_aside(self, who: list[tuple[int, int]], after_reach: bool) -> tuple[Planes, np.ndarray]:
+        """`_encode` on the worker, timed into `aside_seconds`."""
+        began = time.perf_counter()
+        try:
+            return self._encode(who, after_reach)
+        finally:
+            self.aside_seconds += time.perf_counter() - began
 
     def _encode(
         self, who: list[tuple[int, int]], after_reach: bool = False, renamed: bool = False

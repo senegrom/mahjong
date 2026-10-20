@@ -36,7 +36,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from . import combined, place_model, play_graphs, policy_inference, ppo_loop, selfplay
+from . import combined, host, place_model, play_graphs, policy_inference, ppo_loop, selfplay
 from .behavior import validate_exploration
 from .checkpoints import atomic_save
 from .observe import pad_rows
@@ -133,7 +133,8 @@ def optimiser_groups(net: combined.Combined, args) -> list[dict]:
 
 
 def value_warm_up(net: combined.Combined, learn, rollout, held, optimiser, totals, args,
-                  dtype: torch.dtype, amp_enabled: bool, played_phi):
+                  dtype: torch.dtype, amp_enabled: bool, played_phi,
+                  clock: ppo_loop.LearningClock | None = None):
     """One generation's epochs that teach the critic alone (`--value-warm-up`):
     the value loss and nothing else, stepped by `optimiser`, which holds the
     critic's parameters alone (`Combined.value_parts`), everything else
@@ -146,7 +147,8 @@ def value_warm_up(net: combined.Combined, learn, rollout, held, optimiser, total
     the critic would take many generations to catch up, its advantages
     wrong all the while. The policy's entropy and its drift are summed for
     the record, though nothing moves either. Answers the steps taken and the
-    last minibatch's picks and planes, as the PPO epochs leave them."""
+    last minibatch's picks and planes, as the PPO epochs leave them; each
+    step is noted on `clock` when one is given."""
     device = rollout.device
     nothing = torch.zeros((), device=device)
     steps = 0
@@ -172,6 +174,8 @@ def value_warm_up(net: combined.Combined, learn, rollout, held, optimiser, total
                                clipped=nothing, kl=-moved.mean(), grad=grad_norm, leash=nothing,
                                hands=hands_loss, covered=covered)
                 steps += 1
+                if clock is not None:
+                    clock.update()
     return steps, picks, planes
 
 
@@ -636,6 +640,11 @@ def main() -> None:
     try:
         for generation in range(start, end):
             began = time.time()
+            # The processors' time this process uses over the generation,
+            # and the time the container is held back meanwhile, for the
+            # record (see `host`).
+            used = host.cpu_seconds()
+            held_back = host.counters()
             batch = rollout = held = played_phi = None
             # Deciding is the joined player as it stands; what stays fixed in
             # the update that follows is drawn now and said in the record.
@@ -679,6 +688,9 @@ def main() -> None:
                     following = str(copy.deepcopy(drawer).choice(args.fixed))
                     ahead.start(generation + 1,
                                 keep_phi=reusing and "mortal" in following.split("+"))
+            # The learning begins: with --play-ahead, beside the next round
+            # until that round is done (see `ppo_loop.LearningClock`).
+            learning = ppo_loop.LearningClock()
             require_trainable_round(batch.decisions, args.batch, args.epochs)
             # A run paid the placement reward settles the round now, by the U
             # it has as the round is learned, and keeps the round's hand
@@ -775,7 +787,7 @@ def main() -> None:
                     )
                 steps, picks, planes = value_warm_up(
                     net, learn, rollout, held, warm_optimiser, totals, args,
-                    planes_dtype, amp_enabled, played_phi,
+                    planes_dtype, amp_enabled, played_phi, clock=learning,
                 )
             for _epoch in range(0 if warming else args.epochs):
                 with closing(ppo_loop.minibatches(rollout, args.batch, dtype=planes_dtype)) as minibatches:
@@ -884,6 +896,7 @@ def main() -> None:
                                 covered=covered,
                             )
                         steps += 1
+                        learning.update()
                 if drift.stopped:
                     break
 
@@ -950,6 +963,21 @@ def main() -> None:
                 # seconds this process has spent recording them, and the
                 # card memory they hold.
                 **(play_graphs.accounts(graphed) if args.play_graphs else {}),
+                # What bounds the generation: the card and the processors it
+                # had, the processors' time it used and any the container was
+                # denied, the seated others' encoding (the worker's share
+                # hidden by the learner's deciding, so not a part of
+                # play_split), and with --play-ahead how much of the learning
+                # went on beside the next round and how much after it was
+                # done, in seconds and in updates.
+                card=host.card(device),
+                host=host.processors(),
+                cpu_seconds=round(host.cpu_seconds() - used, 1),
+                throttling=host.change(held_back, host.counters()),
+                seated_encode_seconds=round(getattr(batch, "seated_encode_seconds", 0.0), 1),
+                **(learning.split(ahead.ended.get(generation + 1) if generation + 1 < end
+                                  else learning.began)
+                   if ahead is not None else {}),
                 entropy_coef=round(entropy_coef(), 6),
                 # Peaks, so the container's reservation can be sized from data:
                 # memory is billed by what is reserved, not what is used.

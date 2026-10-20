@@ -194,6 +194,12 @@ class Batch:
     #: to the network, translating its moves, and asking for a riichi's
     #: tile. For finding what to make faster.
     timing: dict[str, float] = field(default_factory=dict)
+    #: Seconds spent encoding the seated others' views: by the encoder's
+    #: worker while the learner decided, and here on a step the learner had
+    #: no decision in. Not a part of `timing`, whose parts add up to the
+    #: round's wall time: `timing["encode"]` holds what was made here and
+    #: only what of the worker's share the learner's deciding did not hide.
+    seated_encode_seconds: float = 0.0
     #: What the learner's value head made of each decision as it decided,
     #: one a decision in the order above, when every step's records said
     #: (see `mortal_learner.Records.values`); None otherwise.
@@ -410,6 +416,8 @@ def play(
     steps = 0
     clock = time.perf_counter
     timing = {"engine": 0.0, "encode": 0.0, "network": 0.0, "opponents": 0.0, "other": 0.0}
+    # The seated others' views made on this thread (see `Batch`).
+    seated_here = 0.0
     # A learner that keeps its own account may have been deciding
     # elsewhere since, in a measurement; this round starts from nothing.
     own = getattr(net, "timing", None)
@@ -501,6 +509,7 @@ def play(
             if preview_reach:
                 ready = index[mask[index, zoo.RIICHI_DISCARD:zoo.TSUMO].any(axis=1)]
                 views.prepare(ready, deciding[ready], after_reach=True)
+            seated_began = clock()
             for which in np.unique(holder[theirs]):
                 other = opponents[int(which)]
                 if other.kind != "mortal":
@@ -510,6 +519,10 @@ def play(
                 if getattr(other, "preview_reach", False):
                     ready = rows[mask[rows, zoo.RIICHI_DISCARD:zoo.TSUMO].any(axis=1)]
                     views.prepare(ready, deciding[ready], after_reach=True, aside=bool(len(index)))
+            if not len(index):
+                # Made here, with nothing of the learner's to hide them;
+                # the worker times its own (`Views.aside_seconds`).
+                seated_here += clock() - seated_began
         else:
             # Every deciding player's view in one call, for whoever asks below.
             everyone = np.nonzero(live)[0]
@@ -763,6 +776,7 @@ def play(
         decisions=decisions,
         final_scores=final_scores.copy(),
         timing=timing,
+        seated_encode_seconds=views.aside_seconds + seated_here,
         ledger=record,
     )
 

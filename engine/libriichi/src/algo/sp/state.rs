@@ -1,9 +1,48 @@
 use super::CALC_SHANTEN_FN;
 use super::tile::{DiscardTile, DrawTile, RequiredTile};
+#[cfg(not(feature = "sp_reproduce_cpp_ver"))]
+use crate::algo::shanten::Near;
 use crate::tile::Tile;
 use crate::{must_tile, t, tu8};
 
 use tinyvec::ArrayVec;
+
+/// The shanten of the hands one tile away from a hand, as `CALC_SHANTEN_FN`
+/// gives it, for the scans below over every tile that could be thrown or
+/// drawn: worked out from the hand's own groups (see `Near`), which gives
+/// exactly what `calc_all` would.
+#[cfg(not(feature = "sp_reproduce_cpp_ver"))]
+type Neighbours = Near;
+
+/// Reproducing the C++ version, `CALC_SHANTEN_FN` counts normal hands only,
+/// which `Near` does not, so each hand is asked afresh as before.
+#[cfg(feature = "sp_reproduce_cpp_ver")]
+struct Neighbours {
+    tehai: [u8; 34],
+    len_div3: u8,
+}
+
+#[cfg(feature = "sp_reproduce_cpp_ver")]
+impl Neighbours {
+    const fn new(tehai: &[u8; 34], len_div3: u8) -> Self {
+        Self {
+            tehai: *tehai,
+            len_div3,
+        }
+    }
+
+    fn with_one_more(&self, tid: usize) -> i8 {
+        let mut tehai = self.tehai;
+        tehai[tid] += 1;
+        CALC_SHANTEN_FN(&tehai, self.len_div3)
+    }
+
+    fn with_one_fewer(&self, tid: usize) -> i8 {
+        let mut tehai = self.tehai;
+        tehai[tid] -= 1;
+        CALC_SHANTEN_FN(&tehai, self.len_div3)
+    }
+}
 
 /// Mutable state of both the hand and the board.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -103,22 +142,19 @@ impl State {
     ) -> ArrayVec<[DiscardTile; 14]> {
         let mut discard_tiles = ArrayVec::default();
 
-        let mut tehai = self.tehai;
-        for tid in 0..34 {
-            if tehai[tid] == 0 {
+        let neighbours = Neighbours::new(&self.tehai, tehai_len_div3);
+        for (tid, &count) in self.tehai.iter().enumerate() {
+            if count == 0 {
                 continue;
             }
 
-            tehai[tid] -= 1;
-            let shanten_after = CALC_SHANTEN_FN(&tehai, tehai_len_div3);
-            tehai[tid] += 1;
-
+            let shanten_after = neighbours.with_one_fewer(tid);
             let shanten_diff = shanten_after - shanten;
 
             let tile = match tid as u8 {
-                tu8!(5m) if self.akas_in_hand[0] && tehai[tid] == 1 => t!(5mr),
-                tu8!(5p) if self.akas_in_hand[1] && tehai[tid] == 1 => t!(5pr),
-                tu8!(5s) if self.akas_in_hand[2] && tehai[tid] == 1 => t!(5sr),
+                tu8!(5m) if self.akas_in_hand[0] && count == 1 => t!(5mr),
+                tu8!(5p) if self.akas_in_hand[1] && count == 1 => t!(5pr),
+                tu8!(5s) if self.akas_in_hand[2] && count == 1 => t!(5sr),
                 _ => must_tile!(tid),
             };
 
@@ -135,16 +171,13 @@ impl State {
     ) -> ArrayVec<[DrawTile; 37]> {
         let mut draw_tiles = ArrayVec::default();
 
-        let mut tehai = self.tehai;
+        let neighbours = Neighbours::new(&self.tehai, tehai_len_div3);
         for (tid, &count) in self.tiles_in_wall.iter().enumerate() {
             if count == 0 {
                 continue;
             }
 
-            tehai[tid] += 1;
-            let shanten_after = CALC_SHANTEN_FN(&tehai, tehai_len_div3);
-            tehai[tid] -= 1;
-
+            let shanten_after = neighbours.with_one_more(tid);
             let shanten_diff = shanten_after - shanten;
 
             let tile = must_tile!(tid);
@@ -175,20 +208,16 @@ impl State {
     }
 
     pub(super) fn get_required_tiles(&self, tehai_len_div3: u8) -> ArrayVec<[RequiredTile; 34]> {
-        let mut tehai = self.tehai;
-
-        let shanten = CALC_SHANTEN_FN(&tehai, tehai_len_div3);
+        let shanten = CALC_SHANTEN_FN(&self.tehai, tehai_len_div3);
         let mut required_tiles = ArrayVec::default();
 
+        let neighbours = Neighbours::new(&self.tehai, tehai_len_div3);
         for (tid, &count) in self.tiles_in_wall.iter().enumerate() {
             if count == 0 {
                 continue;
             }
 
-            tehai[tid] += 1;
-            let shanten_after = CALC_SHANTEN_FN(&tehai, tehai_len_div3);
-            tehai[tid] -= 1;
-
+            let shanten_after = neighbours.with_one_more(tid);
             if shanten_after < shanten {
                 required_tiles.push(RequiredTile {
                     tile: must_tile!(tid),

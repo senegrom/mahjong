@@ -351,6 +351,19 @@ rollouts remain dropped to preserve compiled fixed-shape minibatches.
 the existing `generation` field remains the zero-based iteration for log
 compatibility.
 
+The fusion trainer's record also says what bounded each generation, reading
+clocks and counters only: `card`, the card's name (null on the processor);
+`host`, the processors' model, how many the system shows and this process may
+use, the container's quota of them and the encoder's threads, as far as the
+platform shows them; `cpu_seconds`, the process's processor time over the
+generation; `throttling`, what the cgroup's throttled periods and time, the
+steal time and the CPU pressure grew by meanwhile, where they are shown;
+`seated_encode_seconds`, the seated others' encoding, most of it hidden
+behind the learner's deciding and so not a part of `play_split`; and, with
+`--play-ahead`, `learning_beside_round_seconds`, `learning_alone_seconds`,
+`updates_beside_round` and `updates_alone`, how much of the learning went on
+beside the next round and how much after that round was done.
+
 Combined checkpoints include the freeze-mode generator, CPU Torch state and
 available CUDA states. Restore happens after model, optimizer and opponent
 construction. Legacy checkpoints advance the freeze schedule to their absolute
