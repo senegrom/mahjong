@@ -179,6 +179,172 @@ def value_warm_up(net: combined.Combined, learn, rollout, held, optimiser, total
     return steps, picks, planes
 
 
+class EntropyFloor:
+    """The entropy bonus. Without --entropy-target it is --entropy, fixed.
+    With it the bonus is exp(log_coef), never below the fixed --entropy and
+    never above --entropy-max, and it is a dual variable -- it climbs while
+    the policy's entropy is under the target and sinks back while it is
+    over. Self-play here was measured to buy reward by getting louder: 30
+    generations cut entropy by 29% and lost 0.0075. Its options were refused
+    before anything was built where they leave it nothing to fall back to or
+    no room to rise (see `validate_training_options`). The checkpoint keeps
+    `log_coef`, where a resumed run starts it."""
+
+    def __init__(self, args: argparse.Namespace, log_coef: float | None = None) -> None:
+        self.target = args.entropy_target
+        self.rate = args.entropy_rate
+        self.fixed = args.entropy
+        self.base = math.log(args.entropy) if args.entropy > 0 else float("-inf")
+        self.ceiling = math.log(max(args.entropy_max, args.entropy)) if args.entropy > 0 else self.base
+        self.log_coef = float(log_coef) if log_coef is not None else self.base
+
+    @property
+    def on(self) -> bool:
+        """Whether the bonus moves, read from each update's entropy."""
+        return self.target > 0
+
+    def coef(self) -> float:
+        return math.exp(self.log_coef) if self.on else self.fixed
+
+    def step(self, entropy: torch.Tensor) -> None:
+        """A dual step after an update whose policy had `entropy`: under the
+        target the bonus climbs, over it the bonus sinks back to the fixed
+        floor. The entropy is read on the host."""
+        shortfall = self.target - float(entropy.detach())
+        self.log_coef = min(self.ceiling, max(self.base, self.log_coef + self.rate * shortfall))
+
+
+def ppo_epochs(net: combined.Combined, learn, rollout, held, optimiser, totals, drift: PolicyDrift, args,
+               dtype: torch.dtype, amp_enabled: bool, played_phi, *, advantages: torch.Tensor,
+               begun: torch.Tensor | None, explored: torch.Tensor, floor: EntropyFloor,
+               reference: combined.Combined | None = None, clock: ppo_loop.LearningClock | None = None):
+    """A generation's PPO epochs: an optimiser update a minibatch, of the
+    clipped objective on the head's output over the moves the policy chose,
+    the critic's and the reading's losses over every row, the entropy bonus
+    (`floor`, stepped after each update when it moves) and, with
+    `reference`, the leash; until the epochs are done or the drift guard
+    (`drift`) stops them. `advantages` are the round's, standardised;
+    `begun`, for a round played ahead, the probability the learner gave each
+    move made as the generation began, which the guard counts from, and None
+    for a round the learner played itself; `explored`, the rows whose move
+    exploration forced. A function of its own, apart from `main`, so that a
+    test can run the trainer's own epochs on a card, round after round.
+    Answers the updates taken and the last minibatch's picks and planes, as
+    `value_warm_up` does; each update is noted on `clock` when one is
+    given."""
+    device = rollout.device
+    steps = 0
+    picks = planes = None
+    for _epoch in range(args.epochs):
+        with closing(ppo_loop.minibatches(rollout, args.batch, dtype=dtype)) as minibatches:
+            for picks, planes in minibatches:
+                optimiser.zero_grad(set_to_none=True)
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
+                    if played_phi is None:
+                        logits, value, guessed = learn(planes, rollout.legal[picks])
+                    else:
+                        logits, value, guessed = learn(
+                            planes, rollout.legal[picks], played_phi[picks]
+                        )
+                logits = logits.float()
+                value = value.float()
+                hands_loss, covered = ppo_loop.hands_loss_of(guessed.float(), held[picks])
+                # Unvalidated: checking the logits and the moves for the
+                # distribution waited on the card twice a step, and a
+                # logit that is not a number still stops the step, at the
+                # gradient's clip below.
+                distribution = torch.distributions.Categorical(logits=logits, validate_args=False)
+                log_prob = distribution.log_prob(rollout.actions[picks])
+                # The probabilities the round recorded as it was
+                # played: the policy that played it, which with
+                # --play-ahead is the generation before's, so the
+                # ratio below weighs each move by the right one.
+                old_log_prob = rollout.old_log_probs[picks]
+                # The drift guard counts how far this generation's
+                # learning has moved the policy: from those same
+                # probabilities in a round the learner played itself,
+                # and in one played ahead from the learner's own as
+                # the generation began (`begun`). Counted from the
+                # ones it was played by, a generation would begin with
+                # the last one's drift already spent: after one the
+                # guard stopped, the next could not take a step, and
+                # a generation that takes none stops the trainer.
+                since = old_log_prob if begun is None else begun[picks]
+                chosen = ~explored[picks]
+                own = chosen.sum().clamp(min=1)
+                if args.explore:
+                    stop = bool(chosen.any()) and drift.check(since[chosen], log_prob[chosen])
+                else:
+                    # Nothing was explored, so every row is the policy's;
+                    # asking the card which ones would wait on it.
+                    stop = drift.check(since, log_prob)
+                if stop:
+                    break
+                # PPO's clipped objective over the rows the policy chose.
+                advantage = advantages[picks].masked_fill(~chosen, 0.0)
+                delta = (log_prob - old_log_prob).masked_fill(~chosen, 0.0)
+                ratio = torch.exp(delta)
+                clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
+                surrogate = torch.min(ratio * advantage, clipped * advantage)
+                policy_loss = -(surrogate * chosen).sum() / own
+                value_loss = nn.functional.mse_loss(value, rollout.returns[picks])
+                entropy = (distribution.entropy() * chosen).sum() / own
+                loss = (
+                    policy_loss
+                    + args.value_weight * value_loss
+                    + args.hands_weight * hands_loss
+                    - floor.coef() * entropy
+                )
+                # How far this has come from the policy the run began with,
+                # counted the way that punishes abandoning a move the
+                # starting policy liked, which is the drift that cost us.
+                leash = torch.zeros((), device=device)
+                if reference is not None:
+                    with torch.no_grad(), torch.autocast(
+                        "cuda", dtype=torch.bfloat16, enabled=amp_enabled
+                    ):
+                        before, _before_value, _before_hands = reference.everything(
+                            planes, rollout.legal[picks]
+                        )
+                    allowed = rollout.legal[picks]
+                    before = torch.log_softmax(before.float(), dim=1)
+                    now = torch.log_softmax(logits, dim=1)
+                    # A move outside the mask holds minus infinity in both,
+                    # and one infinity less another is not a number, so it
+                    # is taken out by value; a zero weight does not cancel
+                    # it, it only spreads the NaN.
+                    weight = torch.where(allowed, before.exp(), torch.zeros_like(before))
+                    before = torch.where(allowed, before, torch.zeros_like(before))
+                    now = torch.where(allowed, now, torch.zeros_like(now))
+                    leash = ((weight * (before - now)).sum(dim=1) * chosen).sum() / own
+                    loss = loss + args.leash * leash
+                loss.backward()
+                grad_norm = nn.utils.clip_grad_norm_(
+                    [p for p in net.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
+                )
+                optimiser.step()
+                if floor.on:
+                    floor.step(entropy)
+                with torch.no_grad():
+                    totals.add(
+                        policy=policy_loss,
+                        value=value_loss,
+                        entropy=entropy,
+                        clipped=((ratio != clipped).float() * chosen).sum() / own,
+                        kl=-delta.sum() / own,
+                        grad=grad_norm,
+                        leash=leash,
+                        hands=hands_loss,
+                        covered=covered,
+                    )
+                steps += 1
+                if clock is not None:
+                    clock.update()
+        if drift.stopped:
+            break
+    return steps, picks, planes
+
+
 def placement_fields(place, ledger, returns: torch.Tensor, guess: torch.Tensor, warming: bool) -> dict:
     """What a generation's record says of the placement reward: the alpha it
     paid, whether it taught the critic alone, and the return's spread and
@@ -596,7 +762,7 @@ def main() -> None:
             "best_placement": benchmark.best,
             "optimizer_state": optimiser.state_dict(),
             "random_state": capture_random_state(drawer),
-            "entropy_log_coef": floor["log_coef"],
+            "entropy_log_coef": floor.log_coef,
             # The placement reward's record and the U it settles by, in a run
             # paid by it; a run paid the default carries nothing new.
             **(place.fields() if place is not None else {}),
@@ -608,20 +774,8 @@ def main() -> None:
             net, games=args.measure_games, seed=7_000_000 + generation, device=device
         )
 
-    # The entropy floor: the bonus is exp(log_coef), never below the fixed
-    # --entropy and never above --entropy-max, and it is a dual variable --
-    # it climbs while the policy's entropy is under the target and sinks
-    # back while it is over. Self-play here was measured to buy reward by
-    # getting louder: 30 generations cut entropy by 29% and lost 0.0075.
-    # Its options were refused before anything was built where they leave
-    # it nothing to fall back to or no room to rise (see
-    # `validate_training_options`).
-    base_log = math.log(args.entropy) if args.entropy > 0 else float("-inf")
-    floor = {"log_coef": float(entropy_log_coef) if entropy_log_coef is not None else base_log}
-    ceiling_log = math.log(max(args.entropy_max, args.entropy)) if args.entropy > 0 else base_log
-
-    def entropy_coef() -> float:
-        return math.exp(floor["log_coef"]) if args.entropy_target > 0 else args.entropy
+    # The entropy bonus, from where the checkpoint left it (see `EntropyFloor`).
+    floor = EntropyFloor(args, entropy_log_coef)
 
     def play(player, generation: int, **options):
         """Round `generation`, played by `player`: see `selfplay.play`,
@@ -787,7 +941,6 @@ def main() -> None:
                 if getattr(batch, "explored", None) is not None
                 else torch.zeros(batch.decisions, dtype=torch.bool, device=device)
             )
-            steps = 0
             if warming:
                 # A generation that teaches the critic alone the placement
                 # reward's return, in an optimiser of its own and at a rate of
@@ -803,116 +956,12 @@ def main() -> None:
                     net, learn, rollout, held, warm_optimiser, totals, args,
                     planes_dtype, amp_enabled, played_phi, clock=learning,
                 )
-            for _epoch in range(0 if warming else args.epochs):
-                with closing(ppo_loop.minibatches(rollout, args.batch, dtype=planes_dtype)) as minibatches:
-                    for picks, planes in minibatches:
-                        optimiser.zero_grad(set_to_none=True)
-                        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
-                            if played_phi is None:
-                                logits, value, guessed = learn(planes, rollout.legal[picks])
-                            else:
-                                logits, value, guessed = learn(
-                                    planes, rollout.legal[picks], played_phi[picks]
-                                )
-                        logits = logits.float()
-                        value = value.float()
-                        hands_loss, covered = ppo_loop.hands_loss_of(guessed.float(), held[picks])
-                        # Unvalidated: checking the logits and the moves for the
-                        # distribution waited on the card twice a step, and a
-                        # logit that is not a number still stops the step, at the
-                        # gradient's clip below.
-                        distribution = torch.distributions.Categorical(logits=logits, validate_args=False)
-                        log_prob = distribution.log_prob(rollout.actions[picks])
-                        # The probabilities the round recorded as it was
-                        # played: the policy that played it, which with
-                        # --play-ahead is the generation before's, so the
-                        # ratio below weighs each move by the right one.
-                        old_log_prob = rollout.old_log_probs[picks]
-                        # The drift guard counts how far this generation's
-                        # learning has moved the policy: from those same
-                        # probabilities in a round the learner played itself,
-                        # and in one played ahead from the learner's own as
-                        # the generation began (`begun`). Counted from the
-                        # ones it was played by, a generation would begin with
-                        # the last one's drift already spent: after one the
-                        # guard stopped, the next could not take a step, and
-                        # a generation that takes none stops the trainer.
-                        since = old_log_prob if begun is None else begun[picks]
-                        chosen = ~explored[picks]
-                        own = chosen.sum().clamp(min=1)
-                        if args.explore:
-                            stop = bool(chosen.any()) and drift.check(since[chosen], log_prob[chosen])
-                        else:
-                            # Nothing was explored, so every row is the policy's;
-                            # asking the card which ones would wait on it.
-                            stop = drift.check(since, log_prob)
-                        if stop:
-                            break
-                        # PPO's clipped objective over the rows the policy chose.
-                        advantage = advantages[picks].masked_fill(~chosen, 0.0)
-                        delta = (log_prob - old_log_prob).masked_fill(~chosen, 0.0)
-                        ratio = torch.exp(delta)
-                        clipped = torch.clamp(ratio, 1.0 - args.clip, 1.0 + args.clip)
-                        surrogate = torch.min(ratio * advantage, clipped * advantage)
-                        policy_loss = -(surrogate * chosen).sum() / own
-                        value_loss = nn.functional.mse_loss(value, rollout.returns[picks])
-                        entropy = (distribution.entropy() * chosen).sum() / own
-                        loss = (
-                            policy_loss
-                            + args.value_weight * value_loss
-                            + args.hands_weight * hands_loss
-                            - entropy_coef() * entropy
-                        )
-                        # How far this has come from the policy the run began with,
-                        # counted the way that punishes abandoning a move the
-                        # starting policy liked, which is the drift that cost us.
-                        leash = torch.zeros((), device=device)
-                        if reference is not None:
-                            with torch.no_grad(), torch.autocast(
-                                "cuda", dtype=torch.bfloat16, enabled=amp_enabled
-                            ):
-                                before, _before_value, _before_hands = reference.everything(
-                                    planes, rollout.legal[picks]
-                                )
-                            allowed = rollout.legal[picks]
-                            before = torch.log_softmax(before.float(), dim=1)
-                            now = torch.log_softmax(logits, dim=1)
-                            # A move outside the mask holds minus infinity in both,
-                            # and one infinity less another is not a number, so it
-                            # is taken out by value; a zero weight does not cancel
-                            # it, it only spreads the NaN.
-                            weight = torch.where(allowed, before.exp(), torch.zeros_like(before))
-                            before = torch.where(allowed, before, torch.zeros_like(before))
-                            now = torch.where(allowed, now, torch.zeros_like(now))
-                            leash = ((weight * (before - now)).sum(dim=1) * chosen).sum() / own
-                            loss = loss + args.leash * leash
-                        loss.backward()
-                        grad_norm = nn.utils.clip_grad_norm_(
-                            [p for p in net.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
-                        )
-                        optimiser.step()
-                        if args.entropy_target > 0:
-                            # A dual step: under the target the bonus climbs,
-                            # over it the bonus sinks back to the fixed floor.
-                            shortfall = args.entropy_target - float(entropy.detach())
-                            floor["log_coef"] = min(ceiling_log, max(
-                                base_log, floor["log_coef"] + args.entropy_rate * shortfall))
-                        with torch.no_grad():
-                            totals.add(
-                                policy=policy_loss,
-                                value=value_loss,
-                                entropy=entropy,
-                                clipped=((ratio != clipped).float() * chosen).sum() / own,
-                                kl=-delta.sum() / own,
-                                grad=grad_norm,
-                                leash=leash,
-                                hands=hands_loss,
-                                covered=covered,
-                            )
-                        steps += 1
-                        learning.update()
-                if drift.stopped:
-                    break
+            else:
+                steps, picks, planes = ppo_epochs(
+                    net, learn, rollout, held, optimiser, totals, drift, args, planes_dtype, amp_enabled,
+                    played_phi, advantages=advantages, begun=begun, explored=explored, floor=floor,
+                    reference=reference, clock=learning,
+                )
 
             # What the head is leaning on, on the last minibatch: how far it
             # moved our own logits, and the weight it puts on each of the three
@@ -992,7 +1041,7 @@ def main() -> None:
                 **(learning.split(ahead.ended.get(generation + 1) if generation + 1 < end
                                   else learning.began)
                    if ahead is not None else {}),
-                entropy_coef=round(entropy_coef(), 6),
+                entropy_coef=round(floor.coef(), 6),
                 # Peaks, so the container's reservation can be sized from data:
                 # memory is billed by what is reserved, not what is used.
                 peak_rss_gb=peak_rss_gb(),
