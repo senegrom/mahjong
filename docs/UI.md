@@ -668,7 +668,7 @@ touch and by keyboard, and its way in and out on a phone, by touch and by
 keyboard; and the review of the game so far from a hand's result, the hand
 just played asked about first, kept out of the trend, back to the result's
 button at desktop and phone sizes, stopped by Next hand and asking nothing
-again at the standings),
+again at the next hand's result or at the standings),
 history and export, and settlements that balance event by event.
 Its browser checks run in Chromium, including narrow portrait and landscape
 sizes; they are not physical-iPhone or Safari testing.
