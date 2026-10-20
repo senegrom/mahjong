@@ -1,6 +1,8 @@
-/** The whole-game review: every decision the player made in a finished match,
- * put to the trained network and ranked by how far the player's move departed
- * from its choice.
+/** The game's review: every decision the player made in a match, put to the
+ * trained network and ranked by how far the player's move departed from its
+ * choice. From any hand's result it reviews the game so far, and once the
+ * match is over the whole game; it is taken on to each later result as the
+ * match goes on, so that a hand reviewed once is never asked about again.
  *
  * Nothing about the review is saved with the match. It is rebuilt from the
  * saved match's own commands, replayed from the first deal on a separate
@@ -37,44 +39,65 @@ export const SLOW_MS = 500;
  * game has a name of its own. */
 export const handName = view => `${SEAT_NAMES[view.round] ?? view.round} ${view.kyoku}${view.counters ? ` · ${view.counters} honba` : ''}`;
 
-/** Every hand of a finished match, replayed from its first deal: the table at
- * each of the player's decisions, every player's tiles there, what the player
- * chose, and what happened between; how the hand ended and what it changed
- * for the player; and which saved command closed it. Throws when the replay
- * does not end exactly where the match did. */
+/** Every hand of a match, replayed from its first deal: the table at each of
+ * the player's decisions, every player's tiles there, what the player chose,
+ * and what happened between; how the hand ended and what it changed for the
+ * player; and which saved command closed it. A finished match is replayed to
+ * its end. A match waiting at a hand's result is replayed to that hand, which
+ * closes at the command that will deal the next, so that a hand closes at the
+ * same command before the match goes on and after. Throws when the replay
+ * does not end exactly where the match did, or ends in a hand being played or
+ * one just dealt. */
 export function scanMatch(Game, snapshot) {
   const match = new MatchSession(Game, snapshot.seed, snapshot.opponents);
   try {
     const hands = [];
     let lines = match.engine.advance(), hand = null;
+    const begin = () => ({ index: hands.length, name: handName(match.view), counters: match.view.counters, seat: match.view.seats[0].seat, frames: [] });
+    // The hand on the table is over; `end` is the saved command that deals
+    // the next, or where that command will go.
+    const close = end => {
+      // The tiles every player held at each of the decisions, in the order
+      // of the table's seats, the tile just drawn held apart. This replay's
+      // engine answers only once the hand is over, as it is here, since
+      // while a hand is played they are what the table hides.
+      hand.frames.forEach((frame, index) => { frame.hands = match.engine.review_hands(index); });
+      const { outcome } = match.view;
+      Object.assign(hand, { end, outcome: outcome?.line ?? '', change: outcome?.changes?.[0] ?? 0 });
+      hands.push(hand);
+      hand = null;
+      lines = [];
+    };
     for (const [at, command] of snapshot.commands.entries()) {
-      hand ??= { index: hands.length, name: handName(match.view), counters: match.view.counters, seat: match.view.seats[0].seat, frames: [] };
+      hand ??= begin();
       if (command.type === 'choose') {
         hand.frames.push({ view: match.view, choices: match.choices, lines, command: at,
           played: { kind: command.kind, tile: command.tile ?? null } });
         lines = [];
-      } else if (command.type === 'next') {
-        // The tiles every player held at each of the decisions, in the order
-        // of the table's seats, the tile just drawn held apart. This replay's
-        // engine answers only once the hand is over, as it is here, since
-        // while a hand is played they are what the table hides.
-        hand.frames.forEach((frame, index) => { frame.hands = match.engine.review_hands(index); });
-        const { outcome } = match.view;
-        Object.assign(hand, { end: at, outcome: outcome?.line ?? '', change: outcome?.changes?.[0] ?? 0 });
-        hands.push(hand);
-        hand = null;
-        lines = [];
-      }
+      } else if (command.type === 'next') close(at);
       match.apply(command);
       if (!match.over) lines = [...lines, ...match.engine.advance()];
     }
-    if (!match.over || hand || match.stateKey() !== snapshot.state) throw new Error('This match could not be replayed for review');
+    // A match waiting at a hand's result: that hand is over, and closes where
+    // the command that deals the next will go. A hand that asked the player
+    // nothing, such as one won before the player's first turn, may have had
+    // no command of its own to begin it.
+    if (!match.over && match.engine.hand_is_over()) {
+      hand ??= begin();
+      close(snapshot.commands.length);
+    }
+    // A replay that ends in a hand being played, or in one just dealt, is
+    // refused: the tiles then are what the table hides. A finished match
+    // keeps its last hand on the table, over.
+    if (hand || !match.engine.hand_is_over() || match.stateKey() !== snapshot.state) throw new Error('This match could not be replayed for review');
     return hands;
   } finally { match.dispose(); }
 }
 
 /** A replay that moves forward through a match's commands, so a hand's
- * decisions can be read off the engine at the hand's end. */
+ * decisions can be read off the engine at the hand's end. The commands grow
+ * as the review is taken on to a later result (MatchReview.extend): the old
+ * ones begin the new, so a replay plays on from wherever it is. */
 class Replay {
   constructor(Game, snapshot) {
     this.commands = snapshot.commands;
@@ -199,12 +222,14 @@ export function agreement(decisions) {
   return { matched, decisions: counted.length, share: counted.length ? matched / counted.length : null };
 }
 
-/** The review of one finished match. It owns its replay and its requests, and
- * reviews the hands queued, in order, a forward pass at a time; a slow device
- * holds after each hand unless the player has asked for the whole game.
+/** The review of one match: of the game so far while it is played, and of the
+ * whole game once it is over. It is taken on to each later result (`extend`),
+ * keeping every hand it has reviewed. It owns its replay and its requests,
+ * and reviews the hands queued, in order, a forward pass at a time; a slow
+ * device holds after each hand unless the player has asked for every hand.
  * `analyzeBatch(positions, signal)` asks the network; `onChange` hears every
- * change, and `onComplete` hears once that every hand is reviewed, whether or
- * not anyone is looking. */
+ * change, and `onComplete` hears once that every hand of the finished match
+ * is reviewed, whether or not anyone is looking. */
 export class MatchReview {
   constructor(Game, snapshot, { analyzeBatch, onChange = () => {}, onComplete = () => {}, now = () => performance.now() } = {}) {
     this.Game = Game;
@@ -218,11 +243,12 @@ export class MatchReview {
     this.busy = false;
     this.failure = '';
     this.held = false;
-    // Whether the player asked for the whole game on a slow device.
+    // Whether the player asked for every hand on a slow device.
     this.patient = false;
     this.closed = false;
-    // Whether anything was ever asked for, and whether the finished review
-    // has been reported complete.
+    // Whether anything has been asked for since the review was last taken on
+    // to new hands or to the match's end, and whether the finished match's
+    // review has been reported complete.
     this.requested = false;
     this.recorded = false;
     this.positionMs = null;
@@ -232,8 +258,25 @@ export class MatchReview {
     this.current = null;
   }
 
-  /** What one match is known by in the trend: its seed and its length. */
+  /** What one match is known by in the trend: its seed and its length, which
+   * is the finished match's once it is over, the only length the trend
+   * keeps. */
   get id() { return `${this.snapshot.seed}:${this.snapshot.commands.length}`; }
+  /** Whether the match is over. A finished match's last hand closed at its
+   * saved 'next', the command that ended the game; a hand waiting at its
+   * result closes where that command will go, past every command saved. */
+  get over() {
+    const last = this.hands.at(-1);
+    return Boolean(last) && last.end < this.snapshot.commands.length;
+  }
+  /** The order the hands are asked about when none are named. A finished
+   * match is asked from its first deal. A match under way is asked first
+   * about the hand just played, whose result the player came from, then
+   * about the rest from the first deal. */
+  get order() {
+    const indices = this.hands.map(hand => hand.index);
+    return this.over ? indices : [...indices.slice(-1), ...indices.slice(0, -1)];
+  }
   get decisions() { return this.hands.flatMap(hand => hand.decisions ?? []); }
   get reviewedHands() { return this.hands.filter(hand => hand.status === 'done').length; }
   get complete() { return this.hands.every(hand => hand.status === 'done'); }
@@ -250,10 +293,19 @@ export class MatchReview {
 
   notify() { if (!this.closed) this.onChange(this); }
 
+  /** Tells onComplete, once, that every hand of the finished match is
+   * reviewed. The game so far is not yet a game for the trend, which
+   * compares whole games. */
+  report() {
+    if (this.closed || !this.over || !this.complete || this.recorded) return;
+    this.recorded = true;
+    this.onComplete(this);
+  }
+
   /** Reviews these hands next, in this order, then whatever was queued
-   * already; every hand not yet reviewed by default. `patient` is the
-   * player's word that a slow device should go on to the end. */
-  review(indices = this.hands.map(hand => hand.index), { patient = false } = {}) {
+   * already; by default every hand not yet reviewed, in `order`. `patient`
+   * is the player's word that a slow device should go on to the end. */
+  review(indices = this.order, { patient = false } = {}) {
     if (this.closed) return;
     this.requested = true;
     const wanted = indices.filter(index => this.hands[index] && this.hands[index].status !== 'done' && index !== this.current);
@@ -280,6 +332,38 @@ export class MatchReview {
     this.notify();
   }
 
+  /** Takes the review on to the same match saved later, at a later hand's
+   * result or finished. Every hand already scanned is kept as it is, with
+   * whatever was reviewed of it, since a hand closes at the same command
+   * however far the match has gone; only the hands played since are added,
+   * waiting. Throws, and changes nothing, for another match, or for one that
+   * cannot be replayed. */
+  extend(snapshot) {
+    if (this.closed) return;
+    const known = this.snapshot.commands, same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    if (snapshot.seed !== this.snapshot.seed || !same(snapshot.opponents, this.snapshot.opponents) || snapshot.commands.length < known.length
+      || known.some((command, at) => !same(command, snapshot.commands[at]))) throw new Error('This is not the match under review');
+    if (snapshot.commands.length === known.length) return;
+    const scanned = scanMatch(this.Game, snapshot), wasOver = this.over;
+    this.snapshot = snapshot;
+    // The old commands begin the new, so a replay, even one a hand is being
+    // reviewed on, plays on from where it is.
+    if (this.replay) this.replay.commands = snapshot.commands;
+    const added = scanned.slice(this.hands.length).map(hand => ({ ...hand, status: 'waiting', decisions: null }));
+    this.hands.push(...added);
+    // New hands, or the match's end, are not yet asked for: opening the
+    // review asks for them, the hand just played first, and a slow device
+    // holds again after it.
+    if (added.length || this.over !== wasOver) {
+      this.requested = false;
+      this.patient = false;
+    }
+    // A game whose every hand was reviewed as it was played is whole the
+    // moment it ends.
+    this.report();
+    this.notify();
+  }
+
   async pump() {
     if (this.busy || this.closed) return;
     this.busy = true;
@@ -301,10 +385,7 @@ export class MatchReview {
         } finally {
           this.current = null;
         }
-        if (this.complete && !this.recorded) {
-          this.recorded = true;
-          this.onComplete(this);
-        }
+        this.report();
         // A slow device holds after each hand: the player chooses whether to
         // go on, one hand or the rest, knowing how long it would take.
         if (this.slow && !this.patient && this.queue.length) this.held = true;

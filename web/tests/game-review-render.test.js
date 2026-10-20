@@ -23,12 +23,15 @@ const decision = (values = {}) => ({
 });
 const hand = (index, values = {}) => ({ index, name: ['East 1', 'East 2', 'East 3'][index], counters: 0, seat: 'east',
   frames: [frame, frame], outcome: 'East wins by self-draw', status: 'waiting', decisions: null, ...values });
+// A finished match's review unless `over` says the match is under way.
 const review = (values = {}) => ({
   id: '7:120', hands: [hand(0), hand(1), hand(2)], busy: false, failure: '', held: false, slow: false, estimate: null,
-  complete: false, requested: true, positionMs: null, recorded: false, closed: false,
+  complete: false, requested: true, positionMs: null, recorded: false, closed: false, over: true,
   onChange: () => {}, review: () => {}, resume: () => {}, stop: () => {}, ...values,
 });
 const page = (props = {}) => render(GameReview, { props: { trainedAvailable: true, ...props } }).body;
+/** What a button marked with this attribute says. */
+const buttonSaid = (html, attribute) => text(new RegExp(`<button[^>]*\\b${attribute}\\b[^>]*>([^]*?)</button>`).exec(html)?.[1] ?? '');
 
 test('a review under way leads with the flagged decisions found so far, and hides the answer', () => {
   const done = hand(0, { status: 'done', decisions: [decision(), decision({ index: 1, agreed: true, judgement: null })] });
@@ -83,6 +86,55 @@ test('a finished review with nothing flagged says so, and offers no more work', 
   assert.match(html, /Every hand is reviewed: 6 decisions\./);
   assert.match(html, /No decision departed that far from Trained AI\./);
   assert.doesNotMatch(html, /data-continue|data-stop-review|data-review-hand/);
+  // A finished game has no hand just played to lead with.
+  assert.doesNotMatch(html, /data-latest-hand/);
+  assert.equal(buttonSaid(html, 'data-close-review'), 'Back to the standings');
+});
+
+test('a review of the game so far leads with the hand just played, says so far, and goes back to the result', () => {
+  const done = index => hand(index, { status: 'done', decisions: [decision({ hand: index }), decision({ hand: index, index: 1, agreed: true, judgement: null })] });
+  /** The row of the hand just played: which hand, and what it says. */
+  const lead = html => {
+    const row = /<div class="latest[^"]*"[^>]*\bdata-latest-hand="(\d+)"[^>]*>([^]*?)<\/div>/.exec(html);
+    return row && { hand: Number(row[1]), markup: row[2], said: text(row[2]) };
+  };
+
+  // Under way: the hand just played leads, and is asked about.
+  const under = page({ review: review({ over: false, busy: true, hands: [done(0), done(1), hand(2, { status: 'reviewing', done: 1 })] }) });
+  assert.match(under, /<h2[^>]*>Your game so far, looked at again<\/h2>/);
+  assert.equal(buttonSaid(under, 'data-close-review'), 'Back to the result');
+  assert.match(under, /role="status"[^>]*>Trained AI is reviewing East 3\./);
+  const leading = lead(under);
+  assert.equal(leading?.hand, 2, 'the hand just played leads');
+  assert.equal(leading.said, 'The hand just played: East 3 East wins by self-draw Reviewing, 1 of 2');
+  assert.doesNotMatch(under, /data-replay-latest/, 'nothing to replay before it is reviewed');
+  assert.ok(under.indexOf('class="intro') < under.indexOf('data-latest-hand') && under.indexOf('data-latest-hand') < under.indexOf('class="progress'),
+    'directly after the introduction');
+  // The list's heading is still the review's only heading after its title.
+  assert.equal((under.match(/<h3/g) ?? []).length, 1);
+
+  // Every hand so far reviewed: the hand just played is replayed from its own
+  // row, and the game, not yet whole, waits to join the trend.
+  const earlier = { id: 'earlier', network: playedNetwork().version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100 };
+  const reviewed = page({ trend: [earlier], review: review({ over: false, complete: true, hands: [done(0), done(1), done(2)] }) });
+  assert.match(lead(reviewed).markup, /<button[^>]*\bdata-replay-latest\b[^>]*aria-label="Replay this hand: East 3"[^>]*>Replay this hand<\/button>/);
+  assert.match(reviewed, /role="status"[^>]*>Every hand so far is reviewed: 6 decisions\./);
+  assert.doesNotMatch(reviewed, /data-continue|data-stop-review/);
+  assert.match(reviewed, /50%(?:<[^>]*>)*\s+(?:<[^>]*>)*so far/, 'the figure is the game so far');
+  assert.match(reviewed, /This game joins your trend once the game is over and every hand is reviewed\./);
+  assert.doesNotMatch(reviewed, /points against/);
+
+  // Not yet asked for, it offers the game so far; on a slow device that held
+  // after a hand, every hand so far.
+  const unasked = page({ review: review({ over: false, requested: false, hands: [done(0), done(1), hand(2)] }) });
+  assert.equal(buttonSaid(unasked, 'data-continue'), 'Review the game so far');
+  const held = page({ review: review({ over: false, held: true, slow: true, positionMs: 800, estimate: 20, hands: [hand(0), hand(1), done(2)] }) });
+  assert.equal(buttonSaid(held, 'data-next-hand'), 'Review the next hand');
+  assert.equal(buttonSaid(held, 'data-rest'), 'Review every hand so far');
+  // With no decision made yet, the list of every decision says so.
+  const none = page({ filter: 'every', review: review({ over: false, complete: true,
+    hands: [hand(0, { frames: [], status: 'done', decisions: [] })] }) });
+  assert.match(none, /You have made no decisions so far\./);
 });
 
 
@@ -170,6 +222,11 @@ test('the trend tile states the change against earlier games without judging it,
   assert.match(partial, /so far/);
   assert.match(partial, /This game joins your trend once every hand is reviewed\./);
   assert.doesNotMatch(partial, /points against|class="now/);
+  // A game reviewed as it is played joins once it is over, too.
+  const playing = render(ReviewTrend, { props: { figure, complete: false, over: false, current: 'g9', games: games.slice(0, 2) } }).body;
+  assert.match(playing, /so far/);
+  assert.match(playing, /This game joins your trend once the game is over and every hand is reviewed\./);
+  assert.doesNotMatch(playing, /points against|class="now/);
   // A first game has nothing to compare with and no line to draw.
   const first = render(ReviewTrend, { props: { figure, complete: true, current: 'g0', games: [{ ...games[0], matched: 65 }] } }).body;
   assert.doesNotMatch(first, /points against|<svg/);

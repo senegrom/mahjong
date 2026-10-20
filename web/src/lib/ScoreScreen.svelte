@@ -22,7 +22,8 @@
     // said in a line after them: empty while there is nothing to say, and
     // null where the page says such failures elsewhere (AgentWatch).
     failure = null,
-    // Opens the review of the whole game from the final hand, and answers
+    // Opens Trained AI's review of the game, of the game so far from any
+    // hand's result and of the whole game from the final hand's, and answers
     // false when the game could not be replayed for it.
     ongamereview,
     // Whether that review is open, from this sheet or from the standings.
@@ -101,10 +102,14 @@
   // sheet steps aside for it as it does for the hand's review, whichever
   // button opened it: its own, or the standings' own, which the sheet covers
   // but a keyboard or a screen reader still reaches. The standings are then
-  // in view, and not under the sheet, either way. It steps aside for them as
-  // well when the keyboard has sent focus on to them as the game ended, so
-  // that focus is not hidden under it; a tap leaves the result up, as it was.
-  $effect(() => { if (gameReviewOpen || standingsFocused) minimized = true; });
+  // in view, and not under the sheet, either way. The review of the game so
+  // far, opened before the last hand, comes back to this sheet instead, to
+  // the button that opened it; while it is open it hides the sheet with the
+  // table, so the sheet stays up for it, to be found as it was left. The
+  // sheet steps aside for the standings as well when the keyboard has sent
+  // focus on to them as the game ended, so that focus is not hidden under
+  // it; a tap leaves the result up, as it was.
+  $effect(() => { if ((gameReviewOpen && finalHand) || standingsFocused) minimized = true; });
   // And it steps aside each time a press on the standings' own buttons
   // fails, which beneath it only a keyboard or a screen reader reaches, so
   // that the words they say beside those buttons, and the button with focus,
@@ -220,12 +225,14 @@
   <div class="buttons">
     {#if finalHand}<span class="final-caption">Final hand</span>
     {:else}<button disabled={busy} class="primary" onclick={onnext}>Next hand</button>{/if}
-    {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{#if finalHand}Review <span class="qualifier">final</span> hand{:else}View table / my hand{/if}</button>{/if}
+    {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{#if finalHand}Review <span class="qualifier">final</span> hand{:else}View table <span class="qualifier">/ my hand</span>{/if}</button>{/if}
     {#if onlog}<button class="quiet" onclick={() => done(onlog())} title="The hand as an mjai event log, which replayers and other riichi programs read">Save <span class="qualifier">{finalHand ? 'final' : 'this'}</span> hand</button>{/if}
     <!-- At the end the standings offer the whole game, its review and its
          file, close and all. On a phone this sheet covers them, so it offers
-         both there too. -->
-    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={() => done(ongamereview())}>Review <span class="whole">whole</span> game</button>{/if}
+         both there too. Before the end nothing else offers the review of the
+         game so far or the file, so this sheet offers them at every size. -->
+    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={() => done(ongamereview())}>Review <span class="whole">whole</span> game</button>
+    {:else if ongamereview}<button class="quiet" data-review-game onclick={() => done(ongamereview())} title="Trained AI's review of every hand so far, starting with this one">Review game <span class="so-far">so far</span></button>{/if}
     {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={() => done(ongame())} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
     {:else if ongame}<button class="quiet" data-save-game onclick={() => done(ongame())} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
     <!-- Why a press on these buttons could not be done, said where the
@@ -369,10 +376,11 @@
     @keyframes result-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
   }
   /* On a phone the final hand's buttons read "Review hand", "Save hand",
-     "Review game" and "Save game", and the other hands' saves "Save hand"
-     and "Save game". The full labels take a third row of buttons over the
-     result even on the largest phones, and a fourth on the narrowest, as the
-     phone's fonts allow, so the short ones start above the largest phones. */
+     "Review game" and "Save game", and the other hands' "View table", "Save
+     hand", "Review game" and "Save game". The full labels take a third row
+     of buttons over the result even on the largest phones, and a fourth on
+     the narrowest, as the phone's fonts allow, so the short ones start above
+     the largest phones. */
   @media (max-width: 480px) {
     .buttons button { padding-inline: 12px; }
     .qualifier, .so-far, .whole { display: none; }
