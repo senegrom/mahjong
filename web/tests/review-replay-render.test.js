@@ -90,9 +90,9 @@ test('every step of a replayed hand shows every hand face up, each a list named 
     assert.doesNotMatch(html, /class="held|class="back|type="checkbox"|data-peek/);
     assert.doesNotMatch(text(html), /(Show|Hide) (the )?(other players'|every|all) (tiles|hands)/i);
     // The board and the step, and the line that says the table as it changes.
-    assert.match(html, new RegExp(`<h4 id="overview-title"[^>]*>The table at your decision ${index + 1}</h4>`));
+    assert.match(html, new RegExp(`<h4 id="overview-title"[^>]*>The table at decision ${index + 1}</h4>`));
     // Said with the table: whether Trained AI flagged the move there.
-    const said = `${tableSaid(frame.view)}${hand.decisions[index].judgement?.flagged ? ' Trained AI flagged your move here.' : ''}`;
+    const said = `${tableSaid(frame.view)}${hand.decisions[index].judgement?.flagged ? ' Flagged.' : ''}`;
     assert.ok(html.includes(`role="status" data-table-said="">${said}</p>`), said);
     assert.match(html, new RegExp(`<div class="wall[^"]*"><strong[^>]*>${frame.view.wall}</strong>`));
     for (const indicator of frame.view.dora_indicators) assert.ok(html.includes(`data-tile="${indicator}"`));
@@ -106,8 +106,9 @@ test('a flagged decision opened to choose again waits for the choice with every 
   const { opponents, own } = handsIn(html);
   assert.equal(opponents.length, 3);
   assert.deepEqual(unmarked(own.tiles), named(hand.frames[flaggedAt].hands[0]));
-  assert.match(html, new RegExp(`<span data-step="">Your decision ${flaggedAt + 1} of ${flaggedAt + 1}, the one flagged</span>`));
-  assert.match(html, /What would you play here\? Choose again before you see Trained AI's answer/);
+  assert.match(html, new RegExp(`<span data-step="">Decision ${flaggedAt + 1} of ${flaggedAt + 1}, flagged</span>`));
+  // The prompt, which is the hand's description, says where to choose.
+  assert.match(html, /<p id="hand-help" class="prompt[^"]*">Choose again: (a tile to discard(, or a move below)?|a move below)\.<\/p>/);
   assert.match(html, /data-reveal=""/);
   assert.doesNotMatch(html, /data-answer=|data-view=|Trained AI's view/, "Trained AI's answer waits");
   // The hand's list goes as far as the decision, which is the step shown.
@@ -119,26 +120,26 @@ test('a flagged decision opened to choose again waits for the choice with every 
 test('a decision that was not flagged shows the move and Trained AI\'s view, and has no retry', () => {
   const html = replay({ start: plainAt });
   const decision = hand.decisions[plainAt];
-  assert.match(html, new RegExp(`<span data-step="">Your decision ${plainAt + 1} of ${hand.frames.length}</span>`));
+  assert.match(html, new RegExp(`<span data-step="">Decision ${plainAt + 1} of ${hand.frames.length}</span>`));
   assert.match(html, /data-view=""/);
   assert.match(text(html), /Trained AI's view/);
   assert.ok(text(html).includes(`In the game: ${decision.played}`));
   assert.ok(text(html).includes(`Trained AI: ${decision.advised}`));
-  assert.match(html, /<p id="hand-help" class="prompt[^"]*">Your move: [^<]+\. (Trained AI chose (the same|differently)|It was the only move)\.<\/p>/);
-  const retry = /[^]{0,160}(data-again=|data-reveal=|data-retry=|data-choose-here=|What would you play here)[^]{0,80}/.exec(html);
+  assert.match(html, /<p id="hand-help" class="prompt[^"]*">Your move: [^<]+\. (Trained AI (agreed|differed)|Only move)\.<\/p>/);
+  const retry = /[^]{0,160}(data-again=|data-reveal=|data-retry=|data-choose-here=|Choose again:)[^]{0,80}/.exec(html);
   assert.equal(retry?.[0] ?? null, null, 'no retry');
   assert.equal(handsIn(html).opponents.length, 3);
 });
 
 test('another flagged decision of the hand offers its retry or its answer, and the hand lists every decision by the filter', () => {
   const html = replay({ start: flaggedAt, whole: true });
-  assert.match(html, /<h3 id="decision-title"[^>]*>[^<]+, decision by decision<\/h3>/);
+  assert.match(html, /<h3 id="decision-title"[^>]*>[^<]+, whole hand<\/h3>/);
   assert.doesNotMatch(html, />This decision</, 'a hand opened whole has no decision of its own');
   assert.match(html, /data-offer=""/);
   assert.match(html, /data-choose-here=""/);
   assert.match(html, /data-reveal=""/);
   assert.doesNotMatch(html, /data-answer=|data-view=/);
-  assert.match(text(html), /Flagged: Trained AI gave (this move|this tile, once riichi was declared,) (&lt;)?[\d.]+%, and its own choice [\d.]+%\./);
+  assert.match(text(html), /Flagged: (your move|given riichi, your tile) (&lt;)?[\d.]+%, Trained AI's choice [\d.]+%\./);
   // The list holds every decision of the hand, each saying the move and
   // whether Trained AI agreed, the flagged ones saying so. It is drawn
   // without markers, so it says it is a list in so many words.
@@ -161,6 +162,9 @@ test('another flagged decision of the hand offers its retry or its answer, and t
     .map(([, pressed, option, label]) => [option, pressed, text(label)]);
   const flagged = hand.decisions.filter(decision => decision.judgement?.flagged).length;
   const different = hand.decisions.filter(decision => !decision.agreed && !decision.forced).length;
-  assert.deepEqual(options, [['flagged', 'false', `Flagged (${flagged})`], ['differed', 'false', `Trained AI chose differently (${different})`],
+  assert.deepEqual(options, [['flagged', 'false', `Flagged (${flagged})`], ['differed', 'false', `Trained AI differed (${different})`],
     ['every', 'true', `Every decision (${hand.frames.length})`]]);
+  // The Flagged filter's title says what flags a decision, here as in the
+  // whole game's list.
+  assert.match(filter[1], /<button[^>]*\btitle="Your move under 5%, Trained AI's choice 60% or more"[^>]*\bdata-filter-option="flagged"/);
 });

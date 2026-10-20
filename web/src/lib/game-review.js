@@ -14,7 +14,7 @@
 import { MatchSession } from './session.js';
 import { reviewWithStrong } from './review-policy.js';
 import { SEAT_NAMES, tileWords } from './tiles.js';
-import { quadOnOffer } from './ui.js';
+import { percent, quadOnOffer } from './ui.js';
 
 /** A decision is flagged when the player's move had under this weight... */
 export const FLAG_PLAYED_BELOW = 0.05;
@@ -86,10 +86,16 @@ export function scanMatch(Game, snapshot) {
       hand ??= begin();
       close(snapshot.commands.length);
     }
-    // A replay that ends in a hand being played, or in one just dealt, is
-    // refused: the tiles then are what the table hides. A finished match
-    // keeps its last hand on the table, over.
-    if (hand || !match.engine.hand_is_over() || match.stateKey() !== snapshot.state) throw new Error('This match could not be replayed for review');
+    // A replay that does not end where the match was saved went another way,
+    // and is refused. That is checked first, so that one that went another
+    // way and also stopped in a hand gives that reason, the one that is true.
+    // One that ends where the match was saved, but in a hand being played or
+    // one just dealt, is refused too: the tiles then are what the table
+    // hides. A finished match keeps its last hand on the table, over. The
+    // page says either reason after "The game could not be replayed for
+    // review:".
+    if (match.stateKey() !== snapshot.state) throw new Error('The replay did not end where the match did');
+    if (hand || !match.engine.hand_is_over()) throw new Error('A hand is still being played');
     return hands;
   } finally { match.dispose(); }
 }
@@ -133,6 +139,16 @@ export function judgement(row) {
     flagged: played < FLAG_PLAYED_BELOW && preferred >= FLAG_PREFERRED_FROM };
 }
 
+/** A judged decision's two weights as the review gives them, the same in the
+ * whole game's list and in a replay's offer to choose again, which leads
+ * with "Flagged: " (`lead`): the player's move and Trained AI's choice, or
+ * where both declared riichi the player's tile given riichi. What Trained
+ * AI chose is not said, since a flagged decision keeps it for the retry. */
+export function weightsSaid({ stage, played, preferred }, lead = '') {
+  const said = `${stage === 'tile' ? 'given riichi, your tile' : 'your move'} ${percent(played)}, Trained AI's choice ${percent(preferred)}.`;
+  return lead ? `${lead}${said}` : `${said[0].toUpperCase()}${said.slice(1)}`;
+}
+
 /** The flagged decisions of the reviewed hands, the widest gap first; equal
  * gaps keep the order they were played in. */
 export function rankDecisions(decisions) {
@@ -146,8 +162,18 @@ export function rankDecisions(decisions) {
  * filter gives them: the flagged decisions, every decision where Trained AI
  * chose differently (the flagged ones among them), and every decision. */
 export const FILTERS = Object.freeze(['flagged', 'differed', 'every']);
-/** What each filter's button says, before how many decisions it holds. */
-export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Trained AI chose differently', every: 'Every decision' });
+/** What each filter's button says, before how many decisions it holds: the
+ * verdicts a replayed hand's list gives each decision (decisionInBrief). */
+export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Trained AI differed', every: 'Every decision' });
+/** A filter button's title, where it has one. The Flagged button's is the
+ * rule a decision is flagged by, kept at hand but out of the way: a pointer
+ * shows it as a tooltip, and a screen reader reads it as the button's
+ * description, after its name. It is put in the words each decision's
+ * weights are given in (weightsSaid), so it reads like the figures it applies
+ * to. Like the app's other button titles, it is not a sentence. */
+export const FILTER_TITLES = Object.freeze({
+  flagged: `Your move under ${Math.round(FLAG_PLAYED_BELOW * 100)}%, Trained AI's choice ${Math.round(FLAG_PREFERRED_FROM * 100)}% or more`,
+});
 
 /** Whether Trained AI chose differently: a real choice, made otherwise. A
  * forced move was no choice, so it never differs. */
@@ -178,20 +204,21 @@ export function filterCounts(decisions) {
  * shows now, of which kind, `scope` such as " in this hand" saying where, and
  * in what order; and, where the list leads with a few and keeps the rest
  * behind a button, that it does. The flagged decisions among those where
- * Trained AI chose differently are counted too. */
+ * Trained AI differed are counted too. It is said as a button is pressed,
+ * so it names the list without saying that it is shown. */
 export function filterSaid(filter, counts, { scope = '', ranked = filter !== 'every', leading = Infinity } = {}) {
   const count = counts[filter], s = count === 1 ? '' : 's';
   if (!count) {
-    return { flagged: `No decision${scope} is flagged.`, differed: `Trained AI chose the same as you at every decision${scope}.`,
+    return { flagged: `None flagged${scope}.`, differed: `Trained AI agreed at every decision${scope}.`,
       every: `No decisions${scope}.` }[filter];
   }
   const shown = {
     flagged: `${count} flagged decision${s}${scope}`,
-    differed: `${count} decision${s}${scope} where Trained AI chose differently${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}`,
-    every: count === 1 ? `the one decision${scope}` : `all ${count} decisions${scope}`,
+    differed: `${count} decision${s}${scope} where Trained AI differed${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}`,
+    every: count === 1 ? `The one decision${scope}` : `All ${count} decisions${scope}`,
   }[filter];
-  const order = count === 1 ? '' : ranked ? ', the widest departure first' : ', in the order you made them';
-  return `Showing ${shown}${order}.${count > leading ? ` The first ${leading} are listed.` : ''}`;
+  const order = count === 1 ? '' : ranked ? ', widest departure first' : ', in the order played';
+  return `${shown}${order}.${count > leading ? ` First ${leading} listed.` : ''}`;
 }
 
 /** A place in the ranking as it is said: "1st", "2nd", "3rd", "11th", "22nd". */
@@ -207,11 +234,12 @@ export function ordinal(number) {
  * list of every decision, when the decisions of an earlier hand arrive after
  * it. Not how many the list holds: that grows with every hand reviewed while
  * the place stays, so a count said once goes stale, and a status that kept it
- * current would be read out again at every hand. */
+ * current would be read out again at every hand. It leads with the place, the
+ * one thing it must say; focus is on the decision, so it need not say which,
+ * and a list that grew to keep it shows all it holds, whichever list it is. */
 export function movedNote(rank, everyShown, filter = 'flagged') {
-  const why = filter === 'every' ? 'Decisions reviewed since came before this one' : 'Decisions reviewed since departed further from Trained AI';
-  const all = { flagged: 'every flagged decision', differed: 'every decision where Trained AI chose differently', every: 'every decision' }[filter];
-  return `${why}: this one is now ${ordinal(rank + 1)}${everyShown ? `, and ${all} is shown` : ''}.`;
+  const why = filter === 'every' ? 'decisions reviewed since came before it' : 'decisions reviewed since departed further';
+  return `Now ${ordinal(rank + 1)}: ${why}${everyShown ? ', so the whole list is shown' : ''}.`;
 }
 
 /** How many of the player's real choices were the network's own. A forced
@@ -450,7 +478,8 @@ export class MatchReview {
     }
     const engine = this.replay.engine, signal = this.abort.signal;
     const notes = engine.review();
-    if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed for review');
+    // Said after the headline's "Review stopped:", which names the review.
+    if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed');
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
       batch: { size: BATCH, analyze: async (positions, signal) => {
@@ -548,14 +577,16 @@ const listed = names => names.length < 2 ? names.join('') : `${names.slice(0, -1
 
 /** The table at a decision in a sentence or two, which a replay says as its
  * step changes, beside the step itself: whose move it was, how many tiles
- * were left to draw, and who had declared riichi. */
+ * were left to draw, and who had declared riichi. It is said at every step,
+ * so it is put in the table's own words: "45 tiles left", as its centre gives
+ * the wall, and "declared riichi", as a seat announces it. */
 export function tableSaid(view) {
-  const left = `${view.wall} tile${view.wall === 1 ? '' : 's'} left in the wall`;
+  const left = `${view.wall} tile${view.wall === 1 ? '' : 's'} left`;
   const move = view.phase === 'call' && view.pending_discard
     ? `${SEAT_NAMES[view.pending_from] ?? 'An opponent'} ${quadOnOffer(view) ? 'declared a kan of' : 'discarded'} the ${tileWords(view.pending_discard)}`
     : 'Your turn';
   const riichi = view.seats.filter(seat => seat.riichi).map(seat => (seat === view.seats[0] ? 'you' : SEAT_NAMES[seat.seat]));
-  const declared = riichi.length ? ` ${listed(riichi).replace(/^./, letter => letter.toUpperCase())} ${riichi.length === 1 && riichi[0] !== 'you' ? 'has' : 'have'} declared riichi.` : '';
+  const declared = riichi.length ? ` ${listed(riichi).replace(/^./, letter => letter.toUpperCase())} declared riichi.` : '';
   return `${move}, ${left}.${declared}`;
 }
 
