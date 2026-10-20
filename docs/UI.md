@@ -421,7 +421,17 @@ with the match, so after a reload a press asks about each hand so far once
 more. **View table / my hand** stays, and still opens the hand's own notes
 under the result; up to 480 pixels wide it reads **View table**, so that the
 fifth button adds no fourth row of buttons over the result on the narrowest
-phones.
+phones. While those notes, or the last hand's beside the standings, ask
+Trained AI a decision at a time, the review waits for them before each batch
+it sends, and then goes on where it was: the hand under review, the hands
+waiting and the player's word stay as they were, so nothing need start it
+again, the review of the whole game included. The page's one worker answers
+its requests in turn, so notes asked between the review's batches of eight
+would wait behind one at every decision: a hand of fifteen decisions would
+take twenty seconds rather than two or three, and on a slow device a note
+could run out of its time, which ends the worker and the review with it. A
+note waits behind no more than the one batch already sent, whichever of the
+two was opened first.
 
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the
@@ -628,18 +638,19 @@ time and 157 ms in batches of eight, with identical weights; natively the same
 batch nearly halves the cost. A game of 150 to 200 decisions takes about half
 a minute there; phones were not measured. The review runs in the background
 with its progress and an estimate of the time left, goes on while its screen
-is closed, and stops at **Stop** or when the player leaves Play. A device that
-takes over half a second a position holds after each hand and offers the next
-hand or the rest of the game; any hand can also be reviewed alone from the
-list of hands, which opens by itself once, when the review turns out that
-slow. After that the list of hands, like the trend's table of games, stays as
-the player leaves it, open or folded, as the review goes on and across a
-replay. These buttons replace one another as the review goes, so focus
-is handed on rather than dropped: from **Stop** to **Continue the review** and
-back, from a hand's own button to the list of hands once that hand is under
-review, and to the flagged decisions when nothing is left to press. The
-review needs the network: while it cannot be reached the
-screen says so and waits.
+is closed, waits before each batch while a hand's own notes ask Trained AI,
+which counts neither in the estimate nor against the device, and stops at
+**Stop** or when the player leaves Play. A device that takes over half a
+second a position holds after each hand and offers the next hand or the rest
+of the game; any hand can also be reviewed alone from the list of hands, which
+opens by itself once, when the review turns out that slow. After that the list
+of hands, like the trend's table of games, stays as the player leaves it, open
+or folded, as the review goes on and across a replay. These buttons replace
+one another as the review goes, so focus is handed on rather than dropped:
+from **Stop** to **Continue the review** and back, from a hand's own button to
+the list of hands once that hand is under review, and to the flagged decisions
+when nothing is left to press. The review needs the network: while it cannot
+be reached the screen says so and waits.
 
 ## Verification
 
@@ -668,7 +679,8 @@ touch and by keyboard, and its way in and out on a phone, by touch and by
 keyboard; and the review of the game so far from a hand's result, the hand
 just played asked about first, kept out of the trend, back to the result's
 button at desktop and phone sizes, stopped by Next hand and asking nothing
-again at the next hand's result or at the standings),
-history and export, and settlements that balance event by event.
-Its browser checks run in Chromium, including narrow portrait and landscape
-sizes; they are not physical-iPhone or Safari testing.
+again at the next hand's result or at the standings), the review, of the game
+so far or of the whole game, waiting while a hand's own notes ask Trained AI
+and going on where it was, history and export, and settlements that balance
+event by event. Its browser checks run in Chromium, including narrow portrait
+and landscape sizes; they are not physical-iPhone or Safari testing.

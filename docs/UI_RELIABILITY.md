@@ -6,6 +6,23 @@ owner before applying an answer, reporting an error or changing the interface.
 A failed neural opponent remains explicitly Trained until the player retries,
 continues the same position with Club opponents, or starts a new match.
 
+The page has one trained worker, which answers its requests in turn. At a
+hand's result two things ask it: the hand's own notes (**View table / my
+hand**, or **Review final hand** at the last hand), a decision at a time, and
+Trained AI's review of the game, so far or whole, eight decisions a request,
+which goes on in the background. While the notes ask, the review waits before
+each batch it would send, then goes on exactly where it was, the hands waiting
+and the player's word as they were, so nothing the player chose is lost and
+nothing need start the review again. A note waits behind no more than the one
+batch already sent, whichever was opened first; behind a batch at every
+decision, a hand's notes would take twenty seconds rather than two or three,
+and on a slow device a note could pass its twenty-second deadline, which ends
+the worker and stops the review with it. The notes say they have stopped
+however they stop: answered, failed, out of time, closed, left for another
+mode, or turned to Club; and a review stopped or closed while it waits stops
+waiting at once. The next deal's Trained opponents go first another way:
+**Next hand** stops the review.
+
 ## Saved matches
 
 After each successful player/AI action and each hand transition, the application
