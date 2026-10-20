@@ -117,7 +117,7 @@ import math
 import re
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from . import looks
@@ -672,6 +672,12 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
         refuse_paired(series, against)
         by_seed = looks.against_each(reports, against.reports())
         names = (names_of(series)[0], names_of(against)[0])
+        if against.tag != registered:
+            # Said as read, not as the rule records the comparison it was registered for.
+            questions = series.settings().get("questions")
+            asked = f", questions {questions}" if questions else ""
+            rule = replace(rule, what=f"{names[0]} against {names[1]} of {against.tag}, deal by deal, both at "
+                                      f"{names_of(series)[1]}'s table{asked}")
     else:
         by_seed = {seed: looks.differences(report) for seed, report in reports.items()}
         names = names_of(series)

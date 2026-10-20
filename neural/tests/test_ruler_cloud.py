@@ -504,15 +504,20 @@ class AgainstTests(unittest.TestCase):
         self.assertEqual(len(modal.spawned), 5)
         self.assertIn("stopped at look 1: history/gen-01010 is the stronger", out)
         # Read again later, by the comparison it was registered with; read
-        # against another series, it says its rule was not registered so.
+        # against another series, it says its rule was not registered so,
+        # and names the comparison it read.
         lines = ruler_cloud.reading(modal, series)
         self.assertEqual(len(lines), 1)
+        self.assertIn("comparing: history/gen-01010 against the challenger of g910, deal by deal", lines[0])
         self.assertIn("stopped at look 1: history/gen-01010 is the stronger", lines[0])
         other = ruler_cloud.Series(self.root / "g810")
         for seed in looks.design().seeds[:5]:
             other.keep(single_report(seed, placements(seed, 7, 1.5), "history/gen-00810"))
         lines = ruler_cloud.reading(modal, series, other)
         self.assertIn("not registered for", lines[0])
+        self.assertIn("comparing: history/gen-01010 against history/gen-00810 of g810, deal by deal, both at "
+                      "zoo/mortal_298k's table, questions seating", lines[-1])
+        self.assertNotIn("g910", lines[-1])
         self.assertIn("stopped at look 1: history/gen-00810 is the stronger", lines[-1])
 
     def test_a_series_whose_kept_reports_went_missing_stops_rather_than_wait(self):
