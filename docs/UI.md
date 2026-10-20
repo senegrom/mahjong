@@ -460,13 +460,13 @@ states the rule ("Your move under 5%, Trained AI's choice 60% or more"), shown
 as a tooltip and read as the button's description, so it is at hand without
 taking a paragraph of the screen. Riichi is judged in two stages, as the
 weights are shown everywhere: when the player and the network both declared,
-the tiles are compared by the discard weights given riichi;
-otherwise the move itself is compared, the declaration carrying its
-declaration weight. Flagged decisions are ranked by the gap between the two
-weights, widest first, and equal gaps in the order they were played. The first
-five are listed, the rest behind **Show all**. The list says where each one
-was (the hand, with its honba where the hand repeats one, so no two hands
-share a name, and the player's decision number) and the weights of the
+the tiles are compared by the discard weights given riichi; otherwise the move
+itself is compared, the declaration carrying its declaration weight. Flagged
+decisions are ranked by the gap between the two weights, widest first, and
+equal gaps in the order they were played. The first five are listed, the rest
+behind **Show all**. The list says where each one was (the hand, with its
+honba where the hand repeats one, so no two hands share a name, and the
+player's decision number: "East 1 · decision 3") and the weights of the
 player's move and of Trained AI's own choice ("Your move 2.0%, Trained AI's
 choice 81.0%."), but not what that choice was.
 The list is ranked afresh as each hand is reviewed, and keyboard focus on a
@@ -556,13 +556,14 @@ decision open between them, took 682 to 1,106 pixels of height at 1100 by
 at 390 by 844, 762 to 1,287 at 320 by 568 and 532 to 899 at 844 by 390.
 
 **Replay and choose again.** A flagged decision opens at the position it was
-made from: the table as it stood, every player's hand, and what happened since
-the player's previous decision. **First** ("First decision" to a screen
-reader, as its neighbours are "Previous decision" and "Next decision"),
-**Previous** and **Next** step through the hand a decision of the player's at
-a time, saying whether each earlier move matched Trained AI; the step's status
-says the move as well ("Decision 2 of 7. Your move: discards the 7
-characters. Trained AI agreed."), so a screen reader hears it with each step. A step that
+made from, headed by its hand and number ("East 1, decision 3"): the table as
+it stood, every player's hand, and what happened since the player's previous
+decision. **First** ("First decision" to a screen reader, as its neighbours
+are "Previous decision" and "Next decision"), **Previous** and **Next** step
+through the hand a decision of the player's at a time, saying whether each
+earlier move matched Trained AI; the step's status says the move as well
+("Decision 2 of 7. Your move: discards the 7 characters. Trained AI
+agreed."), so a screen reader hears it with each step. A step that
 disables the button pressed hands keyboard focus on rather than dropping it:
 at the first decision to **Next**, at the hand's last decision to
 **Previous**, and at the decision to the hand, whose description asks for the
@@ -592,18 +593,21 @@ went. The line stays in the page, silent, while a decision is open: a screen
 reader hears a status only once it is in the accessibility tree, and the list
 comes back around the line in the same moment that it speaks.
 
-**Any decision, any hand.** A reviewed hand is replayed whole, from its deal,
-by **Replay** in its row of the list of hands ("Replay: East 2" to a screen
-reader, as the row names the hand), which stays open for the player while the
-hand is replayed, so **Back to the list** returns focus to the hand's button. In any replay a list of the hand's decisions has a button for
-each step, saying the move and whether Trained AI agreed ("Trained AI agreed",
-"Trained AI differed", "Flagged", "Only move"); the step shown is the current
-one (`aria-current`), and a step's button keeps focus as it shows its step.
-The list starts open above the table where the screen has room for it, and
-folded on a phone or in a replay opened to choose again; from then on it stays
-as the player leaves it, open or folded, as the step changes and as later
-hands are reviewed. So does the list of what happened since the previous
-decision, also across a step where nothing did. The same filter lists
+**Any decision, any hand.** A reviewed hand is replayed whole, from its deal
+("East 2, whole hand"), by **Replay** in its row of the list of hands
+("Replay: East 2" to a screen reader, as the row names the hand), which stays
+open for the player while the hand is replayed, so **Back to the list**
+returns focus to the hand's button. In any replay a list of the hand's
+decisions ("Decisions in this hand (9)") has a button for each step, saying
+the move and whether Trained AI agreed ("Trained AI agreed", "Trained AI
+differed", "Flagged", "Only move"); the step shown is the current one
+(`aria-current`), and a step's button keeps focus as it shows its step. The
+list starts open above the table where the screen has room for it, and folded
+on a phone or in a replay opened to choose again; from then on it stays as the
+player leaves it, open or folded, as the step changes and as later hands are
+reviewed. So does the list of what happened since the previous decision
+("Since the previous decision (3)", counted as the review's other lists are),
+also across a step where nothing did. The same filter lists
 only the hand's flagged decisions, or those where Trained AI chose
 differently, each button saying how many it holds, and says what it shows
 from its own status line. A decision that was not flagged shows the move made

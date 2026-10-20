@@ -278,8 +278,8 @@
 
     {#if frame.lines.length}
       <details class="lines" bind:open={linesOpen}>
-        <!-- How many events, in brackets as the app's other summaries give
-             a count; the items are the events. -->
+        <!-- How many events, in brackets as the review's other summaries
+             give a count; the items below are the events. -->
         <summary>{step === 0 ? 'Since the deal' : 'Since the previous decision'} ({frame.lines.length})</summary>
         <ol>{#each frame.lines as line, index (index)}<li>{line}</li>{/each}</ol>
       </details>
@@ -359,8 +359,8 @@
       {#if extra}<button class="app-control quiet" data-every-move onclick={() => { everyMove = !everyMove; }}>{everyMove ? 'Show fewer moves' : `Show ${extra} more move${extra === 1 ? '' : 's'}`}</button>{/if}
 
       {#if compared.length > 1 && measured}
-        <!-- Counted as the hand review counts it (docs/UI.md), which the
-             player need not be told to read it. -->
+        <!-- Counted as the hand review counts it (docs/UI.md); a player reads
+             the table without being told how. -->
         <table class="numbers">
           <caption>What each move leaves</caption>
           <thead><tr><th scope="col"></th>{#each compared as entry (entry.title)}<th scope="col">{entry.title}{#if entry.move.tile}<br /><Tile tile={entry.move.tile} size="tiny" />{/if}</th>{/each}</tr></thead>
