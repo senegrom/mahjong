@@ -409,6 +409,17 @@ class GraphTests(unittest.TestCase):
                 for one, two in zip(got, want):
                     self.assertTrue(torch.equal(bits(one), bits(two)))
                 self.assertEqual(graphed.compiled_answers, 3)
+                # As while the main thread traces the learning step it compiles
+                # (a run's generation 1212 on 20 October): FX's flag that a
+                # trace is under way is the process's, and the compiled forward
+                # refuses the question, which is answered eagerly.
+                with patch.object(torch.fx._symbolic_trace, "_is_fx_tracing_flag", True):
+                    got = parts(graphed(planes, mask))
+                want = parts(deciding(planes, mask))
+                for one, two in zip(got, want):
+                    self.assertTrue(torch.equal(bits(one), bits(two)))
+                self.assertEqual((graphed.compiled_answers, graphed.set_aside), (3, 1))
+                self.assertEqual(play_graphs.accounts([graphed])["compiled_set_aside"], 1)
             with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
                 got = parts(graphed(planes, mask))
                 want = parts(deciding(planes, mask))

@@ -130,8 +130,12 @@ class Graphed:
     compiler would specialise and compile again. Anything else, a question
     before `prepare` and one after the weights were put somewhere else
     (`forget`) among them, is answered eagerly, so nothing is compiled
-    where play asks, on a worker beside the learning (`--play-ahead`). A
-    copy compiles nothing: it answers its bigger questions eagerly."""
+    where play asks, on a worker beside the learning (`--play-ahead`). So
+    is one the compiled forward refuses because the main thread is tracing
+    the learning step as it compiles it: FX keeps one flag for the whole
+    process that a trace is under way, and a compiled forward asked while
+    it stands raises before it runs anything. A copy compiles nothing: it
+    answers its bigger questions eagerly."""
 
     def __init__(self, forward, module: nn.Module, rows: tuple[int, ...] = ROWS,
                  compiled: bool = False) -> None:
@@ -157,12 +161,14 @@ class Graphed:
         self.tensors: list[torch.Tensor] = []
         self.places: list[int] = []
         #: How long recording took, in seconds, and how many questions were
-        #: answered from a graph; how long compiling took, and how many were
-        #: answered by the compiled forward.
+        #: answered from a graph; how long compiling took, how many were
+        #: answered by the compiled forward, and how many it refused while
+        #: another thread was tracing, answered eagerly instead.
         self.seconds = 0.0
         self.replays = 0
         self.compile_seconds = 0.0
         self.compiled_answers = 0
+        self.set_aside = 0
 
     def __deepcopy__(self, memo) -> Graphed:
         """A copy of the module answers through graphs of its own, recorded
@@ -180,8 +186,20 @@ class Graphed:
         kind = (planes.dtype, tuple(planes.shape[1:]), mask.dtype, tuple(mask.shape[1:]), device)
         if n > self.rows[-1]:
             if self.big is not None and kind == self.big_kind:
-                self.compiled_answers += 1
-                return self.big(planes, mask)
+                try:
+                    answer = self.big(planes, mask)
+                except RuntimeError as error:
+                    # FX's flag that a trace is under way is the process's,
+                    # not the thread's: while the main thread compiles the
+                    # learning step, each mode the first time it is drawn,
+                    # the compiled forward refuses a worker's question
+                    # before it runs anything, and it is answered eagerly.
+                    if "symbolically trace" not in str(error):
+                        raise
+                    self.set_aside += 1
+                else:
+                    self.compiled_answers += 1
+                    return answer
             return self.forward(planes, mask)
         rows = next(size for size in self.rows if size >= n)
         stream = torch.cuda.current_stream(device)
@@ -349,6 +367,7 @@ def accounts(forwards: list[Graphed]) -> dict:
     if any(forward.compiled for forward in forwards):
         said["play_compile_seconds"] = round(sum(forward.compile_seconds for forward in forwards), 1)
         said["compiled_answers"] = sum(forward.compiled_answers for forward in forwards)
+        said["compiled_set_aside"] = sum(forward.set_aside for forward in forwards)
     return said
 
 
