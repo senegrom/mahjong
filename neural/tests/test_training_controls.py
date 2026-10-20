@@ -147,9 +147,14 @@ class ControlTests(unittest.TestCase):
                 if module is train: argv+=['--replay-steps','0']
                 if module is train_combined: argv+=['--fixed','none']
                 before={t.ident for t in threading.enumerate() if t.name=='mahjong-prefetch'}
+                # On the processor, where every trainer asks PolicyDrift.check
+                # before each update: on a card the joined player's asks the
+                # card, and reads its verdict late (test_step_guard's trainer
+                # test is this one for that).
                 with patch.object(sys,'argv',argv),patch.object(module.selfplay,'play',side_effect=collect), \
                      patch.object(module.selfplay,'measure',return_value={'placement':2.5,'score':0.,'wins':.25}), \
-                     patch.object(PolicyDrift,'check',check),contextlib.redirect_stdout(io.StringIO()):
+                     patch.object(PolicyDrift,'check',check),contextlib.redirect_stdout(io.StringIO()), \
+                     patch.object(torch.cuda,'is_available',return_value=False):
                     module.main()
                 rows=[json.loads(line) for line in (out/'log.jsonl').read_text().splitlines()]
                 self.assertEqual(rows[0]['optimizer_updates'],1)

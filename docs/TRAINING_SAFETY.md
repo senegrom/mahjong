@@ -420,6 +420,18 @@ and must supply them again on resume. With the guard on, every minibatch
 reads a scalar back from the GPU, which costs time; with it off, nothing
 waits.
 
+The joined player's trainer (`train_combined`) on a card reads neither the
+guard's figure nor the gradient clip's finite check on the host
+(`ppo_control.StepGuard`). Its fused AdamW refuses on the card, through
+`found_inf`, the first update either refuses and every update after it, and
+the host reads each update's verdict from page-locked memory two updates
+later. The epochs stop, or the same error is raised, those few updates late
+with nothing applied in between: the weights, AdamW's moments and step
+counts, the generators and the record are bit for bit those of deciding at
+once, which on an L40S cost 1.7% of an update (286.1 ms against 281.2 in
+mode none). With an entropy floor, which reads every update's entropy on the
+host anyway, and on the processor, it decides at once as before.
+
 PPO clipping alone does not guarantee a small policy change; the original
 Spinning Up implementation stops early too:
 https://spinningup.openai.com/en/latest/algorithms/ppo.html

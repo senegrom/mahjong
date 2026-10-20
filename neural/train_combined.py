@@ -41,7 +41,7 @@ from .behavior import validate_exploration
 from .checkpoints import atomic_save
 from .observe import pad_rows
 from .population import Population
-from .ppo_control import PolicyDrift, add_training_controls, baseline_batch_size
+from .ppo_control import PolicyDrift, StepGuard, add_training_controls, baseline_batch_size
 from .training_batches import require_trainable_round, require_updates
 from .training_safety import TRAINING_API_VERSION, benchmark_history
 from .training_state import (
@@ -229,11 +229,21 @@ def ppo_epochs(net: combined.Combined, learn, rollout, held, optimiser, totals, 
     for a round the learner played itself; `explored`, the rows whose move
     exploration forced. A function of its own, apart from `main`, so that a
     test can run the trainer's own epochs on a card, round after round.
-    Answers the updates taken and the last minibatch's picks and planes, as
-    `value_warm_up` does; each update is noted on `clock` when one is
-    given."""
+
+    Whether each update is taken, as the guard and the gradient clip say,
+    is decided on the card where the optimiser can refuse an update there,
+    and read by the host a couple of updates later: that spares the two
+    waits on the card an update that deciding on the host costs, and
+    changes nothing learned (see `StepGuard`). Answers the updates taken
+    and the last minibatch's picks and planes, as `value_warm_up` does,
+    but with planes None where the learning stopped on a minibatch launched
+    before the last, whose planes are gone; each update is noted on `clock`
+    when one is given."""
     device = rollout.device
-    steps = 0
+    # The entropy floor reads each update's entropy on the host, which waits
+    # for the card anyway, and its step is not to be taken after an update
+    # the guard refuses: with it, every verdict is had at once.
+    guard = StepGuard(drift, optimiser, device, clock=clock, late=not floor.on)
     picks = planes = None
     for _epoch in range(args.epochs):
         with closing(ppo_loop.minibatches(rollout, args.batch, dtype=dtype)) as minibatches:
@@ -273,11 +283,11 @@ def ppo_epochs(net: combined.Combined, learn, rollout, held, optimiser, totals, 
                 chosen = ~explored[picks]
                 own = chosen.sum().clamp(min=1)
                 if args.explore:
-                    stop = bool(chosen.any()) and drift.check(since[chosen], log_prob[chosen])
+                    stop = bool(chosen.any()) and guard.check(since[chosen], log_prob[chosen])
                 else:
                     # Nothing was explored, so every row is the policy's;
                     # asking the card which ones would wait on it.
-                    stop = drift.check(since, log_prob)
+                    stop = guard.check(since, log_prob)
                 if stop:
                     break
                 # PPO's clipped objective over the rows the policy chose.
@@ -319,14 +329,13 @@ def ppo_epochs(net: combined.Combined, learn, rollout, held, optimiser, totals, 
                     leash = ((weight * (before - now)).sum(dim=1) * chosen).sum() / own
                     loss = loss + args.leash * leash
                 loss.backward()
-                grad_norm = nn.utils.clip_grad_norm_(
-                    [p for p in net.parameters() if p.requires_grad], 1.0, error_if_nonfinite=True
-                )
-                optimiser.step()
+                grad_norm = guard.clip([p for p in net.parameters() if p.requires_grad], 1.0)
+                guard.step()
                 if floor.on:
                     floor.step(entropy)
                 with torch.no_grad():
                     totals.add(
+                        unless=guard.refused,
                         policy=policy_loss,
                         value=value_loss,
                         entropy=entropy,
@@ -337,12 +346,19 @@ def ppo_epochs(net: combined.Combined, learn, rollout, held, optimiser, totals, 
                         hands=hands_loss,
                         covered=covered,
                     )
-                steps += 1
-                if clock is not None:
-                    clock.update()
+                guard.launched(picks)
+                if drift.stopped:
+                    break
+            # Every verdict is read before the next epoch draws its order from
+            # torch's generator, which the checkpoint keeps: drawn after the
+            # learning had stopped, it would leave the generator further on
+            # than deciding at once does.
+            guard.settle()
         if drift.stopped:
             break
-    return steps, picks, planes
+    if guard.ended is not None:
+        picks, planes = guard.ended, None
+    return guard.updates, picks, planes
 
 
 def placement_fields(place, ledger, returns: torch.Tensor, guess: torch.Tensor, warming: bool) -> dict:
@@ -976,9 +992,11 @@ def main() -> None:
                 with torch.no_grad():
                     net.eval()
                     allowed = rollout.legal[picks]
-                    if planes.dtype != torch.float32:
+                    if planes is None or planes.dtype != torch.float32:
                         # This runs without autocast, so the minibatch is made
-                        # dense again as it always was.
+                        # dense again as it always was; and the minibatch the
+                        # learning stopped on, read late, is made again, its
+                        # planes being gone (see `ppo_epochs`).
                         planes = ppo_loop.planes_of(rollout, picks)
                     phi, q, features, a1, _value, _guessed = net.backbones(planes, allowed)
                     joined = net.fuse(phi.float(), q.float(), features.float(), a1.float(), allowed)

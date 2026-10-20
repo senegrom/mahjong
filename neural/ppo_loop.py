@@ -489,9 +489,11 @@ class LearningClock:
         self.began = time.time()
         self.updates: list[float] = []
 
-    def update(self) -> None:
-        """Notes an optimiser update, as it is taken."""
-        self.updates.append(time.time())
+    def update(self, at: float | None = None) -> None:
+        """Notes an optimiser update, as it is taken, or as of `at`, when it
+        was launched, for one whose verdict was read after it (see
+        `ppo_control.StepGuard`)."""
+        self.updates.append(time.time() if at is None else at)
 
     def split(self, ended: float | None, now: float | None = None) -> dict:
         """The learning until `now`, cut where the round beside it ended:
@@ -639,9 +641,14 @@ class Totals:
     def __init__(self, device: str, *names: str) -> None:
         self.sums = {name: torch.zeros((), device=device) for name in (*self.COMMON, *names)}
 
-    def add(self, **values: torch.Tensor) -> None:
+    def add(self, unless: torch.Tensor | None = None, **values: torch.Tensor) -> None:
+        """Adds `values` to the sums, or nothing where `unless`, a flag on
+        the device, is set: an update the card refused (see
+        `ppo_control.StepGuard`). Nought is added in its place, which leaves
+        a sum's bits as they were; multiplying by nought would spread a
+        value that is not a number."""
         for name, value in values.items():
-            self.sums[name] += value
+            self.sums[name] += value if unless is None else torch.where(unless, 0.0, value)
 
     def __getitem__(self, name: str) -> torch.Tensor:
         return self.sums[name]
