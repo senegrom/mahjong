@@ -1,8 +1,9 @@
-"""`--compile-learning` compiles the learning step's forward and nothing
-else: play and the seated others stay eager, with their weights cast once
-and the step's planes in bfloat16. The compiled step learns what the eager
-one learns, as nearly as bfloat16 lets either; it is compiled once for each
-mode a run draws, with gradients and without, and never again however many
+"""`--compile-learning` compiles the learning step's forward and the
+baseline pass's and nothing else: play and the seated others stay eager,
+with their weights cast once and the step's planes in bfloat16. The
+compiled step learns what the eager one learns, as nearly as bfloat16 lets
+either; each forward is compiled once for each mode a run draws, the
+step's with gradients and the pass's without, and never again however many
 generations follow, within a recompile limit raised to hold them all; and
 the cloud keeps whatever a generation compiled."""
 
@@ -34,7 +35,7 @@ CUDA = torch.cuda.is_available()
 TRITON = importlib.util.find_spec("triton") is not None
 
 
-def fake_round(phi: bool = False, values: bool = False):
+def fake_round(values: bool = False):
     n = 8
     planes = Planes(np.arange(n + 1, dtype=np.int64), np.zeros(n, dtype=np.uint16),
                     np.ones(n, dtype=np.float16))
@@ -43,8 +44,7 @@ def fake_round(phi: bool = False, values: bool = False):
         actions=torch.zeros(n, dtype=torch.int64), returns=torch.linspace(-1, 1, n),
         log_probs=torch.zeros(n), held=torch.full((n, 3, 34), 1 / 34),
         games=1, hands=1, timing={},
-        values=torch.linspace(-0.5, 0.5, n) if values else None,
-        phi=torch.randn(n, 1024) if phi else None)
+        values=torch.linspace(-0.5, 0.5, n) if values else None)
 
 
 def forget_whether_triton_runs():
@@ -120,9 +120,10 @@ class SwitchTests(unittest.TestCase):
         self.assertNotIn("--compile", command)
         self.assertNotIn("--compile-learning", command)
 
-    def test_only_the_learning_forward_is_compiled(self):
+    def test_only_the_learning_step_and_the_pass_are_compiled(self):
         """Play stays eager, the learner's forward for deciding untouched,
-        and the learning forward is compiled for its one shape."""
+        and the learning step's forward and the pass's are compiled, each
+        for its one shape."""
         compiled, seen = [], []
 
         def recording(function, **options):
@@ -134,7 +135,7 @@ class SwitchTests(unittest.TestCase):
             return fake_round()
 
         train(["--rounds", "1", "--fixed", "none", "--compile-learning"], play, recording)
-        self.assertEqual(compiled, [("everything", {"dynamic": False})])
+        self.assertEqual(compiled, [("everything", {"dynamic": False}), ("decision", {"dynamic": False})])
         self.assertEqual(seen, [True])
 
     @unittest.skipUnless(hasattr(torch._dynamo.config, "skip_tensor_guards_with_matching_dict_tags"),
@@ -467,12 +468,20 @@ class RecompileTests(unittest.TestCase):
         self.assertEqual(sorted(graphs), [False] * 6 + [True] * 6)
         self.assert_set_for_every_mode(settings)
 
-    def test_from_plays_values_and_vectors_each_mode_compiles_once(self):
-        """With the baseline from play no pass is compiled; the modes that
-        reuse Mortal's vectors compile their step with them."""
+    def test_reusing_mortals_vectors_each_mode_compiles_once_with_gradients_and_once_without(self):
+        """The modes that hold Mortal still compile their step with the
+        vectors the pass kept, and never without them."""
+        made, graphs, settings = self.run_modes(["--reuse-phi"], lambda player: fake_round())
+        self.assertEqual(made, {mode: 2 for mode in combined.Combined.MODES})
+        self.assertEqual(sorted(graphs), [False] * 6 + [True] * 6)
+        self.assert_set_for_every_mode(settings)
+
+    def test_from_plays_values_each_mode_compiles_once(self):
+        """With the baseline from play no pass is compiled, and no vectors
+        are kept without a pass: each mode compiles its step alone, Mortal
+        worked out in it."""
         made, graphs, settings = self.run_modes(
-            ["--baseline-from-play", "--reuse-phi"],
-            lambda player: fake_round(phi=player.keep_phi, values=True))
+            ["--baseline-from-play", "--reuse-phi"], lambda player: fake_round(values=True))
         self.assertEqual(made, {mode: 1 for mode in combined.Combined.MODES})
         self.assertEqual(graphs, [True] * 6)
         self.assert_set_for_every_mode(settings)

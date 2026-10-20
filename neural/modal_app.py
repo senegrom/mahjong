@@ -904,8 +904,8 @@ def train_combined(
     with.
 
     `reuse_phi` has a generation that holds Mortal still learn from
-    Mortal's vectors as play worked them out, the trainer's `--reuse-phi`;
-    passed on only when true.
+    Mortal's vectors as the pass that values the round worked them out,
+    the trainer's `--reuse-phi`; passed on only when true.
 
     `compile_learning` compiles the learning step alone, the trainer's
     `--compile-learning`: play and the seated others stay eager. It is

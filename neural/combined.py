@@ -188,11 +188,6 @@ class Combined(nn.Module):
     #: first question, from the follower's preview of the reach; see
     #: `zoo.choose_in_mortal_space`. As the learner it is told by `decide`.
     preview_reach = False
-    #: Whether deciding keeps Mortal's vector of every decision in its
-    #: records, for a generation that learns from it rather than running
-    #: Mortal again (`train_combined --reuse-phi`). A trainer turns it on
-    #: for the rounds that will read it.
-    keep_phi = False
     #: What deciding and a seated player's questions ask instead of
     #: `decision`, when a trainer has small questions answered from CUDA
     #: graphs (`play_graphs.graphed`); None asks `decision` itself.
@@ -215,8 +210,11 @@ class Combined(nn.Module):
         self.set_mode("none")
         self.ours.eval()
         self.mortal.eval()
-        # The forward a trainer may replace with a compiled one.
+        # The forward a trainer may replace with a compiled one
+        # (`compile_backbones`), and whether it has: a flag of its own,
+        # which the compiler reads as the constant it is (see `decision`).
         self.backbones_forward = self.backbones
+        self.backbones_compiled = False
         # Where a round's deciding went, in seconds, for the play record;
         # `selfplay.play` reads and clears it. Without it the learner's own
         # share of a round, a few minutes of a generation, was recorded
@@ -343,6 +341,15 @@ class Combined(nn.Module):
         q = self.mortal.dqn(phi, legal)
         return phi, q, features, a1, value, guessed
 
+    def compile_backbones(self, **options) -> None:
+        """Has the forwards ask the networks beneath compiled
+        (`torch.compile` with `options`), as a trainer that compiles the
+        joined player's forward does (`train_combined --compile`), and a
+        seated player's loader asked to (`zoo.load_player`): `everything`
+        calls the compiled forward, and `decision` asks it for all of it."""
+        self.backbones_forward = torch.compile(self.backbones, **options)
+        self.backbones_compiled = True
+
     def everything(
         self, planes: torch.Tensor, legal: torch.Tensor, phi: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -350,8 +357,9 @@ class Combined(nn.Module):
         given, is Mortal's vector of each row, already known: in a
         generation that holds Mortal still it is the same function of the
         same planes all generation, so the learning step can take it from
-        play instead of running Mortal on every minibatch (see
-        `train_combined --reuse-phi`)."""
+        the pass that values the round before it is learned instead of
+        running Mortal on every minibatch (see `train_combined
+        --reuse-phi`)."""
         if phi is None:
             phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal)
         else:
@@ -377,16 +385,35 @@ class Combined(nn.Module):
         is a tower of its own over the planes and the head above it, a few
         per cent of the forward. The logits and the value come from the
         same kernels on the same inputs either way, so they are bit for bit
-        `everything`'s.
+        `everything`'s. The baseline pass asks it too, compiled by a
+        trainer that compiles its learning step (see
+        `train_combined.pass_forward`), for the value, the logits the drift
+        guard counts from and, in a generation that holds Mortal still,
+        the vector the learning step then reads instead of running Mortal.
 
-        A forward a trainer has compiled (`backbones_forward`) is asked for
+        A forward a trainer has compiled (`compile_backbones`) is asked for
         all of it, as it always was: a graph without the hands would be
         another graph, and the compiler's answers from it can differ in
-        their last bits."""
-        if self.backbones_forward == self.backbones:
-            phi, q, features, a1, value, _guessed = self.backbones(planes, legal, hands=False)
-        else:
+        their last bits.
+
+        Whether there is one is read from the flag `compile_backbones` sets
+        beside it (`backbones_compiled`): a plain value, which the compiler
+        takes as the constant it is, so that it traces what deciding runs
+        eagerly. Asked of the forward itself, the cloud's torch 2.8 could
+        not tell. Comparing it with the networks' own method broke the
+        graph there, and the compiler compiled what followed a frame at a
+        time, the networks beneath, the head and the judge each a graph of
+        their own: so play's bigger questions were answered with
+        --compile-play. Asking whether the function it calls was the
+        networks' own method gave one graph, but the compiler took the
+        answer to be no in every forward it compiled and traced the reading
+        of the hands in, ten convolutions more than deciding runs in the
+        pass's graphs and in play's compiled forward, which their kernels
+        left out only because nothing read them."""
+        if self.backbones_compiled:
             phi, q, features, a1, value, _guessed = self.backbones_forward(planes, legal)
+        else:
+            phi, q, features, a1, value, _guessed = self.backbones(planes, legal, hands=False)
         wide = phi.float()
         logits = self.fuse(wide, q.float(), features.float(), a1.float(), legal)
         return logits, self.fuse.judge(wide, value.float()), phi
@@ -427,18 +454,13 @@ class Combined(nn.Module):
     ):
         """One of our engine's actions per row, and what the policy decided
         to get there, with the value its head gave each decision: the
-        fusion's judgement, the one the baseline pass reads; and, with
-        `keep_phi`, Mortal's vector of each. Its moves are Mortal's, so a
-        riichi is answered in two steps and both are recorded; with
-        `preview_reach`, from one forward; drawn from `generator` when one
-        is given (see `mortal_learner.decide_in_mortal_space`)."""
-
-        def score(planes: torch.Tensor, mask: torch.Tensor):
-            answer = (self.deciding or self.decision)(planes, mask)
-            return answer if self.keep_phi else answer[:2]
-
+        fusion's judgement, the one the baseline pass reads. Its moves are
+        Mortal's, so a riichi is answered in two steps and both are
+        recorded; with `preview_reach`, from one forward; drawn from
+        `generator` when one is given (see
+        `mortal_learner.decide_in_mortal_space`)."""
         return mortal_learner.decide_in_mortal_space(
-            score,
+            lambda planes, mask: (self.deciding or self.decision)(planes, mask)[:2],
             views,
             rows,
             players,

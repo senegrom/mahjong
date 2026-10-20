@@ -448,7 +448,7 @@ def load_player(path: Path | str, device: str, compile: bool = False):
         net, _state = combined.load(path, device)
         net.eval()
         if compile:
-            net.backbones_forward = torch.compile(net.backbones, dynamic=True)
+            net.compile_backbones(dynamic=True)
         return net
     if payload is not None and "model" in payload:
         net = from_payload(payload, device)

@@ -144,7 +144,6 @@ def play_round(net, args, roster, seated, device: str) -> selfplay.Batch:
     the others seated as the run seats them, the ledger kept."""
     amp = args.amp and device == "cuda"
     player = policy_inference.precast(copy.deepcopy(net)).requires_grad_(False) if amp else net
-    player.keep_phi = False
     batch = selfplay.play(
         player, games=args.games, seed=args.seed, device=device, amp=amp, opponents=seated,
         opponent_share=args.opponent_share, seat_share=args.seat_share, population=roster,
