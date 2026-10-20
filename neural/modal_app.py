@@ -31,6 +31,7 @@ generation, so a container that is preempted costs one generation.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import shutil
@@ -38,6 +39,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import modal
@@ -275,6 +277,12 @@ class StoppedBeforeTimeout(RuntimeError):
 
 LOCAL_CACHE = Path("/tmp/inductor-cache")
 SHARED_CACHE = VOLUME / "inductor-cache"
+#: How many files a container seeding its cache copies from the volume at
+#: once. Each is a round trip to the volume, and the cache holds tens of
+#: thousands, mostly kernels of a few kilobytes: one at a time, 89,442
+#: files (4 GB) took about an hour on 20 October 2026, longer than
+#: compiling every graph again.
+SEED_THREADS = 64
 #: The files of the local cache the volume holds too, by their paths within
 #: it, with the size and modification time each had when it was seeded from
 #: the volume or saved to it: what a save need not copy again.
@@ -301,19 +309,68 @@ def _seed_cache() -> Path:
     if not LOCAL_CACHE.exists():
         LOCAL_CACHE.mkdir(parents=True, exist_ok=True)
         if SHARED_CACHE.exists():
+            began = time.time()
             try:
-                # Without the hidden copies a save left behind when its
-                # container died in the middle of one (see `_save_cache`):
-                # the graph cache of the torch this image installs reads
-                # every file in a graph's folder, whatever its name.
-                shutil.copytree(SHARED_CACHE, LOCAL_CACHE, dirs_exist_ok=True,
-                                ignore=shutil.ignore_patterns(".*.partial"))
-                print("compiler cache seeded from the volume", flush=True)
+                copied, failed = _copy_tree(SHARED_CACHE, LOCAL_CACHE)
+                print(f"compiler cache seeded from the volume: {copied} files in {time.time() - began:.0f}s"
+                      + (f"; {len(failed)} not copied, first {failed[0]}" if failed else ""), flush=True)
             except OSError as error:
                 print(f"compiler cache not seeded: {error}", flush=True)
         # What came from the volume need not go back to it.
         _ON_VOLUME.update(_cache_files())
     return LOCAL_CACHE
+
+
+def _copy_tree(source: Path, target: Path, threads: int = SEED_THREADS) -> tuple[int, list[str]]:
+    """Copies the tree `source` into `target` on `threads` threads: its
+    folders listed a level at a time, then its files, each whole or not at
+    all. Without the hidden copies a save left behind when its container
+    died in the middle of one (see `_save_cache`): the graph cache of the
+    torch this image installs reads every file in a graph's folder,
+    whatever its name. Answers how many files it copied, and why each of
+    the others, or a folder that could not be listed, was not."""
+    files: list[str] = []
+    failed: list[str] = []
+    with ThreadPoolExecutor(threads) as pool:
+        level = [""]
+        while level:
+            listed = list(pool.map(lambda folder: (folder, _listing(source / folder)), level))
+            level = []
+            for folder, entries in listed:
+                if isinstance(entries, str):
+                    failed.append(entries)
+                    continue
+                (target / folder).mkdir(parents=True, exist_ok=True)
+                for entry in entries:
+                    name = f"{folder}/{entry.name}" if folder else entry.name
+                    if entry.is_dir(follow_symlinks=False):
+                        level.append(name)
+                    elif not fnmatch.fnmatch(entry.name, ".*.partial"):
+                        files.append(name)
+        copies = list(pool.map(lambda name: _copy_file(source / name, target / name), files))
+    failed += [why for why in copies if why]
+    return copies.count(""), failed
+
+
+def _listing(folder: Path) -> list[os.DirEntry] | str:
+    """A folder's entries, or why it could not be listed."""
+    try:
+        return list(os.scandir(folder))
+    except OSError as error:
+        return f"{folder.name}/: {error}"
+
+
+def _copy_file(source: Path, target: Path) -> str:
+    """Copies one file of the cache by a hidden name renamed into place, so a
+    copy that fails leaves nothing under the file's name: the compiler never
+    rewrites a file it finds there. Answers why it failed, or nothing."""
+    try:
+        with staging_file(target) as staged:
+            shutil.copy2(source, staged)
+            os.replace(staged, target)
+    except OSError as error:
+        return f"{source.name}: {error}"
+    return ""
 
 
 def _save_cache() -> None:

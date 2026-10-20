@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -244,6 +245,91 @@ class CacheTests(unittest.TestCase):
                 app._seed_cache()
             self.assertEqual([path.relative_to(local).as_posix() for path in local.rglob("*") if path.is_file()],
                              ["fxgraph/ab/fabc/0"])
+
+    def test_a_seed_copies_the_tree_many_files_at_once(self):
+        """Each file is a round trip to the volume, so the copies overlap:
+        four of them meet before any goes on, which copies one at a time
+        never would."""
+        app = controller()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            local, shared = root / "local", root / "shared"
+            names = [f"triton/0/{kernel:02d}/{part}" for kernel in range(12) for part in ("k.cubin", "k.json")]
+            names += ["fxgraph/ab/fabc/0", "aotautograd/x/entry", "top.py"]
+            for name in names:
+                (shared / name).parent.mkdir(parents=True, exist_ok=True)
+                (shared / name).write_text(name)
+            meeting = threading.Barrier(4, timeout=30)
+            calls = []
+            copy = app.shutil.copy2
+
+            def together(source, destination, **options):
+                calls.append(source)
+                if len(calls) <= 4:
+                    meeting.wait()
+                return copy(source, destination, **options)
+
+            on_volume = {}
+            with patch.object(app, "LOCAL_CACHE", local), patch.object(app, "SHARED_CACHE", shared), \
+                    patch.object(app, "_ON_VOLUME", on_volume), \
+                    patch.object(app.shutil, "copy2", side_effect=together), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                app._seed_cache()
+            copied = sorted(path.relative_to(local).as_posix() for path in local.rglob("*") if path.is_file())
+            self.assertEqual(copied, sorted(names))
+            self.assertTrue(all((local / name).read_text() == name for name in names))
+            self.assertIn(f"compiler cache seeded from the volume: {len(names)} files in", out.getvalue())
+            self.assertEqual(len(calls), len(names))
+            # What came from the volume need not go back to it.
+            self.assertEqual(sorted(on_volume), sorted(names))
+
+    def test_a_seed_copy_cut_short_leaves_nothing_under_the_files_name(self):
+        app = controller()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            local, shared = root / "local", root / "shared"
+            for name in ("fxgraph/ab/fabc/0", "triton/0/k/k.cubin"):
+                (shared / name).parent.mkdir(parents=True)
+                (shared / name).write_text("compiled")
+            copy = app.shutil.copy2
+
+            def cut_short(source, destination, **options):
+                if Path(source).name == "0":
+                    Path(destination).write_text("comp")
+                    raise OSError("connection reset")
+                return copy(source, destination, **options)
+
+            with patch.object(app, "LOCAL_CACHE", local), patch.object(app, "SHARED_CACHE", shared), \
+                    patch.object(app, "_ON_VOLUME", {}), patch.object(app.shutil, "copy2", side_effect=cut_short), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                app._seed_cache()
+            self.assertEqual([path.relative_to(local).as_posix() for path in local.rglob("*") if path.is_file()],
+                             ["triton/0/k/k.cubin"])
+            self.assertIn("1 files in", out.getvalue())
+            self.assertIn("1 not copied, first 0: connection reset", out.getvalue())
+
+    def test_a_folder_that_cannot_be_listed_is_left_out_and_the_rest_seeded(self):
+        app = controller()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            local, shared = root / "local", root / "shared"
+            for name in ("fxgraph/ab/fabc/0", "triton/0/k/k.cubin"):
+                (shared / name).parent.mkdir(parents=True)
+                (shared / name).write_text("compiled")
+            scan = app.os.scandir
+
+            def unlistable(path):
+                if Path(path).name == "fxgraph":
+                    raise OSError("input/output error")
+                return scan(path)
+
+            with patch.object(app, "LOCAL_CACHE", local), patch.object(app, "SHARED_CACHE", shared), \
+                    patch.object(app, "_ON_VOLUME", {}), patch.object(app.os, "scandir", side_effect=unlistable), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                app._seed_cache()
+            self.assertEqual([path.relative_to(local).as_posix() for path in local.rglob("*") if path.is_file()],
+                             ["triton/0/k/k.cubin"])
+            self.assertIn("1 not copied, first fxgraph/: input/output error", out.getvalue())
 
     def test_the_compilers_workers_are_the_containers_share(self):
         app = controller()
