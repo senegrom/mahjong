@@ -402,30 +402,32 @@ narrower screens.
 hand's own buttons, at every size, since nothing else offers it before the
 end. It opens the same screen on the match so far, headed "Your game so far,
 looked at again": Trained AI is asked about the hand just played first, then
-about the rest from the first deal, and the screen leads with that hand, its
-outcome and how far its review has got, and once it is reviewed **Replay this
-hand**, whose **Back to the list** comes back to that button. Below it is the
-review as described here. **Back to the result** brings the table and the
-result back as they were left, with focus on the button that opened the
-review; on a phone the sheet is up again rather than stepping aside, the
-button in its row at its foot. The review is built at the first press and
-taken on to each later result, so a hand reviewed once is never put to the
-network again. **Next hand** stops it, since the next deal's Trained opponents
-ask the same network and go first; opened again, it goes on with the hands
-still waiting, the hand just played first, and at the end the standings'
-**Review whole game** goes on from it the same way. The game so far stays out
-of the trend, and says so: a game joins it once the match is over and every
-hand is reviewed, which for a game whose every hand was reviewed as it was
-played is the moment the last **Next hand** ends it. Nothing of it is saved
-with the match, so after a reload a press asks about each hand so far once
-more. **View table / my hand** stays, and still opens the hand's own notes
-under the result; up to 480 pixels wide it reads **View table**, so that the
-fifth button adds no fourth row of buttons over the result on the narrowest
-phones. While those notes, or the last hand's beside the standings, ask
-Trained AI a decision at a time, the review waits for them before each batch
-it sends, and then goes on where it was: the hand under review, the hands
-waiting and the player's word stay as they were, so nothing need start it
-again, the review of the whole game included. The page's one worker answers
+about the rest from the first deal, and the screen leads with that hand ("Just
+played:"), its outcome and how far its review has got, and once it is reviewed
+**Replay**, whose **Back to the list** comes back to that button. Below it is
+the review as described here; the heading is where it says that the review is
+of the game so far, and its headline, once every hand is reviewed, is the
+whole game's ("All hands reviewed: 75 decisions."). **Back to the result**
+brings the table and the result back as they were left, with focus on the
+button that opened the review; on a phone the sheet is up again rather than
+stepping aside, the button in its row at its foot. The review is built at the
+first press and taken on to each later result, so a hand reviewed once is
+never put to the network again. **Next hand** stops it, since the next deal's
+Trained opponents ask the same network and go first; opened again, it goes on
+with the hands still waiting, the hand just played first, and at the end the
+standings' **Review whole game** goes on from it the same way. The game so far
+stays out of the trend, and says so: a game joins it once the match is over
+and every hand is reviewed, which for a game whose every hand was reviewed as
+it was played is the moment the last **Next hand** ends it. Nothing of it is
+saved with the match, so after a reload a press asks about each hand so far
+once more. **View table / my hand** stays, and still opens the hand's own
+notes under the result; up to 480 pixels wide it reads **View table**, so that
+the fifth button adds no fourth row of buttons over the result on the
+narrowest phones. While those notes, or the last hand's beside the standings,
+ask Trained AI a decision at a time, the review waits for them before each
+batch it sends, and then goes on where it was: the hand under review, the
+hands waiting and the player's word stay as they were, so nothing need start
+it again, the review of the whole game included. The page's one worker answers
 its requests in turn, so notes asked between the review's batches of eight
 would wait behind one at every decision: a hand of fifteen decisions would
 take twenty seconds rather than two or three. Only the first note can wait
@@ -469,12 +471,14 @@ in another window or tab, which takes focus from the page but leaves it on the
 decision for when the player comes back: should the hands reviewed since rank
 it out of the first five, every flagged decision is shown rather than its
 button being taken away, and a status line under the heading says where it now
-stands ("this one is now 7th"), since a list should not be reshuffled under
-someone reading it without their being told. The line says the place again
-whenever the place changes, but not how many are flagged: that grows with every
-hand reviewed while the place stays, so a count said once would go stale, and
-one kept current would be read out again at every hand. The line goes when
-focus moves on.
+stands ("Now 7th: decisions reviewed since departed further, so the whole list
+is shown."), since a list should not be reshuffled under someone reading it
+without their being told. It leads with the place, the one thing it has to
+say, and focus is on the decision, so it does not say which. The line says
+the place again whenever the place changes, but not how many are flagged: that
+grows with every hand reviewed while the place stays, so a count said once
+would go stale, and one kept current would be read out again at every hand.
+The line goes when focus moves on.
 
 **Which decisions are listed.** The list opens on the flagged decisions, and a
 filter under its heading lists instead every decision where Trained AI chose
@@ -581,9 +585,9 @@ reader hears a status only once it is in the accessibility tree, and the list
 comes back around the line in the same moment that it speaks.
 
 **Any decision, any hand.** A reviewed hand is replayed whole, from its deal,
-by **Replay this hand** in the list of hands, which stays open for the player
-while the hand is replayed, so **Back to the list** returns focus to the
-hand's button. In any replay a list of the hand's decisions has a button for
+by **Replay** in its row of the list of hands ("Replay: East 2" to a screen
+reader, as the row names the hand), which stays open for the player while the
+hand is replayed, so **Back to the list** returns focus to the hand's button. In any replay a list of the hand's decisions has a button for
 each step, saying the move and whether Trained AI agreed ("Trained AI agreed",
 "Trained AI differed", "Flagged", "Only move"); the step shown is the current
 one (`aria-current`), and a step's button keeps focus as it shows its step.
@@ -601,20 +605,21 @@ offers **Choose again**, which asks for the choice before the answer as at
 the decision opened, or **Show answer**.
 
 **Agreement and its trend.** The figure is the share of decisions with a
-choice where the player's move was Trained AI's. When every hand is reviewed,
-the game enters a trend kept in this browser only (`riichi.review-trend.v1`,
-the last 50 games; a browser that keeps nothing still reviews, without a
-trend). The figure is shown against the decision-weighted average of up to ten
-earlier games, with a line of the last twelve and a table of the same. The
-change is stated, not coloured: matching Trained AI is not the same as playing
-well, since the network has habits of its own. The review is judged by the
-version of Trained AI the page plays, which the player can pick in the game
-settings, and the trend names it. Another version judges
+choice where the player's move was Trained AI's, and the tile counts them
+("16 of 75 decisions with a choice"). When every hand is reviewed, the game
+enters a trend kept in this browser only (`riichi.review-trend.v1`, the last
+50 games; a browser that keeps nothing still reviews, without a trend). The
+figure is shown against the decision-weighted average of up to ten earlier
+games, with a line of the last twelve and a table of the same. The change is
+stated, not coloured: matching Trained AI is not the same as playing well,
+since the network has habits of its own. The review is judged by the version
+of Trained AI the page plays, which the player can pick in the game settings,
+and the trend names it ("Matched Trained AI 0.1.1110"). Another version judges
 differently, so each game is kept with the version that judged it, a game
 judged again by another version is kept beside its first entry, and the
 figure, the line and the table take only the games of the version playing
-now; a note counts the others, which come back when their version is picked
-again.
+now; a note counts the others ("Not counted: 2 games judged by another
+version."), which come back when their version is picked again.
 
 **Measured on played games.** On 16 October 2026, 50 games were played with
 the Beginner bot in the player's seat and 50 with the Club bot, each against
@@ -648,20 +653,24 @@ the page's own worker on one thread, a position took a median 163 ms one at a
 time and 157 ms in batches of eight, with identical weights; natively the same
 batch nearly halves the cost. A game of 150 to 200 decisions takes about half
 a minute there; phones were not measured. The review runs in the background
-with its progress and an estimate of the time left, goes on while its screen
-is closed, waits before each batch while a hand's own notes ask Trained AI,
-which counts neither in the estimate nor against the device, and stops at
-**Stop** or when the player leaves Play. A device that takes over half a
-second a position holds after each hand and offers the next hand or the rest
-of the game; any hand can also be reviewed alone from the list of hands, which
-opens by itself once, when the review turns out that slow. After that the list
-of hands, like the trend's table of games, stays as the player leaves it, open
-or folded, as the review goes on and across a replay. These buttons replace
-one another as the review goes, so focus is handed on rather than dropped:
-from **Stop** to **Continue the review** and back, from a hand's own button to
-the list of hands once that hand is under review, and to the flagged decisions
-when nothing is left to press. The review needs the network: while it cannot
-be reached the screen says so and waits.
+with its progress and an estimate of the time left ("3 of 6 decisions · about
+2 minutes left"), goes on while its screen is closed, waits before each batch
+while a hand's own notes ask Trained AI, which counts neither in the estimate
+nor against the device, and stops at **Stop** or when the player leaves Play.
+A device that takes over half a second a position holds after each hand
+("Reviewed 1 of 3 hands; about 0.8 seconds a decision on this device.") and
+offers **Review next hand** or **Review the rest**; any hand can also be
+reviewed alone by its **Review** in the list of hands, which opens by itself
+once, when the review turns out that slow. After that the list of hands, like
+the trend's table of games, stays as the player leaves it, open or folded, as
+the review goes on and across a replay. These buttons replace one another as
+the review goes, so focus is handed on rather than dropped: from **Stop** to
+**Continue** and back, from a hand's own button to the list of hands once that
+hand is under review, and to the flagged decisions when nothing is left to
+press. The review needs the network: while it cannot be reached the screen
+says so and waits ("Waiting until Trained AI can be reached.", as a review not
+yet asked for starts by itself once it can be; once asked for, "Trained AI
+cannot be reached right now.", and **Continue** comes back when it can).
 
 ## Verification
 

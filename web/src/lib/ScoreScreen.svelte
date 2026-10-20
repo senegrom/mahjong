@@ -232,7 +232,7 @@
          both there too. Before the end nothing else offers the review of the
          game so far or the file, so this sheet offers them at every size. -->
     {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={() => done(ongamereview())}>Review <span class="whole">whole</span> game</button>
-    {:else if ongamereview}<button class="quiet" data-review-game onclick={() => done(ongamereview())} title="Trained AI's review of every hand so far, starting with this one">Review game <span class="so-far">so far</span></button>{/if}
+    {:else if ongamereview}<button class="quiet" data-review-game onclick={() => done(ongamereview())} title="Trained AI's review of every hand so far, this one first">Review game <span class="so-far">so far</span></button>{/if}
     {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={() => done(ongame())} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
     {:else if ongame}<button class="quiet" data-save-game onclick={() => done(ongame())} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
     <!-- Why a press on these buttons could not be done, said where the

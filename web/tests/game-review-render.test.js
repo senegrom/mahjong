@@ -42,8 +42,8 @@ test('a review under way leads with the flagged decisions found so far, and hide
   // the way until asked for; no other filter has a title.
   const titles = [...html.matchAll(/<button[^>]*\btitle="([^"]*)"[^>]*\bdata-filter-option="(\w+)"/g)].map(([, title, option]) => [option, title]);
   assert.deepEqual(titles, [['flagged', "Your move under 5%, Trained AI's choice 60% or more"]]);
-  assert.match(html, /role="status"[^>]*>Trained AI is reviewing East 2\./);
-  assert.match(html, /3 of 6 decisions · the rest would take about 2 minutes/);
+  assert.match(html, /role="status"[^>]*>Reviewing East 2…</);
+  assert.match(html, /3 of 6 decisions · about 2 minutes left</);
   assert.match(html, /data-stop-review/);
   assert.match(html, /East 1 · decision 1/);
   assert.match(html, /You: discards the 7 characters/);
@@ -55,7 +55,7 @@ test('a review under way leads with the flagged decisions found so far, and hide
   assert.doesNotMatch(html, /discards the 1 characters/, "Trained AI's own choice waits for a retry");
   assert.match(html, /1 of 2 matched/);
   assert.match(html, /Reviewing, 1 of 2/);
-  assert.match(html, /2 decisions, not reviewed yet/);
+  assert.match(html, /<span class="state[^"]*">2 decisions, not reviewed<\/span>/);
   // The list of decisions and the list of hands are drawn without markers,
   // so each says it is a list in so many words: Safari does not tell
   // VoiceOver that a list whose markers are taken away is one.
@@ -85,7 +85,7 @@ test('a finished review with nothing flagged says so, and offers no more work', 
   const agreed = decision({ agreed: true, judgement: null });
   const html = page({ review: review({ complete: true,
     hands: [0, 1, 2].map(index => hand(index, { status: 'done', decisions: [agreed, { ...agreed, index: 1 }] })) }) });
-  assert.match(html, /Every hand is reviewed: 6 decisions\./);
+  assert.match(html, /role="status"[^>]*>All hands reviewed: 6 decisions\.</);
   assert.match(html, /<p class="empty[^"]*">None flagged\.<\/p>/);
   assert.doesNotMatch(html, /data-continue|data-stop-review|data-review-hand/);
   // A finished game has no hand just played to lead with.
@@ -105,10 +105,10 @@ test('a review of the game so far leads with the hand just played, says so far, 
   const under = page({ review: review({ over: false, busy: true, hands: [done(0), done(1), hand(2, { status: 'reviewing', done: 1 })] }) });
   assert.match(under, /<h2[^>]*>Your game so far, looked at again<\/h2>/);
   assert.equal(buttonSaid(under, 'data-close-review'), 'Back to the result');
-  assert.match(under, /role="status"[^>]*>Trained AI is reviewing East 3\./);
+  assert.match(under, /role="status"[^>]*>Reviewing East 3…</);
   const leading = lead(under);
   assert.equal(leading?.hand, 2, 'the hand just played leads');
-  assert.equal(leading.said, 'The hand just played: East 3 East wins by self-draw Reviewing, 1 of 2');
+  assert.equal(leading.said, 'Just played: East 3 East wins by self-draw Reviewing, 1 of 2');
   assert.doesNotMatch(under, /data-replay-latest/, 'nothing to replay before it is reviewed');
   const at = marker => under.indexOf(marker);
   assert.ok(at('data-close-review') >= 0 && at('data-close-review') < at('data-latest-hand') && at('data-latest-hand') < at('class="progress'),
@@ -120,20 +120,21 @@ test('a review of the game so far leads with the hand just played, says so far, 
   // row, and the game, not yet whole, waits to join the trend.
   const earlier = { id: 'earlier', network: playedNetwork().version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100 };
   const reviewed = page({ trend: [earlier], review: review({ over: false, complete: true, hands: [done(0), done(1), done(2)] }) });
-  assert.match(lead(reviewed).markup, /<button[^>]*\bdata-replay-latest\b[^>]*aria-label="Replay this hand: East 3"[^>]*>Replay this hand<\/button>/);
-  assert.match(reviewed, /role="status"[^>]*>Every hand so far is reviewed: 6 decisions\./);
+  assert.match(lead(reviewed).markup, /<button[^>]*\bdata-replay-latest\b[^>]*aria-label="Replay: East 3"[^>]*>Replay<\/button>/);
+  assert.match(reviewed, /role="status"[^>]*>All hands reviewed: 6 decisions\.</);
   assert.doesNotMatch(reviewed, /data-continue|data-stop-review/);
   assert.match(reviewed, /50%(?:<[^>]*>)*\s+(?:<[^>]*>)*so far/, 'the figure is the game so far');
-  assert.match(reviewed, /This game joins your trend once the game is over and every hand is reviewed\./);
+  assert.match(reviewed, /Joins your trend once the game is over and fully reviewed\./);
   assert.doesNotMatch(reviewed, /points against/);
 
-  // Not yet asked for, it offers the game so far; on a slow device that held
-  // after a hand, every hand so far.
+  // Not yet asked for, it offers the game so far, under the name the result's
+  // button gives it; on a slow device that held after a hand, the next hand
+  // or the rest.
   const unasked = page({ review: review({ over: false, requested: false, hands: [done(0), done(1), hand(2)] }) });
-  assert.equal(buttonSaid(unasked, 'data-continue'), 'Review the game so far');
+  assert.equal(buttonSaid(unasked, 'data-continue'), 'Review game so far');
   const held = page({ review: review({ over: false, held: true, slow: true, positionMs: 800, estimate: 20, hands: [hand(0), hand(1), done(2)] }) });
-  assert.equal(buttonSaid(held, 'data-next-hand'), 'Review the next hand');
-  assert.equal(buttonSaid(held, 'data-rest'), 'Review every hand so far');
+  assert.equal(buttonSaid(held, 'data-next-hand'), 'Review next hand');
+  assert.equal(buttonSaid(held, 'data-rest'), 'Review the rest');
   // With no decision made yet, the list of every decision says so.
   const none = page({ filter: 'every', review: review({ over: false, complete: true,
     hands: [hand(0, { frames: [], status: 'done', decisions: [] })] }) });
@@ -183,25 +184,32 @@ test('the list opens on the flagged decisions, and its filter lists those that d
   assert.match(items(every)[3].said, /Only move\. Replay$/);
 
   // A reviewed hand can be replayed whole; one not yet reviewed, reviewed.
-  assert.match(opening, /data-replay-hand="0" aria-label="Replay this hand: East 1"/);
-  assert.match(opening, /data-review-hand="1" aria-label="Review this hand: East 2"/);
+  // Each button says what it does, and its name which hand, as its row does.
+  assert.match(opening, /data-replay-hand="0" aria-label="Replay: East 1">Replay<\/button>/);
+  assert.match(opening, /data-review-hand="1" aria-label="Review: East 2">Review<\/button>/);
 });
 
 test('a slow device that held after a hand offers the next hand or the rest, with how long the rest takes', () => {
   const html = page({ review: review({ held: true, slow: true, positionMs: 800, estimate: 200,
     hands: [hand(0, { status: 'done', decisions: [decision()] }), hand(1), hand(2)] }) });
-  assert.match(html, /Reviewed 1 of 3 hands\. A decision takes about 0\.8 seconds on this device\./);
-  assert.match(html, /the rest would take about 3 minutes/);
-  assert.match(html, /data-next-hand/);
-  assert.match(html, /Review the rest of the game/);
+  assert.match(html, /role="status"[^>]*>Reviewed 1 of 3 hands; about 0\.8 seconds a decision on this device\.</);
+  assert.match(html, /about 3 minutes left/);
+  assert.equal(buttonSaid(html, 'data-next-hand'), 'Review next hand');
+  assert.equal(buttonSaid(html, 'data-rest'), 'Review the rest');
   assert.match(html, /<details class="hands[^"]*" open/, 'the hands are open to choose from');
-  assert.match(html, /data-review-hand="1"[^>]*aria-label="Review this hand: East 2"/);
+  assert.match(html, /data-review-hand="1"[^>]*aria-label="Review: East 2"/);
 });
 
 test('without the network the review waits and says so, and is not offered hand by hand', () => {
+  // Not yet asked for, it starts by itself once Trained AI can be reached.
   const html = page({ trainedAvailable: false, review: review({ requested: false }) });
-  assert.match(html, /The review needs Trained AI, which cannot be reached right now\. It starts as soon as Trained AI can be reached\./);
+  assert.match(html, /role="status"[^>]*>Waiting until Trained AI can be reached\.</);
   assert.doesNotMatch(html, /data-review-hand|data-continue/);
+  // Asked for already, it offers Continue again once Trained AI can be
+  // reached, and meanwhile says only that it cannot be.
+  const asked = page({ trainedAvailable: false, review: review({ requested: true }) });
+  assert.match(asked, /role="status"[^>]*>Trained AI cannot be reached right now\.</);
+  assert.doesNotMatch(asked, /data-review-hand|data-continue/);
 });
 
 test('the trend tile states the change against earlier games without judging it, with a table of the games', () => {
@@ -211,11 +219,12 @@ test('the trend tile states the change against earlier games without judging it,
   const html = render(ReviewTrend, { props: { figure, complete: true, current: 'g3',
     games: [...games.slice(0, 3), { ...games[3], matched: 65 }] } }).body;
   assert.match(html, new RegExp(`>Matched ${trainedName('Trained AI').replaceAll('.', '\\.')}<`), 'it names the version that judged');
-  assert.doesNotMatch(html, /Not counted here/);
+  assert.doesNotMatch(html, /Not counted/);
   assert.match(html, />65%</);
-  assert.match(html, /65 of 100 decisions\. Moves with only one choice are left out\./);
+  // The decisions with a choice: a move with only one is left out.
+  assert.match(html, />65 of 100 decisions with a choice</);
   assert.match(html, /\+5 points against your previous 3 games \(60%\)/);
-  assert.match(html, /role="img" aria-label="Matched Trained AI in your last 4 reviewed games, on a scale of 0 to 100%: from 60% to 65%"/);
+  assert.match(html, /role="img" aria-label="Matched Trained AI in your last 4 reviewed games: from 60% to 65%"/);
   assert.equal((html.match(/<circle class="now/g) ?? []).length, 1, 'only this game is marked');
   assert.equal((html.match(/<tr/g) ?? []).length, 5, 'a row a game and the header');
   assert.match(html, /\(this game\)/);
@@ -223,16 +232,20 @@ test('the trend tile states the change against earlier games without judging it,
   // Under way: the figure so far, and no change until the game is whole.
   const partial = render(ReviewTrend, { props: { figure, complete: false, current: 'g9', games: games.slice(0, 2) } }).body;
   assert.match(partial, /so far/);
-  assert.match(partial, /This game joins your trend once every hand is reviewed\./);
+  assert.match(partial, /Joins your trend once fully reviewed\./);
   assert.doesNotMatch(partial, /points against|class="now/);
   // A game reviewed as it is played joins once it is over, too.
   const playing = render(ReviewTrend, { props: { figure, complete: false, over: false, current: 'g9', games: games.slice(0, 2) } }).body;
   assert.match(playing, /so far/);
-  assert.match(playing, /This game joins your trend once the game is over and every hand is reviewed\./);
+  assert.match(playing, /Joins your trend once the game is over and fully reviewed\./);
   assert.doesNotMatch(playing, /points against|class="now/);
   // A first game has nothing to compare with and no line to draw.
   const first = render(ReviewTrend, { props: { figure, complete: true, current: 'g0', games: [{ ...games[0], matched: 65 }] } }).body;
   assert.doesNotMatch(first, /points against|<svg/);
+  // No change is stated as plainly as any other.
+  const level = render(ReviewTrend, { props: { figure: { matched: 60, decisions: 100, share: 0.6 }, complete: true, current: 'g3',
+    games: [...games.slice(0, 3), games[3]] } }).body;
+  assert.match(level, />Same as your previous 3 games \(60%\)</);
   assert.equal(TREND_WINDOW, 10);
 });
 
@@ -248,8 +261,8 @@ test('the trend compares and shows only the games judged by the version of Train
   ];
   const html = render(ReviewTrend, { props: { figure: { matched: 70, decisions: 100, share: 0.7 }, complete: true, current: 'g3', games } }).body;
   assert.match(html, /\+10 points against your previous game \(60%\)/, 'only the same version is compared');
-  assert.match(html, /aria-label="Matched Trained AI in your last 2 reviewed games, on a scale of 0 to 100%: from 60% to 70%"/);
+  assert.match(html, /aria-label="Matched Trained AI in your last 2 reviewed games: from 60% to 70%"/);
   assert.equal((html.match(/<tr/g) ?? []).length, 3, 'a row for each of its games and the header');
-  assert.match(html, /Not counted here: 2 games judged by another version of Trained AI\./);
+  assert.match(html, /Not counted: 2 games judged by another version\./);
   assert.doesNotMatch(html, /20%|25%/);
 });

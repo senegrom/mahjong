@@ -228,11 +228,12 @@ export function ordinal(number) {
  * list of every decision, when the decisions of an earlier hand arrive after
  * it. Not how many the list holds: that grows with every hand reviewed while
  * the place stays, so a count said once goes stale, and a status that kept it
- * current would be read out again at every hand. */
+ * current would be read out again at every hand. It leads with the place, the
+ * one thing it must say; focus is on the decision, so it need not say which,
+ * and a list that grew to keep it shows all it holds, whichever list it is. */
 export function movedNote(rank, everyShown, filter = 'flagged') {
-  const why = filter === 'every' ? 'Decisions reviewed since came before this one' : 'Decisions reviewed since departed further from Trained AI';
-  const all = { flagged: 'every flagged decision', differed: 'every decision where Trained AI chose differently', every: 'every decision' }[filter];
-  return `${why}: this one is now ${ordinal(rank + 1)}${everyShown ? `, and ${all} is shown` : ''}.`;
+  const why = filter === 'every' ? 'decisions reviewed since came before it' : 'decisions reviewed since departed further';
+  return `Now ${ordinal(rank + 1)}: ${why}${everyShown ? ', so the whole list is shown' : ''}.`;
 }
 
 /** How many of the player's real choices were the network's own. A forced

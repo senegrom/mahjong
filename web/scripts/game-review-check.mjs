@@ -363,7 +363,7 @@ async function focusUntilRankedOut(page, { away = false } = {}) {
   await page.waitForFunction((key, leading) => {
     const active = document.activeElement, keys = [...document.querySelectorAll('[data-game-review] [data-flagged]')].map(item => item.dataset.flagged);
     return active?.dataset.open !== key || keys.indexOf(key) >= leading
-      || /^Every hand is reviewed/.test(document.querySelector('[data-game-review] .headline')?.textContent ?? '');
+      || /^All hands reviewed/.test(document.querySelector('[data-game-review] .headline')?.textContent ?? '');
   }, { timeout: 300000, polling: 50 }, key, LEADING);
   return key;
 }
@@ -378,12 +378,12 @@ async function saysWhereItIs(page, key) {
     return { rank: keys.indexOf(key), count: keys.length, note: document.querySelector('[data-game-review] [data-moved]')?.textContent ?? '',
       toggle: document.querySelector('[data-game-review] [data-every-flag]')?.textContent ?? '' };
   }, key);
-  const said = /^Decisions reviewed since departed further from Trained AI: this one is now (\d+)(?:st|nd|rd|th)(?: of (\d+))?(, and every flagged decision is shown)?\.$/
+  const said = /^Now (\d+)(?:st|nd|rd|th)(?: of (\d+))?: decisions reviewed since departed further(, so the whole list is shown)?\.$/
     .exec(now.note);
   assert.ok(said, `the status says where the decision went: "${now.note}"`);
   assert.equal(Number(said[1]), now.rank + 1, `the place it names is where the decision is now: "${now.note}"`);
   if (said[2] !== undefined) assert.equal(Number(said[2]), now.count, `a count it names is how many are flagged now: "${now.note}"`);
-  if (said[3]) assert.equal(now.toggle, `Show the first ${LEADING}`, 'every flagged decision is shown, as it says');
+  if (said[3]) assert.equal(now.toggle, `Show the first ${LEADING}`, 'the whole list is shown, as it says');
   return now;
 }
 
@@ -486,8 +486,8 @@ async function reviewed(page) {
       headline: document.querySelector('[data-game-review] .headline')?.textContent ?? '',
       rest: Boolean(document.querySelector('[data-game-review] [data-rest]')),
     }));
-    if (/^Every hand (so far )?is reviewed/.test(state.headline)) return;
-    assert.doesNotMatch(state.headline, /The review stopped/, state.headline);
+    if (/^All hands reviewed/.test(state.headline)) return;
+    assert.doesNotMatch(state.headline, /^Review stopped/, state.headline);
     if (state.rest) await page.click('[data-game-review] [data-rest]');
     await new Promise(done => setTimeout(done, 500));
   }
@@ -555,7 +555,7 @@ try {
     verdicts.forEach((verdict, order) => { verdict.order = order; });
     const counted = verdicts.filter(verdict => !verdict.forced);
     const matched = counted.filter(verdict => verdict.agreed).length;
-    assert.match(await page.$eval('[data-trend] .count', el => el.textContent), new RegExp(`^${matched} of ${counted.length} decisions\\.`));
+    assert.match(await page.$eval('[data-trend] .count', el => el.textContent), new RegExp(`^${matched} of ${counted.length} decisions? with a choice$`));
     const flagged = verdicts.filter(verdict => verdict.flagged)
       .sort((a, b) => (b.preferred - b.playedWeight) - (a.preferred - a.playedWeight) || a.order - b.order);
     assert.ok(flagged.length > 0, 'Trained AI flags some of a tile-throwing game');
@@ -1009,7 +1009,7 @@ try {
     const option = name => `[data-game-review] [data-filter] [data-filter-option="${name}"]`;
     const counted = async name => Number(/\((\d+)\)$/.exec(await page.$eval(option(name), el => el.textContent.trim()))[1]);
     const counts = { flagged: await counted('flagged'), differed: await counted('differed'), every: await counted('every') };
-    const total = Number(/^Every hand is reviewed: (\d+) decisions?\.$/.exec(await page.$eval('[data-game-review] .headline', el => el.textContent))[1]);
+    const total = Number(/^All hands reviewed: (\d+) decisions?\.$/.exec(await page.$eval('[data-game-review] .headline', el => el.textContent))[1]);
     assert.equal(counts.every, total, 'every decision of the game');
     assert.ok(counts.flagged > 0 && counts.differed > counts.flagged && counts.every > counts.differed, JSON.stringify(counts));
     assert.equal(await page.$eval(option('flagged'), el => el.getAttribute('aria-pressed')), 'true', 'the list opens on the flagged decisions');
@@ -1131,10 +1131,10 @@ try {
     const now = await saysWhereItIs(page, key);
     assert.ok(now.count > keys.length, 'the list has grown since it said so');
     // The place, and no count. Should a later hand move it again before this
-    // is read, the line says the new place without repeating that every
-    // flagged decision is shown, which it said as the list grew.
-    assert.match(now.note, new RegExp(`^Decisions reviewed since departed further from Trained AI: this one is now ${nth(now.rank + 1)}`
-      + '(, and every flagged decision is shown)?\\.$'));
+    // is read, the line says the new place without repeating that the whole
+    // list is shown, which it said as the list grew.
+    assert.match(now.note, new RegExp(`^Now ${nth(now.rank + 1)}: decisions reviewed since departed further`
+      + '(, so the whole list is shown)?\\.$'));
     // Focus moving on clears the note, which spoke of the decision it left.
     await page.focus('[data-game-review] [data-every-flag]');
     await page.waitForFunction(() => document.querySelector('[data-game-review] [data-moved]')?.textContent === '', { timeout: 5000 });
@@ -1186,7 +1186,7 @@ try {
     // list.
     assert.ok(await line.evaluate(el => el.isConnected), 'the status line that waited is still in the page');
     assert.equal(await line.evaluate(el => el.textContent),
-      `Decisions reviewed since departed further from Trained AI: this one is now ${nth(rank + 1)}, and every flagged decision is shown.`);
+      `Now ${nth(rank + 1)}: decisions reviewed since departed further, so the whole list is shown.`);
     assert.deepEqual(page.errors, []);
   });
 
@@ -1350,11 +1350,11 @@ try {
     assert.equal(walkBatches(batches, [latest.index, 0, 1]).walked, batches.length, 'no batch is missing or extra');
     const total = hands.slice(0, latest.index + 1).reduce((sum, hand) => sum + hand.frames.length, 0);
     assert.equal(await page.$eval('[data-game-review] .headline', el => el.textContent),
-      `Every hand so far is reviewed: ${total} decision${total === 1 ? '' : 's'}.`);
+      `All hands reviewed: ${total} decision${total === 1 ? '' : 's'}.`);
     // The game so far is not a game for the trend, which says when it joins.
     const trend = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), TREND_KEY);
     assert.deepEqual(trend.games.map(game => game.id), ['earlier'], 'the game so far is not in the trend');
-    assert.match(await page.$eval('[data-trend]', el => el.textContent), /This game joins your trend once the game is over and every hand is reviewed\./);
+    assert.match(await page.$eval('[data-trend]', el => el.textContent), /Joins your trend once the game is over and fully reviewed\./);
     await shot(page, 'game-review-so-far');
 
     // The hand just played, replayed whole from its own row by keyboard,
@@ -1507,7 +1507,7 @@ try {
     const asked = await sent(page);
     await page.click(standing);
     await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
-    assert.match(await page.$eval('[data-game-review] .headline', el => el.textContent), /^Every hand is reviewed: \d+ decisions?\.$/);
+    assert.match(await page.$eval('[data-game-review] .headline', el => el.textContent), /^All hands reviewed: \d+ decisions?\.$/);
     await new Promise(done => setTimeout(done, 500));
     assert.equal(await sent(page), asked, 'nothing is asked again');
     assert.deepEqual(await trendIds(page), [id], 'and the game is in the trend once');

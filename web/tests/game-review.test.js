@@ -220,11 +220,10 @@ test('flagged decisions rank by the gap, ties in the order played, and agreement
 test('a decision ranked lower by the hands reviewed since is told where it went, in places as they are said', () => {
   assert.deepEqual([1, 2, 3, 4, 10, 11, 12, 13, 21, 22, 23, 101, 111, 112].map(ordinal),
     ['1st', '2nd', '3rd', '4th', '10th', '11th', '12th', '13th', '21st', '22nd', '23rd', '101st', '111th', '112th']);
-  // The place only: how many are flagged grows with every hand reviewed, and
-  // a count said once would go stale while the place still held.
-  assert.equal(movedNote(6, true),
-    'Decisions reviewed since departed further from Trained AI: this one is now 7th, and every flagged decision is shown.');
-  assert.equal(movedNote(2, false), 'Decisions reviewed since departed further from Trained AI: this one is now 3rd.');
+  // The place only, and first: how many are flagged grows with every hand
+  // reviewed, and a count said once would go stale while the place still held.
+  assert.equal(movedNote(6, true), 'Now 7th: decisions reviewed since departed further, so the whole list is shown.');
+  assert.equal(movedNote(2, false), 'Now 3rd: decisions reviewed since departed further.');
 });
 
 test('a filter lists the flagged decisions, those where Trained AI chose differently, or every one, and counts each', () => {
@@ -264,13 +263,13 @@ test('a list says what its filter shows as it is chosen, and where it puts a dec
   assert.equal(filterSaid('every', { ...hand, every: 1 }, inHand), 'The one decision in this hand.');
   assert.equal(filterSaid('flagged', { flagged: 0, differed: 0, every: 4 }, inHand), 'None flagged in this hand.');
   assert.equal(filterSaid('differed', { flagged: 0, differed: 0, every: 4 }), 'Trained AI agreed at every decision.');
-  // Each list says why a decision went lower in its own words, the flagged
-  // list as it always has.
-  assert.equal(movedNote(6, true, 'flagged'),
-    'Decisions reviewed since departed further from Trained AI: this one is now 7th, and every flagged decision is shown.');
-  assert.equal(movedNote(6, true, 'differed'), 'Decisions reviewed since departed further from Trained AI: this one is now 7th,'
-    + ' and every decision where Trained AI chose differently is shown.');
-  assert.equal(movedNote(29, false, 'every'), 'Decisions reviewed since came before this one: this one is now 30th.');
+  // A ranked list says a decision went lower because later ones departed
+  // further, and the list of every decision because earlier ones arrived;
+  // any list that grew to keep it says so in the same words.
+  assert.equal(movedNote(6, true, 'flagged'), 'Now 7th: decisions reviewed since departed further, so the whole list is shown.');
+  assert.equal(movedNote(6, true, 'differed'), 'Now 7th: decisions reviewed since departed further, so the whole list is shown.');
+  assert.equal(movedNote(29, false, 'every'), 'Now 30th: decisions reviewed since came before it.');
+  assert.equal(movedNote(29, true, 'every'), 'Now 30th: decisions reviewed since came before it, so the whole list is shown.');
 });
 
 test('the table at a step is said in a sentence, each seat says what it was doing, and a hand list names each move', () => {

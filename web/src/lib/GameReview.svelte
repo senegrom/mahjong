@@ -213,28 +213,32 @@
   function handState(hand) {
     if (!hand.frames.length) return 'No decisions';
     if (hand.status === 'reviewing') return `Reviewing, ${hand.done ?? 0} of ${hand.frames.length}`;
-    if (hand.status !== 'done') return `${hand.frames.length} decision${hand.frames.length === 1 ? '' : 's'}, not reviewed yet`;
+    if (hand.status !== 'done') return `${hand.frames.length} decision${hand.frames.length === 1 ? '' : 's'}, not reviewed`;
     const { matched, decisions: counted } = agreement(hand.decisions);
     return counted ? `${matched} of ${counted} matched` : 'No choices to compare';
   }
 
   // Said once a hand is done or the review stops, not at every batch: the
   // decision count beside it changes too often to be read out. While the
-  // match is under way, every hand is every hand so far.
+  // match is under way, the heading says the review is of the game so far,
+  // so the headline need not. The whole screen is Trained AI's review, so the
+  // headline names Trained AI only where it cannot be reached: a review not
+  // yet asked for starts by itself once it can be (above), and one asked for
+  // offers Continue again then.
   let headline = $derived.by(() => {
-    if (status.failure) return `The review stopped: ${status.failure}`;
-    if (status.complete) return `Every hand${status.over ? '' : ' so far'} is reviewed: ${total} decision${total === 1 ? '' : 's'}.`;
+    if (status.failure) return `Review stopped: ${status.failure}`;
+    if (status.complete) return `All hands reviewed: ${total} decision${total === 1 ? '' : 's'}.`;
     if (!trainedAvailable && !status.busy) {
-      return `The review needs Trained AI, which cannot be reached right now.${status.requested ? '' : ' It starts as soon as Trained AI can be reached.'}`;
+      return status.requested ? 'Trained AI cannot be reached right now.' : 'Waiting until Trained AI can be reached.';
     }
-    if (status.busy) return reviewing ? `Trained AI is reviewing ${reviewing.name}.` : 'Trained AI is reviewing your game.';
+    if (status.busy) return reviewing ? `Reviewing ${reviewing.name}…` : 'Reviewing your game…';
     if (status.held) {
-      return `Reviewed ${reviewed} of ${status.hands.length} hands. A decision takes about ${(status.positionMs / 1000).toFixed(1)} seconds on this device.`;
+      return `Reviewed ${reviewed} of ${status.hands.length} hands; about ${(status.positionMs / 1000).toFixed(1)} seconds a decision on this device.`;
     }
     return `Reviewed ${reviewed} of ${status.hands.length} hands.`;
   });
   let detail = $derived(status.complete || !total ? ''
-    : `${done} of ${total} decisions${status.estimate ? ` · the rest would take about ${duration(status.estimate)}` : ''}${status.busy && download ? ` · ${download}` : ''}`);
+    : `${done} of ${total} decisions${status.estimate ? ` · about ${duration(status.estimate)} left` : ''}${status.busy && download ? ` · ${download}` : ''}`);
   // What the list says when its filter holds nothing yet. While the review
   // goes on, the headline and the progress above say how far it has got;
   // once it is done, the list says it in the words its filter says it in
@@ -294,13 +298,17 @@
            status: the headline already says which hand is under review, and
            the count beside it changes too often to be read out. -->
       <div class="latest" bind:this={lead} data-latest-hand={latest.index}>
-        <span class="label">The hand just played:</span>
+        <span class="label">Just played:</span>
         <span class="name">{latest.name}</span>
         <span class="outcome">{handOutcome(latest)}</span>
         <span class="state">{handState(latest)}</span>
+        <!-- The row names its hand, so its button need only say what it
+             does; its accessible name names the hand too, after that word.
+             It does what the list of hands' button for the hand does, and
+             has its name. -->
         {#if latest.status === 'done' && latest.frames.length}
           <button class="app-control" data-replay-latest onclick={() => openHand(latest, 'latest')}
-            aria-label={`Replay this hand: ${latest.name}`}>Replay this hand</button>
+            aria-label={`Replay: ${latest.name}`}>Replay</button>
         {/if}
       </div>
     {/if}
@@ -314,11 +322,15 @@
           <button class="app-control" data-stop-review onclick={() => review.stop()}>Stop</button>
         {:else if !status.complete && trainedAvailable}
           {#if status.held}
-            <button class="app-control primary" data-next-hand onclick={() => review.resume()}>Review the next hand</button>
-            <button class="app-control" data-rest onclick={() => review.resume({ patient: true })}>{status.over ? 'Review the rest of the game' : 'Review every hand so far'}</button>
+            <!-- Not "Next hand", which is the result's button that deals one. -->
+            <button class="app-control primary" data-next-hand onclick={() => review.resume()}>Review next hand</button>
+            <button class="app-control" data-rest onclick={() => review.resume({ patient: true })}>Review the rest</button>
           {:else}
+            <!-- Continue answers Stop, in its place. Before the review is asked
+                 for, the button takes the name of the result's and the
+                 standings' buttons that start it. -->
             <button class="app-control primary" data-continue onclick={() => review.review(undefined, { patient: true })}>
-              {status.requested ? 'Continue the review' : status.over ? 'Review the whole game' : 'Review the game so far'}</button>
+              {status.requested ? 'Continue' : status.over ? 'Review whole game' : 'Review game so far'}</button>
           {/if}
         {/if}
       </div>
@@ -385,12 +397,14 @@
             <span class="name">{hand.name}</span>
             <span class="outcome">{handOutcome(hand)}</span>
             <span class="state">{handState(hand)}</span>
+            <!-- As in the row of the hand just played: the row names the hand,
+                 and the button's accessible name names it after its word. -->
             {#if hand.status === 'waiting' && hand.frames.length && trainedAvailable}
               <button class="app-control" data-review-hand={hand.index} onclick={() => review.review([hand.index])}
-                aria-label={`Review this hand: ${hand.name}`}>Review this hand</button>
+                aria-label={`Review: ${hand.name}`}>Review</button>
             {:else if hand.status === 'done' && hand.frames.length}
               <button class="app-control" data-replay-hand={hand.index} onclick={() => openHand(hand)}
-                aria-label={`Replay this hand: ${hand.name}`}>Replay this hand</button>
+                aria-label={`Replay: ${hand.name}`}>Replay</button>
             {/if}
           </li>
         {/each}

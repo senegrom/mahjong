@@ -36,22 +36,28 @@
     x: shown.length === 1 ? WIDTH / 2 : MARGIN + index * (WIDTH - 2 * MARGIN) / (shown.length - 1),
     y: MARGIN + (1 - game.matched / game.decisions) * (HEIGHT - 2 * MARGIN),
   })));
+  // What the line says to a screen reader: its first and last figures, which
+  // are what a listener uses of it. The scale is the drawing's.
   let summary = $derived(shown.length
-    ? `Matched Trained AI in your last ${shown.length} reviewed game${shown.length === 1 ? '' : 's'}, on a scale of 0 to 100%: from ${percent(shown[0].matched / shown[0].decisions)} to ${percent(shown.at(-1).matched / shown.at(-1).decisions)}`
+    ? `Matched Trained AI in your last ${shown.length} reviewed game${shown.length === 1 ? '' : 's'}: from ${percent(shown[0].matched / shown[0].decisions)} to ${percent(shown.at(-1).matched / shown.at(-1).decisions)}`
     : '');
 </script>
 
+<!-- The lines under the figure are short, as the label above names the
+     version that judged: the count gives the decisions the figure takes,
+     those with a choice (a move with only one is left out), and the notes
+     what it is compared with and which games are not counted. -->
 <div class="trend" data-trend>
   <p class="label">Matched {trainedName('Trained AI')}</p>
   <p class="value">{figure.share == null ? '—' : percent(figure.share)}{#if !complete && figure.share != null}{' '}<span class="so-far">so far</span>{/if}</p>
-  <p class="count">{figure.matched} of {figure.decisions} decision{figure.decisions === 1 ? '' : 's'}{complete ? '' : ' in the hands reviewed'}. Moves with only one choice are left out.</p>
+  <p class="count">{figure.matched} of {figure.decisions} decision{figure.decisions === 1 ? '' : 's'} with a choice</p>
   {#if change !== null}
-    <p class="change">{change === 0 ? 'The same as' : `${change > 0 ? '+' : '−'}${Math.abs(change)} points against`} your {earlier.length === 1 ? 'previous game' : `previous ${earlier.length} games`} ({percent(earlierShare)})</p>
+    <p class="change">{change === 0 ? 'Same as' : `${change > 0 ? '+' : '−'}${Math.abs(change)} points against`} your {earlier.length === 1 ? 'previous game' : `previous ${earlier.length} games`} ({percent(earlierShare)})</p>
   {:else if !complete && earlier.length}
-    <p class="change">This game joins your trend once {over ? '' : 'the game is over and '}every hand is reviewed.</p>
+    <p class="change">Joins your trend once {over ? '' : 'the game is over and '}fully reviewed.</p>
   {/if}
   {#if elsewhere}
-    <p class="change">Not counted here: {elsewhere} game{elsewhere === 1 ? '' : 's'} judged by another version of Trained AI.</p>
+    <p class="change">Not counted: {elsewhere} game{elsewhere === 1 ? '' : 's'} judged by another version.</p>
   {/if}
   {#if points.length >= 2}
     <svg class="line" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label={summary}>
