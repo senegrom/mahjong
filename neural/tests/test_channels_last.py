@@ -83,10 +83,8 @@ class LayoutTests(unittest.TestCase):
     def test_compiled_every_convolution_runs_as_a_1x3_one(self):
         """The learning step's forward and the pass's, traced as the
         compiler traces them: every convolution two-dimensional once
-        converted, and every one one-dimensional before. How many the pass
-        traces is the compiler's to say: the cloud's torch 2.8 traces the
-        reading of the hands into it too, which nothing reads and its
-        kernels leave out."""
+        converted, and every one one-dimensional before (the pass's without
+        the reading of the hands, see test_deciding_forward)."""
         net = self.net.train()
         forwards = (("everything", net.everything), ("decision", net.decision))
         before = {name: traced(forward, self.planes, self.legal) for name, forward in forwards}

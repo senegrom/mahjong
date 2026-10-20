@@ -167,7 +167,7 @@ def learning_forward(net: combined.Combined, args: argparse.Namespace):
     made."""
     if args.compile:
         guard_parameters()
-        net.backbones_forward = torch.compile(net.backbones, dynamic=True)
+        net.compile_backbones(dynamic=True)
         return torch.compile(net.everything)
     if args.compile_learning:
         compile_per_mode()
