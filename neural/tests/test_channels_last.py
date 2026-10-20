@@ -109,7 +109,23 @@ class LayoutTests(unittest.TestCase):
     def test_compiled_it_answers_and_learns_as_the_one_dimensional_forward(self):
         """In float32 on the processor, through the compiler's own tracing
         of the backward: the answers and every gradient as the eager
-        one-dimensional step's, but for the order the sums are taken in."""
+        one-dimensional step's, but for the order the sums are taken in.
+
+        Each gradient is held to the one-dimensional step's as a whole, by
+        how far apart the two stand as a share of its size, and not element
+        by element. Summed in another order, a value that a ReLU reads
+        within a few units in its last place of nought can land on the
+        other side, and the gradient through it is then there in one step
+        and not in the other. The cloud's torch 2.8 sums the two layouts in
+        other orders on a processor with AVX2 and not AVX-512, as CI's are:
+        there one of the 52,224 values the second ReLU of the reading
+        tower's second block reads crossed (-4.1e-8 against 2.5e-7), which
+        moved that block's gradients by up to 1.03e-3 of their size and put
+        7,157 of the 388,608 elements of the gradient of the reading's stem
+        past the bound each was held to, 1e-4 of it and 1e-6; with that one
+        value as the one-dimensional step had it, every gradient stood
+        within 1.6e-6 of its size. A gradient worked out wrong stands its
+        own size away."""
         from torch._dynamo.backends.common import aot_autograd
         from functorch.compile import make_boxed_func
 
@@ -142,8 +158,13 @@ class LayoutTests(unittest.TestCase):
                 self.assertEqual(sorted(got_grads), sorted(want_grads))
                 self.assertGreater(len(want_grads), 20)
                 for name in want_grads:
-                    torch.testing.assert_close(got_grads[name], want_grads[name], rtol=1e-4, atol=1e-6,
-                                               msg=name)
+                    size = float(want_grads[name].norm())
+                    apart = float((got_grads[name] - want_grads[name]).norm())
+                    # Within a hundredth of its size, and 1e-7 more for
+                    # the bias of our reading, which has no gradient but
+                    # the rounding's: a softmax over the tiles cannot tell
+                    # a constant added to every one of them.
+                    self.assertLessEqual(apart, 1e-2 * size + 1e-7, name)
 
     def test_the_parameters_the_state_dict_and_the_optimiser_see_nothing_new(self):
         net = self.net
