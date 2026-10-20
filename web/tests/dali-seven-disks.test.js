@@ -69,8 +69,8 @@ test('the entire 1086 by 1448 seashell portrait is retained in the full-dimensio
 });
 
 test('seven disks is registered and preloaded once while hidden tiles and other sets remain intact', () => {
-  assert.equal(set.tiles.length, 25);
-  assert.equal(set.placeholders.length, 9);
+  assert.equal(set.tiles.length, 26);
+  assert.equal(set.placeholders.length, 8);
   assert.deepEqual(set.tiles.map(tile => tile.tile), [...DALI_APPROVED]);
   assert.deepEqual([...set.tiles, ...set.placeholders].map(tile => tile.tile).sort(), [...TILE_TYPES].sort());
   assert.equal(set.tiles.filter(tile => tile.tile === '7p').length, 1);
@@ -86,10 +86,10 @@ test('seven disks is registered and preloaded once while hidden tiles and other 
 
 test('the shell is in the gallery without replacing a tile in the existing fourteen-tile example hand', () => {
   const preview = read('web/public/tiles/dali/preview.html').toString();
-  assert.match(preview, /25 approved faces/);
+  assert.match(preview, /26 approved faces/);
   assert.match(preview, /The Shell That Holds the Sea — A/);
-  assert.match(preview, /Ranks 1–7 of disks are complete/);
-  assert.match(preview, /remaining 9 tiles/);
+  assert.match(preview, /Ranks 1–8 of disks are complete/);
+  assert.match(preview, /remaining 8 tiles/);
   const gallery = preview.match(/<div class="gallery">([\s\S]*?)<\/div>/)[1];
   assert.match(gallery, /approved\/Pin7\.svg/);
   const hand = preview.match(/<div class="hand">([\s\S]*?)<\/div>/)[1];

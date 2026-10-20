@@ -134,6 +134,23 @@
       }
     },
     {
+      "name": "Pin8",
+      "tile": "8p",
+      "label": "8 disks",
+      "direction": "The Cabinet of Captured Moons — C",
+      "status": "approved",
+      "svg": "approved/Pin8.svg",
+      "source": "docs/design/dali/studies/eight-disks-c-cabinet-approved.svg",
+      "sourceSha256": "c25c605794ae06fce15a758ce34840ef555d33af1558d58f43e017d5a448c724",
+      "svgSha256": "c25c605794ae06fce15a758ce34840ef555d33af1558d58f43e017d5a448c724",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 609,
+        "height": 812
+      }
+    },
+    {
       "name": "Sou1",
       "tile": "1s",
       "label": "1 bamboo",
@@ -489,9 +506,6 @@
     },
     {
       "tile": "4m"
-    },
-    {
-      "tile": "8p"
     },
     {
       "tile": "9p"
