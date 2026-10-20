@@ -45,10 +45,10 @@ test('a review under way leads with the flagged decisions found so far, and hide
   assert.match(html, /role="status"[^>]*>Trained AI is reviewing East 2\./);
   assert.match(html, /3 of 6 decisions · the rest would take about 2 minutes/);
   assert.match(html, /data-stop-review/);
-  assert.match(html, /East 1 · your decision 1/);
+  assert.match(html, /East 1 · decision 1/);
   assert.match(html, /You: discards the 7 characters/);
-  assert.match(html, /Trained AI gave this move 2\.0%, and its own choice 81\.0%\./);
-  assert.match(html, /aria-label="Replay and choose again: East 1, your decision 1"/, 'each button says which decision it opens');
+  assert.match(html, /Your move 2\.0%, Trained AI's choice 81\.0%\./);
+  assert.match(html, /aria-label="Choose again: East 1, decision 1"/, 'each button says which decision it opens');
   // The line that says where a decision went is there from the start, silent
   // and out of the layout, so a screen reader hears it when it speaks.
   assert.match(html, /<p class="moved[^"]*visually-hidden[^"]*" data-moved="" role="status">(<!---->)?<\/p>/);
@@ -69,16 +69,16 @@ test('a review under way leads with the flagged decisions found so far, and hide
 test('a repeated hand goes by its name with its honba wherever the review names it', () => {
   const repeat = hand(1, { name: 'East 1 · 1 honba', counters: 1, status: 'done', decisions: [decision({ hand: 1 })] });
   const html = page({ review: review({ hands: [hand(0), repeat, hand(2)] }) });
-  assert.match(html, /East 1 · 1 honba · your decision 1/);
-  assert.match(html, /aria-label="Replay and choose again: East 1 · 1 honba, your decision 1"/);
+  assert.match(html, /East 1 · 1 honba · decision 1/);
+  assert.match(html, /aria-label="Choose again: East 1 · 1 honba, decision 1"/);
   assert.match(html, /<span class="name[^"]*">East 1 · 1 honba<\/span>/, 'the list of hands does not add the honba again');
 });
 
-test('a flagged riichi tile says it is judged as the tile once riichi was declared', () => {
+test('a flagged riichi tile says it is judged given riichi', () => {
   const riichi = decision({ played_kind: 'riichi', advised_kind: 'riichi', played: 'declares riichi on the 7 characters',
     judgement: { stage: 'tile', played: 0.01, preferred: 0.9, gap: 0.89, flagged: true } });
   const html = page({ review: review({ hands: [hand(0, { status: 'done', decisions: [riichi] }), hand(1), hand(2)] }) });
-  assert.match(html, /Trained AI gave this tile, once riichi was declared, 1\.0%, and its own choice 90\.0%\./);
+  assert.match(html, /Given riichi, your tile 1\.0%, Trained AI's choice 90\.0%\./);
 });
 
 test('a finished review with nothing flagged says so, and offers no more work', () => {
@@ -86,7 +86,7 @@ test('a finished review with nothing flagged says so, and offers no more work', 
   const html = page({ review: review({ complete: true,
     hands: [0, 1, 2].map(index => hand(index, { status: 'done', decisions: [agreed, { ...agreed, index: 1 }] })) }) });
   assert.match(html, /Every hand is reviewed: 6 decisions\./);
-  assert.match(html, /No decision departed that far from Trained AI\./);
+  assert.match(html, /<p class="empty[^"]*">None flagged\.<\/p>/);
   assert.doesNotMatch(html, /data-continue|data-stop-review|data-review-hand/);
   // A finished game has no hand just played to lead with.
   assert.doesNotMatch(html, /data-latest-hand/);
@@ -137,7 +137,7 @@ test('a review of the game so far leads with the hand just played, says so far, 
   // With no decision made yet, the list of every decision says so.
   const none = page({ filter: 'every', review: review({ over: false, complete: true,
     hands: [hand(0, { frames: [], status: 'done', decisions: [] })] }) });
-  assert.match(none, /You have made no decisions so far\./);
+  assert.match(none, /<p class="empty[^"]*">No decisions yet\.<\/p>/);
 });
 
 
@@ -155,32 +155,32 @@ test('the list opens on the flagged decisions, and its filter lists those that d
 
   const opening = page({ review: reviewed });
   assert.match(opening, /role="group" aria-label="Which decisions to list"/);
-  assert.deepEqual(options(opening), [['flagged', true, 'Flagged (1)'], ['differed', false, 'Trained AI chose differently (2)'],
+  assert.deepEqual(options(opening), [['flagged', true, 'Flagged (1)'], ['differed', false, 'Trained AI differed (2)'],
     ['every', false, 'Every decision (4)']]);
   // What a choice of filter shows is said from a line in the page from the start.
   assert.match(opening, /<p class="visually-hidden[^"]*" role="status" data-filter-said=""><\/p>/);
-  assert.match(opening, /<h3[^>]*>Where you departed most from Trained AI<\/h3>/);
+  assert.match(opening, /<h3[^>]*>Flagged decisions<\/h3>/);
   assert.deepEqual(items(opening).map(item => [item.key, item.flagged]), [['0:0', true]]);
 
   // Those that differ: the flagged one marked as such, and replayed to choose
   // again; the other names Trained AI's choice and is replayed to look at.
   const different = page({ review: reviewed, filter: 'differed' });
-  assert.match(different, /<h3[^>]*>Where Trained AI chose differently<\/h3>/);
+  assert.match(different, /<h3[^>]*>Where Trained AI differed<\/h3>/);
   assert.deepEqual(options(different).map(([option, pressed]) => [option, pressed]), [['flagged', false], ['differed', true], ['every', false]]);
   const [flaggedItem, nearItem] = items(different);
   assert.deepEqual([flaggedItem.key, nearItem.key], ['0:0', '0:1'], 'the widest gap first');
-  assert.match(flaggedItem.said, /^East 1 · your decision 1 · Flagged You: discards the 7 characters Trained AI gave this move 2\.0%, and its own choice 81\.0%\. Replay and choose again$/);
+  assert.match(flaggedItem.said, /^East 1 · decision 1 · Flagged You: discards the 7 characters Your move 2\.0%, Trained AI's choice 81\.0%\. Choose again$/);
   assert.doesNotMatch(flaggedItem.said, /discards the 1 characters/, "a flagged decision's answer waits for its retry");
-  assert.equal(nearItem.said, 'East 1 · your decision 2 You: discards the 7 characters Trained AI: discards the 9 circles '
-    + 'Trained AI gave this move 20.0%, and its own choice 70.0%. Replay');
-  assert.match(different, /data-open="0:1" aria-label="Replay: East 1, your decision 2"/);
+  assert.equal(nearItem.said, 'East 1 · decision 2 You: discards the 7 characters Trained AI: discards the 9 circles '
+    + "Your move 20.0%, Trained AI's choice 70.0%. Replay");
+  assert.match(different, /data-open="0:1" aria-label="Replay: East 1, decision 2"/);
 
   // Every decision, in the order played, each saying how it went.
   const every = page({ review: reviewed, filter: 'every' });
-  assert.match(every, /<h3[^>]*>Every decision you made<\/h3>/);
+  assert.match(every, /<h3[^>]*>Every decision<\/h3>/);
   assert.deepEqual(items(every).map(item => item.key), ['0:0', '0:1', '0:2', '0:3']);
-  assert.match(items(every)[2].said, /You: discards the 7 characters Trained AI chose the same\. Replay$/);
-  assert.match(items(every)[3].said, /It was the only move\. Replay$/);
+  assert.match(items(every)[2].said, /You: discards the 7 characters Trained AI agreed\. Replay$/);
+  assert.match(items(every)[3].said, /Only move\. Replay$/);
 
   // A reviewed hand can be replayed whole; one not yet reviewed, reviewed.
   assert.match(opening, /data-replay-hand="0" aria-label="Replay this hand: East 1"/);

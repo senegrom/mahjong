@@ -14,7 +14,7 @@
 import { MatchSession } from './session.js';
 import { reviewWithStrong } from './review-policy.js';
 import { SEAT_NAMES, tileWords } from './tiles.js';
-import { quadOnOffer } from './ui.js';
+import { percent, quadOnOffer } from './ui.js';
 
 /** A decision is flagged when the player's move had under this weight... */
 export const FLAG_PLAYED_BELOW = 0.05;
@@ -133,6 +133,16 @@ export function judgement(row) {
     flagged: played < FLAG_PLAYED_BELOW && preferred >= FLAG_PREFERRED_FROM };
 }
 
+/** A judged decision's two weights as the review gives them, the same in the
+ * whole game's list and in a replay's offer to choose again, which leads
+ * with "Flagged: " (`lead`): the player's move and Trained AI's choice, or
+ * where both declared riichi the player's tile given riichi. Trained AI's
+ * choice is not named, since a flagged decision keeps it for the retry. */
+export function weightsSaid({ stage, played, preferred }, lead = '') {
+  const said = `${stage === 'tile' ? 'given riichi, your tile' : 'your move'} ${percent(played)}, Trained AI's choice ${percent(preferred)}.`;
+  return lead ? `${lead}${said}` : `${said[0].toUpperCase()}${said.slice(1)}`;
+}
+
 /** The flagged decisions of the reviewed hands, the widest gap first; equal
  * gaps keep the order they were played in. */
 export function rankDecisions(decisions) {
@@ -146,13 +156,15 @@ export function rankDecisions(decisions) {
  * filter gives them: the flagged decisions, every decision where Trained AI
  * chose differently (the flagged ones among them), and every decision. */
 export const FILTERS = Object.freeze(['flagged', 'differed', 'every']);
-/** What each filter's button says, before how many decisions it holds. */
-export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Trained AI chose differently', every: 'Every decision' });
+/** What each filter's button says, before how many decisions it holds: the
+ * verdicts a replayed hand's list gives each decision (decisionInBrief). */
+export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Trained AI differed', every: 'Every decision' });
 /** A filter button's title, where it has one. The Flagged button's is the
  * rule a decision is flagged by, kept at hand but out of the way: a pointer
  * shows it as a tooltip, and a screen reader reads it as the button's
- * description, after its name. Like the app's other button titles, it is
- * not a sentence. */
+ * description, after its name. It is put in the words each decision's
+ * weights are given in (weightsSaid), so it reads like the figures it applies
+ * to. Like the app's other button titles, it is not a sentence. */
 export const FILTER_TITLES = Object.freeze({
   flagged: `Your move under ${Math.round(FLAG_PLAYED_BELOW * 100)}%, Trained AI's choice ${Math.round(FLAG_PREFERRED_FROM * 100)}% or more`,
 });
@@ -186,20 +198,21 @@ export function filterCounts(decisions) {
  * shows now, of which kind, `scope` such as " in this hand" saying where, and
  * in what order; and, where the list leads with a few and keeps the rest
  * behind a button, that it does. The flagged decisions among those where
- * Trained AI chose differently are counted too. */
+ * Trained AI differed are counted too. It is said as a button is pressed,
+ * so it names the list without saying that it is shown. */
 export function filterSaid(filter, counts, { scope = '', ranked = filter !== 'every', leading = Infinity } = {}) {
   const count = counts[filter], s = count === 1 ? '' : 's';
   if (!count) {
-    return { flagged: `No decision${scope} is flagged.`, differed: `Trained AI chose the same as you at every decision${scope}.`,
+    return { flagged: `None flagged${scope}.`, differed: `Trained AI agreed at every decision${scope}.`,
       every: `No decisions${scope}.` }[filter];
   }
   const shown = {
     flagged: `${count} flagged decision${s}${scope}`,
-    differed: `${count} decision${s}${scope} where Trained AI chose differently${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}`,
-    every: count === 1 ? `the one decision${scope}` : `all ${count} decisions${scope}`,
+    differed: `${count} decision${s}${scope} where Trained AI differed${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}`,
+    every: count === 1 ? `The one decision${scope}` : `All ${count} decisions${scope}`,
   }[filter];
-  const order = count === 1 ? '' : ranked ? ', the widest departure first' : ', in the order you made them';
-  return `Showing ${shown}${order}.${count > leading ? ` The first ${leading} are listed.` : ''}`;
+  const order = count === 1 ? '' : ranked ? ', widest departure first' : ', in the order played';
+  return `${shown}${order}.${count > leading ? ` First ${leading} listed.` : ''}`;
 }
 
 /** A place in the ranking as it is said: "1st", "2nd", "3rd", "11th", "22nd". */

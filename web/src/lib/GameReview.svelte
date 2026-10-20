@@ -4,8 +4,8 @@
   import DecisionFilter from './DecisionFilter.svelte';
   import DecisionReplay from './DecisionReplay.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
-  import { LEADING, agreement, filterCounts, filterDecisions, movedNote } from './game-review.js';
-  import { percent, waitingNote } from './ui.js';
+  import { LEADING, agreement, filterCounts, filterDecisions, movedNote, weightsSaid } from './game-review.js';
+  import { waitingNote } from './ui.js';
 
   /**
    * The game, looked at again: from any hand's result the game so far, led by
@@ -133,8 +133,10 @@
   let latest = $derived(status.over ? null : status.hands.at(-1) ?? null);
 
   // What the list is headed, and what the button that shows the rest of it
-  // calls them, for each filter.
-  const HEADINGS = { flagged: 'Where you departed most from Trained AI', differed: 'Where Trained AI chose differently', every: 'Every decision you made' };
+  // calls them, for each filter. A heading names its list as the pressed
+  // filter does, in the review's verdicts; focus lands on it, so each is a
+  // phrase of its own rather than a word.
+  const HEADINGS = { flagged: 'Flagged decisions', differed: 'Where Trained AI differed', every: 'Every decision' };
   const REST = { flagged: count => `Show all ${count} flagged`, differed: count => `Show all ${count} that differ`, every: count => `Show all ${count} decisions` };
 
   $effect(() => {
@@ -233,11 +235,14 @@
   });
   let detail = $derived(status.complete || !total ? ''
     : `${done} of ${total} decisions${status.estimate ? ` · the rest would take about ${duration(status.estimate)}` : ''}${status.busy && download ? ` · ${download}` : ''}`);
-  // What the list says when its filter holds nothing yet.
+  // What the list says when its filter holds nothing yet. While the review
+  // goes on, the headline and the progress above say how far it has got;
+  // once it is done, the list says it in the words its filter says it in
+  // (filterSaid).
   let empty = $derived.by(() => {
-    if (!status.complete) return reviewed ? 'None in the hands reviewed so far.' : 'They appear here as each hand is reviewed.';
-    return { flagged: 'No decision departed that far from Trained AI.', differed: 'Trained AI chose as you did at every decision.',
-      every: status.over ? 'You made no decisions in this game.' : 'You have made no decisions so far.' }[filter];
+    if (!status.complete) return 'None yet.';
+    return { flagged: 'None flagged.', differed: 'Trained AI agreed at every decision.',
+      every: status.over ? 'You made no decisions.' : 'No decisions yet.' }[filter];
   });
 
   // Back to what was opened. A hand goes back to the button that opened it:
@@ -343,23 +348,25 @@
           {@const flagged = Boolean(decision.judgement?.flagged)}
           {@const name = status.hands[decision.hand].name}
           <li data-listed={key(decision)} data-flagged={flagged ? key(decision) : undefined} class:flag={flagged}>
-            <p class="where">{name} · your decision {decision.index + 1}{#if flagged && filter !== 'flagged'}{' · '}<strong class="flag-mark">Flagged</strong>{/if}</p>
+            <p class="where">{name} · decision {decision.index + 1}{#if flagged && filter !== 'flagged'}{' · '}<strong class="flag-mark">Flagged</strong>{/if}</p>
             {#if decision.call_tile}<p class="context">Response to <Tile tile={decision.call_tile} size="tiny" dora={hints && (decision.dora_types ?? []).includes(decision.call_tile)} /> from {decision.call_from}</p>{/if}
             <p class="move">{#if decision.played_tile}<Tile tile={decision.played_tile} size="small" dora={hints && (decision.dora_types ?? []).includes(decision.played_tile)} />{/if}<span>You: {decision.played}</span></p>
             {#if decision.forced}
-              <p class="weight">It was the only move.</p>
+              <p class="weight">Only move.</p>
             {:else if decision.agreed}
-              <p class="weight">Trained AI chose the same.</p>
+              <p class="weight">Trained AI agreed.</p>
             {:else}
               <!-- Trained AI's own choice waits behind a flagged decision's
                    retry; any other says it here. -->
               {#if !flagged}<p class="move">{#if decision.advised_tile}<Tile tile={decision.advised_tile} size="small" dora={hints && (decision.dora_types ?? []).includes(decision.advised_tile)} />{/if}<span>Trained AI: {decision.advised}</span></p>{/if}
               {#if decision.judgement}
-                <p class="weight">Trained AI gave {decision.judgement.stage === 'tile' ? 'this tile, once riichi was declared,' : 'this move'} {percent(decision.judgement.played)}, and its own choice {percent(decision.judgement.preferred)}.</p>
+                <p class="weight">{weightsSaid(decision.judgement)}</p>
               {/if}
             {/if}
+            <!-- A flagged decision opens to be chosen again, as the replay's
+                 own button for it says; any other opens to be looked at. -->
             <button class="app-control" data-open={key(decision)} onclick={() => openDecision(decision)}
-              aria-label={`${flagged ? 'Replay and choose again' : 'Replay'}: ${name}, your decision ${decision.index + 1}`}>{flagged ? 'Replay and choose again' : 'Replay'}</button>
+              aria-label={`${flagged ? 'Choose again' : 'Replay'}: ${name}, decision ${decision.index + 1}`}>{flagged ? 'Choose again' : 'Replay'}</button>
           </li>
         {/each}
       </ol>

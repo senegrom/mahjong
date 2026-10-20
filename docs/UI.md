@@ -461,7 +461,8 @@ weights, widest first, and equal gaps in the order they were played. The first
 five are listed, the rest behind **Show all**. The list says where each one
 was (the hand, with its honba where the hand repeats one, so no two hands
 share a name, and the player's decision number) and the weights of the
-player's move and of Trained AI's own choice, but not what that choice was.
+player's move and of Trained AI's own choice ("Your move 2.0%, Trained AI's
+choice 81.0%."), but not what that choice was.
 The list is ranked afresh as each hand is reviewed, and keyboard focus on a
 flagged decision stays on it however the list moves, also while the player is
 in another window or tab, which takes focus from the page but leaves it on the
@@ -478,26 +479,28 @@ focus moves on.
 **Which decisions are listed.** The list opens on the flagged decisions, and a
 filter under its heading lists instead every decision where Trained AI chose
 differently, or every decision, each of its three buttons saying how many it
-holds: "Flagged (7)", "Trained AI chose differently (64)", "Every decision
-(182)". The button pressed says so (`aria-pressed`) and keeps focus, and the
-heading names the list. Where Trained AI chose differently, the decisions are
-ranked as the flagged ones are, by the gap between the weights, those whose
-moves could not be compared (an unscored quad) after the rest, and the
-flagged ones among them say **Flagged** and keep the accent's edge; every
-decision is listed in the order it was made. Each list leads with five, the
-rest behind **Show all**. A status line, in the page from the start, says what
-the list now shows ("Showing 64 decisions where Trained AI chose differently,
-7 of them flagged, the widest departure first. The first 5 are listed."), and
-goes quiet once focus leaves the filter, or once the hands reviewed since have
-changed the counts it gave, so it never stays to say a count the list has
-outgrown. A flagged decision keeps Trained AI's choice back
-for its retry; any other says it ("Trained AI: discards the 9 circles"), or
-that Trained AI chose the same, or that the move was the only one, and opens
-with **Replay**: its position, the move and Trained AI's view of it, with no
-retry. Keyboard focus on a listed decision stays with it in every list as the
-review goes on, and the status line says where it went: further departures put
-a decision lower in a ranked list, and in the list of every decision a hand
-reviewed out of turn puts its decisions before those of the hands after it.
+holds: "Flagged (7)", "Trained AI differed (64)", "Every decision (182)", in
+the verdicts a replayed hand's list gives each decision. The button pressed
+says so (`aria-pressed`) and keeps focus, and the heading names the list
+("Flagged decisions", "Where Trained AI differed", "Every decision"). Where
+Trained AI chose differently, the decisions are ranked as the flagged ones
+are, by the gap between the weights, those whose moves could not be compared
+(an unscored quad) after the rest, and the flagged ones among them say
+**Flagged** and keep the accent's edge; every decision is listed in the order
+it was made. Each list leads with five, the rest behind **Show all**. A status
+line, in the page from the start, says what the list now shows ("64 decisions
+where Trained AI differed, 7 of them flagged, widest departure first. First 5
+listed."), and goes quiet once focus leaves the filter, or once the hands
+reviewed since have changed the counts it gave, so it never stays to say a
+count the list has outgrown. A flagged decision keeps Trained AI's choice back
+for its retry, and opens with **Choose again**; any other says it ("Trained
+AI: discards the 9 circles"), or that Trained AI agreed, or that the move was
+the only one, and opens with **Replay**: its position, the move and Trained
+AI's view of it, with no retry. Keyboard focus on a listed decision stays
+with it in every list as the review goes on, and the status line says where it
+went: further departures put a decision lower in a ranked list, and in the
+list of every decision a hand reviewed out of turn puts its decisions before
+those of the hands after it.
 
 **Every hand, face up.** At every step of a replay the table is shown as it
 stood, every player's hand face up all the time, with no control to hide or
@@ -513,7 +516,7 @@ player's own turn; when the player answers another's tile, the edge is on the
 seat that let it go, which says "Discarded" or "Declared a kan", and the
 player's seat says "To answer" without one. Each hand is a list named for its seat ("South's
 tiles, Right (Club)", "East's tiles, yours"), the table is headed "The table at
-your decision 5", and a status line says it as the step changes ("South
+decision 5", and a status line says it as the step changes ("South
 discarded the 5 bamboo, 45 tiles left in the wall. West has declared riichi."),
 adding "Trained AI flagged your move here." at a flagged decision other than
 the one opened, whose own step says so.
@@ -556,15 +559,16 @@ whose description asks for the choice, as play gives the hand focus when a
 turn comes. **Choose again** does the same, since the answer it closes held the
 button. At the flagged decision the player chooses
 again, a tile from the hand or a move below it, before anything is revealed,
-or asks for **Trained AI's answer** outright; until then the replay goes no
-further than that decision, and once it is answered it goes on to the end of
-the hand. An answer to another's discard
+or asks for Trained AI's answer outright with **Show answer**; until then the
+replay goes no further than that decision, and once it is answered it goes on
+to the end of the hand. An answer to another's discard
 leaves no tile to throw, so there the description sends the player to the
 moves below the hand, which **Tab** reaches next. The answer lists the weight of
 every move, the riichi discards under their declaration, marking Trained AI's
-choice, the move made in the game and the new one. It leads with the five
-heaviest moves and those it marks; **Show every move** shows the rest and
-stays, as **Show the leading moves**, so focus stays on it. For a turn, a table sets
+choice, the move made in the game and the new one ("Trained AI's choice", "In
+the game", "This time", as the answer's lines and table name them). It leads
+with the five heaviest moves and those it marks; **Show every move** shows the
+rest and stays, as **Show the leading moves**, so focus stays on it. For a turn, a table sets
 out what each of those moves leaves, counted as the hand review counts it:
 the hand left, the unseen tiles that improve it, whether the tile could deal
 into a declared riichi, and its worth as dora (the engine's `review_measure`).
@@ -593,8 +597,8 @@ differently, each button saying how many it holds, and says what it shows
 from its own status line. A decision that was not flagged shows the move made
 and Trained AI's view of it: the weights of the moves, and for a turn what
 each of the two moves leaves. A flagged decision other than the one opened
-offers **Choose again here**, which asks for the choice before the answer as
-at the decision opened, or **Show Trained AI's answer**.
+offers **Choose again**, which asks for the choice before the answer as at
+the decision opened, or **Show answer**.
 
 **Agreement and its trend.** The figure is the share of decisions with a
 choice where the player's move was Trained AI's. When every hand is reviewed,

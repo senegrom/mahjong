@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { Asking, BATCH, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, MatchReview, SLOW_MS, agreement, decisionInBrief, differed,
-  filterCounts, filterDecisions, filterSaid, handName, judgement, movedNote, ordinal, rankDecisions, scanMatch, seatNotes,
-  tableSaid } from '../src/lib/game-review.js';
+import { Asking, BATCH, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, MatchReview, SLOW_MS, agreement,
+  decisionInBrief, differed, filterCounts, filterDecisions, filterSaid, handName, judgement, movedNote, ordinal, rankDecisions,
+  scanMatch, seatNotes, tableSaid, weightsSaid } from '../src/lib/game-review.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -198,6 +198,15 @@ test('a decision is flagged only where the player had under 5% and the network a
   assert.equal(withheld.flagged, false);
 });
 
+test("a judged decision's weights are said alike in the list and in a replay's offer, and the Flagged filter's title states the rule in the same words", () => {
+  assert.equal(weightsSaid({ stage: 'move', played: 0.02, preferred: 0.81 }), "Your move 2.0%, Trained AI's choice 81.0%.");
+  assert.equal(weightsSaid({ stage: 'move', played: 0.0004, preferred: 1 }, 'Flagged: '), "Flagged: your move <0.1%, Trained AI's choice 100.0%.");
+  // Where both declared riichi, the tiles are judged given the declaration.
+  assert.equal(weightsSaid({ stage: 'tile', played: 0.01, preferred: 0.9 }), "Given riichi, your tile 1.0%, Trained AI's choice 90.0%.");
+  assert.equal(weightsSaid({ stage: 'tile', played: 0.01, preferred: 0.9 }, 'Flagged: '), "Flagged: given riichi, your tile 1.0%, Trained AI's choice 90.0%.");
+  assert.deepEqual(FILTER_TITLES, { flagged: "Your move under 5%, Trained AI's choice 60% or more" });
+});
+
 test('flagged decisions rank by the gap, ties in the order played, and agreement leaves forced moves out', () => {
   const decision = (name, gap, flagged = true) => ({ name, judgement: { gap, flagged } });
   const ranked = rankDecisions([decision('a', 0.7), decision('b', 0.9), decision('c', 0.99, false), decision('d', 0.7), { name: 'e', judgement: null }]);
@@ -243,20 +252,18 @@ test('a filter lists the flagged decisions, those where Trained AI chose differe
 
 test('a list says what its filter shows as it is chosen, and where it puts a decision the review has moved', () => {
   const counts = { flagged: 7, differed: 64, every: 182 };
-  assert.equal(filterSaid('flagged', counts, { leading: LEADING }), 'Showing 7 flagged decisions, the widest departure first. The first 5 are listed.');
+  assert.equal(filterSaid('flagged', counts, { leading: LEADING }), '7 flagged decisions, widest departure first. First 5 listed.');
   assert.equal(filterSaid('differed', counts, { leading: LEADING }),
-    'Showing 64 decisions where Trained AI chose differently, 7 of them flagged, the widest departure first. The first 5 are listed.');
-  assert.equal(filterSaid('every', counts, { leading: LEADING }), 'Showing all 182 decisions, in the order you made them. The first 5 are listed.');
+    '64 decisions where Trained AI differed, 7 of them flagged, widest departure first. First 5 listed.');
+  assert.equal(filterSaid('every', counts, { leading: LEADING }), 'All 182 decisions, in the order played. First 5 listed.');
   const hand = { flagged: 1, differed: 3, every: 9 }, inHand = { scope: ' in this hand', ranked: false };
-  assert.equal(filterSaid('flagged', hand, inHand), 'Showing 1 flagged decision in this hand.');
-  assert.equal(filterSaid('differed', hand, inHand),
-    'Showing 3 decisions in this hand where Trained AI chose differently, 1 of them flagged, in the order you made them.');
-  assert.equal(filterSaid('differed', { ...hand, flagged: 0 }, inHand),
-    'Showing 3 decisions in this hand where Trained AI chose differently, in the order you made them.');
-  assert.equal(filterSaid('every', hand, inHand), 'Showing all 9 decisions in this hand, in the order you made them.');
-  assert.equal(filterSaid('every', { ...hand, every: 1 }, inHand), 'Showing the one decision in this hand.');
-  assert.equal(filterSaid('flagged', { flagged: 0, differed: 0, every: 4 }, inHand), 'No decision in this hand is flagged.');
-  assert.equal(filterSaid('differed', { flagged: 0, differed: 0, every: 4 }), 'Trained AI chose the same as you at every decision.');
+  assert.equal(filterSaid('flagged', hand, inHand), '1 flagged decision in this hand.');
+  assert.equal(filterSaid('differed', hand, inHand), '3 decisions in this hand where Trained AI differed, 1 of them flagged, in the order played.');
+  assert.equal(filterSaid('differed', { ...hand, flagged: 0 }, inHand), '3 decisions in this hand where Trained AI differed, in the order played.');
+  assert.equal(filterSaid('every', hand, inHand), 'All 9 decisions in this hand, in the order played.');
+  assert.equal(filterSaid('every', { ...hand, every: 1 }, inHand), 'The one decision in this hand.');
+  assert.equal(filterSaid('flagged', { flagged: 0, differed: 0, every: 4 }, inHand), 'None flagged in this hand.');
+  assert.equal(filterSaid('differed', { flagged: 0, differed: 0, every: 4 }), 'Trained AI agreed at every decision.');
   // Each list says why a decision went lower in its own words, the flagged
   // list as it always has.
   assert.equal(movedNote(6, true, 'flagged'),

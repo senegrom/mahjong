@@ -5,7 +5,7 @@
   import MatchTable from './app/MatchTable.svelte';
   import PlayerHand from './app/PlayerHand.svelte';
   import { groupPolicyChoices } from './action-weights.js';
-  import { decisionInBrief, differed, filterCounts, sameMove, seatNotes, tableSaid } from './game-review.js';
+  import { decisionInBrief, differed, filterCounts, sameMove, seatNotes, tableSaid, weightsSaid } from './game-review.js';
   import { callLabel, percent, quadOnOffer } from './ui.js';
   import { tileWords, SEAT_NAMES as NAMES } from './tiles.js';
 
@@ -89,12 +89,13 @@
   let discarder = $derived(NAMES[frame.view.pending_from] ?? 'An opponent');
   // What the player did at a step, and whether Trained AI agreed: shown under
   // the hand, and said with the step, so stepping through the hand by ear
-  // tells the moves as well as where it is. A move with no alternative was
-  // never put to Trained AI.
+  // tells the moves as well as where it is. The verdict is the one the hand's
+  // list gives the step (decisionInBrief), since it is said at every step. A
+  // move with no alternative was never put to Trained AI.
   let stepMove = $derived(engaged ? ''
     : `Your move: ${frame.choices.find(choice => sameMove(choice, frame.played.kind, frame.played.tile))?.label ?? frame.played.kind}.`);
-  let stepVerdict = $derived(engaged || !current ? '' : current.forced ? 'It was the only move.'
-    : current.agreed ? 'Trained AI chose the same.' : 'Trained AI chose differently.');
+  let stepVerdict = $derived(engaged || !current ? '' : current.forced ? 'Only move.'
+    : current.agreed ? 'Trained AI agreed.' : 'Trained AI differed.');
   let shownDora = $derived(hints ? frame.view.dora_types ?? [] : []);
   // The tile thrown at a step, or chosen again there, is marked in the hand
   // as a selected tile is in play.
@@ -217,7 +218,7 @@
 
 <section class="decision" aria-labelledby="decision-title" data-decision>
   <header>
-    <h3 id="decision-title" tabindex="-1" bind:this={heading}>{whole ? `${hand.name}, decision by decision` : `${hand.name}, your decision ${start + 1}`}</h3>
+    <h3 id="decision-title" tabindex="-1" bind:this={heading}>{whole ? `${hand.name}, whole hand` : `${hand.name}, decision ${start + 1}`}</h3>
     <button class="app-control" data-back onclick={onback}>Back to the list</button>
   </header>
 
@@ -226,13 +227,13 @@
     <button class="app-control" onclick={() => goTo(step - 1)} disabled={step === 0} aria-label="Previous decision" bind:this={previousButton}>Previous</button>
     <button class="app-control" onclick={() => goTo(step + 1)} disabled={step >= last} aria-label="Next decision" bind:this={nextButton}>Next</button>
     {#if !whole}<button class="app-control" onclick={() => goTo(start)} disabled={step === start}>This decision</button>{/if}
-    <p class="where" role="status"><span data-step>Your decision {step + 1} of {last + 1}{theOne ? ', the one flagged' : ''}</span>{#if stepMove}<span class="visually-hidden">. {stepMove} {stepVerdict}</span>{/if}</p>
+    <p class="where" role="status"><span data-step>Decision {step + 1} of {last + 1}{theOne ? ', flagged' : ''}</span>{#if stepMove}<span class="visually-hidden">. {stepMove} {stepVerdict}</span>{/if}</p>
   </div>
 
   <!-- Every decision of the hand the replay reaches, each a button to its
        step, which keeps focus as the step it shows changes. -->
   <details class="decisions" bind:open={listOpen} data-decisions>
-    <summary>{pending ? 'Your decisions up to the flagged one' : 'Your decisions in this hand'} ({reached.length})</summary>
+    <summary>{pending ? 'Decisions up to the flagged one' : 'Decisions in this hand'} ({reached.length})</summary>
     <div class="decision-list">
       <DecisionFilter bind:value={listFilter} counts={listCounts} label="Which of this hand's decisions to list"
         said={{ scope: ' in this hand', ranked: false }} />
@@ -253,7 +254,7 @@
           {/each}
         </ol>
       {:else}
-        <p class="empty">{listFilter === 'flagged' ? 'None of these decisions is flagged.' : 'Trained AI chose the same at each of these decisions.'}</p>
+        <p class="empty">{listFilter === 'flagged' ? 'None flagged.' : 'Trained AI agreed at every decision.'}</p>
       {/if}
     </div>
   </details>
@@ -262,7 +263,7 @@
        face up: the board and the other players around it, what happened
        since the player's previous decision, then the player's own seat. -->
   <section class="overview" aria-labelledby="overview-title" data-overview>
-    <h4 id="overview-title">The table at your decision {step + 1}</h4>
+    <h4 id="overview-title">The table at decision {step + 1}</h4>
     <!-- Said as the step changes, from a line in the page from the start. -->
     <p class="visually-hidden" role="status" data-table-said>{tableLine}</p>
 
@@ -298,7 +299,7 @@
         {/each}
       </div>
     {/if}
-    <button class="app-control quiet" data-reveal onclick={reveal}>Show Trained AI's answer</button>
+    <button class="app-control quiet" data-reveal onclick={reveal}>Show answer</button>
   {:else if mode === 'answered'}
     <p id="hand-help" class="visually-hidden">Trained AI's answer is below.</p>
   {:else}
@@ -307,10 +308,10 @@
       <!-- Another flagged decision than the one opened: the player may choose
            again here too, before the answer is shown, or see it now. -->
       <div class="offer" data-offer>
-        <p>Flagged: Trained AI gave {current.judgement.stage === 'tile' ? 'this tile, once riichi was declared,' : 'this move'} {percent(current.judgement.played)}, and its own choice {percent(current.judgement.preferred)}.</p>
+        <p>{weightsSaid(current.judgement, 'Flagged: ')}</p>
         <div class="after">
-          <button class="app-control" data-choose-here onclick={again}>Choose again here</button>
-          <button class="app-control quiet" data-reveal onclick={reveal}>Show Trained AI's answer</button>
+          <button class="app-control" data-choose-here onclick={again}>Choose again</button>
+          <button class="app-control quiet" data-reveal onclick={reveal}>Show answer</button>
         </div>
       </div>
     {/if}
@@ -380,8 +381,8 @@
     {:else}<meter min="0" max="1" value={weight} aria-label={conditional ? `${choice.label}, given riichi` : choice.label}></meter><strong>{percent(weight)}</strong>{/if}
     <span class="marks">
       {#if sameMove(choice, advised.kind, advised.tile)}<span class="mark trained">Trained AI's choice</span>{/if}
-      {#if sameMove(choice, played.kind, played.tile)}<span class="mark">Your move in the game</span>{/if}
-      {#if tried && sameMove(choice, tried.kind, tried.tile)}<span class="mark">Your choice now</span>{/if}
+      {#if sameMove(choice, played.kind, played.tile)}<span class="mark">In the game</span>{/if}
+      {#if tried && sameMove(choice, tried.kind, tried.tile)}<span class="mark">This time</span>{/if}
     </span>
   </div>
 {/snippet}
