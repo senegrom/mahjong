@@ -600,10 +600,10 @@ them). It leads with the five heaviest moves and those it marks; **Show 3
 more moves** shows the rest and stays, as **Show fewer moves**, so focus stays
 on it. The tile guide in the settings says what the weights are, under
 "Trained AI's percentages": how strongly Trained AI prefers each move, not a
-chance of winning. For a turn, a table, "What each move leaves", sets out what each of
-those moves leaves, counted as the hand review counts it: the hand left, the
-unseen tiles that improve it, whether the tile could deal into a declared
-riichi, and its worth as dora (the engine's `review_measure`).
+chance of winning. For a turn, a table, "What each move leaves", sets out
+what each of those moves leaves, counted as the hand review counts it: the
+hand left, the unseen tiles that improve it, whether the tile could deal into
+a declared riichi, and its worth as dora (the engine's `review_measure`).
 Nothing is played on from there, and the saved match is never touched. **Back
 to the list** returns focus to the decision opened, wherever the hands
 reviewed meanwhile have ranked it: if they have ranked it out of the first
