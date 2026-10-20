@@ -255,9 +255,15 @@ def step_spare() -> int:
 def room_on_card(wanted: int, device: str | torch.device, spare: int | None = None) -> bool:
     """Whether the card `device` has room for `wanted` bytes more and
     `spare` bytes to spare afterwards for the learning step (`step_spare`
-    by default): what its driver has free, and what this process's
-    allocator holds without using it, which the allocator hands out again,
-    or gives back to the driver when an allocation would otherwise fail.
+    by default). The spare is counted in what its driver has free and in
+    what this process's allocator holds without using it, which the
+    allocator hands out again; the `wanted` bytes, one block, in what the
+    driver has free alone. The allocator gives the driver back only the
+    segments it holds whole and free, not the free pieces of one it has
+    split, nor what play's CUDA graphs keep in a pool of their own
+    (`play_graphs`): a block the driver had no room for would be had only
+    by emptying the allocator's cache, the card waiting, and then not
+    always (see `kept_on_card`).
 
     The driver counts what the allocator holds as used, and the allocator
     keeps whatever the learning step's peak once took, and beside a round
@@ -273,7 +279,7 @@ def room_on_card(wanted: int, device: str | torch.device, spare: int | None = No
         spare = step_spare()
     free, _total = torch.cuda.mem_get_info(device)
     unused = torch.cuda.memory_reserved(device) - torch.cuda.memory_allocated(device)
-    return free + unused - wanted >= spare
+    return free >= wanted and free + unused - wanted >= spare
 
 
 def kept_on_card(
@@ -285,11 +291,21 @@ def kept_on_card(
     a card when it has room for it and `spare` bytes to spare afterwards
     for the step (`room_on_card`), as for a round's planes (see
     `observe.resident`, whose sixteen gigabytes and `RESIDENT_SPARE_GB`
-    this shares, `step_spare`); None when the card has no such room."""
+    this shares, `step_spare`); None when the card has no such room, or
+    when its allocator cannot find the memory after all, as when a round
+    played ahead took some on its own thread between the reading of the
+    room and the asking. Without the tensor the generation works Mortal
+    out again, as it always could; the allocator's error would end the
+    trainer."""
     device = torch.device(device)
-    if device.type == "cuda" and not room_on_card(math.prod(shape) * dtype.itemsize, device, spare):
+    if device.type != "cuda":
+        return torch.empty(shape, dtype=dtype, device=device)
+    if not room_on_card(math.prod(shape) * dtype.itemsize, device, spare):
         return None
-    return torch.empty(shape, dtype=dtype, device=device)
+    try:
+        return torch.empty(shape, dtype=dtype, device=device)
+    except torch.cuda.OutOfMemoryError:
+        return None
 
 
 def baseline_of(

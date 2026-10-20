@@ -378,7 +378,9 @@ class RoomTests(unittest.TestCase):
     """Room on the card for Mortal's vectors (`ppo_loop.room_on_card`): what
     the driver has free and what this process's allocator holds without
     using it, past what the learning step, and beside a round played ahead
-    the round, keep to spare."""
+    the round, keep to spare, the vectors' block itself in what the driver
+    has free; and none kept where the allocator cannot find them after all
+    (`ppo_loop.kept_on_card`)."""
 
     GB = 1 << 30
     VECTORS = int(3.2 * GB)
@@ -407,10 +409,45 @@ class RoomTests(unittest.TestCase):
         self.assertTrue(self.room(free, unused + self.GB, self.GB, wanted=left))
         self.assertFalse(self.room(free, unused + self.GB, self.GB, wanted=left + 1))
 
+    def test_the_vectors_themselves_must_fit_in_what_the_driver_has_free(self):
+        """22 GB the allocator holds unused, as pieces of segments it has
+        split and play's graphs' pool may be, which it cannot give the
+        driver back for one block: beside 2 GB the driver has free, no room
+        for the vectors' 3.2, whatever is left to spare; beside 4, room."""
+        self.assertFalse(self.room(2 * self.GB, 24 * self.GB, 2 * self.GB))
+        self.assertTrue(self.room(4 * self.GB, 24 * self.GB, 2 * self.GB))
+        self.assertTrue(self.room(self.VECTORS, 24 * self.GB, 2 * self.GB))
+        self.assertFalse(self.room(self.VECTORS - 1, 24 * self.GB, 2 * self.GB))
+
     def test_on_the_processor_a_tensor_is_kept_without_asking_the_card(self):
         with patch.object(torch.cuda, "mem_get_info", side_effect=AssertionError("asked the card")):
             kept = ppo_loop.kept_on_card((5, 3), torch.bfloat16, "cpu", spare=1 << 60)
         self.assertEqual((kept.shape, kept.dtype, kept.device.type), ((5, 3), torch.bfloat16, "cpu"))
+
+    def test_none_is_kept_where_the_allocator_cannot_find_the_room_after_all(self):
+        """The room read, and the allocator out of memory all the same, as
+        when the round played beside the pass took some meanwhile: none
+        kept, as without room, so that the generation works Mortal out
+        again, and not the allocator's error, which would end the trainer."""
+        asked = []
+
+        def empty(*args, **kwargs):
+            asked.append((args, kwargs))
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory.")
+
+        with patch.object(ppo_loop, "room_on_card", return_value=True), patch.object(torch, "empty", empty):
+            self.assertIsNone(ppo_loop.kept_on_card((5, 3), torch.bfloat16, "cuda", spare=0))
+        self.assertEqual(asked, [(((5, 3),), {"dtype": torch.bfloat16, "device": torch.device("cuda")})])
+
+    @unittest.skipUnless(CUDA, "the card's own allocator")
+    def test_on_a_card_a_tensor_its_allocator_cannot_find_is_not_kept(self):
+        """Asked, past any room read, for twice the card: the allocator's
+        own refusal, after it has emptied its cache to try, is None, and
+        the card goes on as before."""
+        _free, total = torch.cuda.mem_get_info()
+        with patch.object(ppo_loop, "room_on_card", return_value=True):
+            self.assertIsNone(ppo_loop.kept_on_card((total,), torch.bfloat16, "cuda", spare=0))
+        self.assertEqual(float(torch.ones(4, device="cuda").sum()), 4.0)
 
 
 class EndToEndTests(unittest.TestCase):
