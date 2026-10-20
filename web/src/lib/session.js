@@ -42,14 +42,20 @@ export const DEFAULT_REVIEW_ADVISER = 'strong';
  * other choice but not its pick: when 1110 arrived every player was put in
  * front of it once, at the owner's word, whatever version they had picked
  * before. A player who picks 0.1.810 or 0.1.410 again writes a version 3
- * record, and from version 3 a pick is kept as it stands. */
+ * record, and from version 3 a pick is kept as it stands.
+ *
+ * reviewHideMove and reviewHideTiles say whether Trained AI's reviews keep
+ * its move back, and the other players' tiles, until the player asks to see
+ * them. Both start off, and a record from before they were offered holds
+ * neither, so it reads them as off and the record needs no new version. */
 export function readSettings(storage, touch = false) {
-  const defaults = { difficulty: DEFAULT_OPPONENT, hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: DEFAULT_REVIEW_ADVISER };
+  const defaults = { difficulty: DEFAULT_OPPONENT, hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: DEFAULT_REVIEW_ADVISER,
+    reviewHideMove: false, reviewHideTiles: false };
   try {
     const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
     if (![1, 2, SETTINGS_VERSION].includes(value?.version)) return defaults;
     defaults.tileFace = normalizeTileFace(value.tileFace);
-    for (const key of ['hints', 'confirmDiscards', 'shortcuts']) {
+    for (const key of ['hints', 'confirmDiscards', 'shortcuts', 'reviewHideMove', 'reviewHideTiles']) {
       if (typeof value[key] === 'boolean') defaults[key] = value[key];
     }
     if (value.version === 1) return defaults;

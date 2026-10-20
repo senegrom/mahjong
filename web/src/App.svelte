@@ -56,6 +56,11 @@
   let faceWarning = $state('');
   let faceLoad = null;
   let reviewAdviser = $state(preferences.reviewAdviser);
+  // Whether Trained AI's reviews keep its move back until the player asks to
+  // see it, and the other players' tiles too. Both are stored with the other
+  // preferences, so a quiz the player set up is still one after a reload.
+  let reviewHideMove = $state(preferences.reviewHideMove);
+  let reviewHideTiles = $state(preferences.reviewHideTiles);
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
   let startupNote = $state('Loading the game and selected tile graphics…');
@@ -139,7 +144,7 @@
   // player who has not picked a network has no trainedNetwork in the record.
   let storedSettings = null;
   const currentSettings = () =>
-    ({ difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, trainedNetwork });
+    ({ difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, reviewHideMove, reviewHideTiles, trainedNetwork });
   $effect(() => {
     storedSettings = writeSettings(storage, currentSettings(), storedSettings);
   });
