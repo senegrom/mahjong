@@ -428,10 +428,14 @@ waiting and the player's word stay as they were, so nothing need start it
 again, the review of the whole game included. The page's one worker answers
 its requests in turn, so notes asked between the review's batches of eight
 would wait behind one at every decision: a hand of fifteen decisions would
-take twenty seconds rather than two or three, and on a slow device a note
-could run out of its time, which ends the worker and the review with it. A
-note waits behind no more than the one batch already sent, whichever of the
-two was opened first.
+take twenty seconds rather than two or three. Only the first note can wait
+behind a batch, the one already sent, whichever of the two was opened first,
+and on a slow device that note can still run out of time: its twenty seconds
+run from when it is sent, its wait included, so where what is left of the
+batch and the note take more than that together, they run out, which ends the
+worker and fails the notes, and the review stops too if its batch is still
+running. [UI reliability](UI_RELIABILITY.md) gives the speeds at which each
+can happen.
 
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the

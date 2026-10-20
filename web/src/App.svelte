@@ -109,15 +109,20 @@
   // worker, which answers its requests in turn. The review asks the same
   // worker eight decisions a request, so each note would wait behind one of
   // its batches: a hand's notes would take twenty seconds rather than two or
-  // three, and on a slow device a note could run out of its time, which ends
-  // the worker and stops the review with it. So the notes say when they
+  // three, and on a slow device any note could run out of its time, which
+  // ends the worker and stops the review with it. So the notes say when they
   // begin and stop asking, and before each batch the review waits for them
   // at its gate, then goes on exactly where it was: the same hand, the same
   // hands queued and the same word from the player. Nothing need start it
   // again, so the review of the whole game behind the standings still
-  // reaches the trend. The notes wait behind no more than the one batch
-  // already sent, whichever of the two was opened first, the review's screen
-  // open or shut.
+  // reaches the trend. Each time the notes begin to ask, only their first
+  // question can still wait behind a batch, the one already sent, whichever
+  // of the two was opened first, the review's screen open or shut. The gate
+  // spares the questions after it, not that one, whose deadline runs from
+  // when it is sent, its wait included (requestPolicy): on a device where a
+  // batch and a question take over twenty seconds together, it can still run
+  // out of time, which ends the worker and fails the notes, and stops the
+  // review too if its batch is still running.
   const notesAsking = new Asking();
   // The reviewed games this browser keeps, which a finished review joins.
   let reviewTrend = $state.raw(readTrend(storage));

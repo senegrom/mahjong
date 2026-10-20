@@ -13,15 +13,25 @@ Trained AI's review of the game, so far or whole, eight decisions a request,
 which goes on in the background. While the notes ask, the review waits before
 each batch it would send, then goes on exactly where it was, the hands waiting
 and the player's word as they were, so nothing the player chose is lost and
-nothing need start the review again. A note waits behind no more than the one
-batch already sent, whichever was opened first; behind a batch at every
-decision, a hand's notes would take twenty seconds rather than two or three,
-and on a slow device a note could pass its twenty-second deadline, which ends
-the worker and stops the review with it. The notes say they have stopped
-however they stop: answered, failed, out of time, closed, left for another
-mode, or turned to Club; and a review stopped or closed while it waits stops
-waiting at once. The next deal's Trained opponents go first another way:
-**Next hand** stops the review.
+nothing need start the review again. Without that wait every note would queue
+behind a batch: a hand's notes would take twenty seconds rather than two or
+three, and on a slow device any note could pass its deadline. With it, only
+the first note can queue behind a batch, the one already sent, whichever was
+opened first, and the notes after it behind none. The wait spares those later
+notes, not the first. A request's deadline is its own: twenty seconds for a
+note and forty for a batch of eight, from when it is sent, or once the network
+is loaded if it is not yet, so its time in the queue counts against it. The
+first note still passes its deadline where what is left of the batch ahead of
+it and its own position take over twenty seconds together, as they can from
+about 2.2 seconds a position, and that ends the worker and fails every request
+still waiting on it. The notes then say that the trained opponent did not
+answer in time. If the review's batch is still running, as it can be from 2.5
+seconds a position, the review stops too, saying the same; if not, it had its
+answer, and only the notes fail. The notes say they have stopped however they
+stop: answered, failed, out of time, closed, left for another mode, or turned
+to Club; and a review stopped or closed while it waits stops waiting at once.
+The next deal's Trained opponents go first another way: **Next hand** stops
+the review.
 
 ## Saved matches
 
