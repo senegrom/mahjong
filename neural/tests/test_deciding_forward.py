@@ -2,9 +2,11 @@
 opponents' hands, which only the learning step reads, is left out, and the
 logits and the value it decides by are bit for bit `everything`'s, eagerly
 on the processor and on the card, its weights cast once or not. A forward a
-trainer compiled is still asked for all of it."""
+trainer compiled is still asked for all of it, and the compiler traces the
+deciding forward whole."""
 
 from contextlib import nullcontext
+import copy
 import unittest
 from unittest.mock import patch
 
@@ -121,6 +123,30 @@ class DecidingForwardTests(unittest.TestCase):
         self.assertEqual(asked, [(2, {}), (2, {})])
         same_bits(self, logits, want_logits)
         same_bits(self, value, want_value)
+
+    def test_a_copy_still_leaves_the_reading_out(self):
+        """The playing copy is a deep copy of the learner: the forward
+        beneath it is its own method, bound to it, and it decides without
+        the reading of the hands as the learner does."""
+        net = copy.deepcopy(fusion().eval())
+        ran = []
+        net.ours.belief_stem.register_forward_hook(lambda *_args: ran.append("belief"))
+        sparse, allowed = self.positions[0]
+        with torch.no_grad():
+            net.decision(sparse.dense("cpu"), torch.from_numpy(allowed))
+        self.assertEqual(ran, [])
+
+    def test_the_compiler_traces_it_whole(self):
+        """One graph, unbroken, wherever it is compiled. The cloud's torch
+        2.8 broke it in three where it compared the forward beneath with
+        the networks' own method."""
+        net = fusion(8, 1).eval()
+        sparse, allowed = self.positions[0]
+        torch._dynamo.reset()
+        self.addCleanup(torch._dynamo.reset)
+        with torch.no_grad():
+            explained = torch._dynamo.explain(net.decision)(sparse.dense("cpu"), torch.from_numpy(allowed))
+        self.assertEqual((explained.graph_count, explained.graph_break_count), (1, 0))
 
     def test_seated_asks_are_answered_as_before(self):
         games = 8

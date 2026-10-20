@@ -382,8 +382,16 @@ class Combined(nn.Module):
         A forward a trainer has compiled (`backbones_forward`) is asked for
         all of it, as it always was: a graph without the hands would be
         another graph, and the compiler's answers from it can differ in
-        their last bits."""
-        if self.backbones_forward == self.backbones:
+        their last bits.
+
+        Whether it has is asked of the function the forward calls, which
+        is the networks' own method's while nothing has been put in its
+        place. Asked by comparing the two bound methods, as it was, the
+        compiler of the cloud's torch 2.8 could not tell, broke its graph
+        there and compiled what followed a frame at a time, the networks
+        beneath, the head and the judge each a graph of their own: so play's
+        bigger questions were answered with --compile-play."""
+        if getattr(self.backbones_forward, "__func__", None) is Combined.backbones:
             phi, q, features, a1, value, _guessed = self.backbones(planes, legal, hands=False)
         else:
             phi, q, features, a1, value, _guessed = self.backbones_forward(planes, legal)
