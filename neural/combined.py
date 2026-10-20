@@ -188,11 +188,6 @@ class Combined(nn.Module):
     #: first question, from the follower's preview of the reach; see
     #: `zoo.choose_in_mortal_space`. As the learner it is told by `decide`.
     preview_reach = False
-    #: Whether deciding keeps Mortal's vector of every decision in its
-    #: records, for a generation that learns from it rather than running
-    #: Mortal again (`train_combined --reuse-phi`). A trainer turns it on
-    #: for the rounds that will read it.
-    keep_phi = False
     #: What deciding and a seated player's questions ask instead of
     #: `decision`, when a trainer has small questions answered from CUDA
     #: graphs (`play_graphs.graphed`); None asks `decision` itself.
@@ -350,8 +345,9 @@ class Combined(nn.Module):
         given, is Mortal's vector of each row, already known: in a
         generation that holds Mortal still it is the same function of the
         same planes all generation, so the learning step can take it from
-        play instead of running Mortal on every minibatch (see
-        `train_combined --reuse-phi`)."""
+        the pass that values the round before it is learned instead of
+        running Mortal on every minibatch (see `train_combined
+        --reuse-phi`)."""
         if phi is None:
             phi, q, features, a1, value, guessed = self.backbones_forward(planes, legal)
         else:
@@ -377,7 +373,11 @@ class Combined(nn.Module):
         is a tower of its own over the planes and the head above it, a few
         per cent of the forward. The logits and the value come from the
         same kernels on the same inputs either way, so they are bit for bit
-        `everything`'s.
+        `everything`'s. The baseline pass asks it too, compiled by a
+        trainer that compiles its learning step (see
+        `train_combined.pass_forward`), for the value, the logits the drift
+        guard counts from and, in a generation that holds Mortal still,
+        the vector the learning step then reads instead of running Mortal.
 
         A forward a trainer has compiled (`backbones_forward`) is asked for
         all of it, as it always was: a graph without the hands would be
@@ -435,18 +435,13 @@ class Combined(nn.Module):
     ):
         """One of our engine's actions per row, and what the policy decided
         to get there, with the value its head gave each decision: the
-        fusion's judgement, the one the baseline pass reads; and, with
-        `keep_phi`, Mortal's vector of each. Its moves are Mortal's, so a
-        riichi is answered in two steps and both are recorded; with
-        `preview_reach`, from one forward; drawn from `generator` when one
-        is given (see `mortal_learner.decide_in_mortal_space`)."""
-
-        def score(planes: torch.Tensor, mask: torch.Tensor):
-            answer = (self.deciding or self.decision)(planes, mask)
-            return answer if self.keep_phi else answer[:2]
-
+        fusion's judgement, the one the baseline pass reads. Its moves are
+        Mortal's, so a riichi is answered in two steps and both are
+        recorded; with `preview_reach`, from one forward; drawn from
+        `generator` when one is given (see
+        `mortal_learner.decide_in_mortal_space`)."""
         return mortal_learner.decide_in_mortal_space(
-            score,
+            lambda planes, mask: (self.deciding or self.decision)(planes, mask)[:2],
             views,
             rows,
             players,

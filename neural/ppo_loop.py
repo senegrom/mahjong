@@ -18,6 +18,7 @@ import bisect
 from concurrent.futures import Future, ThreadPoolExecutor
 import contextlib
 import json
+import math
 import os
 import threading
 import time
@@ -266,7 +267,10 @@ def room_on_card(wanted: int, device: str | torch.device, spare: int | None = No
     played ahead the round's as well (`PlayAhead`). Read from the driver
     alone, a005's card from generation 1211 had room for Mortal's vectors,
     3.2 GB, in two of the six generations that could have kept them, while
-    no generation had allocated more than 15.2 GB of the card's 46."""
+    no generation had allocated more than 15.2 GiB of the card's 44.4. On
+    an L40S beside a round of 4,096 games, after the step's peak, the
+    driver had 23.6 GiB free, 0.6 past the vectors and the spare, while
+    the allocator held 18.3 GiB it was not using."""
     device = torch.device(device)
     if spare is None:
         spare = step_spare()
@@ -276,19 +280,19 @@ def room_on_card(wanted: int, device: str | torch.device, spare: int | None = No
 
 
 def kept_on_card(
-    tensor: torch.Tensor, device: str | torch.device, spare: int | None = None
+    shape: tuple[int, ...], dtype: torch.dtype, device: str | torch.device, spare: int | None = None
 ) -> torch.Tensor | None:
-    """`tensor` on `device` when that is the processor, or a card with
-    room for it and `spare` bytes to spare afterwards for the learning
-    step (`room_on_card`), as for a round's planes (see
+    """A tensor of `shape` and `dtype`, not yet written, to keep on
+    `device` beside the learning step, as the pass keeps Mortal's vectors
+    there (`train_combined --reuse-phi`): on the processor always, and on
+    a card when it has room for it and `spare` bytes to spare afterwards
+    for the step (`room_on_card`), as for a round's planes (see
     `observe.resident`, whose sixteen gigabytes and `RESIDENT_SPARE_GB`
     this shares, `step_spare`); None when the card has no such room."""
     device = torch.device(device)
-    if device.type != "cuda":
-        return tensor.to(device)
-    if not room_on_card(tensor.numel() * tensor.element_size(), device, spare):
+    if device.type == "cuda" and not room_on_card(math.prod(shape) * dtype.itemsize, device, spare):
         return None
-    return tensor.to(device)
+    return torch.empty(shape, dtype=dtype, device=device)
 
 
 def baseline_of(
@@ -416,17 +420,15 @@ class PlayAhead:
         """The round being played, or None."""
         return None if self.round is None else self.round[0]
 
-    def start(self, generation: int, keep_phi: bool = False) -> None:
+    def start(self, generation: int) -> None:
         """Begins round `generation`, played by the learner's weights as
-        they stand now, keeping Mortal's vector of each decision with
-        `keep_phi` (see `Combined.keep_phi`)."""
+        they stand now."""
         if self.round is not None:
             raise RuntimeError(f"round {self.round[0]} is still being played")
         # Copied on the learner's stream, which the round's waits for before
         # it reads them. The round never reads the learner's own weights,
         # so the learning may move them meanwhile.
         self.actor.load_state_dict(self.learner.state_dict())
-        self.actor.keep_phi = keep_phi
         if self.stream is not None:
             self.stream.wait_stream(torch.cuda.current_stream(self.device))
         self.round = (generation, self.worker.submit(self._play, generation))

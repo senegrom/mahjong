@@ -7,10 +7,10 @@ meanwhile. What stops a round is raised where it is taken, a round still
 being played when the learning fails is given up, nothing is played past
 the last generation, play's values are the baseline only where they are
 the learner's own, the drift guard counts a round played ahead from the
-learner as it stands, Mortal's vectors are learned from only where they are
-the learner's Mortal's and kept only where they will be read, the round
-leaves the learning's autocast casts alone, and a run resumes from what
-either way of playing wrote."""
+learner as it stands, every generation that holds Mortal still learns from
+the vectors the pass kept, whatever was played before it, the round leaves
+the learning's autocast casts alone, the worker asks nothing compiled, and
+a run resumes from what either way of playing wrote."""
 
 import contextlib
 import copy
@@ -35,6 +35,7 @@ from neural.observe import Planes
 from neural.tests import test_mixed_tables
 from neural.tests.test_baseline_from_play import varied
 from neural.tests.test_bfloat16_players import fusion
+from neural.tests.test_compiled_learning import compiler_settings_kept
 from neural.tests.test_preview_reach import Steered
 from neural.training_state import round_seed
 
@@ -48,9 +49,9 @@ def generation_of(seed: int) -> int:
     return (seed - SEED) // (1 << 32) - 1
 
 
-def fake_round(values=None, phi: bool = False):
-    """A round of eight decisions with known returns, and the values and
-    vectors play kept when given."""
+def fake_round(values=None):
+    """A round of eight decisions with known returns, and the values play
+    kept when given."""
     n = 8
     planes = Planes(np.arange(n + 1, dtype=np.int64), np.zeros(n, dtype=np.uint16),
                     np.ones(n, dtype=np.float16))
@@ -58,8 +59,7 @@ def fake_round(values=None, phi: bool = False):
         decisions=n, observations=planes, legal=torch.ones(n, 46, dtype=torch.bool),
         actions=torch.zeros(n, dtype=torch.int64), returns=torch.linspace(-1, 1, n),
         log_probs=torch.zeros(n), held=torch.full((n, 3, 34), 1 / 34),
-        games=1, hands=1, timing={}, values=values,
-        phi=torch.ones(n, 1024) if phi else None)
+        games=1, hands=1, timing={}, values=values)
 
 
 class Rounds:
@@ -78,11 +78,10 @@ class Rounds:
         self.calls.append(SimpleNamespace(
             generation=generation, thread=threading.current_thread().name,
             head={name: value.detach().clone() for name, value in player.fuse.state_dict().items()},
-            keep_phi=player.keep_phi, own_draws=options.get("own_draws", False),
-            abandon=options.get("abandon")))
+            own_draws=options.get("own_draws", False), abandon=options.get("abandon")))
         if self.then is not None:
             self.then(generation, options)
-        return fake_round(self.values, phi=player.keep_phi)
+        return fake_round(self.values)
 
 
 class Behaved(Rounds):
@@ -252,14 +251,13 @@ class PlayAheadTests(unittest.TestCase):
         def play(player, generation, **options):
             # Read only once the learner has moved on.
             self.assertTrue(go.wait(10))
-            seen.append((generation, player.weight.clone(), player.keep_phi, options,
-                         threading.current_thread().name))
+            seen.append((generation, player.weight.clone(), options, threading.current_thread().name))
             return "round"
 
         ahead = ppo_loop.PlayAhead(self.learner, self.actor, "cpu", play)
         self.addCleanup(ahead.close)
         weight = self.learner.weight.detach().clone()
-        ahead.start(4, keep_phi=True)
+        ahead.start(4)
         self.assertEqual(ahead.playing, 4)
         with torch.no_grad():
             self.learner.weight.add_(1.0)
@@ -269,10 +267,9 @@ class PlayAheadTests(unittest.TestCase):
         self.assertIsNone(ahead.playing)
         self.assertGreaterEqual(played, 0.0)
         self.assertGreaterEqual(waited, 0.0)
-        ((generation, held, kept, options, thread),) = seen
+        ((generation, held, options, thread),) = seen
         self.assertEqual(generation, 4)
         self.assertTrue(torch.equal(held, weight))
-        self.assertTrue(kept)
         self.assertIs(options["own_draws"], True)
         self.assertIs(options["abandon"], ahead.abandon)
         self.assertTrue(thread.startswith("play-ahead"), thread)
@@ -280,7 +277,6 @@ class PlayAheadTests(unittest.TestCase):
         ahead.start(5)
         ahead.take(5)
         self.assertTrue(torch.equal(seen[-1][1], self.learner.weight.detach()))
-        self.assertFalse(seen[-1][2])
 
     def test_what_stops_a_round_is_raised_where_it_is_taken(self):
         def play(_player, generation, **_options):
@@ -581,17 +577,15 @@ class TrainerTests(unittest.TestCase):
                 if flags:
                     self.assertEqual([record["played_ahead"] for record in records], [False, True, True])
 
-    def test_mortals_vectors_are_learned_from_only_where_nothing_moved_mortal_since_the_round_began(self):
-        """Modes none, mortal, mortal, ours, mortal, mortal+head. The first
-        round is the learner's own in a generation that moves Mortal, so
-        its vectors are not kept. The second was begun before the first
-        generation's learning, which moved Mortal; the fifth before the
-        fourth's, likewise: neither keeps its vectors, though each is
-        learned in a generation that holds Mortal still. The third and the
-        sixth were begun in generations that held Mortal still and are
-        learned in such generations, so theirs are kept and learned from.
-        The fourth was begun in such a generation too, but its own trains
-        Mortal, so it would never read them, and they are not kept."""
+    def test_every_generation_that_holds_mortal_still_learns_from_the_vectors_its_pass_kept(self):
+        """Modes none, mortal, mortal, ours, mortal, mortal+head. The pass
+        that values each round works Mortal's vectors out with the weights
+        its generation learns with, whatever played the round and whatever
+        the generation before moved, so each of the four that hold Mortal
+        still keeps them and learns from them: the second and the fifth as
+        well, whose rounds were begun before a generation that moved
+        Mortal, and whose vectors play could not have kept. The other two
+        neither keep them nor read them."""
         class Scripted:
             def __init__(self, modes):
                 self.modes = list(modes)
@@ -606,36 +600,36 @@ class TrainerTests(unittest.TestCase):
         def watched(self, planes, legal, phi=None):
             if torch.is_grad_enabled():
                 given.append(phi is not None)
+                if phi is not None:
+                    # Mortal's own, as the generation learns with it.
+                    with torch.no_grad():
+                        torch.testing.assert_close(phi, self.mortal.features(planes), rtol=1e-5, atol=1e-6)
             return everything(self, planes, legal, phi)
 
         spares = []
 
-        def kept_on_card(tensor, device, spare=None):
+        def kept_on_card(shape, dtype, device, spare=None):
             spares.append(spare)
-            return tensor
+            return torch.empty(shape, dtype=dtype)
 
         resident = []
-        rounds = Rounds()
         modes = ["none", "mortal", "mortal", "ours", "mortal", "mortal+head"]
         records = Trainer(self).run(
             ["--play-ahead", "--reuse-phi", "--fixed", "none", "mortal", "ours", "mortal+head"], rounds=6,
-            play=rounds,
             patches=[
                 patch.object(train_combined, "restore_random_state", return_value=Scripted(modes)),
                 patch.object(combined.Combined, "everything", watched),
                 patch.object(ppo_loop, "kept_on_card", side_effect=kept_on_card),
                 patch.object(ppo_loop, "resident", side_effect=lambda *args: resident.append(args)),
             ])
-        # Each generation's mode is the one drawn for it: looking at the next
-        # took nothing from the drawer.
         self.assertEqual([record["fixed"] for record in records], modes)
-        self.assertEqual([call.keep_phi for call in rounds.calls], [False, False, True, False, False, True])
+        self.assertEqual([record["played_ahead"] for record in records], [False] + [True] * 5)
         # Two minibatches a generation.
-        self.assertEqual(given, [False, False, False, False, True, True, False, False, False, False, True, True])
-        self.assertEqual([record["reused_phi"] for record in records], [False, False, True, False, False, True])
+        self.assertEqual(given, [False, False, True, True, True, True, False, False, True, True, True, True])
+        self.assertEqual([record["reused_phi"] for record in records], [False, True, True, False, True, True])
         # On the card only with the round's room to spare too; the planes
         # are never put there beside a round being played.
-        self.assertEqual(spares, [ppo_loop.step_spare() + (ppo_loop.AHEAD_SPARE_GB << 30)] * 2)
+        self.assertEqual(spares, [ppo_loop.step_spare() + (ppo_loop.AHEAD_SPARE_GB << 30)] * 4)
         self.assertEqual(resident, [])
 
     def test_a_run_resumes_from_what_either_way_of_playing_wrote(self):
@@ -771,6 +765,34 @@ class RealRoundTests(unittest.TestCase):
             alone = selfplay.measure(net, games=1, seed=7_000_000 + generation, device="cpu")
             self.assertEqual(records[generation]["placement"], round(alone["placement"], 3))
             self.assertEqual(records[generation]["score"], round(alone["score"], 1))
+
+    def test_the_worker_asks_nothing_compiled(self):
+        """The learner's compiled forwards, the learning step's and the
+        pass's, are asked on the main thread alone, the pass's compiled for
+        each mode the first time it is drawn, while the next round is being
+        played on the worker. FX keeps one flag for the whole process while
+        it traces a forward, and a compiled forward asked on the worker
+        meanwhile refuses to run; play's own answer eagerly then (see
+        `play_graphs.Graphed`), and the worker asks nothing else compiled."""
+        torch.set_num_threads(2)
+        asked = []
+
+        def recording(function, **_options):
+            name = function.__name__
+
+            def compiled(*args, **kwargs):
+                asked.append((name, threading.current_thread().name))
+                return function(*args, **kwargs)
+
+            return compiled
+
+        with compiler_settings_kept(), patch.object(torch, "compile", recording):
+            _played, _payloads, records = self.train(
+                ["--play-ahead", "--compile-learning", "--reuse-phi", "--fixed", "mortal", "none"], rounds=3,
+                measure_every=100)
+        self.assertEqual([record["played_ahead"] for record in records], [False, True, True])
+        self.assertEqual({name for name, _thread in asked}, {"everything", "decision"})
+        self.assertEqual({thread for _name, thread in asked}, {threading.main_thread().name})
 
     def test_a_resumed_run_repeats_itself(self):
         """From a checkpoint written while a round was being played beside

@@ -46,25 +46,16 @@ def varied(net):
 
 class Taught:
     """A joined player that plays the heuristic player's moves: its forward
-    is asked, by the very path a learner decides by, and its values and
-    vectors recorded, but the logits it chooses from are the heuristic
-    player's. A random network seldom holds a closed ready hand, and the
-    heuristic player declares riichi often, so a round has many second
-    steps. `keep_phi` is passed on to the network."""
+    is asked, by the very path a learner decides by, and its values
+    recorded, but the logits it chooses from are the heuristic player's. A
+    random network seldom holds a closed ready hand, and the heuristic
+    player declares riichi often, so a round has many second steps."""
 
     kind = "mortal"
 
     def __init__(self, net) -> None:
         self.net = net
         self.timing: dict = {}
-
-    @property
-    def keep_phi(self) -> bool:
-        return getattr(self.net, "keep_phi", False)
-
-    @keep_phi.setter
-    def keep_phi(self, value: bool) -> None:
-        self.net.keep_phi = value
 
     def eval(self):
         self.net.eval()
@@ -85,9 +76,8 @@ class Taught:
 
         def score(planes, mask):
             # What `Combined.decide` records of the forward: the logits and
-            # the value, and Mortal's vector when it keeps it.
-            answer = self.net.decision(planes, mask)
-            answer = answer if self.keep_phi else answer[:2]
+            # the value.
+            answer = self.net.decision(planes, mask)[:2]
             if not asked:
                 wanted = TO_MORTAL[taught]
                 if len(mask) > len(taught):
@@ -219,13 +209,10 @@ class RoundTests(unittest.TestCase):
         # Values that differ row from row, so one out of its place shows.
         self.assertGreater(float(guess.std()), 0.05)
         torch.testing.assert_close(batch.values, guess, rtol=1e-5, atol=1e-5)
-        # The joined player's own self-play keeps them too, and Mortal's
-        # vectors only when asked (see test_reuse_phi).
+        # The joined player's own self-play keeps them too.
         own = selfplay.play(net, games=1, seed=42, device="cpu")
         self.assertEqual(own.values.shape, (own.decisions,))
         torch.testing.assert_close(own.values, passed(net, own, "cpu"), rtol=1e-5, atol=1e-5)
-        self.assertIsNone(batch.phi)
-        self.assertIsNone(own.phi)
 
     @unittest.skipUnless(CUDA, "mixed precision is the card's")
     def test_on_the_card_the_copy_values_as_the_learners_pass(self):
