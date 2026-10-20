@@ -1,0 +1,55 @@
+name: Prepare approved Dali eight-disk cupboard
+on:
+  push:
+    branches:
+      - design/dali-eight-disks-cabinet-c-20261020
+permissions:
+  contents: write
+concurrency:
+  group: prepare-dali-eight-cabinet
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: design/dali-eight-disks-cabinet-c-20261020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Import approved cupboard C and verify all prior artwork
+        run: python3 .dali-eight-cabinet-transfer/prepare.py
+      - name: Lint all changed JavaScript
+        run: |
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          files = json.loads(Path('.dali-eight-cabinet-transfer/lint-files.json').read_text())
+          subprocess.run(['npx', 'eslint', *files, '--max-warnings', '0'], cwd='web', check=True)
+          PY
+      - name: Tile, artist, proportions and offline regressions
+        working-directory: web
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          tests = sorted(str(p) for p in Path('tests').glob('*.test.js') if any(k in p.name for k in ('tile', 'van-gogh', 'dali', 'matisse', 'face-fit', 'proportion', 'offline')))
+          print('Running:', *tests, flush=True)
+          subprocess.run(['node', '--test', *tests], check=True)
+          PY
+      - name: Commit verified cupboard and remove temporary preparation
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/design/dali/README.md docs/design/dali/eight-disks.json docs/design/dali/studies/eight-disks-c-cabinet-approved.svg docs/design/dali/studies/eight-disks-c-cabinet-hires.avif web/public/tiles/dali/approved/Pin8.svg web/public/tiles/dali/manifest.json web/public/tiles/dali/preview.html web/scripts/export-dali-tiles.mjs web/src/lib/dali-faces.js web/tests/dali-*.test.js web/tests/tile-faces.test.js
+          git rm -r .dali-eight-cabinet-transfer .github/workflows/prepare-dali-eight-cabinet.yml
+          git diff --cached --check
+          git commit -m 'Install approved cupboard C as Dali 8 disks; preserve all other artwork'
+          git push origin HEAD:design/dali-eight-disks-cabinet-c-20261020
