@@ -8,7 +8,9 @@ stream, as the learning does; a whole round played from graphs is the
 round played eagerly at the padded sizes, with every graph recorded before
 it; and everything else, the processor, float32, gradients, training,
 bigger batches, is answered eagerly as before. Off unless a trainer is
-told, and refused with the compiled player."""
+told, and refused with the compiled player. With --compile-play the bigger
+questions are answered by the forward compiled before play, once, for every
+size, and anything it was not compiled for eagerly."""
 
 import contextlib
 import copy
@@ -367,6 +369,62 @@ class GraphTests(unittest.TestCase):
         forwards[1].prepare("cuda")
         self.assertGreater(play_graphs.held(forwards), one + inputs)
 
+    def test_bigger_questions_are_answered_by_the_forward_compiled_once(self):
+        """Compiled in `prepare`, at two sizes above the graphs', and asked
+        at others after without compiling again; the small questions still
+        from graphs; anything else, the planes in another dtype, autocast
+        in float16, weights put elsewhere, a copy, eagerly."""
+        from torch._dynamo.utils import counters
+
+        for name, net, forward_of in networks():
+            if name == "reheaded":
+                continue
+            player = policy_inference.precast(copy.deepcopy(net))
+            deciding = forward_of(player)
+            graphed = play_graphs.Graphed(deciding, player, compiled=True)
+            self.assertIsNone(graphed.big)
+            graphed.prepare("cuda")
+            self.assertIsNotNone(graphed.big)
+            self.assertGreater(graphed.compile_seconds, 0.0)
+            compiled = counters["stats"]["unique_graphs"]
+            with self.subTest(player=name), torch.no_grad(), policy_inference.autocast("cuda"):
+                for n in (600, 777, 1300):
+                    planes, mask = questions(n, n)
+                    got = parts(graphed(planes, mask))
+                    want = parts(graphed.big(planes, mask))
+                    eager = parts(deciding(planes, mask))
+                    for one, two, three in zip(got, want, eager):
+                        self.assertTrue(torch.equal(bits(one), bits(two)))
+                        self.assertTrue(torch.allclose(one.float(), three.float(), rtol=0.05, atol=0.05))
+                self.assertEqual(counters["stats"]["unique_graphs"], compiled)
+                self.assertEqual(graphed.compiled_answers, 3)
+                replays = graphed.replays
+                planes, mask = questions(40, 3)
+                graphed(planes, mask)
+                self.assertEqual(graphed.replays, replays + 1)
+                # Planes in bfloat16 were never what it was compiled for.
+                planes, mask = questions(700, 4)
+                got = parts(graphed(planes.bfloat16(), mask))
+                want = parts(deciding(planes.bfloat16(), mask))
+                for one, two in zip(got, want):
+                    self.assertTrue(torch.equal(bits(one), bits(two)))
+                self.assertEqual(graphed.compiled_answers, 3)
+            with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
+                got = parts(graphed(planes, mask))
+                want = parts(deciding(planes, mask))
+            for one, two in zip(got, want):
+                self.assertTrue(torch.equal(bits(one), bits(two)))
+            twin = copy.deepcopy(graphed)
+            self.assertIsNone(twin.big)
+            graphed.forget()
+            with torch.no_grad(), policy_inference.autocast("cuda"):
+                got = parts(graphed(planes, mask))
+                want = parts(deciding(planes, mask))
+            for one, two in zip(got, want):
+                self.assertTrue(torch.equal(bits(one), bits(two)))
+            self.assertEqual(graphed.compiled_answers, 3)
+            self.assertEqual(counters["stats"]["unique_graphs"], compiled)
+
     def test_a_copy_answers_by_its_own_weights(self):
         torch.manual_seed(67)
         net = policy_inference.precast(varied(fusion(16, 2)).cuda().eval())
@@ -459,9 +517,19 @@ class SwitchTests(unittest.TestCase):
             paths = checkpoints(Path(folder))
             opponents = [paths["mortal"], paths["reheaded"], paths["fused"], paths["ours, our moves"], "club"]
             device = "cuda" if CUDA else "cpu"
-            for options in ({}, {"play_graphs": False}, {"play_graphs": True}):
+            compiled = []
+
+            def compile(forward, dynamic):
+                # Stands in for the compiler, which is not what is tested here.
+                compiled.append(dynamic)
+                return forward
+
+            for options in ({}, {"play_graphs": False}, {"play_graphs": True},
+                            {"play_graphs": True, "compile_play": True}):
                 args = SimpleNamespace(opponents=opponents, compile=False, **options)
-                seated = ppo_loop.load_others(args, device)
+                compiled.clear()
+                with patch.object(play_graphs.torch, "compile", side_effect=compile):
+                    seated = ppo_loop.load_others(args, device)
                 found = play_graphs.graphs_of(seated)
                 with self.subTest(**options):
                     if options.get("play_graphs") and CUDA:
@@ -474,19 +542,25 @@ class SwitchTests(unittest.TestCase):
                         self.assertIs(seated[2].deciding.module, seated[2])
                         # Recorded over the weights as cast for play.
                         self.assertEqual(seated[0].net.brain.encoder.net[0].weight.dtype, torch.bfloat16)
+                        # Compiled, with the batch's size left symbolic, before play.
+                        asked = options.get("compile_play", False)
+                        self.assertEqual(compiled, [True] * 3 if asked else [])
+                        self.assertEqual([forward.big is not None for forward in found], [asked] * 3)
                     else:
                         self.assertEqual(found, [])
+                        self.assertEqual(compiled, [])
         self.assertIsNone(combined.Combined.deciding)
 
     def test_the_trainer_plays_from_graphs_with_the_player_that_plays(self):
         """train_combined graphs its playing copy where it has one, the
         learner itself where it plays its own rounds; on the device the
         trainer chose, only when told."""
-        for flags in ([], ["--play-graphs"], ["--play-graphs", "--play-ahead"]):
+        for flags in ([], ["--play-graphs"], ["--play-graphs", "--play-ahead"],
+                      ["--play-graphs", "--play-ahead", "--amp", "--compile-play"]):
             graphed, played = [], []
 
-            def graph(player, device, amp):
-                graphed.append((player, device, amp))
+            def graph(player, device, amp, compile=False):
+                graphed.append((player, device, amp, compile))
                 return player
 
             def play(player, **_options):
@@ -511,8 +585,8 @@ class SwitchTests(unittest.TestCase):
                     train_combined.main()
                 records = [json.loads(line) for line in (out / "log.jsonl").read_text().splitlines()]
                 if flags:
-                    ((player, device, amp),) = graphed
-                    self.assertEqual((device, amp), ("cpu", False))
+                    ((player, device, amp, compile),) = graphed
+                    self.assertEqual((device, amp, compile), ("cpu", False, "--compile-play" in flags))
                     self.assertTrue(all(one is player for one in played))
                     for record in records:
                         self.assertEqual(
@@ -534,6 +608,16 @@ class SwitchTests(unittest.TestCase):
             train_combined.parse_args()
         with patch.object(sys, "argv", ["trainer", "--play-graphs", "--compile-learning", "--play-ahead"]):
             self.assertTrue(train_combined.parse_args().play_graphs)
+            self.assertFalse(train_combined.parse_args().compile_play)
+        # The compiled forwards answer only beside graphs, in bfloat16.
+        for flags in (["--compile-play"], ["--compile-play", "--amp"], ["--compile-play", "--play-graphs"]):
+            with self.subTest(flags=flags), patch.object(sys, "argv", ["trainer", *flags]), \
+                    contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit):
+                train_combined.parse_args()
+            self.assertIn("--compile-play", err.getvalue())
+        with patch.object(sys, "argv", ["trainer", "--play-graphs", "--amp", "--compile-learning", "--play-ahead",
+                                        "--compile-play"]):
+            self.assertTrue(train_combined.parse_args().compile_play)
         # train_mortal has no such switch: the cloud always compiles its
         # learner, which the graphs would have had to record.
         with patch.object(sys, "argv", ["trainer", "--play-graphs"]), \
@@ -551,6 +635,12 @@ class SwitchTests(unittest.TestCase):
         self.assertIn("--compile-learning", command)
         with self.assertRaisesRegex(ValueError, "play_graphs"):
             launch(self, "train_combined", play_graphs=True)
+        self.assertNotIn("--compile-play", launch(self, "train_combined", play_graphs=True, compile_learning=True))
+        command = launch(self, "train_combined", play_graphs=True, compile_learning=True, compile_play=True)
+        self.assertIn("--compile-play", command)
+        self.assertIn("--amp", command)
+        with self.assertRaisesRegex(ValueError, "compile_play"):
+            launch(self, "train_combined", compile_learning=True, compile_play=True)
 
 
 @unittest.skipUnless(CUDA, "CUDA graphs are the card's")
@@ -579,8 +669,9 @@ class TrainerOnTheCardTests(unittest.TestCase):
     def test_the_trainer_plays_from_graphs(self):
         """Every size of the playing copy's and of the seated Mortal's
         recorded before the first round, and nothing more, beside the
-        learning or not."""
-        for flags in ([], ["--play-ahead"]):
+        learning or not; with --compile-play their forwards compiled before
+        it too, and said."""
+        for flags in ([], ["--play-ahead"], ["--play-ahead", "--compile-learning", "--compile-play"]):
             with self.subTest(flags=flags):
                 records, printed = self.run_trainer(flags)
                 self.assertEqual([record["generation"] for record in records], [0, 1, 2])
@@ -592,6 +683,12 @@ class TrainerOnTheCardTests(unittest.TestCase):
                 for record in records:
                     self.assertGreaterEqual(record["graph_seconds"], 0.0)
                     self.assertGreater(record["graph_gb"], 0.0)
+                    if "--compile-play" in flags:
+                        self.assertGreater(record["play_compile_seconds"], 0.0)
+                        # Two tables never ask more than the graphs hold.
+                        self.assertEqual(record["compiled_answers"], 0)
+                    else:
+                        self.assertNotIn("play_compile_seconds", record)
 
 
 if __name__ == "__main__":

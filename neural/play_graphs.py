@@ -33,6 +33,16 @@ rows in ten had a logit moved by a bit or two, its policy moved by 0.0005
 in total variation on average and by 0.018 at most, and about one best
 move in two thousand turned, for it and for the Mortal alike. So it is a
 switch, off unless a trainer is told.
+
+With `--compile-play` a question bigger than the largest graph is answered
+by the forward compiled (`torch.compile`, the batch's size left symbolic)
+instead of eagerly. On an L40S the joined player's forward at 2,048 rows
+took 62.6 ms compiled against 121.2 eagerly, and a seated Mortal's 23.4
+against 38.2 (20 October 2026), and once the encoder was made faster the
+card was what held a generation up. The compiled forward answers in other
+last bits than the eager one, as a graph's padded size can. It is compiled
+and warmed with the graphs, before play begins (see `Graphed.prepare`), so
+that no round compiles anything on its worker beside the learning.
 """
 
 from __future__ import annotations
@@ -110,12 +120,29 @@ class Graphed:
     Each question is copied into the graph's own inputs, and its answer
     out of the graph's before it is handed back, since the next launch
     writes over it. A player's graphs share their memory, which is safe as
-    each answer is copied out before another graph is launched."""
+    each answer is copied out before another graph is launched.
 
-    def __init__(self, forward, module: nn.Module, rows: tuple[int, ...] = ROWS) -> None:
+    With `compiled`, a question bigger than the largest graph is answered by
+    the forward compiled with the batch's size left symbolic, made and
+    warmed by `prepare`, on the thread that records the graphs: only a
+    question of the kind it was warmed with, as play asks (Mortal's planes
+    in float32 and their masks), and never one of a single row, which the
+    compiler would specialise and compile again. Anything else, a question
+    before `prepare` and one after the weights were put somewhere else
+    (`forget`) among them, is answered eagerly, so nothing is compiled
+    where play asks, on a worker beside the learning (`--play-ahead`). A
+    copy compiles nothing: it answers its bigger questions eagerly."""
+
+    def __init__(self, forward, module: nn.Module, rows: tuple[int, ...] = ROWS,
+                 compiled: bool = False) -> None:
         self.forward = forward
         self.module = module
         self.rows = tuple(sorted(rows))
+        self.compiled = compiled
+        # The compiled forward once `prepare` has made it, and the kind of
+        # question it was warmed with.
+        self.big = None
+        self.big_kind: tuple | None = None
         # Recorded graphs and the answers they write, by size and by the
         # kind of question.
         self.graphs: dict[tuple, tuple[torch.cuda.CUDAGraph, object]] = {}
@@ -130,24 +157,33 @@ class Graphed:
         self.tensors: list[torch.Tensor] = []
         self.places: list[int] = []
         #: How long recording took, in seconds, and how many questions were
-        #: answered from a graph.
+        #: answered from a graph; how long compiling took, and how many were
+        #: answered by the compiled forward.
         self.seconds = 0.0
         self.replays = 0
+        self.compile_seconds = 0.0
+        self.compiled_answers = 0
 
     def __deepcopy__(self, memo) -> Graphed:
         """A copy of the module answers through graphs of its own, recorded
-        when it is first asked: these read this module's weights."""
+        when it is first asked: these read this module's weights. It
+        compiles nothing, as that too would be where it is first asked."""
         return Graphed(copy.deepcopy(self.forward, memo), copy.deepcopy(self.module, memo), self.rows)
 
     def __call__(self, planes: torch.Tensor, mask: torch.Tensor):
         n = planes.shape[0]
-        if (not planes.is_cuda or not 0 < n <= self.rows[-1] or torch.is_grad_enabled()
+        if (not planes.is_cuda or n == 0 or torch.is_grad_enabled()
                 or self.module.training or not torch.is_autocast_enabled("cuda")
                 or torch.get_autocast_dtype("cuda") != torch.bfloat16):
             return self.forward(planes, mask)
-        rows = next(size for size in self.rows if size >= n)
         device = planes.device
         kind = (planes.dtype, tuple(planes.shape[1:]), mask.dtype, tuple(mask.shape[1:]), device)
+        if n > self.rows[-1]:
+            if self.big is not None and kind == self.big_kind:
+                self.compiled_answers += 1
+                return self.big(planes, mask)
+            return self.forward(planes, mask)
+        rows = next(size for size in self.rows if size >= n)
         stream = torch.cuda.current_stream(device)
         if self.stream is not None and self.stream != stream:
             # The last question's graph, launched on another stream, reads
@@ -182,7 +218,9 @@ class Graphed:
         """Records a graph of every size now, of a question as play asks
         one: Mortal's planes in float32 and its masks, under autocast in
         bfloat16, the module in evaluation as play has it, and back as it
-        was after."""
+        was after. With `compiled`, compiles the forward for the bigger
+        questions too and asks it twice, at two sizes above the graphs', so
+        that it is compiled here, once, for every size play asks of it."""
         training = self.module.training
         self.module.eval()
         try:
@@ -190,6 +228,17 @@ class Graphed:
                 for rows in self.rows:
                     self(torch.zeros((rows, PLANES, POSITIONS), device=device),
                          torch.ones((rows, MORTAL_ACTIONS), dtype=torch.bool, device=device))
+                if self.compiled and self.big is None:
+                    began = time.perf_counter()
+                    big = torch.compile(self.forward, dynamic=True)
+                    for rows in (self.rows[-1] + 1, 2 * self.rows[-1] + 1):
+                        planes = torch.zeros((rows, PLANES, POSITIONS), device=device)
+                        mask = torch.ones((rows, MORTAL_ACTIONS), dtype=torch.bool, device=device)
+                        big(planes, mask)
+                    self.big = big
+                    self.big_kind = (planes.dtype, tuple(planes.shape[1:]), mask.dtype, tuple(mask.shape[1:]),
+                                     planes.device)
+                    self.compile_seconds += time.perf_counter() - began
         finally:
             self.module.train(training)
 
@@ -230,14 +279,20 @@ class Graphed:
         return graph, answer
 
     def forget(self) -> None:
-        """Lets every graph go, to be recorded again when next asked."""
+        """Lets every graph go, to be recorded again when next asked, and
+        the compiled forward with them: weights put elsewhere, as a cast puts
+        them, would have it compiled again, perhaps on a worker, so the
+        bigger questions are answered eagerly from here on."""
         self.graphs.clear()
         self.pool = None
         self.tensors = []
         self.places = []
+        self.big = None
+        self.big_kind = None
 
 
-def graphed(player, device: str | torch.device, amp: bool, rows: tuple[int, ...] = ROWS):
+def graphed(player, device: str | torch.device, amp: bool, rows: tuple[int, ...] = ROWS,
+            compile: bool = False):
     """`player`, the forward it decides with answered from CUDA graphs
     (see `Graphed`) when it plays on the card in bfloat16: a joined
     player's (`Combined.deciding`), or a seated Mortal's or one of ours's
@@ -249,17 +304,18 @@ def graphed(player, device: str | torch.device, amp: bool, rows: tuple[int, ...]
     heuristic player, which has no network. For a player whose forward
     runs eagerly: a compiled one is not recorded. `rows` are the sizes
     recorded; a ruler that asks every question at one size records that
-    one (see `neural.ruler`).
+    one (see `neural.ruler`). With `compile` the bigger questions are
+    answered by the forward compiled (`--compile-play`).
 
-    Every size is recorded here, before play begins and while nothing else
-    uses the card, so that no graph is recorded beside the learning (see
-    `Graphed`)."""
+    Every size is recorded here, and the forward compiled, before play
+    begins and while nothing else uses the card, so that nothing is
+    recorded or compiled beside the learning (see `Graphed`)."""
     if torch.device(device).type != "cuda" or not amp:
         return player
     if hasattr(player, "deciding"):
-        player.deciding = forward = Graphed(player.decision, player, rows)
+        player.deciding = forward = Graphed(player.decision, player, rows, compiled=compile)
     elif isinstance(getattr(player, "net", None), nn.Module) and hasattr(player, "forward"):
-        player.forward = forward = Graphed(player.forward, player.net, rows)
+        player.forward = forward = Graphed(player.forward, player.net, rows, compiled=compile)
     else:
         return player
     forward.prepare(device)
@@ -282,12 +338,18 @@ def accounts(forwards: list[Graphed]) -> dict:
     """What a trainer says of `forwards`' graphs, as it begins and in each
     generation's record: how many play holds by now, the seconds this
     process has spent recording them, and the card memory they hold, which
-    the learning step no longer has."""
-    return {
+    the learning step no longer has. Where play's bigger questions are
+    compiled (`--compile-play`), the seconds this process spent compiling
+    them and how many questions the compiled forwards have answered."""
+    said = {
         "play_graphs": sum(len(forward.graphs) for forward in forwards),
         "graph_seconds": round(sum(forward.seconds for forward in forwards), 1),
         "graph_gb": round(held(forwards) / (1 << 30), 2),
     }
+    if any(forward.compiled for forward in forwards):
+        said["play_compile_seconds"] = round(sum(forward.compile_seconds for forward in forwards), 1)
+        said["compiled_answers"] = sum(forward.compiled_answers for forward in forwards)
+    return said
 
 
 def held(forwards: list[Graphed]) -> int:

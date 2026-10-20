@@ -86,7 +86,8 @@ def load_others(args, device: str) -> list:
     With `--play-graphs` those that play eagerly on the card answer small
     questions from CUDA graphs (see `play_graphs`), recorded here over the
     weights as cast here, in bfloat16, which is how a seated player asks
-    itself on the card whatever the trainer's --amp.
+    itself on the card whatever the trainer's --amp; with `--compile-play`
+    too, their bigger questions from their forwards compiled here.
     validate_training_options has refused a missing checkpoint already."""
     seated = []
     for path in args.opponents:
@@ -101,7 +102,8 @@ def load_others(args, device: str) -> list:
         if not args.compile:
             other = zoo.play_in_bfloat16(other, device)
             if getattr(args, "play_graphs", False):
-                other = play_graphs.graphed(other, device, amp=True)
+                other = play_graphs.graphed(other, device, amp=True,
+                                            compile=getattr(args, "compile_play", False))
         seated.append(other)
     return seated
 
