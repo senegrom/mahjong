@@ -230,6 +230,9 @@
         You may not win on a discard: a wait is in your own discards, or you have passed a winning discard. You may still win on your own draw.
       </dd>
 
+      <dt>Trained AI's percentages</dt>
+      <dd>How strongly it prefers each move, not a chance of winning.</dd>
+
       <dt>Keys</dt>
       <dd>
         Focus your hand first. An arrow key brings the marker up on the tile you drew, the arrows

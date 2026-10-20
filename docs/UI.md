@@ -598,7 +598,9 @@ Trained AI's choice, the move made in the game and the new one ("Trained AI's
 choice", "In the game", "This time", as the answer's lines and table name
 them). It leads with the five heaviest moves and those it marks; **Show 3
 more moves** shows the rest and stays, as **Show fewer moves**, so focus stays
-on it. For a turn, a table, "What each move leaves", sets out what each of
+on it. The tile guide in the settings says what the weights are, under
+"Trained AI's percentages": how strongly Trained AI prefers each move, not a
+chance of winning. For a turn, a table, "What each move leaves", sets out what each of
 those moves leaves, counted as the hand review counts it: the hand left, the
 unseen tiles that improve it, whether the tile could deal into a declared
 riichi, and its worth as dora (the engine's `review_measure`).

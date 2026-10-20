@@ -191,13 +191,22 @@ test("a review's answer to a discard outlines the tile on offer in the discarder
   assert.deepEqual(outlined(await table({ view: robbing, review: true })), []);
 });
 
-test('the tile guide explains both discard marks, each with its swatch', async () => {
+// The tile guide in the settings, as the page draws it.
+async function tileGuide() {
   const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
     ready: true, busy: false, saveConflict: '', trainedAvailable: false,
     offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
     changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
     onconfirmationchange() {}, onshortcutschange() {} });
-  const guide = settings.slice(settings.indexOf('class="guide'));
+  return settings.slice(settings.indexOf('class="guide'));
+}
+
+test("the tile guide says what Trained AI's percentages are: how strongly it prefers a move, not a chance of winning", async () => {
+  assert.match(await tileGuide(), /<dt[^>]*>Trained AI's percentages<\/dt>\s*<dd[^>]*>How strongly it prefers each move, not a chance of winning\.<\/dd>/);
+});
+
+test('the tile guide explains both discard marks, each with its swatch', async () => {
+  const guide = await tileGuide();
   for (const [swatch, words] of [['from-draw', /darker face[\s\S]*thrown straight from the draw \(tsumogiri\)/],
     ['claimed', /dark green border[\s\S]*claimed the tile for a call/]]) {
     assert.match(guide, new RegExp(`<dt[^>]*><span class="swatch ${swatch}[ "][^>]*></span>`), swatch);
