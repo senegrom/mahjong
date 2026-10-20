@@ -63,6 +63,25 @@ function atHandEnd(snapshot, end) {
   return match;
 }
 
+/** The match as it was saved after its first `count` commands: at a hand's
+ * result where `count` is that hand's end. */
+function savedAfter(snapshot, count) {
+  const match = atHandEnd(snapshot, count);
+  try { return match.snapshot(); } finally { match.dispose(); }
+}
+
+/** A review of `snapshot` whose network notes, in `order`, each hand it is
+ * asked about as the review goes from one hand to the next, and in `sizes`
+ * every batch. */
+function notingReview(snapshot, order, { sizes = [], onComplete } = {}) {
+  const answer = network(sizes);
+  const review = new MatchReview(Game, snapshot, { onComplete, analyzeBatch: (positions, signal) => {
+    if (order.at(-1) !== review.current) order.push(review.current);
+    return answer(positions, signal);
+  } });
+  return review;
+}
+
 test('a finished match replays hand by hand, with the table at every decision and what was chosen there', () => {
   const hands = scanMatch(Game, game);
   const nexts = game.commands.flatMap((command, at) => (command.type === 'next' ? [at] : []));
@@ -93,6 +112,27 @@ test('a finished match replays hand by hand, with the table at every decision an
   const moved = { ...game, state: game.state.replace(/"score":(\d+)/, (_, score) => `"score":${Number(score) + 100}`) };
   assert.throws(() => scanMatch(Game, moved), /could not be replayed/);
   assert.throws(() => scanMatch(Game, { ...game, commands: game.commands.slice(0, -1) }), /could not be replayed/);
+});
+
+test("a match waiting at a hand's result replays to that hand as the finished match has it, and a hand in play is refused", () => {
+  // The tile-throwing game, and one whose player calls every set and quad.
+  for (const finished of [game, finishedGame(16, 'beginner', { calls: true })]) {
+    const whole = scanMatch(Game, finished);
+    for (const hand of [whole[0], whole[2], whole.at(-1)]) {
+      const saved = savedAfter(finished, hand.end), hands = scanMatch(Game, saved);
+      assert.deepEqual(hands, whole.slice(0, hand.index + 1), `seed ${finished.seed}, at the result of ${hand.name}`);
+      // The hand closes where the command that deals the next will go, the
+      // command it closes at once the match has gone on.
+      assert.equal(hands.at(-1).end, saved.commands.length);
+    }
+  }
+  // While a hand is played, and once one is dealt, its tiles are what the
+  // table hides: one move into the first hand, just after the first hand's
+  // result, and before any move at all.
+  const first = game.commands.findIndex(command => command.type === 'choose');
+  for (const count of [first + 1, scanMatch(Game, game)[0].end + 1, 0]) {
+    assert.throws(() => scanMatch(Game, savedAfter(game, count)), /could not be replayed/, `after ${count} commands`);
+  }
 });
 
 test('every hand of a game has a name of its own, a repeated hand told apart by its honba', () => {
@@ -485,6 +525,148 @@ test('a finished review is reported once, with what the trend keeps of it', asyn
     assert.deepEqual(reported, [{ id: `${game.seed}:${game.commands.length}`, matched, decisions,
       flagged: rankDecisions(review.decisions).length }]);
   } finally { review.dispose(); }
+});
+
+test('a review of the game so far asks about the hand just played first, and keeps the game out of the trend', async () => {
+  const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end);
+  const order = [], reported = [];
+  const review = notingReview(saved, order, { onComplete: done => reported.push(done.summary) });
+  try {
+    assert.equal(review.over, false);
+    assert.equal(review.id, `${game.seed}:${hands[2].end}`);
+    review.review();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.deepEqual(order, [2, 0, 1], 'the hand just played, then the rest from the first deal');
+    assert.equal(review.complete, true);
+    assert.deepEqual(reported, [], 'the game so far is not a game for the trend');
+  } finally { review.dispose(); }
+  // A finished game is asked from its first deal.
+  const asked = [], finished = notingReview(game, asked);
+  try {
+    assert.equal(finished.over, true);
+    finished.review();
+    await settled(finished);
+    assert.deepEqual(asked, finished.hands.map(hand => hand.index));
+  } finally { finished.dispose(); }
+});
+
+test('a review taken on to later hands keeps what it reviewed, and asks only about the new hands, the newest first', async () => {
+  const hands = scanMatch(Game, game), later = savedAfter(game, hands[3].end);
+  const order = [], sizes = [];
+  const review = notingReview(savedAfter(game, hands[1].end), order, { sizes });
+  try {
+    review.review();
+    await settled(review);
+    const kept = review.hands.map(hand => hand.decisions);
+    review.extend(later);
+    assert.deepEqual(review.hands.map(hand => hand.status), ['done', 'done', 'waiting', 'waiting']);
+    assert.deepEqual(review.hands.map(hand => hand.end), hands.slice(0, 4).map(hand => hand.end));
+    kept.forEach((decisions, index) => assert.equal(review.hands[index].decisions, decisions, `hand ${index} keeps its verdicts`));
+    assert.equal(review.requested, false, 'the new hands wait for the review to be opened');
+    assert.equal(review.over, false);
+    order.length = 0;
+    sizes.length = 0;
+    review.review();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.deepEqual(order, [3, 2]);
+    assert.ok(review.complete);
+    // As much as a review begun at the later result asks of those two hands.
+    const fresh = [], alone = new MatchReview(Game, later, { analyzeBatch: network(fresh) });
+    try {
+      alone.review([3, 2]);
+      await settled(alone);
+      const total = list => list.reduce((sum, size) => sum + size, 0);
+      assert.equal(total(sizes), total(fresh));
+    } finally { alone.dispose(); }
+  } finally { review.dispose(); }
+});
+
+test('only the same match, saved later, is taken on', async () => {
+  const hands = scanMatch(Game, game), saved = savedAfter(game, hands[1].end), later = savedAfter(game, hands[3].end);
+  const review = new MatchReview(Game, saved, { analyzeBatch: network() });
+  try {
+    review.review();
+    await settled(review);
+    const altered = { ...later, commands: later.commands.map((command, at) => (at === 0 ? { ...command, tile: command.tile === '1m' ? '2m' : '1m' } : command)) };
+    for (const [what, other] of [['another seed', { ...later, seed: later.seed + 1 }], ['an earlier move changed', altered],
+      ['fewer commands', savedAfter(game, hands[0].end)]]) {
+      assert.throws(() => review.extend(other), /not the match under review/, what);
+      assert.equal(review.hands.length, 2, what);
+    }
+    // The same match, saved at the same result: nothing to take on.
+    review.extend(savedAfter(game, hands[1].end));
+    assert.equal(review.hands.length, 2);
+    assert.equal(review.requested, true);
+  } finally { review.dispose(); }
+});
+
+test('a review taken on while it reviews a hand plays on along the longer match', async () => {
+  const hands = scanMatch(Game, game), reported = [];
+  const review = new MatchReview(Game, savedAfter(game, hands[1].end), { analyzeBatch: network(), onComplete: done => reported.push(done.summary) });
+  try {
+    // The hand just played first, then the first hand, which replays from the
+    // deal along the commands saved at the second hand's result.
+    review.review();
+    for (let turn = 0; turn < 1000 && review.current !== 0; turn++) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(review.current, 0);
+    assert.ok(review.busy);
+    review.extend(game);
+    assert.equal(review.over, true);
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.deepEqual(review.hands.slice(0, 2).map(hand => hand.status), ['done', 'done']);
+    // The later hands play on from the first hand's end, along the whole game.
+    review.review();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(review.complete);
+    assert.equal(reported.length, 1);
+  } finally { review.dispose(); }
+});
+
+test('a game joins the trend once, as the match ends, also when every hand was reviewed before it did', async () => {
+  const hands = scanMatch(Game, game), sizes = [], reported = [];
+  const review = new MatchReview(Game, savedAfter(game, hands.at(-1).end), { analyzeBatch: network(sizes), onComplete: done => reported.push(done.summary) });
+  try {
+    review.review();
+    await settled(review);
+    assert.ok(review.complete);
+    assert.deepEqual(reported, [], 'not while the last hand waits at its result');
+    const asked = sizes.length;
+    review.extend(game);
+    assert.equal(review.over, true);
+    assert.equal(review.id, `${game.seed}:${game.commands.length}`);
+    assert.equal(reported.length, 1, 'reported the moment the match ends');
+    assert.equal(sizes.length, asked, 'nothing is asked again');
+    await settled(review);
+    assert.equal(reported.length, 1);
+  } finally { review.dispose(); }
+  // The same figure as a review of the finished game.
+  const fresh = new MatchReview(Game, game, { analyzeBatch: network() });
+  let whole;
+  try {
+    fresh.review();
+    await settled(fresh);
+    whole = fresh.summary;
+  } finally { fresh.dispose(); }
+  assert.deepEqual(reported, [whole]);
+
+  // From an earlier result, the rest is asked for once the match is over,
+  // and the game reported as that review completes.
+  const finished = [];
+  const earlier = new MatchReview(Game, savedAfter(game, hands[1].end), { analyzeBatch: network(), onComplete: done => finished.push(done.summary) });
+  try {
+    earlier.review();
+    await settled(earlier);
+    earlier.extend(game);
+    assert.deepEqual(finished, []);
+    assert.equal(earlier.requested, false);
+    earlier.review();
+    await settled(earlier);
+    assert.deepEqual(finished, [whole]);
+  } finally { earlier.dispose(); }
 });
 
 test('a closed review asks nothing more and frees its replay', async () => {
