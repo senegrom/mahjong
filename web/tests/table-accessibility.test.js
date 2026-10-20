@@ -243,7 +243,7 @@ test('Watch calls its first seat the followed agent, and its draw keeps the riic
   assert.match(await sheet(ended([], 'Exhaustive draw')), /<th scope="row"[^>]*>You<\/th>/);
 });
 
-test("the final result offers the whole game's review, which the standings it covers on a phone offer too", async () => {
+test("every result offers Trained AI's review of the game: of the game so far before the last hand, at every size, and of the whole game at the final hand, where the standings it covers on a phone offer it too", async () => {
   const draw = ended([], 'Exhaustive draw');
   const final = await sheet(draw, { finalHand: true, onreview() {}, onlog() {}, ongame() {}, ongamereview: () => true });
   // Shown on a phone only, beside the game's file, and "Review game" where
@@ -252,9 +252,25 @@ test("the final result offers the whole game's review, which the standings it co
   // The hand's review stays first, "Review hand" where the labels are short.
   assert.match(final, /<button class="quiet[^"]*">(<!--[^>]*-->)?Review <span class="qualifier[^"]*">final<\/span> hand(<!--[^>]*-->)?<\/button>/);
   assert.ok(final.indexOf('>Review <span class="qualifier') < final.indexOf('data-review-game'), "the hand's review stays first");
-  // Not before the last hand, and not in Watch, which reviews no game.
-  assert.doesNotMatch(await sheet(draw, { onreview() {}, ongamereview: () => true }), /data-review-game/);
+
+  // Before the last hand nothing else offers the review of the game so far,
+  // so the result offers it at every size, a plain button and not one of the
+  // final hand's, which only a phone shows; "Review game" where the labels
+  // are short. It follows the hand's own buttons, the hand's review still
+  // first, which reads "View table" where the labels are short.
+  const earlier = await sheet(draw, { onreview() {}, onlog() {}, ongame() {}, ongamereview: () => true });
+  const reviews = [...earlier.matchAll(/<button[^>]*\bdata-review-game\b[^>]*>[^]*?<\/button>/g)].map(([button]) => button);
+  assert.equal(reviews.length, 1);
+  assert.match(reviews[0], /^<button class="quiet[^"]*"[^>]*\btitle="[^"]+"[^>]*>(<!--[^>]*-->)?Review game <span class="so-far[^"]*">so far<\/span>(<!--[^>]*-->)?<\/button>$/);
+  assert.doesNotMatch(reviews[0], /whole-game/);
+  assert.match(earlier, /<button class="quiet[^"]*">(<!--[^>]*-->)?View table <span class="qualifier[^"]*">\/ my hand<\/span>(<!--[^>]*-->)?<\/button>/);
+  const at = marker => earlier.indexOf(marker);
+  assert.ok(at('>View table') >= 0 && at('>View table') < at('data-review-game') && at('data-review-game') < at('data-save-game'),
+    "the hand's review, then the game's, then the game's file");
+
+  // Not in Watch, which reviews no game, at any hand.
   assert.doesNotMatch(await sheet(draw, { finalHand: true, onreview() {}, ongame() {} }), /data-review-game/);
+  assert.doesNotMatch(await sheet(draw, { onreview() {}, ongame() {} }), /data-review-game/);
 });
 
 test('a quad offered to be robbed is announced as a kan, not as a discard', async () => {

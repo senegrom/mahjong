@@ -97,8 +97,10 @@
   let handElement = $state(null);
   let callElement = $state(null);
   let settingsOpen = $state(false);
-  // The whole-game review of the finished match, kept while that match is,
-  // and whether its screen is open. It reviews on while the screen is shut.
+  // Trained AI's review of the match, kept while that match is: of the game
+  // so far from any hand's result, taken on to each later one, and of the
+  // whole game once it is over. And whether its screen is open. It reviews
+  // on while the screen is shut, until the next deal (nextHand).
   let matchReview = $state.raw(null);
   let reviewingGame = $state(false);
   // The reviewed games this browser keeps, which a finished review joins.
@@ -456,9 +458,19 @@
     const owner = session, byKeyboard = pressedByKeyboard(event);
     picked = null;
     selected = null;
+    // The next deal's trained opponents ask the same network as the review
+    // of the game so far, which answers one question at a time, and they go
+    // first: the review stops, keeping every hand it has reviewed, and goes
+    // on when it is next opened.
+    matchReview?.stop();
     const advanced = await owner.nextHand();
     if (session !== owner || !advanced) return;
     if (!owner.over) { notes = null; failures.result = ''; return; }
+    // A game whose every hand was reviewed as it was played joins the trend
+    // as it ends, rather than whenever its review is next opened, which may
+    // be never. Should the review not be taken on to the finished match, the
+    // standings' Review whole game tries again, and says why.
+    try { matchReview?.extend(owner.snapshot()); } catch { /* Said by the standings' button when pressed. */ }
     standingsFocused = byKeyboard;
     await tick();
     land(standingsHeading, byKeyboard);
@@ -544,46 +556,59 @@
     return true;
   }
 
-  // Why the finished match could not be replayed for review, the last time
-  // it could not, for the same press to take back once a review opens.
+  // Why the match could not be replayed for review, the last time it could
+  // not, for the same press to take back once a review opens.
   let replayFailure = '';
-  // The finished match is replayed from its saved commands on an engine of
-  // the review's own, so the match and its save are left as they are. Says
-  // whether the review is open. The network this page plays judges it, and
-  // the trend keeps which version that was.
+  // The match is replayed from its saved commands on an engine of the
+  // review's own, so the match and its save are left as they are. The first
+  // press builds the review; each press after takes it on to the match as it
+  // now stands, so a hand reviewed at an earlier result is not asked about
+  // again. Says whether the review is open. The network this page plays
+  // judges it, and the trend keeps which version that was.
   function openGameReview() {
-    if (!matchReview) {
-      try {
+    try {
+      if (matchReview) matchReview.extend(session.snapshot());
+      else {
         matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch,
           onComplete: review => {
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
-      } catch (error) {
-        replayFailure = `${NOT_REPLAYED} ${error?.message ?? error}. Your saved match is unchanged.`;
-        return false;
       }
+    } catch (error) {
+      replayFailure = `${NOT_REPLAYED} ${error?.message ?? error}. Your saved match is unchanged.`;
+      return false;
     }
     reviewingGame = true;
     return true;
   }
-  // From the standings, or on a phone from the result (`line`), a match that
-  // could not be replayed is said beside the button pressed (say).
+  // Offered wherever a hand's result is shown (`line`): any hand's result,
+  // and once the match is over the standings, beside which the last hand
+  // stays on the table, and on a phone the final result over them. Not while
+  // the next hand is being dealt, which would leave the review open over a
+  // table that has moved on. A match that could not be replayed is said
+  // beside the button pressed (say).
   function reviewGame(line) {
-    if (!session?.over || session.closed) return;
+    if (!session || session.closed || busy || view?.phase !== 'over') return;
     const opened = openGameReview();
     return say(line, replayFailure, opened, text => text.startsWith(NOT_REPLAYED));
   }
 
-  // Back to the standings' own button, wherever the review was opened from:
-  // on a phone the result sheet that offered it has stepped aside for them.
-  // It is brought to the middle of the screen, clear of the bar at the top
-  // and the result's chip at the bottom.
+  // Back to the button that opened the review. While the match is under way
+  // that is the result's own. Where the result is a sheet, on a phone, the
+  // sheet is up again as it was left, with the button in its row at its
+  // foot, so nothing need move; elsewhere the button is brought to the
+  // middle of the screen. Once the match is over it is the standings' own,
+  // wherever the review was opened from: on a phone the result sheet that
+  // offered it has stepped aside for them. It is brought to the middle of
+  // the screen, clear of the bar at the top and the result's chip at the
+  // bottom.
   async function closeGameReview() {
+    const over = Boolean(session?.over);
     reviewingGame = false;
     await tick();
-    const button = document.querySelector('.standings [data-review-game]');
+    const button = document.querySelector(over ? '.standings [data-review-game]' : '.screen [data-review-game]');
     button?.focus({ preventScroll: true });
-    button?.scrollIntoView({ block: 'center' });
+    if (over || !matchMedia(RESULT_SHEET).matches) button?.scrollIntoView({ block: 'center' });
   }
 
   function dropGameReview() {

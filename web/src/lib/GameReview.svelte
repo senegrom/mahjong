@@ -9,24 +9,25 @@
   import { trainedName } from './trained-network.js';
 
   /**
-   * The whole game, looked at again once it is over: every decision the player
-   * made, in every hand, put to Trained AI, led by the few where the player's
-   * move departed furthest from its choice, each of which can be replayed and
-   * chosen again. A filter lists every decision where Trained AI chose
-   * differently instead, or every decision, and any of them, or any hand
-   * reviewed, can be replayed with every player's tiles in view. The review
-   * itself (game-review.js) belongs to the finished match and goes on while
-   * this screen is closed; the screen only shows it. `trend` is the games this
-   * browser has reviewed, oldest first. `filter` is which decisions the list
-   * shows: the flagged ones as it opens, those where Trained AI chose
-   * differently, or every decision.
+   * The game, looked at again: from any hand's result the game so far, led by
+   * the hand just played, and once the match is over the whole game. Every
+   * decision the player made, in every hand, is put to Trained AI, led by the
+   * few where the player's move departed furthest from its choice, each of
+   * which can be replayed and chosen again. A filter lists every decision
+   * where Trained AI chose differently instead, or every decision, and any of
+   * them, or any hand reviewed, can be replayed with every player's tiles in
+   * view. The review itself (game-review.js) belongs to the match and goes on
+   * while this screen is closed, until the next deal; the screen only shows
+   * it. `trend` is the games this browser has reviewed, oldest first.
+   * `filter` is which decisions the list shows: the flagged ones as it opens,
+   * those where Trained AI chose differently, or every decision.
    */
   let { review, trend = [], hints = true, trainedAvailable = false, offline = null, onclose, filter = $bindable('flagged') } = $props();
 
   const read = owner => ({
     hands: owner.hands.map(hand => ({ ...hand })), busy: owner.busy, failure: owner.failure, held: owner.held,
     slow: owner.slow, estimate: owner.estimate, complete: owner.complete, requested: owner.requested,
-    positionMs: owner.positionMs,
+    positionMs: owner.positionMs, over: owner.over,
   });
   // The review tells this screen when it changes; the screen reads it again.
   let version = $state(0);
@@ -46,6 +47,9 @@
   let controls = $state(null);
   let handList = $state(null);
   let flagsHeading = $state(null);
+  // The row of the hand just played, which a review of the game so far
+  // leads with.
+  let lead = $state(null);
 
   $effect(() => {
     const owner = review;
@@ -121,6 +125,10 @@
   let openedHand = $derived(opened ? status.hands[opened.hand] : null);
   // A decision, or a hand, is open for replay, in place of the list.
   let replaying = $derived(Boolean(opened && openedHand?.decisions));
+  // The hand just played, whose result the player came from while the match
+  // is under way: the review of the game so far asks about it first, and
+  // leads with it. A finished game has none.
+  let latest = $derived(status.over ? null : status.hands.at(-1) ?? null);
 
   // What the list is headed, and what the button that shows the rest of it
   // calls them, for each filter.
@@ -181,10 +189,12 @@
     opened = { key: key(decision), hand: decision.hand, start: decision.index, retry: Boolean(decision.judgement?.flagged), whole: false };
   }
 
-  function openHand(hand) {
+  // `from` is the button that opened the hand, for Back to the list to
+  // return to: its own in the list of hands, or the hand just played's.
+  function openHand(hand, from = 'hands') {
     focusedItem = null;
     moved = '';
-    opened = { key: `hand ${hand.index}`, hand: hand.index, start: 0, retry: false, whole: true };
+    opened = { key: `hand ${hand.index}`, hand: hand.index, start: 0, retry: false, whole: true, from };
   }
 
   function duration(seconds) {
@@ -192,6 +202,9 @@
     const minutes = Math.round(seconds / 60);
     return `${minutes} minute${minutes === 1 ? '' : 's'}`;
   }
+
+  /** How a hand ended, and what it changed for the player. */
+  const handOutcome = hand => `${hand.outcome}${hand.change ? ` · you ${hand.change > 0 ? '+' : '−'}${Math.abs(hand.change).toLocaleString()}` : ''}`;
 
   function handState(hand) {
     if (!hand.frames.length) return 'No decisions';
@@ -202,10 +215,11 @@
   }
 
   // Said once a hand is done or the review stops, not at every batch: the
-  // decision count beside it changes too often to be read out.
+  // decision count beside it changes too often to be read out. While the
+  // match is under way, every hand is every hand so far.
   let headline = $derived.by(() => {
     if (status.failure) return `The review stopped: ${status.failure}`;
-    if (status.complete) return `Every hand is reviewed: ${total} decision${total === 1 ? '' : 's'}.`;
+    if (status.complete) return `Every hand${status.over ? '' : ' so far'} is reviewed: ${total} decision${total === 1 ? '' : 's'}.`;
     if (!trainedAvailable && !status.busy) {
       return `The review needs Trained AI, which cannot be reached right now.${status.requested ? '' : ' It starts as soon as Trained AI can be reached.'}`;
     }
@@ -221,24 +235,27 @@
   let empty = $derived.by(() => {
     if (!status.complete) return reviewed ? 'None in the hands reviewed so far.' : 'They appear here as each hand is reviewed.';
     return { flagged: 'No decision departed that far from Trained AI.', differed: 'Trained AI chose as you did at every decision.',
-      every: 'You made no decisions in this game.' }[filter];
+      every: status.over ? 'You made no decisions in this game.' : 'You have made no decisions so far.' }[filter];
   });
 
-  // Back to what was opened. A hand goes back to its own button in the list
-  // of hands, kept open for it. A decision goes back to its button wherever
-  // it now stands: the review goes on while a decision is open, and the
-  // hands it reviews meanwhile can put the decision lower, or out of the
-  // leading few. Then every decision the filter holds is shown, so the
-  // player comes back to it all the same, and the status says where it went.
-  // Should the button be missing all the same, the list's heading takes
-  // focus rather than the page.
+  // Back to what was opened. A hand goes back to the button that opened it:
+  // its own in the list of hands, kept open for it, or the one in the row of
+  // the hand just played. A decision goes back to its button wherever it now
+  // stands: the review goes on while a decision is open, and the hands it
+  // reviews meanwhile can put the decision lower, or out of the leading few.
+  // Then every decision the filter holds is shown, so the player comes back
+  // to it all the same, and the status says where it went. Should the button
+  // be missing all the same, the list's heading takes focus rather than the
+  // page.
   async function closeDecision() {
     const was = opened;
     opened = null;
     if (!was) return;
     if (was.whole) {
       await tick();
-      (handList?.querySelector(`[data-replay-hand="${was.hand}"]`) ?? flagsHeading)?.focus();
+      const button = was.from === 'latest' ? lead?.querySelector('[data-replay-latest]')
+        : handList?.querySelector(`[data-replay-hand="${was.hand}"]`);
+      (button ?? flagsHeading)?.focus();
       return;
     }
     const rankWas = openedRank, at = rankOf(was.key);
@@ -254,8 +271,10 @@
      reader to miss every status it says, and the list is usable meanwhile. -->
 <section class="game-review" aria-labelledby="game-review-title" data-game-review>
   <header>
-    <h2 id="game-review-title" tabindex="-1" bind:this={heading}>Your game, looked at again</h2>
-    <button class="app-control" data-close-review onclick={onclose}>Back to the standings</button>
+    <h2 id="game-review-title" tabindex="-1" bind:this={heading}>{status.over ? 'Your game, looked at again' : 'Your game so far, looked at again'}</h2>
+    <!-- Back to where the review was opened: the hand's result while the
+         match is under way, and the standings once it is over. -->
+    <button class="app-control" data-close-review onclick={onclose}>{status.over ? 'Back to the standings' : 'Back to the result'}</button>
   </header>
 
   {#if replaying}
@@ -264,6 +283,24 @@
     <p class="intro">{trainedName('Trained AI')} is asked about every decision you made, hand by hand. A decision is flagged when your move had
       under {Math.round(FLAG_PLAYED_BELOW * 100)}% of Trained AI's weight while its own choice had {Math.round(FLAG_PREFERRED_FROM * 100)}% or more.
       Matching Trained AI is not the same as playing well: it has habits of its own.</p>
+
+    {#if latest}
+      <!-- The hand the player came from, which the review of the game so far
+           asks about first. It has no heading of its own, which would come
+           before the list's as a second, for one row, and its state is no
+           status: the headline already says which hand is under review, and
+           the count beside it changes too often to be read out. -->
+      <div class="latest" bind:this={lead} data-latest-hand={latest.index}>
+        <span class="label">The hand just played:</span>
+        <span class="name">{latest.name}</span>
+        <span class="outcome">{handOutcome(latest)}</span>
+        <span class="state">{handState(latest)}</span>
+        {#if latest.status === 'done' && latest.frames.length}
+          <button class="app-control" data-replay-latest onclick={() => openHand(latest, 'latest')}
+            aria-label={`Replay this hand: ${latest.name}`}>Replay this hand</button>
+        {/if}
+      </div>
+    {/if}
 
     <div class="progress">
       <p class="headline" role="status">{headline}</p>
@@ -275,17 +312,19 @@
         {:else if !status.complete && trainedAvailable}
           {#if status.held}
             <button class="app-control primary" data-next-hand onclick={() => review.resume()}>Review the next hand</button>
-            <button class="app-control" data-rest onclick={() => review.resume({ patient: true })}>Review the rest of the game</button>
+            <button class="app-control" data-rest onclick={() => review.resume({ patient: true })}>{status.over ? 'Review the rest of the game' : 'Review every hand so far'}</button>
           {:else}
             <button class="app-control primary" data-continue onclick={() => review.review(undefined, { patient: true })}>
-              {status.requested ? 'Continue the review' : 'Review the whole game'}</button>
+              {status.requested ? 'Continue the review' : status.over ? 'Review the whole game' : 'Review the game so far'}</button>
           {/if}
         {/if}
       </div>
     </div>
 
+    <!-- The game so far is not yet a game for the trend: it joins once the
+         match is over and every hand is reviewed. -->
     {#if figure.decisions}
-      <ReviewTrend {figure} complete={status.complete} games={trend} current={review.id} bind:open={trendOpen} />
+      <ReviewTrend {figure} complete={status.complete && status.over} over={status.over} games={trend} current={review.id} bind:open={trendOpen} />
     {/if}
 
     <h3 tabindex="-1" bind:this={flagsHeading}>{HEADINGS[filter]}</h3>
@@ -339,7 +378,7 @@
         {#each status.hands as hand (hand.index)}
           <li>
             <span class="name">{hand.name}</span>
-            <span class="outcome">{hand.outcome}{hand.change ? ` · you ${hand.change > 0 ? '+' : '−'}${Math.abs(hand.change).toLocaleString()}` : ''}</span>
+            <span class="outcome">{handOutcome(hand)}</span>
             <span class="state">{handState(hand)}</span>
             {#if hand.status === 'waiting' && hand.frames.length && trainedAvailable}
               <button class="app-control" data-review-hand={hand.index} onclick={() => review.review([hand.index])}
@@ -388,6 +427,13 @@
   .hands summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .hands ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .hands li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 8px; border-radius: 8px; background: #0002; }
+  /* The hand just played reads as a row of the list of hands, which it is,
+     brought up to lead the review of the game so far: edged in gold, as the
+     seat whose move it was is edged in a replay, under a line that says why
+     it leads. */
+  .latest { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 10px; border-radius: 8px; background: #0002;
+    border-left: 3px solid var(--gold); font-size: .84rem; }
+  .latest .label { flex-basis: 100%; font-size: .78rem; letter-spacing: .04em; opacity: .75; }
   .name { font-weight: 600; min-width: 6em; }
   .outcome { flex: 1 1 14em; min-width: 0; opacity: .85; }
   .state { font-size: .78rem; opacity: .8; }

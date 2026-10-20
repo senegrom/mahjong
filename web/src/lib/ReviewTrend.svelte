@@ -10,10 +10,13 @@
    * stated, not coloured as good or bad. Another version of Trained AI judges
    * differently, so only the games judged by the version this page plays are
    * compared and shown; the rest wait for that version to be picked again.
-   * `open` is whether the table of the games is open, which the review's
-   * screen keeps while a replay takes its place.
+   * `complete` is whether this game is whole and every hand of it reviewed,
+   * and `over` whether the match is over at all: a game reviewed so far, as
+   * it is played, joins the trend only once it is over. `open` is whether
+   * the table of the games is open, which the review's screen keeps while a
+   * replay takes its place.
    */
-  let { figure, complete = false, games = [], current = '', open = $bindable(false) } = $props();
+  let { figure, complete = false, over = true, games = [], current = '', open = $bindable(false) } = $props();
   const SHOWN = 12;
   // The line's box: a 4px end-dot and its 2px ring fit inside the margin.
   const WIDTH = 240, HEIGHT = 56, MARGIN = 7;
@@ -45,7 +48,7 @@
   {#if change !== null}
     <p class="change">{change === 0 ? 'The same as' : `${change > 0 ? '+' : '−'}${Math.abs(change)} points against`} your {earlier.length === 1 ? 'previous game' : `previous ${earlier.length} games`} ({percent(earlierShare)})</p>
   {:else if !complete && earlier.length}
-    <p class="change">This game joins your trend once every hand is reviewed.</p>
+    <p class="change">This game joins your trend once {over ? '' : 'the game is over and '}every hand is reviewed.</p>
   {/if}
   {#if elsewhere}
     <p class="change">Not counted here: {elsewhere} game{elsewhere === 1 ? '' : 's'} judged by another version of Trained AI.</p>
