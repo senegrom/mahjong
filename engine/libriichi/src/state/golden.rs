@@ -12,9 +12,8 @@
 //! The trainer's test of the same games (`neural/tests/test_encoder_golden.py`)
 //! holds `Follower.encode`'s output to its old bytes in the same way. Below
 //! them, a few hands put to the lookahead directly hold it to its old
-//! answers where the games rarely go, and the river's decay is checked
-//! against its correctly rounded values, on which the digests' portability
-//! rests.
+//! answers where the games rarely go, and the encoder's table of the river's
+//! decay is checked to be correctly rounded, as the native libms give it.
 //!
 //! `ENCODER_GOLDEN_BLESS=1` writes the digests instead of checking them,
 //! which is right only for a change that is meant to change the planes.
@@ -346,35 +345,34 @@ fn the_recorded_games_encode_as_they_always_have() {
 }
 
 /// The river's decay, exp(-0.2 k) for whole k, is the one transcendental
-/// function in version 4's planes. These are its correctly rounded float32
-/// values for k below 64; the nearest of them to a rounding tie is 0.0027 of
-/// a unit in the last place away (k = 26), so any libm within half a unit
-/// and a quarter of a percent, glibc's and the Windows runtime's among them,
-/// gives exactly these. The golden digests rest on that: where this fails,
-/// the platform's libm differs, not the encoder.
+/// function in version 4's planes, and the encoder reads it from a table
+/// (`river_decay`) for k below 64, so that every build writes the same
+/// planes. Each entry is the correctly rounded float32: the exponential in
+/// double of the float32 argument the encoder used to compute, rounded once,
+/// which is exact here because the nearest entry to a rounding tie is 0.0027
+/// of a unit in the last place away (k = 26). This platform's float32 `exp`,
+/// which the encoder called before the table, gives the same, as glibc's and
+/// the Windows runtime's do: the table changed no plane a trainer encodes.
 #[test]
-fn the_river_decays_as_every_libm_rounds_it() {
-    const DECAY: [u32; 64] = [
-        0x3f800000, 0x3f519857, 0x3f2b9a18, 0x3f0c7eeb, 0x3ee60e72, 0x3ebc5ab2, 0x3e9a3620,
-        0x3e7c83eb, 0x3e4ebdf6, 0x3e29441c, 0x3e0a9555, 0x3de2ecc3, 0x3db9ca54, 0x3d981cbd,
-        0x3d7913fa, 0x3d4bed86, 0x3d26f644, 0x3d08b268, 0x3cdfd5fe, 0x3cb742e9, 0x3c960aae,
-        0x3c75affd, 0x3c4926e4, 0x3c24b075, 0x3c06d60e, 0x3bdcc9ff, 0x3bb4c448, 0x3b93ffd3,
-        0x3b7257dd, 0x3b4669ee, 0x3b227290, 0x3b050030, 0x3ad9c89b, 0x3ab24e62, 0x3a91fc16,
-        0x3a6f0b5d, 0x3a43b683, 0x3a203c79, 0x3a0330bb, 0x39d6d1b0, 0x39afe108, 0x398fff63,
-        0x396bca54, 0x39410c81, 0x391e0e18, 0x39016791, 0x38d3e520, 0x38ad7c1e, 0x388e0993,
-        0x386894b1, 0x383e6bce, 0x381be755, 0x37ff4939, 0x37d102b4, 0x37ab1f97, 0x378c1aa1,
-        0x37656a3c, 0x373bd437, 0x3719c808, 0x36fbcfa6, 0x36ce2a62, 0x36a8cb4b, 0x368a3263,
-        0x36624ac2,
-    ];
-    for (k, &bits) in DECAY.iter().enumerate() {
-        let decay = (-0.2 * k as f32).exp();
+fn the_river_decays_correctly_rounded_in_every_build() {
+    for k in 0..64 {
+        let argument = -0.2 * k as f32;
+        let rounded = (argument as f64).exp() as f32;
+        let decay = super::obs_repr::river_decay(k);
         assert_eq!(
             decay.to_bits(),
-            bits,
-            "exp(-0.2 * {k}) is {decay:e} here, where correctly rounded it is {:e}",
-            f32::from_bits(bits),
+            rounded.to_bits(),
+            "k = {k}: {decay:e}, correctly rounded {rounded:e}"
+        );
+        assert_eq!(
+            argument.exp().to_bits(),
+            rounded.to_bits(),
+            "exp(-0.2 * {k}) is {:e} here, where correctly rounded it is {rounded:e}",
+            argument.exp(),
         );
     }
+    // Past the table, as no river reaches, the function itself.
+    assert_eq!(super::obs_repr::river_decay(64), (-0.2 * 64_f32).exp());
 }
 
 /// One hand put to the lookahead directly (see `the_lookahead_answers_as_it_always_has`).

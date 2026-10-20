@@ -17,6 +17,30 @@ const SELF_KAWA_ITEM_CHANNELS: usize = 4;
 const KAWA_ITEM_CHANNELS: usize = 8;
 const MAX_NUM_TURNS: usize = 17; // aka the actual practical `MAX_TSUMOS_LEFT`
 
+/// exp(-0.2 k) for whole k, correctly rounded to float32: the river's decay,
+/// as `(-0.2 * k as f32).exp()` gives it with the native libms, glibc's and
+/// the Windows runtime's. A table, so that every build writes the same
+/// planes: the WebAssembly build's `expf` is a unit in the last place off at
+/// k = 11, 13, 23, 37 and 54, which changed about a fifth of the rows the
+/// network read in the browser. (Not part of Mortal; see NOTICE.md.)
+const RIVER_DECAY: [u32; 64] = [
+    0x3f800000, 0x3f519857, 0x3f2b9a18, 0x3f0c7eeb, 0x3ee60e72, 0x3ebc5ab2, 0x3e9a3620, 0x3e7c83eb,
+    0x3e4ebdf6, 0x3e29441c, 0x3e0a9555, 0x3de2ecc3, 0x3db9ca54, 0x3d981cbd, 0x3d7913fa, 0x3d4bed86,
+    0x3d26f644, 0x3d08b268, 0x3cdfd5fe, 0x3cb742e9, 0x3c960aae, 0x3c75affd, 0x3c4926e4, 0x3c24b075,
+    0x3c06d60e, 0x3bdcc9ff, 0x3bb4c448, 0x3b93ffd3, 0x3b7257dd, 0x3b4669ee, 0x3b227290, 0x3b050030,
+    0x3ad9c89b, 0x3ab24e62, 0x3a91fc16, 0x3a6f0b5d, 0x3a43b683, 0x3a203c79, 0x3a0330bb, 0x39d6d1b0,
+    0x39afe108, 0x398fff63, 0x396bca54, 0x39410c81, 0x391e0e18, 0x39016791, 0x38d3e520, 0x38ad7c1e,
+    0x388e0993, 0x386894b1, 0x383e6bce, 0x381be755, 0x37ff4939, 0x37d102b4, 0x37ab1f97, 0x378c1aa1,
+    0x37656a3c, 0x373bd437, 0x3719c808, 0x36fbcfa6, 0x36ce2a62, 0x36a8cb4b, 0x368a3263, 0x36624ac2,
+];
+
+/// The decay of a discard `k` turns before the end of the longest river.
+pub(super) fn river_decay(k: usize) -> f32 {
+    RIVER_DECAY
+        .get(k)
+        .map_or_else(|| (-0.2 * k as f32).exp(), |&bits| f32::from_bits(bits))
+}
+
 struct ObsEncoderContext<'a> {
     state: &'a PlayerState,
     arr: Simple2DArray<34, f32>,
@@ -227,7 +251,7 @@ impl<'a> ObsEncoderContext<'a> {
                 if let Some(kawa_item) = kawa_item {
                     let sutehai = kawa_item.sutehai;
                     let tid = sutehai.tile.deaka().as_usize();
-                    let v = (-0.2 * (max_kawa_len - 1 - turn) as f32).exp();
+                    let v = river_decay(max_kawa_len - 1 - turn);
                     self.arr.assign(self.idx, tid, v);
                 }
             }
@@ -265,7 +289,7 @@ impl<'a> ObsEncoderContext<'a> {
                         if let Some(kawa_item) = kawa_item {
                             let sutehai = kawa_item.sutehai;
                             let tid = sutehai.tile.deaka().as_usize();
-                            let v = (-0.2 * (max_kawa_len - 1 - turn) as f32).exp();
+                            let v = river_decay(max_kawa_len - 1 - turn);
                             self.arr.assign(self.idx, tid, v);
                             if sutehai.is_tedashi {
                                 self.arr.assign(self.idx + 1, tid, v);
