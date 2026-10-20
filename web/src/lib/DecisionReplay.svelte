@@ -73,17 +73,20 @@
   let last = $derived(pending ? start : hand.frames.length - 1);
   let theOne = $derived(retrying && step === start);
   // Said with the table as the step changes: a flagged decision says so too,
-  // but for the one opened to choose again, whose step already says it.
-  let tableLine = $derived(`${tableSaid(frame.view)}${flaggedAt(step) && !theOne ? ' Trained AI flagged your move here.' : ''}`);
+  // in the word the hand's list gives it, but for the one opened to choose
+  // again, whose step already says it. The offer under the hand gives the
+  // weights.
+  let tableLine = $derived(`${tableSaid(frame.view)}${flaggedAt(step) && !theOne ? ' Flagged.' : ''}`);
   let notes = $derived(seatNotes(frame.view));
   let me = $derived(frame.view.seats[0]);
   let discardChoices = $derived(choosing ? frame.choices.filter(choice => choice.kind === 'discard') : []);
   let otherChoices = $derived(frame.choices.filter(choice => choice.kind !== 'discard'));
   // Where the choice is made. The hand takes focus at the decision and this
   // prompt describes it, but an answer to another's discard leaves no tile to
-  // throw, so the prompt then sends the player to the moves below it.
-  let choiceHelp = $derived(discardChoices.length ? `: select a tile to discard${otherChoices.length ? ', or a move below' : ''}`
-    : otherChoices.length ? ': choose a move below' : '');
+  // throw, so the prompt then sends the player to the moves below it. Show
+  // answer, just below, says that the answer is still to come.
+  let choiceHelp = $derived(discardChoices.length ? `: a tile to discard${otherChoices.length ? ', or a move below' : ''}`
+    : otherChoices.length ? ': a move below' : '');
   let robbing = $derived(Boolean(quadOnOffer(frame.view)));
   let offered = $derived(frame.view.phase === 'call' ? frame.view.pending_discard : null);
   let discarder = $derived(NAMES[frame.view.pending_from] ?? 'An opponent');
@@ -120,8 +123,10 @@
   let ordered = $derived(shown ? [...shown.weighted]
     .sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1) || (a.index ?? 99) - (b.index ?? 99)) : []);
   // The leading moves and every move the player or the network picked; the
-  // rest wait behind a button. The button stays once they are shown, to hide
-  // them again, so the focus on it stays too rather than dropping to the page.
+  // rest wait behind a button, which says what a press does: how many more it
+  // shows, or that it shows fewer. The button stays once they are shown, to
+  // hide them again, so the focus on it stays too rather than dropping to the
+  // page.
   let rows = $derived(groupPolicyChoices(everyMove ? ordered : ordered.filter((choice, index) => index < 5 || marked(choice))));
   let extra = $derived(ordered.filter((choice, index) => index >= 5 && !marked(choice)).length);
 
@@ -222,8 +227,10 @@
     <button class="app-control" data-back onclick={onback}>Back to the list</button>
   </header>
 
+  <!-- The first step is the hand's first decision, not its deal, and is named
+       as its neighbours are, by the word it shows and then "decision". -->
   <div class="steps" role="group" aria-label="Replay of the hand">
-    <button class="app-control" onclick={() => goTo(0)} disabled={step === 0}>From the deal</button>
+    <button class="app-control" onclick={() => goTo(0)} disabled={step === 0} aria-label="First decision">First</button>
     <button class="app-control" onclick={() => goTo(step - 1)} disabled={step === 0} aria-label="Previous decision" bind:this={previousButton}>Previous</button>
     <button class="app-control" onclick={() => goTo(step + 1)} disabled={step >= last} aria-label="Next decision" bind:this={nextButton}>Next</button>
     {#if !whole}<button class="app-control" onclick={() => goTo(start)} disabled={step === start}>This decision</button>{/if}
@@ -271,7 +278,9 @@
 
     {#if frame.lines.length}
       <details class="lines" bind:open={linesOpen}>
-        <summary>{step === 0 ? 'Since the deal' : 'Since your previous decision'} · {frame.lines.length} event{frame.lines.length === 1 ? '' : 's'}</summary>
+        <!-- How many events, in brackets as the app's other summaries give
+             a count; the items are the events. -->
+        <summary>{step === 0 ? 'Since the deal' : 'Since the previous decision'} ({frame.lines.length})</summary>
         <ol>{#each frame.lines as line, index (index)}<li>{line}</li>{/each}</ol>
       </details>
     {/if}
@@ -289,7 +298,7 @@
   {/if}
 
   {#if choosing}
-    <p id="hand-help" class="prompt">What would you play here? Choose again before you see Trained AI's answer{choiceHelp}.</p>
+    <p id="hand-help" class="prompt">Choose again{choiceHelp}.</p>
     {#if otherChoices.length}
       <div class="moves">
         {#each otherChoices as choice, index (index)}
@@ -324,12 +333,14 @@
       <h4 id="answer-title" tabindex="-1" bind:this={answerHeading}>{mode === 'answered' ? "Trained AI's answer" : "Trained AI's view"}</h4>
       <ul class="verdicts">
         {#if tried}
-          <li><strong>This time:</strong> {labelOf(tried)} · {weightOf(tried)}{sameMove(tried, advised.kind, advised.tile) ? ' — Trained AI’s choice' : ''}</li>
+          <li><strong>This time:</strong> {labelOf(tried)} · {weightOf(tried)}{sameMove(tried, advised.kind, advised.tile) ? " — Trained AI's choice" : ''}</li>
         {/if}
         <li><strong>In the game:</strong> {shown.played} · {weightOf(played)}</li>
         <li><strong>Trained AI:</strong> {shown.advised} · {weightOf(advised)}</li>
       </ul>
-      <p class="help">Percentages are the network's preferences, not chances of winning.{stage === 'tile' ? ' Both declared riichi, so the tiles are compared as the discard given riichi.' : ''}</p>
+      <!-- Under Trained AI's heading, whose preferences these are goes
+           without saying. -->
+      <p class="help">Percentages are preferences, not chances of winning.{stage === 'tile' ? ' Both declared riichi: the tiles are compared given riichi.' : ''}</p>
 
       <div class="weights" role="list" aria-label="Trained AI's weight for each move">
         {#each rows as row, index (index)}
@@ -345,11 +356,13 @@
           {/if}
         {/each}
       </div>
-      {#if extra}<button class="app-control quiet" data-every-move onclick={() => { everyMove = !everyMove; }}>{everyMove ? 'Show the leading moves' : `Show every move (${extra} more)`}</button>{/if}
+      {#if extra}<button class="app-control quiet" data-every-move onclick={() => { everyMove = !everyMove; }}>{everyMove ? 'Show fewer moves' : `Show ${extra} more move${extra === 1 ? '' : 's'}`}</button>{/if}
 
       {#if compared.length > 1 && measured}
+        <!-- Counted as the hand review counts it (docs/UI.md), which the
+             player need not be told to read it. -->
         <table class="numbers">
-          <caption>What each move leaves, counted as the hand review counts it</caption>
+          <caption>What each move leaves</caption>
           <thead><tr><th scope="col"></th>{#each compared as entry (entry.title)}<th scope="col">{entry.title}{#if entry.move.tile}<br /><Tile tile={entry.move.tile} size="tiny" />{/if}</th>{/each}</tr></thead>
           <tbody>
             <tr><th scope="row">Hand left</th>{#each compared as entry (entry.title)}<td>{distance(entry.measure.shanten)}</td>{/each}</tr>

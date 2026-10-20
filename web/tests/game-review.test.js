@@ -276,11 +276,11 @@ test('the table at a step is said in a sentence, each seat says what it was doin
   const seat = (wind, values = {}) => ({ seat: wind, turn: false, riichi: false, hand: [], drawn: null, ...values });
   const turn = { phase: 'act', wall: 45, pending_discard: null, pending_from: null, dora_types: [],
     seats: [seat('east', { turn: true, drawn: '3m' }), seat('south', { riichi: true }), seat('west'), seat('north', { riichi: true })] };
-  assert.equal(tableSaid(turn), 'Your turn, 45 tiles left in the wall. South and North have declared riichi.');
+  assert.equal(tableSaid(turn), 'Your turn, 45 tiles left. South and North declared riichi.');
   assert.deepEqual(seatNotes(turn), ['To play', '', '', '']);
   const answer = { ...turn, phase: 'call', wall: 1, pending_discard: '5s', pending_from: 'west',
     seats: [seat('east', { riichi: true }), seat('south'), seat('west', { turn: true }), seat('north')] };
-  assert.equal(tableSaid(answer), 'West discarded the 5 bamboo, 1 tile left in the wall. You have declared riichi.');
+  assert.equal(tableSaid(answer), 'West discarded the 5 bamboo, 1 tile left. You declared riichi.');
   assert.deepEqual(seatNotes(answer), ['To answer', '', 'Discarded', '']);
   const frame = (played, view = turn) => ({ played, view });
   assert.deepEqual(decisionInBrief(frame({ kind: 'discard', tile: '7m' }), { agreed: true, forced: false, judgement: null }),

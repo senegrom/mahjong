@@ -520,10 +520,10 @@ player's own turn; when the player answers another's tile, the edge is on the
 seat that let it go, which says "Discarded" or "Declared a kan", and the
 player's seat says "To answer" without one. Each hand is a list named for its seat ("South's
 tiles, Right (Club)", "East's tiles, yours"), the table is headed "The table at
-decision 5", and a status line says it as the step changes ("South
-discarded the 5 bamboo, 45 tiles left in the wall. West has declared riichi."),
-adding "Trained AI flagged your move here." at a flagged decision other than
-the one opened, whose own step says so.
+decision 5", and a status line says it as the step changes, in the words the
+table itself uses for the wall and a riichi ("South discarded the 5 bamboo, 45
+tiles left. West declared riichi."), adding "Flagged." at a flagged decision
+other than the one opened, whose own step says so.
 The tiles are the review's own: the replay the review is built from reads them
 at each decision once the hand is over (`scanMatch`, through the engine's
 `review_hands`), never from the match being played. The engine refuses them
@@ -553,29 +553,33 @@ at 390 by 844, 762 to 1,287 at 320 by 568 and 532 to 899 at 844 by 390.
 
 **Replay and choose again.** A flagged decision opens at the position it was
 made from: the table as it stood, every player's hand, and what happened since
-the player's previous decision. **From the deal**, **Previous** and **Next** step
-through the hand a decision of the player's at a time, saying whether each
-earlier move matched Trained AI; the step's status says the move as well, so a
-screen reader hears it with each step. A step that disables the button pressed
-hands keyboard focus on rather than dropping it: at the deal to **Next**, at
-the hand's last decision to **Previous**, and at the decision to the hand,
-whose description asks for the choice, as play gives the hand focus when a
-turn comes. **Choose again** does the same, since the answer it closes held the
-button. At the flagged decision the player chooses
-again, a tile from the hand or a move below it, before anything is revealed,
-or asks for Trained AI's answer outright with **Show answer**; until then the
+the player's previous decision. **First** ("First decision" to a screen
+reader, as its neighbours are "Previous decision" and "Next decision"),
+**Previous** and **Next** step through the hand a decision of the player's at
+a time, saying whether each earlier move matched Trained AI; the step's status
+says the move as well ("Decision 2 of 7. Your move: discards the 7
+characters. Trained AI agreed."), so a screen reader hears it with each step. A step that
+disables the button pressed hands keyboard focus on rather than dropping it:
+at the first decision to **Next**, at the hand's last decision to
+**Previous**, and at the decision to the hand, whose description asks for the
+choice, as play gives the hand focus when a turn comes. **Choose again** does
+the same, since the answer it closes held the button. At the flagged decision
+the player chooses again, a tile from the hand or a move below it ("Choose
+again: a tile to discard, or a move below."), before anything is revealed, or
+asks for Trained AI's answer outright with **Show answer**; until then the
 replay goes no further than that decision, and once it is answered it goes on
-to the end of the hand. An answer to another's discard
-leaves no tile to throw, so there the description sends the player to the
-moves below the hand, which **Tab** reaches next. The answer lists the weight of
-every move, the riichi discards under their declaration, marking Trained AI's
-choice, the move made in the game and the new one ("Trained AI's choice", "In
-the game", "This time", as the answer's lines and table name them). It leads
-with the five heaviest moves and those it marks; **Show every move** shows the
-rest and stays, as **Show the leading moves**, so focus stays on it. For a turn, a table sets
-out what each of those moves leaves, counted as the hand review counts it:
-the hand left, the unseen tiles that improve it, whether the tile could deal
-into a declared riichi, and its worth as dora (the engine's `review_measure`).
+to the end of the hand. An answer to another's discard leaves no tile to
+throw, so there the description sends the player to the moves below the hand
+("Choose again: a move below."), which **Tab** reaches next. The answer lists
+the weight of every move, the riichi discards under their declaration, marking
+Trained AI's choice, the move made in the game and the new one ("Trained AI's
+choice", "In the game", "This time", as the answer's lines and table name
+them). It leads with the five heaviest moves and those it marks; **Show 3
+more moves** shows the rest and stays, as **Show fewer moves**, so focus stays
+on it. For a turn, a table, "What each move leaves", sets out what each of
+those moves leaves, counted as the hand review counts it: the hand left, the
+unseen tiles that improve it, whether the tile could deal into a declared
+riichi, and its worth as dora (the engine's `review_measure`).
 Nothing is played on from there, and the saved match is never touched. **Back
 to the list** returns focus to the decision opened, wherever the hands
 reviewed meanwhile have ranked it: if they have ranked it out of the first

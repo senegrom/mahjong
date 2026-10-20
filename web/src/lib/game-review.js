@@ -570,14 +570,16 @@ const listed = names => names.length < 2 ? names.join('') : `${names.slice(0, -1
 
 /** The table at a decision in a sentence or two, which a replay says as its
  * step changes, beside the step itself: whose move it was, how many tiles
- * were left to draw, and who had declared riichi. */
+ * were left to draw, and who had declared riichi. It is said at every step,
+ * so it is put in the table's own words: "45 tiles left", as its centre gives
+ * the wall, and "declared riichi", as a seat announces it. */
 export function tableSaid(view) {
-  const left = `${view.wall} tile${view.wall === 1 ? '' : 's'} left in the wall`;
+  const left = `${view.wall} tile${view.wall === 1 ? '' : 's'} left`;
   const move = view.phase === 'call' && view.pending_discard
     ? `${SEAT_NAMES[view.pending_from] ?? 'An opponent'} ${quadOnOffer(view) ? 'declared a kan of' : 'discarded'} the ${tileWords(view.pending_discard)}`
     : 'Your turn';
   const riichi = view.seats.filter(seat => seat.riichi).map(seat => (seat === view.seats[0] ? 'you' : SEAT_NAMES[seat.seat]));
-  const declared = riichi.length ? ` ${listed(riichi).replace(/^./, letter => letter.toUpperCase())} ${riichi.length === 1 && riichi[0] !== 'you' ? 'has' : 'have'} declared riichi.` : '';
+  const declared = riichi.length ? ` ${listed(riichi).replace(/^./, letter => letter.toUpperCase())} declared riichi.` : '';
   return `${move}, ${left}.${declared}`;
 }
 

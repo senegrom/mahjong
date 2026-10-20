@@ -471,7 +471,7 @@ async function overviewIsRight(page, frame, step, steps) {
   assert.ok(shown.fits, 'the page does not scroll sideways');
   // The table in a sentence, and whether Trained AI flagged the move there.
   assert.ok(shown.said.startsWith(tableSaid(frame.view)), shown.said);
-  assert.match(shown.said.slice(tableSaid(frame.view).length), /^( Trained AI flagged your move here\.)?$/);
+  assert.match(shown.said.slice(tableSaid(frame.view).length), /^( Flagged\.)?$/);
   assert.equal(shown.wall, frame.view.wall);
   assert.ok(shown.notes.includes(frame.view.phase === 'act' ? 'To play' : 'To answer'), `whose move it was: ${shown.notes.join(', ')}`);
   return shown;
@@ -609,7 +609,7 @@ try {
     await press('Previous');
     assert.equal(await status(), `Decision ${index} of ${index + 1}`);
     await focusOn('Previous decision');
-    await press('From the deal');
+    await press('First');
     assert.equal(await status(), `Decision 1 of ${index + 1}`);
     assert.equal(await wall(), frames[0].view.wall);
     await focusOn('Next decision');
@@ -630,7 +630,7 @@ try {
     await focusOn('hand');
     // The hand says what to do through its description, the prompt.
     assert.match(await page.$eval('[data-decision] .hand', el => document.getElementById(el.getAttribute('aria-describedby')).textContent),
-      /^What would you play here\? Choose again before you see/);
+      /^Choose again: /);
     await press('Previous');
     await focusOn('Previous decision');
     await press('Next');
@@ -672,7 +672,7 @@ try {
     await page.keyboard.press('Enter');
     assert.equal(await page.$('[data-answer]'), null);
     await focusOn('hand');
-    assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /Choose again before you see/);
+    assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /^Choose again: /);
     // The answer outright, by keyboard: the button goes, and the answer's
     // heading takes focus.
     await page.focus('[data-decision] [data-reveal]');
@@ -705,11 +705,11 @@ try {
     await page.focus('[data-answer] [data-every-move]');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement?.matches('[data-answer] [data-every-move]')
-      && document.activeElement.textContent === 'Show the leading moves', { timeout: 5000 });
+      && document.activeElement.textContent === 'Show fewer moves', { timeout: 5000 });
     assert.ok(await rows() > leading, 'every move is shown');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement?.matches('[data-answer] [data-every-move]')
-      && /^Show every move \(\d+ more\)$/.test(document.activeElement.textContent), { timeout: 5000 });
+      && /^Show \d+ more moves?$/.test(document.activeElement.textContent), { timeout: 5000 });
     assert.equal(await rows(), leading);
     await page.click('[data-decision] [data-back]');
     await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, wide.key);
@@ -802,7 +802,7 @@ try {
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement?.matches('[data-decision] .hand'), { timeout: 5000 });
     assert.match(await page.$eval('[data-decision] .hand', el => document.getElementById(el.getAttribute('aria-describedby')).textContent),
-      /^What would you play here\? Choose again before you see Trained AI's answer/);
+      /^Choose again: /);
     await overviewIsRight(page, frames[flaggedStep], flaggedStep, frames.length);
     await page.focus('[data-decision] [data-reveal]');
     await page.keyboard.press('Enter');
@@ -1207,7 +1207,7 @@ try {
     // prompt, sends the player to the moves below it, which Tab reaches next.
     assert.equal(await page.$$eval('[data-decision] .hand button:not(:disabled)', buttons => buttons.length), 0, 'no tile to throw');
     const prompt = () => page.$eval('[data-decision] .hand', el => document.getElementById(el.getAttribute('aria-describedby')).textContent);
-    assert.match(await prompt(), /^What would you play here\? Choose again before you see Trained AI's answer: choose a move below\.$/);
+    assert.match(await prompt(), /^Choose again: a move below\.$/);
     await page.focus('[data-decision] .hand');
     await page.keyboard.press('Tab');
     await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-retry]'), { timeout: 5000 });
@@ -1219,7 +1219,7 @@ try {
     await page.focus('[data-answer] [data-again]');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement?.matches('[data-decision] .hand'), { timeout: 5000 });
-    assert.match(await prompt(), /: choose a move below\.$/);
+    assert.match(await prompt(), /: a move below\.$/);
     assert.deepEqual(page.errors, []);
   });
 

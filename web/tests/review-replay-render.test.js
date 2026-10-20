@@ -92,7 +92,7 @@ test('every step of a replayed hand shows every hand face up, each a list named 
     // The board and the step, and the line that says the table as it changes.
     assert.match(html, new RegExp(`<h4 id="overview-title"[^>]*>The table at decision ${index + 1}</h4>`));
     // Said with the table: whether Trained AI flagged the move there.
-    const said = `${tableSaid(frame.view)}${hand.decisions[index].judgement?.flagged ? ' Trained AI flagged your move here.' : ''}`;
+    const said = `${tableSaid(frame.view)}${hand.decisions[index].judgement?.flagged ? ' Flagged.' : ''}`;
     assert.ok(html.includes(`role="status" data-table-said="">${said}</p>`), said);
     assert.match(html, new RegExp(`<div class="wall[^"]*"><strong[^>]*>${frame.view.wall}</strong>`));
     for (const indicator of frame.view.dora_indicators) assert.ok(html.includes(`data-tile="${indicator}"`));
@@ -107,7 +107,8 @@ test('a flagged decision opened to choose again waits for the choice with every 
   assert.equal(opponents.length, 3);
   assert.deepEqual(unmarked(own.tiles), named(hand.frames[flaggedAt].hands[0]));
   assert.match(html, new RegExp(`<span data-step="">Decision ${flaggedAt + 1} of ${flaggedAt + 1}, flagged</span>`));
-  assert.match(html, /What would you play here\? Choose again before you see Trained AI's answer/);
+  // The prompt, which is the hand's description, says where to choose.
+  assert.match(html, /<p id="hand-help" class="prompt[^"]*">Choose again: (a tile to discard(, or a move below)?|a move below)\.<\/p>/);
   assert.match(html, /data-reveal=""/);
   assert.doesNotMatch(html, /data-answer=|data-view=|Trained AI's view/, "Trained AI's answer waits");
   // The hand's list goes as far as the decision, which is the step shown.
@@ -125,7 +126,7 @@ test('a decision that was not flagged shows the move and Trained AI\'s view, and
   assert.ok(text(html).includes(`In the game: ${decision.played}`));
   assert.ok(text(html).includes(`Trained AI: ${decision.advised}`));
   assert.match(html, /<p id="hand-help" class="prompt[^"]*">Your move: [^<]+\. (Trained AI (agreed|differed)|Only move)\.<\/p>/);
-  const retry = /[^]{0,160}(data-again=|data-reveal=|data-retry=|data-choose-here=|What would you play here)[^]{0,80}/.exec(html);
+  const retry = /[^]{0,160}(data-again=|data-reveal=|data-retry=|data-choose-here=|Choose again:)[^]{0,80}/.exec(html);
   assert.equal(retry?.[0] ?? null, null, 'no retry');
   assert.equal(handsIn(html).opponents.length, 3);
 });
