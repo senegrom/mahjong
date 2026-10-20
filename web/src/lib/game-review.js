@@ -148,6 +148,14 @@ export function rankDecisions(decisions) {
 export const FILTERS = Object.freeze(['flagged', 'differed', 'every']);
 /** What each filter's button says, before how many decisions it holds. */
 export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Trained AI chose differently', every: 'Every decision' });
+/** A filter button's title, where it has one. The Flagged button's is the
+ * rule a decision is flagged by, kept at hand but out of the way: a pointer
+ * shows it as a tooltip, and a screen reader reads it as the button's
+ * description, after its name. Like the app's other button titles, it is
+ * not a sentence. */
+export const FILTER_TITLES = Object.freeze({
+  flagged: `Your move under ${Math.round(FLAG_PLAYED_BELOW * 100)}%, Trained AI's choice ${Math.round(FLAG_PREFERRED_FROM * 100)}% or more`,
+});
 
 /** Whether Trained AI chose differently: a real choice, made otherwise. A
  * forced move was no choice, so it never differs. */

@@ -163,4 +163,7 @@ test('another flagged decision of the hand offers its retry or its answer, and t
   const different = hand.decisions.filter(decision => !decision.agreed && !decision.forced).length;
   assert.deepEqual(options, [['flagged', 'false', `Flagged (${flagged})`], ['differed', 'false', `Trained AI chose differently (${different})`],
     ['every', 'true', `Every decision (${hand.frames.length})`]]);
+  // The Flagged filter's title says what flags a decision, here as in the
+  // whole game's list.
+  assert.match(filter[1], /<button[^>]*\btitle="Your move under 5%, Trained AI's choice 60% or more"[^>]*\bdata-filter-option="flagged"/);
 });

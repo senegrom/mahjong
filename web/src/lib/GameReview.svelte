@@ -4,9 +4,8 @@
   import DecisionFilter from './DecisionFilter.svelte';
   import DecisionReplay from './DecisionReplay.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
-  import { FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, agreement, filterCounts, filterDecisions, movedNote } from './game-review.js';
+  import { LEADING, agreement, filterCounts, filterDecisions, movedNote } from './game-review.js';
   import { percent, waitingNote } from './ui.js';
-  import { trainedName } from './trained-network.js';
 
   /**
    * The game, looked at again: from any hand's result the game so far, led by
@@ -283,10 +282,6 @@
   {#if replaying}
     {#key opened.key}<DecisionReplay hand={openedHand} start={opened.start} retry={opened.retry} whole={opened.whole} {hints} onback={closeDecision} />{/key}
   {:else}
-    <p class="intro">{trainedName('Trained AI')} is asked about every decision you made, hand by hand. A decision is flagged when your move had
-      under {Math.round(FLAG_PLAYED_BELOW * 100)}% of Trained AI's weight while its own choice had {Math.round(FLAG_PREFERRED_FROM * 100)}% or more.
-      Matching Trained AI is not the same as playing well: it has habits of its own.</p>
-
     {#if latest}
       <!-- The hand the player came from, which the review of the game so far
            asks about first. It has no heading of its own, which would come
@@ -405,7 +400,6 @@
   h2:focus-visible, h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   h3 { margin: 6px 0 0; font-size: 1rem; font-weight: 600; }
   p { margin: 0; }
-  .intro { font-size: .84rem; opacity: .85; max-width: 70ch; }
   .progress { display: grid; gap: 6px; }
   .headline { font-size: .9rem; }
   .detail { font-size: .8rem; opacity: .8; font-variant-numeric: tabular-nums; }

@@ -449,9 +449,12 @@ left out of every figure.
 
 **How decisions are ranked.** A decision is flagged when the player's move had
 under 5% of Trained AI's weight while its own choice had 60% or more, so a
-network that is not decisive flags nothing. Riichi is judged in two stages, as
-the weights are shown everywhere: when the player and the network both
-declared, the tiles are compared by the discard weights given riichi;
+network that is not decisive flags nothing. The **Flagged** filter's title
+states the rule ("Your move under 5%, Trained AI's choice 60% or more"), shown
+as a tooltip and read as the button's description, so it is at hand without
+taking a paragraph of the screen. Riichi is judged in two stages, as the
+weights are shown everywhere: when the player and the network both declared,
+the tiles are compared by the discard weights given riichi;
 otherwise the move itself is compared, the declaration carrying its
 declaration weight. Flagged decisions are ranked by the gap between the two
 weights, widest first, and equal gaps in the order they were played. The first
@@ -602,7 +605,7 @@ earlier games, with a line of the last twelve and a table of the same. The
 change is stated, not coloured: matching Trained AI is not the same as playing
 well, since the network has habits of its own. The review is judged by the
 version of Trained AI the page plays, which the player can pick in the game
-settings, and the review and the trend name it. Another version judges
+settings, and the trend names it. Another version judges
 differently, so each game is kept with the version that judged it, a game
 judged again by another version is kept beside its first entry, and the
 figure, the line and the table take only the games of the version playing

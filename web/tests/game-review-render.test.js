@@ -38,8 +38,10 @@ test('a review under way leads with the flagged decisions found so far, and hide
   const html = page({ review: review({ busy: true, estimate: 95,
     hands: [done, hand(1, { status: 'reviewing', done: 1 }), hand(2)] }) });
   assert.match(html, /Your game, looked at again/);
-  assert.ok(html.includes(`${trainedName('Trained AI')} is asked about every decision you made`), 'it names the version that judges');
-  assert.match(html, /under 5% of Trained AI's weight while its own choice had 60% or more/);
+  // The rule a decision is flagged by is the Flagged filter's title, out of
+  // the way until asked for; no other filter has a title.
+  const titles = [...html.matchAll(/<button[^>]*\btitle="([^"]*)"[^>]*\bdata-filter-option="(\w+)"/g)].map(([, title, option]) => [option, title]);
+  assert.deepEqual(titles, [['flagged', "Your move under 5%, Trained AI's choice 60% or more"]]);
   assert.match(html, /role="status"[^>]*>Trained AI is reviewing East 2\./);
   assert.match(html, /3 of 6 decisions · the rest would take about 2 minutes/);
   assert.match(html, /data-stop-review/);
@@ -108,8 +110,9 @@ test('a review of the game so far leads with the hand just played, says so far, 
   assert.equal(leading?.hand, 2, 'the hand just played leads');
   assert.equal(leading.said, 'The hand just played: East 3 East wins by self-draw Reviewing, 1 of 2');
   assert.doesNotMatch(under, /data-replay-latest/, 'nothing to replay before it is reviewed');
-  assert.ok(under.indexOf('class="intro') < under.indexOf('data-latest-hand') && under.indexOf('data-latest-hand') < under.indexOf('class="progress'),
-    'directly after the introduction');
+  const at = marker => under.indexOf(marker);
+  assert.ok(at('data-close-review') >= 0 && at('data-close-review') < at('data-latest-hand') && at('data-latest-hand') < at('class="progress'),
+    'directly after the header');
   // The list's heading is still the review's only heading after its title.
   assert.equal((under.match(/<h3/g) ?? []).length, 1);
 

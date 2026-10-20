@@ -1,16 +1,17 @@
 <script>
-  import { FILTERS, FILTER_LABELS, filterSaid } from './game-review.js';
+  import { FILTERS, FILTER_LABELS, FILTER_TITLES, filterSaid } from './game-review.js';
 
   /**
    * Which of the player's decisions a list shows: the flagged ones, those
    * where Trained AI chose differently, or every one, each button saying how
-   * many decisions it holds. The buttons stay as they are pressed, so focus
-   * stays on the one pressed, which says that it is. A status line, in the
-   * page from the start, says what the list shows now; it goes quiet once
-   * focus leaves the buttons, or once the counts it gave have changed as the
-   * review goes on, so it never stays behind to say a count the list has
-   * outgrown. `label` names the buttons, and `said` is how the line tells the
-   * list (filterSaid).
+   * many decisions it holds, and the Flagged button's title what flags one
+   * (FILTER_TITLES). The buttons stay as they are pressed, so focus stays on
+   * the one pressed, which says that it is. A status line, in the page from
+   * the start, says what the list shows now; it goes quiet once focus leaves
+   * the buttons, or once the counts it gave have changed as the review goes
+   * on, so it never stays behind to say a count the list has outgrown.
+   * `label` names the buttons, and `said` is how the line tells the list
+   * (filterSaid).
    */
   let { value = $bindable('flagged'), counts, label, said = {}, onchange = () => {} } = $props();
   let note = $state('');
@@ -40,7 +41,7 @@
 
 <div class="filter" role="group" aria-label={label} onfocusout={leave} data-filter>
   {#each FILTERS as filter (filter)}
-    <button type="button" class="app-control" aria-pressed={value === filter} data-filter-option={filter} onclick={() => pick(filter)}>
+    <button type="button" class="app-control" title={FILTER_TITLES[filter]} aria-pressed={value === filter} data-filter-option={filter} onclick={() => pick(filter)}>
       {FILTER_LABELS[filter]} ({counts[filter]})
     </button>
   {/each}
