@@ -5,7 +5,7 @@ at a time and stops where its rule says, on the comparison it was registered
 with (two challengers played in each call, or one read against another
 series deal by deal), never on the challenger against the incumbent once a
 second player is named; it spawns a failed seed again with its own seed,
-waits for a call in Modal's queue without taking it to be playing, gives a
+never one in Modal's queue, and says the queue by Modal's count; it gives a
 call Modal cannot be asked about an hour of polls and then stops without
 spawning its seed again, keeps every report locally and reads what the
 volume kept; what it could not play or read is refused before anything is
@@ -47,8 +47,9 @@ class Modal:
     "unreachable", a poll Modal could not be asked about. Then it finishes
     with what `answer(function, arguments)` gives, a report or an exception
     it raises, and a ruler's report lands on the volume as `modal_app.ruler`
-    keeps it. The first `refusals` launches are refused, as is any launch
-    `refused(function, arguments)` says Modal refuses at that moment."""
+    keeps it. Modal counts a function's queue from the states its calls were
+    last polled in. The first `refusals` launches are refused, as is any
+    launch `refused(function, arguments)` says Modal refuses at that moment."""
 
     def __init__(self, answer, refusals: int = 0, queue=(), refused=None):
         self.answer = answer
@@ -99,8 +100,14 @@ class Modal:
                     self.landing[call_id] = {f"rulers/{arguments['tag']}/seed-{arguments['seed']}.json": text.encode()}
             return SimpleNamespace(object_id=call_id)
 
-        function = SimpleNamespace(spawn=spawn, with_options=with_options)
+        function = SimpleNamespace(spawn=spawn, with_options=with_options,
+                                   get_current_stats=lambda: self.stats(name))
         return function
+
+    def stats(self, name):
+        states = [self.state.get(f"fc-{index}") for index, (called, _arguments) in enumerate(self.spawned)
+                  if called == name]
+        return SimpleNamespace(backlog=states.count("queued"), num_running_inputs=states.count("running"))
 
     def call(self, call_id):
         def get(timeout=None):
@@ -118,11 +125,7 @@ class Modal:
                 raise result
             return result
 
-        def get_call_graph():
-            task = "" if self.state.get(call_id) == "queued" else "ta-1"
-            return [SimpleNamespace(function_call_id=call_id, task_id=task, status=0)]
-
-        return SimpleNamespace(get=get, get_call_graph=get_call_graph)
+        return SimpleNamespace(get=get)
 
     def listdir(self, folder):
         found = [SimpleNamespace(path=path) for path in self.files if path.startswith(folder + "/")]
@@ -283,8 +286,10 @@ class SeriesTests(unittest.TestCase):
         self.assertEqual(state, "first")
         self.assertEqual(len(modal.spawned), 5)
         self.assertTrue(all(len(calls) == 1 for calls in series.calls().values()))
-        self.assertEqual(out.count("waits in Modal's queue"), 5)
-        self.assertEqual(out.count("left Modal's queue after 0 minutes: playing"), 5)
+        self.assertEqual(out.count("Modal's queue holds 5 calls of the ruler with no container, 0 playing"), 1)
+        self.assertEqual(out.count("Modal's queue holds no call of the ruler any more, after 0 minutes; 5 playing"),
+                         1)
+        self.assertEqual(out.count("Modal's queue"), 2)
 
     def test_a_series_at_the_spend_limit_for_hours_goes_on_by_itself(self):
         """As g810-suits on 17 October: launches refused for three hours,
@@ -301,8 +306,11 @@ class SeriesTests(unittest.TestCase):
         self.assertGreater(waited, 7 * 3600)
         self.assertEqual(len(modal.spawned), 5)
         self.assertTrue(all(len(calls) == 1 for calls in series.calls().values()))
-        self.assertEqual(out.count("has waited 4.0 hours in Modal's queue"), 5)
-        self.assertEqual(out.count("left Modal's queue after 300 minutes: done"), 5)
+        for hours in (1, 2, 3, 4):
+            self.assertEqual(out.count(f"Modal's queue has held calls of the ruler for {hours}.0 hours: 5 calls with "
+                                       "no container, 0 playing"), 1)
+        self.assertEqual(out.count("Modal's queue holds no call of the ruler any more, after 300 minutes"), 1)
+        self.assertEqual(out.count("Modal's queue"), 6)
 
     def test_a_call_modal_cannot_be_asked_about_for_an_hour_stops_the_series(self):
         """Asked about every minute, it is given an hour; then the series
@@ -544,46 +552,51 @@ class AgainstTests(unittest.TestCase):
 
 
 class QueueTests(unittest.TestCase):
-    def test_a_call_in_the_queue_waits_and_one_with_a_container_plays(self):
-        def modal_with(graph):
+    def test_a_call_is_unfinished_until_it_ends(self):
+        def modal_with(error):
             def get(timeout=None):
-                raise TimeoutError()
+                raise error
 
-            call = SimpleNamespace(get=get, get_call_graph=graph)
-            return SimpleNamespace(FunctionCall=SimpleNamespace(from_id=lambda call_id: call),
+            return SimpleNamespace(FunctionCall=SimpleNamespace(from_id=lambda call_id: SimpleNamespace(get=get)),
                                    exception=SimpleNamespace())
 
-        def graph(*inputs):
-            return lambda: [SimpleNamespace(function_call_id=call_id, task_id=task, status=0)
-                            for call_id, task in inputs]
+        self.assertEqual(ruler_cloud.outcome(modal_with(TimeoutError()), "fc-1"), ("unfinished", None))
+        self.assertEqual(ruler_cloud.outcome(modal_with(TimeoutError("ran out of time")), "fc-1"),
+                         ("failed", "ran out of time"))
 
-        def broken():
-            raise RuntimeError("no graph for this call")
+    def test_the_queue_is_modals_count_for_the_function(self):
+        def modal_with(from_name):
+            return SimpleNamespace(Function=SimpleNamespace(from_name=from_name))
 
-        self.assertEqual(ruler_cloud.outcome(modal_with(graph(("fc-1", ""))), "fc-1"), ("waiting", None))
-        self.assertEqual(ruler_cloud.outcome(modal_with(graph(("fc-1", "ta-1"))), "fc-1"), ("playing", None))
-        # A graph that cannot be read, or names no input of the call, says
-        # nothing, and the call is taken to be playing, as it always was.
-        for unknown in (graph(), graph(("fc-2", "")), broken):
-            self.assertEqual(ruler_cloud.outcome(modal_with(unknown), "fc-1"), ("playing", None))
+        def counted(app, name):
+            self.assertEqual((app, name), ("mahjong-train", "ruler"))
+            return SimpleNamespace(get_current_stats=lambda: SimpleNamespace(backlog=2, num_running_inputs=3,
+                                                                             num_total_runners=3))
+
+        def lost(app, name):
+            raise Unreachable("no route to host")
+
+        self.assertEqual(ruler_cloud.queue_of(modal_with(counted), "ruler"), (2, 3))
+        self.assertIsNone(ruler_cloud.queue_of(modal_with(lost), "ruler"))
 
     def test_a_long_wait_is_said_again_every_hour(self):
         heard = ruler_cloud.Heard()
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            for now, state in ((0.0, "waiting"), (1800.0, "waiting"), (3600.0, "waiting"), (5400.0, "waiting"),
-                               (7300.0, "playing"), (9000.0, "playing")):
-                heard("seed 9100000", state, now=now)
+            for now, count in ((0.0, (0, 5)), (60.0, (5, 0)), (1800.0, (5, 0)), (3660.0, (4, 1)), (4000.0, None),
+                               (5400.0, (4, 1)), (7380.0, (0, 5)), (9000.0, (0, 5))):
+                heard.queue("ruler", count, now=now)
         lines = out.getvalue().splitlines()
         self.assertEqual(len(lines), 3)
-        self.assertIn("seed 9100000 waits in Modal's queue", lines[0])
-        self.assertIn("seed 9100000 has waited 1.0 hours in Modal's queue", lines[1])
-        self.assertIn("seed 9100000 left Modal's queue after 122 minutes: playing", lines[2])
+        self.assertIn("Modal's queue holds 5 calls of the ruler with no container, 0 playing (at the spend limit",
+                      lines[0])
+        self.assertIn("Modal's queue has held calls of the ruler for 1.0 hours: 4 calls with no container, 1 playing",
+                      lines[1])
+        self.assertIn("Modal's queue holds no call of the ruler any more, after 122 minutes; 5 playing", lines[2])
 
     def test_a_call_modal_cannot_be_asked_about_is_given_an_hour_in_a_row(self):
-        """Such a poll is no news of the call: it neither ends a wait in the
-        queue nor starts one, and any answer between two starts the hour
-        again. Asked every minute: fifty-eight minutes of no news, an answer,
-        then no news from the next poll on."""
+        """Any answer between two such polls starts the hour again. Asked
+        every minute: fifty-eight minutes of no news, an answer, then no
+        news from the next poll on."""
         def get(timeout=None):
             raise Unreachable("no route to host")
 
@@ -591,16 +604,15 @@ class QueueTests(unittest.TestCase):
                                 exception=SimpleNamespace(ConnectionError=Unreachable))
         self.assertEqual(ruler_cloud.outcome(modal, "fc-1"), ("unknown", "Unreachable: no route to host"))
         lost = {"call_id": "fc-1", "what": "Unreachable: no route to host"}
-        polls = [(0.0, "waiting"), *((60.0 * minute, "unknown") for minute in range(1, 59)), (3540.0, "waiting"),
-                 *((60.0 * minute, "unknown") for minute in range(60, 120))]
+        polls = [(0.0, "unfinished"), *((60.0 * minute, "unknown") for minute in range(1, 59)),
+                 (3540.0, "unfinished"), *((60.0 * minute, "unknown") for minute in range(60, 120))]
         heard = ruler_cloud.Heard()
         with contextlib.redirect_stdout(io.StringIO()) as out:
             for now, state in polls:
                 heard("seed 9100000", state, now=now, **lost)
             with self.assertRaises(SystemExit) as stop:
                 heard("seed 9100000", "unknown", now=7200.0, **lost)
-        self.assertEqual(len(out.getvalue().splitlines()), 1)
-        self.assertIn("seed 9100000 waits in Modal's queue", out.getvalue())
+        self.assertEqual(out.getvalue(), "")
         self.assertIn("seed 9100000: Modal could not be asked about its call fc-1 for 60 minutes, poll after poll "
                       "(Unreachable: no route to host)", str(stop.exception.code))
 
@@ -645,7 +657,7 @@ class KeepTests(unittest.TestCase):
             self.assertEqual(kept, 2)
             self.assertEqual(len(missing), 2)
             self.assertIn("seed 9200003: failed", missing[0])
-            self.assertEqual(missing[1], "seed 9500012: waiting")
+            self.assertEqual(missing[1], "seed 9500012: unfinished")
             self.assertEqual(series.reports()[9_100_000], report)
             # The call that waited has finished since; the failed one is said
             # again.

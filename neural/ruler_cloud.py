@@ -48,15 +48,16 @@ rulers against another; a series registered with `--also` is read only as
 its first challenger against its second, and `--against` is refused for it.
 
 At the spend limit Modal refuses a launch, which is asked again later, or
-takes it and leaves the call in its queue with no container. A call in the
-queue is waiting, not playing: the launchers say when one starts waiting,
-again every hour it waits, and when it leaves the queue, and never spawn it
-again, since it has not failed. A call Modal cannot be asked about at all,
-poll after poll, may be playing or lost, and nothing says which: after an
-hour of such polls, none more than a quarter of an hour after the one
-before, a launcher stops, naming the call and the error. Run again, it asks
-about the call again, and never spawns it again while it may still be
-playing.
+takes it and leaves the call in its queue with no container. Such a call
+has not failed and is never spawned again. Modal counts the calls in its
+queue function by function and never says which call a container took up,
+so the launchers say when the ruler's queue starts holding calls, again
+every hour it holds them, and when it empties. A call Modal cannot be
+asked about at all, poll after poll, may be playing or lost, and nothing
+says which: after an hour of such polls, none more than a quarter of an
+hour after the one before, a launcher stops, naming the call and the
+error. Run again, it asks about the call again, and never spawns it again
+while it may still be playing.
 
 Checkpoints are named as `modal_app` names them: within `--run`, or by their
 path from the volume's root (`zoo/mortal_298k`). Run with the Modal client's
@@ -127,7 +128,7 @@ VOLUME = "mahjong-train"
 RULERS = "rulers"
 #: How often a waiting series asks Modal how its calls are doing.
 POLL = 60
-#: How often a launcher says again that a call still waits in Modal's queue.
+#: How often a launcher says again that calls still wait in Modal's queue.
 REMIND = 60 * 60
 #: How long a launcher goes on asking about a call Modal cannot be asked
 #: about, poll after poll, before it stops rather than wait on it forever:
@@ -300,11 +301,9 @@ def reason(error: BaseException) -> str:
 
 
 def outcome(modal, call_id: str):
-    """("done", report), ("waiting", None) while the call waits in Modal's
-    queue for a container, ("playing", None) once one has taken it up,
-    ("unknown", why) when Modal could not be asked about it, or ("failed",
-    why). A call whose state its call graph does not say is taken to be
-    playing, as it was before the queue could be told apart."""
+    """("done", report), ("unfinished", None) while the call waits in Modal's
+    queue or plays, ("unknown", why) when Modal could not be asked about it,
+    or ("failed", why)."""
     call = modal.FunctionCall.from_id(call_id)
     try:
         answer = call.get(timeout=0)
@@ -312,7 +311,7 @@ def outcome(modal, call_id: str):
         # The builtin is get()'s "not yet"; the call's own timeout carries a message.
         if error.args:
             return "failed", str(error)[-200:]
-        return ("waiting", None) if queued(call, call_id) else ("playing", None)
+        return "unfinished", None
     except unasked(modal) as error:
         # Not a failure: the call may still be playing, and is asked about again.
         return "unknown", reason(error)
@@ -322,31 +321,36 @@ def outcome(modal, call_id: str):
     return ("done", report) if isinstance(report, dict) and report else ("failed", "an empty answer")
 
 
-def queued(call, call_id: str) -> bool:
-    """Whether Modal holds an unfinished call in its queue still: no input of
-    it has been given to a container (a task) in its call graph. False when
-    the graph cannot be read or names no input of the call, as it may, for
-    Modal keeps it only as best it can."""
+def queue_of(modal, function: str) -> tuple[int, int] | None:
+    """How many calls of the app's `function` wait in Modal's queue with no
+    container, and how many play: Modal's count for the whole function,
+    whoever spawned them. No call says whether a container took it up: its
+    call graph leaves the task blank while it plays and after it finished
+    (20 Oct 2026). A function spawned with options is counted apart, not
+    here. None when Modal cannot be asked."""
     try:
-        inputs = call.get_call_graph()
-    except Exception:  # noqa: BLE001 - the graph only tells waiting from playing, never the outcome
-        return False
-    own = [info for info in inputs if getattr(info, "function_call_id", None) == call_id]
-    return bool(own) and not any(getattr(info, "task_id", "") for info in own)
+        stats = modal.Function.from_name(APP, function).get_current_stats()
+    except Exception:  # noqa: BLE001 - the count only words what is said, never an outcome
+        return None
+    return stats.backlog, stats.num_running_inputs
+
+
+def calls(count: int) -> str:
+    return f"{count} call{'' if count == 1 else 's'}"
 
 
 class Heard:
-    """What a launcher last heard of each of its calls, so it says when one
-    starts waiting in Modal's queue, again every `REMIND` seconds it goes on
-    waiting, and when it leaves the queue; and so it stops, saying which
-    call, why and `resume`, once Modal could not be asked about a call at
-    any poll for `PATIENCE` seconds, none of the polls more than `LAPSE`
-    after the one before."""
+    """What a launcher last heard of its calls and of Modal's queue, so it
+    says when the queue of a function it waits on starts holding calls with
+    no container, again every `REMIND` seconds it goes on holding them, and
+    when it empties; and so it stops, saying which call, why and `resume`,
+    once Modal could not be asked about a call at any poll for `PATIENCE`
+    seconds, none of the polls more than `LAPSE` after the one before."""
 
     def __init__(self, resume: str = "The call may still be playing: run the same command again "
                                      "to ask about it again.") -> None:
-        # The state of each call, since when, and when it was last said.
-        self.last: dict[str, tuple[str, float, float]] = {}
+        # Whether each function's queue held calls, since when, and when it was last said.
+        self.queues: dict[str, tuple[bool, float, float]] = {}
         # Since when Modal could not be asked about each call, poll after
         # poll, and when it was last asked.
         self.unknown: dict[str, tuple[float, float]] = {}
@@ -357,31 +361,39 @@ class Heard:
         """Hears one poll of the call `label` names: its state, and with it
         `what` the poll answered, the error when the state is "unknown"."""
         now = time.time() if now is None else now
-        if state == "unknown":
-            # No news of the call: what was last heard of it stands, so a wait
-            # in the queue neither ends nor starts again here.
-            since, asked = self.unknown.get(label, (now, now))
-            if now - asked > LAPSE:
-                # Left unasked a while: the polls before say nothing of the
-                # time between, so the hour starts again here.
-                since = now
-            self.unknown[label] = (since, now)
-            if now - since >= PATIENCE:
-                raise SystemExit(f"{label}: Modal could not be asked about its call {call_id} for "
-                                 f"{(now - since) / 60:.0f} minutes, poll after poll ({what}). {self.resume}")
+        if state != "unknown":
+            self.unknown.pop(label, None)
             return
-        self.unknown.pop(label, None)
-        before, since, said = self.last.get(label, ("", now, now))
-        if state != before:
-            self.last[label] = (state, now, now)
-            if state == "waiting":
-                say(f"{label} waits in Modal's queue: no container has taken it up "
+        since, asked = self.unknown.get(label, (now, now))
+        if now - asked > LAPSE:
+            # Left unasked a while: the polls before say nothing of the
+            # time between, so the hour starts again here.
+            since = now
+        self.unknown[label] = (since, now)
+        if now - since >= PATIENCE:
+            raise SystemExit(f"{label}: Modal could not be asked about its call {call_id} for "
+                             f"{(now - since) / 60:.0f} minutes, poll after poll ({what}). {self.resume}")
+
+    def queue(self, function: str, count: tuple[int, int] | None, now: float | None = None) -> None:
+        """Hears Modal's count of `function`'s queue (see `queue_of`): the
+        calls with no container and those playing, or None for no news."""
+        if count is None:
+            return
+        waiting, playing = count
+        now = time.time() if now is None else now
+        before, since, said = self.queues.get(function, (False, now, now))
+        if (waiting > 0) != before:
+            self.queues[function] = (waiting > 0, now, now)
+            if waiting:
+                say(f"Modal's queue holds {calls(waiting)} of the {function} with no container, {playing} playing "
                     "(at the spend limit Modal takes launches and runs none)")
-            elif before == "waiting":
-                say(f"{label} left Modal's queue after {(now - since) / 60:.0f} minutes: {state}")
-        elif state == "waiting" and now - said >= REMIND:
-            self.last[label] = (state, since, now)
-            say(f"{label} has waited {(now - since) / 3600:.1f} hours in Modal's queue")
+            else:
+                say(f"Modal's queue holds no call of the {function} any more, after {(now - since) / 60:.0f} "
+                    f"minutes; {playing} playing")
+        elif waiting and now - said >= REMIND:
+            self.queues[function] = (True, since, now)
+            say(f"Modal's queue has held calls of the {function} for {(now - since) / 3600:.1f} hours: "
+                f"{calls(waiting)} with no container, {playing} playing")
 
 
 def spawn_seed(modal, series: Series, settings: dict, seed: int) -> str:
@@ -423,6 +435,7 @@ def settle(modal, series: Series, settings: dict, seeds: list[int], heard: Heard
                 raise SystemExit(f"{series.tag}: seed {seed} failed {len(spawned)} times, last: {what}")
             say(f"{series.tag}: seed {seed} failed ({what}); spawning it again")
             spawn_seed(modal, series, settings, seed)
+    heard.queue("ruler", queue_of(modal, "ruler"))
     mirror(modal, series)
     return all(seed in series.reports() for seed in seeds)
 
@@ -667,11 +680,13 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     return lines
 
 
-def wait_for(modal, call_ids: dict[str, str], poll: float = POLL, keep=None) -> dict[str, dict]:
+def wait_for(modal, call_ids: dict[str, str], poll: float = POLL, keep=None,
+             functions: tuple[str, ...] = ()) -> dict[str, dict]:
     """The timing's reports of the calls named, once all have finished,
     each handed to `keep(name, report)` as its call finishes. A failure
     ends the wait with its reason, as does a call Modal could not be asked
-    about for `PATIENCE` seconds in a row, and says how the timing goes on."""
+    about for `PATIENCE` seconds in a row, and says how the timing goes on.
+    What waits in Modal's queue is said for each of `functions`."""
     done: dict[str, dict] = {}
     heard = Heard("The call may still be playing, so it is not spawned again: run the same command again "
                   "to wait for it again.")
@@ -689,6 +704,8 @@ def wait_for(modal, call_ids: dict[str, str], poll: float = POLL, keep=None) -> 
             elif state == "failed":
                 raise SystemExit(f"{name} ({call_id}) failed: {what}. Run the same command again to spawn it "
                                  "again: the calls that finished are kept, and the others are waited for")
+        for function in functions:
+            heard.queue(function, queue_of(modal, function))
         if len(done) < len(call_ids):
             time.sleep(poll)
     return done
@@ -872,7 +889,8 @@ def timing(modal, folder: Path, challenger: str, incumbent: str, run: str, seed:
         note()
         say(f"spawned {name} as {saved['calls'][name]}")
     unfinished = {name: call_id for name, call_id in saved["calls"].items() if name not in reports}
-    reports.update(wait_for(modal, unfinished, poll, keep))
+    # The old duel, spawned with options, is a function apart that Modal's count of the duel leaves out.
+    reports.update(wait_for(modal, unfinished, poll, keep, functions=("ruler",)))
     return compare(reports)
 
 
