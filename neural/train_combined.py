@@ -32,6 +32,7 @@ import functools
 import json
 import math
 import time
+import types
 from pathlib import Path
 
 import torch
@@ -99,6 +100,55 @@ def compile_per_mode(limit: int = RECOMPILE_LIMIT) -> None:
     guard_parameters()
 
 
+def channels_last(module: nn.Module) -> int:
+    """Has each one-dimensional convolution in `module` run, inside a
+    compiled forward, as a two-dimensional one of 1x3 over a view of its
+    input laid out channels-last, with a view of its own weight: the same
+    convolution, in the layout the card's library works in, its sums
+    perhaps taken in another order. Answers how many it changed.
+
+    cuDNN works in NHWC on the card. Handed a one-dimensional
+    convolution's input in NCL, it transposes it there and the answer back,
+    around every convolution, forward and backward; and the compiler lays
+    out only two-dimensional convolutions channels-last. So in the joined
+    player's compiled learning step those transposes took 51 of the 256 ms
+    an update kept an L40S busy in mode none. Over (N, C, 1, L) views kept
+    channels-last there is nothing to transpose, and cuDNN picks its NHWC
+    kernels.
+
+    The weight is the convolution's own parameter, viewed with a dimension
+    of one added, so the parameters, the state dict, a checkpoint and an
+    optimiser see nothing new, and each gradient lands where it always did.
+    Outside a compiled forward each convolution answers as it always did,
+    bit for bit. A copy of `module` made before this keeps its own
+    forwards, which is how the trainer leaves the playing copy, its graphs
+    and its compiled forward as they were (see `main`). Only a convolution
+    padded with zeros by a number of positions can be viewed so; any other
+    is refused, and a subclass of Conv1d, whose forward may be its own, is
+    left as it is."""
+    changed = 0
+    for conv in module.modules():
+        if type(conv) is not nn.Conv1d:
+            continue
+        if conv.padding_mode != "zeros" or isinstance(conv.padding, str):
+            raise ValueError(f"cannot lay out a convolution padded {conv.padding!r} with "
+                             f"{conv.padding_mode} channels-last: {conv}")
+        conv.forward = types.MethodType(_channels_last_forward, conv)
+        changed += 1
+    return changed
+
+
+def _channels_last_forward(conv: nn.Conv1d, x: torch.Tensor) -> torch.Tensor:
+    """`conv` over `x`, as a 1x3 convolution over a channels-last view
+    inside a compiled forward, and as itself everywhere else (see
+    `channels_last`)."""
+    if not torch.compiler.is_compiling():
+        return nn.Conv1d.forward(conv, x)
+    wide = x.unsqueeze(2).contiguous(memory_format=torch.channels_last)
+    return nn.functional.conv2d(wide, conv.weight.unsqueeze(2), conv.bias, (1, conv.stride[0]),
+                                (0, conv.padding[0]), (1, conv.dilation[0]), conv.groups).squeeze(2)
+
+
 def learning_forward(net: combined.Combined, args: argparse.Namespace):
     """The forward the learning step calls, compiled as the switches ask,
     every mode with graphs of its own (see `guard_parameters`); the
@@ -109,7 +159,9 @@ def learning_forward(net: combined.Combined, args: argparse.Namespace):
     on graphs: past it, a variant runs eagerly, as it always did. Checking
     the parameters changes nothing else of it; this desktop's torch traced
     every mode anew already. --compile-learning compiles the learning step
-    alone, at the one shape it is always handed: whole minibatches."""
+    alone, at the one shape it is always handed: whole minibatches; the
+    trainer has the convolutions of our network and of the head run
+    channels-last first (`channels_last`), once the playing copy is made."""
     if args.compile:
         guard_parameters()
         net.backbones_forward = torch.compile(net.backbones, dynamic=True)
@@ -651,8 +703,9 @@ def parse_args() -> argparse.Namespace:
         "--compile-learning", action="store_true",
         help="compile the learning step's forward and nothing else: play and the seated others "
         "stay eager, with their weights cast to bfloat16 once and the step's planes made "
-        "dense in bfloat16, as without compiling. Fuses the step's elementwise kernels; the "
-        "numbers move by where bfloat16 rounds. Off by default; not with --compile",
+        "dense in bfloat16, as without compiling. Fuses the step's elementwise kernels and "
+        "runs our network's and the head's convolutions channels-last, in the step and the "
+        "pass; the numbers move by where bfloat16 rounds. Off by default; not with --compile",
     )
     parser.add_argument(
         "--compile-play", action="store_true",
@@ -830,6 +883,25 @@ def main() -> None:
         play_graphs.graphed(net if actor is None else actor, device, amp=amp_enabled,
                             compile=args.compile_play)
 
+    if args.compile_learning:
+        # The learner's compiled forwards, the learning step's and the
+        # pass's, run the convolutions of our network and of the head
+        # channels-last, where the card's library does not transpose around
+        # each of them (see `channels_last`). Mortal's stay one-dimensional.
+        # Converted as well, on an L40S from a005's gen-1240, they took
+        # another 7 ms off an update in each mode that trains Mortal and 5
+        # ms off a chunk of the pass; but in those modes they moved the
+        # step's logits from the one-dimensional step's by 0.023 on average
+        # and 0.30 at most, where ours and the head alone moved them by
+        # 0.0015 and 0.04, and the change was to stay within 0.15.
+        # Only now that the playing copy is made: a copy made after would
+        # carry the same forwards into its compiled one, while the copy, its
+        # graphs and its compiled forward, the seated others and whatever is
+        # exported are to answer as they always did. Outside the compiled
+        # forwards the learner answers as it always did too, in a
+        # measurement's games and the record's head_shift.
+        channels_last(net.ours)
+        channels_last(net.fuse)
     learn = learning_forward(net, args)
     passing = pass_forward(net, args)
 
