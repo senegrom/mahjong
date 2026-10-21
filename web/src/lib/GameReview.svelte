@@ -139,7 +139,8 @@
   // its answers arrive, so Next waits for them there, rather than passing
   // over decisions about to be kept; every decision is held already.
   let previous = $derived(at ? neighbour(list, at, -1) : null);
-  let next = $derived(!at || (shown.status === 'reviewing' && filter !== 'every') ? null : neighbour(list, at, 1));
+  let waiting = $derived(Boolean(at) && shown.status === 'reviewing' && filter !== 'every');
+  let next = $derived(!at || waiting ? null : neighbour(list, at, 1));
 
   // A control that had focus and has gone, or can no longer have it.
   const lost = element => !element || element === document.body || !element.isConnected || Boolean(element.disabled);
@@ -291,7 +292,7 @@
          top of the screen while the rest of the stage is scrolled under it. -->
     <div class="stage" data-stage style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
       {#if at}
-        <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {filter} onstep={go} bind:height={barHeight} />
+        <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {waiting} {filter} onstep={go} bind:height={barHeight} />
       {/if}
       {#if !wide}
         <details class="list" data-review-index bind:open={listOpen}>

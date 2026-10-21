@@ -38,10 +38,12 @@
  * of its own on the left, after the decision in the page, which stays on the
  * screen and keeps a line pressed in its place while later hands are
  * reviewed, the page not moving. The review's buttons hand focus on as they
- * go. A flagged answer to another's discard, from a game whose player calls
- * everything, says in the step bar whose tile it answers, which that seat's
- * row outlines. The keys step, change hand and go back, and do nothing under
- * a dialog, in a field, with a modifier held or with the shortcuts off. On a
+ * go, and Next, waiting for the answers of a hand the player went to, keeps
+ * its focus and then goes on. A flagged answer to another's discard, from a
+ * game whose player calls everything, says in the step bar whose tile it
+ * answers, which that seat's row outlines. The keys step, change hand and go
+ * back, and do nothing under a dialog, in a field, with a modifier held or
+ * with the shortcuts off. On a
  * phone, where the final result covers the standings, the review must be
  * reachable from the result itself by touch and come back to the standings;
  * held sideways, from the standings beside the result; and from the
@@ -1223,6 +1225,48 @@ try {
     await page.focus(`[data-review-index] [data-review-hand="${hand}"]`);
     await page.keyboard.press('Enter');
     await focused(`[data-review-index] [data-hand-row="${hand}"]`);
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("Next, on a hand still to be reviewed, keeps its focus as the review reaches the hand and it waits for the hand's answers, does nothing meanwhile, and then goes on", async () => {
+    // Each batch reaches the worker two seconds late, so that the player can
+    // go to a hand before the review reaches it.
+    const page = await openPage(1100, 900, { answerDelay: 2000 });
+    await reviewWholeGame(page);
+    const rail = 'aside[data-review-index]';
+    // The final hand, asked about first, gives Next a decision to go on to
+    // under those where Trained AI differed.
+    const last = hands.findLast(hand => hand.frames.length);
+    await page.waitForSelector(`${rail} [data-hand="${last.index}"][data-status="done"]`, { timeout: 300000 });
+    await choose(page, 'differed');
+    // A hand that has a decision to put to Trained AI, waiting behind another
+    // that does, gone to by its name in the list.
+    const waiting = await page.$$eval(`${rail} [data-hand][data-status="waiting"]`, items => items.map(item => Number(item.dataset.hand)));
+    const target = waiting.filter(index => facts[index].some(fact => !fact.forced))[1];
+    assert.ok(target !== undefined, `a hand waiting behind another: ${waiting.join(', ')}`);
+    await page.focus(`${rail} [data-hand-row="${target}"]`);
+    await page.keyboard.press('Enter');
+    await onPlace(page, hands[target], 0);
+    await page.focus('[data-game-review] [data-next]');
+    /** Whether Next has focus, is disabled, and waits, said to be disabled. */
+    const next = () => page.$eval('[data-game-review] [data-next]', button => ({ focused: document.activeElement === button,
+      disabled: button.disabled, waiting: button.getAttribute('aria-disabled') === 'true' }));
+    // As the review reaches the hand, Next waits for its answers, said to be
+    // disabled, and keeps focus; a press meanwhile goes nowhere.
+    await page.waitForSelector(`${rail} [data-hand="${target}"][data-status="reviewing"]`, { timeout: 300000 });
+    assert.deepEqual(await next(), { focused: true, disabled: false, waiting: true }, "Next waits for the hand's answers, keeping focus");
+    await page.keyboard.press('Enter');
+    await settle(page);
+    assert.equal(await stepText(page), placeOf(hands[target], 0), 'Next waiting goes nowhere');
+    // Answered, Next goes on from where the player was, focus still on it.
+    await page.waitForSelector(`${rail} [data-hand="${target}"][data-status="done"]`, { timeout: 300000 });
+    await settle(page);
+    assert.deepEqual(await next(), { focused: true, disabled: false, waiting: false }, 'Next goes on once the hand is answered, focus still on it');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(text => document.querySelector('[data-game-review] [data-step]')?.textContent !== text, { timeout: 5000 },
+      placeOf(hands[target], 0));
+    const [hand, step] = (await page.$eval(`${rail} [aria-current="step"]`, item => item.dataset.stepTo)).split(':').map(Number);
+    assert.ok(hand > target || (hand === target && step > 0), `Next goes on, to ${hand}:${step}`);
     assert.deepEqual(page.errors, []);
   });
 

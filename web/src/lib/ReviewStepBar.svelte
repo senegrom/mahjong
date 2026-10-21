@@ -21,11 +21,12 @@
    *
    * `previous` and `next` are the places Previous and Next go to, across
    * hands, or null at either end, and Next while the hand on show is being
-   * reviewed (GameReview); `filter` is the decisions they step through, which
-   * their names say; `onstep(place)` goes there. `height` is the bar's own,
-   * for whatever lies under it to keep clear of it.
+   * reviewed, which `waiting` says (GameReview); `filter` is the decisions
+   * they step through, which their names say; `onstep(place)` goes there.
+   * `height` is the bar's own, for whatever lies under it to keep clear of
+   * it.
    */
-  let { hand, step, decision = null, previous = null, next = null, filter = 'every', onstep, height = $bindable(0) } = $props();
+  let { hand, step, decision = null, previous = null, next = null, waiting = false, filter = 'every', onstep, height = $bindable(0) } = $props();
 
   // What Previous and Next step to, after the word each shows, which their
   // names begin with, so that a player who says the word reaches the button.
@@ -52,6 +53,7 @@
   // page is not scrolled to it, which would move the page under the player
   // wherever the bar is stuck at the top of the screen.
   async function press(place, pressed, other) {
+    if (!place) return;
     const focused = document.activeElement === pressed;
     onstep(place);
     await tick();
@@ -82,7 +84,12 @@
   <div class="buttons">
     <button class="app-control" data-previous aria-label={`Previous ${STEPS[filter]}`} disabled={!previous} bind:this={previousButton}
       onclick={() => press(previous, previousButton, nextButton)}>Previous</button>
-    <button class="app-control" data-next aria-label={`Next ${STEPS[filter]}`} disabled={!next} bind:this={nextButton}
+    <!-- Waiting for the answers of the hand on show, Next is drawn and named
+         as disabled but stays focusable, and a press does nothing: disabled
+         outright, it would lose focus to Previous as the hand's review
+         began, and leave it there once the answers came. -->
+    <button class="app-control" data-next aria-label={`Next ${STEPS[filter]}`} disabled={!next && !waiting}
+      aria-disabled={waiting ? 'true' : undefined} bind:this={nextButton}
       onclick={() => press(next, nextButton, previousButton)}>Next</button>
   </div>
   <!-- "decision" goes on the narrowest screens, as "Trained" does below. -->

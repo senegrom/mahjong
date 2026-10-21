@@ -28,6 +28,11 @@ const decision = (step, advised, values = {}) => ({ played_kind: hand.frames[ste
   judgement: { flagged: false }, weighted: hand.frames[step].choices, ...values });
 
 const bar = props => render(ReviewStepBar, { props: { hand, step: 1, decision: null, previous: null, next: null, onstep() {}, ...props } }).body;
+/** The bar's Previous and Next: what each is named and shows, whether it is
+ * disabled, and whether it waits, disabled to a screen reader and the eye
+ * but focusable all the same. */
+const buttons = markup => [...markup.matchAll(/<button[^>]*\bdata-(previous|next)=""[^>]*aria-label="([^"]*)"([^>]*)>([^<]*)<\/button>/g)]
+  .map(([, which, label, rest, shown]) => ({ which, label, disabled: /(?:^|\s)disabled=""/.test(rest), waiting: /\baria-disabled="true"/.test(rest), shown }));
 /** The bar's line of moves: its words, the tiles being pictures, and the
  * tiles it shows, by name. */
 function line(html) {
@@ -67,13 +72,18 @@ test('the step bar says where it is, steps by the filter its buttons are named f
   assert.ok(html.includes(`role="status" data-step-said="">${stepSaid({ hand, step: 1, decision: flagged })}</p>`));
   assert.match(html, /<div class="steps[^"]*" role="group" aria-label="Steps" data-steps="">/);
   // Each button shows its word and is named for the decisions it steps to.
-  const buttons = markup => [...markup.matchAll(/<button[^>]*\bdata-(previous|next)=""[^>]*aria-label="([^"]*)"([^>]*)>([^<]*)<\/button>/g)]
-    .map(([, which, label, rest, shown]) => ({ which, label, disabled: /\bdisabled\b/.test(rest), shown }));
-  assert.deepEqual(buttons(html), [{ which: 'previous', label: 'Previous flagged decision', disabled: false, shown: 'Previous' },
-    { which: 'next', label: 'Next flagged decision', disabled: false, shown: 'Next' }]);
+  assert.deepEqual(buttons(html), [{ which: 'previous', label: 'Previous flagged decision', disabled: false, waiting: false, shown: 'Previous' },
+    { which: 'next', label: 'Next flagged decision', disabled: false, waiting: false, shown: 'Next' }]);
   assert.deepEqual(buttons(bar({ filter: 'differed', next: { hand: 3, step: 4 } })).map(({ label, disabled }) => [label, disabled]),
     [['Previous decision where Trained AI differed', true], ['Next decision where Trained AI differed', false]]);
   // Only at the ends is a button disabled.
   assert.deepEqual(buttons(bar({ previous: { hand: 3, step: 0 } })).map(({ label, disabled }) => [label, disabled]),
     [['Previous decision', false], ['Next decision', true]]);
+});
+
+test('Next, waiting for the answers of the hand on show, says it is disabled but is not disabled outright, so that it keeps its focus', () => {
+  const html = bar({ previous: { hand: 3, step: 0 }, waiting: true, filter: 'flagged' });
+  assert.deepEqual(buttons(html).map(({ which, label, disabled, waiting }) => ({ which, label, disabled, waiting })), [
+    { which: 'previous', label: 'Previous flagged decision', disabled: false, waiting: false },
+    { which: 'next', label: 'Next flagged decision', disabled: false, waiting: true }]);
 });

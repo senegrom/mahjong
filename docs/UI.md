@@ -645,7 +645,9 @@ is, the filter's or not; they are named for the filter ("Next flagged
 decision", "Next decision where Trained AI differed", "Next decision") and
 disabled only at the two ends of the game so far. While the hand on show is
 being reviewed, the flagged and the differing decisions hold nothing of it yet,
-so Next waits, disabled, for its answers rather than passing over them; All
+so Next waits for its answers rather than passing over them: it is said to be
+disabled and drawn so, but keeps focus (`aria-disabled`), so that a player who
+tabbed to it is still on it when the answers arrive, not moved to Previous; All
 steps through it at once. Beside them is the place ("East 1 · decision 3 of 7",
 "East 1 · 3 of 7" up to 480 pixels wide). With "Keyboard shortcuts in your
 hand" on, and not on a touch screen, as play's keys are, ← and → step as
@@ -758,22 +760,23 @@ its button keeping focus, the game's review with the shipped network (its
 batches, the final hand asked about first and opened on, its flags hand by hand
 in the order played, Trained AI's move on show in the list, the step bar, the
 hand and the view, Previous and Next across hands by keyboard, focus handed on
-at either end and as a control goes, the keys and where they are left alone,
-and the trend, every hand face up at every step of a hand at desktop, tablet
-and phone sizes, the step bar on the screen and focus never under it nor moving
-the page as it lands on the bar, the filter that Next follows, a decision it
-leaves out kept in view, and the filter kept across a reload, by keyboard and
-pointer, its lists staying open or folded as the player leaves them while the
-steps change and later hands are reviewed, by touch and by keyboard, the list a
-column of its own on a wide screen that keeps the line on show in view and a
-line pressed in its place as later hands are reviewed, the page still, the
-player's tiles in one row from tablet width, and its way in and out on a phone,
-by touch and by keyboard; and the review of the game so far from a hand's
-result, opened on the hand just played and asking about it first, kept out of
-the trend, back to the result's button at desktop and phone sizes and open
-again where it was left, stopped by Next hand and asking nothing again at the
-next hand's result or at the standings), the review, of the game so far or of
-the whole game, waiting while a hand's own notes ask Trained AI and going on
-where it was, history and export, and settlements that balance event by event.
-Its browser checks run in Chromium, including narrow portrait and landscape
-sizes; they are not physical-iPhone or Safari testing.
+at either end and as a control goes, Next keeping focus while it waits for a
+hand's answers, the keys and where they are left alone, and the trend, every
+hand face up at every step of a hand at desktop, tablet and phone sizes, the
+step bar on the screen and focus never under it nor moving the page as it lands
+on the bar, the filter that Next follows, a decision it leaves out kept in
+view, and the filter kept across a reload, by keyboard and pointer, its lists
+staying open or folded as the player leaves them while the steps change and
+later hands are reviewed, by touch and by keyboard, the list a column of its
+own on a wide screen that keeps the line on show in view and a line pressed in
+its place as later hands are reviewed, the page still, the player's tiles in
+one row from tablet width, and its way in and out on a phone, by touch and by
+keyboard; and the review of the game so far from a hand's result, opened on the
+hand just played and asking about it first, kept out of the trend, back to the
+result's button at desktop and phone sizes and open again where it was left,
+stopped by Next hand and asking nothing again at the next hand's result or at
+the standings), the review, of the game so far or of the whole game, waiting
+while a hand's own notes ask Trained AI and going on where it was, history and
+export, and settlements that balance event by event. Its browser checks run in
+Chromium, including narrow portrait and landscape sizes; they are not
+physical-iPhone or Safari testing.

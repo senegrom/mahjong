@@ -46,10 +46,12 @@ const page = (props = {}) => render(GameReview, { props: { trainedAvailable: tru
 const buttonSaid = (html, attribute) => text(new RegExp(`<button[^>]*\\b${attribute}\\b[^>]*>([^]*?)</button>`).exec(html)?.[1] ?? '');
 /** Where the step bar says the review is. */
 const placeSaid = html => text(/<p class="place[^"]*" data-step="">([^]*?)<\/p>/.exec(html)?.[1] ?? '');
-/** The step bar's Previous and Next: what each is named, and whether it is
- * disabled. */
+/** The step bar's Previous and Next: what each is named, whether it is
+ * disabled, and where it waits, disabled to a screen reader but keeping its
+ * focus, that it does. */
 const steps = html => Object.fromEntries([...html.matchAll(/<button[^>]*\bdata-(previous|next)=""[^>]*aria-label="([^"]*)"([^>]*)>/g)]
-  .map(([, which, label, rest]) => [which, { label, disabled: /\bdisabled\b/.test(rest) }]));
+  .map(([, which, label, rest]) => [which, { label, disabled: /(?:^|\s)disabled=""/.test(rest),
+    ...(/\baria-disabled="true"/.test(rest) ? { waiting: true } : {}) }]));
 /** Every hand of the list, as its header gives it. */
 function heads(html) {
   return [...html.matchAll(/<li class="hand[^"]*" data-hand="(\d+)" data-status="(\w+)">\s*<div class="head[^"]*">([^]*?)<\/div>/g)]
@@ -91,8 +93,10 @@ test('a review under way opens on the hand just played at its first decision, wh
   assert.match(text(/<p class="moves[^"]*" data-move-line="">([^]*?)<\/p>/.exec(html)[1]), /^You · Trained AI …$/);
   assert.ok(html.includes(`role="status" data-step-said="">${stepSaid({ hand: shown, step: 0, decision: null })}</p>`));
   // Previous goes back to the flagged decision of the hand before; Next waits
-  // for the hand's answers rather than passing over its decisions.
-  assert.deepEqual(steps(html), { previous: { label: 'Previous flagged decision', disabled: false }, next: { label: 'Next flagged decision', disabled: true } });
+  // for the hand's answers rather than passing over its decisions, keeping
+  // its focus meanwhile.
+  assert.deepEqual(steps(html), { previous: { label: 'Previous flagged decision', disabled: false },
+    next: { label: 'Next flagged decision', disabled: false, waiting: true } });
   // The list, folded under the step bar, says its filter; the decision on
   // show is current in it, dim, as the flagged decisions do not hold it yet.
   assert.match(html, /<details class="list[^"]*" data-review-index="">/, 'folded');
@@ -209,15 +213,17 @@ test('the decision on show is the place given, Previous and Next go across hands
   assert.equal(placeSaid(page({ review: reviewed, place: { hand: 7, step: 0 } })), 'East 3 · decision 1 of 2');
 });
 
-test('a hand not reviewed yet says so, and every decision is stepped through it at once, while the flagged ones wait for its answers', () => {
+test('a hand not reviewed yet says so, and every decision is stepped through it at once, while the flagged ones wait for its answers on a Next that keeps its focus', () => {
   const reviewing = review({ over: false, busy: true, hands: [done(0), hand(1, { status: 'reviewing', done: 0 }), done(2)] });
-  // On the hand being reviewed, Next waits under the flagged decisions, and
-  // goes on under every decision.
-  assert.equal(steps(page({ review: reviewing, place: { hand: 1, step: 0 } })).next.disabled, true);
-  assert.equal(steps(page({ review: reviewing, place: { hand: 1, step: 0 }, filter: 'every' })).next.disabled, false);
+  // On the hand being reviewed, Next waits under the flagged decisions, said
+  // to be disabled but not disabled outright, which would drop its focus;
+  // under every decision it goes on.
+  assert.deepEqual(steps(page({ review: reviewing, place: { hand: 1, step: 0 } })).next,
+    { label: 'Next flagged decision', disabled: false, waiting: true });
+  assert.deepEqual(steps(page({ review: reviewing, place: { hand: 1, step: 0 }, filter: 'every' })).next, { label: 'Next decision', disabled: false });
   // A hand waiting, not under review: Next goes on past it.
   const waiting = review({ hands: [done(0), hand(1), done(2)] });
-  assert.equal(steps(page({ review: waiting, place: { hand: 1, step: 0 } })).next.disabled, false);
+  assert.deepEqual(steps(page({ review: waiting, place: { hand: 1, step: 0 } })).next, { label: 'Next flagged decision', disabled: false });
 });
 
 test('a repeated hand goes by its name with its honba wherever the review names it', () => {
