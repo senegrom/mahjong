@@ -40,7 +40,7 @@ export const PASS = 8;
 /** How far the unedited table's weights may stand from the review's own: a
  * forward pass of other positions beside it may round its last digits
  * otherwise, while a table that replayed differently moves them far more. */
-export const SAME_WEIGHT = 1e-4;
+const SAME_WEIGHT = 1e-4;
 /** The single changes nearest to flipping it that are paired, two at a time. */
 const PAIRED = 8;
 /** Trained AI's weight a fact must carry for the fact to be the reason. */
@@ -403,15 +403,6 @@ function formWords(F0, F1, A) {
  * did to a special hand that Trained AI's tile keeps, then to the facts. */
 const changeSaid = (F0, change, A, P, unseen) => [...formWords(F0, change.facts, A), ...deltaWords(change.delta, A, P, unseen)];
 
-/** The words said in brackets after a change of a question's table, as the
- * search says them for the change it shows, read from the engine's facts
- * (`facts`, review_facts) before and after: nothing is asked of Trained AI. */
-export function changeWords({ position, played, preferred, facts }, ...edits) {
-  const F0 = factsOf(facts(position), position), table = applyEdits(position, ...edits);
-  const F1 = factsOf(facts(table), table), P = played.tile, A = preferred.tile;
-  return changeSaid(F0, { facts: F1, delta: factDelta(F0, F1, P, A) }, A, P, { A: F0.tiles[A]?.unseen, P: F0.tiles[P]?.unseen });
-}
-
 /** The hand swaps worth asking, picked without the network: those that bring
  * the hand closer to waiting once the player's tile is thrown (the five that
  * leave the most tiles to improve it), a valued pair (two) and a dora (two).
@@ -530,10 +521,12 @@ export function tablesFirstAsked({ position, played, preferred, weights, facts }
  * planned })` hears every pass.
  *
  * Answers `{ status: 'searched', said, singles, pairs, thresholds, asked }`,
- * `said` being the findings in words (`saidLines`); `{ status: 'unlike the
- * review', said }` where it stopped at the unedited table; `{ status: 'too
- * sure' }` below the margin floor, where it asks nothing; and `{ status: 'not
- * a discard' }` for a decision version 1 does not reason about. */
+ * `said` being the findings in words, `{ lead, detail, items, still }`: the
+ * lead the panel sets in bold and what follows it, each idea's line, and what
+ * moved nothing; `{ status: 'unlike the review', said }` where it stopped at
+ * the unedited table; `{ status: 'too sure' }` below the margin floor, where
+ * it asks nothing; and `{ status: 'not a discard' }` for a decision version 1
+ * does not reason about. */
 export async function whatWouldChangeItsMind({ position, played, preferred, weights, facts, ask, signal, onProgress = () => {}, size = PASS }) {
   const start = baselineOf({ position, played, preferred, weights, facts });
   if (!start) return { status: 'not a discard' };
@@ -666,14 +659,6 @@ function searchSaid({ changes, pairs, thresholds, A, P, F0, unseen }) {
   const still = ['scores', 'round'].filter(family => tried.some(change => change.family === family) && !tried.some(change => change.family === family && change.flips));
   if (still.length) said.still = `Not moved by ${list(still.map(family => (family === 'scores' ? `the score (±${points(16000)})` : 'the round')), 'or')}.`;
   return said;
-}
-
-/** A search's findings, or a Why line, as lines of plain text: the lead the
- * panel sets in bold, its items each on a line of its own, and what moved
- * nothing. */
-export function saidLines(said) {
-  if ('label' in said) return [`${said.label}: ${said.text}`];
-  return [[said.lead, said.detail].filter(Boolean).join(' '), ...said.items.map(item => `- ${item}`), ...(said.still ? [said.still] : [])];
 }
 
 const far = n => (n === 0 ? 'waiting' : n < 0 ? 'complete' : `${n} from waiting`);

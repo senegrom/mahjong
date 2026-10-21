@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
 import { Asking, scanMatch } from '../src/lib/game-review.js';
-import { PASS, movesOf, saidLines, sameMove } from '../src/lib/review-insight.js';
+import { PASS, movesOf, sameMove } from '../src/lib/review-insight.js';
 import { anyGate, handTables, passFor, questionOf, reviewInsight, trainedAsk } from '../src/lib/review-insight-policy.js';
+import { saidLines } from './fixtures/insight-panel.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { BATCH } from '../src/lib/game-review.js';
-import { MARGIN_FLOOR, PASS, applyEdits, changeWords, explainWhy, judge, moveWords, saidLines, searchOffered, singleEdits,
+import { MARGIN_FLOOR, PASS, applyEdits, explainWhy, judge, moveWords, searchOffered, singleEdits,
   tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { trainedAsk } from '../src/lib/review-insight-policy.js';
+import { saidLines, saidOfChange, searchWhereOnly, standInQuestion } from './fixtures/insight-panel.js';
 import { planesDigest, recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
@@ -326,27 +327,36 @@ test('no change, alone or paired, has a seat in riichi throw a tile from its han
   assert.doesNotThrow(() => facts(table));
 });
 
-test('a change is said as the engine\'s facts stand after it: what is safer, who is still in riichi and how many riichi stand', () => {
-  const said = (tables, where, [P, A], ...words) => {
-    const question = { position: tables.get(where).position, ...asked(P, A), facts }, singles = singleEdits(question.position, question);
-    return changeWords(question, ...words.map(text => singles.find(edit => edit.words === text)));
-  };
+/** What the panel says a change of a question's table did, or a pair of
+ * changes, named by their words, in its brackets, where Trained AI, stood in
+ * for, throws the player's tile on that table and on no other
+ * (searchWhereOnly). */
+async function saidOf(question, ...words) {
+  const singles = singleEdits(question.position, question);
+  const { said } = await searchWhereOnly(question, facts, ...words.map(text => singles.find(edit => edit.words === text)));
+  return saidOfChange([said.detail, ...said.items].find(line => words.every(text => line.includes(text))));
+}
+/** The question at a decision of `tables` (`where`), the player's tile `P`
+ * against Trained AI's `A`, its weights stood in for. */
+const questionAt = (tables, where, [P, A]) => standInQuestion(tables.get(where).position, P, A);
+
+test('a change is said as the engine\'s facts stand after it: what is safer, who is still in riichi and how many riichi stand', async () => {
   // A 4 bamboo in East's river puts the player's 1 bamboo on suji, while the
   // 2 characters it replaces were safe against East's riichi.
-  assert.deepEqual(said(reviewCheck, 'East 2 · 1 honba #17', ['1s', '2m'], 'East\'s 14th discard had been a 4 bamboo, not the 2 characters'),
-    ['the 2 characters no longer safe', 'your 1 bamboo safer']);
+  assert.equal(await saidOf(questionAt(reviewCheck, 'East 2 · 1 honba #17', ['1s', '2m']), 'East\'s 14th discard had been a 4 bamboo, not the 2 characters'),
+    'the 2 characters no longer safe and your 1 bamboo safer');
   // South and North in riichi: either taken back leaves the other standing,
   // and a riichi from West would be the third.
-  assert.deepEqual(said(clubFive, 'South 3 #25', ['1m', '6m'], 'South had not declared riichi'), ['only North in riichi', 'the 6 characters safer']);
-  assert.deepEqual(said(clubFive, 'South 3 #25', ['1m', '6m'], 'West had declared riichi with their last discard, the 5 bamboo'),
-    ['a third riichi', 'your 1 characters no longer safe']);
-  // Nobody in riichi at the first discard: two declared at once are two.
-  assert.deepEqual(said(reviewCheck, 'East 1 #1', ['8s', '3m'], 'East had declared riichi with their last discard, the 9 circles',
-    'South had declared riichi with their last discard, the north wind'), ['two riichi', 'the 3 characters less safe', 'your 8 bamboo less safe']);
-  // North's riichi, the only one, taken back.
-  const entry = question('s3-4');
-  assert.deepEqual(changeWords({ ...entry, facts }, singleEdits(entry.position, entry).find(edit => edit.words === 'North had not declared riichi')),
-    ['nobody in riichi']);
+  assert.equal(await saidOf(questionAt(clubFive, 'South 3 #25', ['1m', '6m']), 'South had not declared riichi'), 'only North in riichi and the 6 characters safer');
+  assert.equal(await saidOf(questionAt(clubFive, 'South 3 #25', ['1m', '6m']), 'West had declared riichi with their last discard, the 5 bamboo'),
+    'a third riichi and your 1 characters no longer safe');
+  // Nobody in riichi at the first discard: two declared at once are two, said
+  // of the pair that alone makes Trained AI throw the player's tile.
+  assert.equal(await saidOf(questionAt(reviewCheck, 'East 1 #1', ['8s', '3m']), 'East had declared riichi with their last discard, the 9 circles',
+    'South had declared riichi with their last discard, the north wind'), 'two riichi, the 3 characters less safe and your 8 bamboo less safe');
+  // North's riichi, the only one, taken back, on the recorded question's own
+  // weights.
+  assert.equal(await saidOf(question('s3-4'), 'North had not declared riichi'), 'nobody in riichi');
 });
 
 /** South 1 #9's search, Trained AI throwing the 6 circles on a table where
