@@ -245,9 +245,9 @@
         Focus your hand first. An arrow key brings the marker up on the tile you drew, the arrows
         move it along your hand, and Enter throws the marked tile. The
         numbers 1 to 9 throw a tile directly and 0 throws the one you just
-        drew. Press r to focus the riichi choices and t to win on your own draw. Shortcuts never run while you are using another control and can be turned off in Options.
+        drew. Press r to focus the riichi choices and t to win on your own draw. These never run while you are using another control.
         In a review, ← and → step, Shift+← and Shift+→ change hand, s shows the answer, 1 to 9 and 0 pick a tile while it is hidden,
-        and Esc goes back.
+        and Esc goes back, from any control but a form field. Shortcuts can be turned off in Options.
       </dd>
 
       <dt>Rules</dt>
