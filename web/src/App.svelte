@@ -61,6 +61,10 @@
   // preferences, so a quiz the player set up is still one after a reload.
   let reviewHideMove = $state(preferences.reviewHideMove);
   let reviewHideTiles = $state(preferences.reviewHideTiles);
+  // Which decisions the review of the game steps through, stored with the
+  // other preferences, so that it is as the player left it in the next game
+  // and after a reload.
+  let reviewFilter = $state(preferences.reviewFilter);
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
   let startupNote = $state('Loading the game and selected tile graphics…');
@@ -144,7 +148,8 @@
   // player who has not picked a network has no trainedNetwork in the record.
   let storedSettings = null;
   const currentSettings = () =>
-    ({ difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, reviewHideMove, reviewHideTiles, trainedNetwork });
+    ({ difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, reviewHideMove, reviewHideTiles, reviewFilter,
+      trainedNetwork });
   $effect(() => {
     storedSettings = writeSettings(storage, currentSettings(), storedSettings);
   });
@@ -702,7 +707,7 @@
     <PhysicalPlay {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
     {#if reviewingGame && matchReview}
-      <GameReview review={matchReview} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} />
+      <GameReview review={matchReview} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} bind:filter={reviewFilter} />
     {/if}
     <!-- Hidden rather than closed while the review is open, so the result
          and the standings come back as they were left. -->

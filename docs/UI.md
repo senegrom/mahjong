@@ -499,27 +499,28 @@ The line goes when focus moves on.
 
 **Which decisions are listed.** The list opens on the flagged decisions, and a
 filter under its heading lists instead every decision where Trained AI chose
-differently, or every decision, each of its three buttons saying how many it
-holds: "Flagged (7)", "Trained AI differed (64)", "Every decision (182)". The
-button pressed says so (`aria-pressed`) and keeps focus, and the heading names
-the list ("Flagged decisions", "Where Trained AI differed", "Every decision").
-Where Trained AI chose differently, the decisions are ranked as the flagged
-ones are, by the gap between the weights, those whose moves could not be
-compared (an unscored quad) after the rest, and the flagged ones among them
-say **Flagged** and keep the accent's edge; every decision is listed in the
-order it was made. Each list leads with five, the rest behind **Show all**. A
-status line, in the page from the start, says what the list now shows ("64
-decisions where Trained AI differed, 7 of them flagged, widest departure
-first. First 5 listed."), and goes quiet once focus leaves the filter, or once
-the hands reviewed since have changed the counts it gave, so it never stays to
-say a count the list has outgrown. Every decision listed says Trained AI's
-move ("Trained AI: discards the 9 circles"), or that Trained AI agreed, or
-that the move was the only one, and opens with **Replay**: its position, the
-move and Trained AI's view of it. Keyboard focus on a listed decision stays
-with it in every list as the review goes on, and the status line says where it
-went: further departures put a decision lower in a ranked list, and in the
-list of every decision a hand reviewed out of turn puts its decisions before
-those of the hands after it.
+differently, or every decision, kept as the player leaves it with the other
+preferences (`reviewFilter`), in the next game and after a reload, each of its
+three buttons saying how many it holds: "Flagged (7)", "Trained AI differed
+(64)", "Every decision (182)". The button pressed says so (`aria-pressed`) and
+keeps focus, and the heading names the list ("Flagged decisions", "Where
+Trained AI differed", "Every decision"). Where Trained AI chose differently,
+the decisions are ranked as the flagged ones are, by the gap between the
+weights, those whose moves could not be compared (an unscored quad) after the
+rest, and the flagged ones among them say **Flagged** and keep the accent's
+edge; every decision is listed in the order it was made. Each list leads with
+five, the rest behind **Show all**. A status line, in the page from the start,
+says what the list now shows ("64 decisions where Trained AI differed, 7 of
+them flagged, widest departure first. First 5 listed."), and goes quiet once
+focus leaves the filter, or once the hands reviewed since have changed the
+counts it gave, so it never stays to say a count the list has outgrown. Every
+decision listed says Trained AI's move ("Trained AI: discards the 9 circles"),
+or that Trained AI agreed, or that the move was the only one, and opens with
+**Replay**: its position, the move and Trained AI's view of it. Keyboard focus
+on a listed decision stays with it in every list as the review goes on, and the
+status line says where it went: further departures put a decision lower in a
+ranked list, and in the list of every decision a hand reviewed out of turn puts
+its decisions before those of the hands after it.
 
 **Every hand, face up.** At every step of a replay the table is shown as it
 stood, every player's hand face up all the time, with no control to hide or

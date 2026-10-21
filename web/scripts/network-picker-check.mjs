@@ -39,7 +39,7 @@ let browser;
 // Every other choice a settings record can hold, none of them a default, with
 // two Trained seats so that the page asks for the network it plays.
 const chosen = { difficulty: 'custom', opponents: ['neural', 'club', 'neural'], hints: false, confirmDiscards: true,
-  shortcuts: false, tileFace: 'dali', reviewAdviser: 'club', reviewHideMove: true, reviewHideTiles: true };
+  shortcuts: false, tileFace: 'dali', reviewAdviser: 'club', reviewHideMove: true, reviewHideTiles: true, reviewFilter: 'every' };
 // A match at that table saved part way through its first hand, as a page
 // before 1110 left it. Its Trained moves are replayed from the save, never
 // asked of a network: each Trained seat passes on every call and otherwise
