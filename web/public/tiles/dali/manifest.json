@@ -353,6 +353,38 @@
       }
     },
     {
+      "name": "Man1",
+      "tile": "1m",
+      "label": "1 character",
+      "direction": "The Aqueduct That Flows Upward — A",
+      "status": "approved",
+      "svg": "approved/Man1.svg",
+      "source": "docs/design/dali/studies/one-character-a-aqueduct-approved.svg",
+      "sourceSha256": "a33eb1b7f79fe603f59d363b93650428f1b10b0ff159bbbabdf89367261c03a3",
+      "svgSha256": "be55c915b9e280937e947967f3047ea3acca5de76a2832c48044a6a1a47c0f34",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 454,
+        "height": 804
+      },
+      "fit": {
+        "painting": {
+          "width": 454,
+          "height": 804
+        },
+        "stretch": 0.02,
+        "anchor": 0.6666666666666666,
+        "bleedPixels": 0,
+        "image": {
+          "x": 0,
+          "y": -80.57,
+          "width": 300,
+          "height": 520.86
+        }
+      }
+    },
+    {
       "name": "Man5",
       "tile": "5m",
       "label": "5 characters",
@@ -544,9 +576,6 @@
     }
   ],
   "placeholders": [
-    {
-      "tile": "1m"
-    },
     {
       "tile": "2m"
     },
