@@ -1561,15 +1561,22 @@ try {
 
     // Show answer, by keyboard: the answer and the tiles shown together, the
     // racks turned over where they lay, and focus handed on to Next as the
-    // button goes, never to the page.
+    // button goes, never to the page. Enter is held down: its repeats, which
+    // reach Next once it has focus, press nothing, so the review stays on the
+    // answer just shown.
     await stepTo(page, keyOf(byButton));
     const first = await keptBack(page, byButton);
     await shot(page, 'game-review-hidden');
     await page.focus('[data-game-review] [data-reveal]');
-    await page.keyboard.press('Enter');
+    await page.keyboard.down('Enter');
     await answered();
     await shownAgain(page, byButton, first);
     await stepFocused();
+    await page.keyboard.down('Enter');
+    await page.keyboard.down('Enter');
+    await page.keyboard.up('Enter');
+    await settle(page);
+    assert.equal(await stepText(page), placeOf(hands[byButton.hand], byButton.step), 'a held Enter does not step on past the answer');
     await shot(page, 'game-review-answered');
     // The same by s, from the decision's line in the list, which keeps focus.
     await stepTo(page, keyOf(byKey));

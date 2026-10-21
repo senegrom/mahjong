@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REVIEW_WIDE, reviewKey } from '../src/lib/ui.js';
+import { REVIEW_WIDE, heldOnSteps, reviewKey } from '../src/lib/ui.js';
 
 /** An element of the page, inside a field where `field` says so, as
  * `closest` finds one around it. */
@@ -43,4 +43,15 @@ test("a review's keys are left alone with Ctrl, Alt or Meta held, while text is 
   // Chrome sends a keydown with no key as it fills a field in for the player.
   assert.equal(reviewKey(key(undefined)), null);
   assert.equal(REVIEW_WIDE, '(min-width: 1100px) and (min-height: 600px)');
+});
+
+test("a held Enter presses a button of the review's step bar once, and is left alone anywhere else", () => {
+  // A button of the step bar, as `closest` finds the bar around it.
+  const bar = { closest: selector => (selector === '[data-steps]' ? {} : null) };
+  assert.equal(heldOnSteps(key('Enter', { repeat: true, target: bar })), true, 'held on the bar');
+  assert.equal(heldOnSteps(key('Enter', { repeat: false, target: bar })), false, 'pressed once, it presses');
+  assert.equal(heldOnSteps(key('ArrowRight', { repeat: true, target: bar })), false, 'held arrows step on');
+  assert.equal(heldOnSteps(key(' ', { repeat: true, target: bar })), false, 'Space presses as it is let go');
+  assert.equal(heldOnSteps(key('Enter', { repeat: true })), false, 'held anywhere else');
+  assert.equal(heldOnSteps(key('Enter', { repeat: true, target: null })), false, 'with nothing focused');
 });

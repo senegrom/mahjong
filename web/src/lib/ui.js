@@ -164,6 +164,17 @@ export function reviewKey(event, { hand = null, dialogOpen = false } = {}) {
   return key === '0' ? 'pick-drawn' : null;
 }
 
+/** Whether a keydown is Enter held down on a button of the review's step bar,
+ * which the browser would press again at every repeat. Enter presses a
+ * button as it goes down, and a reveal hands focus on to Next: held on Show
+ * answer or a tile of the live hand, it would step past the answer it had
+ * just shown. So, as play's held keys throw no tile, a held Enter presses the
+ * bar's buttons once. Space presses a button as it is let go, once however
+ * long it is held, and the arrows step on as they repeat. */
+export function heldOnSteps(event) {
+  return Boolean(event.repeat && event.key === 'Enter' && event.target?.closest?.('[data-steps]'));
+}
+
 /** A called set as the table lays it out: its tiles, and `turned`, the slot
  * of the tile turned sideways on the side of the player it came from, or -1
  * for a concealed quad, which turns none. The tile actually claimed is moved

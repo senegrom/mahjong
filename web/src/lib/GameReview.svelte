@@ -5,7 +5,7 @@
   import ReviewStepBar from './ReviewStepBar.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
   import { FILTER_LABELS, agreement, decisionKey, filterCounts, handEntry, hiddenAt, landing, neighbour, playlist, revealing } from './game-review.js';
-  import { REVIEW_WIDE, moveHandFocus, reviewKey, waitingNote } from './ui.js';
+  import { REVIEW_WIDE, heldOnSteps, moveHandFocus, reviewKey, waitingNote } from './ui.js';
 
   /**
    * The game, looked at again, on one screen: from any hand's result the game
@@ -232,7 +232,15 @@
   // goes back. They work where the player keeps keyboard shortcuts on, as
   // play's do, and not on a touch screen; never while a dialog is open over
   // the page, such as the settings' or the table's discards, nor in a field.
+  // Whatever the shortcuts, a held Enter presses the step bar's buttons only
+  // once (heldOnSteps): held on Show answer or a tile of the live hand, it
+  // would press Next as the reveal handed focus there, and step past the
+  // answer it had just shown.
   function press(event) {
+    if (heldOnSteps(event)) {
+      event.preventDefault();
+      return;
+    }
     if (!shortcuts || touch) return;
     const hand = liveHand(), action = reviewKey(event, { hand, dialogOpen: Boolean(document.querySelector('dialog[open]')) });
     if (action === 'back') onclose?.();
