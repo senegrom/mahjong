@@ -213,7 +213,7 @@ export function singleEdits(position, { played, preferred }) {
         them.discards.forEach(discard => { discard.riichi = false; });
         Object.assign(them, { riichi: 'none', ippatsu: false, score: them.score + 1000 });
         table.riichi_sticks = Math.max(0, table.riichi_sticks - 1);
-      }, { undeclares: true });
+      }, { undeclares: true, seat });
       for (const step of [-1, 1]) {
         const to = at + step;
         if (to < 0 || to >= player.discards.length || player.discards[to].claimed || (step < 0 && !player.discards[at].drawn)) continue;
@@ -751,11 +751,16 @@ function massOf(fact, F, weight, A, P) {
   }
 }
 
-/** Several changes made as one, said one after another: the probe that takes
- * a fact away where one change alone would leave it standing. */
+/** Several changes made as one, the probe that takes a fact away where one
+ * change alone would leave it standing, said in one clause: every riichi
+ * taken back ("South and North had not declared riichi"), or every copy the
+ * player threw of a tile made another, each the same tile ("your second and
+ * ninth discards had each been a 1 characters, not the 8 bamboo"). */
 function together(family, parts) {
-  return parts.length < 2 ? parts : [{ family, key: family, cost: parts.length, words: parts.map(part => part.words).join(', and '), parts,
-    apply: table => parts.forEach(part => part.apply(table)) }];
+  if (parts.length < 2) return parts;
+  const words = family === 'riichi' ? `${list(parts.map(part => WINDS[part.seat]))} had not declared riichi`
+    : `your ${list(parts.map(part => nth(part.index)))} discards had each been ${an(parts[0].into)}, not the ${tileWords(parts[0].from)}`;
+  return [{ family, key: family, cost: parts.length, words, parts, apply: table => parts.forEach(part => part.apply(table)) }];
 }
 
 /** The change that takes the leading fact away, where it has a clean one: a

@@ -5,7 +5,8 @@ import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.j
 import { BATCH } from '../src/lib/game-review.js';
 import { MARGIN_FLOOR, PASS, applyEdits, changeWords, explainWhy, judge, moveWords, saidLines, searchOffered, singleEdits,
   tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
-import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
+import { trainedAsk } from '../src/lib/review-insight-policy.js';
+import { planesDigest, recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -22,7 +23,8 @@ const searched = questions.filter(entry => searchOffered(entry));
  * from its hand, so it cannot have declared a discard earlier, the tile
  * then following the declaration out of its hand. East 2 · 2 honba #14's
  * probe changes both of the player's 8 bamboo, since one left in the river
- * keeps a wait on it furiten; Trained AI was asked that table since. */
+ * keeps a wait on it furiten, and says so in one clause; Trained AI was
+ * asked that table since. */
 const PANELS = {
   'e3-5': [
     'Partly: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.',
@@ -44,7 +46,7 @@ const PANELS = {
     'Not moved by the score (±16,000) or the round.',
   ],
   'e2b-14': [
-    'Why: You had already thrown an 8 bamboo, so a wait on it would be furiten. Trained AI puts 99.2% on tiles you had already thrown. If your second discard had been a 1 characters, not the 8 bamboo, and your ninth discard had been a 1 characters, not the 8 bamboo: the 2 bamboo 66.4%, your 6 bamboo <0.1%, the 8 bamboo <0.1%.',
+    'Why: You had already thrown an 8 bamboo, so a wait on it would be furiten. Trained AI puts 99.2% on tiles you had already thrown. If your second and ninth discards had each been a 1 characters, not the 8 bamboo: the 2 bamboo 66.4%, your 6 bamboo <0.1%, the 8 bamboo <0.1%.',
   ],
   's1-9': [
     'Why: Your 6 circles leaves the hand 5 from waiting; Trained AI\'s 3 bamboo leaves it 4 from waiting. Trained AI puts 98.3% on tiles that keep the hand 4 from waiting.',
@@ -418,4 +420,27 @@ test('every copy of a tile the player threw is changed at once to take a furiten
     }
   }
   assert.deepEqual([tables, crowded], [14, ['Club seed 16, South 3 #20: 2 copies of 1p made 2m, 2 in sight']]);
+});
+
+test('a Why line takes every riichi back at once, said in one clause', async () => {
+  // Club seed 16's South 3 #26, East and West in riichi: the player threw the
+  // 5 circles, and Trained AI the 7 characters, which cannot deal in; with
+  // neither riichi it would throw the 5 circles. Trained AI answers as it
+  // answered both tables in the page's runtime, read as the page reads it.
+  const recorded = JSON.parse(readFileSync(new URL('./fixtures/review-insight-two-riichi.json', import.meta.url), 'utf8'));
+  const answers = new Map([recorded.unedited, recorded.probe].map(({ digest, weights }) => [digest, weights]));
+  const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: async sent => sent.map(({ planes, mask }) => ({ weights: answers.get(planesDigest(planes, mask)) })) });
+  const { position } = clubSixteen.get(`${recorded.hand} #${recorded.decision}`), [{ moves: weights }] = await ask([position]);
+  const why = async played => {
+    const tables = [];
+    const said = await explainWhy({ position, ...asked(played, '7m'), weights, facts, ask: positions => { tables.push(...positions); return ask(positions); } });
+    return { said: saidLines(said), tables };
+  };
+  const thrown = await why('5p');
+  assert.deepEqual(thrown.said, ['Partly: Against East and West\'s riichi your 5 circles is a middle tile on half suji; Trained AI\'s 7 characters cannot deal in. Trained AI puts 79.3% on tiles that cannot deal in.']);
+  const [unedited, probe] = thrown.tables;
+  assert.deepEqual([unedited, probe.players.map(player => player.riichi), probe.riichi_sticks], [position, ['none', 'none', 'none', 'none'], position.riichi_sticks - 2]);
+  // Had the player thrown the 6 characters, taking both riichi back would not
+  // have halved Trained AI's lead over it, and the line says so.
+  assert.deepEqual((await why('6m')).said, ['Partly: Against East and West\'s riichi your 6 characters is a middle tile with no suji; Trained AI\'s 7 characters cannot deal in. Trained AI puts 79.3% on tiles that cannot deal in. If East and West had not declared riichi, it still does not choose yours: the 5 circles 92.7%, your 6 characters <0.1%, the 7 characters 0.5%.']);
 });
