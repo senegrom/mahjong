@@ -54,10 +54,11 @@ pub(super) struct History {
     pub(super) seating: [usize; 4],
     /// For each seat, in the order of its sets, the turn on which each quad
     /// it declared itself was declared, named by the order number of the
-    /// discard that turn ended with; `None` where nothing says, and for
-    /// every set that is not such a quad. Mortal marks a quad on the
-    /// discard of the turn that made it, and a quad's new indicator makes
-    /// dora of what is thrown after it and not before, so the turn shows.
+    /// discard that turn ended with, or will end with for the turn being
+    /// played; `None` where nothing says, and for every set that is not
+    /// such a quad. Mortal marks a quad on the discard of the turn that
+    /// made it, and a quad's new indicator makes dora of what is thrown
+    /// after it and not before, so the turn shows.
     pub(super) quads: [Vec<Option<u32>>; 4],
     /// The tile the observed seat drew on the turn it declared riichi,
     /// where the position says. Mortal sorts a hand's discards into those
@@ -93,15 +94,24 @@ impl History {
     /// declared riichi. The log tells a quad before the draw that replaces
     /// it, and the seat's next discard ends that turn, its order number
     /// being how many discards the log told before it. A quad no discard
-    /// has followed yet was declared on the turn being played now, which
-    /// the replay knows to tell last. A declaration follows the declaring
-    /// seat's draw.
+    /// has followed yet was declared on the turn being played now, whose
+    /// discard will carry the next number, which the replay knows to tell
+    /// last. A declaration follows the declaring seat's draw.
     pub(super) fn from_log(hand: &Hand, seat: Wind) -> History {
         let mut quads: [Vec<Option<u32>>; 4] =
             std::array::from_fn(|seat| vec![None; hand.players[seat].melds.len()]);
         let mut open: Vec<(Wind, Tile)> = Vec::new();
         let mut made = 0u32;
         let (mut drawn, mut riichi_draw) = (None, None);
+        let mark = |quads: &mut [Vec<Option<u32>>; 4], seat: Wind, tile: Tile, made: u32| {
+            let at = hand.players[seat.index()].melds.iter().position(|meld| {
+                meld.tile == tile
+                    && matches!(meld.kind, MeldKind::ConcealedKan | MeldKind::ExtendedKan)
+            });
+            if let Some(at) = at {
+                quads[seat.index()][at] = Some(made);
+            }
+        };
         for event in &hand.log {
             match event {
                 Event::Tsumo { actor, tile } if *actor == seat => drawn = Some(*tile),
@@ -115,21 +125,15 @@ impl History {
                         open.drain(..).partition(|(seat, _)| seat == actor);
                     open = waiting;
                     for (seat, tile) in ended {
-                        let at = hand.players[seat.index()].melds.iter().position(|meld| {
-                            meld.tile == tile
-                                && matches!(
-                                    meld.kind,
-                                    MeldKind::ConcealedKan | MeldKind::ExtendedKan
-                                )
-                        });
-                        if let Some(at) = at {
-                            quads[seat.index()][at] = Some(made);
-                        }
+                        mark(&mut quads, seat, tile, made);
                     }
                     made += 1;
                 }
                 _ => {}
             }
+        }
+        for (seat, tile) in open {
+            mark(&mut quads, seat, tile, made);
         }
         History {
             seating: History::of_kyoku(hand.kyoku).seating,
@@ -318,11 +322,14 @@ fn events(hand: &Hand, seat: Wind, history: &History) -> Option<Vec<String>> {
     // let the replacement go again: the turn the position says, where it
     // says one. That turn began with a draw, as no quad is declared on a
     // turn that began with a call, so a discard that followed a call is
-    // not one, and the replay refuses it. Where the position does not say,
-    // the quad is given a turn. A quad still open to robbery is being
-    // declared now, whatever a position says, and the seat acting now with
-    // a replacement in hand has just declared one, so their quads go at
-    // the end, bar one the position places on an earlier turn of its own.
+    // not one, and the replay refuses it; and an added quad's turn came
+    // after the call of the triplet it extends. Where the position does not
+    // say, the quad is given a turn. A quad still open to robbery is being
+    // declared now, whatever a position says, and so is any the position
+    // places on the turn being played, whose discard will carry the next
+    // number; the seat acting now with a replacement in hand has just
+    // declared one. Those go at the end, in the order of the seat's sets,
+    // bar the quad open to robbery, which was declared last of all.
     //
     // The engine clears its mark of a replacement only at the next draw, so
     // a seat that has just claimed the discard after one holds nothing.
@@ -339,41 +346,46 @@ fn events(hand: &Hand, seat: Wind, history: &History) -> Option<Vec<String>> {
                 continue;
             }
             let now = who == hand.turn && robbed.is_some_and(|tile| tile == meld.tile);
-            if let Some(order) = history.quad_turn(index, at).filter(|_| !now) {
-                let drawn_turn = player.discards.iter().any(|d| d.order == order)
-                    && !from_hand.contains(&(index, order));
-                if !drawn_turn {
-                    return None;
+            let playing = who == hand.turn && (holding_replacement || robbed.is_some());
+            // The turn the quad is told on, or `None` for the end.
+            let slot = match history.quad_turn(index, at) {
+                _ if now => None,
+                Some(order) if playing && order == hand.discards_made => None,
+                Some(order) => {
+                    let drawn_turn = player.discards.iter().any(|d| d.order == order)
+                        && !from_hand.contains(&(index, order));
+                    let after_its_pon = meld.kind != MeldKind::ExtendedKan
+                        || taken.iter().any(|claim| {
+                            claim.claimer == who && claim.meld == at && claim.order < order
+                        });
+                    if !drawn_turn || !after_its_pon {
+                        return None;
+                    }
+                    Some(order)
                 }
-                standing
-                    .entry((index, order))
-                    .or_default()
-                    .push((who, meld.kind, meld.tile));
-                continue;
-            }
-            if now || (who == hand.turn && holding_replacement) {
-                closing.push((who, meld.kind, meld.tile));
-                continue;
-            }
-            // The seat's own turns are the only place a quad fits; taking
-            // the latest keeps the usual shape of a hand, where quads come
-            // late, and keeps the tile out of the river before it is drawn.
-            let slot = player
-                .discards
-                .iter()
-                .rev()
-                .find(|d| !from_hand.contains(&(index, d.order)))
-                .map(|d| d.order);
+                None if who == hand.turn && holding_replacement => None,
+                // The seat's own turns are the only place a quad fits;
+                // taking the latest keeps the usual shape of a hand, where
+                // quads come late, and keeps the tile out of the river
+                // before it is drawn. A quad declared and not yet discarded
+                // from can only be now.
+                None => player
+                    .discards
+                    .iter()
+                    .rev()
+                    .find(|d| !from_hand.contains(&(index, d.order)))
+                    .map(|d| d.order),
+            };
             match slot {
                 Some(order) => standing
                     .entry((index, order))
                     .or_default()
                     .push((who, meld.kind, meld.tile)),
-                // Declared and not yet discarded from: it can only be now.
                 None => closing.push((who, meld.kind, meld.tile)),
             }
         }
     }
+    closing.sort_by_key(|&(who, _, tile)| who == hand.turn && robbed == Some(tile));
 
     // The thirteen tiles the observed seat must have been dealt for the
     // replay to leave it holding what was entered.

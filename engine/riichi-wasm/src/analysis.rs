@@ -180,8 +180,9 @@ struct Set {
     from: usize,
     /// For a quad the seat declared itself, the turn it was declared on:
     /// the order number of the discard that turn ended with, the same
-    /// number that discard carries in the river. Left out where nobody
-    /// recorded it, and for a quad declared on the turn being played now.
+    /// number that discard carries in the river, or for the turn being
+    /// played now the number its discard will carry. Left out where nobody
+    /// recorded it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     order: Option<u32>,
 }
@@ -373,22 +374,6 @@ impl Position {
                 });
             }
             player.discards.sort_by_key(|entry| entry.order);
-            // Only a quad the seat declared itself has a turn of its own,
-            // which one of that seat's discards ended; a set taken from a
-            // river is told at the discard it took.
-            for set in &input.melds {
-                let Some(order) = set.order else {
-                    continue;
-                };
-                if !matches!(set.kind.as_str(), "concealed-kan" | "extended-kan")
-                    || !input.discards.iter().any(|entry| entry.order == order)
-                {
-                    return Err(format!(
-                        "Only a concealed or added kan records its turn, as the order number of one of {}'s own discards",
-                        ["East", "South", "West", "North"][index]
-                    ));
-                }
-            }
             player.riichi = match input.riichi.as_str() {
                 "none" => Riichi::None,
                 "riichi" => Riichi::Declared,
@@ -433,15 +418,57 @@ impl Position {
             }
             player.furiten = waiting.furiten;
         }
+        // Only a quad the seat declared itself has a turn of its own: one
+        // that one of the seat's own discards ended, or the turn being
+        // played now, whose discard will carry the next order number, while
+        // the seat that declared it still holds the replacement or waits on
+        // the answer to a quad open to robbery. A set taken from a river is
+        // told at the discard it took.
+        let playing_on = (phase == Phase::Act && hand.after_quad) || robbing;
+        for (index, input) in self.players.iter().enumerate() {
+            for set in &input.melds {
+                let Some(order) = set.order else {
+                    continue;
+                };
+                let ended_it = input.discards.iter().any(|entry| entry.order == order);
+                let being_played = playing_on && index == self.turn && order == hand.discards_made;
+                if !matches!(set.kind.as_str(), "concealed-kan" | "extended-kan")
+                    || !(ended_it || being_played)
+                {
+                    return Err(format!(
+                        "Only a concealed or added kan records its turn, as the order number of one of {}'s own discards",
+                        ["East", "South", "West", "North"][index]
+                    ));
+                }
+            }
+        }
         // Every discard marked as claimed must be explained by a called set
         // that took it from that seat; without this, marking extra copies of
         // a tile as claimed put a fifth one on the table.
-        if let Err((seat, tile)) = claims(&hand) {
-            return Err(format!(
+        let taken = claims(&hand).map_err(|(seat, tile)| {
+            format!(
                 "{}'s claimed {} needs a called set that took it",
                 ["East", "South", "West", "North"][seat.index()],
                 tile
-            ));
+            )
+        })?;
+        // An added kan extends a triplet its seat claimed, so the turn it
+        // records came after that claim.
+        for (index, input) in self.players.iter().enumerate() {
+            for (at, set) in input.melds.iter().enumerate() {
+                let Some(order) = set.order.filter(|_| set.kind == "extended-kan") else {
+                    continue;
+                };
+                if taken.iter().any(|claim| {
+                    claim.claimer.index() == index && claim.meld == at && claim.order >= order
+                }) {
+                    return Err(format!(
+                        "{}'s added kan of {} records a turn before its pon was called",
+                        ["East", "South", "West", "North"][index],
+                        set.tile
+                    ));
+                }
+            }
         }
         // The editor keeps the flag through the kan's robbery window, so the
         // replacement that follows is known to be one; only a plain discard
@@ -1561,6 +1588,61 @@ mod tests {
         );
         for kyoku in 2..=4 {
             assert_eq!(changed(kyoku), first, "hand {kyoku}");
+        }
+    }
+
+    /// A quad a seat added to its triplet was declared on one of its turns
+    /// after the pon was called, so a position that records the quad's turn
+    /// as one before the call describes a hand nobody played, and is refused
+    /// rather than replayed.
+    #[test]
+    fn an_added_kan_is_refused_a_turn_before_its_pon_was_called() {
+        // South pons East's 9m at order 4, discarding the 1m straight from
+        // its hand, then draws and throws the 9s at order 9, and the 2s at
+        // order 13. It has since added the fourth 9m and holds the
+        // replacement: fifteen draws in all, the replacement among them.
+        let mut position = acting();
+        position.seat = 1;
+        position.turn = 1;
+        position.after_quad = true;
+        position.wall = 55;
+        position.indicators = vec!["3s".into(), "6m".into()];
+        position.players[0] = seat("");
+        position.players[0].discards = vec![
+            thrown("1z", 0, false),
+            thrown("9m", 4, true),
+            thrown("3z", 8, false),
+            thrown("4z", 12, false),
+        ];
+        position.players[1] = seat("2m 3m 4m 4s 5s 6s 5z 5z 6z 6z 7z");
+        position.drawn = Some("7z".into());
+        position.players[1].melds = vec![set("extended-kan", "9m", 3)];
+        position.players[1].discards = vec![
+            thrown("1s", 1, false),
+            thrown("1m", 5, false),
+            thrown("9s", 9, false),
+            thrown("2s", 13, false),
+        ];
+        position.players[2].discards = vec![
+            thrown("6z", 2, false),
+            thrown("2p", 6, false),
+            thrown("8p", 10, false),
+        ];
+        position.players[3].discards = vec![
+            thrown("8m", 3, false),
+            thrown("3p", 7, false),
+            thrown("1p", 11, false),
+        ];
+        for (order, stands) in [(9, true), (13, true), (14, true), (1, false)] {
+            position.players[1].melds[0].order = Some(order);
+            let built = position.build();
+            assert_eq!(built.is_ok(), stands, "the quad on order {order}");
+            if !stands {
+                assert_eq!(
+                    built.err().as_deref(),
+                    Some("South's added kan of 9m records a turn before its pon was called")
+                );
+            }
         }
     }
 }

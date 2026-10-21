@@ -155,8 +155,10 @@ fn furiten_unshown(hand: &Hand, who: Wind, player: &Player) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{describe_action, may_reach_from, mortal_mask_of, Game};
+    use crate::{describe_action, may_reach_from, mortal_mask_of, Game, MORTAL_VERSION};
     use riichi_core::game::{Action, Call};
+    use riichi_core::hand::Meld;
+    use riichi_core::mjai::Event;
 
     /// How the player plays a whole game in these tests.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -525,5 +527,268 @@ mod tests {
         assert!(written(&hand, Wind::South).is_err());
         hand.phase = Phase::Draw;
         assert!(written(&hand, Wind::East).is_err());
+    }
+
+    /// A hand told event by event from the four hands dealt, kept as the
+    /// engine keeps a hand it plays: what each seat holds, its sets and its
+    /// river, the indicators turned, and the draws from the live wall and
+    /// the replacements. It is the first hand of a game, everyone level.
+    fn told_event_by_event(dealt: [&str; 4], events: Vec<Event>) -> Hand {
+        let tile = |text: &str| -> Tile { text.parse().unwrap() };
+        let mut hand = Hand::deal(&mut Rng::from_seed(1), Wind::East, 1, 0, 0, [25000; 4]);
+        let hands: [Vec<Tile>; 4] = dealt.map(|text| {
+            let held: TileSet = text.parse().unwrap();
+            held.tiles().collect()
+        });
+        for (player, held) in hand.players.iter_mut().zip(&hands) {
+            player.hand = TileSet::from_tiles(held.iter().copied());
+            player.melds.clear();
+            player.discards.clear();
+        }
+        let mut indicators = vec![tile("3m")];
+        hand.log = vec![Event::StartKyoku {
+            round: Wind::East,
+            kyoku: 1,
+            honba: 0,
+            kyotaku: 0,
+            indicator: indicators[0],
+            scores: [25000; 4],
+            hands: hands.clone(),
+        }];
+        let (mut draws, mut replacements, mut made) = (0usize, 0usize, 0u32);
+        let (mut after_quad, mut drawn) = (false, None);
+        for event in events {
+            match &event {
+                Event::Tsumo { actor, tile } => {
+                    hand.players[actor.index()].hand.add(*tile);
+                    if after_quad {
+                        replacements += 1;
+                    } else {
+                        draws += 1;
+                    }
+                    after_quad = false;
+                    drawn = Some(*tile);
+                }
+                Event::Dahai { actor, tile, .. } => {
+                    let player = &mut hand.players[actor.index()];
+                    assert!(player.hand.remove(*tile), "{actor:?} holds no {tile}");
+                    player.discards.push(Discard {
+                        tile: *tile,
+                        order: made,
+                        drawn: drawn == Some(*tile),
+                        riichi: false,
+                        claimed: false,
+                    });
+                    made += 1;
+                    drawn = None;
+                }
+                Event::Pon {
+                    actor,
+                    target,
+                    tile,
+                    consumed,
+                } => {
+                    for used in consumed {
+                        assert!(hand.players[actor.index()].hand.remove(*used));
+                    }
+                    let taken = hand.players[target.index()].discards.last_mut().unwrap();
+                    taken.claimed = true;
+                    let from = match (target.index() + 4 - actor.index()) % 4 {
+                        3 => ClaimedFrom::Left,
+                        2 => ClaimedFrom::Across,
+                        _ => ClaimedFrom::Right,
+                    };
+                    hand.players[actor.index()]
+                        .melds
+                        .push(Meld::pon(*tile, from));
+                    drawn = None;
+                }
+                Event::Ankan { actor, consumed } => {
+                    for used in consumed {
+                        assert!(hand.players[actor.index()].hand.remove(*used));
+                    }
+                    hand.players[actor.index()]
+                        .melds
+                        .push(Meld::concealed_kan(consumed[0]));
+                    after_quad = true;
+                    drawn = None;
+                }
+                Event::Kakan { actor, tile, .. } => {
+                    let player = &mut hand.players[actor.index()];
+                    assert!(player.hand.remove(*tile));
+                    let triplet = player
+                        .melds
+                        .iter_mut()
+                        .find(|meld| meld.kind == MeldKind::Pon && meld.tile == *tile)
+                        .expect("an added quad extends a triplet");
+                    triplet.kind = MeldKind::ExtendedKan;
+                    after_quad = true;
+                    drawn = None;
+                }
+                Event::Dora { indicator } => indicators.push(*indicator),
+                _ => {}
+            }
+            hand.log.push(event);
+        }
+        hand.wall = Wall::for_analysis(70 - draws - replacements, &indicators, replacements)
+            .expect("a wall the hand could have");
+        hand.discards_made = made;
+        hand.first_turns_unbroken = false;
+        hand
+    }
+
+    /// South claims East's 5 bamboo; later, on one turn, it declares a
+    /// concealed quad of 2 circles and adds its fourth 5 bamboo to the
+    /// triplet, which West, waiting on the 5 bamboo, may rob. With `apart`
+    /// the concealed quad was declared on South's turn before, and
+    /// discarded from.
+    fn robbing_after_another_quad(apart: bool) -> Hand {
+        let tile = |text: &str| -> Tile { text.parse().unwrap() };
+        let (east, south, west, north) = (Wind::East, Wind::South, Wind::West, Wind::North);
+        let tsumo = |actor: Wind, t: &str| Event::Tsumo {
+            actor,
+            tile: tile(t),
+        };
+        let dahai = |actor: Wind, t: &str, drawn: bool| Event::Dahai {
+            actor,
+            tile: tile(t),
+            drawn,
+        };
+        let ankan = || Event::Ankan {
+            actor: south,
+            consumed: vec![tile("2p"); 4],
+        };
+        let kakan = || Event::Kakan {
+            actor: south,
+            tile: tile("5s"),
+            consumed: vec![tile("5s"); 3],
+        };
+        let turned = || Event::Dora {
+            indicator: tile("8p"),
+        };
+        let mut events = vec![
+            tsumo(east, "5z"),
+            dahai(east, "5s", false),
+            Event::Pon {
+                actor: south,
+                target: east,
+                tile: tile("5s"),
+                consumed: vec![tile("5s"), tile("5s")],
+            },
+            dahai(south, "9m", false),
+            tsumo(west, "1s"),
+            dahai(west, "1s", true),
+            tsumo(north, "5z"),
+            dahai(north, "5z", true),
+            tsumo(east, "9s"),
+            dahai(east, "9s", true),
+        ];
+        let rest = [
+            tsumo(west, "2z"),
+            dahai(west, "2z", true),
+            tsumo(north, "1z"),
+            dahai(north, "1z", true),
+            tsumo(east, "2m"),
+            dahai(east, "2m", true),
+            tsumo(south, "6s"),
+        ];
+        if apart {
+            events.extend([tsumo(south, "3s"), ankan(), turned(), tsumo(south, "4s")]);
+            events.push(dahai(south, "4s", true));
+            events.extend(rest);
+            events.push(kakan());
+        } else {
+            events.extend([tsumo(south, "3s"), dahai(south, "3s", true)]);
+            events.extend(rest);
+            events.extend([ankan(), turned(), tsumo(south, "4s"), kakan()]);
+        }
+        let mut hand = told_event_by_event(
+            [
+                "5s1p1p3p3p4z4z6m6m7s8s9s2m",
+                "2p2p2p2p5s5s5s9m7z7z6z6z1s",
+                "1m2m3m4m5m6m7m8m9m1z1z4s6s",
+                "2s2s3s3s4p4p6p6p7p7p2z2z3z",
+            ],
+            events,
+        );
+        hand.turn = south;
+        hand.phase = Phase::CallWindow;
+        hand.pending_discard = Some((south, tile("5s")));
+        hand.robbable_quad = Some(tile("5s"));
+        hand.robbing_concealed = false;
+        hand.drawn = None;
+        hand.just_claimed = None;
+        hand.after_quad = !apart;
+        hand
+    }
+
+    /// Mortal's planes for a hand really played, told the hand's own log.
+    fn told_planes(hand: &Hand, seat: Wind) -> Vec<f32> {
+        let mut state = riichi::state::PlayerState::new(seat.index() as u8);
+        let start = Event::StartGame {
+            names: std::array::from_fn(|player| format!("player {player}")),
+        };
+        for json in std::iter::once(&start)
+            .chain(&hand.log)
+            .map(|event| event.to_json([0, 1, 2, 3]))
+        {
+            let event = serde_json::from_str::<MortalEvent>(&json).expect("Mortal reads it");
+            state.update(&event).expect("Mortal follows the hand");
+        }
+        state
+            .encode_obs(MORTAL_VERSION, false)
+            .0
+            .iter()
+            .copied()
+            .collect()
+    }
+
+    /// A quad open to robbery is being declared now, and so is another the
+    /// same seat declared earlier on the same turn, with no discard since.
+    /// Written for the seat that may rob it, both are recorded as declared
+    /// on the turn being played and told last, the one open to robbery
+    /// after the other, and the replay reads as the hand did. Unrecorded,
+    /// the earlier one was given the seat's latest turn before, which read
+    /// differently. Declared a turn apart, the earlier quad keeps its turn.
+    #[test]
+    fn two_quads_of_the_turn_being_played_are_told_in_the_order_they_were_declared() {
+        for apart in [true, false] {
+            let hand = robbing_after_another_quad(apart);
+            let seat = Wind::West;
+            assert!(
+                hand.legal_calls()
+                    .iter()
+                    .any(|(who, calls)| *who == seat && calls.contains(&Call::Ron)),
+                "West may rob the quad"
+            );
+            let position = written(&hand, seat).expect("West decides");
+            let orders: Vec<Option<u32>> = position.players[Wind::South.index()]
+                .melds
+                .iter()
+                .map(|set| set.order)
+                .collect();
+            // The triplet the fourth 5 bamboo extends is South's first set.
+            assert_eq!(
+                orders,
+                [Some(9), Some(if apart { 5 } else { 9 })],
+                "apart {apart}"
+            );
+            let text = serde_json::to_string(&position).unwrap();
+            let position: Position = serde_json::from_str(&text).unwrap();
+            let (built, _) = position
+                .build()
+                .unwrap_or_else(|error| panic!("{error}: {text}"));
+            let got = replayed_planes(&built, seat, &position.history(), false)
+                .expect("the replay builds");
+            assert_eq!(
+                differing(&told_planes(&hand, seat), &got),
+                Vec::<usize>::new(),
+                "apart {apart}"
+            );
+            assert_eq!(
+                mortal_mask_of(&built, seat, false),
+                mortal_mask_of(&hand, seat, false)
+            );
+        }
     }
 }
