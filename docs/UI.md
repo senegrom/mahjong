@@ -620,10 +620,11 @@ decision 12 of 15. Your turn, 36 tiles left. You: discards the red dragon,
 2.0%. Trained AI: discards the 8 bamboo, 95.5%. Flagged."), the table in the
 words the table itself uses for the wall and a riichi. In the hand, "You"
 stands over the tile the player threw and "AI" over Trained AI's, which is
-ringed in blue as Agent watch and Guided play ring the agent's choice ("You ·
-AI" where they agreed); a screen reader hears them after the tile's name ("your
-move", "Trained AI's choice"). Every tile keeps the line for them, and none
-lifts, so nothing in the hand moves between steps. Trained AI's view, at every
+ringed in blue as Agent watch and Guided play ring the agent's choice, as the
+tile guide's blue ring says ("You · AI" where they agreed); a screen reader
+hears them after the tile's name ("your move", "Trained AI's choice"). Every
+tile keeps the line for them, and none lifts, so nothing in the hand moves
+between steps. Trained AI's view, at every
 decision put to it, lists every move by its weight, each as its tile or a word
 and its tiles, the riichi discards under their declaration, tagged as the hand
 is ("AI", "You"); a screen reader hears each in the engine's words ("discards
@@ -706,7 +707,8 @@ out, or **Show 3 more moves** at a decision with fewer, hands it to Next, or to
 Previous at the end, never to the page. A control focused below the step bar is
 brought into view under it, never beneath it, also when a step makes the bar
 taller. The decision stays on the page across steps and hands, so what the
-player opened or folded in it stays as they left it.
+player opened or folded in it stays as they left it. The tile guide's Keys
+entry gives the review's keys.
 
 **Agreement and its trend.** The figure is the share of decisions with a choice
 where the player's move was Trained AI's, and the tile counts them ("16 of 75

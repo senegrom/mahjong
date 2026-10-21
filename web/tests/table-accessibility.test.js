@@ -251,6 +251,14 @@ test("the tile guide says what Trained AI's percentages are: how strongly it pre
   assert.match(await tileGuide(), /<dt[^>]*>Trained AI's percentages<\/dt>\s*<dd[^>]*>How strongly it prefers each move, not a chance of winning\.<\/dd>/);
 });
 
+test("the tile guide says the blue ring is Trained AI's choice in a review, as it is the agent's in Agent watch and Guided play, and gives the review's keys", async () => {
+  const guide = await tileGuide();
+  /** What the guide says of a term, its swatch passed over. */
+  const entry = term => text(new RegExp(`<dt[^>]*>(?:<span class="swatch[^"]*"[^>]*></span>)?\\s*${term}</dt>\\s*<dd[^>]*>([^]*?)</dd>`).exec(guide)?.[1] ?? '');
+  assert.equal(entry('a blue ring'), "The tile under the keyboard marker. In Agent watch and Guided play, the agent's choice; in a review, Trained AI's.");
+  assert.match(entry('Keys'), /^Focus your hand first\. .+ can be turned off in Options\. In a review, ← and → step, Shift\+← and Shift\+→ change hand, s shows the answer, 1 to 9 and 0 pick a tile while it is hidden, and Esc goes back\.$/);
+});
+
 test("the settings offer the review's two hiding settings after the other checkboxes, so that those keep their places", async () => {
   const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
     ready: true, busy: false, saveConflict: '', trainedAvailable: false, reviewHideMove: true,

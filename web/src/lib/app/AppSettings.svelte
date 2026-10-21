@@ -213,8 +213,8 @@
 
       <dt><span class="swatch marker"></span> a blue ring</dt>
       <dd>
-        The tile under the keyboard marker. It appears when you press an
-        arrow key and goes when you throw.
+        The tile under the keyboard marker. In Agent watch and Guided play,
+        the agent's choice; in a review, Trained AI's.
       </dd>
 
       <dt><span class="swatch striped"></span> stripes</dt>
@@ -246,6 +246,8 @@
         move it along your hand, and Enter throws the marked tile. The
         numbers 1 to 9 throw a tile directly and 0 throws the one you just
         drew. Press r to focus the riichi choices and t to win on your own draw. Shortcuts never run while you are using another control and can be turned off in Options.
+        In a review, ← and → step, Shift+← and Shift+→ change hand, s shows the answer, 1 to 9 and 0 pick a tile while it is hidden,
+        and Esc goes back.
       </dd>
 
       <dt>Rules</dt>
