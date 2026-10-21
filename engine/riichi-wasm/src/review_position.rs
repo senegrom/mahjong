@@ -63,10 +63,12 @@ pub(super) fn written(
         }
         .into(),
         just_claimed: named(hand.just_claimed.filter(|_| acting)),
-        // The engine keeps the mark until the next draw, through the seat's
-        // own discard; a position carries it only while the seat that drew
-        // the replacement is still to act, which is all it changes.
-        after_quad: acting && hand.after_quad,
+        // The engine clears the mark only at the next draw, so it outlives
+        // the declaring seat's discard, and a claim of that discard too. A
+        // position carries it only while the acting seat holds the
+        // replacement it drew, which is all it changes; a seat that has just
+        // claimed a tile drew nothing.
+        after_quad: acting && hand.after_quad && hand.drawn.is_some(),
         first_turns: hand.first_turns_unbroken,
         seating: Some(seating),
     })
@@ -346,9 +348,10 @@ mod tests {
     /// no calls) is among them; the games that call every set and declare
     /// every quad reach the claims, the quads and the tied scores that a
     /// typed-in table read wrong until it carried the game's seating and
-    /// each quad's turn; and the games the club player plays come to riichi
-    /// questions after the first hand, where the seat's player number is
-    /// not its seat's.
+    /// each quad's turn; seed 17 has the player claim a tile let go after a
+    /// quad's replacement; and the games the club player plays come to
+    /// riichi questions after the first hand, where the seat's player
+    /// number is not its seat's.
     #[test]
     fn every_decision_written_as_a_position_asks_what_the_review_asked() {
         /// How many decisions reached each thing a table typed in by hand
@@ -363,14 +366,16 @@ mod tests {
             riichi_questions: usize,
             renumbered_riichi_questions: usize,
             riichi_draws: usize,
+            claims_after_a_replacement: usize,
         }
         let mut reached = Reached::default();
         let mut wrong = Vec::new();
-        let games: [(f64, &str, Plays); 6] = [
+        let games: [(f64, &str, Plays); 7] = [
             (5.0, "beginner", Plays::Draws),
             (16.0, "beginner", Plays::Calls),
             (31.0, "club", Plays::Calls),
             (81.0, "club", Plays::Calls),
+            (17.0, "club", Plays::Calls),
             (5.0, "club", Plays::Club),
             (16.0, "club", Plays::Club),
         ];
@@ -399,6 +404,7 @@ mod tests {
                         Some(_) => {}
                     }
                     let scores = hand.players.each_ref().map(|player| player.score);
+                    let own = &game.decisions[index].position;
                     in_game += 1;
                     reached.decisions += 1;
                     reached.answering += usize::from(hand.phase == Phase::CallWindow);
@@ -412,6 +418,9 @@ mod tests {
                         want.reach.is_some() && history.seating[seat.index()] != seat.index(),
                     );
                     reached.riichi_draws += usize::from(history.riichi_draw.is_some());
+                    reached.claims_after_a_replacement += usize::from(
+                        own.phase == Phase::Act && own.after_quad && own.drawn.is_none(),
+                    );
                 }
             });
             if (seed, plays) == (5.0, Plays::Draws) {
@@ -431,6 +440,7 @@ mod tests {
         assert!(reached.renumbered > 100, "{reached:?}");
         assert!(reached.renumbered_riichi_questions > 3, "{reached:?}");
         assert!(reached.riichi_draws > 0, "{reached:?}");
+        assert!(reached.claims_after_a_replacement > 0, "{reached:?}");
     }
 
     /// The position is the table as the deciding seat saw it: its own tiles

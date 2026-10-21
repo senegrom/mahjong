@@ -322,7 +322,10 @@ fn events(hand: &Hand, seat: Wind, history: &History) -> Option<Vec<String>> {
     // declared now, whatever a position says, and the seat acting now with
     // a replacement in hand has just declared one, so their quads go at
     // the end, bar one the position places on an earlier turn of its own.
-    let holding_replacement = hand.phase == Phase::Act && hand.after_quad;
+    //
+    // The engine clears its mark of a replacement only at the next draw, so
+    // a seat that has just claimed the discard after one holds nothing.
+    let holding_replacement = hand.phase == Phase::Act && hand.after_quad && hand.drawn.is_some();
     let robbed = hand
         .robbable_quad
         .filter(|_| hand.phase == Phase::CallWindow);
