@@ -1644,13 +1644,19 @@ try {
     await stepFocused();
     await press(page, '[data-game-review] [data-hide-move]');
 
-    // On a phone held upright, a decision kept back: its live tiles and the
-    // moves under it are tabbed through clear of the bars, and nothing
-    // scrolls sideways.
+    // On a phone held upright, a decision kept back: a tile of its live hand
+    // that had focus as the screen turned keeps it, the seat drawn afresh
+    // before the table; its live tiles and the moves under it are tabbed
+    // through clear of the bars, and nothing scrolls sideways.
     const phoneAt = choiceful.find(place => ![byButton, byKey, byDigit, byTile, tilesOnly].includes(place) && digitOf(place) >= 0);
+    const handTile = index => `[data-decision] .mine .hand button.tile[data-hand-index="${index}"]`;
     await stepTo(page, keyOf(phoneAt));
+    await page.focus(handTile(digitOf(phoneAt)));
     await page.setViewport({ width: 390, height: 844 });
     await settle(page);
+    await page.waitForFunction(selector => document.activeElement?.matches(selector), { timeout: 5000 }, handTile(digitOf(phoneAt)))
+      .catch(async () => assert.fail(`the tile keeps focus as the seat moves before the table, not ${await focusedName(page)}`));
+    assert.ok((await overviewAt(page)).seatFirst, "the player's seat drawn before the table");
     await keptBack(page, phoneAt);
     if (await page.$('details[data-review-index][open]')) {
       await press(page, 'details[data-review-index] > summary');

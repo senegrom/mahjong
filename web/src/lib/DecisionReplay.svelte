@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import Tile from './Tile.svelte';
   import MatchTable from './app/MatchTable.svelte';
   import PlayerHand from './app/PlayerHand.svelte';
@@ -52,12 +52,28 @@
   // one place or the other rather than moved by CSS, so that a screen reader
   // and the keyboard go through it in the order it is seen. A server render
   // measures nothing, and draws it after.
+  //
+  // As the screen turns from one to the other, the seat is drawn afresh in
+  // its other place, and a control of it that had focus, the hand, a tile of
+  // the live hand or a move under it, would go with the seat it was in,
+  // dropping focus to the page. The same control in the seat as now drawn
+  // has it instead, brought into view as focus is anywhere on the stage,
+  // clear of the bars (GameReview). The seat is drawn from the same decision,
+  // so the control is there.
   const UPRIGHT = '(max-width: 760px) and (orientation: portrait)';
+  const SEAT = '.mine :is(.hand, button), .picks button';
   let upright = $state(globalThis.matchMedia?.(UPRIGHT).matches ?? false);
+  let root = $state(null);
   onMount(() => {
     const media = matchMedia(UPRIGHT);
     upright = media.matches;
-    const changed = () => { upright = media.matches; };
+    const changed = async () => {
+      const kept = [...(root?.querySelectorAll(SEAT) ?? [])].indexOf(document.activeElement);
+      upright = media.matches;
+      if (kept < 0) return;
+      await tick();
+      root?.querySelectorAll(SEAT)[kept]?.focus();
+    };
     media.addEventListener('change', changed);
     return () => media.removeEventListener('change', changed);
   });
@@ -153,7 +169,7 @@
      the board with the other players around it, the seat after the board
      but on a phone held upright, then what happened since the player's
      previous decision. The step bar says it as the step changes. -->
-<div class="decision" data-decision>
+<div class="decision" data-decision bind:this={root}>
   <div class="overview" data-overview>
     {#if upright}{@render seat()}{/if}
     <!-- Drawn afresh for another hand, so that a seat does not announce a
