@@ -649,18 +649,29 @@ const moveWords = (frame, move) => frame.choices.find(choice => sameMove(choice,
  * (moveToken); the tile on offer where the player answered another's
  * discard, `offered`; the verdict in words, and as flags whether the
  * decision is `flagged`, whether Trained AI `agreed`, whether the move was
- * `forced`, the only one, and whether it is `reviewed` yet. `said` is the
- * line as a screen reader hears it, the moves in the engine's words: "You:
- * discards the red dragon. Trained AI: discards the 8 bamboo. Flagged." */
-export function decisionInBrief(frame, decision) {
+ * `forced`, the only one, whether it is `reviewed` yet, and whether Trained
+ * AI's move is `hidden`. `said` is the line as a screen reader hears it, the
+ * moves in the engine's words: "You: discards the red dragon. Trained AI:
+ * discards the 8 bamboo. Flagged."
+ *
+ * With `hidden`, a reviewed decision keeps Trained AI's move back, as the
+ * step bar's line does (stepSaid): no move, and no word or tick that it
+ * agreed, which would give the answer away, but "Trained AI's move hidden."
+ * in its place, in what a screen reader hears as well as in what is shown.
+ * The player's move and the flag stay: how far the player went wrong is not
+ * what was better. An only move and a hand not yet reviewed have nothing to
+ * hide. */
+export function decisionInBrief(frame, decision, { hidden = false } = {}) {
   const { kind, tile } = frame.played, view = frame.view;
-  const flagged = Boolean(decision?.judgement?.flagged), forced = Boolean(decision?.forced), agreed = Boolean(decision?.agreed);
-  const verdict = !decision ? '' : flagged ? 'Flagged' : forced ? 'Only move' : agreed ? 'Trained AI agreed' : 'Trained AI differed';
-  const ai = decision && !forced && !agreed ? moveToken(decision.advised_kind, decision.advised_tile ?? null) : null;
+  const flagged = Boolean(decision?.judgement?.flagged), forced = Boolean(decision?.forced);
+  const hide = hidden && Boolean(decision) && !forced, agreed = !hide && Boolean(decision?.agreed);
+  const verdict = !decision ? '' : flagged ? 'Flagged' : forced ? 'Only move' : hide ? '' : agreed ? 'Trained AI agreed' : 'Trained AI differed';
+  const ai = decision && !forced && !agreed && !hide ? moveToken(decision.advised_kind, decision.advised_tile ?? null) : null;
   const offered = view.phase === 'call' ? view.pending_discard ?? null : null;
-  const answer = !decision ? 'Not reviewed yet.' : forced ? 'Only move.' : agreed ? 'Trained AI agreed.' : `Trained AI: ${decision.advised}.`;
+  const answer = !decision ? 'Not reviewed yet.' : forced ? 'Only move.' : hide ? "Trained AI's move hidden."
+    : agreed ? 'Trained AI agreed.' : `Trained AI: ${decision.advised}.`;
   const said = `${offered ? `On the ${tileWords(offered)}. ` : ''}You: ${moveWords(frame, frame.played)}. ${answer}${flagged ? ' Flagged.' : ''}`;
-  return { you: moveToken(kind, tile), ai, offered, verdict, flagged, agreed, forced, reviewed: Boolean(decision), said };
+  return { you: moveToken(kind, tile), ai, offered, verdict, flagged, agreed, forced, reviewed: Boolean(decision), hidden: hide, said };
 }
 
 /** A move as the review's short lines give it: a word, and the tiles it

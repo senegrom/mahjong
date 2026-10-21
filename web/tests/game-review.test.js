@@ -297,7 +297,7 @@ test("the table at a step is said in a sentence, each seat says what it was doin
     advised_tile: advised.tile, advised: advised.label, ...values });
   assert.deepEqual(decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[1], { judgement: { flagged: true } })),
     { you: { word: '', tiles: ['7m'] }, ai: { word: '', tiles: ['8s'] }, offered: null, verdict: 'Flagged', flagged: true, agreed: false,
-      forced: false, reviewed: true, said: 'You: discards the 7 characters. Trained AI: discards the 8 bamboo. Flagged.' });
+      forced: false, reviewed: true, hidden: false, said: 'You: discards the 7 characters. Trained AI: discards the 8 bamboo. Flagged.' });
   const riichi = decisionInBrief(frame({ kind: 'riichi', tile: '3s' }), decision(choices[3]));
   assert.deepEqual([riichi.you, riichi.ai, riichi.verdict], [{ word: 'Riichi', tiles: ['3s'] }, { word: 'Tsumo', tiles: [] }, 'Trained AI differed']);
   assert.equal(riichi.said, 'You: declares riichi on the 3 bamboo. Trained AI: wins by self-draw.');
@@ -313,6 +313,37 @@ test("the table at a step is said in a sentence, each seat says what it was doin
   // Before the hand is reviewed only the player's move is known.
   const waiting = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), null);
   assert.deepEqual([waiting.reviewed, waiting.ai, waiting.verdict, waiting.said], [false, null, '', 'You: discards the 7 characters. Not reviewed yet.']);
+});
+
+test("with Trained AI's move hidden, a hand's line gives the player's move and the flag, and keeps back Trained AI's move and that it agreed, heard too", () => {
+  const seat = wind => ({ seat: wind, turn: false, riichi: false, hand: [], drawn: null });
+  const turn = { phase: 'act', wall: 45, pending_discard: null, pending_from: null, seats: ['east', 'south', 'west', 'north'].map(seat) };
+  const answer = { ...turn, phase: 'call', pending_discard: '5s', pending_from: 'west' };
+  const choices = [{ kind: 'discard', tile: '7m', label: 'discards the 7 characters' }, { kind: 'discard', tile: '8s', label: 'discards the 8 bamboo' },
+    { kind: 'pass', tile: null, label: 'passes' }, { kind: 'pon', tile: null, label: 'calls a triplet' }];
+  const frame = (played, view = turn) => ({ played, view, choices });
+  const decision = (advised, values = {}) => ({ agreed: false, forced: false, judgement: null, advised_kind: advised.kind,
+    advised_tile: advised.tile, advised: advised.label, ...values });
+  const hidden = { hidden: true }, thrown = { kind: 'discard', tile: '7m' };
+  // Flagged: the flag stays and Trained AI's move goes, from the line and
+  // from its name alike.
+  assert.deepEqual(decisionInBrief(frame(thrown), decision(choices[1], { judgement: { flagged: true } }), hidden),
+    { you: { word: '', tiles: ['7m'] }, ai: null, offered: null, verdict: 'Flagged', flagged: true, agreed: false, forced: false,
+      reviewed: true, hidden: true, said: "You: discards the 7 characters. Trained AI's move hidden. Flagged." });
+  // Agreed: no tick and no word of it, which would give the answer away.
+  const agreed = decisionInBrief(frame(thrown), decision(choices[0], { agreed: true }), hidden);
+  assert.deepEqual([agreed.ai, agreed.agreed, agreed.verdict, agreed.hidden, agreed.said],
+    [null, false, '', true, "You: discards the 7 characters. Trained AI's move hidden."]);
+  // An answer to another's discard still names the tile on offer, which the
+  // table shows.
+  const pass = decisionInBrief(frame({ kind: 'pass', tile: null }, answer), decision(choices[3]), hidden);
+  assert.deepEqual([pass.offered, pass.you, pass.ai], ['5s', { word: 'Pass', tiles: [] }, null]);
+  assert.equal(pass.said, "On the 5 bamboo. You: passes. Trained AI's move hidden.");
+  // An only move and a hand not yet reviewed have nothing to hide.
+  const forced = decision(choices[0], { agreed: true, forced: true });
+  assert.deepEqual(decisionInBrief(frame(thrown), forced, hidden), decisionInBrief(frame(thrown), forced));
+  assert.deepEqual(decisionInBrief(frame(thrown), null, hidden), decisionInBrief(frame(thrown), null));
+  assert.equal(decisionInBrief(frame(thrown), forced, hidden).hidden, false);
 });
 
 test('a filter holds the decisions it names, and its list runs through the hands in the order played, a hand not yet reviewed held only by the list of every decision', () => {
