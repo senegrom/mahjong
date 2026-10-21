@@ -583,24 +583,25 @@ over 500, the table is a dense one: the centre a bar across the top, the three
 opponents in one row under it, Left, Opposite and Right, each seat as tall as
 what it holds, and their discards 22 pixels wide. The player's own tiles keep
 one row there too, as large as the decision has room for beside the list: 52
-pixels wide where it is 860 pixels wide or more, 42 from 715 and 40 below
-(`--mine-tile`, set by container queries on the stage), since the hand's
-fourteen tiles, their gaps and the seat's padding take fourteen tiles and 125
-pixels. A wide screen's table, the opponents around the centre, left most of
-the screen empty felt and pushed the player's seat below it. On a phone held
-upright, three seats side by side would leave each hand a few tiles to a row,
-so there the opponents take the width of the screen, one under another in the
-order they play after the player, their discards a size larger than in play.
-The table is drawn afresh at a change of hand, so that a seat does not announce
-a call made in the hand before; the rest of the decision stays. The browser
-check goes through every step of a hand at 1100 by 900, 1440 by 900, 1366 by
-768, 800 by 1280, 390 by 844, 320 by 568 and 844 by 390: every tile is on the
-screen, an opponent's 18 pixels wide or more on one row or on two of seven, the
-dense table's opponents in one row under its centre and the player's tiles in
-one row, the player's seat first only on a phone held upright, the step bar on
-the screen with the player's tiles, scrolled to, clear of it, and no page
-scrolls sideways. It says at each size how wide the tiles were drawn and how
-tall the table and the player's seat were together.
+pixels wide where it is 860 pixels wide or more, 42 from 715, 40 from 685 and
+38 below (`--mine-tile`, set by container queries on the stage), since the
+hand's fourteen tiles, their gaps and the seat's padding take fourteen tiles
+and 125 pixels, and a window 761 pixels wide leaves the decision 678 beside a
+classic scrollbar. A wide screen's table, the opponents around the centre, left
+most of the screen empty felt and pushed the player's seat below it. On a phone
+held upright, three seats side by side would leave each hand a few tiles to a
+row, so there the opponents take the width of the screen, one under another in
+the order they play after the player, their discards a size larger than in
+play. The table is drawn afresh at a change of hand, so that a seat does not
+announce a call made in the hand before; the rest of the decision stays. The
+browser check goes through every step of a hand at 1100 by 900, 1440 by 900,
+1366 by 768, 800 by 1280, 390 by 844, 320 by 568 and 844 by 390: every tile is
+on the screen, an opponent's 18 pixels wide or more on one row or on two of
+seven, the dense table's opponents in one row under its centre and the player's
+tiles in one row, the player's seat first only on a phone held upright, the
+step bar on the screen with the player's tiles, scrolled to, clear of it, and
+no page scrolls sideways. It says at each size how wide the tiles were drawn
+and how tall the table and the player's seat were together.
 
 **Trained AI's move, on show.** Wherever Trained AI was asked, its move is on
 show: in the decision's line in the list (above), in the step bar, over its tile

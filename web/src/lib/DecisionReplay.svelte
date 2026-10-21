@@ -233,11 +233,14 @@
      them at all: from 761 pixels wide the hand draws its tiles --mine-tile
      wide (PlayerHand), and fourteen of them with their gaps, the drawn
      tile's and the seat's padding take fourteen tiles and 125 pixels, so 52
-     pixels from a stage of 860, 42 from 715, and 40 below. The sizes are
-     fixed steps rather than a share of the stage (cqi), which a tile's own
-     parts would take of the nearest container instead: an unpainted tile's
-     face is one. */
-  .decision { --mine-tile: 40px; }
+     pixels from a stage of 860, 42 from 715, 40 from 685 and 38 below: a
+     window 761 pixels wide leaves a stage of 678 beside a classic 17-pixel
+     scrollbar, which the media query counts as part of the width. The sizes
+     are fixed steps rather than a share of the stage (cqi), which a tile's
+     own parts would take of the nearest container instead: an unpainted
+     tile's face is one. */
+  .decision { --mine-tile: 38px; }
+  @container stage (min-width: 685px) { .decision { --mine-tile: 40px; } }
   @container stage (min-width: 715px) { .decision { --mine-tile: 42px; } }
   @container stage (min-width: 860px) { .decision { --mine-tile: 52px; } }
   h3 { margin: 0; font-size: .95rem; }
