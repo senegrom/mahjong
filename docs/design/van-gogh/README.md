@@ -1,18 +1,28 @@
 # Van Gogh
 
+**Current Red dragon:** **The Painter’s Vermilion Dragon** (`7z` / `Chun`) replaces Vermilion E, following Carl’s request to deploy the painting with the paintbrush and palette. The complete 1086 × 1448 painting is proportionally downsampled to a 300 × 400 quality-70 AVIF with zero stretch and zero extra bleed, using the shared 26-unit rounded corners. The previous E PNG and SVG are preserved in the design archive.
+
 **Current White dragon:** **C — The Almond-Blossom Dragon** (`5z` / `Haku`) replaces Quiet Dragon L, following Carl's selection and request to deploy C. White almond blossoms and gnarled branches form the dragon against turquoise sky. The full 1086 × 1448 painting is proportionally downsampled to 300 × 400 with zero stretch and zero extra bleed, using the shared 26-unit rounded corners. The previous L PNG and SVG are preserved in the design archive.
 
 **Current North wind:** Snowbound North B (`4z` / `Pei`) replaces Wind Ribbons, following Carl's winter selection. The snowy scene is cropped to exactly 3:4, not squeezed; the complete 北, moon, village and snowy path remain visible. The former North source and playable PNG/SVG are retained in the design archive. Earlier North sections below describe that superseded design. This replacement does not add a tile or change any other artwork.
 
 **Current 9 disks:** The Potter’s Table C is active, replacing Nine Stars I. This corrects the misunderstood restoration: Carl explicitly chose the pottery painting. The approved SVG is kept byte-for-byte as its study, the playable face differs from it only in its fit (see [Proportions](#proportions-cropped-not-stretched)), and Nine Stars remains preserved in the design archive. That restoration left the other tiles unchanged. Eight disks now uses Lemons by the Sea. Earlier sections below describe the design history.
 
-**Current set:** All 34 tile identities are painted. Cloudborne West completed the four winds and the entire Van Gogh set. The Almond-Blossom Dragon C now replaces Quiet Dragon L; the other 33 faces retain their approved artwork. Earlier sections retain historical counts.
+**Current set:** All 34 tile identities are painted. Cloudborne West completed the four winds and the entire Van Gogh set. The Painter’s Vermilion Dragon now replaces Vermilion E for Red dragon. The other 33 faces retain their approved artwork, including The Almond-Blossom Dragon C for White dragon. Earlier sections retain historical counts.
 
 First concepts for a new mahjong tile set, developed on 8 September 2026 after reviewing the existing Matisse artwork and its export conventions.
 
 At the earlier Copper Sunset rollout, Carl had approved all except K and requested deployment. **Van Gogh then had nineteen distinct faces**: A–B, E, G–J and L, plus Copper Sunset for 5 bamboo, Bamboo Raft for 8 bamboo, Seven with Irises C for 7 bamboo, green Moonlit Four C for 4 bamboo, green Triple Shoots A for 3 bamboo, green Garden Rhythm B for 2 bamboo, Almond Branches (Characters A), Night Café (Characters B), Cypress Fields (Characters C), Blazing Dawn (East A) and Wind Ribbons (North B). Almond Branches replaces D for 3 of characters; Night Café and Cypress Fields are the approved adaptations for 2 and 4 of characters. The later L was then the active white dragon; F remained an earlier alternative. Both are now superseded by The Almond-Blossom Dragon C. East wind K is excluded. At that stage the remaining 15 tile identities used Classic artwork. See the [playable exports and preview](../../../web/public/tiles/van-gogh/README.md).
 
 ![Van Gogh — six first tile studies](studies/01-van-gogh-concepts.png)
+
+## Selected Red dragon: The Painter’s Vermilion Dragon
+
+Carl requested three creative Red Dragon proposals and explicitly asked to deploy the painting with the paintbrush and palette, **The Painter’s Vermilion Dragon** (Painter C). The vermilion dragon rises from thick paint on an artist’s wooden palette against a swirling cobalt background.
+
+The [approved study](studies/31-red-dragon-painter-c-approved.svg) embeds a 300 × 400 quality-70 AVIF game export with 4:4:4 chroma. The original image is exactly 1086 × 1448, so uniform Lanczos downsampling retains the full painting and its original 3:4 proportions. The playable face has zero stretch and zero extra bleed with the shared 26-unit rounded clip. Original-image and export checksums are recorded in the [approval and processing record](red-dragon-painter-c.json).
+
+Vermilion E remains preserved as its exact previous [PNG](superseded/red-dragon-vermilion-E-Chun.png) and [SVG](superseded/red-dragon-vermilion-E-Chun.svg), as well as in the first concept sheet. Regenerate the selected painting with `node web/scripts/export-van-gogh-tiles.mjs --only=7z`.
 
 ## Selected White dragon: The Almond-Blossom Dragon C
 

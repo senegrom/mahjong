@@ -1,0 +1,62 @@
+{
+  "tile": "7z",
+  "name": "Chun",
+  "title": "The Painter’s Vermilion Dragon",
+  "candidate": "Painter C",
+  "approval": "Carl requested three creative Red Dragon proposals and explicitly asked to deploy the painting with the paintbrush and palette. This identifies The Painter’s Vermilion Dragon (Painter C), replacing the earlier Vermilion E face.",
+  "originalFile": "exec-db6dd3b5-335f-49be-ba3b-67243ecad666.png",
+  "originalSize": [
+    1086,
+    1448
+  ],
+  "originalSha256": "633dc18fd5102dad58dfb6ce949a6dd693b80b46459028a1a0a15806a47881f6",
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "canvas": {
+    "width": 300,
+    "height": 400
+  },
+  "aspectRatio": "3:4",
+  "stretch": 0,
+  "bleed": 0,
+  "processing": "Preserve the entire approved 1086 x 1448 PNG. Uniform Lanczos downsampling to 300 x 400 with Pillow 12.3.0, AVIF quality 70, 4:4:4 chroma, speed 4. The runtime adds the shared radius-26 rounded clipping, with zero stretch and zero extra bleed. The painting is not regenerated, repainted or recoloured.",
+  "rasterMimeType": "image/avif",
+  "rasterSha256": "cf7a8f02b31225c5eab7f3f480e4aa9aa55f538a690dd954e669831aed6c3a29",
+  "svgSha256": "5558a130e11bf0ae7972e158d359ab181f52ddd41c191cbe2ab8e4f5caa95566",
+  "avifQuality": 70,
+  "avifChroma": "4:4:4",
+  "avifSpeed": 4,
+  "source": "docs/design/van-gogh/studies/31-red-dragon-painter-c-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Chun.svg",
+  "sourceSvgSha256": "129041f0d2296d37d0d911e696dbe97666b3d79f0fd51c489075f901d540359b",
+  "sourceResolutionNote": "The repository source SVG embeds a game-sized export of the selected standalone paintbrush painting shown in the conversation. Its original filename, dimensions and checksum are recorded above. The runtime changes only the study image box to retain the full composition without bleed.",
+  "superseded": {
+    "candidate": "E",
+    "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+    "archivedPng": "docs/design/van-gogh/superseded/red-dragon-vermilion-E-Chun.png",
+    "archivedSvg": "docs/design/van-gogh/superseded/red-dragon-vermilion-E-Chun.svg",
+    "pngSha256": "c7b04024a8ebed30e7ed5efb301567442aeab35f955554f65e71641d040c473c",
+    "svgSha256": "5d8c0a01438c3db4b7c1bda53a0bb938bbbd76a09020658fec8927fde1214fcc",
+    "previousManifestEntry": {
+      "candidate": "E",
+      "tile": "7z",
+      "name": "Chun",
+      "label": "Red dragon",
+      "source": "docs/design/van-gogh/studies/01-van-gogh-concepts.png",
+      "status": "approved",
+      "png": "approved/Chun.png",
+      "svg": "approved/Chun.svg",
+      "crop": {
+        "x": 449,
+        "y": 649,
+        "width": 356,
+        "height": 473
+      },
+      "pngSha256": "c7b04024a8ebed30e7ed5efb301567442aeab35f955554f65e71641d040c473c"
+    }
+  }
+}
