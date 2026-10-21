@@ -151,6 +151,38 @@
       }
     },
     {
+      "name": "Pin9",
+      "tile": "9p",
+      "label": "9 disks",
+      "direction": "The Peacock of Small Universes — C",
+      "status": "approved",
+      "svg": "approved/Pin9.svg",
+      "source": "docs/design/dali/studies/nine-disks-c-peacock-approved.svg",
+      "sourceSha256": "540a965b379aca2f7d3c2f423fac12bc0ae211f8b547629565f1422f19a47b4f",
+      "svgSha256": "2914a76cc773285991932322efb90ef0003a2d4617d91e72fe436a63558a002d",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 462,
+        "height": 847
+      },
+      "fit": {
+        "painting": {
+          "width": 462,
+          "height": 847
+        },
+        "stretch": 0,
+        "anchor": 0.09090909090909091,
+        "bleedPixels": 0,
+        "image": {
+          "x": 0,
+          "y": -13.64,
+          "width": 300,
+          "height": 550
+        }
+      }
+    },
+    {
       "name": "Sou1",
       "tile": "1s",
       "label": "1 bamboo",
@@ -506,9 +538,6 @@
     },
     {
       "tile": "4m"
-    },
-    {
-      "tile": "9p"
     },
     {
       "tile": "2z"
