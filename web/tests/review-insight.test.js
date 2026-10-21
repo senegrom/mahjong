@@ -521,6 +521,29 @@ test('a dora indicator moved onto the last unseen copy of an honour in question 
   assert.equal(saidOfChange(line), '1 more dora in your hand and every west wind in sight');
 });
 
+test('a dora is probed by moving the first indicator only where that leaves the two tiles worth the same as dora', async () => {
+  // The review check's East 2 · 1 honba #5: the indicators are the 5 circles
+  // and, after a quad, the 2 bamboo. The 6 circles is dora by the first, and
+  // moving it takes that away; the 3 bamboo is dora by the second, which
+  // moving the first leaves standing, so its Why line asks nothing. It once
+  // said "If the dora indicator had been the 5 characters, not the 5 circles,
+  // making the 6 characters dora, it still does not choose yours" of a table
+  // where the 3 bamboo was dora still. Trained AI's weights stood in for set
+  // only the figures said.
+  const { position } = reviewCheck.get('East 2 · 1 honba #5');
+  assert.deepEqual(position.indicators, ['5p', '2s']);
+  const why = async (P, A) => {
+    const asking = standInQuestion(position, P, A), tables = [];
+    const said = await explainWhy({ ...asking, facts, ask: async positions => { tables.push(...positions); return positions.map(() => ({ moves: asking.weights })); } });
+    return { said: saidLines(said)[0], tables };
+  };
+  const first = await why('6p', '7p');
+  assert.match(first.said, /^Partly: Your 6 circles is dora\. If the dora indicator had been the 1 characters, not the 5 circles, making the 2 characters dora, /);
+  assert.deepEqual([first.tables.length, facts(first.tables[1]).discards.find(discard => discard.tile === '6p').dora], [2, 0]);
+  const second = await why('3s', '2m');
+  assert.deepEqual([second.said, second.tables], ['Partly: Your 3 bamboo is dora.', []]);
+});
+
 test('a pair of hand swaps that moves the hand two steps says so', async () => {
   // The review check's East 1 #14, the player's red dragon against the 3
   // characters: the north wind made an 8 circles, or the 5 bamboo a 7

@@ -811,8 +811,12 @@ function together(family, parts) {
  * made the dora. A change that leaves the fact standing would test nothing:
  * one copy of the furiten tile left in the river keeps a wait on it furiten,
  * so a copy another seat claimed, which cannot be changed, leaves no change
- * to try. Distance, speed and a plan have none either. */
-function probeFor(fact, singles, me, river, A, P) {
+ * to try; and only the first indicator is moved, so a tile that a quad's
+ * indicator makes dora stays dora, and a dora is probed only where the two
+ * tiles are worth the same as dora after it (`after(edit)`, the engine's
+ * facts about the table a change makes). Distance, speed and a plan have
+ * none either. */
+function probeFor(fact, singles, me, river, A, P, after) {
   const first = picked => singles.filter(picked).slice(0, 1);
   if (fact?.family === 'safety' && fact.dead) return first(e => e.family === 'river' && e.from === A.tile);
   if (fact?.family === 'safety') return together('riichi', singles.filter(e => e.undeclares));
@@ -821,7 +825,14 @@ function probeFor(fact, singles, me, river, A, P) {
     if (river.some(discard => discard.tile === tile && discard.claimed)) return [];
     return together('river', singles.filter(e => e.family === 'river' && e.seat === me && e.from === tile));
   }
-  if (fact?.family === 'value' && fact.dora) return first(e => e.family === 'dora' && e.into !== A.tile && e.into !== P.tile);
+  if (fact?.family === 'value' && fact.dora) {
+    const moved = singles.find(e => {
+      if (e.family !== 'dora' || e.into === A.tile || e.into === P.tile) return false;
+      const F = after(e);
+      return F.tiles[A.tile]?.dora === F.tiles[P.tile]?.dora;
+    });
+    return moved ? [moved] : [];
+  }
   return [];
 }
 
@@ -845,7 +856,8 @@ export async function explainWhy({ position, played, preferred, weights, facts, 
   const diffs = differences(A, P, F0), fact = leading(diffs, F0);
   const weight = Object.fromEntries(weights.filter(move => move.kind === 'discard').map(move => [move.tile, move.weight]));
   const mass = massOf(fact, F0, weight, A, P);
-  const tries = probeFor(fact, singleEdits(position, { played, preferred }), F0.me, position.players[F0.me].discards, A, P);
+  const after = edit => { const table = applyEdits(position, edit); return factsOf(facts(table), table); };
+  const tries = probeFor(fact, singleEdits(position, { played, preferred }), F0.me, position.players[F0.me].discards, A, P, after);
   let probes = [];
   if (tries.length) {
     if (signal?.aborted) throw stopped();
