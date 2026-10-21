@@ -19,10 +19,12 @@
    * `onreview(hand)` reviews a hand next. `counts` is how many decisions each
    * filter keeps, and `empty` what the list says where its filter keeps none,
    * if anything. `open` is whether the list is on the screen, as a folded one
-   * is not.
+   * is not. `bar` is the height of the step bar, which stays over the top of
+   * the screen where the list is folded under it, and which a step can make
+   * taller.
    */
   let { hands, place = null, filter = $bindable('flagged'), counts, hints = true, trainedAvailable = false, empty = '', open = true,
-    onplace, onreview, children } = $props();
+    bar = 0, onplace, onreview, children } = $props();
   let root = $state(null);
 
   const on = (handIndex, step) => place?.hand === handIndex && place.step === step;
@@ -30,48 +32,117 @@
   // The list keeps the line of the decision on show in view by scrolling its
   // own box, the column it is on a wide screen or its box of hands where it
   // is folded above the decision, and never the page, which scrollIntoView
-  // would move too. Another decision's line is brought into view by as
-  // little as will, and so is the line as the list comes on the screen. Where
-  // hands reviewed meanwhile, or another filter, draw lines above it, the line
-  // stays where it was in the box: Chromium's scroll anchoring would keep it
-  // so and Safari's would not, so the boxes have none (GameReview), and the
-  // list does it itself, alike in every browser.
+  // would move too. A step to another decision brings its line into view by
+  // as little as will, and so does the list coming on the screen, drawn or
+  // opened: the toggle that opens a folded list arrives once the browser has
+  // opened it, so the list goes by whether it was on the screen before.
+  //
+  // Anything else that draws the list again, the hands reviewed meanwhile or
+  // another filter, keeps still what the player is looking at, as a
+  // browser's scroll anchoring does: the control in the box that has focus,
+  // where it is in view; else the line on show, where that is; else the
+  // first line or heading in view, unless the box is at its top, where it
+  // stays. A line kept still whatever the player looks at would move all
+  // they read above it by the lines arriving in between. Safari has no
+  // scroll anchoring, so the boxes have none (GameReview), and the list does
+  // it itself, alike in every browser. The line on show, kept still, stays
+  // in view too, clear of the step bar as that grows over it. A folded list
+  // keeps nothing: the browser may still lay out what it hides, at a cost.
   let held = null;
+  let wasOpen = false;
   $effect.pre(() => {
-    void hands; void filter; void place; void open;
-    held = untrack(measured);
+    void hands; void filter; void place; void open; void bar;
+    const opening = open && !wasOpen;
+    wasOpen = open;
+    held = opening || !open ? null : untrack(anchored);
   });
   $effect(() => {
-    void hands; void filter; void place; void open;
-    const now = untrack(measured);
-    if (!now) return;
-    if (held?.key === now.key && held.box === now.box) now.box.scrollTop += now.offset - held.offset;
-    else reveal(now);
+    void hands; void filter; void place; void open; void bar;
+    const before = held;
+    held = null;
+    if (open) untrack(() => keep(before));
   });
 
-  /** The line on show, the box it scrolls in, and how far below the box's
-   * top it is, or null where no box scrolls it. */
-  function measured() {
-    const line = root?.querySelector('[data-step-to][aria-current="step"]');
-    const box = line && scroller(line);
-    return box ? { key: line.dataset.stepTo, line, box, offset: line.getBoundingClientRect().top - box.getBoundingClientRect().top } : null;
+  const CURRENT = '[data-step-to][aria-current="step"]';
+  // What the player reads the list by, in the order it runs down the box:
+  // the trend's line and the filter, where the column holds them, each
+  // hand's heading and each decision's line.
+  const ROWS = 'summary, [data-filter-option], .head, [data-step-to]';
+  // How far apart a line brought into view is kept from the edges of the
+  // part of the box the player can see.
+  const ROOM = 8;
+
+  /** What the player is looking at in the list's box, the likeliest first,
+   * each with how far below the box's top it is; the line on show, and
+   * whether all of it is in view; null where the box is not on the screen. */
+  function anchored() {
+    const box = scroller();
+    if (!box?.getClientRects().length) return null;
+    const part = shownPart(box), line = box.querySelector(CURRENT), focused = document.activeElement;
+    const seen = element => {
+      const edge = element.getBoundingClientRect();
+      return edge.bottom > part.top && edge.top < part.bottom;
+    };
+    const drawn = line?.getBoundingClientRect(), whole = Boolean(drawn) && drawn.top >= part.top && drawn.bottom <= part.bottom;
+    const looked = [focused !== box && box.contains(focused) && seen(focused) && focused, line && seen(line) && line];
+    // Rows not drawn, inside a folded trend, measure nothing and are passed.
+    if (box.scrollTop > 0) {
+      for (const element of box.querySelectorAll(ROWS)) {
+        const { top, height } = element.getBoundingClientRect();
+        if (!height) continue;
+        if (top >= part.bottom) break;
+        if (top >= part.top) looked.push(element);
+      }
+    }
+    return { box, current: line?.dataset.stepTo ?? null, whole,
+      anchors: looked.filter(Boolean).map(element => ({ element, offset: below(box, element) })) };
   }
-  /** The nearest box around an element that scrolls, short of the page. */
-  function scroller(element) {
-    for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
-      const { overflowY } = getComputedStyle(node);
-      if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) return node;
+  /** Once the list is drawn again: what the player was looking at goes back
+   * where it was in the box, the first of it still in the list; then the
+   * line on show is brought into view where the step is another, the list
+   * has just come on the screen, or that line, all of it in view, was what
+   * was kept still, for whatever has come over it meanwhile, such as the
+   * step bar grown taller. A box scrolled by nothing is not set, which would
+   * stop a scroll the player's touch has set going. */
+  function keep(before) {
+    const box = scroller();
+    if (!box?.getClientRects().length) return;
+    const anchor = before?.box === box ? before.anchors.find(({ element }) => element.isConnected && box.contains(element)) : null;
+    const moved = anchor ? below(box, anchor.element) - anchor.offset : 0;
+    if (Math.abs(moved) >= 0.5) box.scrollTop += moved;
+    const line = box.querySelector(CURRENT);
+    if (line && (line.dataset.stepTo !== before?.current || (before.whole && anchor?.element === line))) reveal(line, box);
+  }
+  /** How far below the top of the box an element of it is drawn. */
+  const below = (box, element) => element.getBoundingClientRect().top - box.getBoundingClientRect().top;
+  /** The box the list's hands scroll in: their own, where the list is folded
+   * above the decision, or the column the list is, on a wide screen
+   * (GameReview); never the page. */
+  function scroller() {
+    for (let node = root?.querySelector('.hands'); node && node !== document.body; node = node.parentElement) {
+      if (/^(auto|scroll)$/.test(getComputedStyle(node).overflowY)) return node;
     }
     return null;
   }
-  /** Brings the line into the part of its box that is on the screen, as the
-   * column runs on below the screen's foot at the top of the page; or into
-   * the box, where none of it is on the screen. */
-  function reveal({ line, box }) {
-    const edge = box.getBoundingClientRect(), shown = line.getBoundingClientRect(), room = 8;
-    const onScreen = edge.bottom > 0 && edge.top < innerHeight;
-    const top = (onScreen ? Math.max(edge.top, 0) : edge.top) + room;
-    const bottom = (onScreen ? Math.min(edge.bottom, innerHeight) : edge.bottom) - room;
+  /** The part of the box the player can see: the part on the screen below
+   * whatever stays over the top of the screen there, the step bar and on a
+   * phone the game's bar too, as far down as a control of the box is
+   * brought into view when focused (its scroll-margin-top, GameReview), less
+   * the room it keeps; nothing stays over the column on a wide screen.
+   * Where none of the box is on the screen, all of it, as the player will
+   * find it. */
+  function shownPart(box) {
+    const edge = box.getBoundingClientRect(), control = box.querySelector('button');
+    const covered = control ? Math.max(0, (parseFloat(getComputedStyle(control).scrollMarginTop) || 0) - ROOM) : 0;
+    return edge.bottom > covered && edge.top < innerHeight
+      ? { top: Math.max(edge.top, covered), bottom: Math.min(edge.bottom, innerHeight) }
+      : { top: edge.top, bottom: edge.bottom };
+  }
+  /** Brings the line into the part of its box the player can see, by as
+   * little as will. */
+  function reveal(line, box) {
+    const part = shownPart(box), shown = line.getBoundingClientRect();
+    const top = part.top + ROOM, bottom = part.bottom - ROOM;
     if (shown.top < top) box.scrollTop -= top - shown.top;
     else if (shown.bottom > bottom) box.scrollTop += shown.bottom - bottom;
   }

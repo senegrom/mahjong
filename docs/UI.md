@@ -535,10 +535,13 @@ own, at most 60% of the screen tall, so that the decision is never far below;
 it starts folded and stays as the player leaves it, open or folded, across
 steps, hands and the hands reviewed meanwhile. Either way the list keeps the
 line of the decision on show in view by scrolling its own box, never the page,
-which `scrollIntoView` would move as well: another decision's line comes into
-view by as little as will, and where hands reviewed meanwhile or another filter
-draw lines above it, the line stays where it was in the box. Chromium's scroll
-anchoring would keep it so and Safari's would not, so the boxes have none, and
+which `scrollIntoView` would move as well: a step brings the new line into view
+by as little as will, below the bars that stay over a folded list at the top of
+the screen, and so does the list as it opens. Where hands reviewed meanwhile or
+another filter draw the list again, what the player is looking at stays where
+it is, as a browser's scroll anchoring keeps it: the control in the list that
+has focus, else the line on show, else the first line in view, or the top of a
+list at its top. Safari has no scroll anchoring, so the boxes have none, and
 the list does it itself. Its lines are kept by their hand and number, so that
 lines of other hands arriving as they are reviewed never take one away, or
 keyboard focus on it. Where the screen changes across that size, a control of
@@ -767,16 +770,18 @@ step bar on the screen and focus never under it nor moving the page as it lands
 on the bar, the filter that Next follows, a decision it leaves out kept in
 view, and the filter kept across a reload, by keyboard and pointer, its lists
 staying open or folded as the player leaves them while the steps change and
-later hands are reviewed, by touch and by keyboard, the list a column of its
-own on a wide screen that keeps the line on show in view and a line pressed in
-its place as later hands are reviewed, the page still, the player's tiles in
-one row from tablet width, and its way in and out on a phone, by touch and by
-keyboard; and the review of the game so far from a hand's result, opened on the
-hand just played and asking about it first, kept out of the trend, back to the
-result's button at desktop and phone sizes and open again where it was left,
-stopped by Next hand and asking nothing again at the next hand's result or at
-the standings), the review, of the game so far or of the whole game, waiting
-while a hand's own notes ask Trained AI and going on where it was, history and
-export, and settlements that balance event by event. Its browser checks run in
-Chromium, including narrow portrait and landscape sizes; they are not
-physical-iPhone or Safari testing.
+later hands are reviewed, by touch and by keyboard, the folded list showing the
+line on show as it opens and bringing it out from under the bars at each step,
+the list a column of its own on a wide screen that keeps the line on show in
+view and keeps still what the player looks at, a line or a filter pressed or an
+earlier hand, as later hands are reviewed, the page still, the player's tiles
+in one row from tablet width, and its way in and out on a phone, by touch and
+by keyboard; and the review of the game so far from a hand's result, opened on
+the hand just played and asking about it first, kept out of the trend, back to
+the result's button at desktop and phone sizes and open again where it was
+left, stopped by Next hand and asking nothing again at the next hand's result
+or at the standings), the review, of the game so far or of the whole game,
+waiting while a hand's own notes ask Trained AI and going on where it was,
+history and export, and settlements that balance event by event. Its browser
+checks run in Chromium, including narrow portrait and landscape sizes; they are
+not physical-iPhone or Safari testing.

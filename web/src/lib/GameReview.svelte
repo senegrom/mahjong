@@ -320,9 +320,10 @@
 <!-- The list, opened by the trend once a decision is reviewed. The game so far
      is not yet a game for the trend, which it joins once the match is over
      and every hand is reviewed. `open` is whether the list is on the screen,
-     for it to keep its line in view. -->
+     for it to keep its line in view, and `bar` the step bar's height, which
+     the line keeps clear of as a step makes the bar taller. -->
 {#snippet index(open)}
-  <ReviewIndex hands={status.hands} place={at} bind:filter {counts} {hints} {trainedAvailable} {empty} {open} onplace={go}
+  <ReviewIndex hands={status.hands} place={at} bind:filter {counts} {hints} {trainedAvailable} {empty} {open} bar={barHeight} onplace={go}
     onreview={hand => review.review([hand])}>
     {#if figure.decisions}
       <ReviewTrend compact {figure} complete={status.complete && status.over} over={status.over} games={trend} current={review.id}
@@ -357,8 +358,9 @@
   /* Open above the decision, the list of hands scrolls in a box of its own,
      at most 60% of the screen tall, so that the decision is never far
      below; the box leaves room inside it for a line's focus ring. The list
-     keeps its line in view itself (ReviewIndex), in every browser alike,
-     rather than by the browser's scroll anchoring, which Safari lacks. */
+     keeps its line in view, and what the player is looking at still, itself
+     (ReviewIndex), in every browser alike, rather than by the browser's
+     scroll anchoring, which Safari lacks. */
   .list :global(.hands) { max-height: 60dvh; overflow-y: auto; overflow-anchor: none; padding: 4px 6px; border-radius: 10px; background: #0002; }
   /* On a wide screen the list is a column of its own on the left, beside the
      decision, which comes first in the page. It stays on the screen as the
@@ -376,7 +378,10 @@
      place, and only the game's bar, which stays there in landscape, is kept
      clear of, as the heading keeps clear of it. The bar's own buttons are
      left out: they are in the bar, and keep clear only of what stays above
-     it (ReviewStepBar). */
+     it (ReviewStepBar). The list folded above the decision takes the same
+     margin, less the 8 pixels a control keeps, for how far what stays at the
+     top of the screen reaches over it, and keeps its line on show below that
+     (ReviewIndex). */
   .stage :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: calc(var(--steps-height, 56px) + 8px); }
   @media (max-width: 760px) {
     .game-review { padding: 10px; }

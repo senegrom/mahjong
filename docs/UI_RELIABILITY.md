@@ -90,9 +90,17 @@ an unfinished match has progress, including between hands.
 - The review's list keeps the line of the decision on show in view by setting
   the scroll of its own box, the column it is on a wide screen or its box of
   hands where it is folded, never by `scrollIntoView`, which would move the
-  page under the player too. Where hands reviewed meanwhile draw lines above
-  the line, the list puts it back where it was in the box itself: Chromium's
-  scroll anchoring would, and Safari's would not, so the boxes turn it off
+  page under the player too. A step and the list opening bring the line into
+  the part of the box the player can see, below the bars stuck over a folded
+  list, which the line's `scroll-margin-top` measures; the toggle that opens a
+  folded list arrives after the browser has opened it, so the list goes by
+  whether it was on the screen before rather than by its box. Where hands
+  reviewed meanwhile or another filter draw the list again, the list keeps
+  still what the player is looking at, as scroll anchoring would: the control
+  in the box that has focus, else the line on show, else the first line in
+  view. Keeping the line on show still whatever the player looked at moved
+  everything they read above it by the lines arriving in between. Safari has
+  no scroll anchoring, so the boxes turn Chromium's off
   (`overflow-anchor: none`) and behave alike in every browser.
 - A screen reader announces a status line only once it already knows it. So
   these lines wait in the page, empty and out of sight, before their words

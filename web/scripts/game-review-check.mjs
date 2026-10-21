@@ -26,24 +26,27 @@
  * step bar on the screen, flush under the game's bar on a phone, and the
  * player's tiles, scrolled to, clear of it; no focus lands under the bar,
  * tabbing through the decision or stepping by the list, nor moves the page as
- * it lands on the bar's own buttons. The filter keeps the flagged decisions,
- * those where Trained AI differed or every one, saying how many each holds;
- * Next and Previous visit only what it keeps, a decision it leaves out stays
- * shown, dim, and the filter is kept across a reload. A list the player opens
- * or folds stays as they left it: the folded list as steps are pressed by
- * touch and by keyboard while later hands are reviewed, focus staying on the
- * line pressed; a slow device's list, which opens by itself once, with a
- * Review in each header still to review; a hand's events across a step with
- * none and across hands, and the trend. On a wide screen the list is a column
- * of its own on the left, after the decision in the page, which stays on the
- * screen and keeps a line pressed in its place while later hands are
- * reviewed, the page not moving. The review's buttons hand focus on as they
- * go, and Next, waiting for the answers of a hand the player went to, keeps
- * its focus and then goes on. A flagged answer to another's discard, from a
- * game whose player calls everything, says in the step bar whose tile it
- * answers, which that seat's row outlines. The keys step, change hand and go
- * back, and do nothing under a dialog, in a field, with a modifier held or
- * with the shortcuts off. On a
+ * it lands on the bar's own buttons; and where the open list's box runs up
+ * under the bars, Previous brings each line it steps to out from under them.
+ * The filter keeps the flagged decisions, those where Trained AI differed or
+ * every one, saying how many each holds; Next and Previous visit only what it
+ * keeps, a decision it leaves out stays shown, dim, and the filter is kept
+ * across a reload. A list the player opens or folds stays as they left it:
+ * the folded list, which shows the line on show as it opens, as steps are
+ * pressed by touch and by keyboard while later hands are reviewed, focus
+ * staying on the line pressed; a slow device's list, which opens by itself
+ * once, with a Review in each header still to review; a hand's events across
+ * a step with none and across hands, and the trend. On a wide screen the list
+ * is a column of its own on the left, after the decision in the page, which
+ * stays on the screen and keeps still what the player is looking at, the
+ * page not moving: a line pressed while later hands are reviewed, a filter
+ * pressed at its top, and an earlier hand scrolled to while a later one is
+ * reviewed. The review's buttons hand focus on as they go, and Next, waiting
+ * for the answers of a hand the player went to, keeps its focus and then goes
+ * on. A flagged answer to another's discard, from a game whose player calls
+ * everything, says in the step bar whose tile it answers, which that seat's
+ * row outlines. The keys step, change hand and go back, and do nothing under
+ * a dialog, in a field, with a modifier held or with the shortcuts off. On a
  * phone, where the final result covers the standings, the review must be
  * reachable from the result itself by touch and come back to the standings;
  * held sideways, from the standings beside the result; and from the
@@ -374,9 +377,13 @@ async function stepTo(page, key, game = hands) {
   const [hand, step] = key.split(':').map(Number);
   await onPlace(page, game[hand], step);
 }
-/** Whether the list's line of the decision on show is in view in the box the
- * list scrolls in, the column on a wide screen or the open list's box of
- * hands, as the list keeps it; true where no box scrolls it. */
+/** Whether the list's line of the decision on show is in view, as the list
+ * keeps it: in the box the list scrolls in, the column on a wide screen or the
+ * open list's box of hands, and in the part of that box the player can see,
+ * on the screen and below the bars stuck over the top of the screen there:
+ * the game's on a phone, and the step bar where it is stuck. Where that part
+ * is too short to hold the line with room around it, the line need only be in
+ * it. True where no box scrolls the line; otherwise where the line is. */
 const lineInView = page => page.evaluate(() => {
   const item = document.querySelector('[data-review-index] [aria-current="step"]');
   if (!item) return 'no line on show';
@@ -384,7 +391,20 @@ const lineInView = page => page.evaluate(() => {
   while (box && box !== document.body && !(/auto|scroll/.test(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight)) box = box.parentElement;
   if (!box || box === document.body || !box.getClientRects().length) return true;
   const edge = box.getBoundingClientRect(), at = item.getBoundingClientRect();
-  return at.top >= edge.top - 0.5 && at.bottom <= edge.bottom + 0.5 ? true : `${Math.round(at.top)} to ${Math.round(at.bottom)} in ${Math.round(edge.top)} to ${Math.round(edge.bottom)}`;
+  // Each bar stuck where the one before it ends, from the top of the screen,
+  // that runs over the box.
+  let covered = 0;
+  for (const bar of [document.querySelector('header.bar'), document.querySelector('[data-game-review] [data-steps]')]) {
+    const rect = bar?.getBoundingClientRect();
+    if (rect && getComputedStyle(bar).position === 'sticky' && rect.top <= covered + 1 && rect.left < edge.right && rect.right > edge.left) {
+      covered = Math.max(covered, rect.bottom);
+    }
+  }
+  const onScreen = edge.bottom > covered && edge.top < innerHeight;
+  const top = onScreen ? Math.max(edge.top, covered) : edge.top, bottom = onScreen ? Math.min(edge.bottom, innerHeight) : edge.bottom;
+  const inside = at.top >= top - 0.5 && at.bottom <= bottom + 0.5;
+  const crowded = bottom - top < at.height + 16 && at.top < bottom && at.bottom > top;
+  return inside || crowded ? true : `${Math.round(at.top)} to ${Math.round(at.bottom)} in ${Math.round(top)} to ${Math.round(bottom)}`;
 });
 /** The filter's button for one filter. */
 const option = name => `[data-game-review] [data-filter-option="${name}"]`;
@@ -783,7 +803,7 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check('every step of a hand shows every hand face up and the board as it stood, walked by the arrow key and by Next at desktop, tablet and phone sizes, the step bar on the screen and nothing focused under it', async () => {
+  await cases.check("every step of a hand shows every hand face up and the board as it stood, walked by the arrow key and by Next at desktop, tablet and phone sizes, the step bar on the screen, nothing focused under it, and the open list's line on show stepped out from under it", async () => {
     const page = await openPage(1100, 900);
     await reviewWholeGame(page);
     await reviewed(page);
@@ -921,6 +941,7 @@ try {
           assert.ok(held.top >= held.edge, `the line of step ${at + 1} at ${held.top}, under the step bar to ${held.edge}, at ${width}x${height}`);
         }
       }
+      step = frames.length - 1;
       // On a phone, tabbing on from the step bar through the open list, under
       // the flagged decisions, so that Tab goes through its lines and on into
       // the decision, lands on nothing under the bars.
@@ -928,8 +949,28 @@ try {
         await choose(page, 'flagged');
         await tabsClear(page);
         await choose(page, 'every');
+        // With the open list's box running up under the bars, Previous
+        // brings each line it steps to out from under them, by scrolling
+        // the box: the page is scrolled so that the box's top is 50 pixels
+        // under the step bar, and the box so that the line of the hand's
+        // last step, on show, is just below the bar.
+        await page.$eval(line(`${chosen.index}:${frames.length - 1}`), item => {
+          const box = item.closest('.hands'), steps = document.querySelector('[data-game-review] [data-steps]');
+          const clear = document.querySelector('header.bar').getBoundingClientRect().bottom + steps.offsetHeight;
+          scrollBy(0, box.getBoundingClientRect().top - (clear - 50));
+          box.scrollTop += item.getBoundingClientRect().top - (clear + 8);
+        });
+        await settle(page);
+        assert.equal(await lineInView(page), true, `the line of the hand's last step just below the bars at ${width}x${height}`);
+        await page.focus('[data-game-review] [data-previous]');
+        for (let at = frames.length - 2; at >= 0; at--) {
+          await page.keyboard.press('Enter');
+          await onPlace(page, chosen, at);
+          await settle(page);
+          assert.equal(await lineInView(page), true, `the line of step ${at + 1}, stepped back to, clear of the bars at ${width}x${height}`);
+          step = at;
+        }
       }
-      step = frames.length - 1;
     }
     // The figures at each size, from every step of the hand: the narrowest
     // and widest tile of the opponents' and of the player's, and the least
@@ -942,7 +983,7 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check('the list of hands stays as the player leaves it, folded under the step bar or open, with focus on the line pressed, as the step changes and later hands are reviewed, by touch and keyboard, and on a wide screen keeps a line pressed in view, the page still', async () => {
+  await cases.check('the list of hands shows the line on show as it opens, stays as the player leaves it, folded under the step bar or open, with focus on the line pressed, as the step changes and later hands are reviewed, by touch and keyboard, and on a wide screen keeps still what the player looks at, a line or a filter pressed or an earlier hand, the page still', async () => {
     // A page loaded at each size, one at a time, where the list is folded
     // above the decision. Each batch reaches the worker a second late, so
     // that later hands are still being reviewed while the list is used,
@@ -962,11 +1003,14 @@ try {
         { timeout: 5000 }, line(key));
       assert.equal((await state()).open, false, `the list starts folded at ${size}`);
       // By touch: the list opened, every decision chosen, then a line of the
-      // first hand with two decisions.
+      // first hand with two decisions. Opened, the list shows the line of the
+      // decision on show, the final hand's, at the foot of a box of every
+      // hand's heading, rather than the top of the box.
       const first = hands.find(hand => hand.frames.length >= 2).index;
       await tapAt(page, `${list} > summary`);
       await page.waitForFunction(list => document.querySelector(list).open, { timeout: 5000 }, list);
       await settle(page);
+      assert.equal(await lineInView(page), true, `the line on show as the list opens at ${size}`);
       await tapAt(page, option('every'));
       await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, option('every'));
       await tapAt(page, line(`${first}:1`));
@@ -998,8 +1042,10 @@ try {
     }
 
     // On a wide screen the list is a column of its own on the left, after the
-    // decision in the page, and stays on the screen as the page scrolls.
-    const page = await openPage(1366, 768, { answerDelay: 1000 });
+    // decision in the page, and stays on the screen as the page scrolls. Each
+    // batch reaches the worker two seconds late, so that hands are still to
+    // be reviewed when the column is scrolled to an earlier one.
+    const page = await openPage(1366, 768, { answerDelay: 2000 });
     await reviewWholeGame(page);
     const rail = 'aside[data-review-index]';
     assert.equal(await page.$('details[data-review-index]'), null, 'no folded list beside the column');
@@ -1039,6 +1085,52 @@ try {
     assert.ok(after.focused && after.shown, `the line keeps focus and stays in view: ${JSON.stringify(after)}`);
     assert.ok(Math.abs(after.offset - before.offset) <= 1, `the line stays where it was in the column: ${before.offset} then ${after.offset}`);
     assert.equal(after.scrolled, before.scrolled, 'the page does not move');
+
+    // The column at its top, each filter pressed in turn by keyboard: every
+    // decision draws lines under the filter, above the line on show, and the
+    // fewer take them away again, but the button pressed keeps focus where it
+    // was in the column, in view, and the page does not move.
+    await page.$eval(rail, column => { column.scrollTop = 0; });
+    const pressed = () => page.evaluate(() => {
+      const column = document.querySelector('aside[data-review-index]'), active = document.activeElement;
+      const edge = column.getBoundingClientRect(), box = active.getBoundingClientRect();
+      return { filter: active.dataset.filterOption ?? null, shown: box.top >= edge.top && box.bottom <= edge.bottom,
+        offset: Math.round(box.top - edge.top), scrolled: scrollY };
+    });
+    for (const name of ['flagged', 'every', 'differed']) {
+      await page.focus(option(name));
+      const was = await pressed();
+      assert.ok(was.filter === name && was.shown, `${name} focused in view at the column's top: ${JSON.stringify(was)}`);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, option(name));
+      await settle(page);
+      assert.deepEqual(await pressed(), was, `${name} pressed: the button where it was in the column, the page still`);
+    }
+
+    // Scrolled to the first hand, nothing in the column focused, every
+    // decision listed, which holds every hand's lines: a later hand reviewed
+    // meanwhile loses its state and its Review below the first hand, whose
+    // heading stays where it was in the column, the page still.
+    await page.focus(option('every'));
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, option('every'));
+    const heading = `${rail} [data-hand="${hands.find(hand => hand.frames.length).index}"] .head`;
+    await page.$eval(heading, head => {
+      const column = head.closest('aside');
+      column.scrollTop += head.getBoundingClientRect().top - column.getBoundingClientRect().top - 4;
+      document.activeElement?.blur();
+    });
+    await settle(page);
+    const headingAt = () => page.$eval(heading, head => ({
+      offset: Math.round(head.getBoundingClientRect().top - head.closest('aside').getBoundingClientRect().top), scrolled: scrollY }));
+    const held = await headingAt();
+    const reviewedSoFar = `${rail} [data-hand][data-status="done"]`, count = await page.$$eval(reviewedSoFar, items => items.length);
+    assert.ok(await page.$(`${rail} [data-hand]:not([data-status="done"])`), 'a hand is still to be reviewed');
+    await page.waitForFunction((selector, count) => document.querySelectorAll(selector).length > count, { timeout: 300000, polling: 100 },
+      reviewedSoFar, count);
+    await settle(page);
+    assert.deepEqual(await headingAt(), held, 'the first hand stays where it was in the column as a later hand is reviewed, the page still');
+
     // Scrolled down the decision, the column stays at the top of the screen,
     // where the two panes still have room for it there; measured a frame
     // after the scroll, as a sticky box is placed (stageFits).
