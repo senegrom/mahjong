@@ -1,0 +1,52 @@
+name: Prepare approved Dali aqueduct A
+on:
+  push:
+    branches:
+      - design/dali-one-character-aqueduct-a-20261021
+permissions:
+  contents: write
+concurrency:
+  group: prepare-dali-aqueduct
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: design/dali-one-character-aqueduct-a-20261021
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Import aqueduct A and verify previous artwork
+        run: python3 .dali-aqueduct-transfer/prepare.py
+      - name: Lint changed JavaScript
+        working-directory: web
+        run: npx eslint scripts/export-dali-tiles.mjs src/lib/dali-faces.js tests/dali-*.test.js tests/tile-faces.test.js --max-warnings 0
+      - name: Tile, artist, proportions and offline regressions
+        working-directory: web
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          tests = sorted(str(p) for p in Path('tests').glob('*.test.js') if any(k in p.name for k in ('tile', 'van-gogh', 'dali', 'matisse', 'face-fit', 'proportion', 'offline')))
+          print('Running:', *tests, flush=True)
+          subprocess.run(['node', '--test', *tests], check=True)
+          PY
+      - name: Recheck preservation after tests
+        run: python3 .dali-aqueduct-transfer/prepare.py --verify
+      - name: Commit verified aqueduct and remove temporary preparation
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/design/dali web/public/tiles/dali web/scripts/export-dali-tiles.mjs web/src/lib/dali-faces.js web/tests/dali-*.test.js web/tests/tile-faces.test.js
+          git rm -r .dali-aqueduct-transfer .github/workflows/prepare-dali-aqueduct.yml
+          git diff --cached --check
+          git commit -m 'Install selected aqueduct A as Dali 1 character; preserve all existing tiles'
+          git push origin HEAD:design/dali-one-character-aqueduct-a-20261021
