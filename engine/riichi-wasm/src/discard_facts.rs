@@ -26,14 +26,20 @@ use riichi_core::game::Action;
 use riichi_core::shanten;
 use riichi_core::tile::COPIES;
 
-/// What the engine knows about a position's discards.
+/// What the engine knows about a position's discards. A field the page never
+/// reads is kept for the engine's own checks and left out of what
+/// `review_facts` hands over: the search reads the facts of a few hundred
+/// tables, and writing out what nobody read cost each a fifth of its time.
 #[derive(Serialize, Debug, PartialEq, Eq)]
 pub(super) struct Facts {
     /// How far the hand is from waiting as it stands, before anything is
-    /// thrown: zero is waiting, minus one complete.
+    /// thrown: zero is waiting, minus one complete. Not handed over.
+    #[serde(skip)]
     shanten: i32,
     /// The dora, one for each indicator, so that a kind two indicators
-    /// point at is named twice.
+    /// point at is named twice. Not handed over: the page reads each
+    /// discard's own.
+    #[serde(skip)]
     dora: Vec<String>,
     /// How many han of dora the seat holds, in hand and in its sets.
     dora_held: u32,
@@ -64,7 +70,9 @@ struct DiscardFacts {
     /// The same by each form.
     forms: Forms,
     /// The kinds that would then bring the hand closer, among those the
-    /// seat cannot see every copy of.
+    /// seat cannot see every copy of. Not handed over: the page reads only
+    /// how many copies of them are left (`acceptance`).
+    #[serde(skip)]
     improving: Vec<String>,
     /// How many copies of those kinds the seat cannot see.
     acceptance: u32,

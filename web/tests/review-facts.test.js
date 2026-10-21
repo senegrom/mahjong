@@ -11,6 +11,15 @@ const snapshot = reviewCheckGame(Game);
 const decisions = visit => eachDecision(Game, snapshot, visit);
 const WINDS = ['east', 'south', 'west', 'north'];
 
+/** The prototype's facts as review_facts hands them over: without the hand's
+ * own distance, the dora by name and each discard's improving kinds, which
+ * the engine keeps for its own checks (discard_facts.rs) since the page reads
+ * none of them. The copies of the improving kinds left are still compared. */
+function handedOver(position) {
+  const { shanten: _shanten, dora: _dora, discards, ...facts } = prototypeFacts(position);
+  return { ...facts, discards: discards.map(({ improving: _improving, ...discard }) => discard) };
+}
+
 test('review_facts agrees with the prototype\'s engine facts at every turn of the review check\'s game', () => {
   let turns = 0, tiles = 0;
   decisions(({ hand, index, position }) => {
@@ -19,7 +28,7 @@ test('review_facts agrees with the prototype\'s engine facts at every turn of th
     // The prototype measured every kind held; the engine measures the tiles
     // the player may throw, which with no call and no riichi standing, as in
     // every turn of this game, are the same.
-    assert.deepEqual(facts, prototypeFacts(position), `${hand.name}, decision ${index + 1}`);
+    assert.deepEqual(facts, handedOver(position), `${hand.name}, decision ${index + 1}`);
     turns++;
     tiles += facts.discards.length;
   });
@@ -61,7 +70,7 @@ test('review_facts names nothing to throw while the player answers another seat\
     if (position.phase !== 'call') return;
     const facts = review_facts(position);
     assert.deepEqual(facts.discards, []);
-    assert.equal(facts.shanten, prototypeFacts(position).shanten);
+    assert.deepEqual(facts, { ...handedOver(position), discards: [] });
     answering++;
   });
   assert.ok(answering > 0, 'the game has decisions answering a tile');
