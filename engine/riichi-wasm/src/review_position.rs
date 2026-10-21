@@ -7,32 +7,27 @@
 //! table is checked by and replayed into Mortal's events (`mortal_log`), so
 //! the table it starts from is written in the same form. It is written from
 //! the decision's own hand, as the engine kept it for the review, rather
-//! than rebuilt from what the page shows, and with the three things the
-//! replay needs that a table typed in by hand does not carry (`History`):
-//! who the players are, when each quad a seat declared itself was declared,
-//! and what the deciding player drew on the turn they declared riichi. Read
-//! back, it gives the very planes and mask the review asked the network
-//! about.
+//! than rebuilt from what the page shows, and with the two things the replay
+//! needs that a table typed in by hand does not carry (`History`): when each
+//! quad a seat declared itself was declared, and what the deciding player
+//! drew on the turn they declared riichi. Who the players are follows from
+//! the hand number, as it does for any table. Read back, it gives the very
+//! planes and mask the review asked the network about.
 
 use super::*;
 use riichi_core::game::Player;
 
-/// The table at a decision, from the deciding seat's side, with the players
-/// numbered as `seating` seats them. Only that seat's tiles are written:
-/// the other hands are what the table hid, as they are at a physical table,
-/// and so is whether another seat let a winning tile pass. Refused for a
-/// hand nobody is deciding in.
-pub(super) fn written(
-    hand: &Hand,
-    seat: Wind,
-    seating: [usize; 4],
-) -> Result<Position, &'static str> {
+/// The table at a decision, from the deciding seat's side. Only that seat's
+/// tiles are written: the other hands are what the table hid, as they are
+/// at a physical table, and so is whether another seat let a winning tile
+/// pass. Refused for a hand nobody is deciding in.
+pub(super) fn written(hand: &Hand, seat: Wind) -> Result<Position, &'static str> {
     let acting = match hand.phase {
         Phase::Act if hand.turn == seat => true,
         Phase::CallWindow if hand.turn != seat => false,
         _ => return Err("Nobody decides at this point of the hand"),
     };
-    let history = History::from_log(hand, seat, seating);
+    let history = History::from_log(hand, seat);
     let named = |tile: Option<Tile>| tile.map(|tile| tile.to_string());
     Ok(Position {
         seat: seat.index(),
@@ -70,7 +65,6 @@ pub(super) fn written(
         // claimed a tile drew nothing.
         after_quad: acting && hand.after_quad && hand.drawn.is_some(),
         first_turns: hand.first_turns_unbroken,
-        seating: Some(seating),
     })
 }
 
@@ -258,8 +252,8 @@ mod tests {
     /// the page passes it: the hand, the seat, and what the replay reads.
     fn read_back(game: &Game, index: usize) -> (Hand, Wind, History) {
         let decision = &game.decisions[index];
-        let position = written(&decision.position, decision.seat, game.hand_seating)
-            .expect("a recorded decision is a decision");
+        let position =
+            written(&decision.position, decision.seat).expect("a recorded decision is a decision");
         let text = serde_json::to_string(&position).unwrap();
         let position: Position = serde_json::from_str(&text).unwrap();
         let (hand, seat) = position
@@ -347,11 +341,11 @@ mod tests {
     /// of whole games. The review check's game (seed 5, Beginner opponents,
     /// no calls) is among them; the games that call every set and declare
     /// every quad reach the claims, the quads and the tied scores that a
-    /// typed-in table read wrong until it carried the game's seating and
-    /// each quad's turn; seed 17 has the player claim a tile let go after a
-    /// quad's replacement; and the games the club player plays come to
-    /// riichi questions after the first hand, where the seat's player
-    /// number is not its seat's.
+    /// typed-in table read wrong until it carried each quad's turn and was
+    /// numbered by its hand number; seed 17 has the player claim a tile let
+    /// go after a quad's replacement; and the games the club player plays
+    /// come to riichi questions after the first hand, where the seat's
+    /// player number is not its seat's.
     #[test]
     fn every_decision_written_as_a_position_asks_what_the_review_asked() {
         /// How many decisions reached each thing a table typed in by hand
@@ -386,6 +380,12 @@ mod tests {
                     let at = format!(
                         "seed {seed} against {opponents}, hand {}, decision {index}",
                         game.table.hands_played
+                    );
+                    // Who sits where is the hand number's to say.
+                    assert_eq!(
+                        History::of_kyoku(game.decisions[index].position.kyoku).seating,
+                        game.hand_seating,
+                        "{at}"
                     );
                     let (hand, seat, history) = read_back(game, index);
                     let want = asked_in_play(game, index);
@@ -451,8 +451,7 @@ mod tests {
         let mut checked = 0;
         whole_game(31.0, "club", Plays::Calls, |game| {
             for decision in &game.decisions {
-                let position =
-                    written(&decision.position, decision.seat, game.hand_seating).unwrap();
+                let position = written(&decision.position, decision.seat).unwrap();
                 for (index, seat) in position.players.iter().enumerate() {
                     if index == decision.seat.index() {
                         assert!(!seat.hand.is_empty());
@@ -460,7 +459,6 @@ mod tests {
                         assert!(seat.hand.is_empty() && !seat.furiten);
                     }
                 }
-                assert_eq!(position.seating, Some(game.hand_seating));
                 checked += 1;
             }
         });
@@ -497,9 +495,8 @@ mod tests {
         south.discards.clear();
         south.riichi = Riichi::Declared;
         south.furiten = true;
-        let marked = |hand: &Hand| {
-            written(hand, Wind::South, [0, 1, 2, 3]).unwrap().players[Wind::South.index()].furiten
-        };
+        let marked =
+            |hand: &Hand| written(hand, Wind::South).unwrap().players[Wind::South.index()].furiten;
         assert!(
             marked(&hand),
             "furiten from a pass, which the river does not show"
@@ -524,9 +521,9 @@ mod tests {
     #[test]
     fn a_hand_nobody_is_deciding_in_is_refused() {
         let mut hand = Hand::deal(&mut Rng::from_seed(3), Wind::East, 1, 0, 0, [25000; 4]);
-        assert!(written(&hand, Wind::East, [0, 1, 2, 3]).is_ok());
-        assert!(written(&hand, Wind::South, [0, 1, 2, 3]).is_err());
+        assert!(written(&hand, Wind::East).is_ok());
+        assert!(written(&hand, Wind::South).is_err());
         hand.phase = Phase::Draw;
-        assert!(written(&hand, Wind::East, [0, 1, 2, 3]).is_err());
+        assert!(written(&hand, Wind::East).is_err());
     }
 }

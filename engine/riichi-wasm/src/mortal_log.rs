@@ -87,15 +87,16 @@ impl History {
     }
 
     /// What a hand played here says about itself, read from its own log,
-    /// with the players numbered as `seating` seats them and `seat` the
-    /// seat observed: the turn of every quad a seat declared itself, and
-    /// the tile `seat` drew on the turn it declared riichi. The log tells a
-    /// quad before the draw that replaces it, and the seat's next discard
-    /// ends that turn, its order number being how many discards the log
-    /// told before it. A quad no discard has followed yet was declared on
-    /// the turn being played now, which the replay knows to tell last. A
-    /// declaration follows the declaring seat's draw.
-    pub(super) fn from_log(hand: &Hand, seat: Wind, seating: [usize; 4]) -> History {
+    /// with `seat` the seat observed: the players numbered by the hand
+    /// number, as every game numbers them (`of_kyoku`), the turn of every
+    /// quad a seat declared itself, and the tile `seat` drew on the turn it
+    /// declared riichi. The log tells a quad before the draw that replaces
+    /// it, and the seat's next discard ends that turn, its order number
+    /// being how many discards the log told before it. A quad no discard
+    /// has followed yet was declared on the turn being played now, which
+    /// the replay knows to tell last. A declaration follows the declaring
+    /// seat's draw.
+    pub(super) fn from_log(hand: &Hand, seat: Wind) -> History {
         let mut quads: [Vec<Option<u32>>; 4] =
             std::array::from_fn(|seat| vec![None; hand.players[seat].melds.len()]);
         let mut open: Vec<(Wind, Tile)> = Vec::new();
@@ -131,7 +132,7 @@ impl History {
             }
         }
         History {
-            seating,
+            seating: History::of_kyoku(hand.kyoku).seating,
             quads,
             riichi_draw,
         }
@@ -1299,7 +1300,7 @@ mod tests {
                                 .iter()
                                 .all(|plane| FROZEN_SHANTEN_DISCARDS.contains(plane))
                     };
-                    let recorded = History::from_log(hand, seat, [0, 1, 2, 3]);
+                    let recorded = History::from_log(hand, seat);
                     let at = format!("seed {seed} {seat:?} {:?}", hand.phase);
                     let Some(state) = state_for(&position, seat, &recorded) else {
                         misread.push(format!("{at}: refused"));
@@ -1365,7 +1366,7 @@ mod tests {
                     let at = format!("seed {seed} step {steps} seat {seat:?}");
                     let position = hidden(hand.clone(), seat);
                     let want = planes(&told(&hand, seat));
-                    let recorded = History::from_log(&hand, seat, [0, 1, 2, 3]);
+                    let recorded = History::from_log(&hand, seat);
                     match state_for(&position, seat, &recorded) {
                         None => misread.push(format!("{at}: refused")),
                         Some(state) => {

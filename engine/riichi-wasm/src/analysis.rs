@@ -127,6 +127,12 @@ fn js_error(error: impl std::fmt::Display) -> JsValue {
 // a game played here gives one of its decisions to a review that asks what
 // would change Trained AI's mind (`review_position`), so it reads back as it
 // was written.
+//
+// Who the players are is not written: Mortal numbers them from the game's
+// first dealer, and the deal moves on one seat a hand, so the hand number
+// says which player sits where (`History::of_kyoku`), for a played game and
+// a typed-in table alike, and a table edited to another hand number is
+// numbered as a game at that hand would be.
 #[derive(Serialize, Deserialize)]
 struct Position {
     seat: usize,
@@ -148,12 +154,6 @@ struct Position {
     after_quad: bool,
     #[serde(default)]
     first_turns: bool,
-    /// Which player number sits in each seat, East first, numbering the
-    /// players from the game's first dealer as Mortal does. A table typed
-    /// in by hand leaves it out, and is numbered as every game numbers its
-    /// players at that hand number (`History::of_kyoku`).
-    #[serde(default)]
-    seating: Option<[usize; 4]>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -228,16 +228,6 @@ impl Position {
         let round = wind(self.round)?;
         if !(1..=4).contains(&self.kyoku) || self.counters > 100 || self.riichi_sticks > 100 {
             return Err("Invalid round, honba or riichi sticks".into());
-        }
-        if let Some(seating) = self.seating {
-            let mut numbered = [false; 4];
-            for player in seating {
-                if player >= 4 || std::mem::replace(&mut numbered[player], true) {
-                    return Err(
-                        "The seating must give each seat its own player number from 0 to 3".into(),
-                    );
-                }
-            }
         }
         let phase = match self.phase.as_str() {
             "act" if seat == turn => Phase::Act,
@@ -549,14 +539,11 @@ impl Position {
     }
 
     /// What Mortal's replay of the position reads beyond the hand itself:
-    /// who the players are, the turn of each quad a seat declared itself,
-    /// and what the deciding seat drew on the turn it declared riichi,
-    /// where the position records them.
+    /// who the players are, by the hand number, and where the position
+    /// records them, the turn of each quad a seat declared itself and what
+    /// the deciding seat drew on the turn it declared riichi.
     fn history(&self) -> History {
         let mut history = History::of_kyoku(self.kyoku);
-        if let Some(seating) = self.seating {
-            history.seating = seating;
-        }
         history.quads = std::array::from_fn(|index| {
             self.players[index]
                 .melds
@@ -575,13 +562,9 @@ impl Position {
 
 /// A decision of a game played here as the position `PhysicalAnalysis`
 /// reads, for `Game::review_position`: the decision's hand from the
-/// deciding seat's side, with the players numbered as `seating` seats them.
-pub(super) fn review_position_value(
-    hand: &Hand,
-    seat: Wind,
-    seating: [usize; 4],
-) -> Result<JsValue, JsValue> {
-    review_position::written(hand, seat, seating)
+/// deciding seat's side.
+pub(super) fn review_position_value(hand: &Hand, seat: Wind) -> Result<JsValue, JsValue> {
+    review_position::written(hand, seat)
         .map_err(js_error)?
         .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
         .map_err(js_error)
@@ -1005,7 +988,6 @@ mod tests {
             just_claimed: None,
             after_quad: false,
             first_turns: false,
-            seating: None,
         }
     }
 

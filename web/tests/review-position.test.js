@@ -54,11 +54,14 @@ test('every decision of the review check\'s game, written as a position, asks Tr
   assert.equal(quads, 13);
 });
 
-test('a written position holds what the deciding player saw, with the game\'s seating, and nothing hidden', () => {
+test('a written position holds what the deciding player saw, and nothing hidden', () => {
   let count = 0;
   decisions(({ view, engine, index, position }) => {
-    // The seating numbers each seat's player as the view does.
-    assert.deepEqual(position.seating, WINDS.map(wind => view.seats.find(seat => seat.seat === wind).player));
+    // Who sits where is not written: the hand number names each seat's player
+    // as the view does, the deal having moved on one seat a hand.
+    assert.equal('seating' in position, false);
+    assert.deepEqual([0, 1, 2, 3].map(seat => (seat + position.kyoku - 1) % 4),
+      WINDS.map(wind => view.seats.find(seat => seat.seat === wind).player));
     const mine = view.seats[0];
     assert.equal(position.seat, WINDS.indexOf(mine.seat));
     assert.deepEqual([...position.players[position.seat].hand].sort(), [...mine.hand, ...(mine.drawn ? [mine.drawn] : [])].sort());
@@ -77,40 +80,17 @@ test('a written position holds what the deciding player saw, with the game\'s se
   assert.equal(count, 139);
 });
 
-test('a typed-in table without a seating is numbered as the game numbered its players at that hand', () => {
-  let tied = 0, renumbered = 0;
+test('players on the same points after the first hand rank as the game ranked them', () => {
+  let tied = 0;
   decisions(({ engine, index, position }) => {
     const scores = position.players.map(player => player.score);
     if (new Set(scores).size === 4 || position.kyoku === 1) return;
-    // The deal moves on one seat a hand, so the hand number gives the seating.
-    const { seating, ...typed } = position;
-    assert.deepEqual(seating, [0, 1, 2, 3].map(seat => (seat + position.kyoku - 1) % 4));
-    const want = engine.review_observation_mortal(index);
-    assert.ok(same(planesOf(typed), want));
+    // Mortal breaks a tie by player number from the game's first dealer, which
+    // the hand number gives, so the rank planes are the review's own too.
+    assert.ok(same(planesOf(position), engine.review_observation_mortal(index)));
     tied++;
-    // Numbered from the hand's own dealer instead, players on the same points
-    // rank by the wrong numbers, and only the four rank planes can change.
-    const differing = planesDiffering(want, planesOf({ ...typed, seating: [0, 1, 2, 3] }));
-    assert.ok(differing.every(plane => plane >= 15 && plane < 19), String(differing));
-    renumbered += Number(differing.length > 0);
   });
   assert.ok(tied > 20, `only ${tied} decisions with tied points after the first hand`);
-  assert.ok(renumbered > 0, 'no tie was broken differently');
-});
-
-test('a written position is refused where it names a seating no game has or a quad\'s turn its seat never took', () => {
-  let refused = false;
-  decisions(({ position }) => {
-    if (refused || !position.players.some(player => player.melds.some(meld => Number.isInteger(meld.order)))) return;
-    assert.throws(() => planesOf({ ...position, seating: [0, 1, 1, 3] }), /seating/);
-    const owner = position.players.findIndex(player => player.melds.some(meld => Number.isInteger(meld.order)));
-    const other = position.players.find((player, seat) => seat !== owner && player.discards.length);
-    const moved = structuredClone(position);
-    moved.players[owner].melds.find(meld => Number.isInteger(meld.order)).order = other.discards[0].order;
-    assert.throws(() => planesOf(moved), /kan records its turn/);
-    refused = true;
-  });
-  assert.ok(refused);
 });
 
 test('the riichi\'s second question of a written position is the review\'s own, in the first hand and after it', () => {
@@ -152,4 +132,18 @@ test('a table typed in at any hand number asks the riichi\'s second question of 
   const first = declared(1);
   assert.ok(first.length > 0);
   for (const kyoku of [2, 3, 4]) assert.deepEqual(declared(kyoku), first, `East ${kyoku}`);
+});
+
+test('a written position is refused where it names a quad\'s turn its seat never took', () => {
+  let refused = false;
+  decisions(({ position }) => {
+    if (refused || !position.players.some(player => player.melds.some(meld => Number.isInteger(meld.order)))) return;
+    const owner = position.players.findIndex(player => player.melds.some(meld => Number.isInteger(meld.order)));
+    const other = position.players.find((player, seat) => seat !== owner && player.discards.length);
+    const moved = structuredClone(position);
+    moved.players[owner].melds.find(meld => Number.isInteger(meld.order)).order = other.discards[0].order;
+    assert.throws(() => planesOf(moved), /kan records its turn/);
+    refused = true;
+  });
+  assert.ok(refused);
 });

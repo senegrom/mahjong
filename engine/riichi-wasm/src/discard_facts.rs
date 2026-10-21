@@ -394,9 +394,7 @@ mod tests {
             }
             for (index, decision) in game.decisions.iter().enumerate() {
                 let facts = facts(&decision.position, decision.seat);
-                let position =
-                    review_position::written(&decision.position, decision.seat, game.hand_seating)
-                        .unwrap();
+                let position = review_position::written(&decision.position, decision.seat).unwrap();
                 let (hand, seat) = position.build().unwrap();
                 assert_eq!(
                     facts,
