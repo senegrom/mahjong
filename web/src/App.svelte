@@ -596,9 +596,9 @@
   // not, for the same press to take back once a review opens.
   let replayFailure = '';
   // Takes the review on to the match as it now stands (MatchReview.extend).
-  // Where that adds hands, the place the player left goes with the old
-  // newest hand, and the review opens next on the hand just played, or the
-  // final one, as it first did. Throws as extend does, changing nothing.
+  // Where that adds hands, the player's place is let go, so that the review
+  // opens next on the newest of them, the hand just played or the final one,
+  // as it did when first opened. Throws as extend does, changing nothing.
   function takeReviewOn(snapshot) {
     const known = matchReview?.hands.length ?? 0;
     matchReview?.extend(snapshot);
