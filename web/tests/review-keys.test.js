@@ -10,7 +10,7 @@ const element = ({ field = false } = {}) => ({ closest: selector => (field && se
 const key = (name, values = {}) => ({ key: name, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, isComposing: false,
   defaultPrevented: false, target: element(), ...values });
 
-test('in a review the arrows step and change hand, s shows the answer, Esc goes back, and the digits pick only from a live hand', () => {
+test('in a review the arrows step and change hand, or move along a live hand, s shows the answer, Esc goes back, and the digits pick only from a live hand', () => {
   for (const [name, action] of [['ArrowLeft', 'previous'], ['ArrowRight', 'next'], ['Escape', 'back'], ['s', 'reveal'], ['S', 'reveal']]) {
     assert.equal(reviewKey(key(name)), action, name);
   }
@@ -25,8 +25,8 @@ test('in a review the arrows step and change hand, s shows the answer, Esc goes 
   assert.equal(reviewKey(key('1', { shiftKey: true }), { hand }), null, 'a digit with Shift, as play leaves it');
   // In the hand the arrows move along it, as in play, and Shift still changes
   // hand; outside it they step.
-  assert.equal(reviewKey(key('ArrowRight', { target: tile }), { hand }), null);
-  assert.equal(reviewKey(key('ArrowLeft', { target: tile }), { hand }), null);
+  assert.equal(reviewKey(key('ArrowRight', { target: tile }), { hand }), 'next-tile');
+  assert.equal(reviewKey(key('ArrowLeft', { target: tile }), { hand }), 'previous-tile');
   assert.equal(reviewKey(key('ArrowRight', { target: tile, shiftKey: true }), { hand }), 'next-hand');
   assert.equal(reviewKey(key('ArrowRight'), { hand }), 'next');
   assert.equal(reviewKey(key('s', { target: tile }), { hand }), 'reveal');

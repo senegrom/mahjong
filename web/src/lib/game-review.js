@@ -222,6 +222,26 @@ export function landing(hands, filter) {
   return null;
 }
 
+/** What a decision keeps back from the player under the review's two
+ * settings, `hideMove` and `hideTiles`, given what they have revealed there
+ * (`reveal`, as revealing makes it, or null): `move`, Trained AI's move, at a
+ * decision Trained AI answered and that was not the only move, until the
+ * player shows the answer or picks a move there; and `tiles`, the other
+ * players' tiles, at any decision, until the player reveals anything there.
+ * An only move and a hand not yet reviewed have no answer to keep back. A
+ * setting is read afresh at every decision, so turning one on hides only
+ * what the player has not revealed, and turning it off shows everything. */
+export function hiddenAt(decision, reveal, { hideMove = false, hideTiles = false } = {}) {
+  return { move: hideMove && Boolean(decision) && !decision.forced && !reveal?.answer, tiles: hideTiles && !reveal };
+}
+
+/** What is kept of a decision the player reveals, by Show answer, by Show
+ * tiles or by a move picked there, `pick`: the pick, if any, and whether the
+ * answer, Trained AI's move, is revealed with it, as it is wherever Trained
+ * AI has answered the decision. Show tiles in a hand not yet reviewed turns
+ * the tiles over and leaves the move to be answered once Trained AI has. */
+export const revealing = (decision, pick = null) => ({ pick, answer: Boolean(decision) });
+
 /** What the review says as the player chooses its filter: how many decisions
  * Previous and Next now step through, and of which kind, the flagged ones
  * among those where Trained AI differed counted too. Every list is in the

@@ -5,10 +5,10 @@ import { render } from 'svelte/server';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { text } from './fixtures/markup-text.js';
-import { MatchReview, filterCounts, moveToken, moveWeight, stepSaid } from '../src/lib/game-review.js';
+import { MatchReview, filterCounts, moveToken, moveWeight, sameMove, stepSaid } from '../src/lib/game-review.js';
 import { OPPONENT_LABELS, OPPONENT_POSITIONS } from '../src/lib/opponents.js';
 import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
-import { percent, quadOnOffer } from '../src/lib/ui.js';
+import { callLabel, percent, quadOnOffer } from '../src/lib/ui.js';
 import { componentLoader } from './fixtures/load-component.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -86,13 +86,33 @@ function tagged(html) {
   return words.map((word, index) => ({ word, ringed: ringed[index] }));
 }
 /** The tags a step's moves give the player's tiles: "You" over the tile
- * the player threw, "AI" over Trained AI's, the tile just drawn where it is
- * the one, and only Trained AI's ringed. */
-function tagsOf(frame, decision) {
+ * the player threw, "Now" over one they picked, "AI" over Trained AI's, the
+ * tile just drawn where it is the one, and only Trained AI's ringed. A
+ * decision whose answer is kept back gives Trained AI's none. */
+function tagsOf(frame, decision, pick = null) {
   const me = frame.view.seats[0], tiles = [...me.hand, ...(me.drawn ? [me.drawn] : [])];
-  const place = move => (['discard', 'riichi'].includes(move.kind) ? (move.tile === me.drawn ? tiles.length - 1 : tiles.indexOf(move.tile)) : -1);
-  const yours = place(frame.played), trained = decision && !decision.forced ? place({ kind: decision.advised_kind, tile: decision.advised_tile }) : -1;
-  return tiles.map((_, index) => ({ word: [index === yours && 'You', index === trained && 'AI'].filter(Boolean).join(' · '), ringed: index === trained }));
+  const place = move => (move && ['discard', 'riichi'].includes(move.kind) ? (move.tile === me.drawn ? tiles.length - 1 : tiles.indexOf(move.tile)) : -1);
+  const yours = place(frame.played), picked = place(pick);
+  const trained = decision && !decision.forced ? place({ kind: decision.advised_kind, tile: decision.advised_tile }) : -1;
+  return tiles.map((_, index) => ({ word: [index === yours && 'You', index === picked && 'Now', index === trained && 'AI'].filter(Boolean).join(' · '),
+    ringed: index === trained }));
+}
+/** Each of the player's own tiles, whether a press picks it: not disabled. */
+function liveTiles(html) {
+  return [...handsIn(html).own.markup.matchAll(/<button class="tile [^"]*"([^>]*)>/g)].map(([, rest]) => !/(?:^|\s)disabled=""/.test(rest));
+}
+/** The buttons under the hand for the moves other than a discard: each
+ * move's kind and what it is called. */
+const picks = html => [...html.matchAll(/<button type="button" class="app-control[^"]*" data-pick="([^"]+)" aria-label="([^"]*)"/g)]
+  .map(([, kind, label]) => ({ kind, label }));
+/** Every decision of the review, with its hand, its step and its frame. */
+const everyDecision = review.hands.flatMap(entry => entry.frames.map((frame, step) => ({ entry, step, frame, decision: entry.decisions[step] })));
+/** The row of Trained AI's view for a move of a decision, by the engine's
+ * words for it, and the words it is tagged with; null where it has none. */
+function viewRow(html, decision, move) {
+  const label = decision.weighted.find(choice => sameMove(choice, move.kind, move.tile)).label;
+  const row = [...html.matchAll(/<div class="row[^"]*" role="listitem"[^>]*data-move="([^"]*)">([^]*?)<\/div>/g)].find(([, said]) => said === label);
+  return row && { inner: row[2], tag: text(/<span class="tag[^"]*" aria-hidden="true">([^]*?)<\/span>/.exec(row[2])[1]) };
 }
 /** The step bar's line of moves, in words, and the tiles it shows. */
 function moveLine(html) {
@@ -130,9 +150,10 @@ test('every step of a reviewed hand shows every hand face up, each a list named 
     assert.equal(own.label, `${SEAT_NAMES[seats[0].seat]}'s tiles, yours`);
     assert.deepEqual(unmarked(own.tiles), named(frame.hands[0]));
     // Nothing turns them face down: no backs, and no control to show them
-    // or to show the answer, which is on show.
-    assert.doesNotMatch(html, /class="held|class="back|type="checkbox"|data-peek|data-reveal/);
-    assert.doesNotMatch(text(html), /(Show|Hide) (the )?(other players'|every|all) (tiles|hands)|Show answer/i);
+    // or to show the answer, which is on show, nor to pick a move.
+    assert.doesNotMatch(html, /class="held|class="back|type="checkbox"|data-peek|data-reveal|data-pick/);
+    assert.doesNotMatch(text(html), /(Show|Hide) (the )?(other players'|every|all) (tiles|hands)|Show answer|Pick a move/i);
+    assert.ok(liveTiles(html).every(live => !live), `no tile to pick at step ${index}`);
     assert.match(html, new RegExp(`<div class="wall[^"]*"><strong[^>]*>${frame.view.wall}</strong>`));
     for (const indicator of frame.view.dora_indicators) assert.ok(html.includes(`data-tile="${indicator}"`));
     // Whose turn it is, in words: the player to play or to answer.
@@ -145,6 +166,94 @@ test('every step of a reviewed hand shows every hand face up, each a list named 
     // it, and it has no heading or way back of its own.
     assert.doesNotMatch(html, /data-steps|data-step-to|data-decisions|data-back|decision-title|Back to the list/);
   }
+});
+
+test("with the other players' tiles kept back, each opponent's rack holds as many tiles face down, named as such and nothing more, and the player's own stay face up", () => {
+  for (const [index, frame] of hand.frames.entries()) {
+    const html = replay({ step: index, tilesHidden: true }), seats = frame.view.seats;
+    const racks = [...html.matchAll(/<ul class="revealed[^"]*" role="list" aria-label="([^"]*)" data-seat-hand="(\w+)">([^]*?)<\/ul>/g)];
+    assert.equal(racks.length, 3, `three racks at step ${index}`);
+    for (const [, label, seat, inner] of racks) {
+      const slot = seats.findIndex(entry => entry.seat === seat);
+      assert.equal(label, `${SEAT_NAMES[seat]}'s tiles, ${OPPONENT_POSITIONS[slot - 1]} (${OPPONENT_LABELS[seats[slot].controller]}), face down`);
+      assert.deepEqual(tileNames(inner), Array(seats[slot].hand_size).fill('face-down tile'), `${seat}'s rack at step ${index}`);
+      // Nothing of a tile is left to give it away: no tile in an attribute,
+      // and every name and title only that it is face down.
+      assert.doesNotMatch(inner, /data-tile="|dora|ringed/);
+      assert.deepEqual([...new Set([...inner.matchAll(/title="([^"]*)"/g)].map(match => match[1]))], ['face-down tile']);
+    }
+    assert.deepEqual(unmarked(handsIn(html).own.tiles), named(frame.hands[0]), `the player's own tiles at step ${index}`);
+  }
+});
+
+test("with Trained AI's move kept back, a decision is put to the player: no view, no ring or AI over a tile, every legal discard live, the other moves under the hand, and the prompt", () => {
+  for (const [index, frame] of hand.frames.entries()) {
+    if (hand.decisions[index].forced) continue;
+    const html = replay({ step: index, moveHidden: true });
+    assert.doesNotMatch(html, /data-view=""/, `no view at step ${index}`);
+    // The player's own move keeps its word; Trained AI's has neither ring
+    // nor word.
+    assert.deepEqual(tagged(html), tagsOf(frame, null), `the tags at step ${index}`);
+    // Every legal discard is a tile to press, as in play, and no other tile.
+    const me = frame.view.seats[0], legal = tile => frame.choices.some(choice => choice.kind === 'discard' && choice.tile === tile);
+    assert.deepEqual(liveTiles(html), [...me.hand, ...(me.drawn ? [me.drawn] : [])].map(legal), `the live tiles at step ${index}`);
+    // Every other move is a button under the hand, in play's words.
+    const robbing = Boolean(quadOnOffer(frame.view));
+    assert.deepEqual(picks(html), frame.choices.filter(choice => choice.kind !== 'discard')
+      .map(choice => ({ kind: choice.kind, label: callLabel(choice, robbing) })), `the other moves at step ${index}`);
+    assert.match(html, /<p id="hand-help" class="prompt[^"]*">Pick a move, or Show answer\.<\/p>/);
+    assert.doesNotMatch(text(html), /Trained AI's choice|Trained AI's view/);
+  }
+});
+
+test("an answer to another's discard, its answer kept back, offers each call and Pass under the hand in play's words, and no tile", () => {
+  const call = everyDecision.find(({ frame, decision }) => frame.view.phase === 'call' && !decision.forced);
+  assert.ok(call, 'an answer to a discard that was a choice');
+  const html = render(DecisionReplay, { props: { hand: call.entry, step: call.step, hints: true, moveHidden: true } }).body;
+  const robbing = Boolean(quadOnOffer(call.frame.view)), offered = call.frame.choices.filter(choice => choice.kind !== 'discard');
+  assert.deepEqual(picks(html), offered.map(choice => ({ kind: choice.kind, label: callLabel(choice, robbing) })));
+  assert.ok(picks(html).some(({ kind, label }) => kind === 'pass' && label === 'Pass'), 'Pass among them');
+  assert.ok(liveTiles(html).every(live => !live), 'no tile is thrown in answer to a discard');
+  // Picked, the answer is shown, the pick tagged Now in Trained AI's view.
+  const choice = offered.find(entry => !sameMove(entry, call.decision.advised_kind, call.decision.advised_tile)) ?? offered[0];
+  const pick = { kind: choice.kind, tile: choice.tile ?? null };
+  const shown = render(DecisionReplay, { props: { hand: call.entry, step: call.step, hints: true, pick } }).body;
+  assert.match(shown, /data-view=""/);
+  assert.doesNotMatch(shown, /data-pick|Pick a move/);
+  const row = viewRow(shown, call.decision, pick);
+  assert.ok(row, `the pick's row: ${choice.kind}`);
+  assert.match(row.tag, /\bNow\b/);
+});
+
+test("a move picked before the answer was shown is tagged Now over its tile, in Trained AI's view and in a column of the numbers where the review measured it", () => {
+  // A flagged turn, where the review measured every move, with a legal
+  // discard of a tile neither the player nor Trained AI threw.
+  const other = ({ frame, decision }) => frame.choices.find(choice => choice.kind === 'discard'
+    && choice.tile !== decision.played_tile && choice.tile !== decision.advised_tile);
+  const target = everyDecision.find(entry => entry.frame.view.phase === 'act' && entry.decision.judgement?.flagged && other(entry));
+  assert.ok(target, 'a flagged turn with a third discard');
+  const pick = { kind: 'discard', tile: other(target).tile };
+  const html = render(DecisionReplay, { props: { hand: target.entry, step: target.step, hints: true, pick } }).body;
+  assert.deepEqual(tagged(html), tagsOf(target.frame, target.decision, pick));
+  assert.ok(tagged(html).some(tile => tile.word === 'Now'), 'Now over the tile picked');
+  const row = viewRow(/<section class="view[^"]*"[^>]*data-view="">([^]*?)<\/section>/.exec(html)[1], target.decision, pick);
+  assert.ok(row, "the pick's row is listed");
+  assert.equal(row.tag, 'Now');
+  assert.ok(row.inner.includes(', your pick'), 'heard as the pick');
+  // What each move leaves gives a column to each move the review measured,
+  // the pick between the player's and Trained AI's.
+  const heads = markup => [...(/<details class="numbers[^"]*"[^>]*>([^]*?)<\/details>/.exec(markup)?.[1] ?? '')
+    .matchAll(/<th scope="col"[^>]*>([^<]*)/g)].map(match => match[1]).filter(Boolean);
+  const measured = move => target.decision.measures?.some(measure => sameMove(measure, move.kind, move.tile));
+  const advised = { kind: target.decision.advised_kind, tile: target.decision.advised_tile ?? null };
+  const played = { kind: target.decision.played_kind, tile: target.decision.played_tile ?? null };
+  assert.deepEqual(heads(html), [['You', played], ['Now', pick], ['Trained AI', advised]].filter(([, move]) => measured(move)).map(([title]) => title));
+  assert.ok(heads(html).includes('Now'), 'a flagged turn measures every move');
+  // A pick the review did not measure has no column, and the others keep theirs.
+  const unmeasured = { ...target.entry, decisions: target.entry.decisions.map((entry, at) => (at !== target.step ? entry
+    : { ...entry, measures: entry.measures.filter(measure => !sameMove(measure, pick.kind, pick.tile)) })) };
+  const without = render(DecisionReplay, { props: { hand: unmeasured, step: target.step, hints: true, pick } }).body;
+  assert.deepEqual(heads(without), heads(html).filter(title => title !== 'Now'));
 });
 
 test("the step bar gives each decision of a reviewed hand, the move made beside Trained AI's with the weights the review gave them, and says it in one line", () => {

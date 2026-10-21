@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import Tile from './Tile.svelte';
   import DecisionFilter from './DecisionFilter.svelte';
-  import { decisionInBrief, decisionKey, handEntry, listedIn } from './game-review.js';
+  import { decisionInBrief, decisionKey, handEntry, hiddenAt, listedIn } from './game-review.js';
 
   /**
    * The review's list of hands and decisions, from which the player goes to
@@ -21,10 +21,12 @@
    * if anything. `open` is whether the list is on the screen, as a folded one
    * is not. `bar` is the height of the step bar, which stays over the top of
    * the screen where the list is folded under it, and which a step can make
-   * taller.
+   * taller. Where the player keeps Trained AI's move back (`hideMove`), each
+   * line keeps it back too, "?" in its place, until the player reveals that
+   * decision (`revealed`, by "hand:step", hiddenAt).
    */
   let { hands, place = null, filter = $bindable('flagged'), counts, hints = true, trainedAvailable = false, empty = '', open = true,
-    bar = 0, onplace, onreview, children } = $props();
+    bar = 0, hideMove = false, revealed = {}, onplace, onreview, children } = $props();
   let root = $state(null);
 
   const on = (handIndex, step) => place?.hand === handIndex && place.step === step;
@@ -37,27 +39,28 @@
   // opened: the toggle that opens a folded list arrives once the browser has
   // opened it, so the list goes by whether it was on the screen before.
   //
-  // Anything else that draws the list again, the hands reviewed meanwhile or
-  // another filter, keeps still what the player is looking at, as a
-  // browser's scroll anchoring does: the control in the box that has focus,
-  // where it is in view; else the line on show, where that is; else the
-  // first line or heading in view, unless the box is at its top, where it
-  // stays. A line kept still whatever the player looks at would move all
-  // they read above it by the lines arriving in between. Safari has no
-  // scroll anchoring, so the boxes have none (GameReview), and the list does
-  // it itself, alike in every browser. The line on show, kept still, stays
-  // in view too, clear of the step bar as that grows over it. A folded list
-  // keeps nothing: the browser may still lay out what it hides, at a cost.
+  // Anything else that draws the list again, the hands reviewed meanwhile,
+  // another filter or an answer kept back or revealed, keeps still what the
+  // player is looking at, as a browser's scroll anchoring does: the control
+  // in the box that has focus, where it is in view; else the line on show,
+  // where that is; else the first line or heading in view, unless the box is
+  // at its top, where it stays. A line kept still whatever the player looks
+  // at would move all they read above it by the lines arriving in between.
+  // Safari has no scroll anchoring, so the boxes have none (GameReview), and
+  // the list does it itself, alike in every browser. The line on show, kept
+  // still, stays in view too, clear of the step bar as that grows over it. A
+  // folded list keeps nothing: the browser may still lay out what it hides,
+  // at a cost.
   let held = null;
   let wasOpen = false;
   $effect.pre(() => {
-    void hands; void filter; void place; void open; void bar;
+    void hands; void filter; void place; void open; void bar; void hideMove; void revealed;
     const opening = open && !wasOpen;
     wasOpen = open;
     held = opening || !open ? null : untrack(anchored);
   });
   $effect(() => {
-    void hands; void filter; void place; void open; void bar;
+    void hands; void filter; void place; void open; void bar; void hideMove; void revealed;
     const before = held;
     held = null;
     if (open) untrack(() => keep(before));
@@ -197,15 +200,15 @@
           <ol class="lines" role="list">
             {#each lines as step (decisionKey(hand.index, step))}
               {@const decision = hand.decisions?.[step] ?? null}
-              {@const line = decisionInBrief(hand.frames[step], decision)}
               {@const key = decisionKey(hand.index, step)}
+              {@const line = decisionInBrief(hand.frames[step], decision, { hidden: hiddenAt(decision, revealed[key], { hideMove }).move })}
               {@const dora = hints ? hand.frames[step].view.dora_types ?? [] : []}
               <!-- Its number, the player's move in tiles and words, then
-                   Trained AI's after an arrow, a tick where it agreed, that
-                   the move was the only one, or that Trained AI has not
-                   answered yet; Flagged where the filter keeps more than the
-                   flagged decisions. Its name says the same in the engine's
-                   words. -->
+                   Trained AI's after an arrow, "?" where it is kept back, a
+                   tick where it agreed, that the move was the only one, or
+                   that Trained AI has not answered yet; Flagged where the
+                   filter keeps more than the flagged decisions. Its name says
+                   the same in the engine's words. -->
               <li>
                 <button type="button" class="line" class:flag={line.flagged} class:outside={!listedIn(decision, filter)}
                   data-step-to={key} data-flagged={line.flagged ? key : undefined} aria-current={on(hand.index, step) ? 'step' : undefined}
@@ -215,6 +218,7 @@
                   {@render token(line.you, dora)}
                   {#if !line.reviewed}<span class="verdict">…</span>
                   {:else if line.forced}<span class="verdict">Only move</span>
+                  {:else if line.hidden}<span class="arrow">→</span><span class="verdict">?</span>
                   {:else if line.agreed}<span class="verdict">✓</span>
                   {:else}<span class="arrow">→</span>{@render token(line.ai, dora)}{/if}
                   {#if line.flagged && filter !== 'flagged'}<strong class="flag-mark">Flagged</strong>{/if}

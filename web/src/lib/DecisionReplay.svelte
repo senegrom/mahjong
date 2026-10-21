@@ -5,7 +5,7 @@
   import PlayerHand from './app/PlayerHand.svelte';
   import { groupPolicyChoices } from './action-weights.js';
   import { decisionInBrief, decisionKey, moveToken, sameMove, seatNotes } from './game-review.js';
-  import { TAG_SAID, percent } from './ui.js';
+  import { TAG_SAID, callLabel, callTiles, percent, quadOnOffer } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
 
   /**
@@ -22,8 +22,18 @@
    * decision stays on the page as the review steps, across hands too, so
    * that what the player opened or folded here stays as they left it. The
    * saved match is never touched, and nothing is played on from any step.
+   *
+   * The player's settings can keep back what the decision would give away
+   * until they ask for it (GameReview). With Trained AI's move kept back
+   * (`moveHidden`) there is no view, no ring and no "AI" over a tile, and the
+   * decision is put to the player: every legal discard in the hand is a
+   * button, as in play, the other moves are buttons under it in play's words,
+   * and whichever they press is their answer, `onpick(move)`. Once shown, a
+   * move they picked (`pick`) is tagged "Now" wherever the moves are tagged.
+   * With the other players' tiles kept back (`tilesHidden`) the opponents'
+   * hands lie face down in their racks.
    */
-  let { hand, step, hints = true } = $props();
+  let { hand, step, hints = true, moveHidden = false, tilesHidden = false, pick = null, onpick = () => {} } = $props();
 
   // The events since the previous decision and the table of what each move
   // leaves start folded, read less than the table and the weights, and stay
@@ -57,21 +67,34 @@
   let notes = $derived(seatNotes(frame.view));
   let me = $derived(frame.view.seats[0]);
   let shownDora = $derived(hints ? frame.view.dora_types ?? [] : []);
-  let brief = $derived(decisionInBrief(frame, current));
+  let brief = $derived(decisionInBrief(frame, current, { hidden: moveHidden }));
   let key = $derived(decisionKey(hand.index, step));
   let everyMove = $derived(everyMoveAt === key);
 
   // The decision whose view of every move this step shows: any that was put
-  // to Trained AI, which a move with no alternative never was.
-  let shown = $derived(current?.weighted && !current.forced ? current : null);
+  // to Trained AI, which a move with no alternative never was, once its
+  // answer is shown.
+  let shown = $derived(current?.weighted && !current.forced && !moveHidden ? current : null);
   let advised = $derived(shown ? { kind: shown.advised_kind, tile: shown.advised_tile ?? null } : null);
   let played = $derived(shown ? { kind: shown.played_kind, tile: shown.played_tile ?? null } : null);
+  // The move the player picked here before the answer was shown, if any.
+  let now = $derived(shown && pick ? { kind: pick.kind, tile: pick.tile ?? null } : null);
   let stage = $derived(shown?.judgement?.stage);
 
+  // While Trained AI's move is kept back the player answers the decision as
+  // in play: a legal discard by its tile in the hand, and any other move,
+  // a riichi, a call, a win or a pass, by its button under the hand, in the
+  // words play's buttons give it (callLabel), with its tiles beside them.
+  let discards = $derived(moveHidden ? frame.choices.filter(choice => choice.kind === 'discard') : []);
+  let others = $derived(moveHidden ? frame.choices.filter(choice => choice.kind !== 'discard') : []);
+  let robbing = $derived(Boolean(quadOnOffer(frame.view)));
+  const canPick = tile => discards.some(choice => choice.tile === tile);
+
   // The tiles in the hand that the step's moves throw, by their place in it:
-  // the player's, and Trained AI's where it was asked. A move that throws no
-  // tile from the hand, a call, a win or a pass, has none. Where the tile
-  // just drawn is one of them, it is that copy, as play throws the draw.
+  // the player's, the one they picked, and Trained AI's where it was asked
+  // and its answer is shown. A move that throws no tile from the hand, a
+  // call, a win or a pass, has none. Where the tile just drawn is one of
+  // them, it is that copy, as play throws the draw.
   let tiles = $derived([...me.hand, ...(me.drawn ? [me.drawn] : [])]);
   function placeOf(move) {
     if (!move || !['discard', 'riichi'].includes(move.kind)) return null;
@@ -79,38 +102,44 @@
     return index >= 0 ? index : null;
   }
   let yours = $derived(placeOf(frame.played));
+  let picked = $derived(placeOf(now));
   let trained = $derived(placeOf(advised));
   // The words over those tiles, in a line kept on every tile (HandTile):
-  // "You" over the player's, "AI" over Trained AI's, both over one tile
-  // where they agreed. Trained AI's tile is ringed as well (`selected`).
-  let tags = $derived(tiles.map((_, index) => [index === yours && 'You', index === trained && 'AI'].filter(Boolean)));
+  // "You" over the player's, "Now" over the one they picked, "AI" over
+  // Trained AI's, joined over one tile that more than one chose. Trained
+  // AI's tile is ringed as well (`selected`).
+  let tags = $derived(tiles.map((_, index) => [index === yours && 'You', index === picked && 'Now', index === trained && 'AI']
+    .filter(Boolean)));
 
   // The moves by weight, riichi's discards together under the declaration.
   let ordered = $derived(shown ? [...shown.weighted]
     .sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1) || (a.index ?? 99) - (b.index ?? 99)) : []);
-  // The leading moves and every move the player or the network picked; the
-  // rest wait behind a button, which says what a press does: how many more it
-  // shows, or that it shows fewer. The button stays once they are shown, to
-  // hide them again, so the focus on it stays too rather than dropping to the
-  // page.
+  // The leading moves and every move the player, their pick or the network
+  // chose; the rest wait behind a button, which says what a press does: how
+  // many more it shows, or that it shows fewer. The button stays once they
+  // are shown, to hide them again, so the focus on it stays too rather than
+  // dropping to the page.
   let rows = $derived(groupPolicyChoices(everyMove ? ordered : ordered.filter((choice, index) => index < 5 || marked(choice))));
   let extra = $derived(ordered.filter((choice, index) => index >= 5 && !marked(choice)).length);
 
   // The moves the numbers compare, each once and only where the review
-  // measured it: the player's and Trained AI's.
+  // measured it: the player's, the one they picked and Trained AI's. A pick
+  // the review did not measure, as it measures every move only where the
+  // decision is flagged, has no column, and the others keep theirs.
   let compared = $derived(!shown ? [] : [
     { move: played, title: 'You' },
+    ...(now && !sameMove(now, played.kind, played.tile) && !sameMove(now, advised.kind, advised.tile) ? [{ move: now, title: 'Now' }] : []),
     ...(!sameMove(advised, played.kind, played.tile) ? [{ move: advised, title: 'Trained AI' }] : []),
   ].map(entry => ({ ...entry, measure: shown.measures?.find(measure => sameMove(measure, entry.move.kind, entry.move.tile)) ?? null }))
     .filter(entry => entry.measure));
 
   function marked(choice) {
-    return [advised, played].some(move => move && sameMove(choice, move.kind, move.tile));
+    return [advised, played, now].some(move => move && sameMove(choice, move.kind, move.tile));
   }
 
   // The words a move of the view is tagged with, as the hand tags its tiles.
-  const tagsOf = choice => [sameMove(choice, played.kind, played.tile) && 'You', sameMove(choice, advised.kind, advised.tile) && 'AI']
-    .filter(Boolean);
+  const tagsOf = choice => [sameMove(choice, played.kind, played.tile) && 'You', now && sameMove(choice, now.kind, now.tile) && 'Now',
+    sameMove(choice, advised.kind, advised.tile) && 'AI'].filter(Boolean);
 
   function distance(value) {
     if (value < 0) return 'complete';
@@ -120,17 +149,19 @@
 </script>
 
 <!-- The table as it stood at this step, all of it, every player's tiles face
-     up: the player's own seat and the board with the other players around
-     it, the seat after the board but on a phone held upright, then what
-     happened since the player's previous decision. The step bar says it as
-     the step changes. -->
+     up unless the player keeps the others' back: the player's own seat and
+     the board with the other players around it, the seat after the board
+     but on a phone held upright, then what happened since the player's
+     previous decision. The step bar says it as the step changes. -->
 <div class="decision" data-decision>
   <div class="overview" data-overview>
     {#if upright}{@render seat()}{/if}
     <!-- Drawn afresh for another hand, so that a seat does not announce a
-         call made in the hand before. -->
+         call made in the hand before. The hands turn over in place, without
+         being drawn afresh. -->
     {#key hand.index}
-      <MatchTable view={frame.view} {hints} thinking={false} pendingOpponent={null} hands={frame.hands ?? null} {notes} review />
+      <MatchTable view={frame.view} {hints} thinking={false} pendingOpponent={null} hands={frame.hands ?? null} {notes} review
+        concealed={tilesHidden} />
     {/key}
     {#if !upright}{@render seat()}{/if}
 
@@ -196,13 +227,34 @@
 </div>
 
 <!-- The player's own seat, with the words over the tiles the moves concern,
-     and what the hand is described by: the two moves, in words. -->
+     and what the hand is described by: the two moves, in words, or while
+     Trained AI's move is kept back, what the player can do, followed by the
+     moves other than a discard, as play puts its calls under the hand. -->
 {#snippet seat()}
   <PlayerHand view={frame.view} engine={null} closed={true} {hints} busy={false} blocked={false}
-    discardChoices={[]} confirmDiscards={false} picked={null} selected={trained}
-    canDiscard={() => false} selectTile={() => {}} syncHandFocus={() => {}}
+    discardChoices={discards} confirmDiscards={false} picked={null} selected={trained}
+    canDiscard={canPick} selectTile={tile => onpick({ kind: 'discard', tile })} syncHandFocus={() => {}}
     handLabel={`${NAMES[me.seat]}'s tiles, yours`} listed note={notes[0]} {tags} />
-  <p id="hand-help" class="visually-hidden">{brief.said}</p>
+  {#if moveHidden}
+    <p id="hand-help" class="prompt">Pick a move, or Show answer.</p>
+    {#if others.length}
+      <div class="picks" role="group" aria-label="Other moves">
+        {#each others as choice, index (index)}
+          <button type="button" class="app-control" data-pick={choice.kind} aria-label={callLabel(choice, robbing)}
+            onclick={() => onpick({ kind: choice.kind, tile: choice.tile ?? null })}>
+            <span>{callLabel(choice, robbing)}</span>
+            {#if callTiles(choice, frame.view.pending_discard).length}
+              <span class="preview" aria-hidden="true">
+                {#each callTiles(choice, frame.view.pending_discard) as tile, slot (slot)}<Tile {tile} size="tiny" dora={shownDora.includes(tile)} />{/each}
+              </span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    {/if}
+  {:else}
+    <p id="hand-help" class="visually-hidden">{brief.said}</p>
+  {/if}
 {/snippet}
 
 {#snippet token(move)}
@@ -244,6 +296,12 @@
   @container stage (min-width: 715px) { .decision { --mine-tile: 42px; } }
   @container stage (min-width: 860px) { .decision { --mine-tile: 52px; } }
   h3 { margin: 0; font-size: .95rem; }
+  /* What the player can do while the answer is kept back, and the moves
+     other than a discard, laid out as play lays out its calls (TurnChoices). */
+  .prompt { margin: 0; font-size: .86rem; }
+  .picks { display: flex; flex-wrap: wrap; gap: 8px; }
+  .picks button { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; text-align: left; overflow-wrap: anywhere; }
+  .preview { display: inline-flex; align-items: center; gap: 4px; }
   .lines { font-size: .82rem; }
   .lines summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .token { display: inline-flex; align-items: center; gap: 3px; }

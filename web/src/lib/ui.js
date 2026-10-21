@@ -143,8 +143,9 @@ export function acceptsHandKey(event, hand) {
  * 'pick-drawn' for the tile just drawn (0), as in play. Keys are left to
  * whatever else has them as play leaves them: while a dialog is open over the
  * page (`dialogOpen`), with Ctrl, Alt or Meta held, while text is composed,
- * once something has handled them, and in a field; and in the live hand ← and
- * → move along it, as in play, rather than step. */
+ * once something has handled them, and in a field. In the live hand ← and →
+ * move along it, as in play, rather than step: 'previous-tile' and
+ * 'next-tile'. */
 export function reviewKey(event, { hand = null, dialogOpen = false } = {}) {
   if (dialogOpen || event.defaultPrevented || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return null;
   const target = event.target;
@@ -154,7 +155,7 @@ export function reviewKey(event, { hand = null, dialogOpen = false } = {}) {
   if (key === 'ArrowLeft' || key === 'ArrowRight') {
     const step = key === 'ArrowLeft' ? 'previous' : 'next';
     if (event.shiftKey) return `${step}-hand`;
-    return inHand ? null : step;
+    return inHand ? `${step}-tile` : step;
   }
   if (key === 'Escape') return 'back';
   if (key.toLowerCase() === 's') return 'reveal';

@@ -5,8 +5,8 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement,
-  decisionInBrief, decisionKey, differed, filterCounts, filterSaid, handEntry, handName, judgement, landing, listedIn, moveToken, moveWeight,
-  neighbour, playlist, rankDecisions, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
+  decisionInBrief, decisionKey, differed, filterCounts, filterSaid, handEntry, handName, hiddenAt, judgement, landing, listedIn, moveToken,
+  moveWeight, neighbour, playlist, rankDecisions, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -319,6 +319,36 @@ test("with Trained AI's move hidden, a hand's line gives the player's move and t
   assert.deepEqual(decisionInBrief(frame(thrown), forced, hidden), decisionInBrief(frame(thrown), forced));
   assert.deepEqual(decisionInBrief(frame(thrown), null, hidden), decisionInBrief(frame(thrown), null));
   assert.equal(decisionInBrief(frame(thrown), forced, hidden).hidden, false);
+});
+
+test("a decision keeps Trained AI's move back where Trained AI answered a real choice, and the other players' tiles anywhere, until the player reveals it", () => {
+  const answered = { agreed: false, forced: false }, forced = { agreed: true, forced: true };
+  const both = { hideMove: true, hideTiles: true };
+  // Nothing is kept back unless a setting asks for it.
+  assert.deepEqual(hiddenAt(answered, null), { move: false, tiles: false });
+  assert.deepEqual(hiddenAt(answered, null, both), { move: true, tiles: true });
+  assert.deepEqual(hiddenAt(answered, null, { hideMove: true }), { move: true, tiles: false });
+  assert.deepEqual(hiddenAt(answered, null, { hideTiles: true }), { move: false, tiles: true });
+  // An only move, and a hand not reviewed yet, have no answer to keep back;
+  // their tiles are kept back all the same.
+  assert.deepEqual(hiddenAt(forced, null, both), { move: false, tiles: true });
+  assert.deepEqual(hiddenAt(null, null, both), { move: false, tiles: true });
+  // Show answer, or a move picked, reveals the decision whole, and the pick
+  // is kept with it; whatever the settings are later, it stays revealed.
+  assert.deepEqual(revealing(answered), { pick: null, answer: true });
+  const pick = { kind: 'discard', tile: '8s' };
+  assert.deepEqual(revealing(answered, pick), { pick, answer: true });
+  for (const reveal of [revealing(answered), revealing(answered, pick)]) {
+    assert.deepEqual(hiddenAt(answered, reveal, both), { move: false, tiles: false });
+  }
+  // Show tiles where Trained AI has answered reveals the decision whole too,
+  // its answer having been on show; in a hand not reviewed yet it turns the
+  // tiles over and leaves the move to be answered once Trained AI has.
+  assert.deepEqual(hiddenAt(answered, revealing(answered), both), { move: false, tiles: false });
+  const early = revealing(null);
+  assert.deepEqual(early, { pick: null, answer: false });
+  assert.deepEqual(hiddenAt(null, early, both), { move: false, tiles: false });
+  assert.deepEqual(hiddenAt(answered, early, both), { move: true, tiles: false }, 'answered since, the move is put to the player');
 });
 
 test('a filter holds the decisions it names, and its list runs through the hands in the order played, a hand not yet reviewed held only by the list of every decision', () => {

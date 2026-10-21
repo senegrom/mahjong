@@ -81,6 +81,49 @@ test('the step bar says where it is, steps by the filter its buttons are named f
     [['Previous decision', false], ['Next decision', true]]);
 });
 
+test("with Trained AI's move kept back, the step bar gives the player's move without its weight, Show answer in Trained AI's place and the flag, and says the move is hidden", () => {
+  const flagged = decision(1, discards[1], { judgement: { flagged: true } });
+  const html = bar({ decision: flagged, moveHidden: true, previous: { hand: 3, step: 0 }, next: { hand: 3, step: 4 } });
+  assert.deepEqual(line(html), { said: 'You · Trained AI ? Show answer · Flagged', tiles: ['red dragon'] });
+  assert.match(html, /<button type="button" class="app-control reveal[^"]*" data-reveal="">Show answer<\/button>/);
+  assert.match(html, /<span class="long[^"]*">Trained <\/span>AI \?/, '"AI ?" on the narrowest screens');
+  assert.ok(html.includes(`role="status" data-step-said="">${stepSaid({ hand, step: 1, decision: flagged, hidden: true })}</p>`));
+  // Nothing holds the player at a hidden decision: both ways on stay open.
+  assert.deepEqual(buttons(html).map(({ disabled, waiting }) => [disabled, waiting]), [[false, false], [false, false]]);
+  // Agreed, nothing says so; an answer to another's discard still says
+  // whose tile it was, which the table shows.
+  assert.deepEqual(line(bar({ step: 4, decision: decision(4, discards[1], { agreed: true, judgement: null }), moveHidden: true })),
+    { said: 'You · Trained AI ? Show answer', tiles: ['8 bamboo'] });
+  assert.deepEqual(line(bar({ step: 0, decision: decision(0, calls[0]), moveHidden: true })),
+    { said: "On South's : You Pass · Trained AI ? Show answer", tiles: ['7 circles'] });
+  // Both kept back: the one button shows the answer and the tiles with it.
+  assert.equal(line(bar({ decision: flagged, moveHidden: true, tilesHidden: true })).said, 'You · Trained AI ? Show answer · Flagged');
+});
+
+test("with only the other players' tiles kept back, the step bar gives both moves and offers Show tiles, at an only move and a hand not reviewed too", () => {
+  const flagged = decision(1, discards[1], { judgement: { flagged: true } });
+  assert.deepEqual(line(bar({ decision: flagged, tilesHidden: true })),
+    { said: 'You 2.0% · Trained AI 95.5% Show tiles · Flagged', tiles: ['red dragon', '8 bamboo'] });
+  assert.match(bar({ decision: flagged, tilesHidden: true }), /<button type="button" class="app-control reveal[^"]*" data-reveal="">Show tiles<\/button>/);
+  assert.equal(line(bar({ step: 4, decision: decision(4, discards[1], { agreed: true, forced: true, judgement: null }), tilesHidden: true })).said,
+    'You · Only move Show tiles');
+  assert.equal(line(bar({ decision: null, tilesHidden: true })).said, 'You · Trained AI … Show tiles');
+  // Nothing kept back, nothing to show.
+  assert.doesNotMatch(bar({ decision: flagged }), /data-reveal/);
+});
+
+test("a move the player picked before the answer was shown is given as Now, with its weight, between their move and Trained AI's, and said in the step's line", () => {
+  const flagged = decision(1, discards[1], { judgement: { flagged: true } }), pick = { kind: 'discard', tile: '8s' };
+  const html = bar({ decision: flagged, pick });
+  assert.deepEqual(line(html), { said: 'You 2.0% · Now 95.5% · Trained AI 95.5% · Flagged', tiles: ['red dragon', '8 bamboo', '8 bamboo'] });
+  assert.ok(html.includes(`role="status" data-step-said="">${stepSaid({ hand, step: 1, decision: flagged, pick })}</p>`));
+  assert.match(stepSaid({ hand, step: 1, decision: flagged, pick }), / Now: discards the 8 bamboo, 95\.5%\. Flagged\.$/);
+  // A move without a tile is its word, an answer to a discard too.
+  assert.equal(line(bar({ step: 0, decision: decision(0, calls[0]), pick: { kind: 'pon', tile: null } })).said,
+    "On South's : You Pass 0.3% · Now Pon 99.0% · Trained AI Pon 99.0%");
+  assert.doesNotMatch(html, /data-reveal/, 'picking showed the answer');
+});
+
 test('Next, waiting for the answers of the hand on show, says it is disabled but is not disabled outright, so that it keeps its focus', () => {
   const html = bar({ previous: { hand: 3, step: 0 }, waiting: true, filter: 'flagged' });
   assert.deepEqual(buttons(html).map(({ which, label, disabled, waiting }) => ({ which, label, disabled, waiting })), [

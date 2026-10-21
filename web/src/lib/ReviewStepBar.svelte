@@ -1,7 +1,7 @@
 <script>
   import { tick } from 'svelte';
   import Tile from './Tile.svelte';
-  import { decisionInBrief, moveWeight, stepSaid } from './game-review.js';
+  import { decisionInBrief, moveToken, moveWeight, stepSaid } from './game-review.js';
   import { percent, quadOnOffer } from './ui.js';
   import { SEAT_NAMES } from './tiles.js';
 
@@ -25,20 +25,32 @@
    * they step through, which their names say; `onstep(place)` goes there.
    * `height` is the bar's own, for whatever lies under it to keep clear of
    * it.
+   *
+   * Where the player's settings keep Trained AI's move back (`moveHidden`),
+   * the line gives the player's move without its weight, which would say how
+   * Trained AI rated it, and "Trained AI ?" with Show answer in its place;
+   * where they keep only the other players' tiles back (`tilesHidden`), Show
+   * tiles. Either is the bar's one reveal, `onreveal()`. A move the player
+   * picked before the answer was shown (`pick`) is given as Now, between the
+   * two.
    */
-  let { hand, step, decision = null, previous = null, next = null, waiting = false, filter = 'every', onstep, height = $bindable(0) } = $props();
+  let { hand, step, decision = null, previous = null, next = null, waiting = false, filter = 'every', moveHidden = false, tilesHidden = false,
+    pick = null, onstep, onreveal = () => {}, height = $bindable(0) } = $props();
 
   // What Previous and Next step to, after the word each shows, which their
   // names begin with, so that a player who says the word reaches the button.
   const STEPS = { flagged: 'flagged decision', differed: 'decision where Trained AI differed', every: 'decision' };
 
   let frame = $derived(hand.frames[step]);
-  let brief = $derived(decisionInBrief(frame, decision));
-  let said = $derived(stepSaid({ hand, step, decision }));
-  // The weights the line gives where Trained AI was asked: the player's move
-  // beside Trained AI's choice, given riichi where both declared it.
-  let yours = $derived(decision && !decision.forced ? moveWeight(decision, frame.played) : null);
+  let brief = $derived(decisionInBrief(frame, decision, { hidden: moveHidden }));
+  let said = $derived(stepSaid({ hand, step, decision, hidden: moveHidden, pick }));
+  // The weights the line gives where Trained AI was asked and its answer is
+  // shown: the player's move beside Trained AI's choice, given riichi where
+  // both declared it, and the move the player picked, if any.
+  let yours = $derived(decision && !decision.forced && !moveHidden ? moveWeight(decision, frame.played) : null);
   let trained = $derived(brief.ai ? moveWeight(decision, { kind: decision.advised_kind, tile: decision.advised_tile ?? null }) : null);
+  let now = $derived(pick && decision && !decision.forced && !moveHidden
+    ? { token: moveToken(pick.kind, pick.tile ?? null), ...moveWeight(decision, pick) } : null);
   let discarder = $derived(SEAT_NAMES[frame.view.pending_from] ?? 'An opponent');
   let robbing = $derived(Boolean(quadOnOffer(frame.view)));
   let previousButton = $state(null);
@@ -97,18 +109,31 @@
   <p class="moves" data-move-line>
     {#if brief.offered}<span class="on">On {discarder}'s{robbing ? ' kan' : ''} <Tile tile={brief.offered} size="tiny" />:</span>{/if}
     <span class="part">You {@render token(brief.you)}{#if yours?.weight != null}{' '}{percent(yours.weight)}{#if yours.given && !brief.ai}, given riichi{/if}{/if}</span>
+    {#if now}
+      <span class="dot" aria-hidden="true">·</span>
+      <span class="part">Now {@render token(now.token)}{#if now.weight != null}{' '}{percent(now.weight)}{#if now.given && !brief.ai}, given riichi{/if}{/if}</span>
+    {/if}
     <span class="dot" aria-hidden="true">·</span>
     <span class="part">
       {#if !brief.reviewed}
         <span class="long">{'Trained '}</span>AI …
       {:else if brief.forced}
         Only move
+      {:else if brief.hidden}
+        <span class="long">{'Trained '}</span>AI ?
       {:else if brief.agreed}
         <span class="long">{'Trained '}</span>AI agreed
       {:else}
         <span class="long">{'Trained '}</span>AI {@render token(brief.ai)}{#if trained?.weight != null}{' '}{percent(trained.weight)}{#if trained.given}, given riichi{/if}{/if}
       {/if}
     </span>
+    <!-- Where Trained AI's move would be: Show answer turns over what the
+         decision keeps back, the move and with it the other players' tiles
+         where they are hidden too; Show tiles the tiles alone, where only
+         they are. -->
+    {#if moveHidden || tilesHidden}
+      <button type="button" class="app-control reveal" data-reveal onclick={() => onreveal()}>{moveHidden ? 'Show answer' : 'Show tiles'}</button>
+    {/if}
     {#if brief.flagged}<span class="dot" aria-hidden="true">·</span> <strong class="flag">Flagged</strong>{/if}
   </p>
   <p class="visually-hidden" role="status" data-step-said>{said}</p>
@@ -137,8 +162,10 @@
   .buttons { display: flex; gap: 8px; }
   p { margin: 0; }
   .place { font-size: .85rem; font-variant-numeric: tabular-nums; }
-  /* The player's move, Trained AI's and the flag, parted by dots that only
-     the eye is given: a screen reader hears the moves. */
+  /* The player's move, the one they picked, Trained AI's and the flag,
+     parted by dots that only the eye is given: a screen reader hears the
+     moves. The reveal sits where Trained AI's move would be, wrapping with
+     the rest. */
   .moves { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: .9rem; font-variant-numeric: tabular-nums; }
   .on, .part, .token { display: inline-flex; align-items: center; gap: 4px; }
   .dot { opacity: .7; }
