@@ -683,8 +683,8 @@ test('a slow device holds after each hand until the player asks for the next one
 });
 
 test('stopping puts the hand being reviewed back, and a failure says what failed and can be retried', async () => {
-  // The first hand is answered; the second hand's first batch waits until
-  // the review is stopped.
+  // The final hand, asked about first, and the first hand are answered; the
+  // second hand's first batch waits until the review is stopped.
   let review = null;
   const waiting = async (positions, signal) => {
     if (review.current === 1) {
@@ -930,7 +930,7 @@ test('a finished review is reported once, with what the trend keeps of it', asyn
   } finally { review.dispose(); }
 });
 
-test('a review of the game so far asks about the hand just played first, and keeps the game out of the trend', async () => {
+test('a review asks about the newest hand first, the hand just played or the final one, and keeps the game so far out of the trend', async () => {
   const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end);
   const order = [], reported = [];
   const review = notingReview(saved, order, { onComplete: done => reported.push(done.summary) });
@@ -944,13 +944,15 @@ test('a review of the game so far asks about the hand just played first, and kee
     assert.equal(review.complete, true);
     assert.deepEqual(reported, [], 'the game so far is not a game for the trend');
   } finally { review.dispose(); }
-  // A finished game is asked from its first deal.
+  // A finished game is asked about its final hand first, the hand its review
+  // opens on, then from the first deal.
   const asked = [], finished = notingReview(game, asked);
   try {
     assert.equal(finished.over, true);
     finished.review();
     await settled(finished);
-    assert.deepEqual(asked, finished.hands.map(hand => hand.index));
+    const indices = finished.hands.map(hand => hand.index);
+    assert.deepEqual(asked, [indices.at(-1), ...indices.slice(0, -1)]);
   } finally { finished.dispose(); }
 });
 
@@ -1020,7 +1022,7 @@ test('a review taken on while it reviews a hand plays on along the longer match'
     await settled(review);
     assert.equal(review.failure, '');
     assert.deepEqual(review.hands.slice(0, 2).map(hand => hand.status), ['done', 'done']);
-    // The later hands play on from the first hand's end, along the whole game.
+    // The later hands, the final one first, play on along the whole game.
     review.review();
     await settled(review);
     assert.equal(review.failure, '');

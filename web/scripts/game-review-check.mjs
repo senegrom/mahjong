@@ -561,10 +561,11 @@ try {
     await page.waitForFunction(() => document.activeElement?.matches('[data-game-review] h3'), { timeout: 5000 });
     assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Flagged decisions');
 
-    // Every batch, in the order the review asks: a finished game's from its
-    // first deal.
+    // Every batch, in the order the review asks: a finished game's final
+    // hand first, then the rest from the first deal.
     const batches = await page.evaluate(() => window.reviewBatches);
-    const { first, second, walked } = walkBatches(batches, facts.map((_, hand) => hand));
+    const indices = hands.map(hand => hand.index);
+    const { first, second, walked } = walkBatches(batches, [indices.at(-1), ...indices.slice(0, -1)]);
     assert.equal(walked, batches.length, 'no batch is missing or extra');
 
     const verdicts = facts.flatMap((decisions, hand) => decisions.map((fact, index) => {

@@ -383,13 +383,15 @@ export class MatchReview {
     const last = this.hands.at(-1);
     return Boolean(last) && last.end < this.snapshot.commands.length;
   }
-  /** The order the hands are asked about when none are named. A finished
-   * match is asked from its first deal. A match under way is asked first
-   * about the hand just played, whose result the player came from, then
-   * about the rest from the first deal. */
+  /** The order the hands are asked about when none are named: the newest
+   * first, then the rest from the first deal. While the match is under way
+   * that is the hand just played, whose result the player came from, and
+   * once it is over the final hand. Either way it is the hand the review
+   * opens on (landing), so the first hand the player looks at is the first
+   * one answered. */
   get order() {
     const indices = this.hands.map(hand => hand.index);
-    return this.over ? indices : [...indices.slice(-1), ...indices.slice(0, -1)];
+    return [...indices.slice(-1), ...indices.slice(0, -1)];
   }
   get decisions() { return this.hands.flatMap(hand => hand.decisions ?? []); }
   get reviewedHands() { return this.hands.filter(hand => hand.status === 'done').length; }

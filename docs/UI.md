@@ -393,15 +393,16 @@ including riichi payments, against the hand's total.
 
 **Review whole game** on the final standings, there again after a finished
 match is reloaded, puts every decision the player made in every hand to Trained
-AI, and leads with the few where the player's move departed furthest from its
-choice. The hand review reviews one hand and is gone at the next deal; this one
-is rebuilt for the whole game. On a phone the final hand's result is a sheet
-over the standings, so the sheet offers the review too, as it offers the
-game's file. The sheet steps aside whenever the review opens, as it does for
-the hand's review, whichever button opened it: its own, or the standings'
-own, which it covers but a keyboard or a screen reader can still reach. **Back
-to the standings** then lands on the standings, uncovered, with focus on their
-own **Review whole game**, and the result is a tap away on its chip, which a
+AI, the final hand first and then the rest from the first deal, and leads with
+the few where the player's move departed furthest from its choice. The hand
+review reviews one hand and is gone at the next deal; this one is rebuilt for
+the whole game. On a phone the final hand's result is a sheet over the
+standings, so the sheet offers the review too, as it offers the game's file.
+The sheet steps aside whenever the review opens, as it does for the hand's
+review, whichever button opened it: its own, or the standings' own, which it
+covers but a keyboard or a screen reader can still reach. **Back to the
+standings** then lands on the standings, uncovered, with focus on their own
+**Review whole game**, and the result is a tap away on its chip, which a
 keyboard reaches after the standings' buttons. The chip goes as it brings the
 result back, so focus goes to the result, as when it first appeared, rather
 than to the page. Up to 480 pixels wide the sheet's buttons take their short
