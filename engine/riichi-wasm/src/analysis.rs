@@ -1,5 +1,7 @@
 //! Read-only analysis of a manually entered, partially observed table.
 //! Unknown opponents' hands stay empty; only the selected hand is required.
+#[path = "discard_facts.rs"]
+mod discard_facts;
 #[path = "review_position.rs"]
 mod review_position;
 #[path = "physical_settlement.rs"]
