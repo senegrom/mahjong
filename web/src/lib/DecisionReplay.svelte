@@ -40,10 +40,12 @@
   // the player's tiles are the first thing under the step bar; held sideways,
   // and on every larger screen, it comes after, as in play. It is drawn in
   // one place or the other rather than moved by CSS, so that a screen reader
-  // and the keyboard go through it in the order it is seen.
-  let upright = $state(false);
+  // and the keyboard go through it in the order it is seen. A server render
+  // measures nothing, and draws it after.
+  const UPRIGHT = '(max-width: 760px) and (orientation: portrait)';
+  let upright = $state(globalThis.matchMedia?.(UPRIGHT).matches ?? false);
   onMount(() => {
-    const media = matchMedia('(max-width: 760px) and (orientation: portrait)');
+    const media = matchMedia(UPRIGHT);
     upright = media.matches;
     const changed = () => { upright = media.matches; };
     media.addEventListener('change', changed);
@@ -226,6 +228,18 @@
 
 <style>
   .decision { display: grid; gap: 10px; min-width: 0; }
+  /* The player's thirteen tiles and the one drawn keep one row wherever the
+     stage, the review's column for the decision (GameReview), has room for
+     them at all: from 761 pixels wide the hand draws its tiles --mine-tile
+     wide (PlayerHand), and fourteen of them with their gaps, the drawn
+     tile's and the seat's padding take fourteen tiles and 125 pixels, so 52
+     pixels from a stage of 860, 42 from 715, and 40 below. The sizes are
+     fixed steps rather than a share of the stage (cqi), which a tile's own
+     parts would take of the nearest container instead: an unpainted tile's
+     face is one. */
+  .decision { --mine-tile: 40px; }
+  @container stage (min-width: 715px) { .decision { --mine-tile: 42px; } }
+  @container stage (min-width: 860px) { .decision { --mine-tile: 52px; } }
   h3 { margin: 0; font-size: .95rem; }
   .lines { font-size: .82rem; }
   .lines summary { cursor: pointer; min-height: 36px; padding: 6px 0; }

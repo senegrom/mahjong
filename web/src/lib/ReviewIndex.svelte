@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from 'svelte';
   import Tile from './Tile.svelte';
   import DecisionFilter from './DecisionFilter.svelte';
   import { decisionInBrief, decisionKey, handEntry, listedIn } from './game-review.js';
@@ -17,12 +18,63 @@
    * the player moves on. `onplace(place)` goes to a place, and
    * `onreview(hand)` reviews a hand next. `counts` is how many decisions each
    * filter keeps, and `empty` what the list says where its filter keeps none,
-   * if anything.
+   * if anything. `open` is whether the list is on the screen, as a folded one
+   * is not.
    */
-  let { hands, place = null, filter = $bindable('flagged'), counts, hints = true, trainedAvailable = false, empty = '',
+  let { hands, place = null, filter = $bindable('flagged'), counts, hints = true, trainedAvailable = false, empty = '', open = true,
     onplace, onreview, children } = $props();
+  let root = $state(null);
 
   const on = (handIndex, step) => place?.hand === handIndex && place.step === step;
+
+  // The list keeps the line of the decision on show in view by scrolling its
+  // own box, the column it is on a wide screen or its box of hands where it
+  // is folded above the decision, and never the page, which scrollIntoView
+  // would move too. Another decision's line is brought into view by as
+  // little as will, and so is the line as the list comes on the screen. Where
+  // hands reviewed meanwhile, or another filter, draw lines above it, the line
+  // stays where it was in the box: Chromium's scroll anchoring would keep it
+  // so and Safari's would not, so the boxes have none (GameReview), and the
+  // list does it itself, alike in every browser.
+  let held = null;
+  $effect.pre(() => {
+    void hands; void filter; void place; void open;
+    held = untrack(measured);
+  });
+  $effect(() => {
+    void hands; void filter; void place; void open;
+    const now = untrack(measured);
+    if (!now) return;
+    if (held?.key === now.key && held.box === now.box) now.box.scrollTop += now.offset - held.offset;
+    else reveal(now);
+  });
+
+  /** The line on show, the box it scrolls in, and how far below the box's
+   * top it is, or null where no box scrolls it. */
+  function measured() {
+    const line = root?.querySelector('[data-step-to][aria-current="step"]');
+    const box = line && scroller(line);
+    return box ? { key: line.dataset.stepTo, line, box, offset: line.getBoundingClientRect().top - box.getBoundingClientRect().top } : null;
+  }
+  /** The nearest box around an element that scrolls, short of the page. */
+  function scroller(element) {
+    for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
+      const { overflowY } = getComputedStyle(node);
+      if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) return node;
+    }
+    return null;
+  }
+  /** Brings the line into the part of its box that is on the screen, as the
+   * column runs on below the screen's foot at the top of the page; or into
+   * the box, where none of it is on the screen. */
+  function reveal({ line, box }) {
+    const edge = box.getBoundingClientRect(), shown = line.getBoundingClientRect(), room = 8;
+    const onScreen = edge.bottom > 0 && edge.top < innerHeight;
+    const top = (onScreen ? Math.max(edge.top, 0) : edge.top) + room;
+    const bottom = (onScreen ? Math.min(edge.bottom, innerHeight) : edge.bottom) - room;
+    if (shown.top < top) box.scrollTop -= top - shown.top;
+    else if (shown.bottom > bottom) box.scrollTop += shown.bottom - bottom;
+  }
   // The decisions of a hand that have a line: those the filter keeps, and
   // the one on show wherever the filter leaves it out.
   const steps = hand => hand.frames.flatMap((_, step) => (listedIn(hand.decisions?.[step] ?? null, filter) || on(hand.index, step) ? [step] : []));
@@ -30,7 +82,7 @@
   // true minus; none where it changed nothing.
   const signed = value => `${value > 0 ? '+' : '−'}${Math.abs(value).toLocaleString()}`;
 
-  function state(hand) {
+  function handState(hand) {
     if (!hand.frames.length) return 'No decisions';
     if (hand.status === 'reviewing') return `Reviewing, ${hand.done ?? 0} of ${hand.frames.length}`;
     if (hand.status !== 'done') return `${hand.frames.length} decision${hand.frames.length === 1 ? '' : 's'}, not reviewed`;
@@ -38,7 +90,7 @@
   }
 </script>
 
-<div class="index">
+<div class="index" bind:this={root}>
   {@render children?.()}
   <DecisionFilter bind:value={filter} {counts} label="Which decisions to step through" />
   {#if empty}<p class="empty">{empty}</p>{/if}
@@ -50,7 +102,7 @@
   <ol class="hands" role="list">
     {#each hands as hand (hand.index)}
       {@const lines = steps(hand)}
-      {@const said = state(hand)}
+      {@const said = handState(hand)}
       <li class="hand" data-hand={hand.index} data-status={hand.status}>
         <div class="head">
           <!-- A hand's name goes to its first decision the filter keeps, or

@@ -396,26 +396,28 @@ a finished match is reloaded, puts every decision the player made in every hand
 to Trained AI, the final hand first and then the rest from the first deal, and
 opens on that hand, at its first decision, on one screen headed "Whole game". A
 step bar at the top goes from one decision to the next that its filter keeps,
-and gives the move made there beside Trained AI's; under it are the list of
-hands and decisions, folded ("Hands · Flagged (46)"), and the decision: the
-table as it stood, every hand face up, the player's own seat and Trained AI's
-view. No list of cards stands between the player and a decision, and no **Back
-to the list** between one decision and another; **Back to the standings** is
-the screen's one way out. The hand review reviews one hand and is gone at the
-next deal; this one is rebuilt for the whole game. On a phone the final hand's
-result is a sheet over the standings, so the sheet offers the review too, as it
-offers the game's file. The sheet steps aside whenever the review opens, as it
-does for the hand's review, whichever button opened it: its own, or the
-standings' own, which it covers but a keyboard or a screen reader can still
-reach. **Back to the standings** then lands on the standings, uncovered, with
-focus on their own **Review whole game**, and the result is a tap away on its
-chip, which a keyboard reaches after the standings' buttons. The chip goes as
-it brings the result back, so focus goes to the result, as when it first
-appeared, rather than to the page. Up to 480 pixels wide the sheet's buttons
-take their short labels, **Review hand**, **Save hand**, **Review game** and
-**Save game**. Measured in Chromium, they then take two rows over the result
-from 360 pixels up with Windows' fonts and from 390 with one as wide as
-Verdana, and three on narrower screens.
+and gives the move made there beside Trained AI's; under it is the decision,
+with the list of hands and decisions in a column of its own on its left where
+the screen is 1100 pixels wide and 600 high or more, and elsewhere folded
+between the step bar and the decision ("Hands · Flagged (46)"). The decision is
+the table as it stood, every hand face up, the player's own seat and Trained
+AI's view. No list of cards stands between the player and a decision, and no
+**Back to the list** between one decision and another; **Back to the
+standings** is the screen's one way out. The hand review reviews one hand and
+is gone at the next deal; this one is rebuilt for the whole game. On a phone
+the final hand's result is a sheet over the standings, so the sheet offers the
+review too, as it offers the game's file. The sheet steps aside whenever the
+review opens, as it does for the hand's review, whichever button opened it: its
+own, or the standings' own, which it covers but a keyboard or a screen reader
+can still reach. **Back to the standings** then lands on the standings,
+uncovered, with focus on their own **Review whole game**, and the result is a
+tap away on its chip, which a keyboard reaches after the standings' buttons.
+The chip goes as it brings the result back, so focus goes to the result, as
+when it first appeared, rather than to the page. Up to 480 pixels wide the
+sheet's buttons take their short labels, **Review hand**, **Save hand**,
+**Review game** and **Save game**. Measured in Chromium, they then take two
+rows over the result from 360 pixels up with Windows' fonts and from 390 with
+one as wide as Verdana, and three on narrower screens.
 
 **After every hand.** Until the game is over, every hand's result offers
 **Review game so far** (**Review game** up to 480 pixels wide) after the hand's
@@ -522,13 +524,25 @@ start, says what the filter now keeps ("59 decisions where Trained AI differed,
 hands reviewed since have changed the counts it gave, so it never stays to say
 a count the list has outgrown. The filter is what Previous and Next step
 through, and is kept as the player leaves it with the other preferences
-(`reviewFilter`), in the next game and after a reload. Folded under the step
-bar, the list says its filter ("Hands · Flagged (46)"); open, its hands scroll
-in a box of their own, at most 60% of the screen tall, so that the decision is
-never far below. It starts folded and stays as the player leaves it, open or
-folded, across steps, hands and the hands reviewed meanwhile, and its lines are
-kept by their hand and number, so that lines of other hands arriving as they
-are reviewed never take one away, or keyboard focus on it.
+(`reviewFilter`), in the next game and after a reload. On a screen 1100 pixels
+wide and 600 high or more (`REVIEW_WIDE`) the list is a column of its own, 300
+pixels wide, on the left of the decision, which comes first in the page, so
+that Tab reaches Previous and Next before the list; the column stays on the
+screen as the decision is scrolled, scrolls on its own, and is headed "Hands"
+for a screen reader. Elsewhere it is folded under the step bar, saying its
+filter ("Hands · Flagged (46)"), and open, its hands scroll in a box of their
+own, at most 60% of the screen tall, so that the decision is never far below;
+it starts folded and stays as the player leaves it, open or folded, across
+steps, hands and the hands reviewed meanwhile. Either way the list keeps the
+line of the decision on show in view by scrolling its own box, never the page,
+which `scrollIntoView` would move as well: another decision's line comes into
+view by as little as will, and where hands reviewed meanwhile or another filter
+draw lines above it, the line stays where it was in the box. Chromium's scroll
+anchoring would keep it so and Safari's would not, so the boxes have none, and
+the list does it itself. Its lines are kept by their hand and number, so that
+lines of other hands arriving as they are reviewed never take one away, or
+keyboard focus on it. Where the screen changes across that size, a control of
+the list that had focus has it again where the list is drawn now.
 
 **Every hand, face up.** At every decision the table is shown as it stood,
 every player's hand face up all the time, with no control to hide or show them:
@@ -567,18 +581,23 @@ under 18 pixels wide, they take two rows of seven instead, the drawn tile last,
 as the player's own hand does on a phone. From 761 pixels wide, at every height
 over 500, the table is a dense one: the centre a bar across the top, the three
 opponents in one row under it, Left, Opposite and Right, each seat as tall as
-what it holds, and their discards 22 pixels wide. A wide screen's table, the
-opponents around the centre, left most of the screen empty felt and pushed the
-player's seat below it. On a phone held upright, three seats side by side would
-leave each hand a few tiles to a row, so there the opponents take the width of
-the screen, one under another in the order they play after the player, their
-discards a size larger than in play. The table is drawn afresh at a change of
-hand, so that a seat does not announce a call made in the hand before; the rest
-of the decision stays. The browser check goes through every step of a hand at
-1100 by 900, 1440 by 900, 1366 by 768, 800 by 1280, 390 by 844, 320 by 568 and
-844 by 390: every tile is on the screen, an opponent's 18 pixels wide or more
-on one row or on two of seven, the dense table's opponents in one row under its
-centre, the player's seat first only on a phone held upright, the step bar on
+what it holds, and their discards 22 pixels wide. The player's own tiles keep
+one row there too, as large as the decision has room for beside the list: 52
+pixels wide where it is 860 pixels wide or more, 42 from 715 and 40 below
+(`--mine-tile`, set by container queries on the stage), since the hand's
+fourteen tiles, their gaps and the seat's padding take fourteen tiles and 125
+pixels. A wide screen's table, the opponents around the centre, left most of
+the screen empty felt and pushed the player's seat below it. On a phone held
+upright, three seats side by side would leave each hand a few tiles to a row,
+so there the opponents take the width of the screen, one under another in the
+order they play after the player, their discards a size larger than in play.
+The table is drawn afresh at a change of hand, so that a seat does not announce
+a call made in the hand before; the rest of the decision stays. The browser
+check goes through every step of a hand at 1100 by 900, 1440 by 900, 1366 by
+768, 800 by 1280, 390 by 844, 320 by 568 and 844 by 390: every tile is on the
+screen, an opponent's 18 pixels wide or more on one row or on two of seven, the
+dense table's opponents in one row under its centre and the player's tiles in
+one row, the player's seat first only on a phone held upright, the step bar on
 the screen with the player's tiles, scrolled to, clear of it, and no page
 scrolls sideways. It says at each size how wide the tiles were drawn and how
 tall the table and the player's seat were together.
@@ -744,13 +763,16 @@ and phone sizes, the step bar on the screen and focus never under it nor moving
 the page as it lands on the bar, the filter that Next follows, a decision it
 leaves out kept in view, and the filter kept across a reload, by keyboard and
 pointer, its lists staying open or folded as the player leaves them while the
-steps change and later hands are reviewed, by touch and by keyboard, and its
-way in and out on a phone, by touch and by keyboard; and the review of the game
-so far from a hand's result, opened on the hand just played and asking about it
-first, kept out of the trend, back to the result's button at desktop and phone
-sizes and open again where it was left, stopped by Next hand and asking nothing
-again at the next hand's result or at the standings), the review, of the game
-so far or of the whole game, waiting while a hand's own notes ask Trained AI
-and going on where it was, history and export, and settlements that balance
-event by event. Its browser checks run in Chromium, including narrow portrait
-and landscape sizes; they are not physical-iPhone or Safari testing.
+steps change and later hands are reviewed, by touch and by keyboard, the list a
+column of its own on a wide screen that keeps the line on show in view and a
+line pressed in its place as later hands are reviewed, the page still, the
+player's tiles in one row from tablet width, and its way in and out on a phone,
+by touch and by keyboard; and the review of the game so far from a hand's
+result, opened on the hand just played and asking about it first, kept out of
+the trend, back to the result's button at desktop and phone sizes and open
+again where it was left, stopped by Next hand and asking nothing again at the
+next hand's result or at the standings), the review, of the game so far or of
+the whole game, waiting while a hand's own notes ask Trained AI and going on
+where it was, history and export, and settlements that balance event by event.
+Its browser checks run in Chromium, including narrow portrait and landscape
+sizes; they are not physical-iPhone or Safari testing.

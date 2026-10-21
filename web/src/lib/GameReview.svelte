@@ -1,11 +1,11 @@
 <script>
-  import { tick, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import DecisionReplay from './DecisionReplay.svelte';
   import ReviewIndex from './ReviewIndex.svelte';
   import ReviewStepBar from './ReviewStepBar.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
   import { FILTER_LABELS, agreement, filterCounts, handEntry, landing, neighbour, playlist } from './game-review.js';
-  import { reviewKey, waitingNote } from './ui.js';
+  import { REVIEW_WIDE, reviewKey, waitingNote } from './ui.js';
 
   /**
    * The game, looked at again, on one screen: from any hand's result the game
@@ -15,9 +15,11 @@
    * one. A step bar at the top of the screen goes from one decision to the
    * next that its filter keeps, the flagged ones, those where Trained AI
    * differed or every one, across hands, and gives the move made there beside
-   * Trained AI's. Under it are the list of hands and decisions, folded, which
-   * goes to any decision or hand, and the decision: the table as it stood,
-   * every player's tiles face up, and Trained AI's view.
+   * Trained AI's. Under it is the decision: the table as it stood, every
+   * player's tiles face up, and Trained AI's view. The list of hands and
+   * decisions, which goes to any decision or hand, is a column of its own on
+   * the left where the screen is wide enough (REVIEW_WIDE), and elsewhere
+   * folded between the step bar and the decision.
    *
    * The review itself (game-review.js) belongs to the match and goes on while
    * this screen is closed, until the next deal; the screen only shows it.
@@ -73,6 +75,30 @@
     if (openedForSlow || !status.slow || status.complete) return;
     openedForSlow = true;
     listOpen = true;
+  });
+
+  // Whether the screen has room for the list in a column of its own beside
+  // the decision (REVIEW_WIDE). A server render measures nothing, and folds
+  // the list above the decision. The list is drawn afresh in its other place
+  // as the screen changes, so a control of it that had focus has it again
+  // there, the folded list opened for it, rather than focus dropping to the
+  // page.
+  let wide = $state(globalThis.matchMedia?.(REVIEW_WIDE).matches ?? false);
+  const KEPT = ['data-step-to', 'data-hand-row', 'data-review-hand', 'data-filter-option'];
+  onMount(() => {
+    const media = matchMedia(REVIEW_WIDE);
+    const changed = async () => {
+      const active = document.activeElement, inList = Boolean(active?.closest?.('[data-review-index]'));
+      const name = inList ? KEPT.find(attribute => active.hasAttribute(attribute)) : null;
+      wide = media.matches;
+      if (!inList) return;
+      if (!wide) listOpen = true;
+      await tick();
+      const again = name && root?.querySelector(`[data-review-index] [${name}="${active.getAttribute(name)}"]`);
+      (again || root?.querySelector('[data-review-index] [aria-current="step"]') || stepButton() || heading)?.focus({ preventScroll: true });
+    };
+    media.addEventListener('change', changed);
+    return () => media.removeEventListener('change', changed);
   });
 
   // Opening the review asks for it, once Trained AI can be reached; after
@@ -259,30 +285,43 @@
     </div>
   </div>
 
-  <!-- The step bar, the list and the decision, in the order they are read
-       and tabbed through. The step bar stays at the top of the screen while
-       the rest of the stage is scrolled under it. -->
-  <div class="stage" data-stage style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
-    {#if at}
-      <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {filter} onstep={go} bind:height={barHeight} />
-    {/if}
-    <details class="list" data-review-index bind:open={listOpen}>
-      <summary>Hands · {FILTER_LABELS[filter]} ({counts[filter]})</summary>
-      {@render index()}
-    </details>
-    {#if at}
-      <DecisionReplay hand={shown} step={at.step} {hints} />
-    {:else}
-      <p class="empty">{status.over ? 'You made no decisions.' : 'No decisions yet.'}</p>
+  <div class="panes" class:wide>
+    <!-- The step bar, the list where it is folded, and the decision, in the
+         order they are read and tabbed through. The step bar stays at the
+         top of the screen while the rest of the stage is scrolled under it. -->
+    <div class="stage" data-stage style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
+      {#if at}
+        <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {filter} onstep={go} bind:height={barHeight} />
+      {/if}
+      {#if !wide}
+        <details class="list" data-review-index bind:open={listOpen}>
+          <summary>Hands · {FILTER_LABELS[filter]} ({counts[filter]})</summary>
+          {@render index(listOpen)}
+        </details>
+      {/if}
+      {#if at}
+        <DecisionReplay hand={shown} step={at.step} {hints} />
+      {:else}
+        <p class="empty">{status.over ? 'You made no decisions.' : 'No decisions yet.'}</p>
+      {/if}
+    </div>
+    {#if wide}
+      <!-- After the stage in the page, so that Tab reaches Previous and Next
+           first; the grid draws it on the left. -->
+      <aside class="rail" data-review-index aria-labelledby="review-hands">
+        <h3 id="review-hands" class="visually-hidden">Hands</h3>
+        {@render index(true)}
+      </aside>
     {/if}
   </div>
 </section>
 
 <!-- The list, opened by the trend once a decision is reviewed. The game so far
      is not yet a game for the trend, which it joins once the match is over
-     and every hand is reviewed. -->
-{#snippet index()}
-  <ReviewIndex hands={status.hands} place={at} bind:filter {counts} {hints} {trainedAvailable} {empty} onplace={go}
+     and every hand is reviewed. `open` is whether the list is on the screen,
+     for it to keep its line in view. -->
+{#snippet index(open)}
+  <ReviewIndex hands={status.hands} place={at} bind:filter {counts} {hints} {trainedAvailable} {empty} {open} onplace={go}
     onreview={hand => review.review([hand])}>
     {#if figure.decisions}
       <ReviewTrend compact {figure} complete={status.complete && status.over} over={status.over} games={trend} current={review.id}
@@ -307,14 +346,28 @@
   progress { width: 100%; max-width: 420px; height: 8px; accent-color: var(--gold); }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; }
   .controls:empty { display: none; }
-  .stage { display: grid; gap: 10px; min-width: 0; }
+  .panes { display: grid; min-width: 0; }
+  /* The stage is the container the decision sizes the player's tiles by
+     (DecisionReplay), as it narrows beside the list. */
+  .stage { display: grid; gap: 10px; min-width: 0; container: stage / inline-size; }
   .empty { font-size: .86rem; opacity: .82; }
   .list { font-size: .84rem; min-width: 0; }
   .list > summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   /* Open above the decision, the list of hands scrolls in a box of its own,
      at most 60% of the screen tall, so that the decision is never far
-     below; the box leaves room inside it for a line's focus ring. */
-  .list :global(.hands) { max-height: 60dvh; overflow-y: auto; padding: 4px 6px; border-radius: 10px; background: #0002; }
+     below; the box leaves room inside it for a line's focus ring. The list
+     keeps its line in view itself (ReviewIndex), in every browser alike,
+     rather than by the browser's scroll anchoring, which Safari lacks. */
+  .list :global(.hands) { max-height: 60dvh; overflow-y: auto; overflow-anchor: none; padding: 4px 6px; border-radius: 10px; background: #0002; }
+  /* On a wide screen the list is a column of its own on the left, beside the
+     decision, which comes first in the page. It stays on the screen as the
+     decision is scrolled, and scrolls on its own, leaving room inside it for
+     a focus ring; the filter's buttons are drawn smaller to keep one row. */
+  .panes.wide { grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+  .panes.wide .stage { grid-column: 2; grid-row: 1; }
+  .rail { grid-column: 1; grid-row: 1; position: sticky; top: 8px; max-height: calc(100dvh - 16px); overflow-y: auto; overflow-anchor: none;
+    padding: 6px 8px 8px; border-radius: 10px; background: #0002; min-width: 0; }
+  .rail :global([data-filter-option]) { padding: 4px 9px; font-size: .8rem; }
   /* A control focused below the step bar, which stays at the top of the
      screen, is brought into view below it rather than under it: the bar's
      own height, and on a phone held upright the game's bar above it too.

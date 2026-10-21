@@ -171,6 +171,24 @@ test("a flagged decision shows Trained AI's move over its tile and in its view, 
   assert.doesNotMatch(text(html), /Choose again|Show answer|Trained AI's answer/);
 });
 
+test("on a phone held upright the player's seat comes before the table, the first thing under the step bar, and after it everywhere else", () => {
+  const order = html => (html.indexOf('class="mine') < html.indexOf('class="board') ? 'seat first' : 'table first');
+  // Measuring nothing, a server render draws it as a larger screen does.
+  assert.equal(order(replay({ step: flaggedAt })), 'table first');
+  // A phone held upright, as the decision reads its media query while it draws.
+  globalThis.matchMedia = query => ({ matches: query === '(max-width: 760px) and (orientation: portrait)', addEventListener() {}, removeEventListener() {} });
+  try {
+    const html = replay({ step: flaggedAt });
+    assert.equal(order(html), 'seat first');
+    // Drawn there rather than moved: the seat and what describes its hand come
+    // once, before the table, in the order a screen reader goes through them.
+    assert.equal(html.match(/<section class="mine/g).length, 1);
+    assert.equal(html.match(/id="hand-help"/g).length, 1);
+    assert.ok(html.indexOf('id="hand-help"') < html.indexOf('class="board'));
+    assert.deepEqual(tagged(html), tagsOf(hand.frames[flaggedAt], hand.decisions[flaggedAt]), 'tagged as anywhere');
+  } finally { delete globalThis.matchMedia; }
+});
+
 test("a decision that was not flagged shows the move and Trained AI's view, said in words for the hand, with no bullets and no explainer", () => {
   const html = replay({ step: plainAt });
   assert.match(html, /data-view=""/);

@@ -4,6 +4,7 @@ import { render } from 'svelte/server';
 import { stepSaid } from '../src/lib/game-review.js';
 import { TREND_WINDOW } from '../src/lib/review-trend.js';
 import { playedNetwork, trainedName } from '../src/lib/trained-network.js';
+import { REVIEW_WIDE } from '../src/lib/ui.js';
 import { componentLoader } from './fixtures/load-component.js';
 import { text } from './fixtures/markup-text.js';
 
@@ -269,6 +270,25 @@ test('a slow device that held after a hand offers the next hand or the rest, wit
   assert.equal(buttonSaid(html, 'data-rest'), 'Review the rest');
   assert.match(html, /<details class="list[^"]*" data-review-index="" open="">/, 'the hands are open to choose from');
   assert.match(html, /data-review-hand="1"[^>]*aria-label="Review: East 2"/);
+});
+
+test('on a wide screen the list is a column of its own, after the decision in the page and headed for a screen reader, and nothing is folded', () => {
+  // A screen that answers the review's media query, as the page reads it
+  // while it draws.
+  globalThis.matchMedia = query => ({ matches: query === REVIEW_WIDE, addEventListener() {}, removeEventListener() {} });
+  try {
+    const html = page({ review: review({ complete: true, hands: [done(0), done(1), done(2)] }) });
+    assert.doesNotMatch(html, /<details class="list/);
+    assert.match(html, /<aside class="rail[^"]*" data-review-index="" aria-labelledby="review-hands">\s*<h3 id="review-hands" class="visually-hidden[^"]*">Hands<\/h3>/);
+    assert.match(html, /<div class="panes[^"]*\bwide\b/);
+    // The decision first, so that Tab reaches Previous and Next before the
+    // list; the grid draws the list on the left.
+    assert.ok(html.indexOf('data-steps') < html.indexOf('data-review-index'));
+    assert.deepEqual(lines(html).map(({ key, current }) => [key, current]), [['0:0', false], ['1:0', false], ['2:0', true]]);
+    assert.match(html, /<details class="trend compact/, 'the trend opens the column');
+  } finally { delete globalThis.matchMedia; }
+  // Measuring nothing, a server render folds the list above the decision.
+  assert.match(page({ review: review({ complete: true, hands: [done(0)] }) }), /<details class="list[^"]*" data-review-index=""/);
 });
 
 test('without the network the review waits and says so, and is not offered hand by hand', () => {
