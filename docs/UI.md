@@ -766,8 +766,9 @@ hand and the view, Previous and Next across hands by keyboard, focus handed on
 at either end and as a control goes, Next keeping focus while it waits for a
 hand's answers, the keys and where they are left alone, and the trend, every
 hand face up at every step of a hand at desktop, tablet and phone sizes, the
-step bar on the screen and focus never under it nor moving the page as it lands
-on the bar, the filter that Next follows, a decision it leaves out kept in
+step bar on the screen as the screen changes size and at each step, and focus
+never under it nor moving the page as it lands on the bar, the filter that
+Next follows, a decision it leaves out kept in
 view, and the filter kept across a reload, by keyboard and pointer, its lists
 staying open or folded as the player leaves them while the steps change and
 later hands are reviewed, by touch and by keyboard, the folded list showing the

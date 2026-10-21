@@ -23,11 +23,12 @@
  * dense table's opponents in a row under its centre and the player's tiles in
  * one row, an opponent's tiles on one row or on two where one would draw them
  * under 18 pixels wide, the player's seat first on a phone held upright, the
- * step bar on the screen, flush under the game's bar on a phone, and the
- * player's tiles, scrolled to, clear of it; no focus lands under the bar,
- * tabbing through the decision or stepping by the list, nor moves the page as
- * it lands on the bar's own buttons; and where the open list's box runs up
- * under the bars, Previous brings each line it steps to out from under them.
+ * step bar on the screen, flush under the game's bar on a phone, as soon as
+ * the screen changes size and at the step pressed, and the player's tiles,
+ * scrolled to, clear of it; no focus lands under the bar, tabbing through the
+ * decision or stepping by the list, nor moves the page as it lands on the
+ * bar's own buttons; and where the open list's box runs up under the bars,
+ * Previous brings each line it steps to out from under them.
  * The filter keeps the flagged decisions, those where Trained AI differed or
  * every one, saying how many each holds; Next and Previous visit only what it
  * keeps, a decision it leaves out stays shown, dim, and the filter is kept
@@ -865,6 +866,16 @@ try {
       await page.setViewport({ width, height });
       await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
       await overviewIsRight(page, chosen, step);
+      // The stage fits the screen as soon as the screen changes, before any
+      // press: narrowed to a phone's, the step bar sticks under the game's
+      // bar. Measured in the same task as the scroll to the player's tiles,
+      // CI once found the bar at the top of the screen under it; stageFits
+      // measures a frame after that scroll. Should it fail, the picture
+      // shows what the player saw.
+      await stageFits(page).catch(async error => {
+        await shot(page, `review-resized-${width}x${height}`);
+        throw error;
+      });
       const forward = step < frames.length - 1;
       step += forward ? 1 : -1;
       // Brought to the middle of the screen first, clear of the game's bar,
@@ -874,11 +885,7 @@ try {
       await onPlace(page, chosen, step);
       await overviewIsRight(page, chosen, step);
       assert.notEqual(await focusedName(page), 'the page', `focus stays in the review at ${width}x${height}`);
-      // The stage fits the screen at the step pressed. It is measured after a
-      // press, as the player sees it: in Chromium a change of the screen's
-      // width alone, which moves the step bar under the game's bar on a phone,
-      // left the bar stuck where it stuck before, at the top of the screen,
-      // until a step drew it afresh.
+      // And at the step pressed, which can make the step bar taller.
       await stageFits(page);
       await page.$eval('[data-decision] [data-overview]', el => el.scrollIntoView({ block: 'start' }));
       await shot(page, `review-overview-${width}x${height}`);
