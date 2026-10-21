@@ -730,7 +730,7 @@ player opened or folded in it stays as they left it. The tile guide's Keys
 entry gives the review's keys.
 
 **Agreement and its trend.** The figure is the share of decisions with a choice
-where the player's move was Trained AI's, and the tile counts them ("16 of 75
+where the player's move was Trained AI's, counted inside the trend ("16 of 75
 decisions with a choice"). It opens the list, folded to one line ("Matched
 Trained AI 0.1.1110: 21% so far", without "so far" once the game is whole), the
 rest inside, and stays open or folded as the player leaves it. When every hand

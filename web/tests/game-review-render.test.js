@@ -72,7 +72,7 @@ function lines(html) {
       outside: /\boutside\b/.test(classes), label: /aria-label="([^"]*)"/.exec(rest)[1], shown: text(inner) }));
 }
 /** What the trend's folded line says. */
-const trendSaid = html => text(/<details class="trend compact[^"]*" data-trend=""[^>]*>\s*<summary[^>]*>([^]*?)<\/summary>/.exec(html)?.[1] ?? '');
+const trendSaid = html => text(/<details class="trend[^"]*" data-trend=""[^>]*>\s*<summary[^>]*>([^]*?)<\/summary>/.exec(html)?.[1] ?? '');
 /** What the folded list's summary says. */
 const listSaid = html => text(/<details class="list[^"]*" data-review-index=""[^>]*>\s*<summary[^>]*>([^]*?)<\/summary>/.exec(html)?.[1] ?? '');
 /** The filter's buttons: which, whether pressed, and what each says. */
@@ -332,7 +332,7 @@ test('on a wide screen the list is a column of its own, after the decision in th
     // list; the grid draws the list on the left.
     assert.ok(html.indexOf('data-steps') < html.indexOf('data-review-index'));
     assert.deepEqual(lines(html).map(({ key, current }) => [key, current]), [['0:0', false], ['1:0', false], ['2:0', true]]);
-    assert.match(html, /<details class="trend compact/, 'the trend opens the column');
+    assert.match(html, /<details class="trend[^"]*" data-trend=""/, 'the trend opens the column');
   } finally { delete globalThis.matchMedia; }
   // Measuring nothing, a server render folds the list above the decision.
   assert.match(page({ review: review({ complete: true, hands: [done(0)] }) }), /<details class="list[^"]*" data-review-index=""/);
@@ -350,15 +350,14 @@ test('without the network the review waits and says so, and is not offered hand 
   assert.doesNotMatch(asked, /data-review-hand|data-continue/);
 });
 
-test('the trend tile states the change against earlier games without judging it, with a table of the games', () => {
+test('the trend states the change against earlier games without judging it, with a table of the games', () => {
   const network = playedNetwork().version;
   const games = Array.from({ length: 4 }, (_, index) => ({ id: `g${index}`, network, at: Date.UTC(2026, 9, 10 + index, 12), matched: 60, decisions: 100 }));
   const figure = { matched: 65, decisions: 100, share: 0.65 };
   const html = render(ReviewTrend, { props: { figure, complete: true, current: 'g3',
     games: [...games.slice(0, 3), { ...games[3], matched: 65 }] } }).body;
-  assert.match(html, new RegExp(`>Matched ${trainedName('Trained AI').replaceAll('.', '\\.')}<`), 'it names the version that judged');
+  assert.equal(trendSaid(html), `Matched ${trainedName('Trained AI')}: 65%`, 'it names the version that judged, and gives the figure');
   assert.doesNotMatch(html, /Not counted/);
-  assert.match(html, />65%</);
   // The decisions with a choice: a move with only one is left out.
   assert.match(html, />65 of 100 decisions with a choice</);
   assert.match(html, /\+5 points against your previous 3 games \(60%\)/);
@@ -391,18 +390,19 @@ test("folded to one line for the review's list, the trend gives the version and 
   const network = playedNetwork().version;
   const games = Array.from({ length: 3 }, (_, index) => ({ id: `g${index}`, network, at: Date.UTC(2026, 9, 10 + index, 12), matched: 60, decisions: 100 }));
   const figure = { matched: 21, decisions: 100, share: 0.21 };
-  const folded = render(ReviewTrend, { props: { figure, compact: true, complete: false, over: false, current: 'g9', games } }).body;
-  const summary = /<details class="trend compact[^"]*" data-trend="">\s*<summary[^>]*>([^]*?)<\/summary>/.exec(folded);
+  const folded = render(ReviewTrend, { props: { figure, complete: false, over: false, current: 'g9', games } }).body;
+  const summary = /<details class="trend[^"]*" data-trend="">\s*<summary[^>]*>([^]*?)<\/summary>/.exec(folded);
   assert.ok(summary, 'a list the player opens, folded');
   assert.equal(text(summary[1]), `Matched ${trainedName('Trained AI')}: 21% so far`);
-  // Inside, everything the full tile says.
+  // Inside, the decisions the figure takes, what it is compared with and the
+  // games.
   assert.match(folded, />21 of 100 decisions with a choice</);
   assert.match(folded, /Joins your trend once the game is over and fully reviewed\./);
   assert.match(folded, /<details class="games[^"]*"/);
   assert.doesNotMatch(folded, /class="label|class="value/, 'the figure is said once, in the summary');
   // The whole game: no "so far", and open where the review keeps it open.
-  const whole = render(ReviewTrend, { props: { figure, compact: true, complete: true, expanded: true, current: 'g2', games } }).body;
-  assert.match(whole, /<details class="trend compact[^"]*" data-trend="" open="">/);
+  const whole = render(ReviewTrend, { props: { figure, complete: true, expanded: true, current: 'g2', games } }).body;
+  assert.match(whole, /<details class="trend[^"]*" data-trend="" open="">/);
   assert.equal(text(/<summary[^>]*>([^]*?)<\/summary>/.exec(whole)[1]), `Matched ${trainedName('Trained AI')}: 21%`);
 });
 

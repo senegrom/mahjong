@@ -5,8 +5,8 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement,
-  decisionInBrief, decisionKey, differed, filterCounts, filterSaid, handEntry, handName, hiddenAt, judgement, landing, listedIn, moveToken,
-  moveWeight, neighbour, playlist, rankDecisions, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
+  decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
+  moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -209,10 +209,10 @@ test("the filters' buttons say in a word what each keeps, and the Flagged and Di
   assert.deepEqual(FILTER_TITLES, { flagged: "Your move under 5%, Trained AI's choice 60% or more", differed: 'Trained AI chose another move' });
 });
 
-test('flagged decisions are counted by the gap, ties in the order played, and agreement leaves forced moves out', () => {
+test('the flagged decisions are counted, however wide the gap of one that is not, and agreement leaves forced moves out', () => {
   const decision = (name, gap, flagged = true) => ({ name, judgement: { gap, flagged } });
-  const ranked = rankDecisions([decision('a', 0.7), decision('b', 0.9), decision('c', 0.99, false), decision('d', 0.7), { name: 'e', judgement: null }]);
-  assert.deepEqual(ranked.map(entry => entry.name), ['b', 'a', 'd']);
+  assert.equal(flaggedCount([decision('a', 0.7), decision('b', 0.9), decision('c', 0.99, false), decision('d', 0.7), { name: 'e', judgement: null }]), 3);
+  assert.equal(flaggedCount([]), 0);
   assert.deepEqual(agreement([{ agreed: true }, { agreed: false }, { agreed: true, forced: true }, { agreed: true }]),
     { matched: 2, decisions: 3, share: 2 / 3 });
   assert.deepEqual(agreement([]), { matched: 0, decisions: 0, share: null });
@@ -271,23 +271,23 @@ test("the table at a step is said in a sentence, each seat says what it was doin
   const decision = (advised, values = {}) => ({ agreed: false, forced: false, judgement: null, advised_kind: advised.kind,
     advised_tile: advised.tile, advised: advised.label, ...values });
   assert.deepEqual(decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[1], { judgement: { flagged: true } })),
-    { you: { word: '', tiles: ['7m'] }, ai: { word: '', tiles: ['8s'] }, offered: null, verdict: 'Flagged', flagged: true, agreed: false,
+    { you: { word: '', tiles: ['7m'] }, ai: { word: '', tiles: ['8s'] }, offered: null, flagged: true, agreed: false,
       forced: false, reviewed: true, hidden: false, said: 'You: discards the 7 characters. Trained AI: discards the 8 bamboo. Flagged.' });
   const riichi = decisionInBrief(frame({ kind: 'riichi', tile: '3s' }), decision(choices[3]));
-  assert.deepEqual([riichi.you, riichi.ai, riichi.verdict], [{ word: 'Riichi', tiles: ['3s'] }, { word: 'Tsumo', tiles: [] }, 'Trained AI differed']);
+  assert.deepEqual([riichi.you, riichi.ai, riichi.flagged, riichi.agreed], [{ word: 'Riichi', tiles: ['3s'] }, { word: 'Tsumo', tiles: [] }, false, false]);
   assert.equal(riichi.said, 'You: declares riichi on the 3 bamboo. Trained AI: wins by self-draw.');
   // Agreed, there is no other move to give, and an only move was no choice.
   const agreed = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[0], { agreed: true }));
-  assert.deepEqual([agreed.ai, agreed.verdict, agreed.said], [null, 'Trained AI agreed', 'You: discards the 7 characters. Trained AI agreed.']);
+  assert.deepEqual([agreed.ai, agreed.agreed, agreed.said], [null, true, 'You: discards the 7 characters. Trained AI agreed.']);
   const forced = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[0], { agreed: true, forced: true }));
-  assert.deepEqual([forced.ai, forced.verdict, forced.forced, forced.said], [null, 'Only move', true, 'You: discards the 7 characters. Only move.']);
+  assert.deepEqual([forced.ai, forced.forced, forced.said], [null, true, 'You: discards the 7 characters. Only move.']);
   // An answer to another's discard is on that tile.
   const pass = decisionInBrief(frame({ kind: 'pass', tile: null }, answer), decision(choices[5]));
   assert.deepEqual([pass.offered, pass.you, pass.ai], ['5s', { word: 'Pass', tiles: [] }, { word: 'Chii', tiles: ['4s', '5s', '6s'] }]);
   assert.equal(pass.said, 'On the 5 bamboo. You: passes. Trained AI: calls a sequence from the 4 bamboo.');
   // Before the hand is reviewed only the player's move is known.
   const waiting = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), null);
-  assert.deepEqual([waiting.reviewed, waiting.ai, waiting.verdict, waiting.said], [false, null, '', 'You: discards the 7 characters. Not reviewed yet.']);
+  assert.deepEqual([waiting.reviewed, waiting.ai, waiting.flagged, waiting.said], [false, null, false, 'You: discards the 7 characters. Not reviewed yet.']);
 });
 
 test("with Trained AI's move hidden, a hand's line gives the player's move and the flag, and keeps back Trained AI's move and that it agreed, heard too", () => {
@@ -303,12 +303,12 @@ test("with Trained AI's move hidden, a hand's line gives the player's move and t
   // Flagged: the flag stays and Trained AI's move goes, from the line and
   // from its name alike.
   assert.deepEqual(decisionInBrief(frame(thrown), decision(choices[1], { judgement: { flagged: true } }), hidden),
-    { you: { word: '', tiles: ['7m'] }, ai: null, offered: null, verdict: 'Flagged', flagged: true, agreed: false, forced: false,
+    { you: { word: '', tiles: ['7m'] }, ai: null, offered: null, flagged: true, agreed: false, forced: false,
       reviewed: true, hidden: true, said: "You: discards the 7 characters. Trained AI's move hidden. Flagged." });
   // Agreed: no tick and no word of it, which would give the answer away.
   const agreed = decisionInBrief(frame(thrown), decision(choices[0], { agreed: true }), hidden);
-  assert.deepEqual([agreed.ai, agreed.agreed, agreed.verdict, agreed.hidden, agreed.said],
-    [null, false, '', true, "You: discards the 7 characters. Trained AI's move hidden."]);
+  assert.deepEqual([agreed.ai, agreed.agreed, agreed.hidden, agreed.said],
+    [null, false, true, "You: discards the 7 characters. Trained AI's move hidden."]);
   // An answer to another's discard still names the tile on offer, which the
   // table shows.
   const pass = decisionInBrief(frame({ kind: 'pass', tile: null }, answer), decision(choices[3]), hidden);
@@ -524,9 +524,10 @@ test('the whole game is reviewed in batches, and judged as the hand review judge
         });
       } finally { match.dispose(); }
     }
-    const flagged = rankDecisions(decisions);
+    const flagged = decisions.filter(decision => decision.judgement?.flagged);
     assert.ok(flagged.length > 5, 'a network sure of other moves flags many');
-    assert.ok(flagged.every(decision => decision.judgement.flagged && !decision.agreed));
+    assert.ok(flagged.every(decision => !decision.agreed && !decision.forced));
+    assert.equal(flaggedCount(decisions), flagged.length);
   } finally { review.dispose(); }
 });
 
@@ -934,7 +935,7 @@ test('a finished review is reported once, with what the trend keeps of it', asyn
     await settled(review);
     const { matched, decisions } = agreement(review.decisions);
     assert.deepEqual(reported, [{ id: `${game.seed}:${game.commands.length}`, matched, decisions,
-      flagged: rankDecisions(review.decisions).length }]);
+      flagged: review.decisions.filter(decision => decision.judgement?.flagged).length }]);
   } finally { review.dispose(); }
 });
 

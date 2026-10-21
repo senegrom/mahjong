@@ -417,7 +417,7 @@
   <ReviewIndex hands={status.hands} place={at} bind:filter {counts} {hints} {trainedAvailable} {empty} {open} bar={barHeight} {hideMove} {revealed}
     onplace={go} onreview={hand => review.review([hand])}>
     {#if figure.decisions}
-      <ReviewTrend compact {figure} complete={status.complete && status.over} over={status.over} games={trend} current={review.id}
+      <ReviewTrend {figure} complete={status.complete && status.over} over={status.over} games={trend} current={review.id}
         bind:open={gamesOpen} bind:expanded={trendOpen} />
     {/if}
   </ReviewIndex>
@@ -466,7 +466,8 @@
   /* On a wide screen the list is a column of its own on the left, beside the
      decision, which comes first in the page. It stays on the screen as the
      decision is scrolled, and scrolls on its own, leaving room inside it for
-     a focus ring; the filter's buttons are drawn smaller to keep one row. */
+     a focus ring. The filter's buttons are drawn smaller there, and take a
+     second row where their counts run long, as a whole game's do. */
   .panes.wide { grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
   .panes.wide .stage { grid-column: 2; grid-row: 1; }
   .rail { grid-column: 1; grid-row: 1; position: sticky; top: 8px; max-height: calc(100dvh - 16px); overflow-y: auto; overflow-anchor: none;

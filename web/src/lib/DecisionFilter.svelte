@@ -12,7 +12,7 @@
    * counts it gave have changed as the review goes on, so it never stays
    * behind to say a count the list has outgrown. `label` names the buttons.
    */
-  let { value = $bindable('flagged'), counts, label, onchange = () => {} } = $props();
+  let { value = $bindable('flagged'), counts, label } = $props();
   let note = $state('');
   // The counts the line gave, while it gives them.
   let spoken = null;
@@ -21,7 +21,6 @@
     value = filter;
     spoken = { ...counts };
     note = filterSaid(filter, counts);
-    onchange(filter);
   }
 
   function leave(event) {

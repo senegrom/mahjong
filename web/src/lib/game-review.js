@@ -137,15 +137,9 @@ export function judgement(row) {
     flagged: played < FLAG_PLAYED_BELOW && preferred >= FLAG_PREFERRED_FROM };
 }
 
-/** The flagged decisions of the reviewed hands, the widest gap first; equal
- * gaps keep the order they were played in. The trend counts them; the review
- * lists them in the order they were played (playlist). */
-export function rankDecisions(decisions) {
-  return decisions.map((decision, order) => ({ decision, order, gap: decision.judgement?.flagged ? decision.judgement.gap : null }))
-    .filter(entry => entry.gap !== null)
-    .sort((a, b) => b.gap - a.gap || a.order - b.order)
-    .map(entry => entry.decision);
-}
+/** How many of the reviewed decisions are flagged: the count on the Flagged
+ * button, and in what the trend keeps of a game. */
+export const flaggedCount = decisions => decisions.filter(decision => decision.judgement?.flagged).length;
 
 /** The decisions a review steps through, by the names its filter gives them:
  * the flagged decisions, every decision where Trained AI chose differently
@@ -171,7 +165,7 @@ export const differed = decision => !decision.agreed && !decision.forced;
 
 /** How many decisions each filter holds. */
 export function filterCounts(decisions) {
-  return { flagged: rankDecisions(decisions).length, differed: decisions.filter(differed).length, every: decisions.length };
+  return { flagged: flaggedCount(decisions), differed: decisions.filter(differed).length, every: decisions.length };
 }
 
 /** What a decision is known by across the game: its hand and its number in
@@ -375,7 +369,7 @@ export class MatchReview {
   /** What the trend keeps of a finished review. */
   get summary() {
     const { matched, decisions } = agreement(this.decisions);
-    return { id: this.id, matched, decisions, flagged: rankDecisions(this.decisions).length };
+    return { id: this.id, matched, decisions, flagged: flaggedCount(this.decisions) };
   }
 
   notify() { if (!this.closed) this.onChange(this); }
@@ -619,12 +613,12 @@ const moveWords = (frame, move) => frame.choices.find(choice => sameMove(choice,
 /** A decision as a line of the review gives it: the player's move, `you`,
  * and Trained AI's where it chose another, `ai`, each a word and its tiles
  * (moveToken); the tile on offer where the player answered another's
- * discard, `offered`; the verdict in words, and as flags whether the
- * decision is `flagged`, whether Trained AI `agreed`, whether the move was
- * `forced`, the only one, whether it is `reviewed` yet, and whether Trained
- * AI's move is `hidden`. `said` is the line as a screen reader hears it, the
- * moves in the engine's words: "You: discards the red dragon. Trained AI:
- * discards the 8 bamboo. Flagged."
+ * discard, `offered`; and as flags whether the decision is `flagged`,
+ * whether Trained AI `agreed`, whether the move was `forced`, the only one,
+ * whether it is `reviewed` yet, and whether Trained AI's move is `hidden`.
+ * `said` is the line as a screen reader hears it, the moves in the engine's
+ * words: "You: discards the red dragon. Trained AI: discards the 8 bamboo.
+ * Flagged."
  *
  * With `hidden`, a reviewed decision keeps Trained AI's move back, as the
  * step bar's line does (stepSaid): no move, and no word or tick that it
@@ -637,13 +631,12 @@ export function decisionInBrief(frame, decision, { hidden = false } = {}) {
   const { kind, tile } = frame.played, view = frame.view;
   const flagged = Boolean(decision?.judgement?.flagged), forced = Boolean(decision?.forced);
   const hide = hidden && Boolean(decision) && !forced, agreed = !hide && Boolean(decision?.agreed);
-  const verdict = !decision ? '' : flagged ? 'Flagged' : forced ? 'Only move' : hide ? '' : agreed ? 'Trained AI agreed' : 'Trained AI differed';
   const ai = decision && !forced && !agreed && !hide ? moveToken(decision.advised_kind, decision.advised_tile ?? null) : null;
   const offered = view.phase === 'call' ? view.pending_discard ?? null : null;
   const answer = !decision ? 'Not reviewed yet.' : forced ? 'Only move.' : hide ? "Trained AI's move hidden."
     : agreed ? 'Trained AI agreed.' : `Trained AI: ${decision.advised}.`;
   const said = `${offered ? `On the ${tileWords(offered)}. ` : ''}You: ${moveWords(frame, frame.played)}. ${answer}${flagged ? ' Flagged.' : ''}`;
-  return { you: moveToken(kind, tile), ai, offered, verdict, flagged, agreed, forced, reviewed: Boolean(decision), hidden: hide, said };
+  return { you: moveToken(kind, tile), ai, offered, flagged, agreed, forced, reviewed: Boolean(decision), hidden: hide, said };
 }
 
 /** A move as the review's short lines give it: a word, and the tiles it
