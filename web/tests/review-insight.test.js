@@ -501,3 +501,20 @@ test('a Why line takes every riichi back at once, said in one clause', async () 
   // have halved Trained AI's lead over it, and the line says so.
   assert.deepEqual((await why('6m')).said, ['Partly: Against East and West\'s riichi your 6 characters is a middle tile with no suji; Trained AI\'s 7 characters cannot deal in. Trained AI puts 79.3% on tiles that cannot deal in. If East and West had not declared riichi, it still does not choose yours: the 5 circles 92.7%, your 6 characters <0.1%, the 7 characters 0.5%.']);
 });
+
+test('a Why line weighs a safety fact on the tiles as safe as Trained AI\'s or safer, where its own tile can deal in', async () => {
+  // The review check's East 3 #4, North in riichi: the player threw the 7
+  // characters, a tile with no suji, and Trained AI the south wind, an honour
+  // nobody has thrown, which can deal in. Its weight was once counted on the
+  // tiles that cannot deal in alone, none of which it chose: "Trained AI puts
+  // 0.0% on tiles that cannot deal in." Trained AI answers as it answered the
+  // table, and the table without North's riichi, in the page's runtime.
+  const recorded = JSON.parse(readFileSync(new URL('./fixtures/review-insight-honour-against-riichi.json', import.meta.url), 'utf8'));
+  const answers = new Map([recorded.unedited, recorded.probe].map(({ digest, weights }) => [digest, weights]));
+  const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: async sent => sent.map(({ planes, mask }) => ({ weights: answers.get(planesDigest(planes, mask)) })) });
+  const { position } = reviewCheck.get(`${recorded.hand} #${recorded.decision}`), [{ moves: weights }] = await ask([position]);
+  const tables = [];
+  const why = await explainWhy({ position, ...asked('7m', '2z'), weights, facts, ask: positions => { tables.push(...positions); return ask(positions); } });
+  assert.deepEqual(saidLines(why), ['Why: Against North\'s riichi your 7 characters is a tile with no suji; Trained AI\'s south wind is an honour nobody has thrown. Trained AI puts 99.8% on tiles as safe as the south wind or safer. If North had not declared riichi: the 9 characters 56.8%, your 7 characters <0.1%, the south wind 1.3%.']);
+  assert.deepEqual(tables.map(table => table.players.map(player => player.riichi)), [position.players.map(player => player.riichi), ['none', 'none', 'none', 'none']]);
+});

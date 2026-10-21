@@ -738,8 +738,12 @@ function massOf(fact, F, weight, A, P) {
   const sum = shared => Object.values(F.tiles).filter(shared).reduce((total, tile) => total + (weight[tile.tile] ?? 0), 0);
   switch (fact?.family) {
     case 'distance': return { what: `tiles that keep the hand ${far(A.shanten)}`, mass: sum(t => t.shanten <= A.shanten) };
+    // The fact is that Trained AI's tile is the safer by the order of TIERS,
+    // so the tiles that share it are those at least as safe: the tiles that
+    // cannot deal in only where its own cannot.
     case 'safety': return fact.dead ? { what: 'honours with every copy in sight', mass: sum(t => honour(t.tile) && t.unseen === 0) }
-      : { what: 'tiles that cannot deal in', mass: sum(t => t.tier === 'safe') };
+      : A.tier === 'safe' ? { what: 'tiles that cannot deal in', mass: sum(t => t.tier === 'safe') }
+        : { what: `tiles as safe as ${the(A.tile)} or safer`, mass: sum(t => TIERS.indexOf(t.tier) <= TIERS.indexOf(A.tier)) };
     case 'speed': return { what: `tiles that leave the hand ${far(A.shanten)} with more improving tiles than yours`,
       mass: sum(t => t.shanten <= A.shanten && t.acceptance > P.acceptance) };
     case 'plan': return { what: `tiles that keep ${fact.form} ${far(A.forms[fact.form])}`, mass: sum(t => t.forms[fact.form] != null && t.forms[fact.form] <= A.forms[fact.form]) };
