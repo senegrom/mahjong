@@ -384,7 +384,11 @@ async function stepTo(page, key, game = hands) {
  * on the screen and below the bars stuck over the top of the screen there:
  * the game's on a phone, and the step bar where it is stuck. Where that part
  * is too short to hold the line with room around it, the line need only be in
- * it. True where no box scrolls the line; otherwise where the line is. */
+ * it; and where the box is scrolled as far as it goes towards the line, the
+ * list has done all its own scrolling can, as for the last line of a box
+ * that runs on below the screen's foot: only the page could show more, which
+ * the list never moves. True where no box scrolls the line; otherwise where
+ * the line is. */
 const lineInView = page => page.evaluate(() => {
   const item = document.querySelector('[data-review-index] [aria-current="step"]');
   if (!item) return 'no line on show';
@@ -405,7 +409,9 @@ const lineInView = page => page.evaluate(() => {
   const top = onScreen ? Math.max(edge.top, covered) : edge.top, bottom = onScreen ? Math.min(edge.bottom, innerHeight) : edge.bottom;
   const inside = at.top >= top - 0.5 && at.bottom <= bottom + 0.5;
   const crowded = bottom - top < at.height + 16 && at.top < bottom && at.bottom > top;
-  return inside || crowded ? true : `${Math.round(at.top)} to ${Math.round(at.bottom)} in ${Math.round(top)} to ${Math.round(bottom)}`;
+  const spent = (at.bottom > bottom && box.scrollTop >= box.scrollHeight - box.clientHeight - 1) || (at.top < top && box.scrollTop <= 0);
+  return inside || crowded || spent ? true
+    : `${Math.round(at.top)} to ${Math.round(at.bottom)} in ${Math.round(top)} to ${Math.round(bottom)}, scrolled ${Math.round(box.scrollTop)} of ${box.scrollHeight - box.clientHeight}`;
 });
 /** The filter's button for one filter. */
 const option = name => `[data-game-review] [data-filter-option="${name}"]`;
@@ -869,9 +875,9 @@ try {
       // The stage fits the screen as soon as the screen changes, before any
       // press: narrowed to a phone's, the step bar sticks under the game's
       // bar. Measured in the same task as the scroll to the player's tiles,
-      // CI once found the bar at the top of the screen under it; stageFits
-      // measures a frame after that scroll. Should it fail, the picture
-      // shows what the player saw.
+      // CI found the bar at the top of the screen under it, and a frame
+      // after that scroll, as stageFits measures now, where it belongs.
+      // Should it fail, the picture shows what the player saw.
       await stageFits(page).catch(async error => {
         await shot(page, `review-resized-${width}x${height}`);
         throw error;
