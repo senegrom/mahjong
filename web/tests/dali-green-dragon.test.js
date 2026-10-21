@@ -64,8 +64,8 @@ test('the 3:4 crop removes separators and option letters with no resizing or fur
 });
 
 test('Green Dragon completes the trio, preloads once and preserves hidden faces and other artists', () => {
-  assert.equal(set.tiles.length, 28);
-  assert.equal(set.placeholders.length, 6);
+  assert.equal(set.tiles.length, 29);
+  assert.equal(set.placeholders.length, 5);
   assert.deepEqual(set.tiles.map(tile => tile.tile), [...DALI_APPROVED]);
   assert.deepEqual([...set.tiles, ...set.placeholders].map(tile => tile.tile).sort(), [...TILE_TYPES].sort());
   for (const [tile, name] of [['5z', 'Haku'], ['6z', 'Hatsu'], ['7z', 'Chun']]) {
@@ -83,7 +83,7 @@ test('Green Dragon completes the trio, preloads once and preserves hidden faces 
 
 test('Green Dragon is in the gallery without changing the existing fourteen-tile example hand', () => {
   const preview = read('web/public/tiles/dali/preview.html').toString();
-  for (const text of ['28 approved faces', 'The River That Escaped', 'remaining 6 tiles']) assert.ok(preview.includes(text), text);
+  for (const text of ['29 approved faces', 'The River That Escaped', 'remaining 5 tiles']) assert.ok(preview.includes(text), text);
   assert.match(preview.match(/<div class="gallery">([\s\S]*?)<\/div>/)[1], /approved\/Hatsu\.svg/);
   const hand = preview.match(/<div class="hand">([\s\S]*?)<\/div>/)[1];
   assert.deepEqual([...hand.matchAll(/src="approved\/([^"/]+)\.svg"/g)].map(match => match[1]),
