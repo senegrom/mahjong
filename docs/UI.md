@@ -528,9 +528,9 @@ show them: each opponent's concealed tiles in their seat, the tile just drawn
 apart, above their sets (the called tile turned) and their discards in order
 (the riichi tile turned, the tiles called away marked), the seat headed by its
 wind, where the opponent sat and who played them, the dealer, the score and
-riichi; the round, the honba and riichi sticks, the
-dora indicators and the tiles left in the wall in the middle; then what
-happened since the player's previous decision, and the player's own seat. The
+riichi; the round, the honba and riichi sticks, the dora indicators and the
+tiles left in the wall in the centre; then what happened since the player's
+previous decision, and the player's own seat. The
 seat whose move it was is edged in gold and says so in words: "To play" on the
 player's own turn; when the player answers another's tile, the edge is on the
 seat that let it go, which says "Discarded" or "Declared a kan", and the
@@ -552,23 +552,23 @@ fixture games from the hand's mjai log, through calls, quads, riichi and wins,
 and the engine's own test rebuilds them through Mortal's reader of the same
 events. An opponent's tiles take a row of fourteen with the drawn tile's gap,
 on a darker rack that sets them apart from the discards below, as large as
-their seat has room for: up to the size of their discards on a wide screen,
-and up to 24 pixels wide on a smaller one, larger than their discards there.
-Where one row would draw them under 18 pixels wide, they take two rows of
-seven instead, the drawn tile last, as the player's own hand does on a phone.
-On a phone held upright, three seats side by side would leave each hand a few
-tiles to a row, so there the opponents take the width of the screen, one
-under another in the order they play after the player, their discards a size
-larger than in play. Measured in Chromium on 19 October 2026 at each of the
-139 decisions of the browser check's game, an opponent's tiles were 18 to 20
-pixels wide on one row at 1100 by 900 and 20 to 22 at 1366 by 768, beside
-discards of 27 and the player's own tiles of 52; 22 on one row at 390 by 844
-and 24 on two at 320 by 568, one opponent under another; and 24 on two at
-800 by 1280 and held sideways at 844 by 390, three abreast. No page scrolled
-sideways. The table with the player's seat, the events since the previous
-decision open between them, took 682 to 1,106 pixels of height at 1100 by
-900, 687 to 1,111 at 1366 by 768, 651 to 1,012 at 800 by 1280, 656 to 1,235
-at 390 by 844, 762 to 1,287 at 320 by 568 and 532 to 899 at 844 by 390.
+their seat has room for, up to 24 pixels wide. Where one row would draw them
+under 18 pixels wide, they take two rows of seven instead, the drawn tile
+last, as the player's own hand does on a phone. From 761 pixels wide, at every
+height over 500, the table is a dense one: the centre a bar across the top,
+the three opponents in one row under it, Left, Opposite and Right, each seat
+as tall as what it holds, and their discards 22 pixels wide. A wide screen's
+table, the opponents around the centre, left most of the screen empty felt
+and pushed the player's seat below it. On a phone held upright, three seats
+side by side would leave each hand a few tiles to a row, so there the
+opponents take the width of the screen, one under another in the order they
+play after the player, their discards a size larger than in play. The browser
+check goes through every step of a hand at 1100 by 900, 1366 by 768, 800 by
+1280, 390 by 844, 320 by 568 and 844 by 390: every tile is on the screen, an
+opponent's 18 pixels wide or more on one row or on two of seven, the dense
+table's opponents in one row under its centre, and no page scrolls sideways.
+It says at each size how wide the tiles were drawn and how tall the table and
+the player's seat were together.
 
 **Replay.** A decision opens at the position it was made from, headed by its
 hand and number ("East 1, decision 3"), with Trained AI's move on show: the
@@ -595,18 +595,21 @@ is ringed in blue as Agent watch and Guided play ring the agent's choice ("You
 · AI" where they agreed); a screen reader hears them after the tile's name
 ("your move", "Trained AI's choice"). Every tile keeps the line for them, and
 none lifts, so nothing in the hand moves between steps. Trained AI's view, at
-every decision put to it, lists the weight of every move, the riichi discards
-under their declaration, marking Trained AI's choice and the move made ("Trained
-AI's choice", "In the game"); where both declared riichi it says once that the
-tiles are compared given riichi. It leads with the five heaviest moves and
-those it marks; **Show 3 more moves** shows the rest and stays, as **Show fewer
-moves**, so focus stays on it. The tile guide in the settings says what the
-weights are, under "Trained AI's percentages": how strongly Trained AI prefers
-each move, not a chance of winning. For a turn, a table, "What each move
-leaves", sets out what each of the two moves leaves, counted as the hand
-review counts it: the hand left, the unseen tiles that improve it, whether the
-tile could deal into a declared riichi, and its worth as dora (the engine's
-`review_measure`). Nothing is played on from there, and the saved match is
+every decision put to it, lists every move by its weight, each as its tile or
+a word and its tiles, the riichi discards under their declaration, tagged as
+the hand is ("AI", "You"); a screen reader hears each in the engine's words
+("discards the 8 bamboo, 95.5%, Trained AI's choice"). Where both declared
+riichi it says once that the tiles are compared given riichi. It leads with
+the five heaviest moves and those it tags; **Show 3 more moves** shows the
+rest and stays, as **Show fewer moves**, so focus stays on it. The tile guide
+in the settings says what the weights are, under "Trained AI's percentages":
+how strongly Trained AI prefers each move, not a chance of winning. For a
+turn, "What each move leaves", folded until it is opened, sets out what each
+of the two moves leaves, a column each ("You", "Trained AI") where the review
+measured it, counted as the hand review counts it: the hand left, the unseen
+tiles that improve it, whether the tile could deal into a declared riichi, and
+its worth as dora (the engine's `review_measure`). It stays open or folded as
+the player leaves it. Nothing is played on from there, and the saved match is
 never touched. **Back to the list** returns focus to the decision opened,
 wherever the hands reviewed meanwhile have ranked it: if they have ranked it
 out of the first five, every flagged decision is shown, and the same status
@@ -631,10 +634,10 @@ The list starts open above the table where the screen has room for it, and
 folded on a phone; from then on it stays as the player leaves it, open or
 folded, as the step changes and as later hands are reviewed. So does the list
 of what happened since the previous decision ("Since the previous decision
-(3)", counted as the review's other lists are), also across a step where
-nothing did. The same filter lists only the hand's flagged decisions, or those
-where Trained AI chose differently, each button saying how many it holds, and
-says what it shows from its own status line.
+(3)", counted as the review's other lists are), which starts folded, also
+across a step where nothing did. The same filter lists only the hand's
+flagged decisions, or those where Trained AI chose differently, each button
+saying how many it holds, and says what it shows from its own status line.
 
 **Agreement and its trend.** The figure is the share of decisions with a
 choice where the player's move was Trained AI's, and the tile counts them

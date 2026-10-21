@@ -5,8 +5,8 @@
   import MatchTable from './app/MatchTable.svelte';
   import PlayerHand from './app/PlayerHand.svelte';
   import { groupPolicyChoices } from './action-weights.js';
-  import { decisionInBrief, differed, filterCounts, sameMove, seatNotes } from './game-review.js';
-  import { percent } from './ui.js';
+  import { decisionInBrief, differed, filterCounts, moveToken, sameMove, seatNotes } from './game-review.js';
+  import { TAG_SAID, percent } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
 
   /**
@@ -34,16 +34,17 @@
   let barHeight = $state(0);
   // The list of the hand's decisions starts open where the screen has room
   // for it above the table; after that it is the player's to open and fold.
-  // So is the list of what happened since the previous decision, which
-  // starts open, and stays as the player leaves it across a step where
-  // nothing happened, which takes it from the page. Each is held here
-  // rather than set on the list from the step: the page sets that afresh at
-  // every step, and as later hands are reviewed, which folded a list under
-  // the player's press and dropped keyboard focus on a step's button to the
-  // page.
+  // So are the list of what happened since the previous decision and the
+  // table of what each move leaves, which start folded, read less than the
+  // table and the weights, and stay as the player leaves them across a step
+  // that takes them from the page. Each is held here rather than set on the
+  // list from the step: the page sets that afresh at every step, and as
+  // later hands are reviewed, which folded a list under the player's press
+  // and dropped keyboard focus on a step's button to the page.
   const roomy = !(globalThis.matchMedia?.('(max-width: 760px), (max-height: 500px) and (orientation: landscape)').matches ?? true);
   let listOpen = $state(roomy);
-  let linesOpen = $state(true);
+  let linesOpen = $state(false);
+  let numbersOpen = $state(false);
 
   let frame = $derived(hand.frames[step]);
   let current = $derived(hand.decisions?.[step] ?? null);
@@ -90,12 +91,13 @@
   let rows = $derived(groupPolicyChoices(everyMove ? ordered : ordered.filter((choice, index) => index < 5 || marked(choice))));
   let extra = $derived(ordered.filter((choice, index) => index >= 5 && !marked(choice)).length);
 
-  // The moves the numbers compare, each once: the game's and the network's.
+  // The moves the numbers compare, each once and only where the review
+  // measured it: the player's and Trained AI's.
   let compared = $derived(!shown ? [] : [
-    { move: played, title: 'In the game' },
+    { move: played, title: 'You' },
     ...(!sameMove(advised, played.kind, played.tile) ? [{ move: advised, title: 'Trained AI' }] : []),
-  ].map(entry => ({ ...entry, measure: shown.measures?.find(measure => sameMove(measure, entry.move.kind, entry.move.tile)) ?? null })));
-  let measured = $derived(compared.every(entry => entry.measure));
+  ].map(entry => ({ ...entry, measure: shown.measures?.find(measure => sameMove(measure, entry.move.kind, entry.move.tile)) ?? null }))
+    .filter(entry => entry.measure));
 
   // Every decision of the hand, each a step of its own, for the list, which
   // shows those its filter keeps in the order played.
@@ -107,6 +109,10 @@
   function marked(choice) {
     return [advised, played].some(move => move && sameMove(choice, move.kind, move.tile));
   }
+
+  // The words a move of the view is tagged with, as the hand tags its tiles.
+  const tagsOf = choice => [sameMove(choice, played.kind, played.tile) && 'You', sameMove(choice, advised.kind, advised.tile) && 'AI']
+    .filter(Boolean);
 
   function distance(value) {
     if (value < 0) return 'complete';
@@ -195,7 +201,8 @@
 
   {#if shown}
     <!-- Trained AI's view of the move made at the step, which the review
-         holds for every decision it was asked about. -->
+         holds for every decision it was asked about: each move open there by
+         its weight, tagged as the hand tags its tiles. -->
     <section class="view" aria-labelledby="view-title" data-view>
       <h4 id="view-title">Trained AI's view</h4>
       {#if stage === 'tile'}<p class="note">Both declared riichi: tiles compared given riichi.</p>{/if}
@@ -206,7 +213,7 @@
             {@render weightRow(row.choice, row.choice.weight)}
           {:else}
             <div class="reach" role="listitem">
-              <div class="row reach-heading"><span class="label">Declare riichi</span><meter min="0" max="1" value={row.weight} aria-label="Riichi declaration weight"></meter><strong>{percent(row.weight)}</strong></div>
+              <div class="row reach-heading"><span class="move">Declare riichi</span><meter min="0" max="1" value={row.weight} aria-hidden="true"></meter><strong>{percent(row.weight)}</strong><span class="tag"></span></div>
               <div role="list" aria-label="Discards given riichi">
                 {#each row.choices as choice, slot (slot)}{@render weightRow(choice, choice.conditionalWeight, true)}{/each}
               </div>
@@ -216,24 +223,28 @@
       </div>
       {#if extra}<button class="app-control quiet" data-every-move onclick={() => { everyMove = !everyMove; }}>{everyMove ? 'Show fewer moves' : `Show ${extra} more move${extra === 1 ? '' : 's'}`}</button>{/if}
 
-      {#if compared.length > 1 && measured}
+      {#if compared.length > 1}
         <!-- Counted as the hand review counts it (docs/UI.md); a player reads
-             the table without being told how. -->
-        <table class="numbers">
-          <caption>What each move leaves</caption>
-          <thead><tr><th scope="col"></th>{#each compared as entry (entry.title)}<th scope="col">{entry.title}{#if entry.move.tile}<br /><Tile tile={entry.move.tile} size="tiny" />{/if}</th>{/each}</tr></thead>
-          <tbody>
-            <tr><th scope="row">Hand left</th>{#each compared as entry (entry.title)}<td>{distance(entry.measure.shanten)}</td>{/each}</tr>
-            <tr><th scope="row">Tiles that improve it</th>{#each compared as entry (entry.title)}<td>{entry.measure.acceptance}</td>{/each}</tr>
-            {#if compared.some(entry => entry.measure.danger !== 'quiet')}
-              <!-- A move that discards nothing, a win or a quad, is not read against the riichi. -->
-              <tr><th scope="row">Against the riichi</th>{#each compared as entry (entry.title)}<td class:worse={entry.measure.danger === 'live'}>{{ live: 'could deal in', safe: 'could not deal in' }[entry.measure.danger] ?? '—'}</td>{/each}</tr>
-            {/if}
-            {#if compared.some(entry => entry.measure.dora)}
-              <tr><th scope="row">Worth as dora</th>{#each compared as entry (entry.title)}<td>{entry.measure.dora ? `${entry.measure.dora} han` : 'nothing'}</td>{/each}</tr>
-            {/if}
-          </tbody>
-        </table>
+             the table without being told how. Folded, as it is read less than
+             the weights, and named for a screen reader's list of tables. -->
+        <details class="numbers" bind:open={numbersOpen}>
+          <summary>What each move leaves</summary>
+          <table>
+            <caption class="visually-hidden">What each move leaves</caption>
+            <thead><tr><th scope="col"></th>{#each compared as entry (entry.title)}<th scope="col">{entry.title}{#if entry.move.tile}<br /><Tile tile={entry.move.tile} size="tiny" />{/if}</th>{/each}</tr></thead>
+            <tbody>
+              <tr><th scope="row">Hand left</th>{#each compared as entry (entry.title)}<td>{distance(entry.measure.shanten)}</td>{/each}</tr>
+              <tr><th scope="row">Tiles that improve it</th>{#each compared as entry (entry.title)}<td>{entry.measure.acceptance}</td>{/each}</tr>
+              {#if compared.some(entry => entry.measure.danger !== 'quiet')}
+                <!-- A move that discards nothing, a win or a quad, is not read against the riichi. -->
+                <tr><th scope="row">Against the riichi</th>{#each compared as entry (entry.title)}<td class:worse={entry.measure.danger === 'live'}>{{ live: 'could deal in', safe: 'could not deal in' }[entry.measure.danger] ?? '—'}</td>{/each}</tr>
+              {/if}
+              {#if compared.some(entry => entry.measure.dora)}
+                <tr><th scope="row">Worth as dora</th>{#each compared as entry (entry.title)}<td>{entry.measure.dora ? `${entry.measure.dora} han` : 'nothing'}</td>{/each}</tr>
+              {/if}
+            </tbody>
+          </table>
+        </details>
       {/if}
     </section>
   {/if}
@@ -243,15 +254,20 @@
   <span class="token">{#if move.word}<span>{move.word}</span>{/if}{#each move.tiles as tile, index (index)}<Tile {tile} size="tiny" dora={shownDora.includes(tile)} />{/each}</span>
 {/snippet}
 
+<!-- A move of the view: its tile, or a word and its tiles, then its weight
+     and the words it is tagged with. A riichi given riichi is its tile, under
+     the declaration's own row. A screen reader hears the move in the
+     engine's words in place of the pictures, and each tag in full; the bar
+     says no more than the percentage beside it, so it is not read. -->
 {#snippet weightRow(choice, weight, conditional = false)}
+  {@const words = tagsOf(choice)}
   <div class="row" role="listitem" class:best={sameMove(choice, advised.kind, advised.tile)} data-move={choice.label}>
-    <span class="label">{#if choice.tile}<Tile tile={choice.tile} size="tiny" dora={shownDora.includes(choice.tile)} />{/if}{choice.label}</span>
+    <span class="move"><span aria-hidden="true">{@render token(conditional ? { word: '', tiles: [choice.tile] } : moveToken(choice.kind, choice.tile))}</span><span
+      class="visually-hidden">{choice.label}{conditional ? ', given riichi' : ''}</span></span>
     {#if weight == null}<strong>{conditional ? 'Not evaluated' : 'Unscored'}</strong>
-    {:else}<meter min="0" max="1" value={weight} aria-label={conditional ? `${choice.label}, given riichi` : choice.label}></meter><strong>{percent(weight)}</strong>{/if}
-    <span class="marks">
-      {#if sameMove(choice, advised.kind, advised.tile)}<span class="mark trained">Trained AI's choice</span>{/if}
-      {#if sameMove(choice, played.kind, played.tile)}<span class="mark">In the game</span>{/if}
-    </span>
+    {:else}<meter min="0" max="1" value={weight} aria-hidden="true"></meter><strong>{percent(weight)}</strong>{/if}
+    <span class="tag" aria-hidden="true">{#each words as word, index (word)}{#if index}{' · '}{/if}<b class:ai={word === 'AI'}>{word}</b>{/each}</span>
+    {#if words.length}<span class="visually-hidden">, {words.map(word => TAG_SAID[word]).join(', ')}</span>{/if}
   </div>
 {/snippet}
 
@@ -285,20 +301,22 @@
   .quiet { justify-self: start; background: transparent; }
   .view { display: grid; gap: 10px; padding: 12px; border: 1px solid #d8a12a66; border-radius: 12px; background: #0003; min-width: 0; }
   .note { margin: 0; font-size: .78rem; opacity: .8; }
-  .weights { display: grid; gap: 4px; }
-  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 6px; border: 2px solid transparent; border-top-color: #ffffff15; border-radius: 8px; font-size: .82rem; }
+  /* A move a row, no wider than it needs to be read across: the move, its
+     bar, its percentage and its tags, Trained AI's choice edged in the blue
+     its tile is ringed with in the hand. */
+  .weights { display: grid; gap: 4px; max-width: 560px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 6px; border: 2px solid transparent; border-top-color: #ffffff15; border-radius: 8px; font-size: .82rem; }
   .row.best { border-color: #4ea3ff; }
-  .label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  .row strong { min-width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
+  .move { display: flex; align-items: center; flex: 1 1 6em; min-width: 0; }
+  .row strong { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
   meter { flex-shrink: 0; width: 90px; accent-color: var(--gold); }
-  .marks { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: .72rem; }
-  .marks:empty { display: none; }
-  .mark { opacity: .85; }
-  .mark.trained { color: var(--gold); opacity: 1; }
+  .tag { min-width: 4.5em; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+  .tag .ai { color: var(--gold); }
   .reach { border: 1px solid #ffffff28; border-radius: 8px; padding: 6px; display: grid; gap: 4px; }
   .reach-heading { border-top-color: transparent; }
-  .numbers { border-collapse: collapse; width: 100%; table-layout: fixed; overflow-wrap: anywhere; font-size: .82rem; font-variant-numeric: tabular-nums; }
-  .numbers caption { text-align: left; font-size: .78rem; opacity: .8; padding-bottom: 4px; }
+  .numbers { font-size: .82rem; }
+  .numbers summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
+  .numbers table { border-collapse: collapse; width: 100%; max-width: 560px; table-layout: fixed; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .numbers th { text-align: left; font-weight: 500; opacity: .75; padding: 2px 10px 2px 0; vertical-align: bottom; }
   .numbers td { padding: 2px 10px 2px 0; }
   .worse { color: var(--warning-text); }

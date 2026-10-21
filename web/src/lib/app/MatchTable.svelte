@@ -200,17 +200,32 @@
   }
 
   /* A review shows every hand face up (Seat), each concealed tile up to half
-     of `--hand-tile` wide where its seat has room. Wherever the table is
-     smaller than on a wide screen that is 24 pixels, larger than the
-     discards there, so that only a narrow seat would draw a row of fourteen
-     under 18 pixels, and there they take two rows instead (Seat). On a phone
-     held upright three columns would leave each hand a few tiles to a row,
-     so there each opponent takes the width of the screen instead, in the
-     order they play after the player, their discards a size larger than in
-     play; held sideways the columns stay, their discards a little larger
-     too. */
-  @media (max-width: 967px), (max-height: 500px) {
-    .board.review .place { --hand-tile: 48px; }
+     of `--hand-tile` wide where its seat has room: 24 pixels, so that only a
+     narrow seat would draw a row of fourteen under 18 pixels, and there they
+     take two rows instead (Seat). On a phone held upright three columns would
+     leave each hand a few tiles to a row, so there each opponent takes the
+     width of the screen instead, in the order they play after the player,
+     their discards a size larger than in play; held sideways the columns
+     stay, their discards a little larger too. */
+  .board.review .place { --hand-tile: 48px; }
+  /* From 761 pixels wide, at every height over 500, a review's table is the
+     dense one the tablet's widths have, at every width: the centre as a bar
+     across the top, and the three opponents in one row under it, Left,
+     Opposite and Right, each seat as tall as what it holds rather than a
+     height kept for it, so that the table and the player's seat fit the
+     screen together. A wide screen's table, the opponents around the centre,
+     left most of it empty felt. The discards are 22 pixels wide, a size
+     between a tablet's and a wide screen's in play. Play's table keeps its
+     own layouts. */
+  @media (min-width: 761px) and (min-height: 501px) {
+    .board.review { grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; gap: 8px; padding: 12px; }
+    .board.review .centre { grid-area: 1 / 1 / 2 / -1; width: 100%; max-width: none; min-height: 0; padding: 12px;
+      align-self: start; justify-self: stretch; }
+    .board.review .place { --tile-width: 44px; width: 100%; min-width: 0; align-self: start; justify-self: stretch; }
+    .board.review .left { grid-area: 2 / 1; }
+    .board.review .across { grid-area: 2 / 2; }
+    .board.review .right { grid-area: 2 / 3; }
+    .board.review :global(.seat) { min-height: 0; }
   }
   @media (max-width: 760px) and (orientation: portrait) {
     .board.review { grid-template-columns: minmax(0, 1fr); }

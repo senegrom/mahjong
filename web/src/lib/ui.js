@@ -114,6 +114,10 @@ export const RESULT_SHEET = '(max-width: 760px)';
  * column of its own beside the decision on show, rather than folded above it. */
 export const REVIEW_WIDE = '(min-width: 1100px) and (min-height: 600px)';
 
+/** What each word a review tags a move with says to a screen reader: the
+ * word is for the eye, and too short to be heard alone. */
+export const TAG_SAID = Object.freeze({ You: 'your move', Now: 'your pick', AI: "Trained AI's choice" });
+
 /** Why Club reviews a hand in Trained AI's place: the network cannot be
  * reached now, or, once the match has no engine (another window took it
  * over), there is no hand left to put to Trained AI. */

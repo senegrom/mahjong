@@ -1,6 +1,7 @@
 <script>
   import Tile from './Tile.svelte';
   import { tileWords } from './tiles.js';
+  import { TAG_SAID } from './ui.js';
 
   let {
     tile,
@@ -26,10 +27,8 @@
     tag = null,
   } = $props();
 
-  // What each of a review's words says to a screen reader, after the tile's
-  // own name: the word is for the eye, and too short to be heard alone.
-  const SAID = { You: 'your move', Now: 'your pick', AI: "Trained AI's choice" };
-  let note = $derived(tag ? tag.map(word => SAID[word] ?? word).join(', ') : '');
+  // The words are heard after the tile's own name.
+  let note = $derived(tag ? tag.map(word => TAG_SAID[word] ?? word).join(', ') : '');
 </script>
 
 <span class="hand-tile" class:small={size === 'small'} class:tagged={tag !== null} data-hand-drawn={drawn ? 'true' : undefined} role={listed ? 'listitem' : undefined}>

@@ -182,6 +182,50 @@ test("a decision that was not flagged shows the move and Trained AI's view, said
   assert.equal(handsIn(html).opponents.length, 3);
 });
 
+test("Trained AI's view gives each move as its tile or word, tagged as the hand is, and keeps the events and its numbers folded, a column only for each move measured", () => {
+  let tables = 0;
+  for (const entry of review.hands) {
+    for (const [index, decision] of entry.decisions.entries()) {
+      const html = render(DecisionReplay, { props: { hand: entry, start: index, hints: true, onback() {} } }).body;
+      // What happened since the previous decision starts folded.
+      assert.doesNotMatch(html, /<details class="lines[^"]*" open/);
+      if (decision.forced) continue;
+      const view = /<section class="view[^"]*"[^>]*data-view="">([^]*?)<\/section>/.exec(html)[1];
+      const played = decision.weighted.find(choice => choice.kind === decision.played_kind && (choice.tile ?? null) === (decision.played_tile ?? null));
+      // Each row: the move as a picture for the eye and in the engine's words
+      // for a screen reader, its weight, and the words it is tagged with.
+      const rows = [...view.matchAll(/<div class="row[^"]*" role="listitem"[^>]*data-move="([^"]*)">([^]*?)<\/div>/g)]
+        .map(([, move, inner]) => ({ move, inner, tag: text(/<span class="tag[^"]*" aria-hidden="true">([^]*?)<\/span>/.exec(inner)[1]) }));
+      assert.ok(rows.length >= 1);
+      for (const row of rows) {
+        assert.match(row.inner, /<span class="move[^"]*"><span aria-hidden="true">/, row.move);
+        assert.ok(row.inner.includes(`<span class="visually-hidden">${row.move}`), row.move);
+        assert.doesNotMatch(row.inner, /<meter[^>]*aria-label/, 'the bar says no more than the percentage');
+        const words = [row.move === played.label && 'You', row.move === decision.advised && 'AI'].filter(Boolean);
+        assert.equal(row.tag, words.join(' · '), `${row.move} at ${entry.name}, decision ${index + 1}`);
+      }
+      assert.doesNotMatch(view, /class="marks|In the game/);
+      // What each move leaves, folded, with a column for the player's move
+      // and Trained AI's each where it was measured.
+      const advised = { kind: decision.advised_kind, tile: decision.advised_tile ?? null };
+      const measured = [{ title: 'You', move: { kind: decision.played_kind, tile: decision.played_tile ?? null } },
+        ...(decision.agreed ? [] : [{ title: 'Trained AI', move: advised }])]
+        .filter(({ move }) => decision.measures?.some(measure => measure.kind === move.kind && measure.tile === move.tile));
+      const numbers = /<details class="numbers[^"]*"( open="")?>([^]*?)<\/details>/.exec(view);
+      if (measured.length < 2) {
+        assert.equal(numbers, null, `no table at ${entry.name}, decision ${index + 1}`);
+        continue;
+      }
+      tables++;
+      assert.equal(numbers[1], undefined, 'folded');
+      assert.match(numbers[2], /<summary[^>]*>What each move leaves<\/summary>/);
+      assert.deepEqual([...numbers[2].matchAll(/<th scope="col"[^>]*>([^<]*)/g)].map(match => match[1]).filter(Boolean),
+        measured.map(({ title }) => title));
+    }
+  }
+  assert.ok(tables > 0, 'some decision compares what each move leaves');
+});
+
 test("the hand's list gives every decision, each with the player's move and Trained AI's, by the filter, its name saying both in words", () => {
   const html = replay({ start: flaggedAt, whole: true });
   assert.match(html, /<h3 id="decision-title"[^>]*>[^<]+, whole hand<\/h3>/);

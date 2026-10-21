@@ -81,7 +81,9 @@ an unfinished match has progress, including between hands.
   again whenever anything drawn beside it changes, which folded a replayed
   hand's list of decisions under the player's press, at every step and as
   later hands were reviewed, and dropped keyboard focus on a step's button
-  in it to the page.
+  in it to the page. So do a replay's events since the previous decision and
+  its table of what each move leaves, which start folded and are taken from
+  the page by a step that has none.
 - A screen reader announces a status line only once it already knows it. So
   these lines wait in the page, empty and out of sight, before their words
   arrive, rather than arriving with them:

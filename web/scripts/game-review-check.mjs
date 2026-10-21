@@ -423,6 +423,13 @@ const overviewAt = page => page.evaluate(() => {
       .filter(control => control.type === 'checkbox'
         || /\b(show|hide|reveal|peek)\b[^.]*\b(tiles?|hands?)\b/i.test(`${control.textContent} ${control.getAttribute('aria-label') ?? ''}`)).length,
     fits: document.documentElement.scrollWidth <= innerWidth + 1,
+    // The table's layout: whether the screen takes the dense one (761 pixels
+    // wide or more, over 500 high), where each opponent's seat begins and the
+    // centre ends, and the height of the table with the player's own seat.
+    dense: innerWidth >= 761 && innerHeight > 500,
+    seatTops: [...overview.querySelectorAll('.board > .place')].map(place => Math.round(box(place).top)),
+    centreBottom: Math.round(box(overview.querySelector('.board > .centre')).bottom),
+    height: Math.round(box(overview.querySelector('.mine')).bottom - box(overview.querySelector('.board')).top),
     step: document.querySelector('[data-decision] [data-step]').textContent,
     said: document.querySelector('[data-decision] [data-step-said]').textContent,
     wall: Number(overview.querySelector('.wall strong').textContent),
@@ -473,6 +480,13 @@ async function overviewIsRight(page, hand, step) {
   assert.equal(shown.facedown, 0, 'nothing is face down');
   assert.equal(shown.toggles, 0, 'nothing offers to show or hide the hands');
   assert.ok(shown.fits, 'the page does not scroll sideways');
+  // From 761 pixels wide at every height over 500 the table is the dense
+  // one: the centre a bar across the top, the three opponents in one row
+  // under it.
+  if (shown.dense) {
+    assert.equal(new Set(shown.seatTops).size, 1, `the opponents in one row: ${shown.seatTops.join(', ')}`);
+    assert.ok(shown.centreBottom <= Math.min(...shown.seatTops), `the centre above them: ${shown.centreBottom}, ${shown.seatTops.join(', ')}`);
+  }
   // The step, the table in a sentence and both moves, and whether Trained AI
   // flagged the move there, in the one line said as the step changes.
   const lead = `${hand.name}, decision ${step + 1} of ${hand.frames.length}. ${tableSaid(frame.view)} You: `;
@@ -607,15 +621,15 @@ try {
       + `You: ${lead.played.label}, ${percent(lead.playedWeight)}${given}. Trained AI: ${lead.advised.label}, ${percent(lead.preferred)}${given}. Flagged.`,
     "both moves, from the worker's answer");
     assert.match(await page.$eval('[data-decision] [data-move-line]', el => el.textContent.trim()), /Flagged$/);
-    // Trained AI's view marks its choice and the move made, and for a turn
-    // compares what each leaves.
-    const marks = await page.$$eval('[data-view] .row', rows => rows.map(row => ({ move: row.dataset.move,
-      marks: [...row.querySelectorAll('.mark')].map(mark => mark.textContent) })));
-    assert.ok(marks.find(row => row.move === lead.advised.label)?.marks.includes("Trained AI's choice"));
-    assert.ok(marks.find(row => row.move === lead.played.label)?.marks.includes('In the game'));
+    // Trained AI's view tags its choice and the move made as the hand does,
+    // and for a turn compares what each leaves, folded until it is opened.
+    const tags = await page.$$eval('[data-view] .row[data-move]', rows => rows.map(row => ({ move: row.dataset.move,
+      tag: row.querySelector('.tag')?.textContent ?? '' })));
+    assert.equal(tags.find(row => row.move === lead.advised.label)?.tag, 'AI', JSON.stringify(tags));
+    assert.equal(tags.find(row => row.move === lead.played.label)?.tag, 'You', JSON.stringify(tags));
     const fact = facts[hand][index];
     if (!lead.played.kind.match(/pass|pon|chii|kan|ron/) && !fact.note.call_tile) {
-      assert.ok(await page.$('[data-view] .numbers'), 'a turn compares what each move leaves');
+      assert.equal(await page.$eval('[data-view] details.numbers', details => details.open), false, 'a turn compares what each move leaves');
     }
     // The hand puts words over the tile each threw, on a line every tile
     // keeps, and rings Trained AI's alone, as Agent watch rings the agent's.
@@ -733,6 +747,20 @@ try {
       const active = document.activeElement;
       return !active || active === document.body ? 'the page' : active.getAttribute('aria-label') ?? active.textContent.trim();
     });
+    /** The overview at a step, checked, its figures kept by the size of the
+     * screen: how wide the opponents' tiles and the player's are drawn, and
+     * how tall the table and the player's seat are together. They are said
+     * at the end, for the UI notes to give. */
+    const figures = new Map();
+    const measured = async step => {
+      const shown = await overviewIsRight(page, chosen, step), { width, height } = page.viewport(), size = `${width}x${height}`;
+      if (!figures.has(size)) figures.set(size, { opponents: [], own: [], height: [] });
+      const kept = figures.get(size);
+      kept.opponents.push(...shown.opponents.map(list => list.tileWidth));
+      kept.own.push(shown.own.tileWidth);
+      kept.height.push(shown.height);
+      return shown;
+    };
     // By keyboard: the list of hands, unless a slow device's review opened
     // it already, then the hand's own button.
     if (!await page.$eval('[data-game-review] .hands', details => details.open)) {
@@ -750,7 +778,7 @@ try {
     for (const step of frames.keys()) {
       await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
         placeOf(chosen, step));
-      await overviewIsRight(page, chosen, step);
+      await measured(step);
       assert.equal(await focused(), step < frames.length - 1 ? 'Next decision' : 'Previous decision', `focus after step ${step + 1}`);
       if (step < frames.length - 1) await page.keyboard.press('Enter');
     }
@@ -832,6 +860,24 @@ try {
         });
         await shot(page, `review-overview-${width}x${height}-yours`);
       }
+      // Every step of the hand at this size, by its button in the hand's
+      // list, measured.
+      for (const at of frames.keys()) {
+        await page.$eval(`[data-decision] [data-step-to="${at}"]`, el => el.scrollIntoView({ block: 'center' }));
+        await page.click(`[data-decision] [data-step-to="${at}"]`);
+        await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
+          placeOf(chosen, at));
+        await measured(at);
+      }
+      step = frames.length - 1;
+    }
+    // The figures at each size, from every step of the hand: the narrowest
+    // and widest tile of the opponents' and of the player's, and the least
+    // and most height the table and the player's seat took together.
+    const span = values => `${Math.min(...values)} to ${Math.max(...values)}`;
+    for (const [size, kept] of figures) {
+      console.log(`review overview at ${size}: opponents' tiles ${span(kept.opponents.map(Math.round))} px wide, the player's `
+        + `${span(kept.own.map(Math.round))}; the table and the player's seat ${span(kept.height)} px tall`);
     }
 
     // Back to the list, by pointer: focus returns to the hand's own button.
@@ -948,8 +994,8 @@ try {
     await page.click(`${games} summary`);
     await page.waitForFunction(games => document.querySelector(games).open, { timeout: 5000 }, games);
     // A reviewed hand with a step that nothing happened before, between two
-    // that had events, replayed whole by pointer: its events, folded at the
-    // step before, stay folded at the step after.
+    // that had events, replayed whole by pointer: its events, which start
+    // folded, opened at the step before, stay open at the step after.
     const done = await page.$$eval('[data-game-review] [data-replay-hand]', buttons => buttons.map(button => Number(button.dataset.replayHand)));
     const quiet = hands.filter(hand => done.includes(hand.index)).flatMap(hand => hand.frames.map((_, step) => ({ hand, step })))
       .find(({ hand, step }) => step > 0 && step < hand.frames.length - 1 && !hand.frames[step].lines.length
@@ -962,14 +1008,15 @@ try {
       { timeout: 5000 }, placeOf(quiet.hand, step));
     await page.click(`[data-decision] [data-decisions] [data-step-to="${quiet.step - 1}"]`);
     await onStep(quiet.step - 1);
+    assert.equal(await page.$eval(lines, details => details.open), false, "a hand's events start folded");
     await page.click(`${lines} summary`);
-    await page.waitForFunction(lines => !document.querySelector(lines).open, { timeout: 5000 }, lines);
+    await page.waitForFunction(lines => document.querySelector(lines).open, { timeout: 5000 }, lines);
     await page.click(next);
     await onStep(quiet.step);
     assert.equal(await page.$(lines), null, 'no events since the previous decision');
     await page.click(next);
     await onStep(quiet.step + 1);
-    await stays(lines, false, "a hand's events opened again after a step with none");
+    await stays(lines, true, "a hand's events folded again after a step with none");
     // Back to the list by keyboard: focus returns to the hand's own button,
     // and the trend's games are open still.
     await page.focus('[data-decision] [data-back]');
