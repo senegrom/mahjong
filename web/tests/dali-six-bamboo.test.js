@@ -29,8 +29,8 @@ test('six bamboo is selected green C and completes the bamboo suit', () => {
     assert.equal(DALI_APPROVED.filter(tile => tile === `${n}s`).length, 1);
     assert.equal(tileImage(`${n}s`, 'dali'), `tiles/dali/approved/Sou${n}.svg`);
   }
-  assert.equal(set.tiles.length, 27);
-  assert.equal(set.placeholders.length, 7);
+  assert.equal(set.tiles.length, 28);
+  assert.equal(set.placeholders.length, 6);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   assert.deepEqual([...set.tiles, ...set.placeholders].map(entry => entry.tile).sort(), [...TILE_TYPES].sort());
 });
@@ -73,6 +73,6 @@ test('green C is registered for export and shown in the preview', () => {
   const preview = read('web/public/tiles/dali/preview.html').toString();
   assert.ok(preview.includes('approved/Sou6.svg'));
   assert.ok(preview.includes('The Impossible Reflection'));
-  assert.ok(preview.includes('27 approved faces'));
-  assert.ok(preview.includes('remaining 7 tiles'));
+  assert.ok(preview.includes('28 approved faces'));
+  assert.ok(preview.includes('remaining 6 tiles'));
 });

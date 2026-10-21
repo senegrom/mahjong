@@ -70,8 +70,8 @@ test('the cupboard crop retains its 609 by 812 pixels and exact 3:4 proportions'
 });
 
 test('eight disks is registered and preloaded once without changing neighboring selections or hidden tiles', () => {
-  assert.equal(set.tiles.length, 27);
-  assert.equal(set.placeholders.length, 7);
+  assert.equal(set.tiles.length, 28);
+  assert.equal(set.placeholders.length, 6);
   assert.deepEqual(set.tiles.map(tile => tile.tile), [...DALI_APPROVED]);
   assert.deepEqual([...set.tiles, ...set.placeholders].map(tile => tile.tile).sort(), [...TILE_TYPES].sort());
   assert.equal(set.tiles.filter(tile => tile.tile === '8p').length, 1);
@@ -89,10 +89,10 @@ test('eight disks is registered and preloaded once without changing neighboring 
 
 test('the cupboard appears in the gallery and preserves the existing fourteen-tile example hand', () => {
   const preview = read('web/public/tiles/dali/preview.html').toString();
-  assert.match(preview, /27 approved faces/);
+  assert.match(preview, /28 approved faces/);
   assert.match(preview, /The Cabinet of Captured Moons — C/);
   assert.match(preview, /Ranks 1–9 of disks are complete/);
-  assert.match(preview, /remaining 7 tiles/);
+  assert.match(preview, /remaining 6 tiles/);
   const gallery = preview.match(/<div class="gallery">([\s\S]*?)<\/div>/)[1];
   assert.match(gallery, /approved\/Pin8\.svg/);
   const hand = preview.match(/<div class="hand">([\s\S]*?)<\/div>/)[1];
