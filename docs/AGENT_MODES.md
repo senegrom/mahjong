@@ -88,11 +88,12 @@ named and explained by the network the page plays. 0.1.810 and 0.1.410 show
 **Estimated training reward**, the hybrid reward: the hand's point change
 divided by 4,000, plus the game's final placement bonus (+1.5 for first, +0.5
 for second, −0.5 for third and −1.5 for fourth). It is not a predicted
-finishing place or a win probability. 0.1.1110 shows **Estimated placement
-reward**: the placement bonus the scoreboard promises when the hand ends, or
-after the game's last hand the bonus itself, with no points of its own, so
-points count only through the places they win. It is not a win probability
-either.
+finishing place or a win probability. 0.1.1410 and 0.1.1110 show **Estimated
+placement reward**: the placement bonus the scoreboard promises when the hand
+ends, or after the game's last hand the bonus itself. 1410's adds 0.05 × the
+hand's point change ÷ 4,000, as its tooltip says too, so that a place is
+worth 80,000 points; 1110's adds nothing, so points count only through the
+places they win. Neither is a win probability.
 
 ## Custom tables
 
