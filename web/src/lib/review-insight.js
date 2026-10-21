@@ -161,7 +161,7 @@ const total = table => table.players.reduce((sum, player) => sum + player.score,
  * player to imagine two things, so it costs two. */
 export function scoreEdit(position, delta) {
   const me = position.seat;
-  return { family: 'scores', key: 'scores', param: delta, cost: Math.abs(delta) > 8000 ? 2 : 1,
+  return { family: 'scores', touches: ['scores'], param: delta, cost: Math.abs(delta) > 8000 ? 2 : 1,
     words: `you had had ${points(Math.abs(delta))} points ${delta > 0 ? 'more, taken evenly from' : 'fewer, given evenly to'} the others`,
     apply: table => {
       const before = total(table);
@@ -171,16 +171,19 @@ export function scoreEdit(position, delta) {
     } };
 }
 
-/** The single changes asked about a table. Each is `{ family, key, words,
- * cost, apply(table) }`: `words` finish "if …", `cost` counts the facts a
- * player must change in their head, and `key` names what the change
- * touches, so that two changes touching one thing are never paired. Only
- * what the player could see is changed, and only in ways a game reaches. */
+/** The single changes asked about a table. Each is `{ family, touches,
+ * words, cost, apply(table) }`: `words` finish "if …", `cost` counts the
+ * facts a player must change in their head, and `touches` names the things
+ * the change touches, each discard it changes or names among them
+ * (`river:seat:index`), so that two changes touching one thing are never
+ * paired (changesMeet): a pair would say one discard two ways, as a riichi
+ * declared with a tile that its partner replaces. Only what the player could
+ * see is changed, and only in ways a game reaches. */
 export function singleEdits(position, { played, preferred }) {
   const edits = [];
   const me = position.seat, mine = position.players[me], P = played.tile, A = preferred.tile;
   const seen = visibleCounts(position);
-  const add = (family, key, words, apply, extra = {}) => edits.push({ family, key, words, cost: 1, apply, ...extra });
+  const add = (family, touches, words, apply, extra = {}) => edits.push({ family, touches, words, cost: 1, apply, ...extra });
 
   // A tile of the hand swapped for one of which the player cannot see four.
   // The tile played keeps a copy, so the player's move stays open; a swap that
@@ -192,7 +195,7 @@ export function singleEdits(position, { played, preferred }) {
     if (out === P && copies === 1) continue;
     for (const into of TILE_TYPES) {
       if (into === out || seen[into] >= 4) continue;
-      add('hand', `hand:${out}`, `your ${tileWords(out)} had been ${an(into)}`, table => {
+      add('hand', [`hand:${out}`], `your ${tileWords(out)} had been ${an(into)}`, table => {
         const hand = table.players[table.seat].hand;
         hand[hand.indexOf(out)] = into;
         if (table.drawn === out && copies === 1) table.drawn = into;
@@ -209,7 +212,7 @@ export function singleEdits(position, { played, preferred }) {
     if (seat === me) return;
     const at = player.discards.findIndex(discard => discard.riichi);
     if (player.riichi !== 'none') {
-      add('riichi', `riichi:${seat}`, `${WINDS[seat]} had not declared riichi`, table => {
+      add('riichi', [`riichi:${seat}`, `river:${seat}:${at}`], `${WINDS[seat]} had not declared riichi`, table => {
         const them = table.players[seat];
         them.discards.forEach(discard => { discard.riichi = false; });
         Object.assign(them, { riichi: 'none', ippatsu: false, score: them.score + 1000 });
@@ -218,7 +221,8 @@ export function singleEdits(position, { played, preferred }) {
       for (const step of [-1, 1]) {
         const to = at + step;
         if (to < 0 || to >= player.discards.length || player.discards[to].claimed || (step < 0 && !player.discards[at].drawn)) continue;
-        add('riichi', `riichi:${seat}`, `${WINDS[seat]} had declared riichi one discard ${step < 0 ? 'earlier' : 'later'}, on the ${tileWords(player.discards[to].tile)}`, table => {
+        add('riichi', [`riichi:${seat}`, `river:${seat}:${at}`, `river:${seat}:${to}`],
+          `${WINDS[seat]} had declared riichi one discard ${step < 0 ? 'earlier' : 'later'}, on the ${tileWords(player.discards[to].tile)}`, table => {
           const them = table.players[seat];
           them.discards[at].riichi = false;
           them.discards[to].riichi = true;
@@ -230,7 +234,7 @@ export function singleEdits(position, { played, preferred }) {
     } else if (player.discards.length && player.melds.every(meld => meld.kind === 'concealed-kan') && player.score >= 1000) {
       const last = player.discards.at(-1);
       if (last.claimed) return;
-      add('riichi', `riichi:${seat}`, `${WINDS[seat]} had declared riichi with their last discard, the ${tileWords(last.tile)}`, table => {
+      add('riichi', [`riichi:${seat}`, `river:${seat}:${player.discards.length - 1}`], `${WINDS[seat]} had declared riichi with their last discard, the ${tileWords(last.tile)}`, table => {
         const them = table.players[seat];
         them.discards.at(-1).riichi = true;
         Object.assign(them, { riichi: 'riichi', ippatsu: true, score: them.score - 1000 });
@@ -254,7 +258,7 @@ export function singleEdits(position, { played, preferred }) {
       if (discard.claimed || (discard.tile !== P && discard.tile !== A)) return;
       const into = neutral(discard.tile, player.discards.filter(other => !other.claimed && other.tile === discard.tile).length);
       if (!into) return;
-      add('river', `river:${seat}:${index}`, `${seat === me ? 'your' : `${WINDS[seat]}'s`} ${nth(index)} discard had been ${an(into)}, not the ${tileWords(discard.tile)}`,
+      add('river', [`river:${seat}:${index}`], `${seat === me ? 'your' : `${WINDS[seat]}'s`} ${nth(index)} discard had been ${an(into)}, not the ${tileWords(discard.tile)}`,
         table => { table.players[seat].discards[index].tile = into; }, { seat, index, from: discard.tile, into });
     });
     if (seat === me || player.riichi === 'none') return;
@@ -263,7 +267,7 @@ export function singleEdits(position, { played, preferred }) {
       if (seen[tile] >= 4 || player.discards.some(discard => discard.tile === tile)) continue;
       const index = player.discards.findLastIndex((discard, at) => at > declared && !discard.claimed);
       if (index < 0) continue;
-      add('river', `river:${seat}:${index}`, `${WINDS[seat]}'s ${nth(index)} discard had been the ${tileWords(tile)}, not the ${tileWords(player.discards[index].tile)}`,
+      add('river', [`river:${seat}:${index}`], `${WINDS[seat]}'s ${nth(index)} discard had been the ${tileWords(tile)}, not the ${tileWords(player.discards[index].tile)}`,
         table => { table.players[seat].discards[index].tile = tile; }, { seat, from: player.discards[index].tile });
     }
   });
@@ -272,7 +276,7 @@ export function singleEdits(position, { played, preferred }) {
   for (const dora of new Set([P, A, ...kinds])) {
     const indicator = indicatorFor(dora);
     if (indicator === position.indicators[0] || seen[indicator] >= 4) continue;
-    add('dora', 'dora', `the dora indicator had been the ${tileWords(indicator)}, not the ${tileWords(position.indicators[0])}, making the ${tileWords(dora)} dora`,
+    add('dora', ['dora'], `the dora indicator had been the ${tileWords(indicator)}, not the ${tileWords(position.indicators[0])}, making the ${tileWords(dora)} dora`,
       table => { table.indicators[0] = indicator; }, { into: dora });
   }
 
@@ -280,7 +284,7 @@ export function singleEdits(position, { played, preferred }) {
   // a step, or everyone level, where they are not already.
   for (const delta of [-16000, -8000, 8000, 16000]) edits.push(scoreEdit(position, delta));
   if (new Set(position.players.map(player => player.score)).size > 1) {
-    add('scores', 'scores', 'everyone had had the same score', table => {
+    add('scores', ['scores'], 'everyone had had the same score', table => {
       const before = total(table), level = Math.round(before / 400) * 100;
       table.players.forEach(player => { player.score = level; });
       table.players[(me + 1) % 4].score += before - 4 * level;
@@ -293,11 +297,14 @@ export function singleEdits(position, { played, preferred }) {
   for (const [round, kyoku] of [[1, 4], [1, position.kyoku], [0, 1]]) {
     if (named.has(`${round} ${kyoku}`)) continue;
     named.add(`${round} ${kyoku}`);
-    add('round', 'round', `this had been ${WINDS[round]} ${kyoku}${round === 1 && kyoku === 4 ? ', the last hand' : ''}`,
+    add('round', ['round'], `this had been ${WINDS[round]} ${kyoku}${round === 1 && kyoku === 4 ? ', the last hand' : ''}`,
       table => { Object.assign(table, { round, kyoku }); });
   }
   return edits;
 }
+
+/** Whether two changes touch one thing, and so are never paired. */
+export const changesMeet = (a, b) => a.touches.some(thing => b.touches.includes(thing));
 
 /** The table `edits` make of `position`, which is left as it was. */
 export function applyEdits(position, ...edits) {
@@ -582,9 +589,9 @@ export async function whatWouldChangeItsMind({ position, played, preferred, weig
   if (!one.some(change => change.flips) && !thresholds.length) {
     const chosen = [];
     for (const change of [...one].sort((x, y) => y.margin - x.margin)) {
-      if (chosen.length < PAIRED && !chosen.some(other => other.key === change.key)) chosen.push(change);
+      if (chosen.length < PAIRED && !chosen.some(other => changesMeet(other, change))) chosen.push(change);
     }
-    const pairEdits = chosen.flatMap((a, i) => chosen.slice(i + 1).map(b => ({ family: `${a.family}+${b.family}`, key: `${a.key}|${b.key}`,
+    const pairEdits = chosen.flatMap((a, i) => chosen.slice(i + 1).map(b => ({ family: `${a.family}+${b.family}`, touches: [...a.touches, ...b.touches],
       cost: a.cost + b.cost, words: `${a.words}, and ${b.words}`, parts: [a.edit, b.edit], apply: table => { a.edit.apply(table); b.edit.apply(table); } })));
     net.plan(pairEdits.length);
     pairs = judged(pairEdits, await net.all(pairEdits.map(edit => applyEdits(position, ...edit.parts))), context);
@@ -761,7 +768,7 @@ function together(family, parts) {
   if (parts.length < 2) return parts;
   const words = family === 'riichi' ? `${list(parts.map(part => WINDS[part.seat]))} had not declared riichi`
     : `your ${list(parts.map(part => nth(part.index)))} discards had each been ${an(parts[0].into)}, not the ${tileWords(parts[0].from)}`;
-  return [{ family, key: family, cost: parts.length, words, parts, apply: table => parts.forEach(part => part.apply(table)) }];
+  return [{ family, touches: parts.flatMap(part => part.touches), cost: parts.length, words, parts, apply: table => parts.forEach(part => part.apply(table)) }];
 }
 
 /** The change that takes the leading fact away, where it has a clean one: a

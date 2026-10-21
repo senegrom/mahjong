@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { BATCH } from '../src/lib/game-review.js';
-import { MARGIN_FLOOR, PASS, applyEdits, explainWhy, judge, moveWords, searchOffered, singleEdits,
+import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, judge, moveWords, searchOffered, singleEdits,
   tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { trainedAsk } from '../src/lib/review-insight-policy.js';
 import { saidLines, saidOfChange, searchWhereOnly, standInQuestion } from './fixtures/insight-panel.js';
@@ -308,7 +308,7 @@ test('no change, alone or paired, has a seat in riichi throw a tile from its han
       const riichi = singleEdits(position, asked(discards[0], discards[1])).filter(edit => edit.family === 'riichi');
       assert.ok(!riichi.some(edit => /one discard earlier/.test(edit.words)), `${game}, ${where}`);
       riichi.forEach((edit, at) => {
-        for (const other of [null, ...riichi.slice(at + 1).filter(next => next.key !== edit.key)]) {
+        for (const other of [null, ...riichi.slice(at + 1).filter(next => !changesMeet(next, edit))]) {
           assert.ok(!fromHand(applyEdits(position, edit, ...(other ? [other] : []))), `${game}, ${where}: ${edit.words}${other ? `, and ${other.words}` : ''}`);
           tables++;
         }
@@ -328,6 +328,45 @@ test('no change, alone or paired, has a seat in riichi throw a tile from its han
   const table = applyEdits(drawn, earlier);
   assert.ok(!fromHand(table));
   assert.doesNotThrow(() => facts(table));
+});
+
+test('a change touches every discard it changes, so that no pair of changes names one discard twice', () => {
+  // East 3 #5's budget holds South declaring riichi with its last discard,
+  // the west wind, and that discard made a 1 characters: paired, they would
+  // say the riichi was declared with the west wind on a table where it was
+  // declared with the 1 characters.
+  const entry = question('e3-5'), singles = singleEdits(entry.position, entry), named = words => singles.find(edit => edit.words === words);
+  assert.ok(changesMeet(named('South had declared riichi with their last discard, the west wind'), named('South\'s fourth discard had been a 1 characters, not the west wind')));
+  // Each riichi and river change of every discard decision of three whole
+  // games, the first tile the player could throw against each other: the
+  // discards it changes, a declaration moved or a tile replaced, are among
+  // what it touches, and two that may be paired change none in common. No
+  // other change touches a river (the test of every change above).
+  const changed = (position, edit) => {
+    const table = applyEdits(position, edit);
+    return position.players.flatMap((player, seat) => player.discards.flatMap((discard, index) =>
+      (JSON.stringify(discard) === JSON.stringify(table.players[seat].discards[index]) ? [] : [`river:${seat}:${index}`])));
+  };
+  let edits = 0, pairs = 0;
+  for (const [game, decisions] of [['The review check\'s game', reviewCheck], ['Club seed 5', clubFive], ['Club seed 16', clubSixteen]]) {
+    for (const [where, { position, discards }] of decisions) {
+      for (const A of discards.slice(1)) {
+        const rivers = singleEdits(position, asked(discards[0], A)).filter(edit => ['riichi', 'river'].includes(edit.family))
+          .map(edit => ({ edit, changes: changed(position, edit) }));
+        for (const { edit, changes } of rivers) {
+          assert.ok(changes.every(thing => edit.touches.includes(thing)), `${game}, ${where}: ${edit.words} changes ${changes}`);
+          edits++;
+        }
+        rivers.forEach((one, at) => {
+          for (const other of rivers.slice(at + 1).filter(next => !changesMeet(next.edit, one.edit))) {
+            assert.ok(!one.changes.some(thing => other.changes.includes(thing)), `${game}, ${where}: ${one.edit.words}, and ${other.edit.words}`);
+            pairs++;
+          }
+        });
+      }
+    }
+  }
+  assert.deepEqual([edits, pairs], [11838, 20465]);
 });
 
 /** What the panel says a change of a question's table did, or a pair of
