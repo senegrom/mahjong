@@ -252,6 +252,25 @@ test('the trend tile states the change against earlier games without judging it,
   assert.equal(TREND_WINDOW, 10);
 });
 
+test("folded to one line for the review's list, the trend gives the version and the figure, so far until the game is whole, and keeps the rest inside", () => {
+  const network = playedNetwork().version;
+  const games = Array.from({ length: 3 }, (_, index) => ({ id: `g${index}`, network, at: Date.UTC(2026, 9, 10 + index, 12), matched: 60, decisions: 100 }));
+  const figure = { matched: 21, decisions: 100, share: 0.21 };
+  const folded = render(ReviewTrend, { props: { figure, compact: true, complete: false, over: false, current: 'g9', games } }).body;
+  const summary = /<details class="trend compact[^"]*" data-trend="">\s*<summary[^>]*>([^]*?)<\/summary>/.exec(folded);
+  assert.ok(summary, 'a list the player opens, folded');
+  assert.equal(text(summary[1]), `Matched ${trainedName('Trained AI')}: 21% so far`);
+  // Inside, everything the full tile says.
+  assert.match(folded, />21 of 100 decisions with a choice</);
+  assert.match(folded, /Joins your trend once the game is over and fully reviewed\./);
+  assert.match(folded, /<details class="games[^"]*"/);
+  assert.doesNotMatch(folded, /class="label|class="value/, 'the figure is said once, in the summary');
+  // The whole game: no "so far", and open where the review keeps it open.
+  const whole = render(ReviewTrend, { props: { figure, compact: true, complete: true, expanded: true, current: 'g2', games } }).body;
+  assert.match(whole, /<details class="trend compact[^"]*" data-trend="" open="">/);
+  assert.equal(text(/<summary[^>]*>([^]*?)<\/summary>/.exec(whole)[1]), `Matched ${trainedName('Trained AI')}: 21%`);
+});
+
 test('the trend compares and shows only the games judged by the version of Trained AI this page plays', () => {
   const network = playedNetwork().version, other = `${network}-other`;
   const at = index => Date.UTC(2026, 9, 10 + index, 12);

@@ -13,10 +13,15 @@
    * `complete` is whether this game is whole and every hand of it reviewed,
    * and `over` whether the match is over at all: a game reviewed so far, as
    * it is played, joins the trend only once it is over. `open` is whether
-   * the table of the games is open, which the review's screen keeps while a
-   * replay takes its place.
+   * the table of the games is open, which the review's screen keeps as the
+   * player leaves it.
+   *
+   * `compact` folds the tile to one line, the figure, as the review's list of
+   * hands opens with it, above the decisions it is a figure of; the rest is
+   * inside, for the player to open. `expanded` is whether it is open, which
+   * the screen keeps too.
    */
-  let { figure, complete = false, over = true, games = [], current = '', open = $bindable(false) } = $props();
+  let { figure, complete = false, over = true, games = [], current = '', open = $bindable(false), compact = false, expanded = $bindable(false) } = $props();
   const SHOWN = 12;
   // The line's box: a 4px end-dot and its 2px ring fit inside the margin.
   const WIDTH = 240, HEIGHT = 56, MARGIN = 7;
@@ -46,10 +51,22 @@
 <!-- The lines under the figure are short, as the label above names the
      version that judged: the count gives the decisions the figure takes,
      those with a choice (a move with only one is left out), and the notes
-     what it is compared with and which games are not counted. -->
-<div class="trend" data-trend>
-  <p class="label">Matched {trainedName('Trained AI')}</p>
-  <p class="value">{figure.share == null ? '—' : percent(figure.share)}{#if !complete && figure.share != null}{' '}<span class="so-far">so far</span>{/if}</p>
+     what it is compared with and which games are not counted. Folded, the
+     label and the figure are its summary's one line. -->
+{#if compact}
+  <details class="trend compact" data-trend bind:open={expanded}>
+    <summary>Matched {trainedName('Trained AI')}: {figure.share == null ? '—' : percent(figure.share)}{#if !complete && figure.share != null}{' so far'}{/if}</summary>
+    <div class="inside">{@render rest()}</div>
+  </details>
+{:else}
+  <div class="trend" data-trend>
+    <p class="label">Matched {trainedName('Trained AI')}</p>
+    <p class="value">{figure.share == null ? '—' : percent(figure.share)}{#if !complete && figure.share != null}{' '}<span class="so-far">so far</span>{/if}</p>
+    {@render rest()}
+  </div>
+{/if}
+
+{#snippet rest()}
   <p class="count">{figure.matched} of {figure.decisions} decision{figure.decisions === 1 ? '' : 's'} with a choice</p>
   {#if change !== null}
     <p class="change">{change === 0 ? 'Same as' : `${change > 0 ? '+' : '−'}${Math.abs(change)} points against`} your {earlier.length === 1 ? 'previous game' : `previous ${earlier.length} games`} ({percent(earlierShare)})</p>
@@ -83,10 +100,15 @@
       </table>
     </details>
   {/if}
-</div>
+{/snippet}
 
 <style>
   .trend { display: grid; gap: 4px; padding: 12px 14px; border-radius: 12px; background: #0003; border: 1px solid #ffffff1f; min-width: 0; }
+  /* Folded, a line as tall as the review's other summaries; the rest is laid
+     out as the full tile lays it, inside. */
+  .trend.compact { display: block; padding: 0 10px; border-radius: 10px; }
+  .compact summary { cursor: pointer; min-height: 36px; padding: 6px 0; font-size: .86rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .inside { display: grid; gap: 4px; padding-bottom: 8px; }
   p { margin: 0; }
   .label { font-size: .8rem; opacity: .8; }
   .value { font-size: 2rem; font-weight: 600; line-height: 1.1; }
