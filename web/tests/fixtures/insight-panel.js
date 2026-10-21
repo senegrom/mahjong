@@ -21,23 +21,30 @@ export function standInQuestion(position, P, A) {
   return { position, played: { kind: 'discard', tile: P }, preferred: { kind: 'discard', tile: A }, weights: standIn(P, A, 0.2, 0.8) };
 }
 
+/** Trained AI stood in for, for `question`: each table answered with the
+ * moves `answers` holds for it, by its JSON, and every other as the unedited
+ * one; a table the rules refuse is answered as refused, as the page answers
+ * it without asking (trainedAsk). `facts` is review_facts, which refuses what
+ * the rules refuse. */
+export function standInAsk(question, facts, answers = new Map()) {
+  const answer = table => {
+    try { facts(table); } catch (error) { return { refused: String(error?.message ?? error) }; }
+    return { moves: answers.get(JSON.stringify(table)) ?? question.weights };
+  };
+  return async positions => positions.map(answer);
+}
+
 /** What the search finds for `question` where Trained AI, stood in for,
  * throws the player's tile on the table that `edits` make together and on no
  * other: each of two changes alone brings it nearer than any other change,
  * so that the two are the pair tried, and every other table is answered as
- * the unedited one. A table the rules refuse is answered as refused, as the
- * page answers it without asking (trainedAsk). `facts` is review_facts,
- * which refuses what the rules refuse. */
+ * the unedited one (standInAsk). */
 export function searchWhereOnly(question, facts, ...edits) {
   const P = question.played.tile, A = question.preferred.tile, key = table => JSON.stringify(table);
   const answers = new Map();
   if (edits.length > 1) for (const edit of edits) answers.set(key(applyEdits(question.position, edit)), standIn(P, A, 0.4, 0.6));
   for (const order of [edits, [...edits].reverse()]) answers.set(key(applyEdits(question.position, ...order)), standIn(P, A, 0.9, 0.1));
-  const answer = table => {
-    try { facts(table); } catch (error) { return { refused: String(error?.message ?? error) }; }
-    return { moves: answers.get(key(table)) ?? question.weights };
-  };
-  return whatWouldChangeItsMind({ ...question, facts, ask: async positions => positions.map(answer) });
+  return whatWouldChangeItsMind({ ...question, facts, ask: standInAsk(question, facts, answers) });
 }
 
 /** The words in brackets in which a panel's line says what its change did, or

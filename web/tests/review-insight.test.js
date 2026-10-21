@@ -6,7 +6,7 @@ import { BATCH } from '../src/lib/game-review.js';
 import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, firstHandGives, judge, moveWords, scoreEdit, searchOffered, singleEdits,
   tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { trainedAsk } from '../src/lib/review-insight-policy.js';
-import { saidLines, saidOfChange, searchWhereOnly, standInQuestion } from './fixtures/insight-panel.js';
+import { saidLines, saidOfChange, searchWhereOnly, standInAsk, standInQuestion } from './fixtures/insight-panel.js';
 import { planesDigest, recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
@@ -410,7 +410,7 @@ test('no change, alone or paired, moves points at the game\'s first deal, and no
   assert.deepEqual([decisions, tables], [37, 152]);
 });
 
-test('at East 1 with counters, the scores are changed only as far as the dealer\'s wins and the draws can have moved them', () => {
+test('at East 1 with counters, the scores are changed only as far as the dealer\'s wins and the draws can have moved them', async () => {
   // The review check's East 1 #1 typed in again two counters on: the dealer
   // won 12,000 from the player, West, then waited at a draw with South, the
   // player and North paying 1,500 each. The dealer has paid nothing, and
@@ -430,6 +430,11 @@ test('at East 1 with counters, the scores are changed only as far as the dealer\
   ]);
   const down = applyEdits(position, scoreEdit(position, -8000));
   assert.deepEqual([firstHandGives(position), firstHandGives(down), down.players[1].score], [true, false, 34200]);
+  // Where no score change moves Trained AI, stood in for, the line says so
+  // without the reach of steps it never asked.
+  const asking = standInQuestion(position, P, A);
+  const { said } = await whatWouldChangeItsMind({ ...asking, facts, ask: standInAsk(asking, facts) });
+  assert.equal(said.still, 'Not moved by the score or the round.');
 });
 
 test('everyone is made level only where the points on the table share out in hundreds, and then has one score', () => {

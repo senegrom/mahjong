@@ -722,7 +722,10 @@ function searchSaid({ changes, pairs, thresholds, A, P, F0, unseen }) {
   }
   const tried = changes.filter(change => !change.refused);
   const still = ['scores', 'round'].filter(family => tried.some(change => change.family === family) && !tried.some(change => change.family === family && change.flips));
-  if (still.length) said.still = `Not moved by ${list(still.map(family => (family === 'scores' ? `the score (±${points(16000)})` : 'the round')), 'or')}.`;
+  // The score's reach is said where both of its largest steps were asked; at
+  // East 1 a step its hands cannot have given is not (firstHandGives).
+  const reach = [16000, -16000].every(step => tried.some(change => change.family === 'scores' && change.param === step)) ? ` (±${points(16000)})` : '';
+  if (still.length) said.still = `Not moved by ${list(still.map(family => (family === 'scores' ? `the score${reach}` : 'the round')), 'or')}.`;
   return said;
 }
 
