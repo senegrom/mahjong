@@ -10,8 +10,10 @@
   // A review draws the table as it stood at a past decision: `hands` puts
   // each seat's concealed tiles face up, in the order of view.seats, `notes`
   // says what each seat was doing, and `review` names each opponent by where
-  // they sat and lays the table out for four hands in view.
-  let { view, hints, thinking, pendingOpponent, hands = null, notes = null, review = false }: MatchTableProps = $props();
+  // they sat and lays the table out for four hands in view. `concealed` turns
+  // the three opponents' tiles face down again where they lie, until the
+  // player asks to see them.
+  let { view, hints, thinking, pendingOpponent, hands = null, notes = null, review = false, concealed = false }: MatchTableProps = $props();
   // A review replays a hand on a second table while the match's own stays
   // on the page, so the dialog's title is named for its own table.
   const uid = $props.id();
@@ -37,9 +39,9 @@
 
 <div class="board" class:review>
   <div class="place across"><Seat seat={across} dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player}
-    hand={hands?.[2] ?? null} position={review ? OPPONENT_POSITIONS[1] : ''} note={notes?.[2] ?? ''} offered={across.seat === offeredBy} /></div>
+    hand={hands?.[2] ?? null} position={review ? OPPONENT_POSITIONS[1] : ''} note={notes?.[2] ?? ''} offered={across.seat === offeredBy} {concealed} /></div>
   <div class="place left"><Seat seat={left} dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player}
-    hand={hands?.[3] ?? null} position={review ? OPPONENT_POSITIONS[2] : ''} note={notes?.[3] ?? ''} offered={left.seat === offeredBy} /></div>
+    hand={hands?.[3] ?? null} position={review ? OPPONENT_POSITIONS[2] : ''} note={notes?.[3] ?? ''} offered={left.seat === offeredBy} {concealed} /></div>
   <div class="centre" role="group" aria-label="the table">
     <div class="round-details">
       <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>Round</span></div>
@@ -67,7 +69,7 @@
     </button>
   </div>
   <div class="place right"><Seat seat={right} dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player}
-    hand={hands?.[1] ?? null} position={review ? OPPONENT_POSITIONS[0] : ''} note={notes?.[1] ?? ''} offered={right.seat === offeredBy} /></div>
+    hand={hands?.[1] ?? null} position={review ? OPPONENT_POSITIONS[0] : ''} note={notes?.[1] ?? ''} offered={right.seat === offeredBy} {concealed} /></div>
 </div>
 
 <dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="{uid}-title">

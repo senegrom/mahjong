@@ -79,6 +79,9 @@ export interface MatchTableProps {
   /** A table drawn for a review names each opponent by where they sat, and on a
    * phone held upright stacks them, so their face-up hands have room. */
   review?: boolean;
+  /** A review's `hands` of the three opponents turned face down in their racks,
+   * until the player asks to see them. */
+  concealed?: boolean;
 }
 export interface PlayerHandProps {
   view: GameView; engine?: DiscardAnalyser | null; closed: boolean;
@@ -94,6 +97,9 @@ export interface PlayerHandProps {
   listed?: boolean;
   /** What the player was doing at a review's decision, such as "To play". */
   note?: string;
+  /** A review's words over each tile, by its place in the hand, such as
+   * ['You', 'AI'], a line kept for them on every tile; null, as in play, for none. */
+  tags?: string[][] | null;
 }
 export interface TurnChoicesProps {
   view: GameView; shownDora: Tile[]; busy: boolean; thinking: boolean;

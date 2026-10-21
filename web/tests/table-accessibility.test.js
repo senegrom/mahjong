@@ -6,6 +6,7 @@ import { render } from 'svelte/server';
 import { meldWords } from '../src/lib/ui.js';
 import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
 import { componentLoader } from './fixtures/load-component.js';
+import { text } from './fixtures/markup-text.js';
 
 // Server-render the production components and the components they nest.
 const component = componentLoader();
@@ -189,6 +190,51 @@ test("a review's answer to a discard outlines the tile on offer in the discarder
   const robbing = view([seat('east', 0, { hand: ['5p', '6p'], drawn: null }), seat('south', 1, { melds: [quad], discards: [thrown('3p')] }),
     seat('west', 2), seat('north', 3)]);
   assert.deepEqual(outlined(await table({ view: robbing, review: true })), []);
+});
+
+test("a review's opponents' tiles turned over keep their rack, their number and the drawn tile's place, and say nothing of what they are", async () => {
+  const held = { seat: 'south', player: 1, hand: ['1m', '5p', '5z'], drawn: '7z' };
+  const rack = props => html('Seat.svelte', { seat: seat('south', 1, { hand_size: 4 }), position: 'Right', hand: held, dora: ['5p'], ...props });
+  const list = markup => /<ul class="revealed[^"]*" role="list" aria-label="([^"]*)" data-seat-hand="south">([^]*?)<\/ul>/.exec(markup);
+  const open = list(await rack({})), turned = list(await rack({ concealed: true }));
+  assert.equal(open[1], "South's tiles, Right (Club)");
+  assert.equal(turned[1], "South's tiles, Right (Club), face down");
+  // As many tiles in the same rack, the tile just drawn in its place apart.
+  const slots = inner => [...inner.matchAll(/<li\b([^>]*)>/g)].map(match => /class="[^"]*\bdrawn\b/.test(match[1]));
+  assert.deepEqual(slots(turned[2]), slots(open[2]));
+  assert.deepEqual(slots(turned[2]), [false, false, false, true]);
+  assert.deepEqual(shownTiles(turned[2]).map(tile => [tile.label, tile.title]), Array(4).fill(['face-down tile', 'face-down tile']));
+  // No name, attribute or ring gives a tile away, dora included.
+  assert.doesNotMatch(turned[2], /data-tile|characters|circles|dragon|dora|ringed/);
+  assert.match(open[2], /data-tile="5p"[^>]*aria-label="5 circles, dora"/);
+
+  // A review's table turns the three opponents' tiles over together.
+  const view = { phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
+    outcome: null, seats: [seat('east', 0), seat('south', 1), seat('west', 2), seat('north', 3)] };
+  const hands = view.seats.map(({ seat: wind, player }) => ({ seat: wind, player, hand: ['2s', '3s'], drawn: null }));
+  const names = markup => [...markup.matchAll(/<ul class="revealed[^"]*" role="list" aria-label="([^"]*)"/g)].map(match => match[1]);
+  const table = props => html('app/MatchTable.svelte', { view, hints: true, thinking: false, pendingOpponent: null, hands, review: true, ...props });
+  assert.deepEqual(names(await table({ concealed: true })), ["West's tiles, Opposite (Club), face down", "North's tiles, Left (Club), face down",
+    "South's tiles, Right (Club), face down"]);
+  assert.deepEqual(names(await table({})), ["West's tiles, Opposite (Club)", "North's tiles, Left (Club)", "South's tiles, Right (Club)"]);
+});
+
+test("a review's words over a tile are said after its name, and a line is kept for them on every tile of the hand, but not in play", async () => {
+  const tag = markup => /<span class="tag[^"]*" aria-hidden="true">([^]*?)<\/span>/.exec(markup);
+  const both = await html('HandTile.svelte', { tile: '8s', onclick() {}, disabled: true, selected: true, tag: ['You', 'AI'] });
+  assert.equal(text(tag(both)[1]), 'You · AI');
+  // Trained AI's word is in its colour; the player's in the tiles'.
+  assert.match(tag(both)[1], /<b class="[^"]*\bai\b[^"]*">AI<\/b>/);
+  assert.doesNotMatch(tag(both)[1], /<b class="[^"]*\bai\b[^"]*">You<\/b>/);
+  assert.match(both, /title="8 bamboo, selected, your move, Trained AI's choice" aria-label="8 bamboo, selected, your move, Trained AI's choice"/);
+  assert.match(await html('HandTile.svelte', { tile: '3p', tag: ['Now'] }), /aria-label="3 circles, your pick"/);
+  // An untagged tile of the hand keeps the line, empty; play's tiles have none.
+  assert.equal(text(tag(await html('HandTile.svelte', { tile: '3p', tag: [] }))?.[1] ?? 'none'), '');
+  const play = await html('HandTile.svelte', { tile: '3p' });
+  assert.equal(tag(play), null);
+  assert.match(play, /aria-label="3 circles"/);
+  // A note follows a title the caller gives the tile, too.
+  assert.match(await html('Tile.svelte', { tile: '1m', title: 'One', note: 'your pick' }), /title="One, your pick"/);
 });
 
 // The tile guide in the settings, as the page draws it.

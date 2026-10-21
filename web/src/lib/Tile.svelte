@@ -59,6 +59,9 @@
     disabled = false,
     muted = disabled,
     title = '',
+    /** Words the tile's name and hover text end with, after its own: in a
+     * review, what the tag over a tile in the hand says (HandTile). */
+    note = '',
     handIndex = null,
   } = $props();
 
@@ -103,6 +106,9 @@
       safe && 'safe against declared riichi, not guaranteed against undeclared hands']
       .filter(Boolean).join(', '),
   );
+  // What the tile is called, by a screen reader and on hover: the caller's
+  // title or its own words, then any note the caller adds.
+  let label = $derived(note ? `${title || words}, ${note}` : title || words);
   // A tile without a picture is written out in the words it is announced
   // with, the number over the suit or an honour's first word over its
   // second. Where the face is too small for the second word, its short name
@@ -167,8 +173,8 @@
     class:in-shape={inShape}
     style:--ring={ring}
     {disabled}
-    title={title || words}
-    aria-label={title || words}
+    title={label}
+    aria-label={label}
     onclick={() => onclick(tile)}
   >
     {@render face()}
@@ -188,8 +194,8 @@
     style:--ring={ring}
     data-tile={tile}
     role="img"
-    aria-label={title || words}
-    title={title || words}
+    aria-label={label}
+    title={label}
   >
     {@render face()}
   </span>
