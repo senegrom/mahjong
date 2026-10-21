@@ -153,7 +153,7 @@ fn furiten_unshown(hand: &Hand, who: Wind, player: &Player) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::{describe_action, may_reach_from, mortal_mask_of, Game, MORTAL_VERSION};
     use riichi_core::game::{Action, Call};
@@ -162,7 +162,7 @@ mod tests {
 
     /// How the player plays a whole game in these tests.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum Plays {
+    pub(in crate::analysis) enum Plays {
         /// As the review check's player: every win and every riichi, and
         /// otherwise the tile just drawn and a pass.
         Draws,
@@ -193,7 +193,12 @@ mod tests {
     /// `look` each hand once it is over and before the next is dealt, which
     /// is when a review reads the hand's decisions. The club player is the
     /// player's own adviser, as the page asks it for a move.
-    fn whole_game(seed: f64, opponents: &str, plays: Plays, mut look: impl FnMut(&Game)) {
+    pub(in crate::analysis) fn whole_game(
+        seed: f64,
+        opponents: &str,
+        plays: Plays,
+        mut look: impl FnMut(&Game),
+    ) {
         let mut game = Game::new(seed, Some(opponents.into()));
         let player = game.player;
         if plays == Plays::Club {

@@ -245,7 +245,6 @@ fn tier(tile: Tile, safe: &TileSet, seen: &TileSet) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Game;
     use serde_json::json;
 
     /// East to act on a drawn red dragon in the east round, three turns in,
@@ -360,74 +359,114 @@ mod tests {
     }
 
     /// The distance and the improving tiles are the review note's own, for
-    /// every tile a player could have thrown at every turn of whole games;
-    /// a tile is "safe" against every riichi exactly where the note calls
-    /// it safe; its dora is the note's; and the facts read off the position
-    /// written for a decision are the facts of the decision's own hand.
+    /// every tile a player could have thrown at every turn of whole games,
+    /// in every hand of them; a tile is "safe" against every riichi exactly
+    /// where the note calls it safe; its dora is the note's; and the facts
+    /// read off the position written for a decision are the facts of the
+    /// decision's own hand. The games' players call every set and declare
+    /// every quad, or play as the club player does, so the turns include
+    /// open hands, which have no seven pairs or thirteen orphans; quads;
+    /// a seat in riichi, which throws only the tile it drew; and a turn
+    /// just after a claim, which swap-calling bars a tile or two of.
     #[test]
     fn the_facts_agree_with_the_reviews_own_numbers_at_every_turn() {
-        let (mut tiles, mut against_riichi) = (0, 0);
-        for seed in [5.0, 31.0, 81.0] {
-            let mut game = Game::new(seed, Some("club".into()));
-            for _ in 0..400 {
-                game.play_on().unwrap();
-                match game.hand.phase {
-                    Phase::Act => {
-                        let tile = game.hand.drawn.filter(|drawn| {
-                            game.hand.legal_actions().contains(&Action::Discard(*drawn))
-                        });
-                        let tile = tile.or_else(|| {
-                            game.hand
-                                .legal_actions()
-                                .into_iter()
-                                .find_map(|action| match action {
-                                    Action::Discard(tile) => Some(tile),
-                                    _ => None,
-                                })
-                        });
-                        game.choose("discard", tile.map(|tile| tile.to_string()))
-                            .unwrap();
-                    }
-                    Phase::CallWindow => game.choose("pass", None).unwrap(),
-                    _ => break,
-                }
-            }
-            for (index, decision) in game.decisions.iter().enumerate() {
-                let facts = facts(&decision.position, decision.seat);
-                let position = review_position::written(&decision.position, decision.seat).unwrap();
-                let (hand, seat) = position.build().unwrap();
-                assert_eq!(
-                    facts,
-                    super::facts(&hand, seat),
-                    "seed {seed} decision {index}"
-                );
-                for discard in &facts.discards {
-                    let tile: Tile = discard.tile.parse().unwrap();
-                    let note = game
-                        .measure_at(index, Action::Discard(tile))
-                        .unwrap()
-                        .expect("a turn has a note");
-                    assert_eq!(
-                        (discard.shanten, discard.acceptance, discard.dora),
-                        (note.shanten, note.acceptance, note.dora),
-                        "seed {seed} decision {index} tile {tile}"
-                    );
-                    let safe = !discard.tiers.is_empty()
-                        && discard.tiers.iter().all(|exposure| exposure.tier == "safe");
-                    assert_eq!(
-                        safe,
-                        note.danger == "safe",
-                        "seed {seed} decision {index} tile {tile}"
-                    );
-                    tiles += 1;
-                    against_riichi += usize::from(!discard.tiers.is_empty());
-                }
-            }
+        use super::review_position::tests::{whole_game, Plays};
+        #[derive(Default, Debug)]
+        struct Reached {
+            turns: usize,
+            tiles: usize,
+            against_riichi: usize,
+            open: usize,
+            quads: usize,
+            in_riichi: usize,
+            after_a_claim: usize,
+            beyond_the_first_hand: usize,
         }
-        assert!(tiles > 300, "only {tiles} tiles compared");
-        assert!(
-            against_riichi > 20,
-            "only {against_riichi} of them against a riichi"
-        );
+        let mut reached = Reached::default();
+        let games = [
+            (31.0, Plays::Calls),
+            (81.0, Plays::Calls),
+            (5.0, Plays::Club),
+            (16.0, Plays::Club),
+        ];
+        for (seed, plays) in games {
+            whole_game(seed, "club", plays, |game| {
+                for (index, decision) in game.decisions.iter().enumerate() {
+                    let at = format!(
+                        "seed {seed}, hand {}, decision {index}",
+                        game.table.hands_played
+                    );
+                    let (own, seat) = (&decision.position, decision.seat);
+                    let facts = facts(own, seat);
+                    let position = review_position::written(own, seat).unwrap();
+                    let (hand, written_seat) = position.build().unwrap();
+                    assert_eq!(facts, super::facts(&hand, written_seat), "{at}");
+                    if own.phase != Phase::Act {
+                        assert!(facts.discards.is_empty(), "{at}: nothing to throw");
+                        continue;
+                    }
+                    let player = &own.players[seat.index()];
+                    let called = !player.melds.is_empty();
+                    for discard in &facts.discards {
+                        assert_eq!(
+                            discard.forms.seven_pairs.is_none()
+                                && discard.forms.thirteen_orphans.is_none(),
+                            called,
+                            "{at}: a hand with a set has neither concealed form"
+                        );
+                    }
+                    if player.has_riichi() {
+                        let drawn = own.drawn.map(|tile| tile.to_string());
+                        let thrown: Vec<String> =
+                            facts.discards.iter().map(|d| d.tile.clone()).collect();
+                        assert_eq!(
+                            thrown,
+                            Vec::from_iter(drawn),
+                            "{at}: riichi throws its draw"
+                        );
+                    }
+                    let barred = own.forbidden_discards();
+                    assert!(
+                        facts
+                            .discards
+                            .iter()
+                            .all(|d| !barred.contains(&d.tile.parse().unwrap())),
+                        "{at}: a barred tile is offered"
+                    );
+                    for discard in &facts.discards {
+                        let tile: Tile = discard.tile.parse().unwrap();
+                        let note = game
+                            .measure_at(index, Action::Discard(tile))
+                            .unwrap()
+                            .expect("a turn has a note");
+                        assert_eq!(
+                            (discard.shanten, discard.acceptance, discard.dora),
+                            (note.shanten, note.acceptance, note.dora),
+                            "{at}: tile {tile}"
+                        );
+                        let safe = !discard.tiers.is_empty()
+                            && discard.tiers.iter().all(|exposure| exposure.tier == "safe");
+                        assert_eq!(safe, note.danger == "safe", "{at}: tile {tile}");
+                        reached.tiles += 1;
+                        reached.against_riichi += usize::from(!discard.tiers.is_empty());
+                    }
+                    reached.turns += 1;
+                    reached.open += usize::from(!player.is_concealed());
+                    reached.quads += usize::from(player.melds.iter().any(|m| m.kind.is_kan()));
+                    reached.in_riichi += usize::from(player.has_riichi());
+                    reached.after_a_claim += usize::from(own.just_claimed.is_some());
+                    reached.beyond_the_first_hand +=
+                        usize::from((own.round, own.kyoku) != (Wind::East, 1));
+                }
+            });
+        }
+        println!("{reached:?}");
+        assert!(reached.tiles > 1000, "{reached:?}");
+        assert!(reached.against_riichi > 50, "{reached:?}");
+        assert!(reached.open > 100, "{reached:?}");
+        assert!(reached.quads > 0, "{reached:?}");
+        assert!(reached.in_riichi > 0, "{reached:?}");
+        assert!(reached.after_a_claim > 20, "{reached:?}");
+        assert!(reached.beyond_the_first_hand > 100, "{reached:?}");
     }
 }
