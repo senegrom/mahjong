@@ -1467,6 +1467,25 @@ impl Game {
         }))
     }
 
+    /// The table at a recorded decision as a typed-in position, the form
+    /// `PhysicalAnalysis` and `review_facts` read: the deciding player's
+    /// tiles and everything public, the other hands left out as the table
+    /// hid them, with what Mortal's reading needs that a table typed in by
+    /// hand does not say: the game's seating, the turn of each quad a seat
+    /// declared itself, and the tile the player drew on the turn they
+    /// declared riichi. A review that asks what would change Trained AI's
+    /// mind edits it and asks again, and unedited it replays to exactly the
+    /// planes and mask `review_observation_mortal` and `review_mask_mortal`
+    /// give. It shows the player nothing they did not see, so it is
+    /// answered while the hand is played as well as after.
+    pub fn review_position(&self, index: usize) -> Result<JsValue, JsValue> {
+        let decision = self
+            .decisions
+            .get(index)
+            .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
+        analysis::review_position_value(&decision.position, decision.seat, self.hand_seating)
+    }
+
     /// Every player's concealed tiles at a recorded decision, the deciding
     /// player's seat first and then round the table in the order `view`
     /// gives the seats, each with the tile just drawn held apart. A

@@ -1,9 +1,12 @@
 //! Read-only analysis of a manually entered, partially observed table.
 //! Unknown opponents' hands stay empty; only the selected hand is required.
+#[path = "review_position.rs"]
+mod review_position;
 #[path = "physical_settlement.rs"]
 mod settlement;
 
-use super::{describe_action, describe_call, mortal_log, seat_title};
+use super::mortal_log::{self, History};
+use super::{describe_action, describe_call, seat_title};
 use riichi::mjai::Event as MortalEvent;
 use riichi_core::bot::{Bot, Style};
 use riichi_core::encoding::{self, ACTIONS};
@@ -118,8 +121,11 @@ fn js_error(error: impl std::fmt::Display) -> JsValue {
 
 // Unknown keys are dropped, not refused: the serde bridge to JavaScript does
 // not honour `deny_unknown_fields`, and a draft saved by an older page may
-// carry fields this version no longer reads.
-#[derive(Deserialize)]
+// carry fields this version no longer reads. A position is also written, as
+// a game played here gives one of its decisions to a review that asks what
+// would change Trained AI's mind (`review_position`), so it reads back as it
+// was written.
+#[derive(Serialize, Deserialize)]
 struct Position {
     seat: usize,
     turn: usize,
@@ -140,9 +146,15 @@ struct Position {
     after_quad: bool,
     #[serde(default)]
     first_turns: bool,
+    /// Which player number sits in each seat, East first, numbering the
+    /// players from the game's first dealer as Mortal does. A table typed
+    /// in by hand leaves it out, and is numbered as every game numbers its
+    /// players at that hand number (`History::of_kyoku`).
+    #[serde(default)]
+    seating: Option<[usize; 4]>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Seat {
     hand: Vec<String>,
     melds: Vec<Set>,
@@ -151,16 +163,28 @@ struct Seat {
     riichi: String,
     ippatsu: bool,
     furiten: bool,
+    /// For the deciding seat in riichi, the tile it drew on the turn it
+    /// declared, which the seat saw and a game played here recorded; Mortal
+    /// reads the hand of that turn for as long as the riichi stands
+    /// (`History::riichi_draw`). Left out where nobody recorded it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    riichi_draw: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Set {
     kind: String,
     tile: String,
     from: usize,
+    /// For a quad the seat declared itself, the turn it was declared on:
+    /// the order number of the discard that turn ended with, the same
+    /// number that discard carries in the river. Left out where nobody
+    /// recorded it, and for a quad declared on the turn being played now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    order: Option<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Thrown {
     tile: String,
     order: u32,
@@ -202,6 +226,16 @@ impl Position {
         let round = wind(self.round)?;
         if !(1..=4).contains(&self.kyoku) || self.counters > 100 || self.riichi_sticks > 100 {
             return Err("Invalid round, honba or riichi sticks".into());
+        }
+        if let Some(seating) = self.seating {
+            let mut numbered = [false; 4];
+            for player in seating {
+                if player >= 4 || std::mem::replace(&mut numbered[player], true) {
+                    return Err(
+                        "The seating must give each seat its own player number from 0 to 3".into(),
+                    );
+                }
+            }
         }
         let phase = match self.phase.as_str() {
             "act" if seat == turn => Phase::Act,
@@ -347,6 +381,22 @@ impl Position {
                 });
             }
             player.discards.sort_by_key(|entry| entry.order);
+            // Only a quad the seat declared itself has a turn of its own,
+            // which one of that seat's discards ended; a set taken from a
+            // river is told at the discard it took.
+            for set in &input.melds {
+                let Some(order) = set.order else {
+                    continue;
+                };
+                if !matches!(set.kind.as_str(), "concealed-kan" | "extended-kan")
+                    || !input.discards.iter().any(|entry| entry.order == order)
+                {
+                    return Err(format!(
+                        "Only a concealed or added kan records its turn, as the order number of one of {}'s own discards",
+                        ["East", "South", "West", "North"][index]
+                    ));
+                }
+            }
             player.riichi = match input.riichi.as_str() {
                 "none" => Riichi::None,
                 "riichi" => Riichi::Declared,
@@ -365,6 +415,15 @@ impl Position {
             player.riichi_order = declarations.first().map(|d| d.order);
             if input.ippatsu && !player.has_riichi() {
                 return Err("Ippatsu requires riichi".into());
+            }
+            if let Some(drawn) = &input.riichi_draw {
+                tile(drawn)?;
+                if index != self.seat || !player.has_riichi() {
+                    return Err(
+                        "Only the deciding seat in riichi records the tile it drew on the turn it declared"
+                            .into(),
+                    );
+                }
             }
             player.ippatsu = input.ippatsu;
             player.furiten = false;
@@ -486,6 +545,44 @@ impl Position {
         }
         Ok((hand, seat))
     }
+
+    /// What Mortal's replay of the position reads beyond the hand itself:
+    /// who the players are, the turn of each quad a seat declared itself,
+    /// and what the deciding seat drew on the turn it declared riichi,
+    /// where the position records them.
+    fn history(&self) -> History {
+        let mut history = History::of_kyoku(self.kyoku);
+        if let Some(seating) = self.seating {
+            history.seating = seating;
+        }
+        history.quads = std::array::from_fn(|index| {
+            self.players[index]
+                .melds
+                .iter()
+                .map(|set| set.order)
+                .collect()
+        });
+        history.riichi_draw = self
+            .players
+            .get(self.seat)
+            .and_then(|seat| seat.riichi_draw.as_deref())
+            .and_then(|drawn| tile(drawn).ok());
+        history
+    }
+}
+
+/// A decision of a game played here as the position `PhysicalAnalysis`
+/// reads, for `Game::review_position`: the decision's hand from the
+/// deciding seat's side, with the players numbered as `seating` seats them.
+pub(super) fn review_position_value(
+    hand: &Hand,
+    seat: Wind,
+    seating: [usize; 4],
+) -> Result<JsValue, JsValue> {
+    review_position::written(hand, seat, seating)
+        .map_err(js_error)?
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(js_error)
 }
 
 /// Owns an immutable validated position. It cannot draw random tiles or play
@@ -494,6 +591,7 @@ impl Position {
 pub struct PhysicalAnalysis {
     hand: Hand,
     seat: Wind,
+    history: History,
 }
 
 #[wasm_bindgen]
@@ -502,7 +600,12 @@ impl PhysicalAnalysis {
     pub fn new(value: JsValue) -> Result<PhysicalAnalysis, JsValue> {
         let position: Position = serde_wasm_bindgen::from_value(value).map_err(js_error)?;
         let (hand, seat) = position.build().map_err(js_error)?;
-        Ok(Self { hand, seat })
+        let history = position.history();
+        Ok(Self {
+            hand,
+            seat,
+            history,
+        })
     }
     pub fn agent_choices(&self) -> Result<JsValue, JsValue> {
         choices_value(&self.hand, self.seat)
@@ -566,7 +669,7 @@ impl PhysicalAnalysis {
 
 impl PhysicalAnalysis {
     fn planes(&self, after_reach: bool) -> Result<Vec<f32>, JsValue> {
-        let mut state = mortal_log::state_for(&self.hand, self.seat)
+        let mut state = mortal_log::state_for(&self.hand, self.seat, &self.history)
             .ok_or_else(|| JsValue::from_str(&replay_refusal(&self.hand)))?;
         if after_reach && super::may_reach_from(&self.hand, self.seat) {
             // Put to a copy of the state, never to a game: the declaration
@@ -836,6 +939,7 @@ mod tests {
             riichi: "none".into(),
             ippatsu: false,
             furiten: false,
+            riichi_draw: None,
         }
     }
 
@@ -854,6 +958,7 @@ mod tests {
             kind: kind.into(),
             tile: tile.into(),
             from,
+            order: None,
         }
     }
 
@@ -881,6 +986,7 @@ mod tests {
             just_claimed: None,
             after_quad: false,
             first_turns: false,
+            seating: None,
         }
     }
 
@@ -941,7 +1047,8 @@ mod tests {
     /// The planes the trained network reads for a position, from the replay.
     fn trained_planes(position: &Position) -> Vec<f32> {
         let (hand, seat) = position.build().expect("a valid position");
-        let state = mortal_log::state_for(&hand, seat).expect("the replay builds");
+        let state = mortal_log::state_for(&hand, seat, &History::of_kyoku(hand.kyoku))
+            .expect("the replay builds");
         let (planes, _) = state.encode_obs(crate::MORTAL_VERSION, false);
         planes.iter().copied().collect()
     }
@@ -1034,7 +1141,7 @@ mod tests {
                 .collect();
             assert_eq!(paired, vec![(0, 0), (4, 1)], "sets entered as {melds:?}");
             assert!(
-                mortal_log::state_for(&hand, seat).is_some(),
+                mortal_log::state_for(&hand, seat, &History::of_kyoku(hand.kyoku)).is_some(),
                 "sets entered as {melds:?}"
             );
         }
@@ -1068,7 +1175,7 @@ mod tests {
             .map(|claim| (claim.order, claim.claimer))
             .collect();
         assert_eq!(paired, vec![(0, Wind::West), (3, Wind::South)]);
-        assert!(mortal_log::state_for(&hand, seat).is_some());
+        assert!(mortal_log::state_for(&hand, seat, &History::of_kyoku(hand.kyoku)).is_some());
     }
 
     #[test]
@@ -1129,7 +1236,7 @@ mod tests {
     #[test]
     fn a_called_set_without_its_claimed_discard_is_refused_by_the_replay() {
         let (hand, seat) = unticked_pon().build().expect("validation lets it stand");
-        assert!(mortal_log::state_for(&hand, seat).is_none());
+        assert!(mortal_log::state_for(&hand, seat, &History::of_kyoku(hand.kyoku)).is_none());
         assert_eq!(
             replay_refusal(&hand),
             "West's pon of 7z needs the discard it took marked Claimed in North's river"
@@ -1143,14 +1250,14 @@ mod tests {
         position.players[3].discards.push(thrown("2p", 9, false));
         position.wall = 60;
         let (hand, seat) = position.build().expect("a valid position");
-        assert!(mortal_log::state_for(&hand, seat).is_some());
+        assert!(mortal_log::state_for(&hand, seat, &History::of_kyoku(hand.kyoku)).is_some());
 
         let mut position = unticked_pon();
         position.players[2].melds[0] = set("kan", "7z", 1);
         position.indicators.push("9p".into());
         position.wall = 60;
         let (hand, seat) = position.build().expect("validation lets it stand");
-        assert!(mortal_log::state_for(&hand, seat).is_none());
+        assert!(mortal_log::state_for(&hand, seat, &History::of_kyoku(hand.kyoku)).is_none());
         assert_eq!(
             replay_refusal(&hand),
             "West's open kan of 7z needs the discard it took marked Claimed in North's river"
@@ -1274,7 +1381,8 @@ mod tests {
             crate::MORTAL_PASS as i32
         );
         // And the network can be asked: the replay builds its planes.
-        let state = mortal_log::state_for(&hand, seat).expect("the replay builds");
+        let state = mortal_log::state_for(&hand, seat, &History::of_kyoku(hand.kyoku))
+            .expect("the replay builds");
         let (planes, _) = state.encode_obs(crate::MORTAL_VERSION, false);
         assert_eq!(
             planes.nrows(),
